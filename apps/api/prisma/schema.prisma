@@ -1,0 +1,232 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  SUPERVISOR
+  MAINTENANCE
+  OPERATOR
+  VIEWER
+}
+
+enum UserStatus {
+  ENABLED
+  DISABLED
+  LOCKED
+  EXPIRED
+}
+
+model User {
+  id                   String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username             String      @unique @db.VarChar(50)
+  fullName             String      @map("full_name") @db.VarChar(100)
+  email                String      @unique @db.VarChar(100)
+  passwordHash         String      @map("password_hash")
+  department           String?     @db.VarChar(50)
+  role                 Role
+  status               UserStatus  @default(ENABLED)
+  failedLoginAttempts  Int         @default(0) @map("failed_login_attempts")
+  lockedAt             DateTime?   @map("locked_at") @db.Timestamptz
+  lockoutUntil         DateTime?   @map("lockout_until") @db.Timestamptz
+  passwordChangedAt    DateTime?   @map("password_changed_at") @db.Timestamptz
+  passwordExpiresAt    DateTime?   @map("password_expires_at") @db.Timestamptz
+  forcePasswordChange  Boolean     @default(true) @map("force_password_change")
+  isTemporaryPassword  Boolean     @default(true) @map("is_temporary_password")
+  lastLogin            DateTime?   @map("last_login") @db.Timestamptz
+  createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy            String?     @map("created_by") @db.VarChar(50)
+  updatedBy            String?     @map("updated_by") @db.VarChar(50)
+
+  passwordHistory      PasswordHistory[]
+  sessions             Session[]
+
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+model PasswordHistory {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("password_history")
+}
+
+model Session {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  tokenHash     String    @map("token_hash")
+  ipAddress     String?   @map("ip_address") @db.VarChar(45)
+  userAgent     String?   @map("user_agent")
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  lastActiveAt  DateTime  @default(now()) @map("last_active_at") @db.Timestamptz
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz
+  terminationReason String? @map("termination_reason") @db.VarChar(50)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model SystemConfig {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  configKey    String   @unique @map("config_key") @db.VarChar(100)
+  configValue  Json     @map("config_value")
+  configType   String   @map("config_type") @db.VarChar(50)
+  requiresReauth Boolean @default(false) @map("requires_reauth")
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz
+  updatedBy    String?  @map("updated_by") @db.VarChar(50)
+
+  @@map("system_config")
+}
+
+model FieldIdConfig {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fieldId     String   @unique @map("field_id") @db.VarChar(50)
+  defaultName String   @map("default_name") @db.VarChar(100)
+  displayName String   @map("display_name") @db.VarChar(100)
+  module      String   @db.VarChar(50)
+  description String?
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz
+  updatedBy   String?  @map("updated_by") @db.VarChar(50)
+
+  @@map("field_id_config")
+}
+
+model PasswordResetRequest {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.VarChar(50)
+  status       String    @default("PENDING") @db.VarChar(20)
+  requestedAt  DateTime  @default(now()) @map("requested_at") @db.Timestamptz
+  processedAt  DateTime? @map("processed_at") @db.Timestamptz
+  processedBy  String?   @map("processed_by") @db.VarChar(50)
+  notes        String?
+
+  @@map("password_reset_requests")
+}
+
+model AuditTrail {
+  id            Int       @id @default(autoincrement())
+  timestamp     DateTime  @default(now()) @db.Timestamptz
+  userId        String?   @map("user_id") @db.VarChar(100)
+  userName      String?   @map("user_name") @db.VarChar(100)
+  userRole      String?   @map("user_role") @db.VarChar(20)
+  action        String    @db.VarChar(100)
+  targetType    String?   @map("target_type") @db.VarChar(50)
+  targetId      String?   @map("target_id") @db.VarChar(255)
+  beforeValue   Json?     @map("before_value")
+  afterValue    Json?     @map("after_value")
+  reason        String?
+  ipAddress     String?   @map("ip_address") @db.VarChar(45)
+  userAgent     String?   @map("user_agent")
+  sessionId     String?   @map("session_id") @db.VarChar(100)
+  checksum      String    @db.VarChar(64)
+
+  @@index([timestamp(sort: Desc)])
+  @@index([userId])
+  @@index([action])
+  @@index([targetType, targetId])
+  @@map("audit_trail")
+}
+
+model AssetTemplate {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String   @db.VarChar(255)
+  nodeType        String   @map("node_type") @db.VarChar(50)
+  description     String?
+  attributeSchema Json     @default("[]") @map("attribute_schema")
+  telemetrySchema Json     @default("[]") @map("telemetry_schema")
+  version         Int      @default(1)
+  status          String   @default("active") @db.VarChar(20)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy       String?  @map("created_by") @db.Uuid
+
+  templateVersions TemplateVersion[]
+  hierarchyNodes   HierarchyNode[]
+
+  @@map("asset_templates")
+}
+
+model TemplateVersion {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  templateId String   @map("template_id") @db.Uuid
+  version    Int
+  snapshot   Json
+  changedBy  String   @map("changed_by") @db.Uuid
+  reason     String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  template AssetTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@map("template_versions")
+}
+
+model HierarchyNode {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  parentId   String?  @map("parent_id") @db.Uuid
+  name       String   @db.VarChar(255)
+  nodeType   String   @map("node_type") @db.VarChar(50)
+  unsPath    String   @map("uns_path") @db.VarChar(1000)
+  templateId String?  @map("template_id") @db.Uuid
+  attributes Json     @default("{}") @db.JsonB
+  status     String   @default("active") @db.VarChar(20)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy  String?  @map("created_by") @db.Uuid
+
+  parent   HierarchyNode?  @relation("NodeToChildren", fields: [parentId], references: [id])
+  children HierarchyNode[] @relation("NodeToChildren")
+  template AssetTemplate?  @relation(fields: [templateId], references: [id])
+
+  sourceLinks AssetLink[] @relation("SourceLinks")
+  targetLinks AssetLink[] @relation("TargetLinks")
+  identifiers PhysicalIdentifier[]
+
+  @@index([parentId])
+  @@index([nodeType])
+  @@map("hierarchy_nodes")
+}
+
+model AssetLink {
+  sourceId  String   @map("source_id") @db.Uuid
+  targetId  String   @map("target_id") @db.Uuid
+  linkType  String   @map("link_type") @db.VarChar(50)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdBy String?  @map("created_by") @db.Uuid
+
+  source HierarchyNode @relation("SourceLinks", fields: [sourceId], references: [id], onDelete: Cascade)
+  target HierarchyNode @relation("TargetLinks", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@id([sourceId, targetId, linkType])
+  @@map("asset_links")
+}
+
+model PhysicalIdentifier {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nodeId    String   @map("node_id") @db.Uuid
+  type      String   @db.VarChar(20)
+  value     String   @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdBy String?  @map("created_by") @db.Uuid
+
+  node HierarchyNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@unique([type, value])
+  @@map("physical_identifiers")
+}

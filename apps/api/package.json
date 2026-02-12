@@ -1,0 +1,36 @@
+{
+  "name": "@digilog/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/app.ts",
+    "build": "tsc",
+    "start": "node dist/app.js",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "fastify": "^5.2.0",
+    "@fastify/cors": "^11.0.0",
+    "@fastify/helmet": "^13.0.0",
+    "@fastify/rate-limit": "^10.2.0",
+    "fastify-plugin": "^5.0.0",
+    "@prisma/client": "^6.3.0",
+    "bcrypt": "^5.1.1",
+    "jose": "^6.0.0",
+    "zod": "^3.24.0",
+    "pino": "^9.6.0",
+    "dotenv": "^16.4.0",
+    "@digilog/shared": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "prisma": "^6.3.0",
+    "tsx": "^4.19.0",
+    "@types/bcrypt": "^5.0.2",
+    "@types/node": "^22.0.0"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}
