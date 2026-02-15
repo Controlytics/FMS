@@ -16,8 +16,10 @@ const navItems: NavItem[] = [
   { label: 'Dashboard', href: '/', icon: 'LayoutDashboard' },
   { label: 'Users', href: '/users', icon: 'Users', permission: 'USER_READ' },
   { label: 'Configuration', href: '/config', icon: 'Settings', permission: 'CONFIG_READ' },
+  { label: 'Asset Explorer', href: '/assets', icon: 'Network' },
   { label: 'Asset Templates', href: '/assets/templates', icon: 'FileBox' },
-  { label: 'Asset Hierarchy', href: '/assets', icon: 'Network' },
+  { label: 'Checklist Builder', href: '/assets/checklists/create', icon: 'Checklist', permission: 'TEMPLATE_CREATE' },
+  { label: 'Privileges', href: '/config/privileges', icon: 'Shield', roles: ['SUPER_ADMIN'] },
   { label: 'Audit Trail', href: '/audit', icon: 'ScrollText' },
 ];
 
@@ -29,6 +31,8 @@ const icons: Record<string, string> = {
   FileBox: '\u2750',
   Network: '\u26B1',
   ScrollText: '\u2637',
+  Checklist: '\u2611',
+  Shield: '\u26E8',
 };
 
 function hasPermission(userRole: string, permission: Permission): boolean {
@@ -83,7 +87,7 @@ export function Sidebar({ userRole }: SidebarProps) {
         })}
       </nav>
       <div className="border-t border-sidebar-border p-4 text-xs text-muted-foreground">
-        DigiLog v0.1.0 — Phase 1
+        DigiLog v0.2.0 — Asset Module
       </div>
     </aside>
   );

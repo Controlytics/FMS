@@ -14,6 +14,9 @@ export function TemplateDetailPage() {
 
   const attrs = (template.attributeSchema ?? []) as Array<{ name: string; dataType: string; unit?: string; required?: boolean }>;
   const tele = (template.telemetrySchema ?? []) as Array<{ name: string; dataType: string; unit?: string }>;
+  const expectedIds = (template.expectedIdentifiers ?? []) as Array<{ type: string; required: boolean }>;
+  const expectedRels = (template.expectedRelationships ?? []) as Array<{ type: string; targetType?: string }>;
+  const statusLifecycle = (template.statusLifecycle ?? []) as string[];
 
   return (
     <div className="space-y-6">
@@ -31,9 +34,7 @@ export function TemplateDetailPage() {
 
       {template.description && (
         <Card>
-          <CardContent className="pt-6">
-            <p>{template.description}</p>
-          </CardContent>
+          <CardContent className="pt-6"><p>{template.description}</p></CardContent>
         </Card>
       )}
 
@@ -45,28 +46,14 @@ export function TemplateDetailPage() {
         <CardContent>
           {attrs.length > 0 ? (
             <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Field Name</TableHead>
-                  <TableHead>Data Type</TableHead>
-                  <TableHead>Unit</TableHead>
-                  <TableHead>Required</TableHead>
-                </TableRow>
-              </TableHeader>
+              <TableHeader><TableRow><TableHead>Field Name</TableHead><TableHead>Data Type</TableHead><TableHead>Unit</TableHead><TableHead>Required</TableHead></TableRow></TableHeader>
               <TableBody>
                 {attrs.map((a, i) => (
-                  <TableRow key={i}>
-                    <TableCell className="font-medium">{a.name}</TableCell>
-                    <TableCell>{a.dataType}</TableCell>
-                    <TableCell>{a.unit ?? '-'}</TableCell>
-                    <TableCell>{a.required ? 'Yes' : 'No'}</TableCell>
-                  </TableRow>
+                  <TableRow key={i}><TableCell className="font-medium">{a.name}</TableCell><TableCell>{a.dataType}</TableCell><TableCell>{a.unit ?? '-'}</TableCell><TableCell>{a.required ? 'Yes' : 'No'}</TableCell></TableRow>
                 ))}
               </TableBody>
             </Table>
-          ) : (
-            <p className="text-sm text-muted-foreground">No attributes defined</p>
-          )}
+          ) : <p className="text-sm text-muted-foreground">No attributes defined</p>}
         </CardContent>
       </Card>
 
@@ -78,33 +65,56 @@ export function TemplateDetailPage() {
         <CardContent>
           {tele.length > 0 ? (
             <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Point Name</TableHead>
-                  <TableHead>Data Type</TableHead>
-                  <TableHead>Unit</TableHead>
-                </TableRow>
-              </TableHeader>
+              <TableHeader><TableRow><TableHead>Point Name</TableHead><TableHead>Data Type</TableHead><TableHead>Unit</TableHead></TableRow></TableHeader>
               <TableBody>
                 {tele.map((t, i) => (
-                  <TableRow key={i}>
-                    <TableCell className="font-medium">{t.name}</TableCell>
-                    <TableCell>{t.dataType}</TableCell>
-                    <TableCell>{t.unit ?? '-'}</TableCell>
-                  </TableRow>
+                  <TableRow key={i}><TableCell className="font-medium">{t.name}</TableCell><TableCell>{t.dataType}</TableCell><TableCell>{t.unit ?? '-'}</TableCell></TableRow>
                 ))}
               </TableBody>
             </Table>
-          ) : (
-            <p className="text-sm text-muted-foreground">No telemetry defined</p>
-          )}
+          ) : <p className="text-sm text-muted-foreground">No telemetry defined</p>}
         </CardContent>
       </Card>
 
+      {expectedIds.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle className="text-lg">Expected Identifiers</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex gap-2">
+              {expectedIds.map((id, i) => (
+                <Badge key={i} variant={id.required ? 'default' : 'outline'}>{id.type}{id.required ? ' (required)' : ''}</Badge>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {expectedRels.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle className="text-lg">Expected Relationships</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex gap-2">
+              {expectedRels.map((r, i) => (
+                <Badge key={i} variant="outline">{r.type.replace(/_/g, ' ')}{r.targetType ? ` → ${r.targetType}` : ''}</Badge>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {statusLifecycle.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle className="text-lg">Status Lifecycle</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex gap-2">
+              {statusLifecycle.map((s, i) => <Badge key={i} variant="outline">{s}</Badge>)}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Usage</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle className="text-lg">Usage</CardTitle></CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
             {template._count?.hierarchyNodes ?? 0} asset(s) created from this template.

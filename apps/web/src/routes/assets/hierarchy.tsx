@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import useSWR from 'swr';
 import { Button } from '@/components/ui/button';
@@ -5,11 +6,13 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/hooks/use-auth';
 import { ROLE_PERMISSIONS, PERMISSIONS } from '@digilog/shared';
+import { LinkDialog } from '@/components/assets/link-dialog';
 
 export function HierarchyPage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const parentId = searchParams.get('parentId');
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
 
   const url = parentId ? `/api/hierarchy?parentId=${parentId}` : '/api/hierarchy';
   const { data: nodes } = useSWR(url);
@@ -41,11 +44,16 @@ export function HierarchyPage() {
         <h1 className="text-2xl font-bold">
           {parent ? parent.name : 'Asset Hierarchy'}
         </h1>
-        {canCreate && (
-          <Link to={`/assets/node/create${parentId ? `?parentId=${parentId}` : ''}`}>
-            <Button>+ Add Asset</Button>
-          </Link>
-        )}
+        <div className="flex gap-2">
+          {canCreate && (
+            <Button variant="outline" onClick={() => setLinkDialogOpen(true)}>+ Link Assets</Button>
+          )}
+          {canCreate && (
+            <Link to={`/assets/node/create${parentId ? `?parentId=${parentId}` : ''}`}>
+              <Button>+ Add Asset</Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       {parent && (
@@ -101,6 +109,8 @@ export function HierarchyPage() {
           </div>
         )}
       </div>
+
+      <LinkDialog open={linkDialogOpen} onClose={() => setLinkDialogOpen(false)} prefilledSourceId={parentId ?? undefined} />
     </div>
   );
 }

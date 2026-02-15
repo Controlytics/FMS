@@ -16,11 +16,18 @@ import { LoginSecurityPage } from './routes/config/login-security';
 import { SessionConfigPage } from './routes/config/session';
 import { DatetimeConfigPage } from './routes/config/datetime';
 import { ReauthSettingsPage } from './routes/config/reauth-settings';
+import { DelegatedPrivilegesPage } from './routes/config/delegated-privileges';
 import { TemplateListPage } from './routes/assets/templates';
 import { TemplateCreatePage } from './routes/assets/template-create';
 import { TemplateDetailPage } from './routes/assets/template-detail';
 import { HierarchyPage } from './routes/assets/hierarchy';
 import { NodeCreatePage } from './routes/assets/node-create';
+import { ExplorerPage } from './routes/assets/explorer';
+import { AssetDetailPage } from './routes/assets/asset-detail';
+import { ChecklistBuilderPage } from './routes/assets/checklist-builder';
+import { ChecklistExecutePage } from './routes/assets/checklist-execute';
+import { ChecklistReviewPage } from './routes/assets/checklist-review';
+import { RecordDetailPage } from './routes/assets/record-detail';
 import { AuditTrailPage } from './routes/audit/index';
 import { RequireRole } from './components/require-role';
 import { ErrorBoundary } from './components/error-boundary';
@@ -52,13 +59,22 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/session" element={<RequireRole permission="CONFIG_READ"><SessionConfigPage /></RequireRole>} />
             <Route path="/config/datetime" element={<RequireRole permission="CONFIG_READ"><DatetimeConfigPage /></RequireRole>} />
             <Route path="/config/reauth-settings" element={<RequireRole roles={['SUPER_ADMIN']}><ReauthSettingsPage /></RequireRole>} />
+            <Route path="/config/privileges" element={<RequireRole roles={['SUPER_ADMIN']}><DelegatedPrivilegesPage /></RequireRole>} />
 
-            {/* Asset management */}
-            <Route path="/assets" element={<HierarchyPage />} />
+            {/* Asset management — explorer & detail */}
+            <Route path="/assets" element={<ExplorerPage />} />
+            <Route path="/assets/hierarchy" element={<HierarchyPage />} />
+            <Route path="/assets/:id" element={<AssetDetailPage />} />
+            <Route path="/assets/node/create" element={<NodeCreatePage />} />
             <Route path="/assets/templates" element={<TemplateListPage />} />
             <Route path="/assets/templates/create" element={<TemplateCreatePage />} />
             <Route path="/assets/templates/:id" element={<TemplateDetailPage />} />
-            <Route path="/assets/node/create" element={<NodeCreatePage />} />
+
+            {/* Checklist management */}
+            <Route path="/assets/checklists/create" element={<ChecklistBuilderPage />} />
+            <Route path="/assets/checklists/:checklistId/execute" element={<ChecklistExecutePage />} />
+            <Route path="/assets/records/:recordId" element={<RecordDetailPage />} />
+            <Route path="/assets/records/:recordId/review" element={<ChecklistReviewPage />} />
 
             {/* Audit trail */}
             <Route path="/audit" element={<AuditTrailPage />} />

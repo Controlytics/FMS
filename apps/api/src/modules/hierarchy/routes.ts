@@ -1,6 +1,9 @@
 import { type FastifyInstance } from 'fastify';
+import { type PrismaClient } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
-import { createNodeSchema, updateNodeSchema, createIdentifierSchema } from '@digilog/shared';
+import { createNodeSchema, updateNodeSchema, createIdentifierSchema, createRelationshipSchema, getInverseType, RELATIONSHIP_TYPES } from '@digilog/shared';
+
+type TransactionClient = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
 
 function toUnsPath(segments: string[]): string {
   return segments.map(s => s.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase()).join('.');
@@ -266,5 +269,129 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
     });
 
     return reply.code(201).send(identifier);
+  });
+
+  // POST /api/hierarchy/links — create bidirectional link
+  app.post('/links', {
+    schema: { tags: ['Hierarchy'], summary: 'Create link', description: 'Create a bidirectional relationship between two assets' },
+    preHandler: [app.requirePermission('NODE_UPDATE')],
+  }, async (req, reply) => {
+    const parsed = createRelationshipSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
+    }
+
+    const { sourceId, targetId, type, customLabel, notes } = parsed.data;
+
+    // No self-referencing
+    if (sourceId === targetId) {
+      return reply.code(400).send({ error: 'Cannot create a relationship from an asset to itself' });
+    }
+
+    // Both nodes must exist and be active
+    const [source, target] = await Promise.all([
+      prisma.hierarchyNode.findUnique({ where: { id: sourceId } }),
+      prisma.hierarchyNode.findUnique({ where: { id: targetId } }),
+    ]);
+    if (!source) return reply.code(404).send({ error: 'Source node not found' });
+    if (!target) return reply.code(404).send({ error: 'Target node not found' });
+    if (source.status === 'decommissioned') return reply.code(400).send({ error: 'Source node is decommissioned' });
+    if (target.status === 'decommissioned') return reply.code(400).send({ error: 'Target node is decommissioned' });
+
+    // No duplicate relationships
+    const existing = await prisma.assetLink.findUnique({
+      where: { sourceId_targetId_linkType: { sourceId, targetId, linkType: type } },
+    });
+    if (existing) {
+      return reply.code(409).send({ error: 'This relationship already exists between these assets' });
+    }
+
+    // No circular CONTAINS (A contains B, B contains A)
+    if (type === 'CONTAINS') {
+      const reverseContains = await prisma.assetLink.findUnique({
+        where: { sourceId_targetId_linkType: { sourceId: targetId, targetId: sourceId, linkType: 'CONTAINS' } },
+      });
+      if (reverseContains) {
+        return reply.code(400).send({ error: 'Circular containment: target already contains source' });
+      }
+    }
+
+    const inverseType = getInverseType(type);
+    const metadata = { notes, customLabel };
+
+    // Create forward + inverse in a transaction
+    const [forward, inverse] = await prisma.$transaction(async (tx: TransactionClient) => {
+      const fwd = await tx.assetLink.create({
+        data: { sourceId, targetId, linkType: type, metadata, createdBy: req.user.sub },
+      });
+      const inv = await tx.assetLink.create({
+        data: { sourceId: targetId, targetId: sourceId, linkType: inverseType, metadata, inverseId: fwd.id, createdBy: req.user.sub },
+      });
+      // Update forward link with inverse reference
+      await tx.assetLink.update({ where: { id: fwd.id }, data: { inverseId: inv.id } });
+      return [fwd, inv] as const;
+    });
+
+    await app.auditLog({
+      userId: req.user.username, userRole: req.user.role, action: 'LINK_CREATED',
+      targetType: 'asset_link', targetId: forward.id,
+      afterValue: { sourceId, targetId, type, inverseType, notes },
+      ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
+    });
+
+    return reply.code(201).send({ forward, inverse });
+  });
+
+  // GET /api/hierarchy/:id/links — get all links for a node
+  app.get('/:id/links', {
+    schema: { tags: ['Hierarchy'], summary: 'Get links', description: 'Get all relationships for a node (both directions)' },
+  }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+
+    const node = await prisma.hierarchyNode.findUnique({ where: { id } });
+    if (!node) return reply.code(404).send({ error: 'Node not found' });
+
+    const [outgoing, incoming] = await Promise.all([
+      prisma.assetLink.findMany({
+        where: { sourceId: id },
+        include: { target: { select: { id: true, name: true, nodeType: true, status: true } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.assetLink.findMany({
+        where: { targetId: id },
+        include: { source: { select: { id: true, name: true, nodeType: true, status: true } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    return { outgoing, incoming };
+  });
+
+  // DELETE /api/hierarchy/links/:linkId — delete a link and its inverse
+  app.delete('/links/:linkId', {
+    schema: { tags: ['Hierarchy'], summary: 'Delete link', description: 'Delete a relationship and its auto-created inverse' },
+    preHandler: [app.requirePermission('NODE_UPDATE')],
+  }, async (req, reply) => {
+    const { linkId } = req.params as { linkId: string };
+
+    const link = await prisma.assetLink.findUnique({ where: { id: linkId } });
+    if (!link) return reply.code(404).send({ error: 'Link not found' });
+
+    // Delete forward + inverse in a transaction
+    await prisma.$transaction(async (tx: TransactionClient) => {
+      if (link.inverseId) {
+        await tx.assetLink.deleteMany({ where: { id: link.inverseId } });
+      }
+      await tx.assetLink.delete({ where: { id: linkId } });
+    });
+
+    await app.auditLog({
+      userId: req.user.username, userRole: req.user.role, action: 'LINK_DELETED',
+      targetType: 'asset_link', targetId: linkId,
+      beforeValue: { sourceId: link.sourceId, targetId: link.targetId, linkType: link.linkType },
+      ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
+    });
+
+    return { success: true };
   });
 }

@@ -16,6 +16,10 @@ import configRoutes from './modules/config/routes.js';
 import hierarchyRoutes from './modules/hierarchy/routes.js';
 import templateRoutes from './modules/templates/routes.js';
 import auditRoutes from './modules/audit/routes.js';
+import checklistRoutes from './modules/checklists/routes.js';
+import scheduleRoutes from './modules/schedules/routes.js';
+import alarmRoutes from './modules/alarms/routes.js';
+import privilegeRoutes from './modules/privileges/routes.js';
 
 const app = Fastify({
   logger: {
@@ -78,6 +82,10 @@ await app.register(configRoutes, { prefix: '/api/config' });
 await app.register(hierarchyRoutes, { prefix: '/api/hierarchy' });
 await app.register(templateRoutes, { prefix: '/api/templates' });
 await app.register(auditRoutes, { prefix: '/api/audit' });
+await app.register(checklistRoutes, { prefix: '/api/checklists' });
+await app.register(scheduleRoutes, { prefix: '/api/schedules' });
+await app.register(alarmRoutes, { prefix: '/api/alarms' });
+await app.register(privilegeRoutes, { prefix: '/api/privileges' });
 
 // Start
 const port = parseInt(process.env.PORT ?? '3000', 10);

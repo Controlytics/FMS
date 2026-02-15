@@ -44,6 +44,12 @@ export default async function templateRoutes(app: FastifyInstance) {
         description: parsed.data.description,
         attributeSchema: parsed.data.attributeSchema as any,
         telemetrySchema: parsed.data.telemetrySchema as any,
+        checklistSchemas: parsed.data.checklistSchemas as any,
+        expectedIdentifiers: parsed.data.expectedIdentifiers as any,
+        expectedRelationships: parsed.data.expectedRelationships as any,
+        defaultSchedules: parsed.data.defaultSchedules as any,
+        statusLifecycle: parsed.data.statusLifecycle as any,
+        iconUrl: parsed.data.iconUrl || null,
         createdBy: req.user.sub,
       },
     });
@@ -58,6 +64,11 @@ export default async function templateRoutes(app: FastifyInstance) {
           nodeType: template.nodeType,
           attributeSchema: template.attributeSchema,
           telemetrySchema: template.telemetrySchema,
+          checklistSchemas: template.checklistSchemas,
+          expectedIdentifiers: template.expectedIdentifiers,
+          expectedRelationships: template.expectedRelationships,
+          defaultSchedules: template.defaultSchedules,
+          statusLifecycle: template.statusLifecycle,
         },
         changedBy: req.user.sub,
         reason: 'Initial creation',
@@ -114,6 +125,12 @@ export default async function templateRoutes(app: FastifyInstance) {
     if (parsed.data.description !== undefined) updateData.description = parsed.data.description;
     if (parsed.data.attributeSchema) updateData.attributeSchema = parsed.data.attributeSchema;
     if (parsed.data.telemetrySchema) updateData.telemetrySchema = parsed.data.telemetrySchema;
+    if (parsed.data.checklistSchemas) updateData.checklistSchemas = parsed.data.checklistSchemas;
+    if (parsed.data.expectedIdentifiers) updateData.expectedIdentifiers = parsed.data.expectedIdentifiers;
+    if (parsed.data.expectedRelationships) updateData.expectedRelationships = parsed.data.expectedRelationships;
+    if (parsed.data.defaultSchedules) updateData.defaultSchedules = parsed.data.defaultSchedules;
+    if (parsed.data.statusLifecycle) updateData.statusLifecycle = parsed.data.statusLifecycle;
+    if (parsed.data.iconUrl !== undefined) updateData.iconUrl = parsed.data.iconUrl || null;
     if (parsed.data.status) updateData.status = parsed.data.status;
     updateData.version = existing.version + 1;
 
@@ -132,6 +149,11 @@ export default async function templateRoutes(app: FastifyInstance) {
           nodeType: template.nodeType,
           attributeSchema: template.attributeSchema,
           telemetrySchema: template.telemetrySchema,
+          checklistSchemas: template.checklistSchemas,
+          expectedIdentifiers: template.expectedIdentifiers,
+          expectedRelationships: template.expectedRelationships,
+          defaultSchedules: template.defaultSchedules,
+          statusLifecycle: template.statusLifecycle,
         },
         changedBy: req.user.sub,
         reason: parsed.data.reason,

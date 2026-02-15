@@ -146,17 +146,23 @@ model AuditTrail {
 }
 
 model AssetTemplate {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name            String   @db.VarChar(255)
-  nodeType        String   @map("node_type") @db.VarChar(50)
-  description     String?
-  attributeSchema Json     @default("[]") @map("attribute_schema")
-  telemetrySchema Json     @default("[]") @map("telemetry_schema")
-  version         Int      @default(1)
-  status          String   @default("active") @db.VarChar(20)
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
-  createdBy       String?  @map("created_by") @db.Uuid
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String   @db.VarChar(255)
+  nodeType              String   @map("node_type") @db.VarChar(50)
+  description           String?
+  attributeSchema       Json     @default("[]") @map("attribute_schema")
+  telemetrySchema       Json     @default("[]") @map("telemetry_schema")
+  checklistSchemas      Json     @default("[]") @map("checklist_schemas")
+  expectedIdentifiers   Json     @default("[]") @map("expected_identifiers")
+  expectedRelationships Json     @default("[]") @map("expected_relationships")
+  defaultSchedules      Json     @default("[]") @map("default_schedules")
+  statusLifecycle       Json     @default("[\"active\",\"maintenance\",\"offline\",\"decommissioned\"]") @map("status_lifecycle")
+  iconUrl               String?  @map("icon_url") @db.VarChar(500)
+  version               Int      @default(1)
+  status                String   @default("active") @db.VarChar(20)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy             String?  @map("created_by") @db.Uuid
 
   templateVersions TemplateVersion[]
   hierarchyNodes   HierarchyNode[]
@@ -197,9 +203,10 @@ model HierarchyNode {
   children HierarchyNode[] @relation("NodeToChildren")
   template AssetTemplate?  @relation(fields: [templateId], references: [id])
 
-  sourceLinks AssetLink[] @relation("SourceLinks")
-  targetLinks AssetLink[] @relation("TargetLinks")
-  identifiers PhysicalIdentifier[]
+  sourceLinks    AssetLink[]          @relation("SourceLinks")
+  targetLinks    AssetLink[]          @relation("TargetLinks")
+  identifiers    PhysicalIdentifier[]
+  nodeChecklists NodeChecklist[]
 
   @@index([parentId])
   @@index([nodeType])
@@ -209,16 +216,19 @@ model HierarchyNode {
 }
 
 model AssetLink {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   sourceId  String   @map("source_id") @db.Uuid
   targetId  String   @map("target_id") @db.Uuid
   linkType  String   @map("link_type") @db.VarChar(50)
+  metadata  Json?
+  inverseId String?  @unique @map("inverse_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   createdBy String?  @map("created_by") @db.Uuid
 
   source HierarchyNode @relation("SourceLinks", fields: [sourceId], references: [id], onDelete: Cascade)
   target HierarchyNode @relation("TargetLinks", fields: [targetId], references: [id], onDelete: Cascade)
 
-  @@id([sourceId, targetId, linkType])
+  @@unique([sourceId, targetId, linkType])
   @@map("asset_links")
 }
 
@@ -234,4 +244,167 @@ model PhysicalIdentifier {
 
   @@unique([type, value])
   @@map("physical_identifiers")
+}
+
+// ─── Checklist System ───
+
+model ChecklistTemplate {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name              String   @db.VarChar(255)
+  description       String?
+  questions         Json     @default("[]")
+  performedByRole   String?  @map("performed_by_role") @db.VarChar(30)
+  checkedByEnabled  Boolean  @default(false) @map("checked_by_enabled")
+  checkedByRole     String?  @map("checked_by_role") @db.VarChar(30)
+  verifiedByEnabled Boolean  @default(false) @map("verified_by_enabled")
+  verifiedByRole    String?  @map("verified_by_role") @db.VarChar(30)
+  version           Int      @default(1)
+  status            String   @default("active") @db.VarChar(20)
+  templateId        String?  @map("asset_template_id") @db.Uuid
+  createdBy         String?  @map("created_by") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  nodeChecklists NodeChecklist[]
+
+  @@index([status])
+  @@map("checklist_templates")
+}
+
+model NodeChecklist {
+  id                  String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nodeId              String  @map("node_id") @db.Uuid
+  checklistTemplateId String  @map("checklist_template_id") @db.Uuid
+  enabled             Boolean @default(true)
+  overrideApproval    Boolean @default(false) @map("override_approval")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  node              HierarchyNode     @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  checklistTemplate ChecklistTemplate @relation(fields: [checklistTemplateId], references: [id], onDelete: Cascade)
+  records           ChecklistRecord[]
+  schedules         Schedule[]
+
+  @@unique([nodeId, checklistTemplateId])
+  @@map("node_checklists")
+}
+
+model ChecklistRecord {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nodeChecklistId     String    @map("node_checklist_id") @db.Uuid
+  responses           Json      @default("{}")
+  status              String    @default("DRAFT") @db.VarChar(30)
+
+  performedBy         String    @map("performed_by") @db.Uuid
+  performedAt         DateTime? @map("performed_at") @db.Timestamptz
+  performedSignature  String?   @map("performed_signature")
+
+  checkedBy           String?   @map("checked_by") @db.Uuid
+  checkedAt           DateTime? @map("checked_at") @db.Timestamptz
+  checkedSignature    String?   @map("checked_signature")
+  checkComments       String?   @map("check_comments")
+
+  verifiedBy          String?   @map("verified_by") @db.Uuid
+  verifiedAt          DateTime? @map("verified_at") @db.Timestamptz
+  verifiedSignature   String?   @map("verified_signature")
+  verifyComments      String?   @map("verify_comments")
+
+  scheduleRef         String?   @map("schedule_ref") @db.VarChar(100)
+  complianceStatus    String?   @map("compliance_status") @db.VarChar(20)
+
+  deviceInfo          Json?     @map("device_info")
+  checksum            String    @db.VarChar(64)
+
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  nodeChecklist NodeChecklist @relation(fields: [nodeChecklistId], references: [id], onDelete: Cascade)
+
+  @@index([nodeChecklistId])
+  @@index([status])
+  @@index([performedBy])
+  @@map("checklist_records")
+}
+
+// ─── Schedule System ───
+
+model Schedule {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nodeChecklistId   String    @map("node_checklist_id") @db.Uuid
+  frequency         String    @db.VarChar(30)
+  frequencyValue    Int?      @map("frequency_value")
+  cronExpression    String?   @map("cron_expression") @db.VarChar(100)
+  toleranceBefore   Int?      @map("tolerance_before")
+  toleranceAfter    Int?      @map("tolerance_after")
+  lastPerformedAt   DateTime? @map("last_performed_at") @db.Timestamptz
+  nextDueAt         DateTime? @map("next_due_at") @db.Timestamptz
+  isOnboarding      Boolean   @default(true) @map("is_onboarding")
+  status            String    @default("active") @db.VarChar(20)
+  createdBy         String?   @map("created_by") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  nodeChecklist NodeChecklist @relation(fields: [nodeChecklistId], references: [id], onDelete: Cascade)
+
+  @@index([nodeChecklistId])
+  @@index([status, nextDueAt])
+  @@map("schedules")
+}
+
+// ─── Alarm System ───
+
+model AlarmRule {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nodeId     String   @map("node_id") @db.Uuid
+  name       String   @db.VarChar(255)
+  ruleType   String   @map("rule_type") @db.VarChar(30)
+  config     Json     @default("{}")
+  enabled    Boolean  @default(true)
+  version    Int      @default(1)
+  approvedBy String?  @map("approved_by") @db.Uuid
+  createdBy  String?  @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  events AlarmEvent[]
+
+  @@index([nodeId])
+  @@index([enabled])
+  @@map("alarm_rules")
+}
+
+model AlarmEvent {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  alarmRuleId    String    @map("alarm_rule_id") @db.Uuid
+  nodeId         String    @map("node_id") @db.Uuid
+  severity       String    @db.VarChar(20)
+  triggerValue   Json      @map("trigger_value")
+  status         String    @default("OPEN") @db.VarChar(20)
+  acknowledgedBy String?   @map("acknowledged_by") @db.Uuid
+  acknowledgedAt DateTime? @map("acknowledged_at") @db.Timestamptz
+  closedBy       String?   @map("closed_by") @db.Uuid
+  closedAt       DateTime? @map("closed_at") @db.Timestamptz
+  recordId       String?   @map("record_id") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  alarmRule AlarmRule @relation(fields: [alarmRuleId], references: [id], onDelete: Cascade)
+
+  @@index([nodeId, status])
+  @@index([alarmRuleId])
+  @@map("alarm_events")
+}
+
+// ─── Delegable Privileges ───
+
+model DelegatedPrivilege {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  role      String    @db.VarChar(30)
+  privilege String    @db.VarChar(50)
+  assetType String?   @map("asset_type") @db.VarChar(50)
+  grantedBy String    @map("granted_by") @db.Uuid
+  grantedAt DateTime  @default(now()) @map("granted_at") @db.Timestamptz
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz
+
+  @@unique([role, privilege, assetType])
+  @@index([role])
+  @@map("delegated_privileges")
 }
