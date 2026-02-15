@@ -253,7 +253,13 @@ Create a new template. Requires `TEMPLATE_CREATE` permission.
   "nodeType": "string",
   "description": "string (optional)",
   "attributeSchema": [{ "name", "type", "required", "unit", "defaultValue" }],
-  "telemetrySchema": [{ "name", "type", "unit", "min", "max" }]
+  "telemetrySchema": [{ "name", "type", "unit", "min", "max" }],
+  "checklistSchemas": "array (optional — inline checklist definitions)",
+  "expectedIdentifiers": [{ "type": "QR | RFID | Barcode | NFC | Serial", "required": true }],
+  "expectedRelationships": [{ "type": "CONTAINS | CONNECTED_TO | ...", "targetType": "string (optional)" }],
+  "defaultSchedules": [{ "checklistIndex": 0, "frequency": "DAILY", "toleranceBefore": 60, "toleranceAfter": 120 }],
+  "statusLifecycle": ["active", "maintenance", "offline", "decommissioned"],
+  "iconUrl": "string (optional)"
 }
 ```
 
@@ -265,6 +271,280 @@ Update a template. Creates a new version. Requires `TEMPLATE_UPDATE` permission.
 
 ### DELETE /api/templates/:id
 Soft-delete (deactivate) a template. Requires `TEMPLATE_DELETE` permission.
+
+---
+
+## Hierarchy — Asset Links
+
+### POST /api/hierarchy/links
+Create a bidirectional relationship between two assets. Auto-creates the inverse link. Requires `NODE_UPDATE` permission.
+
+**Request Body:**
+```json
+{
+  "sourceId": "uuid",
+  "targetId": "uuid",
+  "type": "CONTAINS | CONNECTED_TO | FEEDS | DEPENDS_ON | BACKS_UP | MONITORS | CUSTOM",
+  "customLabel": "string (optional, for CUSTOM type)",
+  "notes": "string (optional)"
+}
+```
+
+**Response 201:** `{ "forward": AssetLink, "inverse": AssetLink }`
+
+**Errors:** `400` self-referencing, decommissioned nodes, circular CONTAINS. `404` source/target not found. `409` duplicate relationship.
+
+---
+
+### GET /api/hierarchy/:id/links
+Get all relationships for a node (both directions).
+
+**Response:** `{ "outgoing": AssetLink[], "incoming": AssetLink[] }`
+
+---
+
+### DELETE /api/hierarchy/links/:linkId
+Delete a relationship and its auto-created inverse. Requires `NODE_UPDATE` permission.
+
+**Response:** `{ "success": true }`
+
+---
+
+## Checklists
+
+### POST /api/checklists/templates
+Create a checklist template. Requires `TEMPLATE_CREATE` permission.
+
+**Request Body:**
+```json
+{
+  "name": "string",
+  "description": "string (optional)",
+  "questions": [{ "id": "string", "type": "PASS_FAIL | MCQ | MULTI_SELECT | FILL_BLANK | DROPDOWN | NUMERIC_WITH_LIMITS | PHOTO | DATE_TIME | SIGNATURE | YES_NO_COMMENT | CALCULATED | CONDITIONAL", "label": "string", "required": true, "options": [], "limits": {} }],
+  "performedByRole": "string (optional)",
+  "checkedByEnabled": false,
+  "checkedByRole": "string (optional)",
+  "verifiedByEnabled": false,
+  "verifiedByRole": "string (optional)",
+  "templateId": "string (optional — link to AssetTemplate)"
+}
+```
+
+**Response 201:** ChecklistTemplate object
+
+---
+
+### GET /api/checklists/templates
+List checklist templates.
+
+**Query Params:** `status` (optional), `search` (optional)
+
+---
+
+### GET /api/checklists/templates/:id
+Get checklist template detail with node attachment count.
+
+---
+
+### PUT /api/checklists/templates/:id
+Update a checklist template. Auto-increments version. Requires `TEMPLATE_UPDATE` permission.
+
+---
+
+### POST /api/checklists/nodes/:id
+Attach a checklist template to a hierarchy node. Requires `NODE_UPDATE` permission.
+
+**Request Body:**
+```json
+{
+  "checklistTemplateId": "uuid",
+  "enabled": true,
+  "overrideApproval": false
+}
+```
+
+**Response 201:** NodeChecklist object
+
+---
+
+### GET /api/checklists/nodes/:id
+List all checklists attached to a node. Includes template detail, record count, and schedule count.
+
+---
+
+### POST /api/checklists/:checklistId/records
+Submit a checklist record (Performed By step). Requires `APPROVAL_REQUEST` permission.
+
+**Request Body:**
+```json
+{
+  "responses": { "questionId": "answer value" },
+  "performedSignature": "string (optional — e-signature)",
+  "scheduleRef": "string (optional — schedule ID or 'AD_HOC')",
+  "deviceInfo": { "type": "string", "ip": "string", "userAgent": "string" }
+}
+```
+
+**Response 201:** ChecklistRecord with SHA-256 checksum. Status auto-set based on approval tiers (COMPLETED, PENDING_CHECK, or PENDING_VERIFY).
+
+---
+
+### GET /api/checklists/:checklistId/records
+List records for a checklist, ordered by most recent first.
+
+---
+
+### GET /api/checklists/records/:id
+Get a single checklist record with full detail (node, template, questions).
+
+---
+
+### POST /api/checklists/records/:id/check
+Checked By approve/reject a record. Requires `APPROVAL_REVIEW` permission.
+
+**Request Body:**
+```json
+{
+  "action": "APPROVE | REJECT",
+  "signature": "string (optional — e-signature)",
+  "comments": "string (optional)"
+}
+```
+
+**Errors:** `400` not in PENDING_CHECK status. `403` segregation of duties (performer cannot check).
+
+---
+
+### POST /api/checklists/records/:id/verify
+Verified By approve/reject a record. Requires `APPROVAL_REVIEW` permission.
+
+**Request Body:** Same as check endpoint.
+
+**Errors:** `400` not in PENDING_VERIFY status. `403` segregation of duties (performer/checker cannot verify).
+
+---
+
+## Schedules
+
+### POST /api/schedules
+Create a recurring schedule for a node checklist. Starts in onboarding mode. Requires `NODE_UPDATE` permission.
+
+**Request Body:**
+```json
+{
+  "nodeChecklistId": "uuid",
+  "frequency": "HOURLY | PER_SHIFT | DAILY | WEEKLY | MONTHLY | QUARTERLY | ANNUALLY | CUSTOM",
+  "frequencyValue": "number (optional — e.g., every N hours)",
+  "cronExpression": "string (optional — for CUSTOM frequency)",
+  "toleranceBefore": "number (optional — minutes before due)",
+  "toleranceAfter": "number (optional — minutes after due)"
+}
+```
+
+**Response 201:** Schedule object
+
+---
+
+### GET /api/schedules/node/:id
+Get all schedules for a node. Includes checklist template name. Ordered by nextDueAt ascending.
+
+---
+
+### PUT /api/schedules/:id
+Update a schedule. Auto-recalculates `nextDueAt` if frequency changed and anchor exists. Requires `NODE_UPDATE` permission.
+
+---
+
+### DELETE /api/schedules/:id
+Delete a schedule. Requires `NODE_UPDATE` permission.
+
+---
+
+## Alarms
+
+### POST /api/alarms/rules
+Create an alarm rule for a node. Requires `NODE_UPDATE` permission.
+
+**Request Body:**
+```json
+{
+  "nodeId": "uuid",
+  "name": "string",
+  "ruleType": "THRESHOLD | CHECKLIST_FIELD | SCHEDULE_MISSED | CUSTOM",
+  "config": { "field": "string", "operator": "gt | gte | lt | lte | eq | neq", "value": "any", "severity": "INFO | WARNING | ALARM | CRITICAL" },
+  "enabled": true
+}
+```
+
+**Response 201:** AlarmRule object
+
+---
+
+### GET /api/alarms/rules/node/:id
+Get all alarm rules for a node. Includes event count.
+
+---
+
+### PUT /api/alarms/rules/:id
+Update an alarm rule. Auto-increments version. Requires `NODE_UPDATE` permission.
+
+---
+
+### GET /api/alarms/events
+List alarm events with optional filters.
+
+**Query Params:** `nodeId` (optional), `status` (optional: OPEN/ACKNOWLEDGED/CLOSED), `severity` (optional)
+
+Returns up to 100 events, most recent first.
+
+---
+
+### GET /api/alarms/events/node/:id
+List alarm events for a specific node.
+
+---
+
+### POST /api/alarms/events/:id/acknowledge
+Acknowledge an open alarm event. Requires `NODE_UPDATE` permission.
+
+**Errors:** `400` event not in OPEN status.
+
+---
+
+### POST /api/alarms/events/:id/close
+Close an alarm event (acknowledged or open). Requires `NODE_UPDATE` permission.
+
+**Errors:** `400` event already closed.
+
+---
+
+## Privileges (SUPER_ADMIN only)
+
+### GET /api/privileges
+List all active (non-revoked) delegated privileges.
+
+---
+
+### POST /api/privileges
+Grant a delegated privilege to a role.
+
+**Request Body:**
+```json
+{
+  "role": "string (target role)",
+  "privilege": "string (e.g., MANAGE_TEMPLATES, CREATE_INSTANCES, MANAGE_CHECKLISTS)",
+  "assetType": "string (optional — restrict to specific nodeType)"
+}
+```
+
+**Response 201:** DelegatedPrivilege object
+
+**Errors:** `409` privilege already granted to this role.
+
+---
+
+### DELETE /api/privileges/:id
+Revoke a delegated privilege (soft-delete via revokedAt timestamp).
 
 ---
 
@@ -342,4 +622,20 @@ The verification token is valid for 5 minutes and is single-use per session.
 
 ## Audit Actions
 
-`USER_CREATED`, `USER_UPDATED`, `USER_DELETED`, `USER_ENABLED`, `USER_DISABLED`, `PASSWORD_RESET`, `PASSWORD_CHANGED`, `LOGIN_SUCCESS`, `LOGIN_FAILED`, `LOGOUT`, `SESSION_TIMEOUT`, `ACCOUNT_LOCKED`, `ACCOUNT_UNLOCKED`, `CONFIG_CHANGED`, `REAUTH_SETTINGS_CHANGED`, `NODE_CREATED`, `NODE_MODIFIED`, `NODE_DELETED`, `NODE_IDENTIFIER_ADDED`, `TEMPLATE_CREATED`, `TEMPLATE_MODIFIED`, `TEMPLATE_DELETED`, `UNAUTHORIZED_ACTION_ATTEMPT`
+**User & Auth:** `USER_CREATED`, `USER_UPDATED`, `USER_DELETED`, `USER_ENABLED`, `USER_DISABLED`, `PASSWORD_RESET`, `PASSWORD_CHANGED`, `LOGIN_SUCCESS`, `LOGIN_FAILED`, `LOGOUT`, `SESSION_TIMEOUT`, `ACCOUNT_LOCKED`, `ACCOUNT_UNLOCKED`
+
+**Config:** `CONFIG_CHANGED`, `REAUTH_SETTINGS_CHANGED`
+
+**Hierarchy & Templates:** `NODE_CREATED`, `NODE_MODIFIED`, `NODE_DELETED`, `NODE_IDENTIFIER_ADDED`, `TEMPLATE_CREATED`, `TEMPLATE_MODIFIED`, `TEMPLATE_DELETED`
+
+**Relationships:** `LINK_CREATED`, `LINK_DELETED`
+
+**Checklists:** `CHECKLIST_TEMPLATE_CREATED`, `CHECKLIST_TEMPLATE_MODIFIED`, `CHECKLIST_ATTACHED`, `CHECKLIST_RECORD_SUBMITTED`, `CHECKLIST_RECORD_CHECKED`, `CHECKLIST_RECORD_VERIFIED`, `CHECKLIST_RECORD_REJECTED`
+
+**Schedules:** `SCHEDULE_CREATED`, `SCHEDULE_MODIFIED`, `SCHEDULE_DELETED`
+
+**Alarms:** `ALARM_RULE_CREATED`, `ALARM_RULE_MODIFIED`, `ALARM_EVENT_TRIGGERED`, `ALARM_EVENT_ACKNOWLEDGED`, `ALARM_EVENT_CLOSED`
+
+**Privileges:** `PRIVILEGE_GRANTED`, `PRIVILEGE_REVOKED`
+
+**Security:** `UNAUTHORIZED_ACTION_ATTEMPT`
