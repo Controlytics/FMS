@@ -32,17 +32,30 @@ export function ConfigIndexPage() {
           </Link>
         ))}
         {user?.role === 'SUPER_ADMIN' && (
-          <Link to="/config/field-ids">
-            <Card className="cursor-pointer transition-shadow hover:shadow-md h-full">
-              <CardHeader>
-                <CardTitle className="text-lg">Field ID Names</CardTitle>
-                <CardDescription>Configure field display names globally</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <span className="text-xs text-muted-foreground">Super Admin only</span>
-              </CardContent>
-            </Card>
-          </Link>
+          <>
+            <Link to="/config/reauth-settings">
+              <Card className="cursor-pointer transition-shadow hover:shadow-md h-full">
+                <CardHeader>
+                  <CardTitle className="text-lg">Re-authentication</CardTitle>
+                  <CardDescription>Configure which operations require password re-entry</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <span className="text-xs text-muted-foreground">Super Admin only</span>
+                </CardContent>
+              </Card>
+            </Link>
+            <Link to="/config/field-ids">
+              <Card className="cursor-pointer transition-shadow hover:shadow-md h-full">
+                <CardHeader>
+                  <CardTitle className="text-lg">Field ID Names</CardTitle>
+                  <CardDescription>Configure field display names globally</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <span className="text-xs text-muted-foreground">Super Admin only</span>
+                </CardContent>
+              </Card>
+            </Link>
+          </>
         )}
       </div>
     </div>

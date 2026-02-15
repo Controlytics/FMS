@@ -1,17 +1,21 @@
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/cn';
+import { ROLE_PERMISSIONS, type Permission } from '@digilog/shared';
 
 interface NavItem {
   label: string;
   href: string;
   icon: string;
+  /** Permission required to see this nav item — derived from ROLE_PERMISSIONS matrix */
+  permission?: Permission;
+  /** Explicit role list — use only for items not covered by the permission system */
   roles?: string[];
 }
 
 const navItems: NavItem[] = [
   { label: 'Dashboard', href: '/', icon: 'LayoutDashboard' },
-  { label: 'Users', href: '/users', icon: 'Users', roles: ['SUPER_ADMIN', 'ADMIN'] },
-  { label: 'Configuration', href: '/config', icon: 'Settings', roles: ['SUPER_ADMIN', 'ADMIN'] },
+  { label: 'Users', href: '/users', icon: 'Users', permission: 'USER_READ' },
+  { label: 'Configuration', href: '/config', icon: 'Settings', permission: 'CONFIG_READ' },
   { label: 'Asset Templates', href: '/assets/templates', icon: 'FileBox' },
   { label: 'Asset Hierarchy', href: '/assets', icon: 'Network' },
   { label: 'Audit Trail', href: '/audit', icon: 'ScrollText' },
@@ -27,6 +31,11 @@ const icons: Record<string, string> = {
   ScrollText: '\u2637',
 };
 
+function hasPermission(userRole: string, permission: Permission): boolean {
+  const perms = ROLE_PERMISSIONS[userRole as keyof typeof ROLE_PERMISSIONS];
+  return !!perms && perms.includes(permission);
+}
+
 interface SidebarProps {
   userRole: string;
 }
@@ -34,9 +43,11 @@ interface SidebarProps {
 export function Sidebar({ userRole }: SidebarProps) {
   const location = useLocation();
 
-  const filteredItems = navItems.filter(
-    (item) => !item.roles || item.roles.includes(userRole),
-  );
+  const filteredItems = navItems.filter((item) => {
+    if (item.permission) return hasPermission(userRole, item.permission);
+    if (item.roles) return item.roles.includes(userRole);
+    return true;
+  });
 
   return (
     <aside className="flex h-full w-64 flex-col border-r border-sidebar-border bg-sidebar">

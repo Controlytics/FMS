@@ -4,7 +4,9 @@ import { createTemplateSchema, updateTemplateSchema } from '@digilog/shared';
 
 export default async function templateRoutes(app: FastifyInstance) {
   // GET /api/templates — list templates
-  app.get('/', async (req) => {
+  app.get('/', {
+    schema: { tags: ['Templates'], summary: 'List templates', description: 'List asset templates with optional filters' },
+  }, async (req) => {
     const { status, nodeType, search } = req.query as { status?: string; nodeType?: string; search?: string };
 
     const where: Record<string, unknown> = {};
@@ -27,6 +29,7 @@ export default async function templateRoutes(app: FastifyInstance) {
 
   // POST /api/templates — create template
   app.post('/', {
+    schema: { tags: ['Templates'], summary: 'Create template', description: 'Create a new asset template' },
     preHandler: [app.requirePermission('TEMPLATE_CREATE')],
   }, async (req, reply) => {
     const parsed = createTemplateSchema.safeParse(req.body);
@@ -72,7 +75,9 @@ export default async function templateRoutes(app: FastifyInstance) {
   });
 
   // GET /api/templates/:id
-  app.get('/:id', async (req, reply) => {
+  app.get('/:id', {
+    schema: { tags: ['Templates'], summary: 'Get template', description: 'Get template detail with version history' },
+  }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const template = await prisma.assetTemplate.findUnique({
       where: { id },
@@ -87,6 +92,7 @@ export default async function templateRoutes(app: FastifyInstance) {
 
   // PUT /api/templates/:id
   app.put('/:id', {
+    schema: { tags: ['Templates'], summary: 'Update template', description: 'Update an asset template (creates new version)' },
     preHandler: [app.requirePermission('TEMPLATE_UPDATE')],
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
@@ -144,6 +150,7 @@ export default async function templateRoutes(app: FastifyInstance) {
 
   // DELETE /api/templates/:id (soft delete)
   app.delete('/:id', {
+    schema: { tags: ['Templates'], summary: 'Delete template', description: 'Soft-delete (deactivate) a template' },
     preHandler: [app.requirePermission('TEMPLATE_DELETE')],
   }, async (req, reply) => {
     const { id } = req.params as { id: string };

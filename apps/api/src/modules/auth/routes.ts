@@ -1,13 +1,71 @@
 import { type FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
-import { hashPassword, verifyPassword } from '../../lib/password.js';
+import { hashPassword, verifyPassword, dummyVerify } from '../../lib/password.js';
 import { signToken, signVerificationToken } from '../../lib/jwt.js';
-import { loginSchema, passwordChangeSchema } from '@digilog/shared';
+import { loginSchema, passwordChangeSchema, passwordPolicySchema } from '@digilog/shared';
 import { createHash } from 'node:crypto';
+
+async function validatePasswordPolicy(password: string, username: string): Promise<string[]> {
+  const errors: string[] = [];
+  const config = await prisma.systemConfig.findUnique({ where: { configKey: 'password_policy' } });
+  const policy = passwordPolicySchema.parse(config?.configValue ?? {});
+
+  if (password.length < policy.minLength) {
+    errors.push(`Password must be at least ${policy.minLength} characters`);
+  }
+  if (password.length > policy.maxLength) {
+    errors.push(`Password must be at most ${policy.maxLength} characters`);
+  }
+  if (policy.requireUppercase) {
+    const count = (password.match(/[A-Z]/g) || []).length;
+    if (count < policy.minUppercase) {
+      errors.push(`Password must contain at least ${policy.minUppercase} uppercase letter(s)`);
+    }
+  }
+  if (policy.requireLowercase) {
+    const count = (password.match(/[a-z]/g) || []).length;
+    if (count < policy.minLowercase) {
+      errors.push(`Password must contain at least ${policy.minLowercase} lowercase letter(s)`);
+    }
+  }
+  if (policy.requireNumbers) {
+    const count = (password.match(/[0-9]/g) || []).length;
+    if (count < policy.minNumbers) {
+      errors.push(`Password must contain at least ${policy.minNumbers} number(s)`);
+    }
+  }
+  if (policy.requireSpecialChars) {
+    const count = (password.match(/[^A-Za-z0-9]/g) || []).length;
+    if (count < policy.minSpecialChars) {
+      errors.push(`Password must contain at least ${policy.minSpecialChars} special character(s)`);
+    }
+  }
+  if (policy.cannotBeUserId && password === username) {
+    errors.push('Password cannot be same as User ID');
+  }
+  if (policy.cannotContainUserId && password.toLowerCase().includes(username.toLowerCase())) {
+    errors.push('Password cannot contain User ID');
+  }
+
+  return errors;
+}
 
 export default async function authRoutes(app: FastifyInstance) {
   // POST /api/auth/login
-  app.post('/login', async (req, reply) => {
+  app.post('/login', {
+    schema: {
+      tags: ['Auth'],
+      summary: 'Login',
+      description: 'Authenticate with username and password',
+      security: [],
+    },
+    config: {
+      rateLimit: {
+        max: 10,
+        timeWindow: '1 minute',
+      },
+    },
+  }, async (req, reply) => {
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
@@ -18,7 +76,8 @@ export default async function authRoutes(app: FastifyInstance) {
     // Check if user exists
     const user = await prisma.user.findUnique({ where: { username } });
     if (!user) {
-      // Same message, no attemptsRemaining — prevents user enumeration
+      // Run dummy bcrypt to prevent timing-based user enumeration
+      await dummyVerify(password);
       return reply.code(401).send({
         error: 'INVALID_CREDENTIALS',
         message: 'Invalid user ID or password.',
@@ -122,6 +181,15 @@ export default async function authRoutes(app: FastifyInstance) {
       });
     }
 
+    // Check password expiration
+    if (user.passwordExpiresAt && user.passwordExpiresAt < new Date()) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { forcePasswordChange: true },
+      });
+      user.forcePasswordChange = true;
+    }
+
     // Successful authentication — create session
     const sessionToken = createHash('sha256').update(crypto.randomUUID()).digest('hex');
 
@@ -160,6 +228,15 @@ export default async function authRoutes(app: FastifyInstance) {
       sessionId: session.id,
     });
 
+    const isSecure = process.env.NODE_ENV === 'production';
+    reply.setCookie('token', token, {
+      httpOnly: true,
+      secure: isSecure,
+      sameSite: 'strict',
+      path: '/',
+      maxAge: 8 * 60 * 60, // 8 hours in seconds
+    });
+
     return {
       success: true,
       token,
@@ -176,7 +253,9 @@ export default async function authRoutes(app: FastifyInstance) {
   });
 
   // POST /api/auth/logout
-  app.post('/logout', async (req, reply) => {
+  app.post('/logout', {
+    schema: { tags: ['Auth'], summary: 'Logout', description: 'End current session' },
+  }, async (req, reply) => {
     await prisma.session.update({
       where: { id: req.user.sessionId },
       data: { isActive: false, terminationReason: 'logout' },
@@ -193,11 +272,14 @@ export default async function authRoutes(app: FastifyInstance) {
       sessionId: req.user.sessionId,
     });
 
+    reply.clearCookie('token', { path: '/' });
     return { success: true };
   });
 
   // GET /api/auth/me
-  app.get('/me', async (req) => {
+  app.get('/me', {
+    schema: { tags: ['Auth'], summary: 'Get current user', description: 'Returns the authenticated user profile' },
+  }, async (req) => {
     const user = await prisma.user.findUnique({
       where: { id: req.user.sub },
       select: {
@@ -219,7 +301,13 @@ export default async function authRoutes(app: FastifyInstance) {
   });
 
   // POST /api/auth/change-password
-  app.post('/change-password', async (req, reply) => {
+  app.post('/change-password', {
+    schema: {
+      tags: ['Auth'],
+      summary: 'Change password',
+      description: 'Change current user password (validates full password policy)',
+    },
+  }, async (req, reply) => {
     const parsed = passwordChangeSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
@@ -235,17 +323,15 @@ export default async function authRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'INVALID_PASSWORD', message: 'Current password is incorrect' });
     }
 
-    // Get password policy
+    // Validate password against full policy
+    const policyErrors = await validatePasswordPolicy(newPassword, user.username);
+    if (policyErrors.length > 0) {
+      return reply.code(400).send({ error: 'POLICY_VIOLATION', message: policyErrors[0], violations: policyErrors });
+    }
+
+    // Get password policy for reuse count
     const policyConfig = await prisma.systemConfig.findUnique({ where: { configKey: 'password_policy' } });
     const policy = (policyConfig?.configValue ?? {}) as Record<string, unknown>;
-
-    // Validate: cannot be same as username
-    if (policy.cannotBeUserId && newPassword === user.username) {
-      return reply.code(400).send({ error: 'POLICY_VIOLATION', message: 'Password cannot be same as User ID' });
-    }
-    if (policy.cannotContainUserId && newPassword.toLowerCase().includes(user.username.toLowerCase())) {
-      return reply.code(400).send({ error: 'POLICY_VIOLATION', message: 'Password cannot contain User ID' });
-    }
 
     // Validate: cannot be same as temp password
     if (user.isTemporaryPassword) {
@@ -284,6 +370,7 @@ export default async function authRoutes(app: FastifyInstance) {
           forcePasswordChange: false,
           isTemporaryPassword: false,
           passwordChangedAt: new Date(),
+          passwordExpiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days
         },
       }),
       prisma.passwordHistory.create({
@@ -307,7 +394,13 @@ export default async function authRoutes(app: FastifyInstance) {
   });
 
   // POST /api/auth/verify (re-authentication for sensitive ops)
-  app.post('/verify', async (req, reply) => {
+  app.post('/verify', {
+    schema: {
+      tags: ['Auth'],
+      summary: 'Re-authenticate',
+      description: 'Verify password for sensitive operations. Returns a short-lived verification token.',
+    },
+  }, async (req, reply) => {
     const body = req.body as { password?: string };
     if (!body.password) {
       return reply.code(400).send({ error: 'Password is required' });

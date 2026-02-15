@@ -6,7 +6,8 @@ import { createUserSchema, updateUserSchema, resetPasswordSchema, userQuerySchem
 export default async function userRoutes(app: FastifyInstance) {
   // POST /api/users — Create user
   app.post('/', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    schema: { tags: ['Users'], summary: 'Create user', description: 'Create a new user account (ADMIN+). May require re-authentication.' },
+    preHandler: [app.requirePermission('USER_CREATE'), app.requireReauth('user:create')],
   }, async (req, reply) => {
     const parsed = createUserSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -78,7 +79,8 @@ export default async function userRoutes(app: FastifyInstance) {
 
   // GET /api/users — List users
   app.get('/', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    schema: { tags: ['Users'], summary: 'List users', description: 'List all users with pagination and filtering' },
+    preHandler: [app.requirePermission('USER_READ')],
   }, async (req) => {
     const query = userQuerySchema.parse(req.query);
     const where: Record<string, unknown> = {};
@@ -107,12 +109,13 @@ export default async function userRoutes(app: FastifyInstance) {
       prisma.user.count({ where: where as any }),
     ]);
 
-    return { data: users, total, page: query.page, limit: query.limit, totalPages: Math.ceil(total / query.limit) };
+    return { data: users, total, page: query.page, limit: query.limit, totalPages: total > 0 ? Math.ceil(total / query.limit) : 0 };
   });
 
   // GET /api/users/:id — Get user detail
   app.get('/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    schema: { tags: ['Users'], summary: 'Get user', description: 'Get user details by ID' },
+    preHandler: [app.requirePermission('USER_READ')],
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const user = await prisma.user.findUnique({
@@ -130,7 +133,8 @@ export default async function userRoutes(app: FastifyInstance) {
 
   // PUT /api/users/:id — Update user
   app.put('/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    schema: { tags: ['Users'], summary: 'Update user', description: 'Update user details. May require re-authentication.' },
+    preHandler: [app.requirePermission('USER_UPDATE'), app.requireReauth('user:update')],
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const parsed = updateUserSchema.safeParse(req.body);
@@ -140,6 +144,16 @@ export default async function userRoutes(app: FastifyInstance) {
 
     const existing = await prisma.user.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'User not found' });
+
+    // Prevent users from changing their own role or status
+    if (id === req.user.sub) {
+      if (parsed.data.role && parsed.data.role !== existing.role) {
+        return reply.code(403).send({ error: 'FORBIDDEN', message: 'Cannot change your own role' });
+      }
+      if (parsed.data.status && parsed.data.status !== existing.status) {
+        return reply.code(403).send({ error: 'FORBIDDEN', message: 'Cannot change your own status' });
+      }
+    }
 
     // Check role update permissions
     if (parsed.data.role) {
@@ -180,12 +194,30 @@ export default async function userRoutes(app: FastifyInstance) {
       sessionId: req.user.sessionId,
     });
 
+    // Emit dedicated ROLE_ASSIGNED audit when role changes
+    if (parsed.data.role && parsed.data.role !== existing.role) {
+      await app.auditLog({
+        userId: req.user.username,
+        userRole: req.user.role,
+        action: 'ROLE_ASSIGNED',
+        targetType: 'user',
+        targetId: id,
+        beforeValue: { role: existing.role },
+        afterValue: { role: parsed.data.role },
+        reason: `Role changed from ${existing.role} to ${parsed.data.role}`,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        sessionId: req.user.sessionId,
+      });
+    }
+
     return { id: user.id, username: user.username, fullName: user.fullName, email: user.email, role: user.role, status: user.status };
   });
 
   // DELETE /api/users/:id
   app.delete('/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    schema: { tags: ['Users'], summary: 'Delete user', description: 'Soft-delete (disable) a user. May require re-authentication.' },
+    preHandler: [app.requirePermission('USER_DELETE'), app.requireReauth('user:delete')],
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const existing = await prisma.user.findUnique({ where: { id } });
@@ -224,7 +256,8 @@ export default async function userRoutes(app: FastifyInstance) {
 
   // POST /api/users/:id/enable
   app.post('/:id/enable', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    schema: { tags: ['Users'], summary: 'Enable user', description: 'Re-enable a disabled user account' },
+    preHandler: [app.requirePermission('USER_ENABLE_DISABLE'), app.requireReauth('user:enable')],
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const user = await prisma.user.findUnique({ where: { id } });
@@ -246,7 +279,8 @@ export default async function userRoutes(app: FastifyInstance) {
 
   // POST /api/users/:id/disable
   app.post('/:id/disable', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    schema: { tags: ['Users'], summary: 'Disable user', description: 'Disable a user account and terminate sessions' },
+    preHandler: [app.requirePermission('USER_ENABLE_DISABLE'), app.requireReauth('user:disable')],
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const user = await prisma.user.findUnique({ where: { id } });
@@ -274,7 +308,8 @@ export default async function userRoutes(app: FastifyInstance) {
 
   // POST /api/users/:id/unlock
   app.post('/:id/unlock', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    schema: { tags: ['Users'], summary: 'Unlock user', description: 'Unlock a locked user account' },
+    preHandler: [app.requirePermission('USER_UNLOCK')],
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const user = await prisma.user.findUnique({ where: { id } });
@@ -296,7 +331,8 @@ export default async function userRoutes(app: FastifyInstance) {
 
   // POST /api/users/:id/reset-password
   app.post('/:id/reset-password', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    schema: { tags: ['Users'], summary: 'Reset password', description: 'Reset a user password (sets temp password). May require re-authentication.' },
+    preHandler: [app.requirePermission('USER_RESET_PASSWORD'), app.requireReauth('user:reset-password')],
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const parsed = resetPasswordSchema.safeParse(req.body);

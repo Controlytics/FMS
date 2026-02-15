@@ -1,7 +1,14 @@
 import * as jose from 'jose';
 
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET ?? 'dev-secret-change-me');
-const VERIFY_SECRET = new TextEncoder().encode(process.env.VERIFICATION_TOKEN_SECRET ?? 'dev-verify-secret');
+if (!process.env.JWT_SECRET) {
+  throw new Error('FATAL: JWT_SECRET environment variable is required. Set it to a random 64+ character string.');
+}
+if (!process.env.VERIFICATION_TOKEN_SECRET) {
+  throw new Error('FATAL: VERIFICATION_TOKEN_SECRET environment variable is required. Set it to a random 64+ character string.');
+}
+
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET);
+const VERIFY_SECRET = new TextEncoder().encode(process.env.VERIFICATION_TOKEN_SECRET);
 
 export interface JwtPayload {
   sub: string;

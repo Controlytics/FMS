@@ -8,6 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { apiClient } from '@/lib/api-client';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { ReauthDialog } from '@/components/ui/reauth-dialog';
+import { useReauth } from '@/hooks/use-reauth';
 
 const statusBadge: Record<string, 'success' | 'destructive' | 'warning' | 'outline'> = {
   ENABLED: 'success',
@@ -22,6 +24,7 @@ export function UserListPage() {
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [actionDialog, setActionDialog] = useState<{ type: string; userId: string; username: string } | null>(null);
+  const { isOpen: reauthOpen, operation: reauthOp, executeWithReauth, onReauthSuccess, onReauthClose } = useReauth();
 
   const params = new URLSearchParams({ page: String(page), limit: '20' });
   if (search) params.set('search', search);
@@ -32,10 +35,15 @@ export function UserListPage() {
 
   const handleAction = async () => {
     if (!actionDialog) return;
+    const opMap: Record<string, string> = { enable: 'user:enable', disable: 'user:disable', unlock: 'user:enable' };
+    const opKey = opMap[actionDialog.type] ?? `user:${actionDialog.type}`;
     try {
-      await apiClient.post(`/api/users/${actionDialog.userId}/${actionDialog.type}`, {});
-      mutate();
-      setActionDialog(null);
+      await executeWithReauth(`${actionDialog.type} User`, async (token) => {
+        const headers = token ? { 'X-Verification-Token': token } : undefined;
+        await apiClient.post(`/api/users/${actionDialog.userId}/${actionDialog.type}`, {}, headers);
+        mutate();
+        setActionDialog(null);
+      });
     } catch {
       // error handling
     }
@@ -149,6 +157,8 @@ export function UserListPage() {
           </div>
         </div>
       )}
+
+      <ReauthDialog open={reauthOpen} onClose={onReauthClose} onSuccess={onReauthSuccess} operation={reauthOp} />
 
       {/* Confirmation dialog */}
       <Dialog open={!!actionDialog} onClose={() => setActionDialog(null)}>

@@ -34,7 +34,28 @@ export const datetimeConfigSchema = z.object({
   timezone: z.string().default('UTC'),
 });
 
+export const ALL_REAUTH_OPERATIONS = [
+  'config:password-policy',
+  'config:login-security',
+  'config:session',
+  'user:create',
+  'user:update',
+  'user:delete',
+  'user:enable',
+  'user:disable',
+  'user:reset-password',
+  'node:create',
+  'node:delete',
+] as const;
+
+export type ReauthOperation = (typeof ALL_REAUTH_OPERATIONS)[number];
+
+export const reauthConfigSchema = z.object({
+  enabledOperations: z.array(z.enum(ALL_REAUTH_OPERATIONS)).default([]),
+});
+
 export type PasswordPolicyConfig = z.infer<typeof passwordPolicySchema>;
 export type LoginSecurityConfig = z.infer<typeof loginSecuritySchema>;
 export type SessionConfig = z.infer<typeof sessionConfigSchema>;
 export type DatetimeConfig = z.infer<typeof datetimeConfigSchema>;
+export type ReauthConfig = z.infer<typeof reauthConfigSchema>;

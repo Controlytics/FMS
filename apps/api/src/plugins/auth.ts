@@ -9,19 +9,24 @@ declare module 'fastify' {
   }
 }
 
-const PUBLIC_PATHS = ['/api/auth/login', '/api/auth/forgot-password', '/api/health'];
+const PUBLIC_PATHS = ['/api/auth/login', '/api/auth/forgot-password', '/api/health', '/api/csrf-token', '/api/docs'];
 
 async function authPlugin(app: FastifyInstance) {
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
     if (PUBLIC_PATHS.some((p) => req.url.startsWith(p))) return;
 
+    // Read token from Authorization header or HttpOnly cookie
     const header = req.headers.authorization;
-    if (!header?.startsWith('Bearer ')) {
+    const tokenFromHeader = header?.startsWith('Bearer ') ? header.slice(7) : null;
+    const tokenFromCookie = (req.cookies as Record<string, string>)?.token;
+    const token = tokenFromHeader ?? tokenFromCookie;
+
+    if (!token) {
       return reply.code(401).send({ error: 'UNAUTHORIZED', message: 'Missing token' });
     }
 
     try {
-      const payload = await verifyToken(header.slice(7));
+      const payload = await verifyToken(token);
       req.user = payload;
 
       const session = await prisma.session.findFirst({

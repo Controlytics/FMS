@@ -1,5 +1,4 @@
 import { type FastifyInstance } from 'fastify';
-import { type Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { createNodeSchema, updateNodeSchema, createIdentifierSchema } from '@digilog/shared';
 
@@ -9,7 +8,9 @@ function toUnsPath(segments: string[]): string {
 
 export default async function hierarchyRoutes(app: FastifyInstance) {
   // GET /api/hierarchy — root nodes
-  app.get('/', async (req) => {
+  app.get('/', {
+    schema: { tags: ['Hierarchy'], summary: 'List nodes', description: 'List hierarchy nodes (root or by parentId)' },
+  }, async (req) => {
     const parentId = (req.query as { parentId?: string }).parentId;
 
     const nodes = await prisma.hierarchyNode.findMany({
@@ -24,21 +25,34 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
     return nodes;
   });
 
-  // GET /api/hierarchy/tree — full tree (for small datasets)
-  app.get('/tree', async () => {
-    const nodes = await prisma.hierarchyNode.findMany({
-      include: {
-        template: { select: { id: true, name: true, nodeType: true } },
-        _count: { select: { children: true } },
-      },
-      orderBy: { unsPath: 'asc' },
-    });
-    return nodes;
+  // GET /api/hierarchy/tree — paginated tree
+  app.get('/tree', {
+    schema: { tags: ['Hierarchy'], summary: 'Get tree', description: 'Get hierarchy tree with pagination (default 500 nodes)' },
+  }, async (req) => {
+    const query = req.query as { page?: string; limit?: string };
+    const page = Math.max(1, parseInt(query.page ?? '1', 10) || 1);
+    const limit = Math.min(1000, Math.max(1, parseInt(query.limit ?? '500', 10) || 500));
+
+    const [nodes, total] = await Promise.all([
+      prisma.hierarchyNode.findMany({
+        include: {
+          template: { select: { id: true, name: true, nodeType: true } },
+          _count: { select: { children: true } },
+        },
+        orderBy: { unsPath: 'asc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.hierarchyNode.count(),
+    ]);
+
+    return { data: nodes, total, page, limit, totalPages: Math.ceil(total / limit) };
   });
 
   // POST /api/hierarchy — create node
   app.post('/', {
-    preHandler: [app.requirePermission('NODE_CREATE')],
+    schema: { tags: ['Hierarchy'], summary: 'Create node', description: 'Create a new hierarchy node. May require re-authentication.' },
+    preHandler: [app.requirePermission('NODE_CREATE'), app.requireReauth('node:create')],
   }, async (req, reply) => {
     const parsed = createNodeSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -81,7 +95,7 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
         nodeType,
         unsPath,
         templateId: templateId ?? null,
-        attributes: mergedAttributes as Prisma.InputJsonValue,
+        attributes: mergedAttributes as any,
         status,
         createdBy: req.user.sub,
       },
@@ -101,7 +115,9 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
   });
 
   // GET /api/hierarchy/:id
-  app.get('/:id', async (req, reply) => {
+  app.get('/:id', {
+    schema: { tags: ['Hierarchy'], summary: 'Get node', description: 'Get node detail with children, links, and identifiers' },
+  }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const node = await prisma.hierarchyNode.findUnique({
       where: { id },
@@ -125,30 +141,37 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
     return node;
   });
 
-  // GET /api/hierarchy/:id/ancestors — breadcrumb path
-  app.get('/:id/ancestors', async (req, reply) => {
+  // GET /api/hierarchy/:id/ancestors — breadcrumb path (single query via unsPath)
+  app.get('/:id/ancestors', {
+    schema: { tags: ['Hierarchy'], summary: 'Get ancestors', description: 'Get ancestor chain for breadcrumb navigation' },
+  }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const node = await prisma.hierarchyNode.findUnique({ where: { id } });
+    const node = await prisma.hierarchyNode.findUnique({ where: { id }, select: { id: true, unsPath: true, parentId: true } });
     if (!node) return reply.code(404).send({ error: 'Node not found' });
 
-    // Walk up the tree
-    const ancestors: Array<{ id: string; name: string; nodeType: string }> = [];
-    let current = node;
-    while (current.parentId) {
-      const parent = await prisma.hierarchyNode.findUnique({
-        where: { id: current.parentId },
-        select: { id: true, name: true, nodeType: true, parentId: true, unsPath: true },
-      });
-      if (!parent) break;
-      ancestors.unshift({ id: parent.id, name: parent.name, nodeType: parent.nodeType });
-      current = parent as any;
+    if (!node.parentId) return []; // Root node, no ancestors
+
+    // Build all ancestor unsPath prefixes from the node's unsPath
+    const segments = node.unsPath.split('.');
+    const ancestorPaths: string[] = [];
+    for (let i = 1; i < segments.length; i++) {
+      ancestorPaths.push(segments.slice(0, i).join('.'));
     }
 
-    return ancestors;
+    if (ancestorPaths.length === 0) return [];
+
+    const ancestors = await prisma.hierarchyNode.findMany({
+      where: { unsPath: { in: ancestorPaths } },
+      select: { id: true, name: true, nodeType: true, unsPath: true },
+      orderBy: { unsPath: 'asc' },
+    });
+
+    return ancestors.map((a: { id: string; name: string; nodeType: string }) => ({ id: a.id, name: a.name, nodeType: a.nodeType }));
   });
 
   // PUT /api/hierarchy/:id
   app.put('/:id', {
+    schema: { tags: ['Hierarchy'], summary: 'Update node', description: 'Update hierarchy node attributes or status' },
     preHandler: [app.requirePermission('NODE_UPDATE')],
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
@@ -184,7 +207,8 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
 
   // DELETE /api/hierarchy/:id
   app.delete('/:id', {
-    preHandler: [app.requirePermission('NODE_DELETE')],
+    schema: { tags: ['Hierarchy'], summary: 'Delete node', description: 'Soft-delete (decommission) a hierarchy node. May require re-authentication.' },
+    preHandler: [app.requirePermission('NODE_DELETE'), app.requireReauth('node:delete')],
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const existing = await prisma.hierarchyNode.findUnique({
@@ -217,6 +241,7 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
 
   // POST /api/hierarchy/:id/identifiers — add physical identifier
   app.post('/:id/identifiers', {
+    schema: { tags: ['Hierarchy'], summary: 'Add identifier', description: 'Add a physical identifier (barcode, QR code, etc.) to a node' },
     preHandler: [app.requirePermission('NODE_UPDATE')],
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
@@ -231,6 +256,13 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
 
     const identifier = await prisma.physicalIdentifier.create({
       data: { nodeId: id, type: parsed.data.type, value: parsed.data.value, createdBy: req.user.sub },
+    });
+
+    await app.auditLog({
+      userId: req.user.username, userRole: req.user.role, action: 'NODE_IDENTIFIER_ADDED',
+      targetType: 'physical_identifier', targetId: identifier.id,
+      afterValue: { nodeId: id, type: parsed.data.type, value: parsed.data.value },
+      ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
     });
 
     return reply.code(201).send(identifier);

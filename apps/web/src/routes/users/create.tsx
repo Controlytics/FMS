@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
+import { ReauthDialog } from '@/components/ui/reauth-dialog';
+import { useReauth } from '@/hooks/use-reauth';
 
 export function CreateUserPage() {
   const { user } = useAuth();
@@ -17,6 +19,7 @@ export function CreateUserPage() {
   const [showPassword, setShowPassword] = useState(false);
 
   const creatableRoles = CREATABLE_ROLES[user?.role as string] ?? [];
+  const { isOpen, operation, executeWithReauth, onReauthSuccess, onReauthClose } = useReauth();
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<CreateUserInput>({
     resolver: zodResolver(createUserSchema),
@@ -26,8 +29,11 @@ export function CreateUserPage() {
   const onSubmit = async (data: CreateUserInput) => {
     setError('');
     try {
-      await apiClient.post('/api/users', data);
-      navigate('/users');
+      await executeWithReauth('Create User', async (token) => {
+        const headers = token ? { 'X-Verification-Token': token } : undefined;
+        await apiClient.post('/api/users', data, headers);
+        navigate('/users');
+      });
     } catch (err: any) {
       setError(err.message || 'Failed to create user');
     }
@@ -35,6 +41,7 @@ export function CreateUserPage() {
 
   return (
     <div className="mx-auto max-w-2xl">
+      <ReauthDialog open={isOpen} onClose={onReauthClose} onSuccess={onReauthSuccess} operation={operation} />
       <Card>
         <CardHeader>
           <CardTitle>Create New User</CardTitle>

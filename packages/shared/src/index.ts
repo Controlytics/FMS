@@ -5,7 +5,7 @@ export type { Role, UserStatus } from './types/roles.js';
 export { AUDIT_ACTIONS } from './types/audit-actions.js';
 export type { AuditAction } from './types/audit-actions.js';
 
-export { PERMISSIONS, ROLE_PERMISSIONS } from './types/permissions.js';
+export { PERMISSIONS, ROLE_PERMISSIONS, rolesWithPermission } from './types/permissions.js';
 export type { Permission } from './types/permissions.js';
 
 // Schemas
@@ -21,8 +21,8 @@ export type { CreateNodeInput, UpdateNodeInput, CreateLinkInput, CreateIdentifie
 export { createTemplateSchema, updateTemplateSchema } from './schemas/templates.js';
 export type { AttributeField, TelemetryPoint, CreateTemplateInput, UpdateTemplateInput } from './schemas/templates.js';
 
-export { passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema } from './schemas/config.js';
-export type { PasswordPolicyConfig, LoginSecurityConfig, SessionConfig, DatetimeConfig } from './schemas/config.js';
+export { passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, reauthConfigSchema, ALL_REAUTH_OPERATIONS } from './schemas/config.js';
+export type { PasswordPolicyConfig, LoginSecurityConfig, SessionConfig, DatetimeConfig, ReauthConfig, ReauthOperation } from './schemas/config.js';
 
 export { auditQuerySchema } from './schemas/audit.js';
 export type { AuditQueryInput } from './schemas/audit.js';

@@ -8,12 +8,16 @@ import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
+import { ReauthDialog } from '@/components/ui/reauth-dialog';
+import { useReauth } from '@/hooks/use-reauth';
 
 export function SessionConfigPage() {
   const navigate = useNavigate();
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const { data } = useSWR('/api/config/session');
+
+  const { isOpen, operation, executeWithReauth, onReauthSuccess, onReauthClose } = useReauth();
 
   const { register, handleSubmit, watch, formState: { isSubmitting } } = useForm<SessionConfig>({
     resolver: zodResolver(sessionConfigSchema),
@@ -25,8 +29,11 @@ export function SessionConfigPage() {
   const onSubmit = async (formData: SessionConfig) => {
     setError(''); setSuccess('');
     try {
-      await apiClient.put('/api/config/session', formData);
-      setSuccess('Session configuration updated successfully');
+      await executeWithReauth('Update Session Config', async (token) => {
+        const headers = token ? { 'X-Verification-Token': token } : undefined;
+        await apiClient.put('/api/config/session', formData, headers);
+        setSuccess('Session configuration updated successfully');
+      });
     } catch (err: any) {
       setError(err.message || 'Failed to update');
     }
@@ -34,6 +41,7 @@ export function SessionConfigPage() {
 
   return (
     <div className="mx-auto max-w-2xl">
+      <ReauthDialog open={isOpen} onClose={onReauthClose} onSuccess={onReauthSuccess} operation={operation} />
       <Card>
         <CardHeader><CardTitle>Session / Auto-Logout Configuration</CardTitle></CardHeader>
         <form onSubmit={handleSubmit(onSubmit)}>

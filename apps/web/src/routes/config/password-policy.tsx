@@ -8,12 +8,15 @@ import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
+import { ReauthDialog } from '@/components/ui/reauth-dialog';
+import { useReauth } from '@/hooks/use-reauth';
 
 export function PasswordPolicyPage() {
   const navigate = useNavigate();
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const { data } = useSWR('/api/config/password-policy');
+  const { isOpen, operation, executeWithReauth, onReauthSuccess, onReauthClose } = useReauth();
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<PasswordPolicyConfig>({
     resolver: zodResolver(passwordPolicySchema),
@@ -24,8 +27,11 @@ export function PasswordPolicyPage() {
     setError('');
     setSuccess('');
     try {
-      await apiClient.put('/api/config/password-policy', formData);
-      setSuccess('Password policy updated successfully');
+      await executeWithReauth('Update Password Policy', async (token) => {
+        const headers = token ? { 'X-Verification-Token': token } : undefined;
+        await apiClient.put('/api/config/password-policy', formData, headers);
+        setSuccess('Password policy updated successfully');
+      });
     } catch (err: any) {
       setError(err.message || 'Failed to update');
     }
@@ -33,6 +39,7 @@ export function PasswordPolicyPage() {
 
   return (
     <div className="mx-auto max-w-2xl">
+      <ReauthDialog open={isOpen} onClose={onReauthClose} onSuccess={onReauthSuccess} operation={operation} />
       <Card>
         <CardHeader>
           <CardTitle>Password Policy Configuration</CardTitle>

@@ -12,6 +12,7 @@ import { Select } from '@/components/ui/select';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 
 export function EditUserPage() {
   const { id } = useParams();
@@ -56,7 +57,7 @@ export function EditUserPage() {
     }
   };
 
-  if (!userData) return <div className="text-muted-foreground">Loading...</div>;
+  if (!userData) return <LoadingSpinner />;
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">

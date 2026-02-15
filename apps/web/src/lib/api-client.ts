@@ -9,6 +9,7 @@ class ApiClient {
     const token = this.getToken();
     const res = await fetch(`${BASE_URL}${url}`, {
       ...options,
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         ...(token && { Authorization: `Bearer ${token}` }),
@@ -31,11 +32,11 @@ class ApiClient {
     return res.json();
   }
 
-  get<T>(url: string) { return this.request<T>(url); }
-  post<T>(url: string, body: unknown) { return this.request<T>(url, { method: 'POST', body: JSON.stringify(body) }); }
-  put<T>(url: string, body: unknown) { return this.request<T>(url, { method: 'PUT', body: JSON.stringify(body) }); }
-  patch<T>(url: string, body: unknown) { return this.request<T>(url, { method: 'PATCH', body: JSON.stringify(body) }); }
-  delete<T>(url: string) { return this.request<T>(url, { method: 'DELETE' }); }
+  get<T>(url: string, headers?: Record<string, string>) { return this.request<T>(url, { headers }); }
+  post<T>(url: string, body: unknown, headers?: Record<string, string>) { return this.request<T>(url, { method: 'POST', body: JSON.stringify(body), headers }); }
+  put<T>(url: string, body: unknown, headers?: Record<string, string>) { return this.request<T>(url, { method: 'PUT', body: JSON.stringify(body), headers }); }
+  patch<T>(url: string, body: unknown, headers?: Record<string, string>) { return this.request<T>(url, { method: 'PATCH', body: JSON.stringify(body), headers }); }
+  delete<T>(url: string, headers?: Record<string, string>) { return this.request<T>(url, { method: 'DELETE', headers }); }
 }
 
 export const apiClient = new ApiClient();

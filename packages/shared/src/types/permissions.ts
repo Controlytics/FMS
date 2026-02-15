@@ -37,6 +37,13 @@ export const PERMISSIONS = {
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 
+/** Returns all roles that have the given permission */
+export function rolesWithPermission(permission: Permission): Role[] {
+  return (Object.entries(ROLE_PERMISSIONS) as [Role, Permission[]][])
+    .filter(([, perms]) => perms.includes(permission))
+    .map(([role]) => role);
+}
+
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   [ROLES.SUPER_ADMIN]: Object.values(PERMISSIONS),
   [ROLES.ADMIN]: [

@@ -38,23 +38,28 @@ async function auditLoggerPlugin(app: FastifyInstance) {
       afterValue: entry.afterValue,
     } as Record<string, unknown>);
 
-    await prisma.auditTrail.create({
-      data: {
-        userId: entry.userId,
-        userName: entry.userName,
-        userRole: entry.userRole,
-        action: entry.action,
-        targetType: entry.targetType,
-        targetId: entry.targetId,
-        beforeValue: entry.beforeValue ? JSON.parse(JSON.stringify(entry.beforeValue)) : undefined,
-        afterValue: entry.afterValue ? JSON.parse(JSON.stringify(entry.afterValue)) : undefined,
-        reason: entry.reason,
-        ipAddress: entry.ipAddress,
-        userAgent: entry.userAgent,
-        sessionId: entry.sessionId,
-        checksum,
-      },
-    });
+    try {
+      await prisma.auditTrail.create({
+        data: {
+          userId: entry.userId,
+          userName: entry.userName,
+          userRole: entry.userRole,
+          action: entry.action,
+          targetType: entry.targetType,
+          targetId: entry.targetId,
+          beforeValue: entry.beforeValue ? JSON.parse(JSON.stringify(entry.beforeValue)) : undefined,
+          afterValue: entry.afterValue ? JSON.parse(JSON.stringify(entry.afterValue)) : undefined,
+          reason: entry.reason,
+          ipAddress: entry.ipAddress,
+          userAgent: entry.userAgent,
+          sessionId: entry.sessionId,
+          checksum,
+        },
+      });
+    } catch (err) {
+      app.log.error({ err, entry }, 'Audit trail logging failed');
+      throw new Error('Audit trail logging failed — operation blocked');
+    }
   });
 }
 

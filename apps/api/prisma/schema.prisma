@@ -80,6 +80,7 @@ model Session {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([isActive, userId])
   @@map("sessions")
 }
 
@@ -160,6 +161,8 @@ model AssetTemplate {
   templateVersions TemplateVersion[]
   hierarchyNodes   HierarchyNode[]
 
+  @@index([status])
+  @@index([nodeType])
   @@map("asset_templates")
 }
 
@@ -200,6 +203,8 @@ model HierarchyNode {
 
   @@index([parentId])
   @@index([nodeType])
+  @@index([unsPath])
+  @@index([status])
   @@map("hierarchy_nodes")
 }
 

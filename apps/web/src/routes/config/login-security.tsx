@@ -9,12 +9,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
+import { ReauthDialog } from '@/components/ui/reauth-dialog';
+import { useReauth } from '@/hooks/use-reauth';
 
 export function LoginSecurityPage() {
   const navigate = useNavigate();
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const { data } = useSWR('/api/config/login-security');
+
+  const { isOpen, operation, executeWithReauth, onReauthSuccess, onReauthClose } = useReauth();
 
   const { register, handleSubmit, watch, formState: { isSubmitting } } = useForm<LoginSecurityConfig>({
     resolver: zodResolver(loginSecuritySchema),
@@ -26,8 +30,11 @@ export function LoginSecurityPage() {
   const onSubmit = async (formData: LoginSecurityConfig) => {
     setError(''); setSuccess('');
     try {
-      await apiClient.put('/api/config/login-security', formData);
-      setSuccess('Login security updated successfully');
+      await executeWithReauth('Update Login Security', async (token) => {
+        const headers = token ? { 'X-Verification-Token': token } : undefined;
+        await apiClient.put('/api/config/login-security', formData, headers);
+        setSuccess('Login security updated successfully');
+      });
     } catch (err: any) {
       setError(err.message || 'Failed to update');
     }
@@ -35,6 +42,7 @@ export function LoginSecurityPage() {
 
   return (
     <div className="mx-auto max-w-2xl">
+      <ReauthDialog open={isOpen} onClose={onReauthClose} onSuccess={onReauthSuccess} operation={operation} />
       <Card>
         <CardHeader><CardTitle>Login Security Configuration</CardTitle></CardHeader>
         <form onSubmit={handleSubmit(onSubmit)}>
