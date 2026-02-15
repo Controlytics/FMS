@@ -33,3 +33,9 @@ npm run dev                   # Start API + Web
 
 ## Environment
 All env vars in root `.env` file. See `.env.example` for reference.
+
+## Post-Change Checklist
+After making code changes, always update the following:
+1. **CHANGELOG.md** — Add entries under the current version for all new features, bug fixes, backend/frontend/shared changes
+2. **API_GUIDE.md** — Document any new or modified API endpoints with method, path, request body, response, query params, and errors
+3. **Swagger compatibility** — Every new API route MUST include full `schema` definitions (`body`, `params`, `querystring`) using Zod schemas from `@digilog/shared` so they appear in Swagger UI at `/api/docs`

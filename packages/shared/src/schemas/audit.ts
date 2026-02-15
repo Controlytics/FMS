@@ -10,4 +10,13 @@ export const auditQuerySchema = z.object({
   limit: z.coerce.number().min(1).max(100).default(20),
 });
 
+export const auditParamsSchema = z.object({
+  id: z.coerce.number().int(),
+});
+
+export const auditVerifyQuerySchema = z.object({
+  startDate: z.string().datetime().optional(),
+  endDate: z.string().datetime().optional(),
+});
+
 export type AuditQueryInput = z.infer<typeof auditQuerySchema>;

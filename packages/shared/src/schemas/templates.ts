@@ -71,5 +71,15 @@ export type TelemetryPoint = z.infer<typeof telemetryPointSchema>;
 export type ExpectedIdentifier = z.infer<typeof expectedIdentifierSchema>;
 export type ExpectedRelationship = z.infer<typeof expectedRelationshipSchema>;
 export type DefaultSchedule = z.infer<typeof defaultScheduleSchema>;
+export const templateQuerySchema = z.object({
+  status: z.string().optional(),
+  nodeType: z.string().optional(),
+  search: z.string().optional(),
+});
+
+export const templateParamsSchema = z.object({
+  id: z.string().uuid(),
+});
+
 export type CreateTemplateInput = z.infer<typeof createTemplateSchema>;
 export type UpdateTemplateInput = z.infer<typeof updateTemplateSchema>;

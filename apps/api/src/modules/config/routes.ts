@@ -1,9 +1,13 @@
 import { type FastifyInstance } from 'fastify';
+import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { prisma } from '../../lib/prisma.js';
-import { passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, reauthConfigSchema, ALL_REAUTH_OPERATIONS } from '@digilog/shared';
+import { passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, reauthConfigSchema, ALL_REAUTH_OPERATIONS, fieldIdParamsSchema, fieldIdBodySchema } from '@digilog/shared';
+import { type ZodTypeAny } from 'zod';
 
-export default async function configRoutes(app: FastifyInstance) {
-  const configEndpoint = (key: string, schema: any, requiresReauth: boolean) => {
+export default async function configRoutes(fastify: FastifyInstance) {
+  const app = fastify.withTypeProvider<ZodTypeProvider>();
+
+  const configEndpoint = (key: string, schema: ZodTypeAny, requiresReauth: boolean) => {
     // GET
     app.get(`/${key}`, {
       schema: { tags: ['Config'], summary: `Get ${key} config`, description: `Get ${key} configuration` },
@@ -15,17 +19,12 @@ export default async function configRoutes(app: FastifyInstance) {
 
     // PUT
     app.put(`/${key}`, {
-      schema: { tags: ['Config'], summary: `Update ${key} config`, description: `Update ${key} configuration. May require re-authentication.` },
+      schema: { tags: ['Config'], summary: `Update ${key} config`, description: `Update ${key} configuration. May require re-authentication.`, body: schema },
       preHandler: [
         app.requirePermission('CONFIG_UPDATE'),
         ...(requiresReauth ? [app.requireReauth(`config:${key}` as any)] : []),
       ],
     }, async (req, reply) => {
-      const parsed = schema.safeParse(req.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-      }
-
       const existing = await prisma.systemConfig.findUnique({ where: { configKey: key } });
       const beforeValue = existing?.configValue;
 
@@ -33,13 +32,13 @@ export default async function configRoutes(app: FastifyInstance) {
         where: { configKey: key },
         create: {
           configKey: key,
-          configValue: parsed.data,
+          configValue: req.body as any,
           configType: 'security',
           requiresReauth: requiresReauth,
           updatedBy: req.user.username,
         },
         update: {
-          configValue: parsed.data,
+          configValue: req.body as any,
           updatedAt: new Date(),
           updatedBy: req.user.username,
         },
@@ -48,11 +47,11 @@ export default async function configRoutes(app: FastifyInstance) {
       await app.auditLog({
         userId: req.user.username, userRole: req.user.role, action: 'CONFIG_CHANGED',
         targetType: 'config', targetId: key,
-        beforeValue: beforeValue as any, afterValue: parsed.data,
+        beforeValue: beforeValue as any, afterValue: req.body as any,
         ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
       });
 
-      return { success: true, data: parsed.data };
+      return { success: true, data: req.body };
     });
   };
 
@@ -75,14 +74,9 @@ export default async function configRoutes(app: FastifyInstance) {
 
   // PUT /api/config/reauth-settings — SUPER_ADMIN only
   app.put('/reauth-settings', {
-    schema: { tags: ['Config'], summary: 'Update reauth settings', description: 'Update re-authentication configuration (SUPER_ADMIN only)' },
+    schema: { tags: ['Config'], summary: 'Update reauth settings', description: 'Update re-authentication configuration (SUPER_ADMIN only)', body: reauthConfigSchema },
     preHandler: [app.requireRole('SUPER_ADMIN')],
   }, async (req, reply) => {
-    const parsed = reauthConfigSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
-
     const existing = await prisma.systemConfig.findUnique({ where: { configKey: 'reauth_settings' } });
     const beforeValue = existing?.configValue;
 
@@ -90,13 +84,13 @@ export default async function configRoutes(app: FastifyInstance) {
       where: { configKey: 'reauth_settings' },
       create: {
         configKey: 'reauth_settings',
-        configValue: parsed.data,
+        configValue: req.body as any,
         configType: 'security',
         requiresReauth: false,
         updatedBy: req.user.username,
       },
       update: {
-        configValue: parsed.data,
+        configValue: req.body as any,
         updatedAt: new Date(),
         updatedBy: req.user.username,
       },
@@ -105,11 +99,11 @@ export default async function configRoutes(app: FastifyInstance) {
     await app.auditLog({
       userId: req.user.username, userRole: req.user.role, action: 'REAUTH_SETTINGS_CHANGED',
       targetType: 'config', targetId: 'reauth_settings',
-      beforeValue: beforeValue as any, afterValue: parsed.data,
+      beforeValue: beforeValue as any, afterValue: req.body as any,
       ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
     });
 
-    return { success: true, data: parsed.data };
+    return { success: true, data: req.body };
   });
 
   // GET /api/config/field-ids — all users
@@ -122,15 +116,11 @@ export default async function configRoutes(app: FastifyInstance) {
 
   // PUT /api/config/field-ids/:fieldId — SUPER_ADMIN only
   app.put('/field-ids/:fieldId', {
-    schema: { tags: ['Config'], summary: 'Update field ID', description: 'Update a field ID display name (SUPER_ADMIN only)' },
+    schema: { tags: ['Config'], summary: 'Update field ID', description: 'Update a field ID display name (SUPER_ADMIN only)', params: fieldIdParamsSchema, body: fieldIdBodySchema },
     preHandler: [app.requirePermission('FIELD_ID_UPDATE')],
   }, async (req, reply) => {
-    const { fieldId } = req.params as { fieldId: string };
-    const { displayName } = req.body as { displayName: string };
-
-    if (!displayName || displayName.trim().length === 0) {
-      return reply.code(400).send({ error: 'displayName is required' });
-    }
+    const { fieldId } = req.params;
+    const { displayName } = req.body;
 
     const field = await prisma.fieldIdConfig.findUnique({ where: { fieldId } });
     if (!field) return reply.code(404).send({ error: 'Field ID not found' });

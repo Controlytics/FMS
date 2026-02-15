@@ -1,4 +1,5 @@
 import { type FastifyInstance } from 'fastify';
+import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { prisma } from '../../lib/prisma.js';
 import { z } from 'zod';
 
@@ -8,7 +9,13 @@ const createPrivilegeSchema = z.object({
   assetType: z.string().optional(),
 });
 
-export default async function privilegeRoutes(app: FastifyInstance) {
+const privilegeParamsSchema = z.object({
+  id: z.string().uuid(),
+});
+
+export default async function privilegeRoutes(fastify: FastifyInstance) {
+  const app = fastify.withTypeProvider<ZodTypeProvider>();
+
   // GET /api/privileges
   app.get('/', {
     schema: { tags: ['Privileges'], summary: 'List delegated privileges' },
@@ -22,20 +29,17 @@ export default async function privilegeRoutes(app: FastifyInstance) {
 
   // POST /api/privileges
   app.post('/', {
-    schema: { tags: ['Privileges'], summary: 'Grant delegated privilege' },
+    schema: { tags: ['Privileges'], summary: 'Grant delegated privilege', body: createPrivilegeSchema },
     preHandler: [app.requireRole('SUPER_ADMIN')],
   }, async (req, reply) => {
-    const parsed = createPrivilegeSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
+    const { role, privilege, assetType } = req.body;
 
     // Check for existing active privilege
     const existing = await prisma.delegatedPrivilege.findFirst({
       where: {
-        role: parsed.data.role,
-        privilege: parsed.data.privilege,
-        assetType: parsed.data.assetType ?? null,
+        role,
+        privilege,
+        assetType: assetType ?? null,
         revokedAt: null,
       },
     });
@@ -45,9 +49,9 @@ export default async function privilegeRoutes(app: FastifyInstance) {
 
     const priv = await prisma.delegatedPrivilege.create({
       data: {
-        role: parsed.data.role,
-        privilege: parsed.data.privilege,
-        assetType: parsed.data.assetType,
+        role,
+        privilege,
+        assetType,
         grantedBy: req.user.sub,
       },
     });
@@ -55,7 +59,7 @@ export default async function privilegeRoutes(app: FastifyInstance) {
     await app.auditLog({
       userId: req.user.username, userRole: req.user.role, action: 'PRIVILEGE_GRANTED',
       targetType: 'delegated_privilege', targetId: priv.id,
-      afterValue: { role: parsed.data.role, privilege: parsed.data.privilege, assetType: parsed.data.assetType },
+      afterValue: { role, privilege, assetType },
       ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
     });
 
@@ -64,10 +68,10 @@ export default async function privilegeRoutes(app: FastifyInstance) {
 
   // DELETE /api/privileges/:id — revoke
   app.delete('/:id', {
-    schema: { tags: ['Privileges'], summary: 'Revoke delegated privilege' },
+    schema: { tags: ['Privileges'], summary: 'Revoke delegated privilege', params: privilegeParamsSchema },
     preHandler: [app.requireRole('SUPER_ADMIN')],
   }, async (req, reply) => {
-    const { id } = req.params as { id: string };
+    const { id } = req.params;
 
     const existing = await prisma.delegatedPrivilege.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'Privilege not found' });

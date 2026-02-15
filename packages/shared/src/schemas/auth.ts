@@ -18,6 +18,10 @@ export const reAuthSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
+export const verifyBodySchema = z.object({
+  password: z.string().min(1, 'Password is required'),
+});
+
 export type LoginInput = z.infer<typeof loginSchema>;
 export type PasswordChangeInput = z.infer<typeof passwordChangeSchema>;
 export type ReAuthInput = z.infer<typeof reAuthSchema>;

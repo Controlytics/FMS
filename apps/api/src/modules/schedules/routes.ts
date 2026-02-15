@@ -1,29 +1,27 @@
 import { type FastifyInstance } from 'fastify';
+import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { prisma } from '../../lib/prisma.js';
-import { createScheduleSchema, updateScheduleSchema, calculateNextDue } from '@digilog/shared';
+import { createScheduleSchema, updateScheduleSchema, calculateNextDue, scheduleParamsSchema, scheduleNodeParamsSchema } from '@digilog/shared';
 
-export default async function scheduleRoutes(app: FastifyInstance) {
+export default async function scheduleRoutes(fastify: FastifyInstance) {
+  const app = fastify.withTypeProvider<ZodTypeProvider>();
+
   // POST /api/schedules — create schedule
   app.post('/', {
-    schema: { tags: ['Schedules'], summary: 'Create schedule' },
+    schema: { tags: ['Schedules'], summary: 'Create schedule', body: createScheduleSchema },
     preHandler: [app.requirePermission('NODE_UPDATE')],
   }, async (req, reply) => {
-    const parsed = createScheduleSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
-
-    const nc = await prisma.nodeChecklist.findUnique({ where: { id: parsed.data.nodeChecklistId } });
+    const nc = await prisma.nodeChecklist.findUnique({ where: { id: req.body.nodeChecklistId } });
     if (!nc) return reply.code(404).send({ error: 'Node checklist not found' });
 
     const schedule = await prisma.schedule.create({
       data: {
-        nodeChecklistId: parsed.data.nodeChecklistId,
-        frequency: parsed.data.frequency,
-        frequencyValue: parsed.data.frequencyValue,
-        cronExpression: parsed.data.cronExpression,
-        toleranceBefore: parsed.data.toleranceBefore,
-        toleranceAfter: parsed.data.toleranceAfter,
+        nodeChecklistId: req.body.nodeChecklistId,
+        frequency: req.body.frequency,
+        frequencyValue: req.body.frequencyValue,
+        cronExpression: req.body.cronExpression,
+        toleranceBefore: req.body.toleranceBefore,
+        toleranceAfter: req.body.toleranceAfter,
         isOnboarding: true,
         createdBy: req.user.sub,
       },
@@ -32,7 +30,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
     await app.auditLog({
       userId: req.user.username, userRole: req.user.role, action: 'SCHEDULE_CREATED',
       targetType: 'schedule', targetId: schedule.id,
-      afterValue: { nodeChecklistId: parsed.data.nodeChecklistId, frequency: parsed.data.frequency },
+      afterValue: { nodeChecklistId: req.body.nodeChecklistId, frequency: req.body.frequency },
       ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
     });
 
@@ -41,9 +39,9 @@ export default async function scheduleRoutes(app: FastifyInstance) {
 
   // GET /api/schedules/node/:id — get schedules for a node
   app.get('/node/:id', {
-    schema: { tags: ['Schedules'], summary: 'Get schedules for node' },
-  }, async (req, reply) => {
-    const { id } = req.params as { id: string };
+    schema: { tags: ['Schedules'], summary: 'Get schedules for node', params: scheduleNodeParamsSchema },
+  }, async (req) => {
+    const { id } = req.params;
 
     const schedules = await prisma.schedule.findMany({
       where: {
@@ -62,32 +60,28 @@ export default async function scheduleRoutes(app: FastifyInstance) {
 
   // PUT /api/schedules/:id
   app.put('/:id', {
-    schema: { tags: ['Schedules'], summary: 'Update schedule' },
+    schema: { tags: ['Schedules'], summary: 'Update schedule', params: scheduleParamsSchema, body: updateScheduleSchema },
     preHandler: [app.requirePermission('NODE_UPDATE')],
   }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const parsed = updateScheduleSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
+    const { id } = req.params;
 
     const existing = await prisma.schedule.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'Schedule not found' });
 
     const updateData: Record<string, unknown> = {};
-    if (parsed.data.frequency) updateData.frequency = parsed.data.frequency;
-    if (parsed.data.frequencyValue !== undefined) updateData.frequencyValue = parsed.data.frequencyValue;
-    if (parsed.data.cronExpression !== undefined) updateData.cronExpression = parsed.data.cronExpression;
-    if (parsed.data.toleranceBefore !== undefined) updateData.toleranceBefore = parsed.data.toleranceBefore;
-    if (parsed.data.toleranceAfter !== undefined) updateData.toleranceAfter = parsed.data.toleranceAfter;
-    if (parsed.data.status) updateData.status = parsed.data.status;
+    if (req.body.frequency) updateData.frequency = req.body.frequency;
+    if (req.body.frequencyValue !== undefined) updateData.frequencyValue = req.body.frequencyValue;
+    if (req.body.cronExpression !== undefined) updateData.cronExpression = req.body.cronExpression;
+    if (req.body.toleranceBefore !== undefined) updateData.toleranceBefore = req.body.toleranceBefore;
+    if (req.body.toleranceAfter !== undefined) updateData.toleranceAfter = req.body.toleranceAfter;
+    if (req.body.status) updateData.status = req.body.status;
 
     // Recalculate nextDueAt if frequency changed and we have a lastPerformedAt
-    if (parsed.data.frequency && existing.lastPerformedAt) {
+    if (req.body.frequency && existing.lastPerformedAt) {
       updateData.nextDueAt = calculateNextDue(
         existing.lastPerformedAt,
-        parsed.data.frequency,
-        parsed.data.frequencyValue ?? existing.frequencyValue ?? undefined,
+        req.body.frequency,
+        req.body.frequencyValue ?? existing.frequencyValue ?? undefined,
       );
     }
 
@@ -106,10 +100,10 @@ export default async function scheduleRoutes(app: FastifyInstance) {
 
   // DELETE /api/schedules/:id
   app.delete('/:id', {
-    schema: { tags: ['Schedules'], summary: 'Delete schedule' },
+    schema: { tags: ['Schedules'], summary: 'Delete schedule', params: scheduleParamsSchema },
     preHandler: [app.requirePermission('NODE_UPDATE')],
   }, async (req, reply) => {
-    const { id } = req.params as { id: string };
+    const { id } = req.params;
 
     const existing = await prisma.schedule.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'Schedule not found' });

@@ -1,8 +1,9 @@
 import { type FastifyInstance } from 'fastify';
+import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { prisma } from '../../lib/prisma.js';
 import { hashPassword, verifyPassword, dummyVerify } from '../../lib/password.js';
 import { signToken, signVerificationToken } from '../../lib/jwt.js';
-import { loginSchema, passwordChangeSchema, passwordPolicySchema } from '@digilog/shared';
+import { loginSchema, passwordChangeSchema, passwordPolicySchema, verifyBodySchema } from '@digilog/shared';
 import { createHash } from 'node:crypto';
 
 async function validatePasswordPolicy(password: string, username: string): Promise<string[]> {
@@ -50,7 +51,9 @@ async function validatePasswordPolicy(password: string, username: string): Promi
   return errors;
 }
 
-export default async function authRoutes(app: FastifyInstance) {
+export default async function authRoutes(fastify: FastifyInstance) {
+  const app = fastify.withTypeProvider<ZodTypeProvider>();
+
   // POST /api/auth/login
   app.post('/login', {
     schema: {
@@ -58,6 +61,7 @@ export default async function authRoutes(app: FastifyInstance) {
       summary: 'Login',
       description: 'Authenticate with username and password',
       security: [],
+      body: loginSchema,
     },
     config: {
       rateLimit: {
@@ -66,12 +70,7 @@ export default async function authRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const parsed = loginSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
-
-    const { username, password } = parsed.data;
+    const { username, password } = req.body;
 
     // Check if user exists
     const user = await prisma.user.findUnique({ where: { username } });
@@ -306,14 +305,10 @@ export default async function authRoutes(app: FastifyInstance) {
       tags: ['Auth'],
       summary: 'Change password',
       description: 'Change current user password (validates full password policy)',
+      body: passwordChangeSchema,
     },
   }, async (req, reply) => {
-    const parsed = passwordChangeSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
-
-    const { currentPassword, newPassword } = parsed.data;
+    const { currentPassword, newPassword } = req.body;
     const user = await prisma.user.findUnique({ where: { id: req.user.sub } });
     if (!user) return reply.code(404).send({ error: 'User not found' });
 
@@ -399,17 +394,13 @@ export default async function authRoutes(app: FastifyInstance) {
       tags: ['Auth'],
       summary: 'Re-authenticate',
       description: 'Verify password for sensitive operations. Returns a short-lived verification token.',
+      body: verifyBodySchema,
     },
   }, async (req, reply) => {
-    const body = req.body as { password?: string };
-    if (!body.password) {
-      return reply.code(400).send({ error: 'Password is required' });
-    }
-
     const user = await prisma.user.findUnique({ where: { id: req.user.sub } });
     if (!user) return reply.code(404).send({ error: 'User not found' });
 
-    const valid = await verifyPassword(body.password, user.passwordHash);
+    const valid = await verifyPassword(req.body.password, user.passwordHash);
     if (!valid) {
       return reply.code(401).send({ error: 'INVALID_PASSWORD', message: 'Password is incorrect' });
     }

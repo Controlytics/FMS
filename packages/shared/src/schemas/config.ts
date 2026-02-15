@@ -54,6 +54,14 @@ export const reauthConfigSchema = z.object({
   enabledOperations: z.array(z.enum(ALL_REAUTH_OPERATIONS)).default([]),
 });
 
+export const fieldIdParamsSchema = z.object({
+  fieldId: z.string().min(1),
+});
+
+export const fieldIdBodySchema = z.object({
+  displayName: z.string().min(1, 'displayName is required').trim(),
+});
+
 export type PasswordPolicyConfig = z.infer<typeof passwordPolicySchema>;
 export type LoginSecurityConfig = z.infer<typeof loginSecuritySchema>;
 export type SessionConfig = z.infer<typeof sessionConfigSchema>;

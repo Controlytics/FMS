@@ -90,6 +90,23 @@ export const approveRejectSchema = z.object({
   signature: z.string().optional(),
 });
 
+export const checklistQuerySchema = z.object({
+  status: z.string().optional(),
+  search: z.string().optional(),
+});
+
+export const checklistParamsSchema = z.object({
+  id: z.string().uuid(),
+});
+
+export const nodeChecklistParamsSchema = z.object({
+  checklistId: z.string().uuid(),
+});
+
+export const recordParamsSchema = z.object({
+  id: z.string().uuid(),
+});
+
 export type CreateChecklistTemplateInput = z.infer<typeof createChecklistTemplateSchema>;
 export type UpdateChecklistTemplateInput = z.infer<typeof updateChecklistTemplateSchema>;
 export type AttachChecklistInput = z.infer<typeof attachChecklistSchema>;

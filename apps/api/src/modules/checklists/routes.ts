@@ -1,4 +1,5 @@
 import { type FastifyInstance } from 'fastify';
+import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { prisma } from '../../lib/prisma.js';
 import { computeChecksum } from '../../lib/hash-chain.js';
 import {
@@ -8,32 +9,33 @@ import {
   submitChecklistRecordSchema,
   approveRejectSchema,
   calculateNextDue,
+  checklistQuerySchema,
+  checklistParamsSchema,
+  nodeChecklistParamsSchema,
+  recordParamsSchema,
 } from '@digilog/shared';
 
-export default async function checklistRoutes(app: FastifyInstance) {
+export default async function checklistRoutes(fastify: FastifyInstance) {
+  const app = fastify.withTypeProvider<ZodTypeProvider>();
+
   // ─── Checklist Templates ───
 
   // POST /api/checklists/templates — create checklist template
   app.post('/templates', {
-    schema: { tags: ['Checklists'], summary: 'Create checklist template' },
+    schema: { tags: ['Checklists'], summary: 'Create checklist template', body: createChecklistTemplateSchema },
     preHandler: [app.requirePermission('TEMPLATE_CREATE')],
   }, async (req, reply) => {
-    const parsed = createChecklistTemplateSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
-
     const template = await prisma.checklistTemplate.create({
       data: {
-        name: parsed.data.name,
-        description: parsed.data.description,
-        questions: parsed.data.questions as any,
-        performedByRole: parsed.data.performedByRole,
-        checkedByEnabled: parsed.data.checkedByEnabled,
-        checkedByRole: parsed.data.checkedByRole,
-        verifiedByEnabled: parsed.data.verifiedByEnabled,
-        verifiedByRole: parsed.data.verifiedByRole,
-        templateId: parsed.data.templateId,
+        name: req.body.name,
+        description: req.body.description,
+        questions: req.body.questions as any,
+        performedByRole: req.body.performedByRole,
+        checkedByEnabled: req.body.checkedByEnabled,
+        checkedByRole: req.body.checkedByRole,
+        verifiedByEnabled: req.body.verifiedByEnabled,
+        verifiedByRole: req.body.verifiedByRole,
+        templateId: req.body.templateId,
         createdBy: req.user.sub,
       },
     });
@@ -50,15 +52,14 @@ export default async function checklistRoutes(app: FastifyInstance) {
 
   // GET /api/checklists/templates
   app.get('/templates', {
-    schema: { tags: ['Checklists'], summary: 'List checklist templates' },
+    schema: { tags: ['Checklists'], summary: 'List checklist templates', querystring: checklistQuerySchema },
   }, async (req) => {
-    const { status, search } = req.query as { status?: string; search?: string };
     const where: Record<string, unknown> = {};
-    if (status) where.status = status;
-    if (search) {
+    if (req.query.status) where.status = req.query.status;
+    if (req.query.search) {
       where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } },
+        { name: { contains: req.query.search, mode: 'insensitive' } },
+        { description: { contains: req.query.search, mode: 'insensitive' } },
       ];
     }
     return prisma.checklistTemplate.findMany({ where: where as any, orderBy: { name: 'asc' } });
@@ -66,9 +67,9 @@ export default async function checklistRoutes(app: FastifyInstance) {
 
   // GET /api/checklists/templates/:id
   app.get('/templates/:id', {
-    schema: { tags: ['Checklists'], summary: 'Get checklist template detail' },
+    schema: { tags: ['Checklists'], summary: 'Get checklist template detail', params: checklistParamsSchema },
   }, async (req, reply) => {
-    const { id } = req.params as { id: string };
+    const { id } = req.params;
     const template = await prisma.checklistTemplate.findUnique({
       where: { id },
       include: { _count: { select: { nodeChecklists: true } } },
@@ -79,28 +80,24 @@ export default async function checklistRoutes(app: FastifyInstance) {
 
   // PUT /api/checklists/templates/:id
   app.put('/templates/:id', {
-    schema: { tags: ['Checklists'], summary: 'Update checklist template' },
+    schema: { tags: ['Checklists'], summary: 'Update checklist template', params: checklistParamsSchema, body: updateChecklistTemplateSchema },
     preHandler: [app.requirePermission('TEMPLATE_UPDATE')],
   }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const parsed = updateChecklistTemplateSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
+    const { id } = req.params;
 
     const existing = await prisma.checklistTemplate.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'Checklist template not found' });
 
     const updateData: Record<string, unknown> = {};
-    if (parsed.data.name) updateData.name = parsed.data.name;
-    if (parsed.data.description !== undefined) updateData.description = parsed.data.description;
-    if (parsed.data.questions) updateData.questions = parsed.data.questions;
-    if (parsed.data.performedByRole !== undefined) updateData.performedByRole = parsed.data.performedByRole;
-    if (parsed.data.checkedByEnabled !== undefined) updateData.checkedByEnabled = parsed.data.checkedByEnabled;
-    if (parsed.data.checkedByRole !== undefined) updateData.checkedByRole = parsed.data.checkedByRole;
-    if (parsed.data.verifiedByEnabled !== undefined) updateData.verifiedByEnabled = parsed.data.verifiedByEnabled;
-    if (parsed.data.verifiedByRole !== undefined) updateData.verifiedByRole = parsed.data.verifiedByRole;
-    if (parsed.data.status) updateData.status = parsed.data.status;
+    if (req.body.name) updateData.name = req.body.name;
+    if (req.body.description !== undefined) updateData.description = req.body.description;
+    if (req.body.questions) updateData.questions = req.body.questions;
+    if (req.body.performedByRole !== undefined) updateData.performedByRole = req.body.performedByRole;
+    if (req.body.checkedByEnabled !== undefined) updateData.checkedByEnabled = req.body.checkedByEnabled;
+    if (req.body.checkedByRole !== undefined) updateData.checkedByRole = req.body.checkedByRole;
+    if (req.body.verifiedByEnabled !== undefined) updateData.verifiedByEnabled = req.body.verifiedByEnabled;
+    if (req.body.verifiedByRole !== undefined) updateData.verifiedByRole = req.body.verifiedByRole;
+    if (req.body.status) updateData.status = req.body.status;
     updateData.version = existing.version + 1;
 
     const template = await prisma.checklistTemplate.update({ where: { id }, data: updateData });
@@ -108,7 +105,7 @@ export default async function checklistRoutes(app: FastifyInstance) {
     await app.auditLog({
       userId: req.user.username, userRole: req.user.role, action: 'CHECKLIST_TEMPLATE_MODIFIED',
       targetType: 'checklist_template', targetId: id,
-      beforeValue: { name: existing.name }, afterValue: updateData, reason: parsed.data.reason,
+      beforeValue: { name: existing.name }, afterValue: updateData, reason: req.body.reason,
       ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
     });
 
@@ -119,27 +116,23 @@ export default async function checklistRoutes(app: FastifyInstance) {
 
   // POST /api/checklists/nodes/:id — attach checklist to node
   app.post('/nodes/:id', {
-    schema: { tags: ['Checklists'], summary: 'Attach checklist to node' },
+    schema: { tags: ['Checklists'], summary: 'Attach checklist to node', params: checklistParamsSchema, body: attachChecklistSchema },
     preHandler: [app.requirePermission('NODE_UPDATE')],
   }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const parsed = attachChecklistSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
+    const { id } = req.params;
 
     const node = await prisma.hierarchyNode.findUnique({ where: { id } });
     if (!node) return reply.code(404).send({ error: 'Node not found' });
 
-    const tmpl = await prisma.checklistTemplate.findUnique({ where: { id: parsed.data.checklistTemplateId } });
+    const tmpl = await prisma.checklistTemplate.findUnique({ where: { id: req.body.checklistTemplateId } });
     if (!tmpl) return reply.code(404).send({ error: 'Checklist template not found' });
 
     const nc = await prisma.nodeChecklist.create({
       data: {
         nodeId: id,
-        checklistTemplateId: parsed.data.checklistTemplateId,
-        enabled: parsed.data.enabled,
-        overrideApproval: parsed.data.overrideApproval,
+        checklistTemplateId: req.body.checklistTemplateId,
+        enabled: req.body.enabled,
+        overrideApproval: req.body.overrideApproval,
       },
       include: { checklistTemplate: { select: { id: true, name: true } } },
     });
@@ -147,7 +140,7 @@ export default async function checklistRoutes(app: FastifyInstance) {
     await app.auditLog({
       userId: req.user.username, userRole: req.user.role, action: 'CHECKLIST_ATTACHED',
       targetType: 'node_checklist', targetId: nc.id,
-      afterValue: { nodeId: id, checklistTemplateId: parsed.data.checklistTemplateId },
+      afterValue: { nodeId: id, checklistTemplateId: req.body.checklistTemplateId },
       ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
     });
 
@@ -156,9 +149,9 @@ export default async function checklistRoutes(app: FastifyInstance) {
 
   // GET /api/checklists/nodes/:id — list checklists for node
   app.get('/nodes/:id', {
-    schema: { tags: ['Checklists'], summary: 'List checklists for node' },
+    schema: { tags: ['Checklists'], summary: 'List checklists for node', params: checklistParamsSchema },
   }, async (req, reply) => {
-    const { id } = req.params as { id: string };
+    const { id } = req.params;
     const node = await prisma.hierarchyNode.findUnique({ where: { id } });
     if (!node) return reply.code(404).send({ error: 'Node not found' });
 
@@ -175,14 +168,10 @@ export default async function checklistRoutes(app: FastifyInstance) {
 
   // POST /api/checklists/:checklistId/records — submit record (Performed By)
   app.post('/:checklistId/records', {
-    schema: { tags: ['Checklists'], summary: 'Submit checklist record' },
+    schema: { tags: ['Checklists'], summary: 'Submit checklist record', params: nodeChecklistParamsSchema, body: submitChecklistRecordSchema },
     preHandler: [app.requirePermission('APPROVAL_REQUEST')],
   }, async (req, reply) => {
-    const { checklistId } = req.params as { checklistId: string };
-    const parsed = submitChecklistRecordSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
+    const { checklistId } = req.params;
 
     const nc = await prisma.nodeChecklist.findUnique({
       where: { id: checklistId },
@@ -201,23 +190,23 @@ export default async function checklistRoutes(app: FastifyInstance) {
     // Compute checksum for immutability
     const checksumData = {
       nodeChecklistId: checklistId,
-      responses: parsed.data.responses,
+      responses: req.body.responses,
       performedBy: req.user.sub,
       performedAt: new Date().toISOString(),
-      performedSignature: parsed.data.performedSignature,
+      performedSignature: req.body.performedSignature,
     };
     const checksum = computeChecksum(checksumData as Record<string, unknown>);
 
     const record = await prisma.checklistRecord.create({
       data: {
         nodeChecklistId: checklistId,
-        responses: parsed.data.responses as any,
+        responses: req.body.responses as any,
         status,
         performedBy: req.user.sub,
         performedAt: new Date(),
-        performedSignature: parsed.data.performedSignature,
-        scheduleRef: parsed.data.scheduleRef ?? 'AD_HOC',
-        deviceInfo: parsed.data.deviceInfo as any,
+        performedSignature: req.body.performedSignature,
+        scheduleRef: req.body.scheduleRef ?? 'AD_HOC',
+        deviceInfo: req.body.deviceInfo as any,
         checksum,
       },
     });
@@ -242,9 +231,9 @@ export default async function checklistRoutes(app: FastifyInstance) {
 
   // GET /api/checklists/:checklistId/records — list records
   app.get('/:checklistId/records', {
-    schema: { tags: ['Checklists'], summary: 'List records for checklist' },
+    schema: { tags: ['Checklists'], summary: 'List records for checklist', params: nodeChecklistParamsSchema },
   }, async (req) => {
-    const { checklistId } = req.params as { checklistId: string };
+    const { checklistId } = req.params;
     return prisma.checklistRecord.findMany({
       where: { nodeChecklistId: checklistId },
       orderBy: { createdAt: 'desc' },
@@ -253,9 +242,9 @@ export default async function checklistRoutes(app: FastifyInstance) {
 
   // GET /api/checklists/records/:id — get single record
   app.get('/records/:id', {
-    schema: { tags: ['Checklists'], summary: 'Get checklist record detail' },
+    schema: { tags: ['Checklists'], summary: 'Get checklist record detail', params: recordParamsSchema },
   }, async (req, reply) => {
-    const { id } = req.params as { id: string };
+    const { id } = req.params;
     const record = await prisma.checklistRecord.findUnique({
       where: { id },
       include: {
@@ -273,14 +262,10 @@ export default async function checklistRoutes(app: FastifyInstance) {
 
   // POST /api/checklists/records/:id/check — Checked By approve/reject
   app.post('/records/:id/check', {
-    schema: { tags: ['Checklists'], summary: 'Check (approve/reject) a record' },
+    schema: { tags: ['Checklists'], summary: 'Check (approve/reject) a record', params: recordParamsSchema, body: approveRejectSchema },
     preHandler: [app.requirePermission('APPROVAL_REVIEW')],
   }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const parsed = approveRejectSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
+    const { id } = req.params;
 
     const record = await prisma.checklistRecord.findUnique({
       where: { id },
@@ -298,7 +283,7 @@ export default async function checklistRoutes(app: FastifyInstance) {
 
     const tmpl = record.nodeChecklist.checklistTemplate;
     let newStatus: string;
-    if (parsed.data.action === 'REJECT') {
+    if (req.body.action === 'REJECT') {
       newStatus = 'REJECTED';
     } else {
       newStatus = tmpl.verifiedByEnabled ? 'PENDING_VERIFY' : 'COMPLETED';
@@ -310,8 +295,8 @@ export default async function checklistRoutes(app: FastifyInstance) {
         status: newStatus,
         checkedBy: req.user.sub,
         checkedAt: new Date(),
-        checkedSignature: parsed.data.signature,
-        checkComments: parsed.data.comments,
+        checkedSignature: req.body.signature,
+        checkComments: req.body.comments,
       },
     });
 
@@ -319,11 +304,11 @@ export default async function checklistRoutes(app: FastifyInstance) {
       await updateScheduleAfterCompletion(record.nodeChecklistId, updated.checkedAt!);
     }
 
-    const auditAction = parsed.data.action === 'REJECT' ? 'CHECKLIST_RECORD_REJECTED' : 'CHECKLIST_RECORD_CHECKED';
+    const auditAction = req.body.action === 'REJECT' ? 'CHECKLIST_RECORD_REJECTED' : 'CHECKLIST_RECORD_CHECKED';
     await app.auditLog({
       userId: req.user.username, userRole: req.user.role, action: auditAction,
       targetType: 'checklist_record', targetId: id,
-      afterValue: { status: newStatus, comments: parsed.data.comments },
+      afterValue: { status: newStatus, comments: req.body.comments },
       ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
     });
 
@@ -332,14 +317,10 @@ export default async function checklistRoutes(app: FastifyInstance) {
 
   // POST /api/checklists/records/:id/verify — Verified By approve/reject
   app.post('/records/:id/verify', {
-    schema: { tags: ['Checklists'], summary: 'Verify (approve/reject) a record' },
+    schema: { tags: ['Checklists'], summary: 'Verify (approve/reject) a record', params: recordParamsSchema, body: approveRejectSchema },
     preHandler: [app.requirePermission('APPROVAL_REVIEW')],
   }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const parsed = approveRejectSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
+    const { id } = req.params;
 
     const record = await prisma.checklistRecord.findUnique({ where: { id } });
     if (!record) return reply.code(404).send({ error: 'Record not found' });
@@ -352,7 +333,7 @@ export default async function checklistRoutes(app: FastifyInstance) {
       return reply.code(403).send({ error: 'Segregation of duties: verifier cannot be performer or checker' });
     }
 
-    const newStatus = parsed.data.action === 'REJECT' ? 'REJECTED' : 'COMPLETED';
+    const newStatus = req.body.action === 'REJECT' ? 'REJECTED' : 'COMPLETED';
 
     const updated = await prisma.checklistRecord.update({
       where: { id },
@@ -360,8 +341,8 @@ export default async function checklistRoutes(app: FastifyInstance) {
         status: newStatus,
         verifiedBy: req.user.sub,
         verifiedAt: new Date(),
-        verifiedSignature: parsed.data.signature,
-        verifyComments: parsed.data.comments,
+        verifiedSignature: req.body.signature,
+        verifyComments: req.body.comments,
       },
     });
 
@@ -369,11 +350,11 @@ export default async function checklistRoutes(app: FastifyInstance) {
       await updateScheduleAfterCompletion(record.nodeChecklistId, updated.verifiedAt!);
     }
 
-    const auditAction = parsed.data.action === 'REJECT' ? 'CHECKLIST_RECORD_REJECTED' : 'CHECKLIST_RECORD_VERIFIED';
+    const auditAction = req.body.action === 'REJECT' ? 'CHECKLIST_RECORD_REJECTED' : 'CHECKLIST_RECORD_VERIFIED';
     await app.auditLog({
       userId: req.user.username, userRole: req.user.role, action: auditAction,
       targetType: 'checklist_record', targetId: id,
-      afterValue: { status: newStatus, comments: parsed.data.comments },
+      afterValue: { status: newStatus, comments: req.body.comments },
       ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
     });
 

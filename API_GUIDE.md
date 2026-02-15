@@ -3,7 +3,8 @@
 Base URL: `http://localhost:3000`
 
 All endpoints require `Authorization: Bearer <token>` unless marked **Public**.
-Swagger UI available at `/api/docs`.
+
+**Interactive API Documentation:** Full OpenAPI spec with request/response models is available at [`/api/docs`](http://localhost:3000/api/docs). All endpoints include Zod-validated schemas for body, params, and query parameters.
 
 ---
 

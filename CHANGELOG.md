@@ -2,6 +2,29 @@
 
 All notable changes to DigiLog are documented in this file.
 
+## [2.1.0] - 2026-02-16
+
+### Swagger/OpenAPI Full Integration
+
+- **Declarative Route Schemas** — All 55 API routes now include full `schema` definitions (`body`, `params`, `querystring`) using Zod schemas, replacing manual `safeParse()` + 400-response blocks with centralized validation via `fastify-type-provider-zod`.
+- **Swagger UI Models** — `/api/docs` now displays request body models, query parameter definitions, and path parameter definitions for every endpoint.
+- **Global Zod Error Handler** — Centralized error handler catches Zod validation errors and returns `{ error: 'VALIDATION_ERROR', details: ... }` format, backward-compatible with the existing frontend.
+- **24 safeParse blocks removed** — All manual `zodSchema.safeParse(req.body)` + 400 response patterns replaced by declarative schema validation.
+- **34 type casts removed** — All `req.params as {...}` and `req.query as {...}` casts replaced by auto-typed parameters from the Zod type provider.
+
+### Backend Changes
+- `apps/api/src/app.ts` — Registered `validatorCompiler`, `serializerCompiler`, `jsonSchemaTransform`, and global Zod error handler
+- All 10 route files converted to use `ZodTypeProvider` with declarative `schema.body`, `schema.params`, `schema.querystring`
+
+### Shared Package Changes
+- Added ~22 new param/query schemas across 9 schema files: `nodeParamsSchema`, `linkParamsSchema`, `hierarchyQuerySchema`, `treeQuerySchema`, `templateQuerySchema`, `templateParamsSchema`, `checklistQuerySchema`, `checklistParamsSchema`, `nodeChecklistParamsSchema`, `recordParamsSchema`, `scheduleParamsSchema`, `scheduleNodeParamsSchema`, `alarmRuleParamsSchema`, `alarmEventsQuerySchema`, `alarmEventParamsSchema`, `auditParamsSchema`, `auditVerifyQuerySchema`, `userParamsSchema`, `fieldIdParamsSchema`, `fieldIdBodySchema`, `verifyBodySchema`
+- `packages/shared/src/index.ts` — Exported all new schemas
+
+### Documentation
+- `CLAUDE.md` — Added Post-Change Checklist section for CHANGELOG, API_GUIDE, and Swagger sync
+
+---
+
 ## [2.0.0] - 2026-02-16
 
 ### Asset Module — Full Implementation

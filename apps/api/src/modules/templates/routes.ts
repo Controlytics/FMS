@@ -1,21 +1,22 @@
 import { type FastifyInstance } from 'fastify';
+import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { prisma } from '../../lib/prisma.js';
-import { createTemplateSchema, updateTemplateSchema } from '@digilog/shared';
+import { createTemplateSchema, updateTemplateSchema, templateQuerySchema, templateParamsSchema } from '@digilog/shared';
 
-export default async function templateRoutes(app: FastifyInstance) {
+export default async function templateRoutes(fastify: FastifyInstance) {
+  const app = fastify.withTypeProvider<ZodTypeProvider>();
+
   // GET /api/templates — list templates
   app.get('/', {
-    schema: { tags: ['Templates'], summary: 'List templates', description: 'List asset templates with optional filters' },
+    schema: { tags: ['Templates'], summary: 'List templates', description: 'List asset templates with optional filters', querystring: templateQuerySchema },
   }, async (req) => {
-    const { status, nodeType, search } = req.query as { status?: string; nodeType?: string; search?: string };
-
     const where: Record<string, unknown> = {};
-    if (status) where.status = status;
-    if (nodeType) where.nodeType = nodeType;
-    if (search) {
+    if (req.query.status) where.status = req.query.status;
+    if (req.query.nodeType) where.nodeType = req.query.nodeType;
+    if (req.query.search) {
       where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } },
+        { name: { contains: req.query.search, mode: 'insensitive' } },
+        { description: { contains: req.query.search, mode: 'insensitive' } },
       ];
     }
 
@@ -29,27 +30,22 @@ export default async function templateRoutes(app: FastifyInstance) {
 
   // POST /api/templates — create template
   app.post('/', {
-    schema: { tags: ['Templates'], summary: 'Create template', description: 'Create a new asset template' },
+    schema: { tags: ['Templates'], summary: 'Create template', description: 'Create a new asset template', body: createTemplateSchema },
     preHandler: [app.requirePermission('TEMPLATE_CREATE')],
   }, async (req, reply) => {
-    const parsed = createTemplateSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
-
     const template = await prisma.assetTemplate.create({
       data: {
-        name: parsed.data.name,
-        nodeType: parsed.data.nodeType,
-        description: parsed.data.description,
-        attributeSchema: parsed.data.attributeSchema as any,
-        telemetrySchema: parsed.data.telemetrySchema as any,
-        checklistSchemas: parsed.data.checklistSchemas as any,
-        expectedIdentifiers: parsed.data.expectedIdentifiers as any,
-        expectedRelationships: parsed.data.expectedRelationships as any,
-        defaultSchedules: parsed.data.defaultSchedules as any,
-        statusLifecycle: parsed.data.statusLifecycle as any,
-        iconUrl: parsed.data.iconUrl || null,
+        name: req.body.name,
+        nodeType: req.body.nodeType,
+        description: req.body.description,
+        attributeSchema: req.body.attributeSchema as any,
+        telemetrySchema: req.body.telemetrySchema as any,
+        checklistSchemas: req.body.checklistSchemas as any,
+        expectedIdentifiers: req.body.expectedIdentifiers as any,
+        expectedRelationships: req.body.expectedRelationships as any,
+        defaultSchedules: req.body.defaultSchedules as any,
+        statusLifecycle: req.body.statusLifecycle as any,
+        iconUrl: req.body.iconUrl || null,
         createdBy: req.user.sub,
       },
     });
@@ -87,9 +83,9 @@ export default async function templateRoutes(app: FastifyInstance) {
 
   // GET /api/templates/:id
   app.get('/:id', {
-    schema: { tags: ['Templates'], summary: 'Get template', description: 'Get template detail with version history' },
+    schema: { tags: ['Templates'], summary: 'Get template', description: 'Get template detail with version history', params: templateParamsSchema },
   }, async (req, reply) => {
-    const { id } = req.params as { id: string };
+    const { id } = req.params;
     const template = await prisma.assetTemplate.findUnique({
       where: { id },
       include: {
@@ -103,14 +99,10 @@ export default async function templateRoutes(app: FastifyInstance) {
 
   // PUT /api/templates/:id
   app.put('/:id', {
-    schema: { tags: ['Templates'], summary: 'Update template', description: 'Update an asset template (creates new version)' },
+    schema: { tags: ['Templates'], summary: 'Update template', description: 'Update an asset template (creates new version)', params: templateParamsSchema, body: updateTemplateSchema },
     preHandler: [app.requirePermission('TEMPLATE_UPDATE')],
   }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const parsed = updateTemplateSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
+    const { id } = req.params;
 
     const existing = await prisma.assetTemplate.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'Template not found' });
@@ -121,17 +113,17 @@ export default async function templateRoutes(app: FastifyInstance) {
     };
 
     const updateData: Record<string, unknown> = {};
-    if (parsed.data.name) updateData.name = parsed.data.name;
-    if (parsed.data.description !== undefined) updateData.description = parsed.data.description;
-    if (parsed.data.attributeSchema) updateData.attributeSchema = parsed.data.attributeSchema;
-    if (parsed.data.telemetrySchema) updateData.telemetrySchema = parsed.data.telemetrySchema;
-    if (parsed.data.checklistSchemas) updateData.checklistSchemas = parsed.data.checklistSchemas;
-    if (parsed.data.expectedIdentifiers) updateData.expectedIdentifiers = parsed.data.expectedIdentifiers;
-    if (parsed.data.expectedRelationships) updateData.expectedRelationships = parsed.data.expectedRelationships;
-    if (parsed.data.defaultSchedules) updateData.defaultSchedules = parsed.data.defaultSchedules;
-    if (parsed.data.statusLifecycle) updateData.statusLifecycle = parsed.data.statusLifecycle;
-    if (parsed.data.iconUrl !== undefined) updateData.iconUrl = parsed.data.iconUrl || null;
-    if (parsed.data.status) updateData.status = parsed.data.status;
+    if (req.body.name) updateData.name = req.body.name;
+    if (req.body.description !== undefined) updateData.description = req.body.description;
+    if (req.body.attributeSchema) updateData.attributeSchema = req.body.attributeSchema;
+    if (req.body.telemetrySchema) updateData.telemetrySchema = req.body.telemetrySchema;
+    if (req.body.checklistSchemas) updateData.checklistSchemas = req.body.checklistSchemas;
+    if (req.body.expectedIdentifiers) updateData.expectedIdentifiers = req.body.expectedIdentifiers;
+    if (req.body.expectedRelationships) updateData.expectedRelationships = req.body.expectedRelationships;
+    if (req.body.defaultSchedules) updateData.defaultSchedules = req.body.defaultSchedules;
+    if (req.body.statusLifecycle) updateData.statusLifecycle = req.body.statusLifecycle;
+    if (req.body.iconUrl !== undefined) updateData.iconUrl = req.body.iconUrl || null;
+    if (req.body.status) updateData.status = req.body.status;
     updateData.version = existing.version + 1;
 
     const template = await prisma.assetTemplate.update({
@@ -156,14 +148,14 @@ export default async function templateRoutes(app: FastifyInstance) {
           statusLifecycle: template.statusLifecycle,
         },
         changedBy: req.user.sub,
-        reason: parsed.data.reason,
+        reason: req.body.reason,
       },
     });
 
     await app.auditLog({
       userId: req.user.username, userRole: req.user.role, action: 'TEMPLATE_MODIFIED',
       targetType: 'asset_template', targetId: id,
-      beforeValue, afterValue: updateData, reason: parsed.data.reason,
+      beforeValue, afterValue: updateData, reason: req.body.reason,
       ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
     });
 
@@ -172,10 +164,10 @@ export default async function templateRoutes(app: FastifyInstance) {
 
   // DELETE /api/templates/:id (soft delete)
   app.delete('/:id', {
-    schema: { tags: ['Templates'], summary: 'Delete template', description: 'Soft-delete (deactivate) a template' },
+    schema: { tags: ['Templates'], summary: 'Delete template', description: 'Soft-delete (deactivate) a template', params: templateParamsSchema },
     preHandler: [app.requirePermission('TEMPLATE_DELETE')],
   }, async (req, reply) => {
-    const { id } = req.params as { id: string };
+    const { id } = req.params;
     const existing = await prisma.assetTemplate.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'Template not found' });
 

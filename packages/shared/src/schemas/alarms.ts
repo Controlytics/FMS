@@ -32,5 +32,19 @@ export const updateAlarmRuleSchema = z.object({
   enabled: z.boolean().optional(),
 });
 
+export const alarmRuleParamsSchema = z.object({
+  id: z.string().uuid(),
+});
+
+export const alarmEventsQuerySchema = z.object({
+  nodeId: z.string().uuid().optional(),
+  status: z.enum(ALARM_EVENT_STATUSES).optional(),
+  severity: z.enum(ALARM_SEVERITIES).optional(),
+});
+
+export const alarmEventParamsSchema = z.object({
+  id: z.string().uuid(),
+});
+
 export type CreateAlarmRuleInput = z.infer<typeof createAlarmRuleSchema>;
 export type UpdateAlarmRuleInput = z.infer<typeof updateAlarmRuleSchema>;

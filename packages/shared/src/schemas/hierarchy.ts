@@ -28,6 +28,23 @@ export const createIdentifierSchema = z.object({
   value: z.string().min(1).max(500),
 });
 
+export const nodeParamsSchema = z.object({
+  id: z.string().uuid(),
+});
+
+export const linkParamsSchema = z.object({
+  linkId: z.string().uuid(),
+});
+
+export const hierarchyQuerySchema = z.object({
+  parentId: z.string().uuid().optional(),
+});
+
+export const treeQuerySchema = z.object({
+  page: z.coerce.number().min(1).default(1),
+  limit: z.coerce.number().min(1).max(1000).default(500),
+});
+
 export type CreateNodeInput = z.infer<typeof createNodeSchema>;
 export type UpdateNodeInput = z.infer<typeof updateNodeSchema>;
 export type CreateLinkInput = z.infer<typeof createLinkSchema>;

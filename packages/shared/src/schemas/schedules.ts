@@ -24,6 +24,14 @@ export const updateScheduleSchema = z.object({
   status: z.enum(['active', 'paused', 'completed']).optional(),
 });
 
+export const scheduleParamsSchema = z.object({
+  id: z.string().uuid(),
+});
+
+export const scheduleNodeParamsSchema = z.object({
+  id: z.string().uuid(),
+});
+
 export type CreateScheduleInput = z.infer<typeof createScheduleSchema>;
 export type UpdateScheduleInput = z.infer<typeof updateScheduleSchema>;
 

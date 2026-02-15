@@ -1,7 +1,8 @@
 import { type FastifyInstance } from 'fastify';
+import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { type PrismaClient } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
-import { createNodeSchema, updateNodeSchema, createIdentifierSchema, createRelationshipSchema, getInverseType, RELATIONSHIP_TYPES } from '@digilog/shared';
+import { createNodeSchema, updateNodeSchema, createIdentifierSchema, createRelationshipSchema, getInverseType, nodeParamsSchema, linkParamsSchema, hierarchyQuerySchema, treeQuerySchema } from '@digilog/shared';
 
 type TransactionClient = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
 
@@ -9,15 +10,15 @@ function toUnsPath(segments: string[]): string {
   return segments.map(s => s.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase()).join('.');
 }
 
-export default async function hierarchyRoutes(app: FastifyInstance) {
+export default async function hierarchyRoutes(fastify: FastifyInstance) {
+  const app = fastify.withTypeProvider<ZodTypeProvider>();
+
   // GET /api/hierarchy — root nodes
   app.get('/', {
-    schema: { tags: ['Hierarchy'], summary: 'List nodes', description: 'List hierarchy nodes (root or by parentId)' },
+    schema: { tags: ['Hierarchy'], summary: 'List nodes', description: 'List hierarchy nodes (root or by parentId)', querystring: hierarchyQuerySchema },
   }, async (req) => {
-    const parentId = (req.query as { parentId?: string }).parentId;
-
     const nodes = await prisma.hierarchyNode.findMany({
-      where: parentId ? { parentId } : { parentId: null },
+      where: req.query.parentId ? { parentId: req.query.parentId } : { parentId: null },
       include: {
         template: { select: { id: true, name: true, nodeType: true } },
         _count: { select: { children: true } },
@@ -30,11 +31,9 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
 
   // GET /api/hierarchy/tree — paginated tree
   app.get('/tree', {
-    schema: { tags: ['Hierarchy'], summary: 'Get tree', description: 'Get hierarchy tree with pagination (default 500 nodes)' },
+    schema: { tags: ['Hierarchy'], summary: 'Get tree', description: 'Get hierarchy tree with pagination (default 500 nodes)', querystring: treeQuerySchema },
   }, async (req) => {
-    const query = req.query as { page?: string; limit?: string };
-    const page = Math.max(1, parseInt(query.page ?? '1', 10) || 1);
-    const limit = Math.min(1000, Math.max(1, parseInt(query.limit ?? '500', 10) || 500));
+    const { page, limit } = req.query;
 
     const [nodes, total] = await Promise.all([
       prisma.hierarchyNode.findMany({
@@ -54,15 +53,10 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
 
   // POST /api/hierarchy — create node
   app.post('/', {
-    schema: { tags: ['Hierarchy'], summary: 'Create node', description: 'Create a new hierarchy node. May require re-authentication.' },
+    schema: { tags: ['Hierarchy'], summary: 'Create node', description: 'Create a new hierarchy node. May require re-authentication.', body: createNodeSchema },
     preHandler: [app.requirePermission('NODE_CREATE'), app.requireReauth('node:create')],
   }, async (req, reply) => {
-    const parsed = createNodeSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
-
-    const { parentId, name, nodeType, templateId, attributes, status } = parsed.data;
+    const { parentId, name, nodeType, templateId, attributes, status } = req.body;
 
     // Build uns_path
     let unsPath: string;
@@ -119,9 +113,9 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
 
   // GET /api/hierarchy/:id
   app.get('/:id', {
-    schema: { tags: ['Hierarchy'], summary: 'Get node', description: 'Get node detail with children, links, and identifiers' },
+    schema: { tags: ['Hierarchy'], summary: 'Get node', description: 'Get node detail with children, links, and identifiers', params: nodeParamsSchema },
   }, async (req, reply) => {
-    const { id } = req.params as { id: string };
+    const { id } = req.params;
     const node = await prisma.hierarchyNode.findUnique({
       where: { id },
       include: {
@@ -146,9 +140,9 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
 
   // GET /api/hierarchy/:id/ancestors — breadcrumb path (single query via unsPath)
   app.get('/:id/ancestors', {
-    schema: { tags: ['Hierarchy'], summary: 'Get ancestors', description: 'Get ancestor chain for breadcrumb navigation' },
+    schema: { tags: ['Hierarchy'], summary: 'Get ancestors', description: 'Get ancestor chain for breadcrumb navigation', params: nodeParamsSchema },
   }, async (req, reply) => {
-    const { id } = req.params as { id: string };
+    const { id } = req.params;
     const node = await prisma.hierarchyNode.findUnique({ where: { id }, select: { id: true, unsPath: true, parentId: true } });
     if (!node) return reply.code(404).send({ error: 'Node not found' });
 
@@ -174,14 +168,10 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
 
   // PUT /api/hierarchy/:id
   app.put('/:id', {
-    schema: { tags: ['Hierarchy'], summary: 'Update node', description: 'Update hierarchy node attributes or status' },
+    schema: { tags: ['Hierarchy'], summary: 'Update node', description: 'Update hierarchy node attributes or status', params: nodeParamsSchema, body: updateNodeSchema },
     preHandler: [app.requirePermission('NODE_UPDATE')],
   }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const parsed = updateNodeSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
+    const { id } = req.params;
 
     const existing = await prisma.hierarchyNode.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'Node not found' });
@@ -189,9 +179,9 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
     const beforeValue = { name: existing.name, attributes: existing.attributes, status: existing.status };
 
     const updateData: Record<string, unknown> = {};
-    if (parsed.data.name) updateData.name = parsed.data.name;
-    if (parsed.data.attributes) updateData.attributes = { ...(existing.attributes as object), ...parsed.data.attributes };
-    if (parsed.data.status) updateData.status = parsed.data.status;
+    if (req.body.name) updateData.name = req.body.name;
+    if (req.body.attributes) updateData.attributes = { ...(existing.attributes as object), ...req.body.attributes };
+    if (req.body.status) updateData.status = req.body.status;
 
     const node = await prisma.hierarchyNode.update({
       where: { id },
@@ -201,7 +191,7 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
     await app.auditLog({
       userId: req.user.username, userRole: req.user.role, action: 'NODE_MODIFIED',
       targetType: 'hierarchy_node', targetId: id,
-      beforeValue, afterValue: updateData, reason: parsed.data.reason,
+      beforeValue, afterValue: updateData, reason: req.body.reason,
       ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
     });
 
@@ -210,10 +200,10 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
 
   // DELETE /api/hierarchy/:id
   app.delete('/:id', {
-    schema: { tags: ['Hierarchy'], summary: 'Delete node', description: 'Soft-delete (decommission) a hierarchy node. May require re-authentication.' },
+    schema: { tags: ['Hierarchy'], summary: 'Delete node', description: 'Soft-delete (decommission) a hierarchy node. May require re-authentication.', params: nodeParamsSchema },
     preHandler: [app.requirePermission('NODE_DELETE'), app.requireReauth('node:delete')],
   }, async (req, reply) => {
-    const { id } = req.params as { id: string };
+    const { id } = req.params;
     const existing = await prisma.hierarchyNode.findUnique({
       where: { id },
       include: { _count: { select: { children: true } } },
@@ -244,10 +234,10 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
 
   // POST /api/hierarchy/:id/identifiers — add physical identifier
   app.post('/:id/identifiers', {
-    schema: { tags: ['Hierarchy'], summary: 'Add identifier', description: 'Add a physical identifier (barcode, QR code, etc.) to a node' },
+    schema: { tags: ['Hierarchy'], summary: 'Add identifier', description: 'Add a physical identifier (barcode, QR code, etc.) to a node', params: nodeParamsSchema },
     preHandler: [app.requirePermission('NODE_UPDATE')],
   }, async (req, reply) => {
-    const { id } = req.params as { id: string };
+    const { id } = req.params;
     const body = { ...(req.body as object), nodeId: id };
     const parsed = createIdentifierSchema.safeParse(body);
     if (!parsed.success) {
@@ -273,15 +263,10 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
 
   // POST /api/hierarchy/links — create bidirectional link
   app.post('/links', {
-    schema: { tags: ['Hierarchy'], summary: 'Create link', description: 'Create a bidirectional relationship between two assets' },
+    schema: { tags: ['Hierarchy'], summary: 'Create link', description: 'Create a bidirectional relationship between two assets', body: createRelationshipSchema },
     preHandler: [app.requirePermission('NODE_UPDATE')],
   }, async (req, reply) => {
-    const parsed = createRelationshipSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
-
-    const { sourceId, targetId, type, customLabel, notes } = parsed.data;
+    const { sourceId, targetId, type, customLabel, notes } = req.body;
 
     // No self-referencing
     if (sourceId === targetId) {
@@ -344,9 +329,9 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
 
   // GET /api/hierarchy/:id/links — get all links for a node
   app.get('/:id/links', {
-    schema: { tags: ['Hierarchy'], summary: 'Get links', description: 'Get all relationships for a node (both directions)' },
+    schema: { tags: ['Hierarchy'], summary: 'Get links', description: 'Get all relationships for a node (both directions)', params: nodeParamsSchema },
   }, async (req, reply) => {
-    const { id } = req.params as { id: string };
+    const { id } = req.params;
 
     const node = await prisma.hierarchyNode.findUnique({ where: { id } });
     if (!node) return reply.code(404).send({ error: 'Node not found' });
@@ -369,10 +354,10 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
 
   // DELETE /api/hierarchy/links/:linkId — delete a link and its inverse
   app.delete('/links/:linkId', {
-    schema: { tags: ['Hierarchy'], summary: 'Delete link', description: 'Delete a relationship and its auto-created inverse' },
+    schema: { tags: ['Hierarchy'], summary: 'Delete link', description: 'Delete a relationship and its auto-created inverse', params: linkParamsSchema },
     preHandler: [app.requirePermission('NODE_UPDATE')],
   }, async (req, reply) => {
-    const { linkId } = req.params as { linkId: string };
+    const { linkId } = req.params;
 
     const link = await prisma.assetLink.findUnique({ where: { id: linkId } });
     if (!link) return reply.code(404).send({ error: 'Link not found' });

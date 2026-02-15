@@ -7,6 +7,13 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
+import {
+  validatorCompiler,
+  serializerCompiler,
+  jsonSchemaTransform,
+  hasZodFastifySchemaValidationErrors,
+  isResponseSerializationError,
+} from 'fastify-type-provider-zod';
 import authPlugin from './plugins/auth.js';
 import auditLoggerPlugin from './plugins/audit-logger.js';
 import rbacPlugin from './plugins/rbac.js';
@@ -27,6 +34,10 @@ const app = Fastify({
   },
 });
 
+// Zod type provider compilers
+app.setValidatorCompiler(validatorCompiler);
+app.setSerializerCompiler(serializerCompiler);
+
 // Swagger / OpenAPI
 await app.register(swagger, {
   openapi: {
@@ -46,8 +57,33 @@ await app.register(swagger, {
     },
     security: [{ bearerAuth: [] }],
   },
+  transform: jsonSchemaTransform,
 });
 await app.register(swaggerUi, { routePrefix: '/api/docs' });
+
+// Global error handler for Zod validation errors
+app.setErrorHandler((error, request, reply) => {
+  if (hasZodFastifySchemaValidationErrors(error)) {
+    return reply.code(400).send({
+      error: 'VALIDATION_ERROR',
+      details: error.validation,
+    });
+  }
+
+  if (isResponseSerializationError(error)) {
+    request.log.error({ err: error }, 'Response serialization error');
+    return reply.code(500).send({ error: 'Internal Server Error' });
+  }
+
+  // Default error handling
+  const err = error as { statusCode?: number; message?: string };
+  if (err.statusCode) {
+    return reply.code(err.statusCode).send({ error: err.message });
+  }
+
+  request.log.error({ err: error }, 'Unhandled error');
+  return reply.code(500).send({ error: 'Internal Server Error' });
+});
 
 // Core middleware
 await app.register(cookie);
