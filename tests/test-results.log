@@ -1,0 +1,706 @@
+
+[1m[46m RUN [49m[22m [36mv4.0.18 [39m[90mF:/claude/digiLogUser[39m
+
+ [32m✓[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mPOST /templates (Create)[2m > [22mshould create a template with attribute and telemetry schemas[32m 35[2mms[22m[39m
+ [32m✓[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mPOST /templates (Create)[2m > [22mshould create template with empty schemas[32m 35[2mms[22m[39m
+ [32m✓[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mPOST /templates (Create)[2m > [22mshould reject template without name[32m 27[2mms[22m[39m
+ [32m✓[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mPOST /templates (Create)[2m > [22mshould reject template without nodeType[32m 29[2mms[22m[39m
+ [32m✓[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mPOST /templates (Create)[2m > [22mshould reject attribute with invalid dataType[32m 26[2mms[22m[39m
+ [32m✓[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mPOST /templates (Create)[2m > [22mshould deny OPERATOR from creating templates[33m 1966[2mms[22m[39m
+ [32m✓[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mPOST /templates (Create)[2m > [22mshould deny VIEWER from creating templates[33m 1964[2mms[22m[39m
+ [32m✓[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mGET /templates (List)[2m > [22mshould list all templates[32m 51[2mms[22m[39m
+ [32m✓[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mGET /templates (List)[2m > [22mshould filter by status[32m 50[2mms[22m[39m
+ [32m✓[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mGET /templates (List)[2m > [22mshould filter by nodeType[32m 32[2mms[22m[39m
+ [32m✓[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mGET /templates (List)[2m > [22mshould search by name[32m 59[2mms[22m[39m
+ [32m✓[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mGET /templates/:id (Detail)[2m > [22mshould return template with version history[32m 28[2mms[22m[39m
+ [32m✓[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mGET /templates/:id (Detail)[2m > [22mshould return 404 for non-existent template[32m 27[2mms[22m[39m
+ [32m✓[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mPUT /templates/:id (Update)[2m > [22mshould update template and increment version[32m 38[2mms[22m[39m
+ [32m✓[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mPUT /templates/:id (Update)[2m > [22mshould create a new version snapshot on update[32m 29[2mms[22m[39m
+ [32m✓[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mPUT /templates/:id (Update)[2m > [22mshould update attributeSchema[32m 35[2mms[22m[39m
+ [32m✓[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mPUT /templates/:id (Update)[2m > [22mshould reject update without reason[32m 30[2mms[22m[39m
+ [32m✓[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mPUT /templates/:id (Update)[2m > [22mshould reject update with empty reason[32m 30[2mms[22m[39m
+ [32m✓[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mPUT /templates/:id (Update)[2m > [22mshould return 404 for non-existent template[32m 28[2mms[22m[39m
+ [31m×[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mDELETE /templates/:id[2m > [22mshould soft-delete (deactivate) a template[32m 64[2mms[22m[39m
+[31m   → expected 400 to be 200 // Object.is equality[39m
+ [31m×[39m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mDELETE /templates/:id[2m > [22mshould return 404 for non-existent template[32m 25[2mms[22m[39m
+[31m   → expected 400 to be 404 // Object.is equality[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users (Create)[2m > [22mshould create a new user with valid data[33m 25395[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users (Create)[2m > [22mshould create user with all roles[33m 1678[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users (Create)[2m > [22mshould set forcePasswordChange on new users[33m 668[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users (Create)[2m > [22mshould reject duplicate username[33m 363[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users (Create)[2m > [22mshould reject duplicate email[33m 376[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users (Create)[2m > [22mshould reject username shorter than 6 chars[32m 33[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users (Create)[2m > [22mshould reject invalid email format[32m 26[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users (Create)[2m > [22mshould reject mismatched passwords[32m 25[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users (Create)[2m > [22mshould reject password shorter than 8 chars[32m 27[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users (Create)[2m > [22mshould reject invalid role[32m 25[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users (Create)[2m > [22mshould reject without auth token[32m 22[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mGET /users (List)[2m > [22mshould list users with pagination[32m 44[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mGET /users (List)[2m > [22mshould filter by role[32m 30[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mGET /users (List)[2m > [22mshould filter by status[32m 28[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mGET /users (List)[2m > [22mshould search users by username/fullName/email[33m 366[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mGET /users (List)[2m > [22mshould not expose passwordHash in list[32m 29[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mGET /users (List)[2m > [22mshould reject without auth[32m 18[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mGET /users/:id (Detail)[2m > [22mshould return user detail[33m 361[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mGET /users/:id (Detail)[2m > [22mshould return 404 for non-existent user[32m 34[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPUT /users/:id (Update)[2m > [22mshould update user fullName[33m 367[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPUT /users/:id (Update)[2m > [22mshould update user email[33m 365[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPUT /users/:id (Update)[2m > [22mshould update user role[33m 362[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPUT /users/:id (Update)[2m > [22mshould reject duplicate email on update[33m 695[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPUT /users/:id (Update)[2m > [22mshould return 404 for non-existent user[32m 27[2mms[22m[39m
+ [31m×[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users/:id/enable & /disable[2m > [22mshould disable a user[33m 372[2mms[22m[39m
+[31m   → expected 400 to be 200 // Object.is equality[39m
+ [31m×[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users/:id/enable & /disable[2m > [22mshould enable a disabled user[33m 411[2mms[22m[39m
+[31m   → expected 400 to be 200 // Object.is equality[39m
+ [31m×[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users/:id/enable & /disable[2m > [22mshould invalidate sessions on disable[33m 2148[2mms[22m[39m
+[31m   → expected 200 to be 401 // Object.is equality[39m
+ [31m×[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users/:id/unlock[2m > [22mshould unlock a locked account[33m 4869[2mms[22m[39m
+[31m   → expected 400 to be 200 // Object.is equality[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users/:id/reset-password[2m > [22mshould reset user password[33m 1058[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users/:id/reset-password[2m > [22mshould reject password shorter than 8 chars on reset[33m 404[2mms[22m[39m
+ [31m×[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mDELETE /users/:id[2m > [22mshould soft-delete (disable) a user[33m 1621[2mms[22m[39m
+[31m   → expected 400 to be 200 // Object.is equality[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mDELETE /users/:id[2m > [22mshould prevent self-deletion[33m 1309[2mms[22m[39m
+ [31m×[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mDELETE /users/:id[2m > [22mshould return 404 for non-existent user[33m 1238[2mms[22m[39m
+[31m   → expected 400 to be 404 // Object.is equality[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mRBAC - Role Restrictions[2m > [22mshould deny OPERATOR from creating users[33m 5746[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mRBAC - Role Restrictions[2m > [22mshould deny VIEWER from listing users[33m 3167[2mms[22m[39m
+ [32m✓[39m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mRBAC - Role Restrictions[2m > [22mshould deny SUPERVISOR from managing users[33m 2083[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mAuthentication Bypass[2m > [22mshould reject request with no Authorization header[32m 44[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mAuthentication Bypass[2m > [22mshould reject empty Bearer token[32m 22[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mAuthentication Bypass[2m > [22mshould reject malformed JWT[32m 22[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mAuthentication Bypass[2m > [22mshould reject JWT with tampered payload[32m 21[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mAuthentication Bypass[2m > [22mshould reject JWT with tampered signature[32m 22[2mms[22m[39m
+ [31m×[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mAuthentication Bypass[2m > [22mshould reject revoked session token[33m 2021[2mms[22m[39m
+[31m   → expected 200 to be 401 // Object.is equality[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mSQL Injection Prevention[2m > [22mshould handle SQL injection in login username[32m 46[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mSQL Injection Prevention[2m > [22mshould handle SQL injection in login password[33m 327[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mSQL Injection Prevention[2m > [22mshould handle SQL injection in user search[32m 28[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mSQL Injection Prevention[2m > [22mshould handle SQL injection in audit filter[32m 29[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mXSS Prevention[2m > [22mshould store XSS payload without executing (stored XSS)[33m 361[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mXSS Prevention[2m > [22mshould handle XSS in query parameters[32m 29[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mRBAC Enforcement[2m > [22mOPERATOR cannot create users[32m 26[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mRBAC Enforcement[2m > [22mVIEWER cannot list users[32m 24[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mRBAC Enforcement[2m > [22mSUPERVISOR cannot update users[33m 356[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mRBAC Enforcement[2m > [22mOPERATOR cannot read config[32m 26[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mRBAC Enforcement[2m > [22mVIEWER cannot update config[32m 24[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mRBAC Enforcement[2m > [22mOPERATOR cannot create templates[32m 29[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mRBAC Enforcement[2m > [22mVIEWER can read templates[32m 46[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mRBAC Enforcement[2m > [22mVIEWER cannot create nodes[32m 29[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mRBAC Enforcement[2m > [22mOPERATOR can read hierarchy[32m 45[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mRBAC Enforcement[2m > [22mVIEWER can read audit trail[32m 30[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mRBAC Enforcement[2m > [22mOPERATOR can read audit trail[32m 26[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mRate Limiting[2m > [22mshould enforce rate limit on login endpoint[32m 98[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mHealth Endpoint[2m > [22mshould respond without auth[32m 19[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mCORS Headers[2m > [22mshould include CORS headers in response[32m 22[2mms[22m[39m
+ [32m✓[39m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mSecurity Headers[2m > [22mshould include security headers from helmet[32m 19[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPOST /hierarchy (Create)[2m > [22mshould create a root node[32m 33[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPOST /hierarchy (Create)[2m > [22mshould create a child node[32m 34[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPOST /hierarchy (Create)[2m > [22mshould create node with template and merge attributes[32m 34[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPOST /hierarchy (Create)[2m > [22mshould reject node without name[32m 33[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPOST /hierarchy (Create)[2m > [22mshould reject node without nodeType[32m 24[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPOST /hierarchy (Create)[2m > [22mshould reject non-existent parentId[32m 28[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPOST /hierarchy (Create)[2m > [22mshould reject non-existent templateId[32m 25[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPOST /hierarchy (Create)[2m > [22mshould deny VIEWER from creating nodes[33m 1966[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mGET /hierarchy (List & Tree)[2m > [22mshould list root nodes[32m 63[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mGET /hierarchy (List & Tree)[2m > [22mshould list children of a parent[32m 29[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mGET /hierarchy (List & Tree)[2m > [22mshould return full tree[32m 29[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mGET /hierarchy/:id (Detail)[2m > [22mshould return node with children, parent, template, identifiers[32m 32[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mGET /hierarchy/:id (Detail)[2m > [22mshould return 404 for non-existent node[32m 26[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mGET /hierarchy/:id/ancestors[2m > [22mshould return ancestor chain for child node[32m 31[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mGET /hierarchy/:id/ancestors[2m > [22mshould return empty array for root node[32m 25[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPUT /hierarchy/:id (Update)[2m > [22mshould update node name[32m 35[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPUT /hierarchy/:id (Update)[2m > [22mshould update node attributes[32m 30[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPUT /hierarchy/:id (Update)[2m > [22mshould update node status[32m 60[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPUT /hierarchy/:id (Update)[2m > [22mshould reject update without reason[32m 27[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPUT /hierarchy/:id (Update)[2m > [22mshould return 404 for non-existent node[32m 25[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPOST /hierarchy/:id/identifiers[2m > [22mshould add QR identifier to node[32m 30[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPOST /hierarchy/:id/identifiers[2m > [22mshould add RFID identifier[32m 28[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPOST /hierarchy/:id/identifiers[2m > [22mshould add BARCODE identifier[32m 29[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPOST /hierarchy/:id/identifiers[2m > [22mshould add NFC identifier[32m 27[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPOST /hierarchy/:id/identifiers[2m > [22mshould add MANUAL identifier[32m 30[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPOST /hierarchy/:id/identifiers[2m > [22mshould reject invalid identifier type[32m 24[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPOST /hierarchy/:id/identifiers[2m > [22mshould reject empty value[32m 26[2mms[22m[39m
+ [32m✓[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mPOST /hierarchy/:id/identifiers[2m > [22mshould return 404 for non-existent node[32m 25[2mms[22m[39m
+ [31m×[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mDELETE /hierarchy/:id[2m > [22mshould reject deleting node with children[32m 35[2mms[22m[39m
+[31m   → expected 'Bad Request' to contain 'children'[39m
+ [31m×[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mDELETE /hierarchy/:id[2m > [22mshould soft-delete (decommission) a leaf node[32m 75[2mms[22m[39m
+[31m   → expected 400 to be 200 // Object.is equality[39m
+ [31m×[39m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mDELETE /hierarchy/:id[2m > [22mshould return 404 for non-existent node[32m 25[2mms[22m[39m
+[31m   → expected 400 to be 404 // Object.is equality[39m
+ [32m✓[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/login[2m > [22mshould login with valid credentials[33m 351[2mms[22m[39m
+ [32m✓[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/login[2m > [22mshould reject empty username[32m 22[2mms[22m[39m
+ [32m✓[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/login[2m > [22mshould reject empty password[32m 20[2mms[22m[39m
+ [32m✓[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/login[2m > [22mshould reject missing body fields[32m 22[2mms[22m[39m
+ [32m✓[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/login[2m > [22mshould return 401 for wrong password[33m 326[2mms[22m[39m
+ [32m✓[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/login[2m > [22mshould return 401 for non-existent user (no user enumeration)[32m 25[2mms[22m[39m
+ [31m×[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/login[2m > [22mshould show attemptsRemaining on wrong password for existing user[32m 25[2mms[22m[39m
+[31m   → createTestUser failed: {"error":"SESSION_INVALID","message":"Session terminated"}[39m
+ [32m✓[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/login[2m > [22mshould return user info including role[33m 333[2mms[22m[39m
+ [31m×[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mGET /auth/me[2m > [22mshould return current user info with valid token[32m 25[2mms[22m[39m
+[31m   → expected 401 to be 200 // Object.is equality[39m
+ [32m✓[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mGET /auth/me[2m > [22mshould return 401 without token[32m 20[2mms[22m[39m
+ [32m✓[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mGET /auth/me[2m > [22mshould return 401 with invalid token[32m 18[2mms[22m[39m
+ [32m✓[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mGET /auth/me[2m > [22mshould return 401 with expired/tampered token[32m 21[2mms[22m[39m
+ [32m✓[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mGET /auth/me[2m > [22mshould NOT return passwordHash in response[32m 22[2mms[22m[39m
+ [31m×[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/logout[2m > [22mshould logout and invalidate session[33m 360[2mms[22m[39m
+[31m   → expected 400 to be 200 // Object.is equality[39m
+ [32m✓[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/logout[2m > [22mshould reject logout without token[32m 21[2mms[22m[39m
+ [31m×[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/change-password[2m > [22mshould change password with valid data[32m 40[2mms[22m[39m
+[31m   → createTestUser failed: {"error":"SESSION_INVALID","message":"Session terminated"}[39m
+ [31m×[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/change-password[2m > [22mshould reject when current password is wrong[32m 24[2mms[22m[39m
+[31m   → expected 401 to be 400 // Object.is equality[39m
+ [31m×[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/change-password[2m > [22mshould reject when passwords do not match[32m 22[2mms[22m[39m
+[31m   → expected 401 to be 400 // Object.is equality[39m
+ [31m×[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/change-password[2m > [22mshould reject password shorter than 8 chars[32m 25[2mms[22m[39m
+[31m   → expected 401 to be 400 // Object.is equality[39m
+ [32m✓[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/change-password[2m > [22mshould reject without auth token[32m 20[2mms[22m[39m
+ [31m×[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/verify[2m > [22mshould return verification token with correct password[32m 25[2mms[22m[39m
+[31m   → expected 401 to be 200 // Object.is equality[39m
+ [31m×[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/verify[2m > [22mshould reject with wrong password[32m 22[2mms[22m[39m
+[31m   → expected 'SESSION_INVALID' to be 'INVALID_PASSWORD' // Object.is equality[39m
+ [31m×[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/verify[2m > [22mshould reject without password field[32m 24[2mms[22m[39m
+[31m   → expected 401 to be 400 // Object.is equality[39m
+ [32m✓[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/verify[2m > [22mshould reject without auth token[32m 19[2mms[22m[39m
+ [31m×[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mAccount Lockout[2m > [22mshould lock account after max failed attempts[32m 24[2mms[22m[39m
+[31m   → createTestUser failed: {"error":"SESSION_INVALID","message":"Session terminated"}[39m
+ [31m×[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mAccount Lockout[2m > [22mshould not allow login even with correct password when locked[32m 21[2mms[22m[39m
+[31m   → createTestUser failed: {"error":"SESSION_INVALID","message":"Session terminated"}[39m
+ [31m×[39m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mDisabled Account[2m > [22mshould reject login for disabled user[32m 24[2mms[22m[39m
+[31m   → createTestUser failed: {"error":"SESSION_INVALID","message":"Session terminated"}[39m
+ [32m✓[39m tests/06-audit.test.ts[2m > [22mAUDIT TRAIL MODULE[2m > [22mGET /audit (List)[2m > [22mshould list audit records with pagination[32m 28[2mms[22m[39m
+ [32m✓[39m tests/06-audit.test.ts[2m > [22mAUDIT TRAIL MODULE[2m > [22mGET /audit (List)[2m > [22mshould have required audit fields[32m 29[2mms[22m[39m
+ [32m✓[39m tests/06-audit.test.ts[2m > [22mAUDIT TRAIL MODULE[2m > [22mGET /audit (List)[2m > [22mshould filter by action type[33m 47057[2mms[22m[39m
+ [32m✓[39m tests/06-audit.test.ts[2m > [22mAUDIT TRAIL MODULE[2m > [22mGET /audit (List)[2m > [22mshould filter by targetType[32m 30[2mms[22m[39m
+ [32m✓[39m tests/06-audit.test.ts[2m > [22mAUDIT TRAIL MODULE[2m > [22mGET /audit (List)[2m > [22mshould filter by date range[32m 30[2mms[22m[39m
+ [32m✓[39m tests/06-audit.test.ts[2m > [22mAUDIT TRAIL MODULE[2m > [22mGET /audit (List)[2m > [22mshould support page 2[32m 54[2mms[22m[39m
+ [31m×[39m tests/06-audit.test.ts[2m > [22mAUDIT TRAIL MODULE[2m > [22mGET /audit (List)[2m > [22mshould reject limit above 100[32m 31[2mms[22m[39m
+[31m   → expected [ 200, 400 ] to include 500[39m
+ [32m✓[39m tests/06-audit.test.ts[2m > [22mAUDIT TRAIL MODULE[2m > [22mGET /audit (List)[2m > [22mshould reject without auth[32m 18[2mms[22m[39m
+ [32m✓[39m tests/06-audit.test.ts[2m > [22mAUDIT TRAIL MODULE[2m > [22mGET /audit/:id (Detail)[2m > [22mshould return audit record detail with checksum[32m 50[2mms[22m[39m
+ [32m✓[39m tests/06-audit.test.ts[2m > [22mAUDIT TRAIL MODULE[2m > [22mGET /audit/:id (Detail)[2m > [22mshould return 404 for non-existent record[32m 26[2mms[22m[39m
+ [32m✓[39m tests/06-audit.test.ts[2m > [22mAUDIT TRAIL MODULE[2m > [22mAudit Integrity[2m > [22mshould have checksum on all records[32m 29[2mms[22m[39m
+ [32m✓[39m tests/06-audit.test.ts[2m > [22mAUDIT TRAIL MODULE[2m > [22mAudit Integrity[2m > [22mshould record IP address and user agent[32m 26[2mms[22m[39m
+ [32m✓[39m tests/06-audit.test.ts[2m > [22mAUDIT TRAIL MODULE[2m > [22mAudit Integrity[2m > [22maudit records should contain before/after values for mutations[32m 25[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mInvalid Request Bodies[2m > [22mshould handle invalid JSON in request body[32m 42[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mInvalid Request Bodies[2m > [22mshould handle null body[32m 20[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mInvalid Request Bodies[2m > [22mshould handle array body when object expected[32m 38[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mInvalid Request Bodies[2m > [22mshould handle numeric body when object expected[32m 40[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mBoundary Values[2m > [22mshould reject username with exactly 5 chars (min 6)[32m 47[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mBoundary Values[2m > [22mshould accept username with exactly 6 chars (min boundary)[33m 352[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mBoundary Values[2m > [22mshould reject username with 7 chars (above max of 6)[32m 45[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mBoundary Values[2m > [22mshould handle pagination page=0 (below min)[32m 46[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mBoundary Values[2m > [22mshould handle negative page number[32m 42[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mBoundary Values[2m > [22mshould handle limit=0[32m 43[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mBoundary Values[2m > [22mshould handle extremely large page number[32m 48[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mSpecial Characters in Data[2m > [22mshould handle unicode characters in fullName[33m 355[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mSpecial Characters in Data[2m > [22mshould handle emojis in fullName[33m 355[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mSpecial Characters in Data[2m > [22mshould handle special chars in department field[33m 353[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mSpecial Characters in Data[2m > [22mshould handle special characters in node names[33m 2092[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mSpecial Characters in Data[2m > [22mshould handle special characters in template description[33m 2060[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mNon-existent Endpoints[2m > [22mshould return 404 for unknown API route[32m 46[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mNon-existent Endpoints[2m > [22mshould return 404 for unknown nested route[32m 45[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mHTTP Method Validation[2m > [22mshould reject GET on login endpoint[32m 35[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mHTTP Method Validation[2m > [22mshould reject POST on users list endpoint[32m 44[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mConcurrent Operations[2m > [22mshould handle concurrent user creation without conflicts[33m 918[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mConcurrent Operations[2m > [22mshould handle concurrent reads[32m 79[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mPassword Policy Enforcement on Change[2m > [22mshould reject password same as username[33m 746[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mPassword Policy Enforcement on Change[2m > [22mshould reject password containing username[33m 746[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mPassword Policy Enforcement on Change[2m > [22mshould reject reusing temporary password[33m 1044[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mRole Hierarchy Enforcement[2m > [22mADMIN should be able to create ADMIN, SUPERVISOR, MAINTENANCE, OPERATOR, VIEWER[33m 3855[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mRole Hierarchy Enforcement[2m > [22mADMIN should NOT be able to create SUPER_ADMIN[33m 2301[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mLarge Payloads[2m > [22mshould handle large attribute objects in hierarchy nodes[33m 2093[2mms[22m[39m
+ [32m✓[39m tests/08-edge-cases.test.ts[2m > [22mEDGE CASES & NEGATIVE TESTS[2m > [22mLarge Payloads[2m > [22mshould handle template with many attribute fields[33m 2153[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/password-policy[2m > [22mshould read password policy[32m 59[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/password-policy[2m > [22mshould update password policy with valid data[32m 107[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/password-policy[2m > [22mshould reject minLength below 8[32m 25[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/password-policy[2m > [22mshould reject minLength above 32[32m 25[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/password-policy[2m > [22mshould reject preventReuseCount above 24[32m 26[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/password-policy[2m > [22mshould deny non-admin access[33m 1956[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/login-security[2m > [22mshould read login security config[32m 27[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/login-security[2m > [22mshould update login security[33m 38127[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/login-security[2m > [22mshould reject maxFailedAttempts below 3[32m 24[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/login-security[2m > [22mshould reject maxFailedAttempts above 10[32m 25[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/login-security[2m > [22mshould reject invalid lockoutType[32m 27[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/login-security[2m > [22mshould reject lockoutDuration below 15[32m 25[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/session[2m > [22mshould read session config[32m 24[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/session[2m > [22mshould update session config[32m 81[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/session[2m > [22mshould reject idleTimeout below 5[32m 24[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/session[2m > [22mshould reject idleTimeout above 60[32m 25[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/session[2m > [22mshould reject warningMinutes above 5[32m 24[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/datetime[2m > [22mshould read datetime config[32m 25[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/datetime[2m > [22mshould update datetime config[32m 87[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/datetime[2m > [22mshould accept all valid date formats[32m 162[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/datetime[2m > [22mshould reject invalid date format[32m 27[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET/PUT /config/datetime[2m > [22mshould reject invalid time format[32m 26[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET /config/field-ids[2m > [22mshould list all field IDs[32m 26[2mms[22m[39m
+ [32m✓[39m tests/03-config.test.ts[2m > [22mCONFIG MODULE[2m > [22mGET /config/field-ids[2m > [22mshould be accessible by all authenticated users[33m 1982[2mms[22m[39m
+ [32m✓[39m tests/09-frontend.test.ts[2m > [22mFRONTEND INTEGRATION TESTS[2m > [22mPage Accessibility[2m > [22mshould serve the main HTML page[32m 73[2mms[22m[39m
+ [32m✓[39m tests/09-frontend.test.ts[2m > [22mFRONTEND INTEGRATION TESTS[2m > [22mPage Accessibility[2m > [22mshould serve index.html with correct content-type[32m 278[2mms[22m[39m
+ [32m✓[39m tests/09-frontend.test.ts[2m > [22mFRONTEND INTEGRATION TESTS[2m > [22mPage Accessibility[2m > [22mshould serve JavaScript bundles[32m 30[2mms[22m[39m
+ [32m✓[39m tests/09-frontend.test.ts[2m > [22mFRONTEND INTEGRATION TESTS[2m > [22mPage Accessibility[2m > [22mshould serve the login page at /login[32m 24[2mms[22m[39m
+ [32m✓[39m tests/09-frontend.test.ts[2m > [22mFRONTEND INTEGRATION TESTS[2m > [22mPage Accessibility[2m > [22mshould serve SPA routes (all return index.html)[32m 91[2mms[22m[39m
+ [32m✓[39m tests/09-frontend.test.ts[2m > [22mFRONTEND INTEGRATION TESTS[2m > [22mStatic Assets[2m > [22mshould serve CSS or JS bundles for styling[32m 22[2mms[22m[39m
+ [32m✓[39m tests/09-frontend.test.ts[2m > [22mFRONTEND INTEGRATION TESTS[2m > [22mAPI Proxy[2m > [22mshould proxy /api requests to backend[32m 27[2mms[22m[39m
+ [32m✓[39m tests/09-frontend.test.ts[2m > [22mFRONTEND INTEGRATION TESTS[2m > [22mResponse Times[2m > [22mshould load main page within 5 seconds[32m 26[2mms[22m[39m
+ [32m✓[39m tests/09-frontend.test.ts[2m > [22mFRONTEND INTEGRATION TESTS[2m > [22mResponse Times[2m > [22mshould respond to API health check within 2 seconds[32m 42[2mms[22m[39m
+
+[31m⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 26 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/login[2m > [22mshould show attemptsRemaining on wrong password for existing user
+[31m[1mError[22m: createTestUser failed: {"error":"SESSION_INVALID","message":"Session terminated"}[39m
+[36m [2m❯[22m createTestUser tests/helpers.ts:[2m127:11[22m[39m
+    [90m125| [39m  [35mconst[39m res [33m=[39m [35mawait[39m [34mapi[39m([32m'POST'[39m[33m,[39m [32m'/users'[39m[33m,[39m payload[33m,[39m adminToken)[33m;[39m
+    [90m126| [39m  [35mif[39m ([33m![39mres[33m.[39mok) {
+    [90m127| [39m    throw new Error(`createTestUser failed: ${JSON.stringify(res.data)…
+    [90m   | [39m          [31m^[39m
+    [90m128| [39m  }
+    [90m129| [39m
+[90m [2m❯[22m tests/01-auth.test.ts:[2m66:20[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mGET /auth/me[2m > [22mshould return current user info with valid token
+[31m[1mAssertionError[22m: expected 401 to be 200 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 200[39m
+[31m+ 401[39m
+
+[36m [2m❯[22m tests/01-auth.test.ts:[2m94:26[22m[39m
+    [90m 92| [39m    it('should return current user info with valid token', async () =>…
+    [90m 93| [39m      [35mconst[39m res [33m=[39m [35mawait[39m [34mapi[39m([32m'GET'[39m[33m,[39m [32m'/auth/me'[39m[33m,[39m [35mnull[39m[33m,[39m adminToken)[33m;[39m
+    [90m 94| [39m      [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m200[39m)[33m;[39m
+    [90m   | [39m                         [31m^[39m
+    [90m 95| [39m      [34mexpect[39m(res[33m.[39mdata[33m.[39musername)[33m.[39m[34mtoBe[39m([32m'admin'[39m)[33m;[39m
+    [90m 96| [39m      [34mexpect[39m(res[33m.[39mdata[33m.[39mid)[33m.[39m[34mtoBeDefined[39m()[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/logout[2m > [22mshould logout and invalidate session
+[31m[1mAssertionError[22m: expected 400 to be 200 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 200[39m
+[31m+ 400[39m
+
+[36m [2m❯[22m tests/01-auth.test.ts:[2m139:32[22m[39m
+    [90m137| [39m      [90m// Logout[39m
+    [90m138| [39m      const logoutRes = await api('POST', '/auth/logout', null, tempTo…
+    [90m139| [39m      [34mexpect[39m(logoutRes[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m200[39m)[33m;[39m
+    [90m   | [39m                               [31m^[39m
+    [90m140| [39m      [34mexpect[39m(logoutRes[33m.[39mdata[33m.[39msuccess)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m141| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/change-password[2m > [22mshould change password with valid data
+[31m[1mError[22m: createTestUser failed: {"error":"SESSION_INVALID","message":"Session terminated"}[39m
+[36m [2m❯[22m createTestUser tests/helpers.ts:[2m127:11[22m[39m
+    [90m125| [39m  [35mconst[39m res [33m=[39m [35mawait[39m [34mapi[39m([32m'POST'[39m[33m,[39m [32m'/users'[39m[33m,[39m payload[33m,[39m adminToken)[33m;[39m
+    [90m126| [39m  [35mif[39m ([33m![39mres[33m.[39mok) {
+    [90m127| [39m    throw new Error(`createTestUser failed: ${JSON.stringify(res.data)…
+    [90m   | [39m          [31m^[39m
+    [90m128| [39m  }
+    [90m129| [39m
+[90m [2m❯[22m tests/01-auth.test.ts:[2m163:20[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/change-password[2m > [22mshould reject when current password is wrong
+[31m[1mAssertionError[22m: expected 401 to be 400 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 400[39m
+[31m+ 401[39m
+
+[36m [2m❯[22m tests/01-auth.test.ts:[2m199:26[22m[39m
+    [90m197| [39m        confirmPassword[33m:[39m [32m'NewPass@12345'[39m[33m,[39m
+    [90m198| [39m      }[33m,[39m adminToken)[33m;[39m
+    [90m199| [39m      [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m400[39m)[33m;[39m
+    [90m   | [39m                         [31m^[39m
+    [90m200| [39m      [34mexpect[39m(res[33m.[39mdata[33m.[39merror)[33m.[39m[34mtoBe[39m([32m'INVALID_PASSWORD'[39m)[33m;[39m
+    [90m201| [39m    })[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/change-password[2m > [22mshould reject when passwords do not match
+[31m[1mAssertionError[22m: expected 401 to be 400 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 400[39m
+[31m+ 401[39m
+
+[36m [2m❯[22m tests/01-auth.test.ts:[2m209:26[22m[39m
+    [90m207| [39m        confirmPassword[33m:[39m [32m'DifferentPass@12345'[39m[33m,[39m
+    [90m208| [39m      }[33m,[39m adminToken)[33m;[39m
+    [90m209| [39m      [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m400[39m)[33m;[39m
+    [90m   | [39m                         [31m^[39m
+    [90m210| [39m    })[33m;[39m
+    [90m211| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/change-password[2m > [22mshould reject password shorter than 8 chars
+[31m[1mAssertionError[22m: expected 401 to be 400 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 400[39m
+[31m+ 401[39m
+
+[36m [2m❯[22m tests/01-auth.test.ts:[2m218:26[22m[39m
+    [90m216| [39m        confirmPassword[33m:[39m [32m'Sh@1t'[39m[33m,[39m
+    [90m217| [39m      }[33m,[39m adminToken)[33m;[39m
+    [90m218| [39m      [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m400[39m)[33m;[39m
+    [90m   | [39m                         [31m^[39m
+    [90m219| [39m    })[33m;[39m
+    [90m220| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/verify[2m > [22mshould return verification token with correct password
+[31m[1mAssertionError[22m: expected 401 to be 200 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 200[39m
+[31m+ 401[39m
+
+[36m [2m❯[22m tests/01-auth.test.ts:[2m237:26[22m[39m
+    [90m235| [39m        password[33m:[39m [34mgetAdminPassword[39m()[33m,[39m
+    [90m236| [39m      }[33m,[39m adminToken)[33m;[39m
+    [90m237| [39m      [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m200[39m)[33m;[39m
+    [90m   | [39m                         [31m^[39m
+    [90m238| [39m      [34mexpect[39m(res[33m.[39mdata[33m.[39msuccess)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m239| [39m      [34mexpect[39m(res[33m.[39mdata[33m.[39mverificationToken)[33m.[39m[34mtoBeDefined[39m()[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/verify[2m > [22mshould reject with wrong password
+[31m[1mAssertionError[22m: expected 'SESSION_INVALID' to be 'INVALID_PASSWORD' // Object.is equality[39m
+
+Expected: [32m"[7mINVALID_PASSWOR[27mD"[39m
+Received: [31m"[7mSESSION_INVALI[27mD"[39m
+
+[36m [2m❯[22m tests/01-auth.test.ts:[2m247:30[22m[39m
+    [90m245| [39m      }[33m,[39m adminToken)[33m;[39m
+    [90m246| [39m      [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m401[39m)[33m;[39m
+    [90m247| [39m      [34mexpect[39m(res[33m.[39mdata[33m.[39merror)[33m.[39m[34mtoBe[39m([32m'INVALID_PASSWORD'[39m)[33m;[39m
+    [90m   | [39m                             [31m^[39m
+    [90m248| [39m    })[33m;[39m
+    [90m249| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mPOST /auth/verify[2m > [22mshould reject without password field
+[31m[1mAssertionError[22m: expected 401 to be 400 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 400[39m
+[31m+ 401[39m
+
+[36m [2m❯[22m tests/01-auth.test.ts:[2m252:26[22m[39m
+    [90m250| [39m    [34mit[39m([32m'should reject without password field'[39m[33m,[39m [35masync[39m () [33m=>[39m {
+    [90m251| [39m      [35mconst[39m res [33m=[39m [35mawait[39m [34mapi[39m([32m'POST'[39m[33m,[39m [32m'/auth/verify'[39m[33m,[39m {}[33m,[39m adminToken)[33m;[39m
+    [90m252| [39m      [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m400[39m)[33m;[39m
+    [90m   | [39m                         [31m^[39m
+    [90m253| [39m    })[33m;[39m
+    [90m254| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mAccount Lockout[2m > [22mshould lock account after max failed attempts
+[31m[1mError[22m: createTestUser failed: {"error":"SESSION_INVALID","message":"Session terminated"}[39m
+[36m [2m❯[22m createTestUser tests/helpers.ts:[2m127:11[22m[39m
+    [90m125| [39m  [35mconst[39m res [33m=[39m [35mawait[39m [34mapi[39m([32m'POST'[39m[33m,[39m [32m'/users'[39m[33m,[39m payload[33m,[39m adminToken)[33m;[39m
+    [90m126| [39m  [35mif[39m ([33m![39mres[33m.[39mok) {
+    [90m127| [39m    throw new Error(`createTestUser failed: ${JSON.stringify(res.data)…
+    [90m   | [39m          [31m^[39m
+    [90m128| [39m  }
+    [90m129| [39m
+[90m [2m❯[22m tests/01-auth.test.ts:[2m266:20[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mAccount Lockout[2m > [22mshould not allow login even with correct password when locked
+[31m[1mError[22m: createTestUser failed: {"error":"SESSION_INVALID","message":"Session terminated"}[39m
+[36m [2m❯[22m createTestUser tests/helpers.ts:[2m127:11[22m[39m
+    [90m125| [39m  [35mconst[39m res [33m=[39m [35mawait[39m [34mapi[39m([32m'POST'[39m[33m,[39m [32m'/users'[39m[33m,[39m payload[33m,[39m adminToken)[33m;[39m
+    [90m126| [39m  [35mif[39m ([33m![39mres[33m.[39mok) {
+    [90m127| [39m    throw new Error(`createTestUser failed: ${JSON.stringify(res.data)…
+    [90m   | [39m          [31m^[39m
+    [90m128| [39m  }
+    [90m129| [39m
+[90m [2m❯[22m tests/01-auth.test.ts:[2m290:20[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/01-auth.test.ts[2m > [22mAUTH MODULE[2m > [22mDisabled Account[2m > [22mshould reject login for disabled user
+[31m[1mError[22m: createTestUser failed: {"error":"SESSION_INVALID","message":"Session terminated"}[39m
+[36m [2m❯[22m createTestUser tests/helpers.ts:[2m127:11[22m[39m
+    [90m125| [39m  [35mconst[39m res [33m=[39m [35mawait[39m [34mapi[39m([32m'POST'[39m[33m,[39m [32m'/users'[39m[33m,[39m payload[33m,[39m adminToken)[33m;[39m
+    [90m126| [39m  [35mif[39m ([33m![39mres[33m.[39mok) {
+    [90m127| [39m    throw new Error(`createTestUser failed: ${JSON.stringify(res.data)…
+    [90m   | [39m          [31m^[39m
+    [90m128| [39m  }
+    [90m129| [39m
+[90m [2m❯[22m tests/01-auth.test.ts:[2m315:20[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users/:id/enable & /disable[2m > [22mshould disable a user
+[31m[1mAssertionError[22m: expected 400 to be 200 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 200[39m
+[31m+ 400[39m
+
+[36m [2m❯[22m tests/02-users.test.ts:[2m284:26[22m[39m
+    [90m282| [39m      [35mconst[39m user [33m=[39m [35mawait[39m [34mcreateTestUser[39m(adminToken)[33m;[39m
+    [90m283| [39m      const res = await api('POST', `/users/${user.id}/disable`, null,…
+    [90m284| [39m      [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m200[39m)[33m;[39m
+    [90m   | [39m                         [31m^[39m
+    [90m285| [39m      [34mexpect[39m(res[33m.[39mdata[33m.[39msuccess)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m286| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users/:id/enable & /disable[2m > [22mshould enable a disabled user
+[31m[1mAssertionError[22m: expected 400 to be 200 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 200[39m
+[31m+ 400[39m
+
+[36m [2m❯[22m tests/02-users.test.ts:[2m296:26[22m[39m
+    [90m294| [39m      [35mawait[39m [34mapi[39m([32m'POST'[39m[33m,[39m [32m`/users/[39m[36m${[39muser[33m.[39mid[36m}[39m[32m/disable`[39m[33m,[39m [35mnull[39m[33m,[39m adminToken)[33m;[39m
+    [90m295| [39m      const res = await api('POST', `/users/${user.id}/enable`, null, …
+    [90m296| [39m      [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m200[39m)[33m;[39m
+    [90m   | [39m                         [31m^[39m
+    [90m297| [39m      [34mexpect[39m(res[33m.[39mdata[33m.[39msuccess)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m298| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users/:id/enable & /disable[2m > [22mshould invalidate sessions on disable
+[31m[1mAssertionError[22m: expected 200 to be 401 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 401[39m
+[31m+ 200[39m
+
+[36m [2m❯[22m tests/02-users.test.ts:[2m315:28[22m[39m
+    [90m313| [39m      [90m// User's token should no longer work[39m
+    [90m314| [39m      [35mconst[39m meRes [33m=[39m [35mawait[39m [34mapi[39m([32m'GET'[39m[33m,[39m [32m'/auth/me'[39m[33m,[39m [35mnull[39m[33m,[39m userToken)[33m;[39m
+    [90m315| [39m      [34mexpect[39m(meRes[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m401[39m)[33m;[39m
+    [90m   | [39m                           [31m^[39m
+    [90m316| [39m    })[33m;[39m
+    [90m317| [39m  })[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mPOST /users/:id/unlock[2m > [22mshould unlock a locked account
+[31m[1mAssertionError[22m: expected 400 to be 200 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 200[39m
+[31m+ 400[39m
+
+[36m [2m❯[22m tests/02-users.test.ts:[2m336:26[22m[39m
+    [90m334| [39m      [90m// Unlock[39m
+    [90m335| [39m      const res = await api('POST', `/users/${user.id}/unlock`, null, …
+    [90m336| [39m      [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m200[39m)[33m;[39m
+    [90m   | [39m                         [31m^[39m
+    [90m337| [39m      [34mexpect[39m(res[33m.[39mdata[33m.[39msuccess)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m338| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mDELETE /users/:id[2m > [22mshould soft-delete (disable) a user
+[31m[1mAssertionError[22m: expected 400 to be 200 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 200[39m
+[31m+ 400[39m
+
+[36m [2m❯[22m tests/02-users.test.ts:[2m386:26[22m[39m
+    [90m384| [39m      [35mconst[39m user [33m=[39m [35mawait[39m [34mcreateTestUser[39m(adminToken)[33m;[39m
+    [90m385| [39m      const res = await api('DELETE', `/users/${user.id}`, null, admin…
+    [90m386| [39m      [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m200[39m)[33m;[39m
+    [90m   | [39m                         [31m^[39m
+    [90m387| [39m      [34mexpect[39m(res[33m.[39mdata[33m.[39msuccess)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m388| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/02-users.test.ts[2m > [22mUSER MANAGEMENT MODULE[2m > [22mDELETE /users/:id[2m > [22mshould return 404 for non-existent user
+[31m[1mAssertionError[22m: expected 400 to be 404 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 404[39m
+[31m+ 400[39m
+
+[36m [2m❯[22m tests/02-users.test.ts:[2m403:26[22m[39m
+    [90m401| [39m    [34mit[39m([32m'should return 404 for non-existent user'[39m[33m,[39m [35masync[39m () [33m=>[39m {
+    [90m402| [39m      const res = await api('DELETE', '/users/00000000-0000-0000-0000-…
+    [90m403| [39m      [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m404[39m)[33m;[39m
+    [90m   | [39m                         [31m^[39m
+    [90m404| [39m    })[33m;[39m
+    [90m405| [39m  })[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mDELETE /templates/:id[2m > [22mshould soft-delete (deactivate) a template
+[31m[1mAssertionError[22m: expected 400 to be 200 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 200[39m
+[31m+ 400[39m
+
+[36m [2m❯[22m tests/04-templates.test.ts:[2m225:26[22m[39m
+    [90m223| [39m
+    [90m224| [39m      const res = await api('DELETE', `/templates/${id}`, null, maintT…
+    [90m225| [39m      [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m200[39m)[33m;[39m
+    [90m   | [39m                         [31m^[39m
+    [90m226| [39m      [34mexpect[39m(res[33m.[39mdata[33m.[39msuccess)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m227| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/04-templates.test.ts[2m > [22mASSET TEMPLATE MODULE[2m > [22mDELETE /templates/:id[2m > [22mshould return 404 for non-existent template
+[31m[1mAssertionError[22m: expected 400 to be 404 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 404[39m
+[31m+ 400[39m
+
+[36m [2m❯[22m tests/04-templates.test.ts:[2m235:26[22m[39m
+    [90m233| [39m    [34mit[39m([32m'should return 404 for non-existent template'[39m[33m,[39m [35masync[39m () [33m=>[39m {
+    [90m234| [39m      const res = await api('DELETE', '/templates/00000000-0000-0000-0…
+    [90m235| [39m      [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m404[39m)[33m;[39m
+    [90m   | [39m                         [31m^[39m
+    [90m236| [39m    })[33m;[39m
+    [90m237| [39m  })[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mDELETE /hierarchy/:id[2m > [22mshould reject deleting node with children
+[31m[1mAssertionError[22m: expected 'Bad Request' to contain 'children'[39m
+
+Expected: [32m"children"[39m
+Received: [31m"Bad Request"[39m
+
+[36m [2m❯[22m tests/05-hierarchy.test.ts:[2m319:30[22m[39m
+    [90m317| [39m      const res = await api('DELETE', `/hierarchy/${rootNodeId}`, null…
+    [90m318| [39m      [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m400[39m)[33m;[39m
+    [90m319| [39m      [34mexpect[39m(res[33m.[39mdata[33m.[39merror)[33m.[39m[34mtoContain[39m([32m'children'[39m)[33m;[39m
+    [90m   | [39m                             [31m^[39m
+    [90m320| [39m    })[33m;[39m
+    [90m321| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mDELETE /hierarchy/:id[2m > [22mshould soft-delete (decommission) a leaf node
+[31m[1mAssertionError[22m: expected 400 to be 200 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 200[39m
+[31m+ 400[39m
+
+[36m [2m❯[22m tests/05-hierarchy.test.ts:[2m330:26[22m[39m
+    [90m328| [39m
+    [90m329| [39m      const res = await api('DELETE', `/hierarchy/${leaf.data.id}`, nu…
+    [90m330| [39m      [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m200[39m)[33m;[39m
+    [90m   | [39m                         [31m^[39m
+    [90m331| [39m      [34mexpect[39m(res[33m.[39mdata[33m.[39msuccess)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m332| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/05-hierarchy.test.ts[2m > [22mHIERARCHY NODE MODULE[2m > [22mDELETE /hierarchy/:id[2m > [22mshould return 404 for non-existent node
+[31m[1mAssertionError[22m: expected 400 to be 404 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 404[39m
+[31m+ 400[39m
+
+[36m [2m❯[22m tests/05-hierarchy.test.ts:[2m340:26[22m[39m
+    [90m338| [39m    [34mit[39m([32m'should return 404 for non-existent node'[39m[33m,[39m [35masync[39m () [33m=>[39m {
+    [90m339| [39m      const res = await api('DELETE', '/hierarchy/00000000-0000-0000-0…
+    [90m340| [39m      [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m404[39m)[33m;[39m
+    [90m   | [39m                         [31m^[39m
+    [90m341| [39m    })[33m;[39m
+    [90m342| [39m  })[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/06-audit.test.ts[2m > [22mAUDIT TRAIL MODULE[2m > [22mGET /audit (List)[2m > [22mshould reject limit above 100
+[31m[1mAssertionError[22m: expected [ 200, 400 ] to include 500[39m
+[36m [2m❯[22m tests/06-audit.test.ts:[2m79:26[22m[39m
+    [90m 77| [39m      const res = await api('GET', '/audit?limit=200', null, adminToke…
+    [90m 78| [39m      [90m// Zod coerces and caps, or rejects[39m
+    [90m 79| [39m      [34mexpect[39m([[34m200[39m[33m,[39m [34m400[39m])[33m.[39m[34mtoContain[39m(res[33m.[39mstatus)[33m;[39m
+    [90m   | [39m                         [31m^[39m
+    [90m 80| [39m      [35mif[39m (res[33m.[39mstatus [33m===[39m [34m200[39m) {
+    [90m 81| [39m        [34mexpect[39m(res[33m.[39mdata[33m.[39mlimit)[33m.[39m[34mtoBeLessThanOrEqual[39m([34m100[39m)[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/26]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/07-security.test.ts[2m > [22mSECURITY TESTS[2m > [22mAuthentication Bypass[2m > [22mshould reject revoked session token
+[31m[1mAssertionError[22m: expected 200 to be 401 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 401[39m
+[31m+ 200[39m
+
+[36m [2m❯[22m tests/07-security.test.ts:[2m57:26[22m[39m
+    [90m 55| [39m      [90m// Token should be rejected (session invalidated)[39m
+    [90m 56| [39m      [35mconst[39m res [33m=[39m [35mawait[39m [34mapi[39m([32m'GET'[39m[33m,[39m [32m'/auth/me'[39m[33m,[39m [35mnull[39m[33m,[39m tempToken)[33m;[39m
+    [90m 57| [39m      [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m401[39m)[33m;[39m
+    [90m   | [39m                         [31m^[39m
+    [90m 58| [39m    })[33m;[39m
+    [90m 59| [39m  })[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/26]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m6 failed[39m[22m[2m | [22m[1m[32m3 passed[39m[22m[90m (9)[39m
+[2m      Tests [22m [1m[31m26 failed[39m[22m[2m | [22m[1m[32m191 passed[39m[22m[90m (217)[39m
+[2m   Start at [22m 21:47:21
+[2m   Duration [22m 221.41s[2m (transform 177ms, setup 0ms, import 329ms, tests 219.40s, environment 1ms)[22m
+

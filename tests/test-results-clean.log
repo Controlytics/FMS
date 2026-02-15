@@ -1,0 +1,226 @@
+
+ RUN  v4.0.18 F:/claude/digiLogUser
+
+ ✓ tests/01-auth.test.ts > AUTH MODULE > POST /auth/login > should login with valid credentials 690ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > POST /auth/login > should reject empty username 23ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > POST /auth/login > should reject empty password 21ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > POST /auth/login > should reject missing body fields 23ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > POST /auth/login > should return 401 for wrong password 330ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > POST /auth/login > should return 401 for non-existent user (no user enumeration) 23ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > POST /auth/login > should show attemptsRemaining on wrong password for existing user 2278ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > POST /auth/login > should return user info including role 30ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > GET /auth/me > should return current user info with valid token 25ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > GET /auth/me > should return 401 without token 21ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > GET /auth/me > should return 401 with invalid token 19ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > GET /auth/me > should return 401 with expired/tampered token 27ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > GET /auth/me > should NOT return passwordHash in response 28ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > POST /auth/logout > should logout and invalidate session 2021ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > POST /auth/logout > should reject logout without token 21ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > POST /auth/change-password > should change password with valid data 1949ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > POST /auth/change-password > should reject when current password is wrong 331ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > POST /auth/change-password > should reject when passwords do not match 34ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > POST /auth/change-password > should reject password shorter than 8 chars 24ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > POST /auth/change-password > should reject without auth token 21ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > POST /auth/verify > should return verification token with correct password 335ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > POST /auth/verify > should reject with wrong password 332ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > POST /auth/verify > should reject without password field 25ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > POST /auth/verify > should reject without auth token 23ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > Account Lockout > should lock account after max failed attempts 3654ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > Account Lockout > should not allow login even with correct password when locked 3644ms
+ ✓ tests/01-auth.test.ts > AUTH MODULE > Disabled Account > should reject login for disabled user 394ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > Authentication Bypass > should reject request with no Authorization header 52ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > Authentication Bypass > should reject empty Bearer token 24ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > Authentication Bypass > should reject malformed JWT 20ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > Authentication Bypass > should reject JWT with tampered payload 22ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > Authentication Bypass > should reject JWT with tampered signature 20ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > Authentication Bypass > should reject revoked session token 2510ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > SQL Injection Prevention > should handle SQL injection in login username 21ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > SQL Injection Prevention > should handle SQL injection in login password 326ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > SQL Injection Prevention > should handle SQL injection in user search 31ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > SQL Injection Prevention > should handle SQL injection in audit filter 29ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > XSS Prevention > should store XSS payload without executing (stored XSS) 368ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > XSS Prevention > should handle XSS in query parameters 28ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > RBAC Enforcement > OPERATOR cannot create users 34ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > RBAC Enforcement > VIEWER cannot list users 28ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > RBAC Enforcement > SUPERVISOR cannot update users 371ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > RBAC Enforcement > OPERATOR cannot read config 29ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > RBAC Enforcement > VIEWER cannot update config 34ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > RBAC Enforcement > OPERATOR cannot create templates 35ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > RBAC Enforcement > VIEWER can read templates 60ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > RBAC Enforcement > VIEWER cannot create nodes 29ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > RBAC Enforcement > OPERATOR can read hierarchy 101ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > RBAC Enforcement > VIEWER can read audit trail 33ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > RBAC Enforcement > OPERATOR can read audit trail 34ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > Rate Limiting > should enforce rate limit on login endpoint 111ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > Health Endpoint > should respond without auth 24ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > CORS Headers > should include CORS headers in response 22ms
+ ✓ tests/07-security.test.ts > SECURITY TESTS > Security Headers > should include security headers from helmet 27ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Invalid Request Bodies > should handle invalid JSON in request body 64ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Invalid Request Bodies > should handle null body 28ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Invalid Request Bodies > should handle array body when object expected 48ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Invalid Request Bodies > should handle numeric body when object expected 25ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Boundary Values > should reject username with exactly 5 chars (min 6) 29ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Boundary Values > should accept username with exactly 6 chars (min boundary) 339ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Boundary Values > should reject username with 7 chars (above max of 6) 32ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Boundary Values > should handle pagination page=0 (below min) 30ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Boundary Values > should handle negative page number 27ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Boundary Values > should handle limit=0 27ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Boundary Values > should handle extremely large page number 35ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Special Characters in Data > should handle unicode characters in fullName 342ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Special Characters in Data > should handle emojis in fullName 340ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Special Characters in Data > should handle special chars in department field 345ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Special Characters in Data > should handle special characters in node names 1982ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Special Characters in Data > should handle special characters in template description 1975ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Non-existent Endpoints > should return 404 for unknown API route 31ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Non-existent Endpoints > should return 404 for unknown nested route 24ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > HTTP Method Validation > should reject GET on login endpoint 23ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > HTTP Method Validation > should reject POST on users list endpoint 24ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Concurrent Operations > should handle concurrent user creation without conflicts 949ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Concurrent Operations > should handle concurrent reads 69ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Password Policy Enforcement on Change > should reject password same as username 688ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Password Policy Enforcement on Change > should reject password containing username 698ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Password Policy Enforcement on Change > should reject reusing temporary password 992ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Role Hierarchy Enforcement > ADMIN should be able to create ADMIN, SUPERVISOR, MAINTENANCE, OPERATOR, VIEWER 3620ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Role Hierarchy Enforcement > ADMIN should NOT be able to create SUPER_ADMIN 1977ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Large Payloads > should handle large attribute objects in hierarchy nodes 45004ms
+ ✓ tests/08-edge-cases.test.ts > EDGE CASES & NEGATIVE TESTS > Large Payloads > should handle template with many attribute fields 1973ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > POST /hierarchy (Create) > should create a root node 37ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > POST /hierarchy (Create) > should create a child node 41ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > POST /hierarchy (Create) > should create node with template and merge attributes 51ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > POST /hierarchy (Create) > should reject node without name 35ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > POST /hierarchy (Create) > should reject node without nodeType 30ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > POST /hierarchy (Create) > should reject non-existent parentId 32ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > POST /hierarchy (Create) > should reject non-existent templateId 31ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > POST /hierarchy (Create) > should deny VIEWER from creating nodes 1989ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > GET /hierarchy (List & Tree) > should list root nodes 88ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > GET /hierarchy (List & Tree) > should list children of a parent 29ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > GET /hierarchy (List & Tree) > should return full tree 37ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > GET /hierarchy/:id (Detail) > should return node with children, parent, template, identifiers 32ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > GET /hierarchy/:id (Detail) > should return 404 for non-existent node 28ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > GET /hierarchy/:id/ancestors > should return ancestor chain for child node 27ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > GET /hierarchy/:id/ancestors > should return empty array for root node 28ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > PUT /hierarchy/:id (Update) > should update node name 35ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > PUT /hierarchy/:id (Update) > should update node attributes 33ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > PUT /hierarchy/:id (Update) > should update node status 65ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > PUT /hierarchy/:id (Update) > should reject update without reason 27ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > PUT /hierarchy/:id (Update) > should return 404 for non-existent node 29ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > POST /hierarchy/:id/identifiers > should add QR identifier to node 31ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > POST /hierarchy/:id/identifiers > should add RFID identifier 30ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > POST /hierarchy/:id/identifiers > should add BARCODE identifier 29ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > POST /hierarchy/:id/identifiers > should add NFC identifier 30ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > POST /hierarchy/:id/identifiers > should add MANUAL identifier 29ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > POST /hierarchy/:id/identifiers > should reject invalid identifier type 26ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > POST /hierarchy/:id/identifiers > should reject empty value 25ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > POST /hierarchy/:id/identifiers > should return 404 for non-existent node 27ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > DELETE /hierarchy/:id > should reject deleting node with children 31ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > DELETE /hierarchy/:id > should soft-delete (decommission) a leaf node 121ms
+ ✓ tests/05-hierarchy.test.ts > HIERARCHY NODE MODULE > DELETE /hierarchy/:id > should return 404 for non-existent node 56ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/password-policy > should read password policy 54ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/password-policy > should update password policy with valid data 151ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/password-policy > should reject minLength below 8 28ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/password-policy > should reject minLength above 32 34ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/password-policy > should reject preventReuseCount above 24 44ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/password-policy > should deny non-admin access 1962ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/login-security > should read login security config 28ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/login-security > should update login security 89ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/login-security > should reject maxFailedAttempts below 3 27ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/login-security > should reject maxFailedAttempts above 10 26ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/login-security > should reject invalid lockoutType 42ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/login-security > should reject lockoutDuration below 15 25ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/session > should read session config 27ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/session > should update session config 93ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/session > should reject idleTimeout below 5 28ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/session > should reject idleTimeout above 60 25ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/session > should reject warningMinutes above 5 29ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/datetime > should read datetime config 26ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/datetime > should update datetime config 86ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/datetime > should accept all valid date formats 177ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/datetime > should reject invalid date format 27ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET/PUT /config/datetime > should reject invalid time format 28ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET /config/field-ids > should list all field IDs 26ms
+ ✓ tests/03-config.test.ts > CONFIG MODULE > GET /config/field-ids > should be accessible by all authenticated users 1970ms
+ ✓ tests/06-audit.test.ts > AUDIT TRAIL MODULE > GET /audit (List) > should list audit records with pagination 33ms
+ ✓ tests/06-audit.test.ts > AUDIT TRAIL MODULE > GET /audit (List) > should have required audit fields 36ms
+ ✓ tests/06-audit.test.ts > AUDIT TRAIL MODULE > GET /audit (List) > should filter by action type 39ms
+ ✓ tests/06-audit.test.ts > AUDIT TRAIL MODULE > GET /audit (List) > should filter by targetType 34ms
+ ✓ tests/06-audit.test.ts > AUDIT TRAIL MODULE > GET /audit (List) > should filter by date range 31ms
+ ✓ tests/06-audit.test.ts > AUDIT TRAIL MODULE > GET /audit (List) > should support page 2 62ms
+ ✓ tests/06-audit.test.ts > AUDIT TRAIL MODULE > GET /audit (List) > should reject limit above 100 32ms
+ ✓ tests/06-audit.test.ts > AUDIT TRAIL MODULE > GET /audit (List) > should reject without auth 27ms
+ ✓ tests/06-audit.test.ts > AUDIT TRAIL MODULE > GET /audit/:id (Detail) > should return audit record detail with checksum 60ms
+ ✓ tests/06-audit.test.ts > AUDIT TRAIL MODULE > GET /audit/:id (Detail) > should return 404 for non-existent record 27ms
+ ✓ tests/06-audit.test.ts > AUDIT TRAIL MODULE > Audit Integrity > should have checksum on all records 32ms
+ ✓ tests/06-audit.test.ts > AUDIT TRAIL MODULE > Audit Integrity > should record IP address and user agent 28ms
+ ✓ tests/06-audit.test.ts > AUDIT TRAIL MODULE > Audit Integrity > audit records should contain before/after values for mutations 29ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > POST /users (Create) > should create a new user with valid data 355ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > POST /users (Create) > should create user with all roles 1672ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > POST /users (Create) > should set forcePasswordChange on new users 669ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > POST /users (Create) > should reject duplicate username 379ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > POST /users (Create) > should reject duplicate email 378ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > POST /users (Create) > should reject username shorter than 6 chars 29ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > POST /users (Create) > should reject invalid email format 29ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > POST /users (Create) > should reject mismatched passwords 31ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > POST /users (Create) > should reject password shorter than 8 chars 31ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > POST /users (Create) > should reject invalid role 29ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > POST /users (Create) > should reject without auth token 31ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > GET /users (List) > should list users with pagination 35ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > GET /users (List) > should filter by role 31ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > GET /users (List) > should filter by status 28ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > GET /users (List) > should search users by username/fullName/email 381ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > GET /users (List) > should not expose passwordHash in list 28ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > GET /users (List) > should reject without auth 21ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > GET /users/:id (Detail) > should return user detail 379ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > GET /users/:id (Detail) > should return 404 for non-existent user 26ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > PUT /users/:id (Update) > should update user fullName 371ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > PUT /users/:id (Update) > should update user email 373ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > PUT /users/:id (Update) > should update user role 375ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > PUT /users/:id (Update) > should reject duplicate email on update 703ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > PUT /users/:id (Update) > should return 404 for non-existent user 30ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > POST /users/:id/enable & /disable > should disable a user 393ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > POST /users/:id/enable & /disable > should enable a disabled user 424ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > POST /users/:id/enable & /disable > should invalidate sessions on disable 2019ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > POST /users/:id/unlock > should unlock a locked account 3978ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > POST /users/:id/reset-password > should reset user password 993ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > POST /users/:id/reset-password > should reject password shorter than 8 chars on reset 358ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > DELETE /users/:id > should soft-delete (disable) a user 403ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > DELETE /users/:id > should prevent self-deletion 70ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > DELETE /users/:id > should return 404 for non-existent user 48ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > RBAC - Role Restrictions > should deny OPERATOR from creating users 2079ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > RBAC - Role Restrictions > should deny VIEWER from listing users 2297ms
+ ✓ tests/02-users.test.ts > USER MANAGEMENT MODULE > RBAC - Role Restrictions > should deny SUPERVISOR from managing users 41237ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > POST /templates (Create) > should create a template with attribute and telemetry schemas 40ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > POST /templates (Create) > should create template with empty schemas 38ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > POST /templates (Create) > should reject template without name 34ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > POST /templates (Create) > should reject template without nodeType 28ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > POST /templates (Create) > should reject attribute with invalid dataType 34ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > POST /templates (Create) > should deny OPERATOR from creating templates 1973ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > POST /templates (Create) > should deny VIEWER from creating templates 1990ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > GET /templates (List) > should list all templates 70ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > GET /templates (List) > should filter by status 77ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > GET /templates (List) > should filter by nodeType 46ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > GET /templates (List) > should search by name 65ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > GET /templates/:id (Detail) > should return template with version history 26ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > GET /templates/:id (Detail) > should return 404 for non-existent template 26ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > PUT /templates/:id (Update) > should update template and increment version 42ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > PUT /templates/:id (Update) > should create a new version snapshot on update 32ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > PUT /templates/:id (Update) > should update attributeSchema 33ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > PUT /templates/:id (Update) > should reject update without reason 30ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > PUT /templates/:id (Update) > should reject update with empty reason 32ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > PUT /templates/:id (Update) > should return 404 for non-existent template 31ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > DELETE /templates/:id > should soft-delete (deactivate) a template 93ms
+ ✓ tests/04-templates.test.ts > ASSET TEMPLATE MODULE > DELETE /templates/:id > should return 404 for non-existent template 61ms
+ ✓ tests/09-frontend.test.ts > FRONTEND INTEGRATION TESTS > Page Accessibility > should serve the main HTML page 90ms
+ ✓ tests/09-frontend.test.ts > FRONTEND INTEGRATION TESTS > Page Accessibility > should serve index.html with correct content-type 42ms
+ ✓ tests/09-frontend.test.ts > FRONTEND INTEGRATION TESTS > Page Accessibility > should serve JavaScript bundles 20ms
+ ✓ tests/09-frontend.test.ts > FRONTEND INTEGRATION TESTS > Page Accessibility > should serve the login page at /login 21ms
+ ✓ tests/09-frontend.test.ts > FRONTEND INTEGRATION TESTS > Page Accessibility > should serve SPA routes (all return index.html) 90ms
+ ✓ tests/09-frontend.test.ts > FRONTEND INTEGRATION TESTS > Static Assets > should serve CSS or JS bundles for styling 27ms
+ ✓ tests/09-frontend.test.ts > FRONTEND INTEGRATION TESTS > API Proxy > should proxy /api requests to backend 26ms
+ ✓ tests/09-frontend.test.ts > FRONTEND INTEGRATION TESTS > Response Times > should load main page within 5 seconds 35ms
+ ✓ tests/09-frontend.test.ts > FRONTEND INTEGRATION TESTS > Response Times > should respond to API health check within 2 seconds 46ms
+
+ Test Files  9 passed (9)
+      Tests  217 passed (217)
+   Start at  22:01:57
+   Duration  219.33s (transform 216ms, setup 0ms, import 427ms, tests 216.63s, environment 2ms)
+
