@@ -9,11 +9,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 
 export function LoginSecurityPage() {
   const navigate = useNavigate();
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const reauth = useReauth();
   const { data } = useSWR('/api/config/login-security');
 
   const { register, handleSubmit, watch, formState: { isSubmitting } } = useForm<LoginSecurityConfig>({
@@ -25,12 +28,13 @@ export function LoginSecurityPage() {
 
   const onSubmit = async (formData: LoginSecurityConfig) => {
     setError(''); setSuccess('');
-    try {
-      await apiClient.put('/api/config/login-security', formData);
+    await reauth.execute('UPDATE_LOGIN_SECURITY', async (password?) => {
+      if (password) await apiClient.put('/api/config/login-security', { ...formData, _currentPassword: password });
+      else await apiClient.put('/api/config/login-security', formData);
       setSuccess('Login security updated successfully');
-    } catch (err: any) {
-      setError(err.message || 'Failed to update');
-    }
+    }, {
+      onError: (err: any) => setError(err.message || 'Failed to update'),
+    });
   };
 
   return (
@@ -68,6 +72,17 @@ export function LoginSecurityPage() {
           </CardFooter>
         </form>
       </Card>
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Update Login Security"
+      />
     </div>
   );
 }

@@ -31,3 +31,11 @@
 ## 8. React Hook Form + Zod (shared schemas)
 **Decision:** Forms use React Hook Form with `@hookform/resolvers/zod` and import schemas from `@digilog/shared`.
 **Rationale:** Same Zod schemas validate on both client and server. No duplication. React Hook Form minimizes re-renders and provides built-in dirty/touched/error tracking. The resolver bridges Zod validation into RHF's error system automatically.
+
+## 9. Dynamic Role Data from API (not hardcoded constants)
+**Decision:** Pages that display roles (Role Privileges, Action Re-auth, User Create/Edit dropdowns) fetch from `/api/roles/active` instead of importing the hardcoded `ROLES` constant.
+**Rationale:** Custom roles created by SUPER_ADMIN must appear in all role-related UI without code changes. Hardcoded role maps (labels, colors, icons) have fallback values for custom roles. The SWR call uses `revalidateOnMount: true` and `dedupingInterval: 0` to ensure freshness.
+
+## 10. SWR Global Cache Invalidation with Filter Functions
+**Decision:** When roles are created/updated/deleted, use `useSWRConfig().mutate(key => key.startsWith('/api/roles'))` instead of invalidating specific keys.
+**Rationale:** Multiple SWR hooks consume role data under different keys (`/api/roles`, `/api/roles/active`, `/api/roles/:name/creatable`). A filter-based global mutate ensures ALL role-related caches are invalidated in one call, preventing stale data across the app.

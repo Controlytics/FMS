@@ -6,7 +6,117 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('Seeding database...');
 
-  // 1. Create default SUPER_ADMIN
+  // 1. Create default roles
+  const defaultRoles = [
+    {
+      name: 'SUPER_ADMIN',
+      displayName: 'Super Admin',
+      description: 'System owner with full access to all features',
+      hierarchyLevel: 6,
+      permissions: [
+        'USER_CREATE', 'USER_READ', 'USER_UPDATE', 'USER_DELETE', 'USER_ENABLE_DISABLE', 'USER_UNLOCK', 'USER_RESET_PASSWORD',
+        'CONFIG_READ', 'CONFIG_UPDATE', 'FIELD_ID_UPDATE',
+        'AUDIT_READ', 'APPROVAL_REVIEW', 'APPROVAL_REQUEST', 'ROLE_MANAGE',
+        'ASSET_TEMPLATE_MANAGE', 'ASSET_INSTANCE_CREATE', 'ASSET_INSTANCE_EDIT',
+        'ASSET_RELATIONSHIP_MANAGE', 'ASSET_IDENTIFIER_MANAGE', 'ASSET_CHECKLIST_MANAGE',
+        'ASSET_SCHEDULE_MANAGE', 'ASSET_ALARM_CONFIGURE', 'ASSET_DECOMMISSION',
+        'ASSET_VIEW', 'ASSET_CHECKLIST_PERFORM',
+      ],
+      color: 'bg-gradient-to-r from-red-500 to-pink-500',
+      isSystem: true,
+    },
+    {
+      name: 'ADMIN',
+      displayName: 'Admin',
+      description: 'Administrator with user and configuration management access',
+      hierarchyLevel: 5,
+      permissions: [
+        'USER_CREATE', 'USER_READ', 'USER_UPDATE', 'USER_DELETE', 'USER_ENABLE_DISABLE', 'USER_UNLOCK', 'USER_RESET_PASSWORD',
+        'CONFIG_READ', 'CONFIG_UPDATE',
+        'AUDIT_READ',
+        'ASSET_TEMPLATE_MANAGE', 'ASSET_INSTANCE_CREATE', 'ASSET_INSTANCE_EDIT',
+        'ASSET_VIEW', 'ASSET_RELATIONSHIP_MANAGE', 'ASSET_IDENTIFIER_MANAGE',
+        'ASSET_CHECKLIST_MANAGE', 'ASSET_SCHEDULE_MANAGE',
+      ],
+      color: 'bg-gradient-to-r from-purple-500 to-indigo-500',
+      isSystem: true,
+    },
+    {
+      name: 'SUPERVISOR',
+      displayName: 'Supervisor',
+      description: 'Supervisor with approval and review capabilities',
+      hierarchyLevel: 4,
+      permissions: [
+        'AUDIT_READ', 'APPROVAL_REVIEW',
+        'ASSET_VIEW', 'ASSET_CHECKLIST_PERFORM', 'ASSET_CHECKLIST_MANAGE',
+      ],
+      color: 'bg-gradient-to-r from-blue-500 to-cyan-500',
+      isSystem: true,
+    },
+    {
+      name: 'MAINTENANCE',
+      displayName: 'Maintenance',
+      description: 'Maintenance staff with asset and template management',
+      hierarchyLevel: 3,
+      permissions: [
+        'AUDIT_READ', 'APPROVAL_REQUEST',
+        'ASSET_VIEW', 'ASSET_CHECKLIST_PERFORM', 'ASSET_INSTANCE_EDIT',
+      ],
+      color: 'bg-gradient-to-r from-amber-500 to-orange-500',
+      isSystem: true,
+    },
+    {
+      name: 'OPERATOR',
+      displayName: 'Operator',
+      description: 'Operator with read access',
+      hierarchyLevel: 2,
+      permissions: [
+        'AUDIT_READ',
+        'ASSET_VIEW', 'ASSET_CHECKLIST_PERFORM',
+      ],
+      color: 'bg-gradient-to-r from-emerald-500 to-green-500',
+      isSystem: true,
+    },
+    {
+      name: 'VIEWER',
+      displayName: 'Viewer',
+      description: 'View-only access',
+      hierarchyLevel: 1,
+      permissions: [
+        'AUDIT_READ',
+        'ASSET_VIEW',
+      ],
+      color: 'bg-gradient-to-r from-slate-400 to-slate-500',
+      isSystem: true,
+    },
+  ];
+
+  for (const role of defaultRoles) {
+    await prisma.role.upsert({
+      where: { name: role.name },
+      update: {
+        displayName: role.displayName,
+        description: role.description,
+        hierarchyLevel: role.hierarchyLevel,
+        permissions: role.permissions,
+        color: role.color,
+        isSystem: role.isSystem,
+      },
+      create: {
+        name: role.name,
+        displayName: role.displayName,
+        description: role.description,
+        hierarchyLevel: role.hierarchyLevel,
+        permissions: role.permissions,
+        color: role.color,
+        isSystem: role.isSystem,
+        createdBy: 'system',
+      },
+    });
+  }
+  console.log('  Created default roles');
+
+  // 2. Create default SUPER_ADMIN
   const passwordHash = await bcrypt.hash('Admin@123', 12);
 
   await prisma.user.upsert({
@@ -38,7 +148,7 @@ async function main() {
 
   console.log('  Created default admin user (admin / Admin@123)');
 
-  // 2. System configurations
+  // 3. System configurations
   const configs = [
     {
       configKey: 'password-policy',
@@ -48,6 +158,12 @@ async function main() {
         requireNumbers: true, requireSpecialChars: true,
         minUppercase: 1, minLowercase: 1, minNumbers: 1, minSpecialChars: 1,
         preventReuseCount: 12, cannotBeUserId: true, cannotContainUserId: true,
+        // Password expiry
+        passwordExpiryDays: 90,
+        // Login security settings
+        maxFailedAttempts: 5,
+        // Session settings
+        autoLogoutEnabled: true, idleTimeoutMinutes: 15, warningMinutes: 2,
       },
       configType: 'security',
       requiresReauth: true,
@@ -93,7 +209,7 @@ async function main() {
   }
   console.log('  Created default system configurations');
 
-  // 3. Field ID configurations
+  // 4. Field ID configurations
   const fieldIds = [
     { fieldId: 'FLD_USER_001', defaultName: 'User ID', displayName: 'User ID', module: 'User Management' },
     { fieldId: 'FLD_USER_002', defaultName: 'Full Name', displayName: 'Full Name', module: 'User Management' },
@@ -101,13 +217,6 @@ async function main() {
     { fieldId: 'FLD_USER_004', defaultName: 'Department', displayName: 'Department', module: 'User Management' },
     { fieldId: 'FLD_USER_005', defaultName: 'Role', displayName: 'Role', module: 'User Management' },
     { fieldId: 'FLD_USER_006', defaultName: 'Status', displayName: 'Status', module: 'User Management' },
-    { fieldId: 'FLD_ASSET_001', defaultName: 'Building Name', displayName: 'Building Name', module: 'Asset Management' },
-    { fieldId: 'FLD_ASSET_002', defaultName: 'Block Name', displayName: 'Block Name', module: 'Asset Management' },
-    { fieldId: 'FLD_ASSET_003', defaultName: 'Area Name', displayName: 'Area Name', module: 'Asset Management' },
-    { fieldId: 'FLD_ASSET_004', defaultName: 'Device Name', displayName: 'Device Name', module: 'Asset Management' },
-    { fieldId: 'FLD_ASSET_005', defaultName: 'Serial Number', displayName: 'Serial Number', module: 'Asset Management' },
-    { fieldId: 'FLD_ATTR_001', defaultName: 'Attribute Name', displayName: 'Attribute Name', module: 'Attributes' },
-    { fieldId: 'FLD_TELE_001', defaultName: 'Telemetry Name', displayName: 'Telemetry Name', module: 'Telemetry' },
   ];
 
   for (const field of fieldIds) {

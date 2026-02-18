@@ -1,8 +1,10 @@
 import { z } from 'zod';
 
 export const auditQuerySchema = z.object({
-  startDate: z.string().datetime().optional(),
-  endDate: z.string().datetime().optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  period: z.enum(['today', 'week', 'month', 'quarter', 'year', 'all']).optional(),
+  search: z.string().optional(),
   userId: z.string().optional(),
   action: z.string().optional(),
   targetType: z.string().optional(),

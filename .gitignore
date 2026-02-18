@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+apps/*/node_modules/
+
+# Build outputs
+dist/
+apps/*/dist/
+packages/*/dist/
+
+# Turbo
+.turbo/
+
+# Environment files
+.env
+apps/*/.env
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+*.log
+.DS_Store
+nul

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import useSWR from 'swr';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../lib/api-client';
@@ -8,11 +9,13 @@ interface User {
   fullName: string;
   email: string;
   department?: string;
+  photoUrl?: string;
   role: string;
   status: string;
   forcePasswordChange: boolean;
   isTemporaryPassword: boolean;
   lastLogin: string | null;
+  createdAt?: string;
 }
 
 interface LoginResponse {
@@ -31,12 +34,15 @@ interface LoginResponse {
 export function useAuth() {
   const navigate = useNavigate();
   const { data: user, error, isLoading, mutate } = useSWR<User>(
-    localStorage.getItem('access_token') ? '/api/auth/me' : null,
+    sessionStorage.getItem('access_token') ? '/api/auth/me' : null,
   );
 
   const login = async (username: string, password: string) => {
-    const res = await apiClient.post<LoginResponse>('/api/auth/login', { username, password });
-    localStorage.setItem('access_token', res.token);
+    const res = await apiClient.post<LoginResponse>('/api/auth/login', {
+      username,
+      password,
+    });
+    sessionStorage.setItem('access_token', res.token);
 
     if (res.user.forcePasswordChange) {
       navigate('/change-password');
@@ -54,10 +60,42 @@ export function useAuth() {
     } catch {
       // ignore
     }
-    localStorage.removeItem('access_token');
+    sessionStorage.removeItem('access_token');
+    // Clean up single-tab localStorage keys
+    const myTabId = sessionStorage.getItem('digilog_tab_id');
+    if (myTabId && localStorage.getItem('digilog_active_tab_id') === myTabId) {
+      localStorage.removeItem('digilog_active_tab_id');
+      localStorage.removeItem('digilog_tab_heartbeat');
+      localStorage.removeItem('digilog_active_user_id');
+    }
     await mutate(undefined, false);
     navigate('/login');
   };
+
+  // Clean up single-tab localStorage keys on tab close
+  // Note: We do NOT use beacon logout on beforeunload because it fires on
+  // both tab close AND page refresh, which causes the session to be terminated
+  // on every refresh. Instead, we rely on the server-side idle session timeout
+  // to clean up sessions when the user closes the tab.
+  useEffect(() => {
+    if (!user) return;
+
+    const handleBeforeUnload = () => {
+      // Clean up single-tab localStorage keys
+      const myTabId = sessionStorage.getItem('digilog_tab_id');
+      if (myTabId && localStorage.getItem('digilog_active_tab_id') === myTabId) {
+        localStorage.removeItem('digilog_active_tab_id');
+        localStorage.removeItem('digilog_tab_heartbeat');
+        localStorage.removeItem('digilog_active_user_id');
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [user]);
 
   return {
     user,

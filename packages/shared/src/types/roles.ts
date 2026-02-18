@@ -1,4 +1,6 @@
-export const ROLES = {
+// Default system roles - these are created during seed
+// Actual roles are now stored in the database and managed dynamically
+export const DEFAULT_ROLES = {
   SUPER_ADMIN: 'SUPER_ADMIN',
   ADMIN: 'ADMIN',
   SUPERVISOR: 'SUPERVISOR',
@@ -7,9 +9,27 @@ export const ROLES = {
   VIEWER: 'VIEWER',
 } as const;
 
-export type Role = (typeof ROLES)[keyof typeof ROLES];
+// Keep ROLES export for backward compatibility
+export const ROLES = DEFAULT_ROLES;
 
-export const ROLE_HIERARCHY: Record<Role, number> = {
+// Role is now a string type to support dynamic roles
+export type Role = string;
+
+// Interface for role data from the database
+export interface RoleData {
+  id: string;
+  name: string;
+  displayName: string;
+  description?: string;
+  hierarchyLevel: number;
+  permissions: string[];
+  color: string;
+  isSystem: boolean;
+  isActive: boolean;
+}
+
+// Default hierarchy levels for system roles (for backward compatibility)
+export const DEFAULT_ROLE_HIERARCHY: Record<string, number> = {
   SUPER_ADMIN: 6,
   ADMIN: 5,
   SUPERVISOR: 4,
@@ -18,8 +38,15 @@ export const ROLE_HIERARCHY: Record<Role, number> = {
   VIEWER: 1,
 };
 
-/** Roles that a given creator role can assign to new users */
-export const CREATABLE_ROLES: Record<string, Role[]> = {
+// Keep ROLE_HIERARCHY export for backward compatibility
+export const ROLE_HIERARCHY = DEFAULT_ROLE_HIERARCHY;
+
+/**
+ * @deprecated Use API endpoint /api/roles/:name/creatable instead
+ * Roles that a given creator role can assign to new users
+ * This is now determined dynamically based on hierarchy level
+ */
+export const CREATABLE_ROLES: Record<string, string[]> = {
   SUPER_ADMIN: ['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'MAINTENANCE', 'OPERATOR', 'VIEWER'],
   ADMIN: ['ADMIN', 'SUPERVISOR', 'MAINTENANCE', 'OPERATOR', 'VIEWER'],
 };

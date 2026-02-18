@@ -10,11 +10,27 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+          swr: ['swr'],
+        },
+      },
+    },
+  },
   server: {
-    port: 5173,
+    port: 5175,
+    strictPort: true, // Never auto-switch to another port
+    host: true, // Expose to network
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/uploads': {
+        target: 'http://localhost:3001',
         changeOrigin: true,
       },
     },

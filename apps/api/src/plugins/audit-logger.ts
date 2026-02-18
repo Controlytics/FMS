@@ -16,6 +16,7 @@ interface AuditEntry {
   ipAddress?: string;
   userAgent?: string;
   sessionId?: string;
+  signatureMeaning?: string;
 }
 
 declare module 'fastify' {
@@ -26,20 +27,27 @@ declare module 'fastify' {
 
 async function auditLoggerPlugin(app: FastifyInstance) {
   app.decorate('auditLog', async (entry: AuditEntry) => {
-    // Skip audit logging for SUPER_ADMIN
-    if (entry.userRole === 'SUPER_ADMIN') return;
+    // SUPER_ADMIN actions should NOT be recorded in audit trail
+    if (entry.userRole === 'SUPER_ADMIN') {
+      return;
+    }
+
+    // Use explicit timestamp for both checksum and storage so verification works
+    const timestamp = new Date();
+    const afterValueClean = entry.afterValue ? JSON.parse(JSON.stringify(entry.afterValue)) : undefined;
 
     const checksum = computeChecksum({
-      timestamp: new Date().toISOString(),
+      timestamp: timestamp.toISOString(),
       userId: entry.userId,
       action: entry.action,
       targetType: entry.targetType,
       targetId: entry.targetId,
-      afterValue: entry.afterValue,
+      afterValue: afterValueClean,
     } as Record<string, unknown>);
 
     await prisma.auditTrail.create({
       data: {
+        timestamp,
         userId: entry.userId,
         userName: entry.userName,
         userRole: entry.userRole,
@@ -47,12 +55,13 @@ async function auditLoggerPlugin(app: FastifyInstance) {
         targetType: entry.targetType,
         targetId: entry.targetId,
         beforeValue: entry.beforeValue ? JSON.parse(JSON.stringify(entry.beforeValue)) : undefined,
-        afterValue: entry.afterValue ? JSON.parse(JSON.stringify(entry.afterValue)) : undefined,
+        afterValue: afterValueClean,
         reason: entry.reason,
         ipAddress: entry.ipAddress,
         userAgent: entry.userAgent,
         sessionId: entry.sessionId,
         checksum,
+        signatureMeaning: entry.signatureMeaning,
       },
     });
   });

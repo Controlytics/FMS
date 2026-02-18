@@ -1,6 +1,7 @@
 {
   "name": "digilog",
   "private": true,
+  "packageManager": "npm@11.6.2",
   "workspaces": [
     "apps/*",
     "packages/*"

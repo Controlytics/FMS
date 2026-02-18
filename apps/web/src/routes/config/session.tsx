@@ -8,11 +8,14 @@ import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 
 export function SessionConfigPage() {
   const navigate = useNavigate();
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const reauth = useReauth();
   const { data } = useSWR('/api/config/session');
 
   const { register, handleSubmit, watch, formState: { isSubmitting } } = useForm<SessionConfig>({
@@ -24,12 +27,13 @@ export function SessionConfigPage() {
 
   const onSubmit = async (formData: SessionConfig) => {
     setError(''); setSuccess('');
-    try {
-      await apiClient.put('/api/config/session', formData);
+    await reauth.execute('UPDATE_SESSION_CONFIG', async (password?) => {
+      if (password) await apiClient.put('/api/config/session', { ...formData, _currentPassword: password });
+      else await apiClient.put('/api/config/session', formData);
       setSuccess('Session configuration updated successfully');
-    } catch (err: any) {
-      setError(err.message || 'Failed to update');
-    }
+    }, {
+      onError: (err: any) => setError(err.message || 'Failed to update'),
+    });
   };
 
   return (
@@ -40,6 +44,12 @@ export function SessionConfigPage() {
           <CardContent className="space-y-4">
             {error && <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
             {success && <div className="rounded-md bg-green-50 p-3 text-sm text-green-700">{success}</div>}
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Session Duration (hours, 1-24)</label>
+              <Input {...register('sessionDurationHours', { valueAsNumber: true })} type="number" min={1} max={24} />
+              <p className="text-xs text-slate-500">How long a login session remains valid before requiring re-login.</p>
+            </div>
 
             <label className="flex items-center gap-2 text-sm font-medium">
               <input type="checkbox" {...register('autoLogoutEnabled')} className="rounded" />
@@ -65,6 +75,17 @@ export function SessionConfigPage() {
           </CardFooter>
         </form>
       </Card>
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Update Session Config"
+      />
     </div>
   );
 }

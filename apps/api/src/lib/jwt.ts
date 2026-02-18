@@ -1,7 +1,22 @@
 import * as jose from 'jose';
+import { randomBytes } from 'node:crypto';
 
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET ?? 'dev-secret-change-me');
-const VERIFY_SECRET = new TextEncoder().encode(process.env.VERIFICATION_TOKEN_SECRET ?? 'dev-verify-secret');
+function getSecret(envVar: string, name: string): Uint8Array {
+  const value = process.env[envVar];
+  if (!value || value.length < 32) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(`FATAL: ${envVar} must be set to a string of at least 32 characters in production.`);
+    }
+    // Dev-only: generate random secret per process start and warn
+    const generated = randomBytes(32).toString('hex');
+    console.warn(`WARNING: ${envVar} not set or too short. Using random secret for this session. Set ${envVar} in .env for persistent sessions.`);
+    return new TextEncoder().encode(generated);
+  }
+  return new TextEncoder().encode(value);
+}
+
+const JWT_SECRET = getSecret('JWT_SECRET', 'JWT signing');
+const VERIFY_SECRET = getSecret('VERIFICATION_TOKEN_SECRET', 'Verification token');
 
 export interface JwtPayload {
   sub: string;
@@ -10,11 +25,11 @@ export interface JwtPayload {
   sessionId: string;
 }
 
-export async function signToken(payload: JwtPayload): Promise<string> {
+export async function signToken(payload: JwtPayload, expirationHours = 8): Promise<string> {
   return new jose.SignJWT(payload as unknown as jose.JWTPayload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime('8h')
+    .setExpirationTime(`${expirationHours}h`)
     .sign(JWT_SECRET);
 }
 

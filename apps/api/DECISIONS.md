@@ -31,3 +31,19 @@
 ## 8. Fastify over Express
 **Decision:** Fastify 5 as the HTTP framework.
 **Rationale:** Per the Phase 1 tech stack doc. Fastify provides built-in schema validation, plugin system, better performance than Express, and first-class TypeScript support. The plugin architecture cleanly separates auth, audit, and RBAC concerns.
+
+## 9. Dynamic Roles via Database (not hardcoded enum)
+**Decision:** Roles are stored in a `roles` table with dynamic properties (name, displayName, color, hierarchyLevel, permissions). Role validation uses `z.string()` instead of `z.enum()`.
+**Rationale:** Custom roles (e.g., "QA", "ENGINEER") need to be created by SUPER_ADMIN without code changes. Hardcoded Zod enums and `CREATABLE_ROLES` were replaced with dynamic DB lookups that check role existence and hierarchy level at runtime.
+
+## 10. Action Re-authentication with In-Memory Cache
+**Decision:** Re-authentication config (`action-reauth`) is loaded from DB with a 10-second in-memory cache. Cache is invalidated on config update.
+**Rationale:** Re-auth checks happen on every sensitive mutation. Hitting the DB on every request would be expensive. A short TTL cache provides good performance while ensuring config changes take effect quickly.
+
+## 11. Configurable Audit Text Templates
+**Decision:** Audit trail action descriptions are stored as configurable templates in `system_config`, with defaults defined in the shared package.
+**Rationale:** Different organizations may want different wording for audit entries. Templates use a placeholder system (`{actor}`, `{targetUser}`, etc.) that gets replaced at display time. Defaults are always available as fallback.
+
+## 12. Configurable Pagination
+**Decision:** Per-page record count options are stored in `system_config` as a 3-element tuple, configurable by SUPER_ADMIN.
+**Rationale:** Different deployments may have different data volumes. A single centralized config (rather than per-page hardcoded values) ensures consistency across all paginated views.

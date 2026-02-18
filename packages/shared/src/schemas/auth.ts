@@ -6,7 +6,7 @@ export const loginSchema = z.object({
 });
 
 export const passwordChangeSchema = z.object({
-  currentPassword: z.string().min(1, 'Current password is required'),
+  currentPassword: z.string().optional(), // Optional for temporary password users
   newPassword: z.string().min(8, 'Minimum 8 characters'),
   confirmPassword: z.string().min(1, 'Please confirm your password'),
 }).refine((d) => d.newPassword === d.confirmPassword, {

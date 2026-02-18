@@ -5,7 +5,7 @@ export const createUserSchema = z.object({
   fullName: z.string().min(1, 'Full name is required').max(100),
   email: z.string().email('Invalid email address').max(100),
   department: z.string().max(50).optional(),
-  role: z.enum(['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'MAINTENANCE', 'OPERATOR', 'VIEWER']),
+  role: z.string().min(1, 'Role is required'),
   password: z.string().min(8, 'Minimum 8 characters'),
   confirmPassword: z.string(),
   status: z.enum(['ENABLED', 'DISABLED']).default('ENABLED'),
@@ -18,7 +18,7 @@ export const updateUserSchema = z.object({
   fullName: z.string().min(1).max(100).optional(),
   email: z.string().email().max(100).optional(),
   department: z.string().max(50).optional(),
-  role: z.enum(['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'MAINTENANCE', 'OPERATOR', 'VIEWER']).optional(),
+  role: z.string().min(1).optional(),
   status: z.enum(['ENABLED', 'DISABLED']).optional(),
 });
 
@@ -27,14 +27,19 @@ export const resetPasswordSchema = z.object({
 });
 
 export const userQuerySchema = z.object({
-  role: z.enum(['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'MAINTENANCE', 'OPERATOR', 'VIEWER']).optional(),
+  role: z.string().optional(),
   status: z.enum(['ENABLED', 'DISABLED', 'LOCKED', 'EXPIRED']).optional(),
   search: z.string().optional(),
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(100).default(20),
 });
 
+export const bulkDeleteUsersSchema = z.object({
+  userIds: z.array(z.string().uuid()).min(1, 'At least one user ID is required').max(50, 'Maximum 50 users at once'),
+});
+
 export type CreateUserInput = z.infer<typeof createUserSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type UserQueryInput = z.infer<typeof userQuerySchema>;
+export type BulkDeleteUsersInput = z.infer<typeof bulkDeleteUsersSchema>;
