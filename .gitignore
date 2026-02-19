@@ -22,3 +22,4 @@ apps/*/.env
 *.log
 .DS_Store
 nul
+

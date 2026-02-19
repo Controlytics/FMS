@@ -19,6 +19,7 @@ import uploadRoutes from './modules/uploads/routes.js';
 import notificationRoutes from './modules/notifications/routes.js';
 import roleRoutes from './modules/roles/routes.js';
 import backupRoutes from './modules/backup/routes.js';
+import assetRoutes from './modules/assets/routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -99,6 +100,8 @@ await app.register(uploadRoutes, { prefix: '/api/uploads' });
 await app.register(notificationRoutes, { prefix: '/api/notifications' });
 await app.register(roleRoutes, { prefix: '/api/roles' });
 await app.register(backupRoutes, { prefix: '/api/backup' });
+await app.register(assetRoutes, { prefix: '/api/assets' });
+
 
 // Start
 const port = parseInt(process.env.PORT ?? '3000', 10);

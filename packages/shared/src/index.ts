@@ -30,44 +30,6 @@ export type { LoginInput, PasswordChangeInput, ReAuthInput } from './schemas/aut
 export { createUserSchema, updateUserSchema, resetPasswordSchema, userQuerySchema, bulkDeleteUsersSchema } from './schemas/users.js';
 export type { CreateUserInput, UpdateUserInput, ResetPasswordInput, UserQueryInput, BulkDeleteUsersInput } from './schemas/users.js';
 
-// Asset Schemas
-export {
-  numericConstraintsSchema, attributeDataTypeEnum, telemetryDataTypeEnum, questionTypeEnum,
-  attributeDefinitionSchema, telemetryDefinitionSchema, questionDefinitionSchema,
-  checklistDefinitionSchema, expectedRelationshipSchema, expectedIdentifierSchema,
-  statusLifecycleSchema, alarmRuleDefinitionSchema,
-  createAssetTemplateSchema, updateAssetTemplateSchema,
-} from './schemas/asset-templates.js';
-export type {
-  NumericConstraints, AttributeDataType, TelemetryDataType, QuestionType,
-  AttributeDefinition, TelemetryDefinition, QuestionDefinition, ChecklistDefinition,
-  CreateAssetTemplateInput, UpdateAssetTemplateInput,
-} from './schemas/asset-templates.js';
-
-export {
-  createAssetInstanceSchema, updateAssetInstanceSchema,
-  addCustomAttributeSchema, updateAttributeSchema, assetQuerySchema,
-} from './schemas/asset-instances.js';
-export type {
-  CreateAssetInstanceInput, UpdateAssetInstanceInput,
-  AddCustomAttributeInput, UpdateAttributeInput, AssetQueryInput,
-} from './schemas/asset-instances.js';
-
-export { relationshipTypeEnum, createRelationshipSchema } from './schemas/asset-relationships.js';
-export type { RelationshipType, CreateRelationshipInput } from './schemas/asset-relationships.js';
-
-export { identifierTypeEnum, createIdentifierSchema } from './schemas/asset-identifiers.js';
-export type { IdentifierType, CreateIdentifierInput } from './schemas/asset-identifiers.js';
-
-export { checklistResponseSchema, submitChecklistSchema, reviewChecklistSchema } from './schemas/checklists.js';
-export type { ChecklistResponse, SubmitChecklistInput, ReviewChecklistInput } from './schemas/checklists.js';
-
-export { frequencyEnum, createScheduleSchema, updateScheduleSchema } from './schemas/schedules.js';
-export type { Frequency, CreateScheduleInput, UpdateScheduleInput } from './schemas/schedules.js';
-
-export { alarmSeverityEnum, alarmRuleTypeEnum, createAlarmRuleSchema, updateAlarmRuleSchema } from './schemas/alarm-rules.js';
-export type { AlarmSeverity, AlarmRuleType, CreateAlarmRuleInput, UpdateAlarmRuleInput } from './schemas/alarm-rules.js';
-
 export { brandingConfigSchema, passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, userIdConfigSchema, auditTemplatesSchema, paginationConfigSchema } from './schemas/config.js';
 export type { BrandingConfig, PasswordPolicyConfig, LoginSecurityConfig, SessionConfig, DatetimeConfig, UserIdConfig, AuditTemplatesConfig, PaginationConfig } from './schemas/config.js';
 
@@ -76,3 +38,21 @@ export type { AuditQueryInput } from './schemas/audit.js';
 
 export { actionReauthConfigSchema } from './schemas/action-reauth.js';
 export type { ActionReauthConfig } from './schemas/action-reauth.js';
+
+export {
+  ATTRIBUTE_DATA_TYPES, TELEMETRY_DATA_TYPES, RELATIONSHIP_TYPES, IDENTIFIER_TYPES,
+  ASSET_STATUSES, INVERSE_RELATIONSHIP_MAP, ALARM_RULE_TYPES, ALARM_SEVERITIES,
+  LINKING_RULE_SCOPES, FORWARD_RELATIONSHIP_TYPES,
+  createAssetTemplateSchema, updateAssetTemplateSchema,
+  createAssetInstanceSchema, updateAssetInstanceSchema,
+  createAssetRelationshipSchema, createAssetIdentifierSchema,
+  createTemplateLinkingRuleSchema, updateTemplateLinkingRuleSchema,
+  assetQuerySchema, templateQuerySchema,
+} from './schemas/assets.js';
+export type {
+  CreateAssetTemplateInput, UpdateAssetTemplateInput,
+  CreateAssetInstanceInput, UpdateAssetInstanceInput,
+  CreateAssetRelationshipInput, CreateAssetIdentifierInput,
+  CreateTemplateLinkingRuleInput, UpdateTemplateLinkingRuleInput,
+  AssetQueryInput, TemplateQueryInput,
+} from './schemas/assets.js';

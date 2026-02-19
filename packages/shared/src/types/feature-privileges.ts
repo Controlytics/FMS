@@ -28,16 +28,14 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'notifications.manage', label: 'Manage Notifications', category: 'System', icon: 'bell' },
 
   // Asset Management
-  { id: 'assets.manage_templates', label: 'Manage Asset Templates', category: 'Asset Management', icon: 'template' },
-  { id: 'assets.create_instances', label: 'Create Asset Instances', category: 'Asset Management', icon: 'plus-circle' },
-  { id: 'assets.edit_instances', label: 'Edit Asset Instances', category: 'Asset Management', icon: 'edit' },
-  { id: 'assets.manage_relationships', label: 'Manage Relationships', category: 'Asset Management', icon: 'link' },
-  { id: 'assets.manage_identifiers', label: 'Manage Identifiers', category: 'Asset Management', icon: 'qr-code' },
-  { id: 'assets.manage_checklists', label: 'Manage Checklists', category: 'Asset Management', icon: 'clipboard-check' },
-  { id: 'assets.manage_schedules', label: 'Manage Schedules', category: 'Asset Management', icon: 'calendar' },
-  { id: 'assets.configure_alarms', label: 'Configure Alarm Rules', category: 'Asset Management', icon: 'bell-alert' },
-  { id: 'assets.decommission', label: 'Decommission Assets', category: 'Asset Management', icon: 'archive' },
-  { id: 'assets.perform_checklists', label: 'Perform Checklists', category: 'Asset Management', icon: 'check-circle' },
+  { id: 'assets.view', label: 'View Assets', category: 'Asset Management', icon: 'eye' },
+  { id: 'assets.create', label: 'Create Assets', category: 'Asset Management', icon: 'plus' },
+  { id: 'assets.edit', label: 'Edit Assets', category: 'Asset Management', icon: 'edit' },
+  { id: 'assets.delete', label: 'Delete Assets', category: 'Asset Management', icon: 'trash' },
+  { id: 'assets.templates', label: 'Manage Templates', category: 'Asset Management', icon: 'template' },
+  { id: 'assets.relationships', label: 'Manage Relationships', category: 'Asset Management', icon: 'link' },
+  { id: 'assets.identifiers', label: 'Manage Identifiers', category: 'Asset Management', icon: 'qrcode' },
+  { id: 'assets.linking_rules', label: 'Manage Linking Rules', category: 'Asset Management', icon: 'link' },
 ];
 
 /**

@@ -237,23 +237,29 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
   },
 
   // Asset Management
-  TEMPLATE_CREATED: {
-    label: 'Template Created',
+  ASSET_TEMPLATE_CREATED: {
+    label: 'Asset Template Created',
     category: 'Asset Management',
     template: 'Asset template "{targetName}" created by {actor}',
     placeholders: ['actor', 'targetName'],
   },
-  TEMPLATE_MODIFIED: {
-    label: 'Template Modified',
+  ASSET_TEMPLATE_UPDATED: {
+    label: 'Asset Template Updated',
     category: 'Asset Management',
-    template: 'Asset template "{targetName}" modified by {actor}',
+    template: 'Asset template "{targetName}" updated by {actor}',
     placeholders: ['actor', 'targetName'],
   },
-  TEMPLATE_DELETED: {
-    label: 'Template Deleted',
+  ASSET_TEMPLATE_DELETED: {
+    label: 'Asset Template Deleted',
     category: 'Asset Management',
     template: 'Asset template "{targetName}" deleted by {actor}',
     placeholders: ['actor', 'targetName'],
+  },
+  ASSET_TEMPLATE_VERSION_CREATED: {
+    label: 'Template Version Created',
+    category: 'Asset Management',
+    template: 'Version {version} of template "{targetName}" created by {actor}',
+    placeholders: ['actor', 'targetName', 'version'],
   },
   ASSET_CREATED: {
     label: 'Asset Created',
@@ -261,77 +267,65 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Asset "{targetName}" created by {actor}',
     placeholders: ['actor', 'targetName'],
   },
-  ASSET_MODIFIED: {
-    label: 'Asset Modified',
+  ASSET_UPDATED: {
+    label: 'Asset Updated',
     category: 'Asset Management',
-    template: 'Asset "{targetName}" modified by {actor}',
+    template: 'Asset "{targetName}" updated by {actor}',
     placeholders: ['actor', 'targetName'],
   },
-  ASSET_DECOMMISSIONED: {
-    label: 'Asset Decommissioned',
+  ASSET_STATUS_CHANGED: {
+    label: 'Asset Status Changed',
     category: 'Asset Management',
-    template: 'Asset "{targetName}" decommissioned by {actor}',
+    template: 'Asset "{targetName}" status changed by {actor}',
     placeholders: ['actor', 'targetName'],
   },
-  ASSET_ATTRIBUTE_CHANGED: {
-    label: 'Asset Attribute Changed',
+  ASSET_DELETED: {
+    label: 'Asset Deleted',
     category: 'Asset Management',
-    template: 'Attribute "{fieldName}" of asset "{targetName}" changed by {actor}',
-    placeholders: ['actor', 'targetName', 'fieldName'],
+    template: 'Asset "{targetName}" deleted by {actor}',
+    placeholders: ['actor', 'targetName'],
   },
   ASSET_RELATIONSHIP_CREATED: {
-    label: 'Relationship Created',
+    label: 'Asset Relationship Created',
     category: 'Asset Management',
-    template: 'Relationship created between "{sourceName}" and "{targetName}" by {actor}',
+    template: 'Relationship between "{sourceName}" and "{targetName}" created by {actor}',
     placeholders: ['actor', 'sourceName', 'targetName'],
   },
   ASSET_RELATIONSHIP_DELETED: {
-    label: 'Relationship Deleted',
+    label: 'Asset Relationship Deleted',
     category: 'Asset Management',
     template: 'Relationship between "{sourceName}" and "{targetName}" deleted by {actor}',
     placeholders: ['actor', 'sourceName', 'targetName'],
   },
-  CHECKLIST_PERFORMED: {
-    label: 'Checklist Performed',
+  ASSET_IDENTIFIER_CREATED: {
+    label: 'Asset Identifier Created',
     category: 'Asset Management',
-    template: 'Checklist "{checklistName}" performed on asset "{targetName}" by {actor}',
-    placeholders: ['actor', 'targetName', 'checklistName'],
+    template: 'Identifier added to asset "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName'],
   },
-  CHECKLIST_CHECKED: {
-    label: 'Checklist Checked',
+  ASSET_IDENTIFIER_DELETED: {
+    label: 'Asset Identifier Deleted',
     category: 'Asset Management',
-    template: 'Checklist "{checklistName}" checked on asset "{targetName}" by {actor}',
-    placeholders: ['actor', 'targetName', 'checklistName'],
+    template: 'Identifier removed from asset "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName'],
   },
-  CHECKLIST_VERIFIED: {
-    label: 'Checklist Verified',
+  TEMPLATE_LINKING_RULE_CREATED: {
+    label: 'Linking Rule Created',
     category: 'Asset Management',
-    template: 'Checklist "{checklistName}" verified on asset "{targetName}" by {actor}',
-    placeholders: ['actor', 'targetName', 'checklistName'],
+    template: 'Linking rule from "{sourceName}" to "{targetName}" created by {actor}',
+    placeholders: ['actor', 'sourceName', 'targetName'],
   },
-  CHECKLIST_REJECTED: {
-    label: 'Checklist Rejected',
+  TEMPLATE_LINKING_RULE_UPDATED: {
+    label: 'Linking Rule Updated',
     category: 'Asset Management',
-    template: 'Checklist "{checklistName}" rejected on asset "{targetName}" by {actor}',
-    placeholders: ['actor', 'targetName', 'checklistName'],
+    template: 'Linking rule from "{sourceName}" to "{targetName}" updated by {actor}',
+    placeholders: ['actor', 'sourceName', 'targetName'],
   },
-  ALARM_TRIGGERED: {
-    label: 'Alarm Triggered',
+  TEMPLATE_LINKING_RULE_DELETED: {
+    label: 'Linking Rule Deleted',
     category: 'Asset Management',
-    template: 'Alarm "{alarmName}" triggered on asset "{targetName}"',
-    placeholders: ['targetName', 'alarmName'],
-  },
-  ALARM_ACKNOWLEDGED: {
-    label: 'Alarm Acknowledged',
-    category: 'Asset Management',
-    template: 'Alarm "{alarmName}" on asset "{targetName}" acknowledged by {actor}',
-    placeholders: ['actor', 'targetName', 'alarmName'],
-  },
-  ALARM_CLOSED: {
-    label: 'Alarm Closed',
-    category: 'Asset Management',
-    template: 'Alarm "{alarmName}" on asset "{targetName}" closed by {actor}',
-    placeholders: ['actor', 'targetName', 'alarmName'],
+    template: 'Linking rule from "{sourceName}" to "{targetName}" deleted by {actor}',
+    placeholders: ['actor', 'sourceName', 'targetName'],
   },
 };
 

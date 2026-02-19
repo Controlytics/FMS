@@ -44,6 +44,7 @@ export function RolesManagementPage() {
     hierarchyLevel: 1,
     color: PRESET_COLORS[0].value,
     permissions: [] as string[],
+    allowCrossTemplateLinking: false,
   });
 
   const { data: roles, isLoading } = useSWR<RoleData[]>('/api/roles');
@@ -56,6 +57,7 @@ export function RolesManagementPage() {
       hierarchyLevel: 1,
       color: PRESET_COLORS[0].value,
       permissions: [],
+      allowCrossTemplateLinking: false,
     });
     setError('');
   };
@@ -74,6 +76,7 @@ export function RolesManagementPage() {
       hierarchyLevel: role.hierarchyLevel,
       color: role.color,
       permissions: role.permissions,
+      allowCrossTemplateLinking: role.allowCrossTemplateLinking ?? false,
     });
     setShowEditDialog(true);
   };
@@ -119,6 +122,7 @@ export function RolesManagementPage() {
         hierarchyLevel: formData.hierarchyLevel,
         color: formData.color,
         permissions: formData.permissions,
+        allowCrossTemplateLinking: formData.allowCrossTemplateLinking,
       });
       mutate((key: unknown) => typeof key === 'string' && key.startsWith('/api/roles'));
       setShowCreateDialog(false);
@@ -142,6 +146,7 @@ export function RolesManagementPage() {
         hierarchyLevel: formData.hierarchyLevel,
         color: formData.color,
         permissions: formData.permissions,
+        allowCrossTemplateLinking: formData.allowCrossTemplateLinking,
       });
       mutate((key: unknown) => typeof key === 'string' && key.startsWith('/api/roles'));
       setShowEditDialog(false);
@@ -480,6 +485,27 @@ export function RolesManagementPage() {
             })}
           </div>
 
+          {/* Cross Template Linking */}
+          <div className="rounded-xl border border-slate-200 p-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  checked={formData.allowCrossTemplateLinking}
+                  onChange={(e) => setFormData(prev => ({ ...prev, allowCrossTemplateLinking: e.target.checked }))}
+                  className="sr-only"
+                />
+                <div className={`w-10 h-6 rounded-full transition-colors ${formData.allowCrossTemplateLinking ? 'bg-purple-500' : 'bg-slate-300'}`}>
+                  <div className={`w-4 h-4 rounded-full bg-white shadow-sm absolute top-1 transition-transform ${formData.allowCrossTemplateLinking ? 'translate-x-5' : 'translate-x-1'}`} />
+                </div>
+              </div>
+              <div>
+                <div className="text-sm font-medium text-slate-700">Allow Cross Template Linking</div>
+                <div className="text-xs text-slate-500">Bypass template linking rules when creating relationships</div>
+              </div>
+            </label>
+          </div>
+
           {/* Actions */}
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
             <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
@@ -695,6 +721,27 @@ export function RolesManagementPage() {
                 </div>
               );
             })}
+          </div>
+
+          {/* Cross Template Linking */}
+          <div className="rounded-xl border border-slate-200 p-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  checked={formData.allowCrossTemplateLinking}
+                  onChange={(e) => setFormData(prev => ({ ...prev, allowCrossTemplateLinking: e.target.checked }))}
+                  className="sr-only"
+                />
+                <div className={`w-10 h-6 rounded-full transition-colors ${formData.allowCrossTemplateLinking ? 'bg-purple-500' : 'bg-slate-300'}`}>
+                  <div className={`w-4 h-4 rounded-full bg-white shadow-sm absolute top-1 transition-transform ${formData.allowCrossTemplateLinking ? 'translate-x-5' : 'translate-x-1'}`} />
+                </div>
+              </div>
+              <div>
+                <div className="text-sm font-medium text-slate-700">Allow Cross Template Linking</div>
+                <div className="text-xs text-slate-500">Bypass template linking rules when creating relationships</div>
+              </div>
+            </label>
           </div>
 
           {/* Actions */}

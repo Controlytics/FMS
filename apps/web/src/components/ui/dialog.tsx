@@ -30,6 +30,7 @@ export function Dialog({ open, onClose, children, className }: DialogProps) {
           'relative z-50 w-full max-w-lg rounded-2xl bg-white p-6',
           'shadow-2xl border border-slate-200/60',
           'animate-fade-in',
+          'max-h-[90vh] overflow-y-auto',
           className
         )}
       >

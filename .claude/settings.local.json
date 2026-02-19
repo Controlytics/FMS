@@ -76,7 +76,17 @@
       "Bash(git -C /home/ubuntu/21cfrlogbook log --oneline -5)",
       "Bash(git -C /home/ubuntu/21cfrlogbook diff CREDENTIALS.md)",
       "Bash(git commit:*)",
-      "Bash(git update-ref:*)"
+      "Bash(git update-ref:*)",
+      "Bash(source:*)",
+      "Bash(npx vite build)",
+      "Bash(sudo cp:*)",
+      "Bash(wc:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI3N2ZiODQ0Yi05Y2UyLTQ4OTAtYTg0Zi1jMGFmNDZjZTg0Y2YiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6IlNVUEVSX0FETUlOIiwic2Vzc2lvbklkIjoiY2E4ZjYyMjItNjcxZS00ZWUyLWI2ZGEtZDZiZmJmZmM4NjEzIiwiaWF0IjoxNzcxNTA5MTUyLCJleHAiOjE3NzE1Mzc5NTJ9.eliQQDMevBaHqSdmh1ssIBNhQZ-8BGtNiGTzGo6n4dI\")",
+      "Bash(bash /tmp/digilog-full-test.sh)",
+      "Bash(tee:*)",
+      "Bash(/tmp/digilog-full-test.sh:*)",
+      "Bash(chmod:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []

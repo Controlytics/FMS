@@ -2,6 +2,143 @@
 
 All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are documented here.
 
+## [Unreleased] - 2026-02-19
+
+### Added
+- **Template Linking Rules — Database & Backend**
+  - New `TemplateLinkingRule` Prisma model with scoped priority system (USER=20 > ROLE=10 > GLOBAL=0)
+  - `@@unique([sourceTemplateId, targetTemplateId, scope, scopeValue])` constraint + API-level duplicate prevention (PostgreSQL NULL workaround)
+  - Relations on `AssetTemplate` model: `sourceLinkingRules`, `targetLinkingRules` with cascade delete
+  - 5 new API endpoints under `/api/assets/linking-rules`:
+    - `GET /linking-rules` — List all rules with template names, filterable by source/target
+    - `GET /linking-rules/validate` — Check allowed relationship types between two assets
+    - `POST /linking-rules` — Create rule (permission: `TEMPLATE_LINKING_RULE_MANAGE`, reauth-protected)
+    - `PUT /linking-rules/:id` — Update rule
+    - `DELETE /linking-rules/:id` — Delete rule
+  - `validateLinkingRule()` engine integrated into `POST /relationships` — returns 403 if blocked
+  - Backwards compatible: no rules = all relationship types allowed
+  - Swagger tag "Template Linking Rules" added
+
+- **Template Linking Rules — Shared Package**
+  - New permission: `TEMPLATE_LINKING_RULE_MANAGE`
+  - New `LINKING_RULE_SCOPES` constant: `['GLOBAL', 'ROLE', 'USER']`
+  - New Zod schemas: `createTemplateLinkingRuleSchema`, `updateTemplateLinkingRuleSchema`
+  - 3 new audit actions: `TEMPLATE_LINKING_RULE_CREATED/UPDATED/DELETED`
+  - 3 new reauth actions: `CREATE/UPDATE/DELETE_TEMPLATE_LINKING_RULE`
+  - 3 new audit templates with placeholder support
+  - Added to permission categories (Asset Management) and reauth action categories
+  - Seeded `TEMPLATE_LINKING_RULE_MANAGE` to SUPER_ADMIN and ADMIN default permissions
+
+- **Role Cross-Template Linking Bypass**
+  - New `allowCrossTemplateLinking` boolean field on `Role` model (default: false)
+  - When enabled, bypasses all template linking rules for relationship creation
+  - Toggle added to role create/edit dialogs in `roles.tsx` config page
+  - Checked at request time from DB (not cached) — role changes take immediate effect
+
+- **Template Linking Rules Config Page** (`/config/template-linking-rules`)
+  - New SUPER_ADMIN-only frontend page (~449 lines)
+  - Table view: source/target template names, allowed relationship badges, scope, edit/delete actions
+  - Add/edit dialog: template dropdowns, relationship type checkboxes, scope selector (GLOBAL/ROLE/USER)
+  - Reauth-protected create/update/delete operations
+  - Route registered in `main.tsx` with `RequireRole` guard
+
+- **Dynamic Tree Diagram — Sidebar Tree Actions**
+  - 3 hover action buttons on each sidebar tree node:
+    - Green "+" — Create new child asset (opens Add Asset wizard with parentId pre-set)
+    - Blue link icon — Attach existing asset as child (opens Attach Existing dialog)
+    - Red "x" — Unlink from parent (sets parentId to null, only shows if node has parentId)
+
+- **Dynamic Tree Diagram — Diagram Tree Actions**
+  - 3 hover action buttons on each diagram node:
+    - Green circle — Create new child asset
+    - Blue circle — Attach existing asset as child via CONTAINS relationship
+    - Red circle — Remove from tree (deletes CONTAINS relationship, does NOT delete asset)
+  - Renamed `renderTreeNode` to `renderDiagNode` with new `parentNodeId` parameter
+
+- **Attach Existing Asset Dialog**
+  - Full modal dialog for attaching an existing asset as a child in the tree
+  - Search input with debounce filtering
+  - Radio-button asset list with template badge indicator
+  - Preview panel showing selected asset details
+  - Creates CONTAINS relationship on confirm, reauth-protected via `CREATE_ASSET_RELATIONSHIP`
+
+- **Linking Rule Enforcement in Link Assets Dialog**
+  - Fetches applicable rules via `/api/assets/linking-rules/validate`
+  - Relationship types shown as radio buttons with disabled state for blocked types
+  - Lock icon + grayed styling on disallowed types
+  - Info banners: "Restricted by template linking rules" / "Bypassed by role"
+  - Auto-switch effect: moves selection to first allowed type if current becomes disallowed
+
+- **Comprehensive Test Suite** — 70/70 tests passed
+  - 13 sections: tree CRUD, attach existing, remove, unlink, 6 relationship types, cycle detection, linking rules CRUD, validation engine, role bypass, edge cases, config endpoints, cleanup
+  - Full report: `TREE_DIAGRAM_TEST_REPORT.md`
+
+### Changed
+- Asset Explorer `index.tsx` grew from ~2382 to ~2993 lines (tree diagram actions + attach existing + rule enforcement)
+- Asset module `routes.ts` grew from ~1662 to ~2057 lines (5 linking rule endpoints + validation engine)
+- `AssetDetailPanel` props expanded: added `onAddChild`, `onAttachExisting`, `onRemoveFromDiagram`
+- Total asset API endpoints: 21 → 26 (5 new linking rule endpoints)
+- Total asset Prisma models: 5 → 6 (added `TemplateLinkingRule`)
+- Updated all 4 CLAUDE.md files, both DECISIONS.md files (5 new architecture decisions)
+
+- **Telemetry Schema for Asset Templates**
+  - New `TELEMETRY_DATA_TYPES` constant (INTEGER, FLOAT, BOOLEAN, STRING, ENUM)
+  - Zod `telemetryDefinitionSchema` with fieldName, dataType, unit, description
+  - `telemetrySchema` field added to `createAssetTemplateSchema` / `updateAssetTemplateSchema`
+  - API POST/PUT `/api/assets/templates` now persist `telemetrySchema` to database
+  - Template version snapshots include telemetry schema data
+  - Exported `TELEMETRY_DATA_TYPES` from `@digilog/shared`
+
+- **Telemetry Section in Asset Template Editor** (`/assets/templates`)
+  - New "Telemetry Schema" collapsible section (Section 3) in the 5-section template editor
+  - Add/remove telemetry point definitions with: Field Name, Data Type (5 types), Unit, Description
+  - Persists on create and edit, loads existing data when editing templates
+
+- **Telemetry Tab in Asset Explorer** (`/assets`)
+  - New "Telemetry" tab in the asset detail panel (between Attributes and Relationships)
+  - Shows telemetry schema from the asset's template: Field Name, Data Type, Unit, Description
+  - Shows instance-level `telemetryConfig` overrides per field
+  - API GET `/api/assets/instances/:id` now includes `telemetrySchema` in template select
+
+- **Multi-Select Target in Link Assets Dialog**
+  - Target Assets field replaced with searchable multi-select checkbox list
+  - Selected targets shown as removable blue chips with count badge
+  - Search box to filter assets by name or template name
+  - Direction preview shows one line per source-target pair
+  - Bulk relationship creation: one source linked to all selected targets in sequence
+  - After linking, source node auto-expands in tree view
+  - Button text dynamically shows count (e.g., "Link 3 Assets")
+
+- **Hierarchical Tree Diagram in Asset Explorer**
+  - Visual node-based hierarchy diagram in Relationships tab with box nodes and arrow connectors
+  - Walks up to the topmost root, then renders the full tree top-to-bottom with SVG arrow lines
+  - Parent node at top, arrow down to horizontal bar, arrows branching down to each child node
+  - Each child can recursively have its own sub-children, rendered at the next level
+  - Relationship type labels (Contains, Feeds, Monitors, etc.) shown as badges above each child node
+  - Current asset highlighted with blue border + ring; click any other node to navigate
+  - Single-child paths use straight vertical connectors; multi-child paths use horizontal bar branching
+  - Cycle-safe via visited-node tracking; horizontally scrollable for wide trees
+  - Fetches all relationships from `/api/assets/relationships` to build complete hierarchy
+  - After linking, auto-selects source asset and switches to Relationships tab
+
+- **Dialog Scroll Fix**
+  - All dialog popups now constrained to 90% viewport height with scrollable content
+  - Link Assets chips area capped at `max-h-24` with overflow scroll
+  - Preview section capped at `max-h-32` with sticky header, preventing Link button from going off-screen
+
+### Fixed
+- **Link Assets dropdowns empty** — Source Asset and Target Assets dropdowns were rendering empty despite assets existing in the database
+  - Root cause: API tree endpoint's JSON schema defined `parentId` as `type: 'string'`, causing Fastify serialization to coerce `null` to `""` (empty string)
+  - Frontend `flatAssetList` walk function started from `parentId === null`, which never matched `""`, so no assets were found
+  - Fix: Made `parentId` nullable in API response schema (`type: ['string', 'null']`), and updated frontend `flatAssetList` + `rootNodes` to treat `null`, `undefined`, and `""` as root indicators
+
+### Removed
+- **Instruments Feature** — Complete removal of instruments and instrument templates
+  - Deleted: `packages/shared/src/schemas/instruments.ts`, `apps/api/src/modules/instruments/`, `apps/web/src/routes/instruments/`
+  - Reverted all shared types (permissions, sidebar, reauth, audit actions, audit templates, feature privileges)
+  - Dropped database tables: `instruments`, `instrument_template_versions`, `instrument_templates`
+  - Removed from API routes, swagger tags, seed data, main.tsx routes, sidebar navigation
+
 ## [Unreleased] - 2026-02-17
 
 ### Added

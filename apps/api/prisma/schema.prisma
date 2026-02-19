@@ -16,6 +16,7 @@ model Role {
   hierarchyLevel  Int      @map("hierarchy_level")      // Higher = more privileges (6 for SUPER_ADMIN)
   permissions     Json     @default("[]") @db.JsonB     // Array of permission strings
   color           String   @default("#6366f1") @db.VarChar(100)   // Badge color for UI (CSS class)
+  allowCrossTemplateLinking Boolean @default(false) @map("allow_cross_template_linking")
   isSystem        Boolean  @default(false) @map("is_system")     // System roles cannot be deleted
   isActive        Boolean  @default(true) @map("is_active")
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -160,364 +161,6 @@ model AuditTrail {
   @@map("audit_trail")
 }
 
-// ============================================================
-// ASSET MODULE — Templates, Instances, Checklists, Schedules, Alarms
-// ============================================================
-
-// Asset Template — reusable blueprint for asset types
-model AssetTemplate {
-  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name                  String   @unique @db.VarChar(255)
-  description           String?
-  icon                  String?  @db.VarChar(50)
-  category              String?  @db.VarChar(100)
-  attributeSchema       Json     @default("[]") @map("attribute_schema") @db.JsonB
-  telemetrySchema       Json     @default("[]") @map("telemetry_schema") @db.JsonB
-  checklistSchema       Json     @default("[]") @map("checklist_schema") @db.JsonB
-  recordListSchema      Json     @default("[]") @map("record_list_schema") @db.JsonB
-  expectedRelationships Json     @default("[]") @map("expected_relationships") @db.JsonB
-  expectedIdentifiers   Json     @default("[]") @map("expected_identifiers") @db.JsonB
-  defaultAlarmRules     Json     @default("[]") @map("default_alarm_rules") @db.JsonB
-  statusLifecycle       Json     @default("[]") @map("status_lifecycle") @db.JsonB
-  version               Int      @default(1)
-  status                String   @default("draft") @db.VarChar(20) // draft, active, inactive
-  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz
-  createdBy             String?  @map("created_by") @db.Uuid
-  updatedBy             String?  @map("updated_by") @db.Uuid
-
-  templateVersions TemplateVersion[]
-  assetInstances   AssetInstance[]
-
-  @@index([status])
-  @@index([category])
-  @@map("asset_templates")
-}
-
-// Template Version — tracks every change to a template
-model TemplateVersion {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  templateId String   @map("template_id") @db.Uuid
-  version    Int
-  snapshot   Json     @db.JsonB
-  changeLog  String   @map("change_log")
-  changedBy  String   @map("changed_by") @db.Uuid
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  template AssetTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-
-  @@index([templateId, version])
-  @@map("template_versions")
-}
-
-// Asset Instance — actual asset created from a template
-model AssetInstance {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name            String   @db.VarChar(255)
-  description     String?
-  templateId      String   @map("template_id") @db.Uuid
-  templateVersion Int      @map("template_version")
-  unsPath         String   @default("") @map("uns_path") @db.VarChar(1000)
-  status          String   @default("Active") @db.VarChar(50) // Active, Inactive, Under_Maintenance, Commissioning, Decommissioned
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
-  createdBy       String?  @map("created_by") @db.Uuid
-  updatedBy       String?  @map("updated_by") @db.Uuid
-
-  template            AssetTemplate        @relation(fields: [templateId], references: [id])
-  attributes          AssetAttribute[]
-  telemetryPoints     TelemetryPoint[]
-  sourceRelationships AssetRelationship[]  @relation("RelSource")
-  targetRelationships AssetRelationship[]  @relation("RelTarget")
-  identifiers         PhysicalIdentifier[]
-  checklists          ChecklistTemplate[]
-  records             ChecklistRecord[]
-  schedules           AssetSchedule[]
-  alarmRules          AlarmRule[]
-  alarmEvents         AlarmEvent[]
-
-  @@index([templateId])
-  @@index([status])
-  @@index([unsPath])
-  @@map("asset_instances")
-}
-
-// Asset Attribute — normalized attribute with per-field audit history
-model AssetAttribute {
-  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assetId            String   @map("asset_id") @db.Uuid
-  name               String   @db.VarChar(255)
-  dataType           String   @map("data_type") @db.VarChar(20) // TEXT, INTEGER, FLOAT, DATE, DATETIME, BOOLEAN, DROPDOWN, URL, FILE
-  value              Json?    @db.JsonB
-  unit               String?  @db.VarChar(50)
-  isRequired         Boolean  @default(false) @map("is_required")
-  isCustom           Boolean  @default(false) @map("is_custom")
-  numericConstraints Json?    @map("numeric_constraints") @db.JsonB // {min, max, resolution, enableConstraints}
-  dropdownOptions    Json?    @map("dropdown_options") @db.JsonB    // string array
-  sortOrder          Int      @default(0) @map("sort_order")
-  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz
-  updatedBy          String?  @map("updated_by") @db.Uuid
-
-  asset   AssetInstance          @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  history AssetAttributeHistory[]
-
-  @@unique([assetId, name])
-  @@index([assetId])
-  @@map("asset_attributes")
-}
-
-// Asset Attribute History — before/after on every attribute change
-model AssetAttributeHistory {
-  id            Int      @id @default(autoincrement())
-  attributeId   String   @map("attribute_id") @db.Uuid
-  assetId       String   @map("asset_id") @db.Uuid
-  previousValue Json?    @map("previous_value") @db.JsonB
-  newValue      Json     @map("new_value") @db.JsonB
-  changedBy     String   @map("changed_by") @db.VarChar(100)
-  reason        String
-  changedAt     DateTime @default(now()) @map("changed_at") @db.Timestamptz
-
-  attribute AssetAttribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
-
-  @@index([attributeId, changedAt(sort: Desc)])
-  @@index([assetId])
-  @@map("asset_attribute_history")
-}
-
-// Telemetry Point — config for each data stream on an asset
-model TelemetryPoint {
-  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assetId            String   @map("asset_id") @db.Uuid
-  name               String   @db.VarChar(255)
-  dataType           String   @map("data_type") @db.VarChar(20) // INTEGER, FLOAT, BOOLEAN, STRING, ENUM
-  unit               String?  @db.VarChar(50)
-  isCustom           Boolean  @default(false) @map("is_custom")
-  numericConstraints Json?    @map("numeric_constraints") @db.JsonB
-  enumOptions        Json?    @map("enum_options") @db.JsonB
-  alarmLimits        Json?    @map("alarm_limits") @db.JsonB // {high, low, highHigh, lowLow, rateOfChange, deadband}
-  dataSource         String   @default("MANUAL") @map("data_source") @db.VarChar(20) // MANUAL, AUTOMATIC, BOTH
-  sortOrder          Int      @default(0) @map("sort_order")
-  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz
-
-  asset    AssetInstance      @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  readings TelemetryReading[]
-
-  @@unique([assetId, name])
-  @@index([assetId])
-  @@map("telemetry_points")
-}
-
-// Telemetry Reading — time-series data (immutable once recorded)
-model TelemetryReading {
-  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  telemetryPointId  String   @map("telemetry_point_id") @db.Uuid
-  assetId           String   @map("asset_id") @db.Uuid
-  value             Json     @db.JsonB
-  timestamp         DateTime @db.Timestamptz
-  source            String   @db.VarChar(20) // manual, mqtt, api, checklist
-  isCorrection      Boolean  @default(false) @map("is_correction")
-  correctionReason  String?  @map("correction_reason")
-  correctionOf      String?  @map("correction_of") @db.Uuid
-  isRejected        Boolean  @default(false) @map("is_rejected")
-  rejectionReason   String?  @map("rejection_reason")
-  recordedBy        String?  @map("recorded_by") @db.VarChar(100)
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  telemetryPoint TelemetryPoint @relation(fields: [telemetryPointId], references: [id], onDelete: Cascade)
-
-  @@index([telemetryPointId, timestamp(sort: Desc)])
-  @@index([assetId, timestamp(sort: Desc)])
-  @@map("telemetry_readings")
-}
-
-// Asset Relationship — bidirectional links between assets
-model AssetRelationship {
-  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  sourceAssetId      String   @map("source_asset_id") @db.Uuid
-  targetAssetId      String   @map("target_asset_id") @db.Uuid
-  relationshipType   String   @map("relationship_type") @db.VarChar(50) // CONTAINS, CONNECTED_TO, FEEDS, DEPENDS_ON, BACKS_UP, MONITORS, CUSTOM
-  customLabel        String?  @map("custom_label") @db.VarChar(100)
-  customInverseLabel String?  @map("custom_inverse_label") @db.VarChar(100)
-  isPrimary          Boolean  @default(false) @map("is_primary") // primary containment for UNS path
-  notes              String?
-  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
-  createdBy          String?  @map("created_by") @db.VarChar(100)
-
-  sourceAsset AssetInstance @relation("RelSource", fields: [sourceAssetId], references: [id], onDelete: Cascade)
-  targetAsset AssetInstance @relation("RelTarget", fields: [targetAssetId], references: [id], onDelete: Cascade)
-
-  @@unique([sourceAssetId, targetAssetId, relationshipType])
-  @@index([sourceAssetId])
-  @@index([targetAssetId])
-  @@map("asset_relationships")
-}
-
-// Physical Identifier — QR, Barcode, RFID, NFC, Manual
-model PhysicalIdentifier {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assetId   String   @map("asset_id") @db.Uuid
-  type      String   @db.VarChar(20) // QR, BARCODE, RFID, NFC, MANUAL
-  value     String   @db.VarChar(500)
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  createdBy String?  @map("created_by") @db.Uuid
-
-  asset AssetInstance @relation(fields: [assetId], references: [id], onDelete: Cascade)
-
-  @@unique([type, value])
-  @@index([assetId])
-  @@map("physical_identifiers")
-}
-
-// Checklist Template — per-asset checklist definition
-model ChecklistTemplate {
-  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assetId           String   @map("asset_id") @db.Uuid
-  name              String   @db.VarChar(255)
-  description       String?
-  checklistType     String   @default("CHECKLIST") @map("checklist_type") @db.VarChar(20) // CHECKLIST, RECORD_LIST
-  questions         Json     @default("[]") @db.JsonB
-  performedByRole   String?  @map("performed_by_role") @db.VarChar(50)
-  checkedByEnabled  Boolean  @default(false) @map("checked_by_enabled")
-  checkedByRole     String?  @map("checked_by_role") @db.VarChar(50)
-  verifiedByEnabled Boolean  @default(false) @map("verified_by_enabled")
-  verifiedByRole    String?  @map("verified_by_role") @db.VarChar(50)
-  isFromTemplate    Boolean  @default(true) @map("is_from_template")
-  isActive          Boolean  @default(true) @map("is_active")
-  sortOrder         Int      @default(0) @map("sort_order")
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz
-  createdBy         String?  @map("created_by") @db.Uuid
-
-  asset     AssetInstance     @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  records   ChecklistRecord[]
-  schedules AssetSchedule[]
-
-  @@index([assetId])
-  @@map("checklist_templates")
-}
-
-// Checklist Record — immutable completed checklist with 3-tier sign-off
-model ChecklistRecord {
-  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  checklistTemplateId  String   @map("checklist_template_id") @db.Uuid
-  assetId              String   @map("asset_id") @db.Uuid
-  scheduleId           String?  @map("schedule_id") @db.Uuid
-  responses            Json     @default("[]") @db.JsonB
-  status               String   @default("IN_PROGRESS") @db.VarChar(30) // IN_PROGRESS, PENDING_CHECK, PENDING_VERIFICATION, COMPLETED, REJECTED
-  // Performed By (Tier 1 — always required)
-  performedBy          String?  @map("performed_by") @db.VarChar(100)
-  performedAt          DateTime? @map("performed_at") @db.Timestamptz
-  performedSignature   String?  @map("performed_signature") @db.VarChar(255)
-  // Checked By (Tier 2 — optional)
-  checkedBy            String?  @map("checked_by") @db.VarChar(100)
-  checkedAt            DateTime? @map("checked_at") @db.Timestamptz
-  checkedSignature     String?  @map("checked_signature") @db.VarChar(255)
-  checkedComments      String?  @map("checked_comments")
-  // Verified By (Tier 3 — optional)
-  verifiedBy           String?  @map("verified_by") @db.VarChar(100)
-  verifiedAt           DateTime? @map("verified_at") @db.Timestamptz
-  verifiedSignature    String?  @map("verified_signature") @db.VarChar(255)
-  verifiedComments     String?  @map("verified_comments")
-  // Compliance & integrity
-  scheduleCompliance   String?  @map("schedule_compliance") @db.VarChar(20) // ON_TIME, EARLY, LATE, MISSED, AD_HOC
-  checksum             String?  @db.VarChar(64)
-  unsPath              String?  @map("uns_path") @db.VarChar(1000)
-  // Corrections
-  isCorrection         Boolean  @default(false) @map("is_correction")
-  correctionOf         String?  @map("correction_of") @db.Uuid
-  correctionReason     String?  @map("correction_reason")
-  // Device/provenance
-  deviceInfo           Json?    @map("device_info") @db.JsonB
-  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  checklistTemplate ChecklistTemplate @relation(fields: [checklistTemplateId], references: [id])
-  asset             AssetInstance     @relation(fields: [assetId], references: [id])
-  schedule          AssetSchedule?    @relation(fields: [scheduleId], references: [id])
-
-  @@index([assetId, createdAt(sort: Desc)])
-  @@index([checklistTemplateId])
-  @@index([status])
-  @@map("checklist_records")
-}
-
-// Asset Schedule — recurring task frequency and tolerance
-model AssetSchedule {
-  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assetId             String    @map("asset_id") @db.Uuid
-  checklistTemplateId String    @map("checklist_template_id") @db.Uuid
-  frequency           String    @db.VarChar(20) // HOURLY, PER_SHIFT, DAILY, WEEKLY, MONTHLY, QUARTERLY, ANNUALLY, CUSTOM
-  frequencyValue      Int?      @map("frequency_value")
-  cronExpression      String?   @map("cron_expression") @db.VarChar(100)
-  toleranceMinutes    Int       @default(0) @map("tolerance_minutes")
-  lastPerformedAt     DateTime? @map("last_performed_at") @db.Timestamptz
-  nextDueAt           DateTime? @map("next_due_at") @db.Timestamptz
-  isOnboarding        Boolean   @default(false) @map("is_onboarding")
-  status              String    @default("ACTIVE") @db.VarChar(20) // ACTIVE, PAUSED, COMPLETED
-  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz
-  createdBy           String?   @map("created_by") @db.Uuid
-
-  asset             AssetInstance     @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  checklistTemplate ChecklistTemplate @relation(fields: [checklistTemplateId], references: [id])
-  records           ChecklistRecord[]
-
-  @@index([assetId])
-  @@index([nextDueAt])
-  @@index([status])
-  @@map("asset_schedules")
-}
-
-// Alarm Rule — threshold-based or custom logic alarm configuration
-model AlarmRule {
-  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assetId             String   @map("asset_id") @db.Uuid
-  name                String   @db.VarChar(255)
-  ruleType            String   @map("rule_type") @db.VarChar(30) // TELEMETRY_THRESHOLD, CHECKLIST_LOGIC, SCHEDULE_MISSED, CUSTOM_SCRIPT
-  telemetryPointId    String?  @map("telemetry_point_id") @db.Uuid
-  checklistTemplateId String?  @map("checklist_template_id") @db.Uuid
-  condition           Json     @db.JsonB
-  severity            String   @db.VarChar(20) // INFO, WARNING, CRITICAL
-  actions             Json     @default("[]") @db.JsonB
-  isActive            Boolean  @default(true) @map("is_active")
-  isFromTemplate      Boolean  @default(true) @map("is_from_template")
-  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz
-  createdBy           String?  @map("created_by") @db.Uuid
-
-  asset  AssetInstance @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  events AlarmEvent[]
-
-  @@index([assetId])
-  @@map("alarm_rules")
-}
-
-// Alarm Event — triggered alarm instance with lifecycle
-model AlarmEvent {
-  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  alarmRuleId    String    @map("alarm_rule_id") @db.Uuid
-  assetId        String    @map("asset_id") @db.Uuid
-  triggeredValue Json      @map("triggered_value") @db.JsonB
-  severity       String    @db.VarChar(20) // INFO, WARNING, CRITICAL
-  status         String    @default("OPEN") @db.VarChar(20) // OPEN, ACKNOWLEDGED, CLOSED
-  message        String?   @db.VarChar(1000)
-  acknowledgedBy String?   @map("acknowledged_by") @db.VarChar(100)
-  acknowledgedAt DateTime? @map("acknowledged_at") @db.Timestamptz
-  closedBy       String?   @map("closed_by") @db.VarChar(100)
-  closedAt       DateTime? @map("closed_at") @db.Timestamptz
-  closedReason   String?   @map("closed_reason")
-  metadata       Json?     @db.JsonB
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
-
-  alarmRule AlarmRule     @relation(fields: [alarmRuleId], references: [id])
-  asset     AssetInstance @relation(fields: [assetId], references: [id])
-
-  @@index([assetId, createdAt(sort: Desc)])
-  @@index([status])
-  @@map("alarm_events")
-}
-
 // Notification types for user alerts
 enum NotificationType {
   ACCOUNT_LOCKED
@@ -529,13 +172,6 @@ enum NotificationType {
   USER_CREATED
   USER_UPDATED
   ROLE_CHANGED
-  // Asset module notifications
-  CHECKLIST_PENDING_CHECK
-  CHECKLIST_PENDING_VERIFICATION
-  CHECKLIST_REJECTED
-  ALARM_TRIGGERED
-  SCHEDULE_OVERDUE
-  ASSET_DECOMMISSIONED
 }
 
 model Notification {
@@ -583,4 +219,157 @@ model RoleConfig {
   updatedBy       String?  @map("updated_by") @db.VarChar(50)
 
   @@map("role_configs")
+}
+
+// =============================================
+// ASSET MANAGEMENT MODELS
+// =============================================
+
+// Asset Template — reusable blueprint for asset types
+model AssetTemplate {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String   @unique @db.VarChar(100)
+  description           String?  @db.VarChar(500)
+  category              String   @default("General") @db.VarChar(50)  // Equipment, Room, Building, etc.
+  icon                  String   @default("box") @db.VarChar(50)      // Icon identifier for UI
+  version               Int      @default(1)                          // Current version number
+  attributeSchema       Json     @default("[]") @map("attribute_schema") @db.JsonB   // Array of attribute definitions
+  telemetrySchema       Json     @default("[]") @map("telemetry_schema") @db.JsonB   // Array of telemetry point definitions
+  expectedIdentifiers   Json     @default("[]") @map("expected_identifiers") @db.JsonB // Array of expected identifier types
+  expectedRelationships Json     @default("[]") @map("expected_relationships") @db.JsonB // Array of expected relationship types
+  statusLifecycle       Json     @default("[]") @map("status_lifecycle") @db.JsonB    // Array of status definitions with transitions
+  alarmRules            Json     @default("[]") @map("alarm_rules") @db.JsonB       // Array of alarm rule definitions (threshold + custom logic)
+  isActive              Boolean  @default(true) @map("is_active")
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy             String?  @map("created_by") @db.VarChar(50)
+  updatedBy             String?  @map("updated_by") @db.VarChar(50)
+
+  versions  AssetTemplateVersion[]
+  instances AssetInstance[]
+  sourceLinkingRules TemplateLinkingRule[] @relation("SourceLinkingRules")
+  targetLinkingRules TemplateLinkingRule[] @relation("TargetLinkingRules")
+
+  @@index([isActive])
+  @@index([category])
+  @@map("asset_templates")
+}
+
+// Asset Template Version — snapshot of template at a point in time
+model AssetTemplateVersion {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  templateId    String   @map("template_id") @db.Uuid
+  versionNumber Int      @map("version_number")
+  snapshot      Json     @db.JsonB                        // Full template snapshot at time of version
+  changeNotes   String?  @map("change_notes")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdBy     String?  @map("created_by") @db.VarChar(50)
+
+  template AssetTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, versionNumber])
+  @@index([templateId])
+  @@map("asset_template_versions")
+}
+
+// Asset Instance — actual asset created from a template
+model AssetInstance {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String   @db.VarChar(255)
+  description      String?
+  templateId       String   @map("template_id") @db.Uuid
+  templateVersion  Int      @default(1) @map("template_version")   // Which version it was created from
+  status           String   @default("Active") @db.VarChar(50)     // Active, Inactive, Under Maintenance, Decommissioned
+  attributes       Json     @default("{}") @db.JsonB               // Key-value pairs with actual attribute values
+  telemetryConfig  Json     @default("{}") @map("telemetry_config") @db.JsonB  // Instance-level telemetry overrides
+  customAttributes Json     @default("{}") @map("custom_attributes") @db.JsonB // Extra attributes added at instance level
+  parentId         String?  @map("parent_id") @db.Uuid             // Primary containment parent (for tree)
+  unsPath          String?  @map("uns_path") @db.VarChar(500)      // Computed UNS path
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy        String?  @map("created_by") @db.VarChar(50)
+  updatedBy        String?  @map("updated_by") @db.VarChar(50)
+
+  template          AssetTemplate       @relation(fields: [templateId], references: [id])
+  parent            AssetInstance?       @relation("AssetHierarchy", fields: [parentId], references: [id])
+  children          AssetInstance[]      @relation("AssetHierarchy")
+  sourceRelations   AssetRelationship[]  @relation("SourceAsset")
+  targetRelations   AssetRelationship[]  @relation("TargetAsset")
+  identifiers       AssetIdentifier[]
+
+  @@index([templateId])
+  @@index([status])
+  @@index([parentId])
+  @@index([name])
+  @@index([isActive])
+  @@map("asset_instances")
+}
+
+// Asset Relationship — bidirectional connections between assets
+model AssetRelationship {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sourceAssetId    String   @map("source_asset_id") @db.Uuid
+  targetAssetId    String   @map("target_asset_id") @db.Uuid
+  relationshipType String   @map("relationship_type") @db.VarChar(50) // CONTAINS, CONTAINED_IN, CONNECTED_TO, etc.
+  customLabel      String?  @map("custom_label") @db.VarChar(100)     // For CUSTOM type
+  notes            String?
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy        String?  @map("created_by") @db.VarChar(50)
+  updatedBy        String?  @map("updated_by") @db.VarChar(50)
+
+  sourceAsset AssetInstance @relation("SourceAsset", fields: [sourceAssetId], references: [id], onDelete: Cascade)
+  targetAsset AssetInstance @relation("TargetAsset", fields: [targetAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceAssetId, targetAssetId, relationshipType])
+  @@index([sourceAssetId])
+  @@index([targetAssetId])
+  @@index([relationshipType])
+  @@map("asset_relationships")
+}
+
+// Asset Identifier — physical identifiers (QR, RFID, NFC, Barcode, Manual)
+model AssetIdentifier {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assetId         String   @map("asset_id") @db.Uuid
+  identifierType  String   @map("identifier_type") @db.VarChar(20)  // QR, BARCODE, RFID, NFC, MANUAL
+  identifierValue String   @unique @map("identifier_value") @db.VarChar(255)
+  label           String?  @db.VarChar(100)
+  isPrimary       Boolean  @default(false) @map("is_primary")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy       String?  @map("created_by") @db.VarChar(50)
+  updatedBy       String?  @map("updated_by") @db.VarChar(50)
+
+  asset AssetInstance @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId])
+  @@index([identifierType])
+  @@map("asset_identifiers")
+}
+
+// Template Linking Rule — defines which template types can be linked together
+model TemplateLinkingRule {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sourceTemplateId      String   @map("source_template_id") @db.Uuid
+  targetTemplateId      String   @map("target_template_id") @db.Uuid
+  allowedRelationships  Json     @default("[]") @map("allowed_relationships") @db.JsonB
+  scope                 String   @default("GLOBAL") @db.VarChar(20)
+  scopeValue            String?  @map("scope_value") @db.VarChar(100)
+  priority              Int      @default(0)
+  isActive              Boolean  @default(true) @map("is_active")
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy             String?  @map("created_by") @db.VarChar(50)
+  updatedBy             String?  @map("updated_by") @db.VarChar(50)
+
+  sourceTemplate AssetTemplate @relation("SourceLinkingRules", fields: [sourceTemplateId], references: [id], onDelete: Cascade)
+  targetTemplate AssetTemplate @relation("TargetLinkingRules", fields: [targetTemplateId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceTemplateId, targetTemplateId, scope, scopeValue])
+  @@index([sourceTemplateId])
+  @@index([targetTemplateId])
+  @@index([scope])
+  @@map("template_linking_rules")
 }

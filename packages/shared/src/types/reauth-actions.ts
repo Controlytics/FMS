@@ -30,10 +30,16 @@ export const REAUTH_ACTIONS = {
 
   // Asset Management
   CREATE_ASSET_TEMPLATE: { label: 'Create Asset Template', category: 'Asset Management' },
+  UPDATE_ASSET_TEMPLATE: { label: 'Update Asset Template', category: 'Asset Management' },
   DELETE_ASSET_TEMPLATE: { label: 'Delete Asset Template', category: 'Asset Management' },
-  DECOMMISSION_ASSET: { label: 'Decommission Asset', category: 'Asset Management' },
-  DELETE_RELATIONSHIP: { label: 'Delete Asset Relationship', category: 'Asset Management' },
-  CONFIGURE_ALARM_RULE: { label: 'Configure Alarm Rule', category: 'Asset Management' },
+  CREATE_ASSET: { label: 'Create Asset', category: 'Asset Management' },
+  UPDATE_ASSET: { label: 'Update Asset', category: 'Asset Management' },
+  DELETE_ASSET: { label: 'Delete Asset', category: 'Asset Management' },
+  CREATE_ASSET_RELATIONSHIP: { label: 'Create Asset Relationship', category: 'Asset Management' },
+  DELETE_ASSET_RELATIONSHIP: { label: 'Delete Asset Relationship', category: 'Asset Management' },
+  CREATE_TEMPLATE_LINKING_RULE: { label: 'Create Linking Rule', category: 'Asset Management' },
+  UPDATE_TEMPLATE_LINKING_RULE: { label: 'Update Linking Rule', category: 'Asset Management' },
+  DELETE_TEMPLATE_LINKING_RULE: { label: 'Delete Linking Rule', category: 'Asset Management' },
 } as const;
 
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;

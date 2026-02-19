@@ -57,6 +57,11 @@ export async function registerSwagger(app: FastifyInstance) {
         { name: 'Notifications', description: 'Notifications — role-based user alerts and badges' },
         { name: 'Uploads', description: 'File uploads — profile photos (JPEG, PNG, GIF, WebP, max 5MB)' },
         { name: 'Backup', description: 'Database backup & restore — export (JSON, SQL, CSV, BAK), validate, and restore with SHA-256 checksum integrity' },
+        { name: 'Asset Templates', description: 'Asset template management — reusable blueprints for asset types' },
+        { name: 'Assets', description: 'Asset instance management — create, configure, and operate asset instances' },
+        { name: 'Asset Relationships', description: 'Asset relationships — bidirectional connections between assets' },
+        { name: 'Asset Identifiers', description: 'Asset identifiers — QR, RFID, NFC, Barcode, Manual identifiers' },
+        { name: 'Template Linking Rules', description: 'Template linking rules — define which template types can be linked together' },
       ],
       components: {
         securitySchemes: {

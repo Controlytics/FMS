@@ -24,6 +24,7 @@ export interface RoleData {
   hierarchyLevel: number;
   permissions: string[];
   color: string;
+  allowCrossTemplateLinking: boolean;
   isSystem: boolean;
   isActive: boolean;
 }
