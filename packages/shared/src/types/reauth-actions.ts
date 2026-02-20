@@ -28,18 +28,17 @@ export const REAUTH_ACTIONS = {
   EXPORT_BACKUP: { label: 'Export Backup', category: 'Backup' },
   RESTORE_BACKUP: { label: 'Restore Backup', category: 'Backup' },
 
-  // Asset Management
-  CREATE_ASSET_TEMPLATE: { label: 'Create Asset Template', category: 'Asset Management' },
-  UPDATE_ASSET_TEMPLATE: { label: 'Update Asset Template', category: 'Asset Management' },
-  DELETE_ASSET_TEMPLATE: { label: 'Delete Asset Template', category: 'Asset Management' },
-  CREATE_ASSET: { label: 'Create Asset', category: 'Asset Management' },
-  UPDATE_ASSET: { label: 'Update Asset', category: 'Asset Management' },
-  DELETE_ASSET: { label: 'Delete Asset', category: 'Asset Management' },
-  CREATE_ASSET_RELATIONSHIP: { label: 'Create Asset Relationship', category: 'Asset Management' },
-  DELETE_ASSET_RELATIONSHIP: { label: 'Delete Asset Relationship', category: 'Asset Management' },
-  CREATE_TEMPLATE_LINKING_RULE: { label: 'Create Linking Rule', category: 'Asset Management' },
-  UPDATE_TEMPLATE_LINKING_RULE: { label: 'Update Linking Rule', category: 'Asset Management' },
-  DELETE_TEMPLATE_LINKING_RULE: { label: 'Delete Linking Rule', category: 'Asset Management' },
+  // Entity Management
+  CREATE_ASSET_TEMPLATE: { label: 'Create Entity Template', category: 'Entity Management' },
+  UPDATE_ASSET_TEMPLATE: { label: 'Update Entity Template', category: 'Entity Management' },
+  DELETE_ASSET_TEMPLATE: { label: 'Delete Entity Template', category: 'Entity Management' },
+  CREATE_ASSET: { label: 'Create Entity', category: 'Entity Management' },
+  UPDATE_ASSET: { label: 'Update Entity', category: 'Entity Management' },
+  DELETE_ASSET: { label: 'Delete Entity', category: 'Entity Management' },
+  CREATE_ASSET_RELATIONSHIP: { label: 'Create Entity Relationship', category: 'Entity Management' },
+  DELETE_ASSET_RELATIONSHIP: { label: 'Delete Entity Relationship', category: 'Entity Management' },
+  CREATE_ASSET_IDENTIFIER: { label: 'Create Entity Identifier', category: 'Entity Management' },
+  DELETE_ASSET_IDENTIFIER: { label: 'Delete Entity Identifier', category: 'Entity Management' },
 } as const;
 
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;
@@ -49,7 +48,7 @@ export const REAUTH_ACTION_CATEGORIES = [
   'Configuration',
   'Role Management',
   'Backup',
-  'Asset Management',
+  'Entity Management',
 ] as const;
 
 export type ReauthActionCategory = (typeof REAUTH_ACTION_CATEGORIES)[number];

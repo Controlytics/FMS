@@ -19,7 +19,6 @@ async function main() {
         'AUDIT_READ', 'APPROVAL_REVIEW', 'APPROVAL_REQUEST', 'ROLE_MANAGE',
         'ASSET_TEMPLATE_MANAGE', 'ASSET_CREATE', 'ASSET_UPDATE', 'ASSET_DELETE',
         'ASSET_RELATIONSHIP_MANAGE', 'ASSET_IDENTIFIER_MANAGE', 'ASSET_VIEW',
-        'TEMPLATE_LINKING_RULE_MANAGE',
       ],
       color: 'bg-gradient-to-r from-red-500 to-pink-500',
       isSystem: true,
@@ -35,7 +34,6 @@ async function main() {
         'AUDIT_READ',
         'ASSET_CREATE', 'ASSET_UPDATE', 'ASSET_DELETE',
         'ASSET_RELATIONSHIP_MANAGE', 'ASSET_IDENTIFIER_MANAGE', 'ASSET_VIEW',
-        'TEMPLATE_LINKING_RULE_MANAGE',
       ],
       color: 'bg-gradient-to-r from-purple-500 to-indigo-500',
       isSystem: true,
@@ -55,7 +53,7 @@ async function main() {
     {
       name: 'MAINTENANCE',
       displayName: 'Maintenance',
-      description: 'Maintenance staff with asset and template management',
+      description: 'Maintenance staff with entity and template management',
       hierarchyLevel: 3,
       permissions: [
         'AUDIT_READ', 'APPROVAL_REQUEST',

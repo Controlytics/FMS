@@ -44,38 +44,50 @@
 **Decision:** SWR types must match the API response shape. Paginated endpoints return `{ data: [], total, page, limit, totalPages }`, not raw arrays.
 **Rationale:** The API wraps paginated results in a standard envelope. The frontend must type SWR calls as `useSWR<{ data: T[] }>('/api/...')` and extract `res?.data`. Using `useSWR<T[]>` directly causes runtime crashes (`o.filter is not a function`) because the response object has no `.filter` method.
 
-## 12. Asset Explorer Split Panel Layout
-**Decision:** The Asset Explorer uses a fixed-width tree panel (320px) on the left with a detail panel on the right, plus a toggle for list view.
-**Rationale:** Asset hierarchies need visual tree navigation for CONTAINS relationships, but flat list view is essential for search/filter operations across all assets. The split panel gives both options. Detail panel uses 5 tabs (Overview, Attributes, Relationships, Identifiers, Audit) to organize the rich asset data without overwhelming the user.
+## 12. Entity Explorer Split Panel Layout
+**Decision:** The Entity Explorer uses a fixed-width tree panel (320px) on the left with a detail panel on the right, plus a toggle for list view.
+**Rationale:** Entity hierarchies need visual tree navigation for CONTAINS relationships, but flat list view is essential for search/filter operations across all entities. The split panel gives both options. Detail panel uses 5 tabs (Overview, Attributes, Relationships, Identifiers, Audit) to organize the rich entity data without overwhelming the user.
 
-## 13. Multi-Step Add Asset Wizard
-**Decision:** Creating an asset is a 4-step wizard: Select Template -> Basic Info -> Fill Attributes -> Review & Create.
-**Rationale:** Asset creation requires multiple decisions (which template, parent, attribute values). A single long form would be overwhelming. The wizard breaks it into digestible steps. Step 3 dynamically renders type-aware inputs (number inputs for INTEGER/FLOAT with constraints, date pickers for DATE/DATETIME, dropdowns for DROPDOWN type, toggles for BOOLEAN) based on the selected template's attribute schema.
+## 13. Multi-Step Add Entity Wizard
+**Decision:** Creating an entity is a 4-step wizard: Select Template -> Basic Info -> Fill Attributes -> Review & Create.
+**Rationale:** Entity creation requires multiple decisions (which template, parent, attribute values). A single long form would be overwhelming. The wizard breaks it into digestible steps. Step 3 dynamically renders type-aware inputs (number inputs for INTEGER/FLOAT with constraints, date pickers for DATE/DATETIME, dropdowns for DROPDOWN type, toggles for BOOLEAN) based on the selected template's attribute schema.
 
 ## 14. Sidebar Active State: Exact Match for Parent Routes
 **Decision:** The `/assets` sidebar item uses exact pathname match (`location.pathname === '/assets'`) instead of `startsWith('/assets')`.
-**Rationale:** Without exact matching, navigating to `/assets/templates` would highlight both "Assets" and "Asset Templates" in the sidebar, since both paths start with `/assets`. Exact match for the parent route ensures only the correct item is highlighted.
+**Rationale:** Without exact matching, navigating to `/assets/templates` would highlight both "Entities" and "Entity Templates" in the sidebar, since both paths start with `/assets`. Exact match for the parent route ensures only the correct item is highlighted.
 
 ## 15. Reauth Execute Must Be Awaited
 **Decision:** All `reauth.execute()` calls must use `await` (i.e., `await reauth.execute('ACTION', callback, opts)`).
-**Rationale:** Without `await`, the code after `reauth.execute` runs immediately, which can cause race conditions where state is saved (e.g., closing a dialog, clearing form data) before the reauth dialog is shown or the callback completes. This was a key bug fix that applies to all asset mutation flows (create, edit, delete, link, status change).
+**Rationale:** Without `await`, the code after `reauth.execute` runs immediately, which can cause race conditions where state is saved (e.g., closing a dialog, clearing form data) before the reauth dialog is shown or the callback completes. This was a key bug fix that applies to all entity mutation flows (create, edit, delete, link, status change).
 
 ## 16. API Client Methods for Mutations
 **Decision:** Frontend uses `apiClient.post()`, `apiClient.put()`, and `apiClient.delete()` for mutations instead of SWR's mutation helpers.
 **Rationale:** SWR is designed for data fetching, not mutations. Using the API client directly for POST/PUT/DELETE gives explicit control over request bodies, error handling, and reauth password headers. SWR's `mutate()` is only used for cache invalidation after successful mutations.
 
 ## 17. Template Selector Shows All Templates (no isActive filter)
-**Decision:** The Add Asset wizard's template selector fetches `/api/assets/templates?limit=100` without filtering by `isActive`.
-**Rationale:** Users should be able to create assets from any template regardless of its active/inactive status. The `isActive` flag on templates controls whether the template itself can be edited or is retired, not whether assets can be created from it. Filtering by `isActive=true` would hide templates that still have valid schemas for asset creation.
+**Decision:** The Add Entity wizard's template selector fetches `/api/assets/templates?limit=100` without filtering by `isActive`.
+**Rationale:** Users should be able to create entities from any template regardless of its active/inactive status. The `isActive` flag on templates controls whether the template itself can be edited or is retired, not whether entities can be created from it. Filtering by `isActive=true` would hide templates that still have valid schemas for entity creation.
 
 ## 18. Dynamic Tree Diagram with Inline Actions
 **Decision:** The Relationships tab diagram tree has hover-action buttons (create child, attach existing, remove from tree) directly on each node, rather than a separate context menu.
-**Rationale:** Direct action buttons reduce click count and make the tree interactive without modal overhead. Three distinct actions (green=create new, blue=attach existing, red=remove) use color coding for quick identification. The buttons only appear on hover to keep the tree clean. The "remove" action deletes the CONTAINS relationship (not the asset), with a confirm dialog.
+**Rationale:** Direct action buttons reduce click count and make the tree interactive without modal overhead. Three distinct actions (green=create new, blue=attach existing, red=remove) use color coding for quick identification. The buttons only appear on hover to keep the tree clean. The "remove" action deletes the CONTAINS relationship (not the entity), with a confirm dialog.
 
-## 19. Attach Existing Asset Dialog (Search + Select)
-**Decision:** Attaching an existing asset to the tree uses a modal dialog with search input, radio-button asset list, and preview, rather than drag-and-drop.
-**Rationale:** Drag-and-drop is difficult to implement in a nested tree and has poor accessibility. The search dialog allows finding assets by name across the entire system, shows template badge for context, and provides a clear preview before committing. Creates a CONTAINS relationship behind the scenes.
+## 19. Attach Existing Entity Dialog (Search + Select)
+**Decision:** Attaching an existing entity to the tree uses a modal dialog with search input, radio-button entity list, and preview, rather than drag-and-drop.
+**Rationale:** Drag-and-drop is difficult to implement in a nested tree and has poor accessibility. The search dialog allows finding entities by name across the entire system, shows template badge for context, and provides a clear preview before committing. Creates a CONTAINS relationship behind the scenes.
 
-## 20. Linking Rule Enforcement in Link Assets Dialog
-**Decision:** The Link Assets dialog fetches `/api/assets/linking-rules/validate` and visually disables disallowed relationship types (grayed out with lock icon) rather than hiding them.
-**Rationale:** Showing all types but disabling blocked ones is more informative than hiding options silently. Users can see what's restricted and why (info banner explains "restricted by template linking rules" or "bypassed by role"). An auto-switch effect moves the selection to the first allowed type if the current selection becomes disallowed. This transparency aids compliance understanding.
+## 20. All 12 Relationship Types in UI Selectors
+**Decision:** The Link Entities dialog shows all 12 relationship types freely available with no restrictions.
+**Rationale:** Any entity can link to any other entity with any relationship type (CONTAINS, CONTAINED_IN, CONNECTED_TO, FEEDS, FED_BY, DEPENDS_ON, DEPENDED_ON_BY, BACKS_UP, BACKED_UP_BY, MONITORS, MONITORED_BY, CUSTOM). All types are shown as radio buttons for selection.
+
+## 21. Toast Notification System via React Context
+**Decision:** Global toast notifications use React Context (`ToastProvider` + `useToast` hook) rather than a third-party library (react-hot-toast, sonner, etc.).
+**Rationale:** The app already uses a custom component library without external UI dependencies. A lightweight custom toast system (~150 lines total) keeps the bundle small and gives full control over styling (matching the Tailwind design system). The Context pattern allows any component to trigger toasts without prop drilling. Auto-dismiss (5s) with manual close keeps the UI clean.
+
+## 22. Entity Template View Dialog (Read-Only)
+**Decision:** Entity template details are shown in a read-only dialog (triggered by an eye icon) rather than navigating to a separate page or using the edit dialog in read-only mode.
+**Rationale:** A dedicated view dialog provides quick inspection without the risk of accidental edits. The dialog shows all template sections (attributes, telemetry, identifiers, alarm rules) in a compact format. An "Edit Template" button allows seamless transition to the edit dialog when changes are needed. This keeps the template table's action column clean with three distinct icons: view (eye), edit (pencil), delete (trash).
+
+## 23. Connection Status Cards with Progress Bars
+**Decision:** The entity Overview tab shows 4 connection status cards (Connections Allowed/Used, Parent Connections Allowed/Used) with visual progress bars.
+**Rationale:** Connection limits are template-level settings that users need to monitor per entity. Progress bars provide an instant visual indicator of capacity (green when under limit, red when at limit). Showing both total connections and parent connections separately reflects the dual limit system (maxConnections vs maxParentConnections). Cards are read-only since limits are set at the template level.

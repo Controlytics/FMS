@@ -31,14 +31,13 @@ export const PERMISSION_CATEGORIES: Record<string, PermissionItem[]> = {
     { key: PERMISSIONS.APPROVAL_REVIEW, label: 'Review Approvals' },
     { key: PERMISSIONS.APPROVAL_REQUEST, label: 'Request Approvals' },
   ],
-  'Asset Management': [
-    { key: PERMISSIONS.ASSET_VIEW, label: 'View Assets' },
-    { key: PERMISSIONS.ASSET_CREATE, label: 'Create Assets' },
-    { key: PERMISSIONS.ASSET_UPDATE, label: 'Edit Assets' },
-    { key: PERMISSIONS.ASSET_DELETE, label: 'Delete Assets' },
+  'Entity Management': [
+    { key: PERMISSIONS.ASSET_VIEW, label: 'View Entities' },
+    { key: PERMISSIONS.ASSET_CREATE, label: 'Create Entities' },
+    { key: PERMISSIONS.ASSET_UPDATE, label: 'Edit Entities' },
+    { key: PERMISSIONS.ASSET_DELETE, label: 'Delete Entities' },
     { key: PERMISSIONS.ASSET_TEMPLATE_MANAGE, label: 'Manage Templates' },
     { key: PERMISSIONS.ASSET_RELATIONSHIP_MANAGE, label: 'Manage Relationships' },
     { key: PERMISSIONS.ASSET_IDENTIFIER_MANAGE, label: 'Manage Identifiers' },
-    { key: PERMISSIONS.TEMPLATE_LINKING_RULE_MANAGE, label: 'Manage Linking Rules' },
   ],
 };

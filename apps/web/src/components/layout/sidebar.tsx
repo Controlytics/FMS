@@ -36,7 +36,7 @@ const allNavItems: NavItem[] = [
   },
   {
     id: 'assets',
-    label: 'Assets',
+    label: 'Entities',
     href: '/assets',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -47,7 +47,7 @@ const allNavItems: NavItem[] = [
   },
   {
     id: 'asset-templates',
-    label: 'Asset Templates',
+    label: 'Entity Templates',
     href: '/assets/templates',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

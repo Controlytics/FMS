@@ -41,7 +41,9 @@ class ApiClient {
         }
         throw new Error(err.message ?? 'Invalid credentials');
       }
-      throw new Error(err.message ?? `Request failed: ${res.status}`);
+      const error = new Error(err.error ?? err.message ?? `Request failed: ${res.status}`);
+      (error as any).connectionInfo = err.connectionInfo;
+      throw error;
     }
 
     if (res.status === 204) return undefined as T;

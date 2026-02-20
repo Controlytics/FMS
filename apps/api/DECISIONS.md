@@ -4,9 +4,9 @@
 **Decision:** Store role as a Prisma enum on the `users` table rather than a separate `roles` table with join.
 **Rationale:** Phase 1 has 6 fixed roles. This simplifies queries, avoids JOINs on every auth check, and roles are checked on nearly every request. A roles table would add complexity without benefit at this stage. Can be migrated to a table in later phases if custom roles are needed.
 
-## 2. Template-Based Asset Architecture (not hardcoded hierarchy)
-**Decision:** Assets are created from configurable templates (blueprints) rather than hardcoded Block > Area > Module > Instrument hierarchy tables.
-**Rationale:** The requirements doc specifies flexible asset types (CCTV cameras, clean rooms, reactors, etc.) that vary per deployment. Templates define attribute schemas (with 9 data types and numeric constraints), telemetry schemas, expected identifiers, expected relationships, and status lifecycles. Instances are created from templates and validated against their schema. This supports unlimited asset types without schema changes.
+## 2. Template-Based Entity Architecture (not hardcoded hierarchy)
+**Decision:** Entities are created from configurable templates (blueprints) rather than hardcoded Block > Area > Module > Instrument hierarchy tables.
+**Rationale:** The requirements doc specifies flexible entity types (CCTV cameras, clean rooms, reactors, etc.) that vary per deployment. Templates define attribute schemas (with 9 data types and numeric constraints), telemetry schemas, expected identifiers, expected relationships, and status lifecycles. Instances are created from templates and validated against their schema. This supports unlimited entity types without schema changes.
 
 ## 3. JWT + DB Sessions (not stateless JWT only)
 **Decision:** Issue JWT tokens but also create a `sessions` record in the database.
@@ -49,8 +49,8 @@
 **Rationale:** Different deployments may have different data volumes. A single centralized config (rather than per-page hardcoded values) ensures consistency across all paginated views.
 
 ## 13. Bidirectional Relationships with Auto-Inverse
-**Decision:** When creating an asset relationship (e.g., A CONTAINS B), the API automatically creates the inverse (B CONTAINED_IN A). Deleting either side deletes both.
-**Rationale:** Bidirectional relationships are essential for navigating the asset hierarchy from either direction. Auto-inverse creation prevents orphaned one-way relationships. The INVERSE_RELATIONSHIP_MAP in the shared package defines all inverse pairs: CONTAINS<->CONTAINED_IN, FEEDS<->FED_BY, DEPENDS_ON<->DEPENDED_ON_BY, BACKS_UP<->BACKED_UP_BY, MONITORS<->MONITORED_BY, CONNECTED_TO<->CONNECTED_TO (symmetric).
+**Decision:** When creating an entity relationship (e.g., A CONTAINS B), the API automatically creates the inverse (B CONTAINED_IN A). Deleting either side deletes both.
+**Rationale:** Bidirectional relationships are essential for navigating the entity hierarchy from either direction. Auto-inverse creation prevents orphaned one-way relationships. The INVERSE_RELATIONSHIP_MAP in the shared package defines all inverse pairs: CONTAINS<->CONTAINED_IN, FEEDS<->FED_BY, DEPENDS_ON<->DEPENDED_ON_BY, BACKS_UP<->BACKED_UP_BY, MONITORS<->MONITORED_BY, CONNECTED_TO<->CONNECTED_TO (symmetric).
 
 ## 14. CONTAINS Cycle Detection
 **Decision:** Before creating a CONTAINS relationship from A to B, the API walks the parent chain from A to detect if B is already an ancestor of A.
@@ -58,36 +58,40 @@
 
 ## 15. Template Versioning with Snapshots
 **Decision:** Each template update creates an AssetTemplateVersion record containing a full JSON snapshot of the template at that point in time.
-**Rationale:** Asset instances record which template version they were created from (`templateVersion` field). When a template is updated, existing instances should still reference the schema they were created against. Full snapshots avoid complex diff/migration logic and allow viewing the exact template definition at any point in history.
+**Rationale:** Entity instances record which template version they were created from (`templateVersion` field). When a template is updated, existing instances should still reference the schema they were created against. Full snapshots avoid complex diff/migration logic and allow viewing the exact template definition at any point in history.
 
 ## 16. Paginated API Responses
 **Decision:** List endpoints return `{ data: [], total, page, limit, totalPages }`. Tree endpoints return plain arrays.
 **Rationale:** Pagination is essential for large datasets. The consistent wrapper format makes it easy for the frontend to handle pagination state. Tree endpoints return flat arrays because they return the full hierarchy (no pagination needed) and the frontend builds the tree structure client-side.
 
 ## 17. requirePermission vs requireRole for Authorization
-**Decision:** Asset routes use `requirePermission` (checks `role.permissions` JSON array in DB). Other routes may use `requireRole` (checks role name string).
+**Decision:** Entity routes use `requirePermission` (checks `role.permissions` JSON array in DB). Other routes may use `requireRole` (checks role name string).
 **Rationale:** Permission-based checks are more granular and support custom roles. A role named "QA" can have `ASSET_CREATE` permission without needing to be listed in a hardcoded role-name allow list. `requirePermission` fetches the role from DB on each request and checks the `permissions` JSON array. `requireRole` is a simpler name-based check used where role identity matters (e.g., SUPER_ADMIN bypass logic). Both are Fastify decorators registered by the rbac plugin.
 
-## 18. Reauth Enforcement on Mutations
-**Decision:** Asset mutation endpoints call `enforceReauth()` from `src/lib/reauth-check.ts` after permission checks. Read endpoints do not require reauth.
-**Rationale:** Re-authentication adds a second verification step before destructive or sensitive operations. The reauth config is action-based (e.g., `CREATE_ASSET`, `DELETE_ASSET_TEMPLATE`) and can be enabled/disabled per action by admins. The `enforceReauth` function checks the in-memory cache (10s TTL) to determine if the action requires reauth, and validates the provided password if so.
+## 18. Reauth Enforcement on All Mutations
+**Decision:** All entity mutation endpoints call `enforceReauth()` from `src/lib/reauth-check.ts` after permission checks. Read endpoints do not require reauth. This includes templates (CREATE/UPDATE/DELETE_ASSET_TEMPLATE), instances (CREATE/UPDATE/DELETE_ASSET), relationships (CREATE/DELETE_ASSET_RELATIONSHIP), and identifiers (CREATE/DELETE_ASSET_IDENTIFIER) — 10 reauth actions total.
+**Rationale:** Re-authentication adds a second verification step before destructive or sensitive operations. The reauth config is action-based and can be enabled/disabled per action by admins. The `enforceReauth` function checks the in-memory cache (10s TTL) to determine if the action requires reauth, and validates the provided password if so.
 
-## 19. Cascade Soft-Delete for Asset Instances
-**Decision:** Deleting an asset instance soft-deletes (sets `isActive: false`) all descendant instances by recursively collecting child IDs via `collectDescendantIds()`.
-**Rationale:** Hard-deleting parent assets while leaving orphaned children would create an inconsistent hierarchy. Soft-delete preserves data for audit purposes while removing items from active views. The recursive helper walks the `parentId` tree to collect all descendants before performing a batch update.
+## 19. Cascade Soft-Delete for Entity Instances
+**Decision:** Deleting an entity instance soft-deletes (sets `isActive: false`) all descendant instances by recursively collecting child IDs via `collectDescendantIds()`.
+**Rationale:** Hard-deleting parent entities while leaving orphaned children would create an inconsistent hierarchy. Soft-delete preserves data for audit purposes while removing items from active views. The recursive helper walks the `parentId` tree to collect all descendants before performing a batch update.
 
-## 20. Template Linking Rules with Scoped Priority
-**Decision:** Template linking rules use a 3-tier scoped priority system (USER > ROLE > GLOBAL) to control which relationship types are allowed between template pairs. When no rules exist, all relationships are allowed (backwards compatible).
-**Rationale:** Different organizations need different levels of control over asset relationships. Global rules set baseline policy, role-scoped rules allow per-team customization, and user-scoped rules handle exceptions. The priority system (USER=20, ROLE=10, GLOBAL=0) ensures the most specific rule wins. Backwards compatibility (no rules = allow all) ensures existing deployments are unaffected.
+## 20. Entity Creation from Any Template (no isActive filter)
+**Decision:** `POST /instances` checks only that the template exists, not that it's active. Entities can be created from active or inactive templates.
+**Rationale:** The `isActive` flag on templates controls whether the template blueprint itself is editable/visible in template management, not whether entities can be instantiated from it. An inactive template may still have a valid schema that users need to create entities against. The frontend shows all templates in the Add Entity wizard, so the API must accept them. Filtering would cause confusing 400 errors.
 
-## 21. API-Level Duplicate Rule Prevention (PostgreSQL NULL Workaround)
-**Decision:** Template linking rule creation uses an explicit `findFirst` check before `create` instead of relying solely on the `@@unique` constraint.
-**Rationale:** The `@@unique([sourceTemplateId, targetTemplateId, scope, scopeValue])` constraint does not prevent duplicates when `scopeValue` is NULL because PostgreSQL treats NULL values as distinct in unique constraints. An explicit `findFirst` query before `create` catches duplicates for GLOBAL scope rules (where `scopeValue` is always NULL) and returns HTTP 409.
-
-## 22. Role-Level Cross-Template Linking Bypass
-**Decision:** Roles have an `allowCrossTemplateLinking` boolean field. When true, all template linking rules are bypassed for users with that role.
-**Rationale:** Administrators and certain privileged roles need the ability to create any relationship regardless of template linking rules. Rather than creating exception rules for every template pair, a single role-level toggle provides a clean override. The check is performed at request time from the DB (not cached), so role changes take effect on the next API call.
-
-## 23. Dual Hierarchy: parentId vs CONTAINS Relationships
-**Decision:** The asset system maintains two independent hierarchies: `parentId` (direct field on AssetInstance) and CONTAINS relationships (in AssetRelationship table). The sidebar tree uses `parentId`, while the diagram tree uses CONTAINS relationships.
+## 21. Dual Hierarchy: parentId vs CONTAINS Relationships
+**Decision:** The entity system maintains two independent hierarchies: `parentId` (direct field on AssetInstance) and CONTAINS relationships (in AssetRelationship table). The sidebar tree uses `parentId`, while the diagram tree uses CONTAINS relationships.
 **Rationale:** `parentId` provides a simple, fast single-parent hierarchy for the sidebar navigation tree. CONTAINS relationships provide a richer, many-to-many containment model visible in the Relationships tab diagram. Both serve different UI purposes. The "Unlink from Parent" action sets `parentId=null`, while "Remove from Tree" in the diagram deletes the CONTAINS relationship.
+
+## 22. Dual Connection Limits (maxParentConnections + maxConnections)
+**Decision:** Entity templates have two independent connection limit fields: `maxParentConnections` (limits CONTAINS parent relationships) and `maxConnections` (limits total relationships of all types).
+**Rationale:** Parent connection limits control the tree hierarchy structure (0=no parents, 1=single parent, N=multiple). Total connection limits cap the overall number of relationships an entity can have, preventing unbounded growth. Both are enforced independently: `maxParentConnections` is checked only for CONTAINS relationships, while `maxConnections` is checked for all relationship types. A value of 0 means "not allowed" for parent connections but "unlimited" for total connections.
+
+## 23. Connection Info in API Responses
+**Decision:** POST /relationships success responses include `connectionInfo` with `{ source: { used, allowed, remaining }, target: { used, allowed, remaining } }`. Error responses include `connectionInfo` identifying which entity hit its limit.
+**Rationale:** The frontend needs connection status data to display meaningful toast notifications ("3/10 connections used, 7 remaining") without making additional API calls. Including this in the response avoids an N+1 problem where the UI would need to fetch template limits and count relationships separately after each operation.
+
+## 24. User-Facing "Entity" Terminology (Code Retains "Asset")
+**Decision:** All user-facing text (UI labels, API Swagger docs, error messages, audit descriptions) uses "Entity" terminology, while code identifiers (Prisma models, variable names, permission constants, file paths) retain "Asset" naming.
+**Rationale:** Renaming code identifiers would require a database migration (table/column renames), Prisma schema changes, and extensive refactoring across all files with no functional benefit. The user-facing rename from "Asset" to "Entity" better matches the domain vocabulary without the risk and effort of a full codebase rename. This is a common pattern in long-lived codebases where the domain language evolves.

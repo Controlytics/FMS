@@ -10,14 +10,14 @@ Fastify 5, TypeScript, Prisma ORM, PostgreSQL 16, bcrypt, jose (JWT), Zod valida
   - `auth/` — Login, logout, password management, re-verification
   - `users/` — User CRUD, stats, enable/disable, unlock, password reset
   - `config/` — System configuration (password policy, datetime, branding, etc.)
-  - `roles/` — Role management, permissions, hierarchy, allowCrossTemplateLinking
-  - `assets/` — Asset templates, instances, relationships, identifiers, linking rules (26 endpoints)
+  - `roles/` — Role management, permissions, hierarchy
+  - `assets/` — Asset templates, instances, relationships, identifiers (21 endpoints)
   - `audit/` — Audit trail with SHA-256 checksums
   - `backup/` — Database backup & restore
   - `notifications/` — Role-based user alerts
   - `uploads/` — File uploads (profile photos)
 - `src/lib/` — Shared utilities (prisma client, JWT, password hashing, hash chain, error schemas, reauth, user-id validator, swagger)
-- `prisma/schema.prisma` — Database schema (6 asset models: AssetTemplate, AssetTemplateVersion, AssetInstance, AssetRelationship, AssetIdentifier, TemplateLinkingRule)
+- `prisma/schema.prisma` — Database schema (5 asset models: AssetTemplate, AssetTemplateVersion, AssetInstance, AssetRelationship, AssetIdentifier)
 - `prisma/seed.ts` — Seed script for default data
 
 ## Running
@@ -30,13 +30,13 @@ npm run build        # tsc
 All routes under `/api/`. Auth on all routes except `/api/auth/login`, `/api/auth/forgot-password`, `/api/config/branding`, `/api/health`, and `/docs`.
 
 ## Swagger (`src/lib/swagger.ts`)
-Swagger UI available at `/docs`. Auto-generated from route schemas. Tags: Health, Auth, Users, Roles, Config, Audit, Notifications, Uploads, Backup, Asset Templates, Assets, Asset Relationships, Asset Identifiers, Template Linking Rules. Config: `docExpansion: 'list'`, `persistAuthorization: true`, `tryItOutEnabled: true`. Two servers: Production (http://43.205.32.23) and Local Development.
+Swagger UI available at `/docs`. Auto-generated from route schemas. Tags: Health, Auth, Users, Roles, Config, Audit, Notifications, Uploads, Backup, Entity Templates, Entities, Entity Relationships, Entity Identifiers. Config: `docExpansion: 'list'`, `persistAuthorization: true`, `tryItOutEnabled: true`. Two servers: Production (http://43.205.32.23) and Local Development.
 
 ## Auth Flow
 JWT token in `Authorization: Bearer <token>` header. Sessions stored in DB for invalidation support.
 
 ## Roles
-Dynamic roles stored in DB. Default: SUPER_ADMIN (no audit), ADMIN, SUPERVISOR, MAINTENANCE, OPERATOR, VIEWER. Roles have `allowCrossTemplateLinking` boolean field to bypass template linking rules.
+Dynamic roles stored in DB. Default: SUPER_ADMIN (no audit), ADMIN, SUPERVISOR, MAINTENANCE, OPERATOR, VIEWER.
 
 ## Audit Trail
 SHA-256 checksummed entries. SUPER_ADMIN actions are never logged. All other roles are logged for every mutation.
@@ -44,33 +44,30 @@ SHA-256 checksummed entries. SUPER_ADMIN actions are never logged. All other rol
 ## Route Schema Pattern
 All routes with error responses MUST include `...errorResponses` in their schema `response` object (imported from `src/lib/error-schemas.ts`). Without this, Fastify 5's TypeScript types reject `reply.code(400)` etc.
 
-## Asset Module (`src/modules/assets/routes.ts`, ~2057 lines)
-26 endpoints across 19 paths, all using `requirePermission` (checks role.permissions array in DB):
+## Entity Module (`src/modules/assets/routes.ts`)
+21 endpoints across 14 paths for entity template management, entity instance management, entity relationships, and entity identifiers. All using `requirePermission` (checks role.permissions array in DB):
 
 - **Templates** (6): GET/POST `/templates`, GET/PUT/DELETE `/templates/:id`, GET `/templates/:id/versions`
   - Permissions: ASSET_VIEW (GET), ASSET_TEMPLATE_MANAGE (POST/PUT/DELETE)
   - Reauth: CREATE_ASSET_TEMPLATE, UPDATE_ASSET_TEMPLATE, DELETE_ASSET_TEMPLATE
   - Update auto-creates AssetTemplateVersion snapshot, increments version number
+  - Template includes `category`, `expectedRelationships`, `statusLifecycle`, `maxParentConnections`, and `maxConnections` fields.
+  - All JSONB fields (`attributeSchema`, `telemetrySchema`, `expectedIdentifiers`, `expectedRelationships`, `statusLifecycle`, `alarmRules`) declared in both body and response schemas
 - **Instances** (8): GET `/instances`, GET `/instances/tree`, GET/POST/PUT/DELETE `/instances/:id`, PATCH `/instances/:id/status`, GET `/instances/:id/children`
   - Permissions: ASSET_VIEW (GET), ASSET_CREATE (POST), ASSET_UPDATE (PUT/PATCH), ASSET_DELETE (DELETE)
+  - POST /instances: Template existence check only (no isActive filter — assets can be created from any template)
   - Reauth: CREATE_ASSET, UPDATE_ASSET, DELETE_ASSET
   - Delete uses cascade soft-delete via `collectDescendantIds()` helper
 - **Relationships** (3): GET/POST `/relationships`, DELETE `/relationships/:id`
   - Auto-creates bidirectional inverses using INVERSE_RELATIONSHIP_MAP (CONTAINS<->CONTAINED_IN, FEEDS<->FED_BY, DEPENDS_ON<->DEPENDED_ON_BY, BACKS_UP<->BACKED_UP_BY, MONITORS<->MONITORED_BY, CONNECTED_TO symmetric, CUSTOM)
+  - POST /relationships enforces `maxConnections` limit on both source and target entities. Returns `connectionInfo` in success/error responses.
   - `hasContainsCycle()` helper: iterative ancestor walk to prevent circular CONTAINS
-  - POST /relationships integrates with `validateLinkingRule()` — checks template linking rules before allowing relationship creation (returns 403 if blocked by rule)
   - Reauth: CREATE_ASSET_RELATIONSHIP, DELETE_ASSET_RELATIONSHIP
 - **Identifiers** (4): GET `/identifiers`, GET `/identifiers/lookup/:value`, POST/DELETE `/identifiers/:id`
   - Globally unique `identifierValue` enforced at DB level
   - Types: QR, BARCODE, RFID, NFC, MANUAL
   - Permissions: ASSET_VIEW (GET), ASSET_IDENTIFIER_MANAGE (POST/DELETE)
-- **Linking Rules** (5): GET `/linking-rules`, GET `/linking-rules/validate`, POST `/linking-rules`, PUT/DELETE `/linking-rules/:id`
-  - Define which template types can be linked together and with which relationship types
-  - Scoped priority: USER (priority=20) > ROLE (priority=10) > GLOBAL (priority=0)
-  - `validateLinkingRule()` helper: checks applicable rules, role bypass (`allowCrossTemplateLinking`), defaults to allow-all when no rules exist
-  - Duplicate prevention via `findFirst` check before create (workaround for PostgreSQL NULL unique constraint)
-  - Permissions: ASSET_VIEW (GET), TEMPLATE_LINKING_RULE_MANAGE (POST/PUT/DELETE)
-  - Reauth: CREATE_TEMPLATE_LINKING_RULE, UPDATE_TEMPLATE_LINKING_RULE, DELETE_TEMPLATE_LINKING_RULE
+  - Reauth: CREATE_ASSET_IDENTIFIER, DELETE_ASSET_IDENTIFIER
 
 API response format for paginated endpoints: `{ data: [], total, page, limit, totalPages }`. Tree endpoint returns a flat array.
 

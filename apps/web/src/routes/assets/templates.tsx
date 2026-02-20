@@ -67,6 +67,8 @@ interface TemplateData {
   telemetrySchema: TelemetryDef[];
   expectedIdentifiers: IdentifierDef[];
   alarmRules: AlarmRuleDef[];
+  maxParentConnections: number;
+  maxConnections: number;
   isActive: boolean;
   _count?: { instances: number };
 }
@@ -118,6 +120,8 @@ interface FormData {
   name: string;
   description: string;
   icon: string;
+  maxParentConnections: number;
+  maxConnections: number;
   attributeSchema: AttributeDef[];
   telemetrySchema: TelemetryDef[];
   expectedIdentifiers: IdentifierDef[];
@@ -129,6 +133,8 @@ function emptyForm(): FormData {
     name: '',
     description: '',
     icon: 'box',
+    maxParentConnections: 1,
+    maxConnections: 10,
     attributeSchema: [],
     telemetrySchema: [],
     expectedIdentifiers: [],
@@ -201,15 +207,52 @@ function NumericConstraintsPanel({
   min,
   max,
   resolution,
+  dataType,
   onChange,
 }: {
   enableConstraints: boolean;
   min: number | '';
   max: number | '';
   resolution: number | '';
+  dataType: 'INTEGER' | 'FLOAT';
   onChange: (field: string, value: unknown) => void;
 }) {
   const preview = enableConstraints ? constraintPreview(min, max, resolution) : null;
+  const isInt = dataType === 'INTEGER';
+
+  // Local display strings so we can show "24.0" after blur without interfering while typing
+  const fmt = (v: number | '') => {
+    if (v === '') return '';
+    if (!isInt && Number.isInteger(v)) return v.toFixed(1);
+    return String(v);
+  };
+  const [minStr, setMinStr] = useState(fmt(min));
+  const [maxStr, setMaxStr] = useState(fmt(max));
+  const [resStr, setResStr] = useState(fmt(resolution));
+
+  // Sync from parent when external value changes (e.g. loading edit form)
+  useEffect(() => { setMinStr(fmt(min)); }, [min, isInt]);
+  useEffect(() => { setMaxStr(fmt(max)); }, [max, isInt]);
+  useEffect(() => { setResStr(fmt(resolution)); }, [resolution, isInt]);
+
+  const handleLocalChange = (field: string, raw: string, setLocal: (v: string) => void) => {
+    if (raw === '' || raw === '-') { setLocal(raw); onChange(field, ''); return; }
+    if (isInt) {
+      if (/^-?\d+$/.test(raw)) { setLocal(raw); onChange(field, parseInt(raw, 10)); }
+    } else {
+      if (/^-?\d*\.?\d*$/.test(raw)) {
+        setLocal(raw);
+        const n = Number(raw);
+        if (!isNaN(n) && raw !== '.' && raw !== '-.' && raw !== '-') onChange(field, n);
+      }
+    }
+  };
+
+  const handleBlur = (raw: string, setLocal: (v: string) => void) => {
+    if (!isInt && raw !== '' && /^-?\d+$/.test(raw)) {
+      setLocal(raw + '.0');
+    }
+  };
 
   return (
     <div className="mt-2 p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-3">
@@ -228,31 +271,37 @@ function NumericConstraintsPanel({
             <div className="space-y-1">
               <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Min</label>
               <Input
-                type="number"
-                value={min}
-                onChange={(e) => onChange('min', e.target.value === '' ? '' : Number(e.target.value))}
+                type="text"
+                inputMode="numeric"
+                value={minStr}
+                onChange={(e) => handleLocalChange('min', e.target.value, setMinStr)}
+                onBlur={() => handleBlur(minStr, setMinStr)}
                 className="h-8 text-xs"
-                placeholder="0"
+                placeholder={isInt ? '0' : '0.0'}
               />
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Max</label>
               <Input
-                type="number"
-                value={max}
-                onChange={(e) => onChange('max', e.target.value === '' ? '' : Number(e.target.value))}
+                type="text"
+                inputMode="numeric"
+                value={maxStr}
+                onChange={(e) => handleLocalChange('max', e.target.value, setMaxStr)}
+                onBlur={() => handleBlur(maxStr, setMaxStr)}
                 className="h-8 text-xs"
-                placeholder="100"
+                placeholder={isInt ? '100' : '100.0'}
               />
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Resolution</label>
               <Input
-                type="number"
-                value={resolution}
-                onChange={(e) => onChange('resolution', e.target.value === '' ? '' : Number(e.target.value))}
+                type="text"
+                inputMode="numeric"
+                value={resStr}
+                onChange={(e) => handleLocalChange('resolution', e.target.value, setResStr)}
+                onBlur={() => handleBlur(resStr, setResStr)}
                 className="h-8 text-xs"
-                placeholder="1"
+                placeholder={isInt ? '1' : '0.1'}
               />
             </div>
           </div>
@@ -282,7 +331,9 @@ export function AssetTemplatesPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showViewDialog, setShowViewDialog] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateData | null>(null);
+  const [viewTemplate, setViewTemplate] = useState<TemplateData | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TemplateData | null>(null);
 
   // Form state
@@ -337,6 +388,8 @@ export function AssetTemplatesPage() {
       name: template.name,
       description: template.description || '',
       icon: template.icon || 'box',
+      maxParentConnections: template.maxParentConnections ?? 1,
+      maxConnections: template.maxConnections ?? 10,
       attributeSchema: (template.attributeSchema || []).map((a: any) => ({
         ...emptyAttribute(),
         fieldName: a.fieldName || '',
@@ -385,6 +438,11 @@ export function AssetTemplatesPage() {
     setDeleteTarget(template);
     setDeleteError('');
     setShowDeleteDialog(true);
+  }, []);
+
+  const openViewDialog = useCallback((template: TemplateData) => {
+    setViewTemplate(template);
+    setShowViewDialog(true);
   }, []);
 
   // -----------------------------------------------------------------------
@@ -500,13 +558,31 @@ export function AssetTemplatesPage() {
       name: formData.name.trim(),
       description: formData.description.trim(),
       icon: formData.icon,
+      maxParentConnections: formData.maxParentConnections,
+      maxConnections: formData.maxConnections,
       attributeSchema: formData.attributeSchema
         .filter((a) => a.fieldName.trim())
         .map(({ enableConstraints, min, max, resolution, options, ...rest }) => ({
           fieldName: rest.fieldName.trim(),
           dataType: rest.dataType,
           required: rest.required,
-          ...(rest.defaultValue.trim() ? { defaultValue: rest.defaultValue.trim() } : {}),
+          ...(() => {
+            const dv = rest.defaultValue;
+            if (dv === '' || dv === undefined || dv === null) return {};
+            if (rest.dataType === 'INTEGER') {
+              const n = parseInt(String(dv), 10);
+              return isNaN(n) ? {} : { defaultValue: n };
+            }
+            if (rest.dataType === 'FLOAT') {
+              const n = parseFloat(String(dv));
+              return isNaN(n) ? {} : { defaultValue: n };
+            }
+            if (rest.dataType === 'BOOLEAN') {
+              return { defaultValue: String(dv) === 'true' };
+            }
+            const s = String(dv).trim();
+            return s ? { defaultValue: s } : {};
+          })(),
           ...(rest.unit.trim() ? { unit: rest.unit.trim() } : {}),
           ...(rest.dataType === 'DROPDOWN'
             ? { dropdownOptions: options ? options.split(',').map((o) => o.trim()).filter(Boolean) : [] }
@@ -551,12 +627,78 @@ export function AssetTemplatesPage() {
   };
 
   // -----------------------------------------------------------------------
+  // Form-level validation
+  // -----------------------------------------------------------------------
+
+  const validateForm = (): string | null => {
+    if (!formData.name.trim()) return 'Template name is required';
+
+    // Validate attributes
+    for (const attr of formData.attributeSchema) {
+      if (!attr.fieldName.trim()) continue; // will be filtered out
+      const dv = attr.defaultValue;
+
+      // Check INTEGER default is valid integer
+      if (attr.dataType === 'INTEGER' && dv !== '') {
+        const n = Number(dv);
+        if (isNaN(n) || !Number.isInteger(n)) return `Attribute "${attr.fieldName}": default value must be a whole number`;
+        if (attr.enableConstraints) {
+          if (typeof attr.min === 'number' && n < attr.min) return `Attribute "${attr.fieldName}": default value must be >= ${attr.min}`;
+          if (typeof attr.max === 'number' && n > attr.max) return `Attribute "${attr.fieldName}": default value must be <= ${attr.max}`;
+        }
+      }
+      // Check FLOAT default is valid number
+      if (attr.dataType === 'FLOAT' && dv !== '') {
+        const n = Number(dv);
+        if (isNaN(n)) return `Attribute "${attr.fieldName}": default value must be a valid number`;
+        if (attr.enableConstraints) {
+          if (typeof attr.min === 'number' && n < attr.min) return `Attribute "${attr.fieldName}": default value must be >= ${attr.min}`;
+          if (typeof attr.max === 'number' && n > attr.max) return `Attribute "${attr.fieldName}": default value must be <= ${attr.max}`;
+        }
+      }
+      // Check URL default is valid
+      if (attr.dataType === 'URL' && dv !== '') {
+        try { new URL(dv); } catch { return `Attribute "${attr.fieldName}": default value must be a valid URL`; }
+      }
+      // Check DROPDOWN default is one of the options
+      if (attr.dataType === 'DROPDOWN' && dv !== '') {
+        const opts = attr.options ? attr.options.split(',').map(o => o.trim()).filter(Boolean) : [];
+        if (opts.length > 0 && !opts.includes(dv)) return `Attribute "${attr.fieldName}": default value must be one of the dropdown options`;
+      }
+      // Validate numeric constraints logic
+      if ((attr.dataType === 'INTEGER' || attr.dataType === 'FLOAT') && attr.enableConstraints) {
+        if (typeof attr.min === 'number' && typeof attr.max === 'number' && attr.min >= attr.max) {
+          return `Attribute "${attr.fieldName}": min must be less than max`;
+        }
+        if (typeof attr.resolution === 'number' && attr.resolution <= 0) {
+          return `Attribute "${attr.fieldName}": resolution must be greater than 0`;
+        }
+        if (attr.dataType === 'INTEGER' && typeof attr.resolution === 'number' && !Number.isInteger(attr.resolution)) {
+          return `Attribute "${attr.fieldName}": resolution must be a whole number for INTEGER type`;
+        }
+      }
+    }
+
+    // Validate telemetry
+    for (const tel of formData.telemetrySchema) {
+      if (!tel.fieldName.trim()) continue;
+      // fieldName must not contain spaces or special characters
+      if (!/^[a-zA-Z0-9_.-]+$/.test(tel.fieldName.trim())) {
+        return `Telemetry "${tel.fieldName}": field name should only contain letters, numbers, underscore, dot, or hyphen`;
+      }
+    }
+
+    return null;
+  };
+
+  // -----------------------------------------------------------------------
   // Create
   // -----------------------------------------------------------------------
 
   const handleCreate = async () => {
-    if (!formData.name.trim()) {
-      setError('Template name is required');
+    const validationError = validateForm();
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
@@ -603,8 +745,9 @@ export function AssetTemplatesPage() {
 
   const handleUpdate = async () => {
     if (!selectedTemplate) return;
-    if (!formData.name.trim()) {
-      setError('Template name is required');
+    const validationError = validateForm();
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
@@ -654,7 +797,7 @@ export function AssetTemplatesPage() {
     setDeleting(true);
     setDeleteError('');
 
-    reauth.execute(
+    await reauth.execute(
       'DELETE_ASSET_TEMPLATE',
       async (password?: string) => {
         if (password) {
@@ -732,6 +875,40 @@ export function AssetTemplatesPage() {
             ))}
           </Select>
         </div>
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold text-slate-700">Number of Parent Connections</label>
+          <Input
+            type="number"
+            min={0}
+            step={1}
+            value={formData.maxParentConnections}
+            onChange={(e) => setFormData({ ...formData, maxParentConnections: Math.max(0, parseInt(e.target.value) || 0) })}
+            className="h-11"
+          />
+          <p className="text-xs text-slate-500">
+            {formData.maxParentConnections === 0
+              ? 'Entities of this template cannot be placed under any parent.'
+              : formData.maxParentConnections === 1
+              ? 'Only 1 parent connection allowed — the selected entity becomes the parent node, other contained entities go as child nodes.'
+              : `Up to ${formData.maxParentConnections} parent connections allowed.`}
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold text-slate-700">Max Connections (All Types)</label>
+          <Input
+            type="number"
+            min={0}
+            step={1}
+            value={formData.maxConnections}
+            onChange={(e) => setFormData({ ...formData, maxConnections: Math.max(0, parseInt(e.target.value) || 0) })}
+            className="h-11"
+          />
+          <p className="text-xs text-slate-500">
+            {formData.maxConnections === 0
+              ? 'Unlimited — no cap on total connections.'
+              : `Max ${formData.maxConnections} total connections across all relationship types.`}
+          </p>
+        </div>
       </div>
 
       {/* Section 2: Attribute Schema */}
@@ -761,7 +938,10 @@ export function AssetTemplatesPage() {
                 <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Data Type</label>
                 <Select
                   value={attr.dataType}
-                  onChange={(e) => updateAttribute(idx, 'dataType', e.target.value)}
+                  onChange={(e) => {
+                    updateAttribute(idx, 'dataType', e.target.value);
+                    updateAttribute(idx, 'defaultValue', '');
+                  }}
                   selectSize="sm"
                 >
                   {ATTRIBUTE_DATA_TYPES.map((dt) => (
@@ -782,12 +962,88 @@ export function AssetTemplatesPage() {
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1">
                 <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Default Value</label>
-                <Input
-                  value={attr.defaultValue}
-                  onChange={(e) => updateAttribute(idx, 'defaultValue', e.target.value)}
-                  placeholder="Default"
-                  className="h-8 text-xs"
-                />
+                {attr.dataType === 'BOOLEAN' ? (
+                  <label className="flex items-center gap-2 cursor-pointer h-8">
+                    <input
+                      type="checkbox"
+                      checked={attr.defaultValue === 'true'}
+                      onChange={(e) => updateAttribute(idx, 'defaultValue', e.target.checked ? 'true' : 'false')}
+                      className="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+                    />
+                    <span className="text-xs text-slate-600">{attr.defaultValue === 'true' ? 'Yes' : 'No'}</span>
+                  </label>
+                ) : attr.dataType === 'INTEGER' ? (
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    value={attr.defaultValue}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === '' || v === '-') { updateAttribute(idx, 'defaultValue', v); return; }
+                      if (/^-?\d+$/.test(v)) updateAttribute(idx, 'defaultValue', v);
+                    }}
+                    placeholder="e.g., 0 (whole numbers only)"
+                    className="h-8 text-xs"
+                  />
+                ) : attr.dataType === 'FLOAT' ? (
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    value={attr.defaultValue}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === '' || v === '-' || v === '.' || v === '-.') { updateAttribute(idx, 'defaultValue', v); return; }
+                      if (/^-?\d*\.?\d*$/.test(v)) updateAttribute(idx, 'defaultValue', v);
+                    }}
+                    onBlur={() => {
+                      const v = attr.defaultValue;
+                      if (v !== '' && /^-?\d+$/.test(v)) updateAttribute(idx, 'defaultValue', v + '.0');
+                    }}
+                    placeholder="e.g., 0.0 (decimal numbers)"
+                    className="h-8 text-xs"
+                  />
+                ) : attr.dataType === 'DATE' ? (
+                  <Input
+                    type="date"
+                    value={attr.defaultValue}
+                    onChange={(e) => updateAttribute(idx, 'defaultValue', e.target.value)}
+                    className="h-8 text-xs"
+                  />
+                ) : attr.dataType === 'DATETIME' ? (
+                  <Input
+                    type="datetime-local"
+                    value={attr.defaultValue}
+                    onChange={(e) => updateAttribute(idx, 'defaultValue', e.target.value)}
+                    className="h-8 text-xs"
+                  />
+                ) : attr.dataType === 'DROPDOWN' ? (
+                  <Select
+                    value={attr.defaultValue}
+                    onChange={(e) => updateAttribute(idx, 'defaultValue', e.target.value)}
+                    selectSize="sm"
+                  >
+                    <option value="">No default</option>
+                    {(attr.options ? attr.options.split(',').map(o => o.trim()).filter(Boolean) : []).map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </Select>
+                ) : attr.dataType === 'URL' ? (
+                  <Input
+                    type="url"
+                    value={attr.defaultValue}
+                    onChange={(e) => updateAttribute(idx, 'defaultValue', e.target.value)}
+                    placeholder="https://..."
+                    className="h-8 text-xs"
+                  />
+                ) : (
+                  <Input
+                    type="text"
+                    value={attr.defaultValue}
+                    onChange={(e) => updateAttribute(idx, 'defaultValue', e.target.value)}
+                    placeholder="Default"
+                    className="h-8 text-xs"
+                  />
+                )}
               </div>
               <div className="flex items-end pb-1">
                 <label className="flex items-center gap-2 cursor-pointer">
@@ -821,6 +1077,7 @@ export function AssetTemplatesPage() {
                 min={attr.min ?? ''}
                 max={attr.max ?? ''}
                 resolution={attr.resolution ?? ''}
+                dataType={attr.dataType as 'INTEGER' | 'FLOAT'}
                 onChange={(field, value) => updateAttribute(idx, field, value)}
               />
             )}
@@ -1049,7 +1306,7 @@ export function AssetTemplatesPage() {
                 <Input
                   value={rule.message}
                   onChange={(e) => updateAlarmRule(idx, 'message', e.target.value)}
-                  placeholder="e.g., Temperature exceeded {threshold} for {asset.name}"
+                  placeholder="e.g., Temperature exceeded {threshold} for {entity.name}"
                   className="h-8 text-xs"
                 />
               </div>
@@ -1115,8 +1372,8 @@ export function AssetTemplatesPage() {
                   </svg>
                 </div>
                 <div>
-                  <h1 className="text-2xl font-bold">Asset Templates</h1>
-                  <p className="text-purple-100/80 text-sm">Manage reusable blueprints for asset types</p>
+                  <h1 className="text-2xl font-bold">Entity Templates</h1>
+                  <p className="text-purple-100/80 text-sm">Manage reusable blueprints for entity types</p>
                 </div>
               </div>
             </div>
@@ -1175,7 +1432,7 @@ export function AssetTemplatesPage() {
               <p className="text-sm text-slate-500 mb-4">
                 {debouncedSearch
                   ? 'Try adjusting your search criteria.'
-                  : 'Get started by creating your first asset template.'}
+                  : 'Get started by creating your first entity template.'}
               </p>
               {!debouncedSearch && (
                 <Button onClick={openCreateDialog} className="bg-gradient-to-r from-purple-500 to-indigo-600">
@@ -1229,8 +1486,21 @@ export function AssetTemplatesPage() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          onClick={() => openViewDialog(template)}
+                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                          title="View template details"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => openEditDialog(template)}
                           className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                          title="Edit template"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -1241,6 +1511,7 @@ export function AssetTemplatesPage() {
                           size="sm"
                           onClick={() => openDeleteDialog(template)}
                           className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          title="Delete template"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1265,10 +1536,10 @@ export function AssetTemplatesPage() {
             </svg>
           </div>
           <div>
-            <h3 className="font-bold text-purple-900 mb-1">About Asset Templates</h3>
+            <h3 className="font-bold text-purple-900 mb-1">About Entity Templates</h3>
             <p className="text-sm text-purple-700">
-              Templates define the blueprint for asset types, including attribute schemas,
-              expected identifiers, and alarm rules. When you create an asset instance, it inherits the
+              Templates define the blueprint for entity types, including attribute schemas,
+              expected identifiers, and alarm rules. When you create an entity instance, it inherits the
               structure defined in its template. Templates can be versioned to track changes over time.
             </p>
           </div>
@@ -1394,6 +1665,192 @@ export function AssetTemplatesPage() {
         </DialogFooter>
       </Dialog>
 
+      {/* View Template Dialog */}
+      <Dialog open={showViewDialog} onClose={() => { setShowViewDialog(false); setViewTemplate(null); }} className="max-w-4xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-blue-100 text-blue-600">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+            </div>
+            Template Details: {viewTemplate?.name}
+          </DialogTitle>
+        </DialogHeader>
+        {viewTemplate && (
+          <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+            {/* Basic Info */}
+            <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+              <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                Basic Information
+              </h4>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Name</p>
+                  <p className="text-sm text-slate-800 font-medium">{viewTemplate.name}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Icon</p>
+                  <p className="text-sm text-slate-800">{viewTemplate.icon}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Description</p>
+                  <p className="text-sm text-slate-600">{viewTemplate.description || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Version</p>
+                  <p className="text-sm text-slate-800">v{viewTemplate.version}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Status</p>
+                  <Badge className={viewTemplate.isActive ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-red-100 text-red-700 border-red-200'}>
+                    {viewTemplate.isActive ? 'Active' : 'Inactive'}
+                  </Badge>
+                </div>
+                <div>
+                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Parent Connections Limit</p>
+                  <p className="text-sm text-slate-800">{viewTemplate.maxParentConnections === 0 ? 'Not Allowed' : viewTemplate.maxParentConnections}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Max Connections (All Types)</p>
+                  <p className="text-sm text-slate-800">{viewTemplate.maxConnections === 0 ? 'Unlimited' : viewTemplate.maxConnections}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Instances</p>
+                  <p className="text-sm text-slate-800">{viewTemplate._count?.instances ?? 0}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Attributes */}
+            {viewTemplate.attributeSchema?.length > 0 && (
+              <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+                <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
+                  Attributes
+                  <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">{viewTemplate.attributeSchema.length}</Badge>
+                </h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-slate-500 border-b border-slate-100">
+                        <th className="pb-2 font-medium">Field Name</th>
+                        <th className="pb-2 font-medium">Type</th>
+                        <th className="pb-2 font-medium">Required</th>
+                        <th className="pb-2 font-medium">Unit</th>
+                        <th className="pb-2 font-medium">Default</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {viewTemplate.attributeSchema.map((attr: any, i: number) => (
+                        <tr key={i} className="text-slate-700">
+                          <td className="py-1.5 font-medium">{attr.fieldName}</td>
+                          <td className="py-1.5"><Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">{attr.dataType}</Badge></td>
+                          <td className="py-1.5">{attr.required ? <span className="text-emerald-600">Yes</span> : <span className="text-slate-400">No</span>}</td>
+                          <td className="py-1.5 text-slate-500">{attr.unit || '—'}</td>
+                          <td className="py-1.5 text-slate-500">{attr.defaultValue != null && attr.defaultValue !== '' ? String(attr.defaultValue) : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Telemetry */}
+            {viewTemplate.telemetrySchema?.length > 0 && (
+              <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+                <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                  Telemetry
+                  <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">{viewTemplate.telemetrySchema.length}</Badge>
+                </h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-slate-500 border-b border-slate-100">
+                        <th className="pb-2 font-medium">Field Name</th>
+                        <th className="pb-2 font-medium">Type</th>
+                        <th className="pb-2 font-medium">Unit</th>
+                        <th className="pb-2 font-medium">Description</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {viewTemplate.telemetrySchema.map((tel: any, i: number) => (
+                        <tr key={i} className="text-slate-700">
+                          <td className="py-1.5 font-medium">{tel.fieldName}</td>
+                          <td className="py-1.5"><Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">{tel.dataType}</Badge></td>
+                          <td className="py-1.5 text-slate-500">{tel.unit || '—'}</td>
+                          <td className="py-1.5 text-slate-500">{tel.description || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Expected Identifiers */}
+            {viewTemplate.expectedIdentifiers?.length > 0 && (
+              <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+                <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" /></svg>
+                  Expected Identifiers
+                  <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">{viewTemplate.expectedIdentifiers.length}</Badge>
+                </h4>
+                <div className="flex flex-wrap gap-2">
+                  {viewTemplate.expectedIdentifiers.map((id: any, i: number) => (
+                    <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs">
+                      <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">{id.identifierType}</Badge>
+                      <span className="text-slate-700 font-medium">{id.label}</span>
+                      {id.required && <span className="text-red-500 text-[10px]">Required</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Alarm Rules */}
+            {viewTemplate.alarmRules?.length > 0 && (
+              <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+                <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                  Alarm Rules
+                  <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">{viewTemplate.alarmRules.length}</Badge>
+                </h4>
+                <div className="space-y-2">
+                  {viewTemplate.alarmRules.map((rule: any, i: number) => (
+                    <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs">
+                      <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">{rule.severity}</Badge>
+                      <span className="font-medium text-slate-700">{rule.name}</span>
+                      <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">{rule.type}</Badge>
+                      {rule.sourceField && <span className="text-slate-500">on {rule.sourceField}</span>}
+                      {!rule.enabled && <span className="text-red-400 italic">Disabled</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => { setShowViewDialog(false); setViewTemplate(null); }}>
+            Close
+          </Button>
+          <Button
+            onClick={() => { setShowViewDialog(false); setViewTemplate(null); if (viewTemplate) openEditDialog(viewTemplate); }}
+            className="bg-gradient-to-r from-purple-500 to-indigo-600"
+          >
+            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+            Edit Template
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
       {/* Reauth Dialog */}
       <ReauthDialog
         open={reauth.isOpen}
@@ -1403,7 +1860,7 @@ export function AssetTemplatesPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="Asset Template Action"
+        actionLabel="Entity Template Action"
       />
     </div>
   );

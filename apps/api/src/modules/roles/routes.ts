@@ -11,7 +11,6 @@ const createRoleSchema = z.object({
   hierarchyLevel: z.number().int().min(1).max(10),
   permissions: z.array(z.string()).default([]),
   color: z.string().max(100).default('#6366f1'),
-  allowCrossTemplateLinking: z.boolean().default(false),
 });
 
 const updateRoleSchema = z.object({
@@ -21,7 +20,6 @@ const updateRoleSchema = z.object({
   permissions: z.array(z.string()).optional(),
   color: z.string().max(100).optional(),
   isActive: z.boolean().optional(),
-  allowCrossTemplateLinking: z.boolean().optional(),
 });
 
 export default async function roleRoutes(app: FastifyInstance) {
@@ -45,7 +43,7 @@ export default async function roleRoutes(app: FastifyInstance) {
               hierarchyLevel: { type: 'integer' },
               permissions: { type: 'array', items: { type: 'string' } },
               color: { type: 'string' },
-              allowCrossTemplateLinking: { type: 'boolean' },
+
               isSystem: { type: 'boolean' },
               isActive: { type: 'boolean' },
             },
@@ -122,7 +120,6 @@ export default async function roleRoutes(app: FastifyInstance) {
             hierarchyLevel: { type: 'integer' },
             permissions: { type: 'array', items: { type: 'string' } },
             color: { type: 'string' },
-            allowCrossTemplateLinking: { type: 'boolean' },
             isSystem: { type: 'boolean' },
             isActive: { type: 'boolean' },
           },
@@ -161,7 +158,6 @@ export default async function roleRoutes(app: FastifyInstance) {
           hierarchyLevel: { type: 'integer', minimum: 1, maximum: 10, description: 'Hierarchy level (1=lowest, 10=highest)' },
           permissions: { type: 'array', items: { type: 'string' }, description: 'Permission keys assigned to this role' },
           color: { type: 'string', description: 'Display color (hex code)' },
-          allowCrossTemplateLinking: { type: 'boolean', description: 'Allow bypassing template linking rules' },
         },
       },
       response: {
@@ -210,7 +206,6 @@ export default async function roleRoutes(app: FastifyInstance) {
         hierarchyLevel: parsed.data.hierarchyLevel,
         permissions: parsed.data.permissions,
         color: parsed.data.color,
-        allowCrossTemplateLinking: parsed.data.allowCrossTemplateLinking,
         isSystem: false,
         createdBy: req.user.username,
       },
@@ -254,7 +249,6 @@ export default async function roleRoutes(app: FastifyInstance) {
           permissions: { type: 'array', items: { type: 'string' }, description: 'Updated permissions list' },
           color: { type: 'string', description: 'Updated color' },
           isActive: { type: 'boolean', description: 'Enable or disable the role' },
-          allowCrossTemplateLinking: { type: 'boolean', description: 'Allow bypassing template linking rules' },
         },
       },
       response: {
@@ -295,14 +289,13 @@ export default async function roleRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'Role not found' });
     }
 
-    // System roles can only have permissions, color, display info, and cross-template linking updated
+    // System roles can only have permissions, color, and display info updated
     if (existing.isSystem) {
       const allowedUpdates: any = {};
       if (parsed.data.permissions !== undefined) allowedUpdates.permissions = parsed.data.permissions;
       if (parsed.data.color !== undefined) allowedUpdates.color = parsed.data.color;
       if (parsed.data.displayName !== undefined) allowedUpdates.displayName = parsed.data.displayName;
       if (parsed.data.description !== undefined) allowedUpdates.description = parsed.data.description;
-      if (parsed.data.allowCrossTemplateLinking !== undefined) allowedUpdates.allowCrossTemplateLinking = parsed.data.allowCrossTemplateLinking;
 
       const role = await prisma.role.update({
         where: { name },

@@ -27,17 +27,18 @@ import { BackupRestorePage } from './routes/config/backup';
 import { ActionReauthPage } from './routes/config/action-reauth';
 import { AuditTemplatesConfigPage } from './routes/config/audit-templates';
 import { PaginationConfigPage } from './routes/config/pagination';
-import { TemplateLinkingRulesPage } from './routes/config/template-linking-rules';
 import { AuditTrailPage } from './routes/audit/index';
 import { NotificationsPage } from './routes/notifications/index';
 import { ProfilePage } from './routes/profile/index';
 import { AssetsPage } from './routes/assets/index';
 import { AssetTemplatesPage } from './routes/assets/templates';
+import { ToastProvider } from './components/toast-provider';
 import './app.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
+    <ToastProvider>
     <SWRConfig value={swrConfig}>
       <BrowserRouter>
         <Routes>
@@ -71,9 +72,8 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/action-reauth" element={<RequireRole roles={['SUPER_ADMIN']}><ActionReauthPage /></RequireRole>} />
             <Route path="/config/audit-templates" element={<RequireRole roles={['SUPER_ADMIN']}><AuditTemplatesConfigPage /></RequireRole>} />
             <Route path="/config/pagination" element={<RequireRole roles={['SUPER_ADMIN']}><PaginationConfigPage /></RequireRole>} />
-            <Route path="/config/template-linking-rules" element={<RequireRole roles={['SUPER_ADMIN']}><TemplateLinkingRulesPage /></RequireRole>} />
 
-            {/* Asset Management */}
+            {/* Entity Management */}
             <Route path="/assets" element={<AssetsPage />} />
             <Route path="/assets/templates" element={<AssetTemplatesPage />} />
 
@@ -86,6 +86,7 @@ createRoot(document.getElementById('root')!).render(
         </Routes>
       </BrowserRouter>
     </SWRConfig>
+    </ToastProvider>
     </ErrorBoundary>
   </StrictMode>,
 );

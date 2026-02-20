@@ -16,7 +16,6 @@ model Role {
   hierarchyLevel  Int      @map("hierarchy_level")      // Higher = more privileges (6 for SUPER_ADMIN)
   permissions     Json     @default("[]") @db.JsonB     // Array of permission strings
   color           String   @default("#6366f1") @db.VarChar(100)   // Badge color for UI (CSS class)
-  allowCrossTemplateLinking Boolean @default(false) @map("allow_cross_template_linking")
   isSystem        Boolean  @default(false) @map("is_system")     // System roles cannot be deleted
   isActive        Boolean  @default(true) @map("is_active")
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -239,6 +238,8 @@ model AssetTemplate {
   expectedRelationships Json     @default("[]") @map("expected_relationships") @db.JsonB // Array of expected relationship types
   statusLifecycle       Json     @default("[]") @map("status_lifecycle") @db.JsonB    // Array of status definitions with transitions
   alarmRules            Json     @default("[]") @map("alarm_rules") @db.JsonB       // Array of alarm rule definitions (threshold + custom logic)
+  maxParentConnections  Int      @default(1) @map("max_parent_connections")         // Max CONTAINS parents: 0=none, 1+=limit
+  maxConnections        Int      @default(10) @map("max_connections")               // Max total connections (all types): 0=unlimited, N=limit
   isActive              Boolean  @default(true) @map("is_active")
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz
@@ -247,8 +248,6 @@ model AssetTemplate {
 
   versions  AssetTemplateVersion[]
   instances AssetInstance[]
-  sourceLinkingRules TemplateLinkingRule[] @relation("SourceLinkingRules")
-  targetLinkingRules TemplateLinkingRule[] @relation("TargetLinkingRules")
 
   @@index([isActive])
   @@index([category])
@@ -349,27 +348,3 @@ model AssetIdentifier {
   @@map("asset_identifiers")
 }
 
-// Template Linking Rule — defines which template types can be linked together
-model TemplateLinkingRule {
-  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  sourceTemplateId      String   @map("source_template_id") @db.Uuid
-  targetTemplateId      String   @map("target_template_id") @db.Uuid
-  allowedRelationships  Json     @default("[]") @map("allowed_relationships") @db.JsonB
-  scope                 String   @default("GLOBAL") @db.VarChar(20)
-  scopeValue            String?  @map("scope_value") @db.VarChar(100)
-  priority              Int      @default(0)
-  isActive              Boolean  @default(true) @map("is_active")
-  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz
-  createdBy             String?  @map("created_by") @db.VarChar(50)
-  updatedBy             String?  @map("updated_by") @db.VarChar(50)
-
-  sourceTemplate AssetTemplate @relation("SourceLinkingRules", fields: [sourceTemplateId], references: [id], onDelete: Cascade)
-  targetTemplate AssetTemplate @relation("TargetLinkingRules", fields: [targetTemplateId], references: [id], onDelete: Cascade)
-
-  @@unique([sourceTemplateId, targetTemplateId, scope, scopeValue])
-  @@index([sourceTemplateId])
-  @@index([targetTemplateId])
-  @@index([scope])
-  @@map("template_linking_rules")
-}

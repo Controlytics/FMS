@@ -2,86 +2,130 @@
 
 All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are documented here.
 
+## [Unreleased] - 2026-02-20 (Phase 2)
+
+### Added
+- **Connection Limit Enforcement** — New `maxConnections` field on entity templates to cap total relationships per entity
+  - Template-level setting: `maxConnections` (default 10, 0=unlimited) alongside existing `maxParentConnections`
+  - API enforces limits on POST /relationships for both source and target entities
+  - API enforces limits on POST /instances when creating with parentId
+  - Success responses include `connectionInfo` with used/allowed/remaining counts
+  - Error responses include `connectionInfo` for which entity hit the limit
+
+- **Toast Notification System** — Global toast popups for relationship operations
+  - 4 variants: success (green), error (red), warning (amber), info (blue)
+  - Auto-dismiss after 5s with close button and slide-in animation
+  - React Context + Provider pattern (`ToastProvider`, `useToast` hook)
+  - Applied to: create relationship, delete relationship, remove from tree, attach existing
+
+- **Connection Status Cards in Entity Overview** — 4 new read-only cards in Overview tab
+  - "Connections Allowed" — shows template's maxConnections (or "Unlimited" if 0)
+  - "Connections Used" — shows current count with progress bar (green/red)
+  - "Parent Connections Allowed" — shows template's maxParentConnections
+  - "Parent Connections Used" — shows current CONTAINS parent count with progress bar
+
+- **Entity Template View Dialog** — Read-only detail view for entity templates
+  - Eye icon button in template table actions column (alongside edit/delete)
+  - Shows: Basic Info (name, icon, description, version, status, connection limits, instance count)
+  - Shows: Attributes table (field name, type, required, unit, default)
+  - Shows: Telemetry table (field name, type, unit, description)
+  - Shows: Expected Identifiers (type badges with labels)
+  - Shows: Alarm Rules (severity badges, type, source field, enabled status)
+  - "Edit Template" button to transition directly to edit dialog
+
+### Fixed
+- **Missing reauth on identifier endpoints** — POST/DELETE `/identifiers` were the only mutation endpoints without `enforceReauth()`. Added `CREATE_ASSET_IDENTIFIER` and `DELETE_ASSET_IDENTIFIER` reauth actions to shared package, API enforceReauth calls, and frontend `await reauth.execute()` wrappers
+- **Missing `await` on `reauth.execute()`** — `handleDeleteRelationship` in Entity Explorer and `handleDelete` in Template Manager were calling `reauth.execute()` without `await`, causing race conditions where dialog state was saved before reauth completed
+- **3 Prisma fields not exposed via API** — `category`, `expectedRelationships`, `statusLifecycle` existed in database but were missing from Zod schemas, API body schemas, and response schemas. Now fully exposed in create/update/get template endpoints
+- **`maxConnections` stripped from template list response** — Fastify JSON schema serialization was stripping `maxConnections` (and `telemetrySchema`) from GET /templates responses because they weren't declared in the response schema
+- **`parentId` coerced to empty string** — GET /instances list response schema declared `parentId` as `type: 'string'`, causing Fastify to coerce `null` to `""`. Fixed to `type: ['string', 'null']` matching the tree endpoint
+
+### Changed
+- **Global Rename: "Asset" → "Entity"** — Renamed throughout the entire application
+  - Sidebar: "Assets" → "Entities", "Asset Templates" → "Entity Templates"
+  - Frontend pages: "Asset Explorer" → "Entity Explorer", "Asset Templates" → "Entity Templates"
+  - API Swagger tags: "Asset Templates" → "Entity Templates", "Assets" → "Entities", "Asset Relationships" → "Entity Relationships", "Asset Identifiers" → "Entity Identifiers"
+  - All frontend dialogs, buttons, placeholders, tooltips, error messages, confirm dialogs, empty states renamed (Add Entity, Edit Entity, Delete Entity, Link Entities, Attach Existing Entity, Search entities, etc.)
+  - API summaries, descriptions, error messages, connectionInfo keys: all "asset" references → "entity"
+  - Shared package types: permission categories, feature privileges, reauth actions, audit templates, audit actions, sidebar items — all labels/categories updated
+  - Role privileges, action reauth, audit templates config pages: category keys updated
+  - Seed data: MAINTENANCE role description updated
+  - Database: MAINTENANCE role description updated, field_id_config module names "Asset Management" → "Entity Management"
+  - "No of Connections" renamed to "Number of Parent Connections" in template editor and API descriptions
+  - Note: Code identifiers (Prisma models, variable names, permission constants, API paths, file paths) intentionally retain "Asset" naming to avoid risky migrations
+
+- **Entity Template View Dialog — Badge Colors Removed** — All colored badges in the view dialog replaced with neutral slate styling
+  - Section count badges, section header icons, identifier type badges, alarm severity badges — all changed to neutral slate
+
+- **API Client Error Enhancement** — Error objects now preserve `connectionInfo` from API responses for toast display
+
+### Technical
+- Database: Added `max_connections` column to `asset_templates` table (default 10)
+- Database: Updated MAINTENANCE role description ("asset" → "entity"), field_id_config module names ("Asset Management" → "Entity Management")
+- New files: `apps/web/src/components/ui/toast.tsx`, `apps/web/src/hooks/use-toast.ts`, `apps/web/src/components/toast-provider.tsx`
+- `main.tsx` wrapped in `<ToastProvider>`
+- Prisma schema updated via `db push` (migration history out of sync)
+
+---
+
+## [Unreleased] - 2026-02-20
+
+### Fixed
+- **Entity creation returning 400** — API rejected entity creation from inactive templates (`isActive=false`) but the frontend showed all templates. Removed the `isActive` check from `POST /instances` so entities can be created from any template.
+- **Role Privileges page crash** — Page crashed when rendering the Entity Management category because `CATEGORY_COLORS` map in `role-privileges.tsx` only had entries for 'User Management' and 'System', but not 'Entity Management'. Accessing `categoryConfig.bg` on `undefined` threw a TypeError. Added missing entry with teal/emerald color scheme.
+
+### Removed
+- **Template Linking Rules — Complete Removal** — Removed the entire Template Linking Rules feature. Any entity can now link to any other entity with any relationship type — no restrictions.
+  - **Database**: Dropped `TemplateLinkingRule` model, removed `allowCrossTemplateLinking` field from Role model, removed `sourceLinkingRules`/`targetLinkingRules` relations from AssetTemplate
+  - **API**: Deleted 5 linking rule endpoints (GET/POST/PUT/DELETE `/linking-rules`, GET `/linking-rules/validate`), removed `validateLinkingRule()` helper, removed linking rule validation from POST /relationships. Asset endpoints reduced from 26 to 21, Prisma models from 6 to 5
+  - **Shared Package**: Removed `LINKING_RULE_SCOPES`, `FORWARD_RELATIONSHIP_TYPES` constants, `createTemplateLinkingRuleSchema`/`updateTemplateLinkingRuleSchema` schemas, `TEMPLATE_LINKING_RULE_MANAGE` permission, 3 linking rule audit actions, 3 linking rule reauth actions, 3 linking rule audit templates, `allowCrossTemplateLinking` from RoleData interface
+  - **Frontend**: Deleted `/config/template-linking-rules` page (~449 lines), removed config card from config index, removed `allowCrossTemplateLinking` toggle from role create/edit dialogs, simplified Link Entities dialog (removed rule validation SWR, disabled states, info banners — all 12 relationship types now freely available)
+  - **Seed**: Removed `TEMPLATE_LINKING_RULE_MANAGE` from SUPER_ADMIN and ADMIN default permissions
+  - **Documentation**: Updated all 4 CLAUDE.md files, both DECISIONS.md files
+
+---
+
 ## [Unreleased] - 2026-02-19
 
 ### Added
-- **Template Linking Rules — Database & Backend**
-  - New `TemplateLinkingRule` Prisma model with scoped priority system (USER=20 > ROLE=10 > GLOBAL=0)
-  - `@@unique([sourceTemplateId, targetTemplateId, scope, scopeValue])` constraint + API-level duplicate prevention (PostgreSQL NULL workaround)
-  - Relations on `AssetTemplate` model: `sourceLinkingRules`, `targetLinkingRules` with cascade delete
-  - 5 new API endpoints under `/api/assets/linking-rules`:
-    - `GET /linking-rules` — List all rules with template names, filterable by source/target
-    - `GET /linking-rules/validate` — Check allowed relationship types between two assets
-    - `POST /linking-rules` — Create rule (permission: `TEMPLATE_LINKING_RULE_MANAGE`, reauth-protected)
-    - `PUT /linking-rules/:id` — Update rule
-    - `DELETE /linking-rules/:id` — Delete rule
-  - `validateLinkingRule()` engine integrated into `POST /relationships` — returns 403 if blocked
-  - Backwards compatible: no rules = all relationship types allowed
-  - Swagger tag "Template Linking Rules" added
+- ~~**Template Linking Rules**~~ *(Removed in 2026-02-20 — see Removed section above)*
 
-- **Template Linking Rules — Shared Package**
-  - New permission: `TEMPLATE_LINKING_RULE_MANAGE`
-  - New `LINKING_RULE_SCOPES` constant: `['GLOBAL', 'ROLE', 'USER']`
-  - New Zod schemas: `createTemplateLinkingRuleSchema`, `updateTemplateLinkingRuleSchema`
-  - 3 new audit actions: `TEMPLATE_LINKING_RULE_CREATED/UPDATED/DELETED`
-  - 3 new reauth actions: `CREATE/UPDATE/DELETE_TEMPLATE_LINKING_RULE`
-  - 3 new audit templates with placeholder support
-  - Added to permission categories (Asset Management) and reauth action categories
-  - Seeded `TEMPLATE_LINKING_RULE_MANAGE` to SUPER_ADMIN and ADMIN default permissions
+- ~~**Role Cross-Template Linking Bypass**~~ *(Removed in 2026-02-20)*
 
-- **Role Cross-Template Linking Bypass**
-  - New `allowCrossTemplateLinking` boolean field on `Role` model (default: false)
-  - When enabled, bypasses all template linking rules for relationship creation
-  - Toggle added to role create/edit dialogs in `roles.tsx` config page
-  - Checked at request time from DB (not cached) — role changes take immediate effect
-
-- **Template Linking Rules Config Page** (`/config/template-linking-rules`)
-  - New SUPER_ADMIN-only frontend page (~449 lines)
-  - Table view: source/target template names, allowed relationship badges, scope, edit/delete actions
-  - Add/edit dialog: template dropdowns, relationship type checkboxes, scope selector (GLOBAL/ROLE/USER)
-  - Reauth-protected create/update/delete operations
-  - Route registered in `main.tsx` with `RequireRole` guard
+- ~~**Template Linking Rules Config Page**~~ *(Removed in 2026-02-20)*
 
 - **Dynamic Tree Diagram — Sidebar Tree Actions**
   - 3 hover action buttons on each sidebar tree node:
-    - Green "+" — Create new child asset (opens Add Asset wizard with parentId pre-set)
-    - Blue link icon — Attach existing asset as child (opens Attach Existing dialog)
+    - Green "+" — Create new child entity (opens Add Entity wizard with parentId pre-set)
+    - Blue link icon — Attach existing entity as child (opens Attach Existing dialog)
     - Red "x" — Unlink from parent (sets parentId to null, only shows if node has parentId)
 
 - **Dynamic Tree Diagram — Diagram Tree Actions**
   - 3 hover action buttons on each diagram node:
-    - Green circle — Create new child asset
-    - Blue circle — Attach existing asset as child via CONTAINS relationship
-    - Red circle — Remove from tree (deletes CONTAINS relationship, does NOT delete asset)
+    - Green circle — Create new child entity
+    - Blue circle — Attach existing entity as child via CONTAINS relationship
+    - Red circle — Remove from tree (deletes CONTAINS relationship, does NOT delete entity)
   - Renamed `renderTreeNode` to `renderDiagNode` with new `parentNodeId` parameter
 
-- **Attach Existing Asset Dialog**
-  - Full modal dialog for attaching an existing asset as a child in the tree
+- **Attach Existing Entity Dialog**
+  - Full modal dialog for attaching an existing entity as a child in the tree
   - Search input with debounce filtering
-  - Radio-button asset list with template badge indicator
-  - Preview panel showing selected asset details
+  - Radio-button entity list with template badge indicator
+  - Preview panel showing selected entity details
   - Creates CONTAINS relationship on confirm, reauth-protected via `CREATE_ASSET_RELATIONSHIP`
 
-- **Linking Rule Enforcement in Link Assets Dialog**
-  - Fetches applicable rules via `/api/assets/linking-rules/validate`
-  - Relationship types shown as radio buttons with disabled state for blocked types
-  - Lock icon + grayed styling on disallowed types
-  - Info banners: "Restricted by template linking rules" / "Bypassed by role"
-  - Auto-switch effect: moves selection to first allowed type if current becomes disallowed
+- ~~**Linking Rule Enforcement in Link Entities Dialog**~~ *(Removed in 2026-02-20)*
 
 - **Comprehensive Test Suite** — 70/70 tests passed
-  - 13 sections: tree CRUD, attach existing, remove, unlink, 6 relationship types, cycle detection, linking rules CRUD, validation engine, role bypass, edge cases, config endpoints, cleanup
+  - 13 sections: tree CRUD, attach existing, remove, unlink, 6 relationship types, cycle detection, config endpoints, cleanup
   - Full report: `TREE_DIAGRAM_TEST_REPORT.md`
 
 ### Changed
-- Asset Explorer `index.tsx` grew from ~2382 to ~2993 lines (tree diagram actions + attach existing + rule enforcement)
-- Asset module `routes.ts` grew from ~1662 to ~2057 lines (5 linking rule endpoints + validation engine)
+- Entity Explorer `index.tsx` grew from ~2382 to ~2993 lines (tree diagram actions + attach existing + rule enforcement)
 - `AssetDetailPanel` props expanded: added `onAddChild`, `onAttachExisting`, `onRemoveFromDiagram`
-- Total asset API endpoints: 21 → 26 (5 new linking rule endpoints)
-- Total asset Prisma models: 5 → 6 (added `TemplateLinkingRule`)
 - Updated all 4 CLAUDE.md files, both DECISIONS.md files (5 new architecture decisions)
 
-- **Telemetry Schema for Asset Templates**
+- **Telemetry Schema for Entity Templates**
   - New `TELEMETRY_DATA_TYPES` constant (INTEGER, FLOAT, BOOLEAN, STRING, ENUM)
   - Zod `telemetryDefinitionSchema` with fieldName, dataType, unit, description
   - `telemetrySchema` field added to `createAssetTemplateSchema` / `updateAssetTemplateSchema`
@@ -89,45 +133,45 @@ All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are do
   - Template version snapshots include telemetry schema data
   - Exported `TELEMETRY_DATA_TYPES` from `@digilog/shared`
 
-- **Telemetry Section in Asset Template Editor** (`/assets/templates`)
+- **Telemetry Section in Entity Template Editor** (`/assets/templates`)
   - New "Telemetry Schema" collapsible section (Section 3) in the 5-section template editor
   - Add/remove telemetry point definitions with: Field Name, Data Type (5 types), Unit, Description
   - Persists on create and edit, loads existing data when editing templates
 
-- **Telemetry Tab in Asset Explorer** (`/assets`)
-  - New "Telemetry" tab in the asset detail panel (between Attributes and Relationships)
-  - Shows telemetry schema from the asset's template: Field Name, Data Type, Unit, Description
+- **Telemetry Tab in Entity Explorer** (`/assets`)
+  - New "Telemetry" tab in the entity detail panel (between Attributes and Relationships)
+  - Shows telemetry schema from the entity's template: Field Name, Data Type, Unit, Description
   - Shows instance-level `telemetryConfig` overrides per field
   - API GET `/api/assets/instances/:id` now includes `telemetrySchema` in template select
 
-- **Multi-Select Target in Link Assets Dialog**
-  - Target Assets field replaced with searchable multi-select checkbox list
+- **Multi-Select Target in Link Entities Dialog**
+  - Target Entities field replaced with searchable multi-select checkbox list
   - Selected targets shown as removable blue chips with count badge
-  - Search box to filter assets by name or template name
+  - Search box to filter entities by name or template name
   - Direction preview shows one line per source-target pair
   - Bulk relationship creation: one source linked to all selected targets in sequence
   - After linking, source node auto-expands in tree view
-  - Button text dynamically shows count (e.g., "Link 3 Assets")
+  - Button text dynamically shows count (e.g., "Link 3 Entities")
 
-- **Hierarchical Tree Diagram in Asset Explorer**
+- **Hierarchical Tree Diagram in Entity Explorer**
   - Visual node-based hierarchy diagram in Relationships tab with box nodes and arrow connectors
   - Walks up to the topmost root, then renders the full tree top-to-bottom with SVG arrow lines
   - Parent node at top, arrow down to horizontal bar, arrows branching down to each child node
   - Each child can recursively have its own sub-children, rendered at the next level
   - Relationship type labels (Contains, Feeds, Monitors, etc.) shown as badges above each child node
-  - Current asset highlighted with blue border + ring; click any other node to navigate
+  - Current entity highlighted with blue border + ring; click any other node to navigate
   - Single-child paths use straight vertical connectors; multi-child paths use horizontal bar branching
   - Cycle-safe via visited-node tracking; horizontally scrollable for wide trees
   - Fetches all relationships from `/api/assets/relationships` to build complete hierarchy
-  - After linking, auto-selects source asset and switches to Relationships tab
+  - After linking, auto-selects source entity and switches to Relationships tab
 
 - **Dialog Scroll Fix**
   - All dialog popups now constrained to 90% viewport height with scrollable content
-  - Link Assets chips area capped at `max-h-24` with overflow scroll
+  - Link Entities chips area capped at `max-h-24` with overflow scroll
   - Preview section capped at `max-h-32` with sticky header, preventing Link button from going off-screen
 
 ### Fixed
-- **Link Assets dropdowns empty** — Source Asset and Target Assets dropdowns were rendering empty despite assets existing in the database
+- **Link Entities dropdowns empty** — Source Entity and Target Entities dropdowns were rendering empty despite entities existing in the database
   - Root cause: API tree endpoint's JSON schema defined `parentId` as `type: 'string'`, causing Fastify serialization to coerce `null` to `""` (empty string)
   - Frontend `flatAssetList` walk function started from `parentId === null`, which never matched `""`, so no assets were found
   - Fix: Made `parentId` nullable in API response schema (`type: ['string', 'null']`), and updated frontend `flatAssetList` + `rootNodes` to treat `null`, `undefined`, and `""` as root indicators
@@ -153,7 +197,7 @@ All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are do
 
 - **Audit Text Templates Configuration** (`/config/audit-templates`)
   - New SUPER_ADMIN config page to customize audit trail action descriptions
-  - 7 template categories: User Management, Authentication, Configuration, Asset Management, Role Management, Backup, Data & Approvals
+  - 7 template categories: User Management, Authentication, Configuration, Entity Management, Role Management, Backup, Data & Approvals
   - Live preview with sample data while editing templates
   - Placeholder system: `{actor}`, `{targetUser}`, `{targetName}`, `{configKey}`, `{targetType}`
   - Reset individual or all templates to defaults
@@ -184,7 +228,7 @@ All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are do
 ## [1.0.0] - 2026-02-17
 
 ### Added
-- Initial release with full User Management and Asset Management
+- Initial release with full User Management and Entity Management
 - User CRUD with role-based access control
 - 6 default roles: SUPER_ADMIN, ADMIN, SUPERVISOR, MAINTENANCE, OPERATOR, VIEWER
 - Dynamic role management (create/edit/delete custom roles)
@@ -198,8 +242,8 @@ All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are do
 - Role privileges (per-role feature permissions)
 - Sidebar configuration (per-user sidebar items)
 - Backup & restore (database export/import)
-- ISA-95 asset hierarchy (Enterprise > Site > Area > Line > Cell > Equipment)
-- Template-driven asset creation with JSONB attribute merging
+- ISA-95 entity hierarchy (Enterprise > Site > Area > Line > Cell > Equipment)
+- Template-driven entity creation with JSONB attribute merging
 - ltree-based unlimited-depth hierarchy
 - Audit trail with SHA-256 checksums (tamper-evident)
 - Notifications system

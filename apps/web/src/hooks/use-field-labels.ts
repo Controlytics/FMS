@@ -18,7 +18,7 @@ const defaultLabels: Record<string, string> = {
   'FLD_USER_004': 'Department',
   'FLD_USER_005': 'Role',
   'FLD_USER_006': 'Status',
-  // Asset Management
+  // Entity Management
   'FLD_ASSET_001': 'Building Name',
   'FLD_ASSET_002': 'Block Name',
   'FLD_ASSET_003': 'Area Name',

@@ -27,6 +27,7 @@ import { Select } from '@/components/ui/select';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/cn';
 import { apiClient } from '@/lib/api-client';
+import { useToast } from '@/hooks/use-toast';
 
 // =============================================
 // Types
@@ -59,6 +60,8 @@ interface AssetTemplate {
   attributeSchema: AttributeDefinition[];
   telemetrySchema?: TelemetryDefinition[];
   expectedIdentifiers: any[];
+  maxConnections?: number;
+  maxParentConnections?: number;
   createdAt: string;
   updatedAt: string;
   createdBy: string;
@@ -101,6 +104,7 @@ interface AssetInstance {
   sourceRelations: AssetRelation[];
   targetRelations: AssetRelation[];
   identifiers: AssetIdentifier[];
+  _count?: { sourceRelations?: number };
 }
 
 interface AssetRelation {
@@ -184,13 +188,18 @@ const RELATIONSHIP_LABELS: Record<string, string> = {
   CUSTOM: 'Custom',
 };
 
-const FORWARD_RELATIONSHIP_TYPES = [
+const ALL_RELATIONSHIP_TYPES = [
   'CONTAINS',
+  'CONTAINED_IN',
   'CONNECTED_TO',
   'FEEDS',
+  'FED_BY',
   'DEPENDS_ON',
+  'DEPENDED_ON_BY',
   'BACKS_UP',
+  'BACKED_UP_BY',
   'MONITORS',
+  'MONITORED_BY',
   'CUSTOM',
 ];
 
@@ -212,6 +221,59 @@ function getIcon(iconKey: string): string {
 
 
 // =============================================
+// ---------------------------------------------------------------------------
+// FloatInput — auto-appends .0 on blur for whole numbers
+// ---------------------------------------------------------------------------
+
+function FloatInput({
+  value,
+  onValueChange,
+  placeholder,
+  className,
+}: {
+  value: any;
+  onValueChange: (v: any) => void;
+  placeholder?: string;
+  className?: string;
+}) {
+  const fmt = (v: any) => {
+    if (v === '' || v === undefined || v === null) return '';
+    if (typeof v === 'number' && Number.isInteger(v)) return v.toFixed(1);
+    return String(v);
+  };
+  const [display, setDisplay] = useState(fmt(value));
+
+  useEffect(() => { setDisplay(fmt(value)); }, [value]);
+
+  return (
+    <Input
+      type="text"
+      inputMode="decimal"
+      value={display}
+      onChange={(e) => {
+        const raw = e.target.value;
+        if (raw === '' || raw === '-' || raw === '.' || raw === '-.') {
+          setDisplay(raw);
+          onValueChange(raw);
+          return;
+        }
+        if (/^-?\d*\.?\d*$/.test(raw)) {
+          setDisplay(raw);
+          onValueChange(parseFloat(raw));
+        }
+      }}
+      onBlur={() => {
+        if (display !== '' && /^-?\d+$/.test(display)) {
+          setDisplay(display + '.0');
+        }
+      }}
+      placeholder={placeholder}
+      className={className}
+    />
+  );
+}
+
+// =============================================
 // Main Component
 // =============================================
 
@@ -221,6 +283,7 @@ export function AssetExplorerPage() {
   const { user } = useAuth();
   const { mutate } = useSWRConfig();
   const reauth = useReauth();
+  const { toast } = useToast();
   const { formatDateTime } = useDatetimeFormat();
 
   // ---- View state ----
@@ -238,7 +301,7 @@ export function AssetExplorerPage() {
   const [showAddIdentifierDialog, setShowAddIdentifierDialog] = useState(false);
   const [showAttachExistingDialog, setShowAttachExistingDialog] = useState(false);
 
-  // ---- Attach existing asset state ----
+  // ---- Attach existing entity state ----
   const [attachParentId, setAttachParentId] = useState<string>('');
   const [attachTargetId, setAttachTargetId] = useState<string>('');
   const [attachSearch, setAttachSearch] = useState('');
@@ -248,7 +311,7 @@ export function AssetExplorerPage() {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [templateSearch, setTemplateSearch] = useState('');
 
-  // ---- Form data for new asset ----
+  // ---- Form data for new entity ----
   const [newAsset, setNewAsset] = useState({
     name: '',
     description: '',
@@ -273,13 +336,6 @@ export function AssetExplorerPage() {
   const [linkCustomLabel, setLinkCustomLabel] = useState('');
   const [linkNotes, setLinkNotes] = useState('');
   const [linkTargetSearch, setLinkTargetSearch] = useState('');
-
-  // ---- Linking rule validation state ----
-  interface LinkingRuleValidation {
-    hasRules: boolean;
-    allowedRelationships: string[];
-    bypassedByRole: boolean;
-  }
 
   // ---- Identifier dialog state ----
   const [newIdentifier, setNewIdentifier] = useState({
@@ -355,14 +411,6 @@ export function AssetExplorerPage() {
 
   const templates = templatesData?.data ?? [];
   const auditRecords = auditData?.data ?? [];
-
-  // Linking rule validation for Link dialog — validate source + first target
-  const linkValidationTarget = linkTargets.length > 0 ? linkTargets[0] : '';
-  const { data: linkingRuleValidation } = useSWR<LinkingRuleValidation>(
-    showLinkDialog && linkSource && linkValidationTarget
-      ? `/api/assets/linking-rules/validate?sourceAssetId=${linkSource}&targetAssetId=${linkValidationTarget}`
-      : null,
-  );
 
   // =============================================
   // Tree Logic
@@ -452,10 +500,10 @@ export function AssetExplorerPage() {
     [treeData],
   );
 
-  // Flat list of all assets for dropdowns (with indent info)
+  // Flat list of all entities for dropdowns (with indent info)
   const flatAssetList = useMemo(() => {
     if (!treeData) return [];
-    const result: { id: string; name: string; depth: number; templateName: string }[] = [];
+    const result: { id: string; name: string; depth: number; templateName: string; childCount: number }[] = [];
     const nodeMap = new Map(treeData.map((n) => [n.id, n]));
 
     function isRoot(pid: string | null | undefined): boolean {
@@ -464,7 +512,7 @@ export function AssetExplorerPage() {
     function walk(parentId: string | null, depth: number) {
       const children = (treeData ?? []).filter((n) => parentId === null ? isRoot(n.parentId) : n.parentId === parentId).sort((a, b) => a.name.localeCompare(b.name));
       for (const child of children) {
-        result.push({ id: child.id, name: child.name, depth, templateName: child.template.name });
+        result.push({ id: child.id, name: child.name, depth, templateName: child.template.name, childCount: child._count?.children ?? 0 });
         walk(child.id, depth + 1);
       }
     }
@@ -480,7 +528,7 @@ export function AssetExplorerPage() {
     mutate((key: unknown) => typeof key === 'string' && key.startsWith('/api/assets'));
   }, [mutate]);
 
-  // ---- Create Asset ----
+  // ---- Create Entity ----
   const handleCreateAsset = useCallback(async () => {
     if (!selectedTemplateId || !newAsset.name.trim()) return;
     setSaving(true);
@@ -514,19 +562,19 @@ export function AssetExplorerPage() {
           },
           onError: (err: unknown) => {
             const e = err as any;
-            setError(e?.message || 'Failed to create asset');
+            setError(e?.message || 'Failed to create entity');
             setSaving(false);
           },
         },
       );
     } catch (e: unknown) {
       const err = e as any;
-      setError(err?.message || 'Unexpected error creating asset');
+      setError(err?.message || 'Unexpected error creating entity');
       setSaving(false);
     }
   }, [selectedTemplateId, newAsset, reauth, mutateAssets]);
 
-  // ---- Update Asset ----
+  // ---- Update Entity ----
   const handleUpdateAsset = useCallback(async () => {
     if (!selectedAssetId || !editAsset.name.trim()) return;
     setSaving(true);
@@ -558,19 +606,19 @@ export function AssetExplorerPage() {
           },
           onError: (err: unknown) => {
             const e = err as any;
-            setError(e?.message || 'Failed to update asset');
+            setError(e?.message || 'Failed to update entity');
             setSaving(false);
           },
         },
       );
     } catch (e: unknown) {
       const err = e as any;
-      setError(err?.message || 'Unexpected error updating asset');
+      setError(err?.message || 'Unexpected error updating entity');
       setSaving(false);
     }
   }, [selectedAssetId, editAsset, reauth, mutateAssets]);
 
-  // ---- Delete Asset ----
+  // ---- Delete Entity ----
   const handleDeleteAsset = useCallback(async () => {
     if (!selectedAssetId) return;
     setSaving(true);
@@ -595,14 +643,14 @@ export function AssetExplorerPage() {
           },
           onError: (err: unknown) => {
             const e = err as any;
-            setError(e?.message || 'Failed to delete asset');
+            setError(e?.message || 'Failed to delete entity');
             setSaving(false);
           },
         },
       );
     } catch (e: unknown) {
       const err = e as any;
-      setError(err?.message || 'Unexpected error deleting asset');
+      setError(err?.message || 'Unexpected error deleting entity');
       setSaving(false);
     }
   }, [selectedAssetId, reauth, mutateAssets]);
@@ -613,6 +661,7 @@ export function AssetExplorerPage() {
     setSaving(true);
     setError('');
 
+    let lastResult: any = null;
     try {
       await reauth.execute(
         'CREATE_ASSET_RELATIONSHIP',
@@ -626,42 +675,55 @@ export function AssetExplorerPage() {
               notes: linkNotes || undefined,
             };
             if (password) {
-              await apiClient.postWithReauth('/api/assets/relationships', body, password);
+              lastResult = await apiClient.postWithReauth('/api/assets/relationships', body, password);
             } else {
-              await apiClient.post('/api/assets/relationships', body);
+              lastResult = await apiClient.post('/api/assets/relationships', body);
             }
           }
         },
         {
           onSuccess: () => {
             mutateAssets();
-            // Expand source node in tree to show new connections
             setExpandedNodes((prev) => new Set([...prev, linkSource]));
-            // Select source asset and switch to relationships tab to show graph
             setSelectedAssetId(linkSource);
             setActiveTab('relationships');
             setShowLinkDialog(false);
             resetLinkDialog();
             setSaving(false);
+            const ci = lastResult?.connectionInfo?.source;
+            if (ci) {
+              const remaining = ci.allowed > 0 ? ci.remaining : 'unlimited';
+              toast.success('Relationship Created', `${ci.used}/${ci.allowed > 0 ? ci.allowed : '\u221E'} connections used, ${remaining} remaining`);
+            } else {
+              toast.success('Relationship Created');
+            }
           },
           onError: (err: unknown) => {
             const e = err as any;
-            setError(e?.message || 'Failed to create relationship');
+            const msg = e?.message || 'Failed to create relationship';
+            setError(msg);
             setSaving(false);
+            if (e?.connectionInfo) {
+              toast.error('Connection Limit Reached', msg);
+            } else {
+              toast.error('Failed to Create Relationship', msg);
+            }
           },
         },
       );
     } catch (e: unknown) {
       const err = e as any;
-      setError(err?.message || 'Unexpected error creating relationship');
+      const msg = err?.message || 'Unexpected error creating relationship';
+      setError(msg);
       setSaving(false);
+      toast.error('Failed to Create Relationship', msg);
     }
-  }, [linkSource, linkTargets, linkType, linkCustomLabel, linkNotes, reauth, mutateAssets]);
+  }, [linkSource, linkTargets, linkType, linkCustomLabel, linkNotes, reauth, mutateAssets, toast]);
 
   // ---- Delete Relationship ----
   const handleDeleteRelationship = useCallback(
     async (relationshipId: string) => {
-      reauth.execute(
+      await reauth.execute(
         'DELETE_ASSET_RELATIONSHIP',
         async (password?: string) => {
           if (password) {
@@ -671,12 +733,19 @@ export function AssetExplorerPage() {
           }
         },
         {
-          onSuccess: () => mutateAssets(),
-          onError: (err: any) => setError(err?.message || 'Failed to delete relationship'),
+          onSuccess: () => {
+            mutateAssets();
+            toast.success('Relationship Removed');
+          },
+          onError: (err: any) => {
+            const msg = err?.message || 'Failed to delete relationship';
+            setError(msg);
+            toast.error('Failed to Remove', msg);
+          },
         },
       );
     },
-    [reauth, mutateAssets],
+    [reauth, mutateAssets, toast],
   );
 
   // ---- Create Identifier ----
@@ -693,33 +762,58 @@ export function AssetExplorerPage() {
       isPrimary: newIdentifier.isPrimary,
     };
 
-    try {
-      await apiClient.post('/api/assets/identifiers', body);
-      mutateAssets();
-      setShowAddIdentifierDialog(false);
-      setNewIdentifier({ identifierType: 'MANUAL', identifierValue: '', label: '', isPrimary: false });
-    } catch (err: any) {
-      setError(err?.message || 'Failed to create identifier');
-    }
-    setSaving(false);
-  }, [selectedAssetId, newIdentifier, mutateAssets]);
+    await reauth.execute(
+      'CREATE_ASSET_IDENTIFIER',
+      async (password?: string) => {
+        if (password) {
+          await apiClient.postWithReauth('/api/assets/identifiers', body, password);
+        } else {
+          await apiClient.post('/api/assets/identifiers', body);
+        }
+      },
+      {
+        onSuccess: () => {
+          mutateAssets();
+          setShowAddIdentifierDialog(false);
+          setNewIdentifier({ identifierType: 'MANUAL', identifierValue: '', label: '', isPrimary: false });
+          setSaving(false);
+        },
+        onError: (err: any) => {
+          setError(err?.message || 'Failed to create identifier');
+          setSaving(false);
+        },
+      },
+    );
+  }, [selectedAssetId, newIdentifier, mutateAssets, reauth]);
 
   // ---- Delete Identifier ----
   const handleDeleteIdentifier = useCallback(
     async (identifierId: string) => {
-      try {
-        await apiClient.delete(`/api/assets/identifiers/${identifierId}`);
-        mutateAssets();
-      } catch (err: any) {
-        setError(err?.message || 'Failed to delete identifier');
-      }
+      await reauth.execute(
+        'DELETE_ASSET_IDENTIFIER',
+        async (password?: string) => {
+          if (password) {
+            await apiClient.deleteWithReauth(`/api/assets/identifiers/${identifierId}`, password);
+          } else {
+            await apiClient.delete(`/api/assets/identifiers/${identifierId}`);
+          }
+        },
+        {
+          onSuccess: () => {
+            mutateAssets();
+          },
+          onError: (err: any) => {
+            setError(err?.message || 'Failed to delete identifier');
+          },
+        },
+      );
     },
-    [mutateAssets],
+    [mutateAssets, reauth],
   );
 
   // ---- Unlink from Parent (set parentId to null) ----
   const handleUnlinkFromParent = useCallback(async (assetId: string) => {
-    if (!confirm('Remove this asset from its parent? The asset will become a root-level asset.')) return;
+    if (!confirm('Remove this entity from its parent? The entity will become a root-level entity.')) return;
     try {
       await reauth.execute(
         'UPDATE_ASSET',
@@ -732,11 +826,11 @@ export function AssetExplorerPage() {
         },
         {
           onSuccess: () => mutateAssets(),
-          onError: (err: any) => setError(err?.message || 'Failed to unlink asset'),
+          onError: (err: any) => setError(err?.message || 'Failed to unlink entity'),
         },
       );
     } catch (err: any) {
-      setError(err?.message || 'Unexpected error unlinking asset');
+      setError(err?.message || 'Unexpected error unlinking entity');
     }
   }, [reauth, mutateAssets]);
 
@@ -754,7 +848,7 @@ export function AssetExplorerPage() {
       setError('Could not find the CONTAINS relationship to remove.');
       return;
     }
-    if (!confirm('Remove this asset from the tree? This will delete the CONTAINS relationship but will not delete the asset itself.')) return;
+    if (!confirm('Remove this entity from the tree? This will delete the CONTAINS relationship but will not delete the entity itself.')) return;
     try {
       await reauth.execute(
         'DELETE_ASSET_RELATIONSHIP',
@@ -766,16 +860,25 @@ export function AssetExplorerPage() {
           }
         },
         {
-          onSuccess: () => mutateAssets(),
-          onError: (err: any) => setError(err?.message || 'Failed to remove from tree'),
+          onSuccess: () => {
+            mutateAssets();
+            toast.success('Removed from Tree');
+          },
+          onError: (err: any) => {
+            const msg = err?.message || 'Failed to remove from tree';
+            setError(msg);
+            toast.error('Failed to Remove', msg);
+          },
         },
       );
     } catch (err: any) {
-      setError(err?.message || 'Unexpected error removing from tree');
+      const msg = err?.message || 'Unexpected error removing from tree';
+      setError(msg);
+      toast.error('Failed to Remove', msg);
     }
-  }, [reauth, mutateAssets]);
+  }, [reauth, mutateAssets, toast]);
 
-  // ---- Attach existing asset as child (create CONTAINS relationship) ----
+  // ---- Attach existing entity as child (create CONTAINS relationship) ----
   const handleAttachExisting = useCallback(async () => {
     if (!attachParentId || !attachTargetId) return;
     setSaving(true);
@@ -790,9 +893,9 @@ export function AssetExplorerPage() {
         'CREATE_ASSET_RELATIONSHIP',
         async (password?: string) => {
           if (password) {
-            await apiClient.postWithReauth('/api/assets/relationships', body, password);
+            return await apiClient.postWithReauth('/api/assets/relationships', body, password);
           } else {
-            await apiClient.post('/api/assets/relationships', body);
+            return await apiClient.post('/api/assets/relationships', body);
           }
         },
         {
@@ -803,18 +906,23 @@ export function AssetExplorerPage() {
             setAttachTargetId('');
             setAttachSearch('');
             setSaving(false);
+            toast.success('Entity Attached', 'CONTAINS relationship created');
           },
           onError: (err: any) => {
-            setError(err?.message || 'Failed to attach asset');
+            const msg = err?.message || 'Failed to attach entity';
+            setError(msg);
             setSaving(false);
+            toast.error('Failed to Attach', msg);
           },
         },
       );
     } catch (err: any) {
-      setError(err?.message || 'Unexpected error attaching asset');
+      const msg = err?.message || 'Unexpected error attaching entity';
+      setError(msg);
       setSaving(false);
+      toast.error('Failed to Attach', msg);
     }
-  }, [attachParentId, attachTargetId, reauth, mutateAssets]);
+  }, [attachParentId, attachTargetId, reauth, mutateAssets, toast]);
 
   // =============================================
   // Reset Helpers
@@ -880,16 +988,6 @@ export function AssetExplorerPage() {
     }
   }, [selectedTemplateDetail, showAddDialog]);
 
-  // ---- Auto-switch link type if current selection is disallowed by rules ----
-  useEffect(() => {
-    if (linkingRuleValidation?.hasRules && !linkingRuleValidation.bypassedByRole) {
-      const allowed = linkingRuleValidation.allowedRelationships;
-      if (allowed.length > 0 && !allowed.includes(linkType)) {
-        setLinkType(allowed[0]);
-      }
-    }
-  }, [linkingRuleValidation, linkType]);
-
   // =============================================
   // Render: Tree Node
   // =============================================
@@ -946,10 +1044,10 @@ export function AssetExplorerPage() {
 
             {/* Hover action buttons */}
             <span className="flex-shrink-0 flex items-center gap-0.5 opacity-0 group-hover/treenode:opacity-100 transition-opacity">
-              {/* Create new child asset */}
+              {/* Create new child entity */}
               <span
                 className="w-5 h-5 flex items-center justify-center text-emerald-500 hover:text-emerald-700 rounded hover:bg-emerald-100 transition-colors"
-                title="Create new child asset"
+                title="Create new child entity"
                 onClick={(e) => {
                   e.stopPropagation();
                   resetWizard();
@@ -961,10 +1059,10 @@ export function AssetExplorerPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
               </span>
-              {/* Attach existing asset as child */}
+              {/* Attach existing entity as child */}
               <span
                 className="w-5 h-5 flex items-center justify-center text-blue-500 hover:text-blue-700 rounded hover:bg-blue-100 transition-colors"
-                title="Attach existing asset as child"
+                title="Attach existing entity as child"
                 onClick={(e) => {
                   e.stopPropagation();
                   setAttachParentId(node.id);
@@ -1013,6 +1111,52 @@ export function AssetExplorerPage() {
   // Render: Attribute Form
   // =============================================
 
+  /** Validate a single attribute value; returns an error message or null. */
+  const validateAttrValue = useCallback(
+    (attr: AttributeDefinition, value: any): string | null => {
+      const c = attr.numericConstraints;
+      if (attr.required && (value === undefined || value === null || value === '')) {
+        return `${attr.fieldName} is required`;
+      }
+      if (value === undefined || value === null || value === '') return null;
+
+      switch (attr.dataType) {
+        case 'INTEGER':
+          if (typeof value !== 'number' || !Number.isInteger(value)) return 'Must be a whole number';
+          if (c?.enabled) {
+            if (c.min !== undefined && value < c.min) return `Must be >= ${c.min}`;
+            if (c.max !== undefined && value > c.max) return `Must be <= ${c.max}`;
+          }
+          break;
+        case 'FLOAT':
+          // Allow intermediate typing states like "." or "-"
+          if (typeof value === 'string' && (value === '.' || value === '-' || value === '-.')) return 'Must be a valid number';
+          if (typeof value === 'number' && !isFinite(value)) return 'Must be a valid number';
+          if (typeof value === 'number' && c?.enabled) {
+            if (c.min !== undefined && value < c.min) return `Must be >= ${c.min}`;
+            if (c.max !== undefined && value > c.max) return `Must be <= ${c.max}`;
+          }
+          break;
+        case 'URL':
+          if (typeof value === 'string' && value.trim()) {
+            try { new URL(value); } catch { return 'Must be a valid URL (e.g., https://...)'; }
+          }
+          break;
+      }
+      return null;
+    },
+    [],
+  );
+
+  /** Check if any attribute has validation errors (used to block wizard Next). */
+  const hasAttributeErrors = useCallback(
+    (attrSchema: AttributeDefinition[], values: Record<string, any>): boolean => {
+      if (!attrSchema) return false;
+      return attrSchema.some((attr) => validateAttrValue(attr, values[attr.fieldName] ?? '') !== null);
+    },
+    [validateAttrValue],
+  );
+
   const renderAttributeForm = useCallback(
     (
       attrSchema: AttributeDefinition[],
@@ -1028,6 +1172,7 @@ export function AssetExplorerPage() {
           {attrSchema.map((attr) => {
             const value = values[attr.fieldName] ?? '';
             const constraints = attr.numericConstraints;
+            const errMsg = validateAttrValue(attr, value);
 
             return (
               <div key={attr.fieldName} className="space-y-1.5">
@@ -1054,18 +1199,21 @@ export function AssetExplorerPage() {
                 {attr.dataType === 'INTEGER' && (
                   <>
                     <Input
-                      type="number"
-                      step="1"
-                      min={constraints?.min}
-                      max={constraints?.max}
+                      type="text"
+                      inputMode="numeric"
                       value={value}
-                      onChange={(e) => onChange(attr.fieldName, e.target.value === '' ? '' : parseInt(e.target.value, 10))}
-                      placeholder={`Enter ${attr.fieldName}`}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === '' || v === '-') { onChange(attr.fieldName, ''); return; }
+                        if (/^-?\d+$/.test(v)) onChange(attr.fieldName, parseInt(v, 10));
+                      }}
+                      placeholder={`Enter ${attr.fieldName} (whole numbers only)`}
+                      className={errMsg ? 'border-red-400 focus:border-red-500 focus:ring-red-200' : ''}
                     />
                     {constraints?.enabled && (
                       <p className="text-xs text-slate-400">
-                        Range: {constraints.min ?? '-\u221E'} - {constraints.max ?? '+\u221E'}
-                        {constraints.resolution ? `, Step: ${constraints.resolution}` : ''}
+                        Range: {constraints.min ?? '-\u221E'} to {constraints.max ?? '+\u221E'}
+                        {constraints.resolution ? ` | Step: ${constraints.resolution}` : ''}
                       </p>
                     )}
                   </>
@@ -1073,19 +1221,16 @@ export function AssetExplorerPage() {
 
                 {attr.dataType === 'FLOAT' && (
                   <>
-                    <Input
-                      type="number"
-                      step={constraints?.resolution || '0.01'}
-                      min={constraints?.min}
-                      max={constraints?.max}
+                    <FloatInput
                       value={value}
-                      onChange={(e) => onChange(attr.fieldName, e.target.value === '' ? '' : parseFloat(e.target.value))}
-                      placeholder={`Enter ${attr.fieldName}`}
+                      onValueChange={(v) => onChange(attr.fieldName, v)}
+                      placeholder={`Enter ${attr.fieldName} (decimal number)`}
+                      className={errMsg ? 'border-red-400 focus:border-red-500 focus:ring-red-200' : ''}
                     />
                     {constraints?.enabled && (
                       <p className="text-xs text-slate-400">
-                        Range: {constraints.min ?? '-\u221E'} - {constraints.max ?? '+\u221E'}
-                        {constraints.resolution ? `, Step: ${constraints.resolution}` : ''}
+                        Range: {constraints.min ?? '-\u221E'} to {constraints.max ?? '+\u221E'}
+                        {constraints.resolution ? ` | Step: ${constraints.resolution}` : ''}
                       </p>
                     )}
                   </>
@@ -1139,6 +1284,7 @@ export function AssetExplorerPage() {
                     value={value}
                     onChange={(e) => onChange(attr.fieldName, e.target.value)}
                     placeholder="https://..."
+                    className={errMsg ? 'border-red-400 focus:border-red-500 focus:ring-red-200' : ''}
                   />
                 )}
 
@@ -1150,13 +1296,18 @@ export function AssetExplorerPage() {
                     placeholder="File path (upload coming soon)"
                   />
                 )}
+
+                {/* Inline validation error */}
+                {errMsg && (
+                  <p className="text-xs text-red-500 font-medium">{errMsg}</p>
+                )}
               </div>
             );
           })}
         </div>
       );
     },
-    [],
+    [validateAttrValue],
   );
 
   // =============================================
@@ -1168,9 +1319,9 @@ export function AssetExplorerPage() {
       {/* Top Action Bar */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-white">
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-bold text-slate-800">Asset Explorer</h1>
+          <h1 className="text-xl font-bold text-slate-800">Entity Explorer</h1>
           <Badge variant="secondary" className="text-xs">
-            {treeData?.length ?? 0} assets
+            {treeData?.length ?? 0} entities
           </Badge>
         </div>
         <div className="flex items-center gap-3">
@@ -1178,13 +1329,13 @@ export function AssetExplorerPage() {
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
-            Add Asset
+            Add Entity
           </Button>
           <Button size="sm" variant="outline" onClick={openLinkDialog}>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
             </svg>
-            Link Assets
+            Link Entities
           </Button>
 
           {/* View Toggle */}
@@ -1242,7 +1393,7 @@ export function AssetExplorerPage() {
             <div className="p-3 border-b border-slate-100 space-y-2">
               <Input
                 type="text"
-                placeholder="Search assets..."
+                placeholder="Search entities..."
                 value={treeSearch}
                 onChange={(e) => setTreeSearch(e.target.value)}
                 className="h-9 text-sm"
@@ -1286,9 +1437,9 @@ export function AssetExplorerPage() {
               ) : rootNodes.length === 0 ? (
                 <div className="text-center py-12 px-4">
                   <div className="text-3xl mb-3">{'\uD83C\uDFED'}</div>
-                  <p className="text-sm font-medium text-slate-600">No assets found</p>
+                  <p className="text-sm font-medium text-slate-600">No entities found</p>
                   <p className="text-xs text-slate-400 mt-1">
-                    {hasActiveFilters ? 'Try adjusting your filters' : 'Create your first asset to get started'}
+                    {hasActiveFilters ? 'Try adjusting your filters' : 'Create your first entity to get started'}
                   </p>
                 </div>
               ) : (
@@ -1347,21 +1498,21 @@ export function AssetExplorerPage() {
                 />
               ) : (
                 <div className="flex items-center justify-center py-20 text-slate-400">
-                  Asset not found
+                  Entity not found
                 </div>
               )
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center px-8">
                 <div className="text-5xl mb-4">{'\uD83C\uDFED'}</div>
-                <h2 className="text-lg font-semibold text-slate-700 mb-2">Welcome to Asset Explorer</h2>
+                <h2 className="text-lg font-semibold text-slate-700 mb-2">Welcome to Entity Explorer</h2>
                 <p className="text-sm text-slate-500 max-w-md mb-6">
-                  Select an asset from the tree to view its details, attributes, relationships, and identifiers. Or create a new asset to get started.
+                  Select an entity from the tree to view its details, attributes, relationships, and identifiers. Or create a new entity to get started.
                 </p>
                 <Button onClick={openAddDialog}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                   </svg>
-                  Add Your First Asset
+                  Add Your First Entity
                 </Button>
               </div>
             )}
@@ -1373,7 +1524,7 @@ export function AssetExplorerPage() {
           <div className="mb-4 flex items-center gap-3">
             <Input
               type="text"
-              placeholder="Search assets..."
+              placeholder="Search entities..."
               value={listSearch}
               onChange={(e) => { setListSearch(e.target.value); setListPage(1); }}
               className="max-w-sm h-9 text-sm"
@@ -1411,7 +1562,7 @@ export function AssetExplorerPage() {
                   {(listData?.data ?? []).length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={5} className="text-center py-8 text-slate-400">
-                        No assets found
+                        No entities found
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -1512,16 +1663,16 @@ export function AssetExplorerPage() {
         onCancel={reauth.cancel}
       />
 
-      {/* ---- Add Asset Wizard Dialog ---- */}
+      {/* ---- Add Entity Wizard Dialog ---- */}
       <Dialog
         open={showAddDialog}
         onClose={() => { setShowAddDialog(false); resetWizard(); }}
         className="max-w-3xl max-h-[85vh] overflow-y-auto"
       >
         <DialogHeader>
-          <DialogTitle>Add New Asset</DialogTitle>
+          <DialogTitle>Add New Entity</DialogTitle>
           <DialogDescription>
-            {wizardStep === 1 && 'Step 1: Select a template for your new asset'}
+            {wizardStep === 1 && 'Step 1: Select a template for your new entity'}
             {wizardStep === 2 && 'Step 2: Enter basic information'}
             {wizardStep === 3 && 'Step 3: Fill in attribute values'}
             {wizardStep === 4 && 'Step 4: Review and create'}
@@ -1613,13 +1764,13 @@ export function AssetExplorerPage() {
           <div className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-sm font-semibold text-slate-700">
-                Asset Name <span className="text-red-500">*</span>
+                Entity Name <span className="text-red-500">*</span>
               </label>
               <Input
                 type="text"
                 value={newAsset.name}
                 onChange={(e) => setNewAsset((p) => ({ ...p, name: e.target.value }))}
-                placeholder="Enter asset name"
+                placeholder="Enter entity name"
                 autoFocus
               />
             </div>
@@ -1630,11 +1781,11 @@ export function AssetExplorerPage() {
                 rows={3}
                 value={newAsset.description}
                 onChange={(e) => setNewAsset((p) => ({ ...p, description: e.target.value }))}
-                placeholder="Describe this asset..."
+                placeholder="Describe this entity..."
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-semibold text-slate-700">Parent Asset</label>
+              <label className="text-sm font-semibold text-slate-700">Parent Entity</label>
               <Select
                 value={newAsset.parentId ?? ''}
                 onChange={(e) => setNewAsset((p) => ({ ...p, parentId: e.target.value || null }))}
@@ -1696,18 +1847,44 @@ export function AssetExplorerPage() {
                 </div>
 
                 {/* Attributes summary */}
-                {Object.keys(newAsset.attributes).length > 0 && (
+                {Object.keys(newAsset.attributes).length > 0 && selectedTemplateDetail && (
                   <div className="border-t border-slate-100 pt-3">
                     <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Attributes</p>
                     <div className="grid grid-cols-2 gap-2 text-sm">
-                      {Object.entries(newAsset.attributes).map(([key, val]) => (
-                        <div key={key}>
-                          <span className="text-slate-500">{key}:</span>{' '}
-                          <span className="font-medium text-slate-800">
-                            {typeof val === 'boolean' ? (val ? 'Yes' : 'No') : String(val ?? '-')}
-                          </span>
-                        </div>
-                      ))}
+                      {(selectedTemplateDetail.attributeSchema ?? []).map((attr) => {
+                        const val = newAsset.attributes[attr.fieldName];
+                        if (val === undefined || val === null || val === '') return null;
+                        let display: string;
+                        const c = attr.numericConstraints;
+                        switch (attr.dataType) {
+                          case 'BOOLEAN':
+                            display = val ? 'Yes' : 'No';
+                            break;
+                          case 'INTEGER':
+                            display = String(val);
+                            break;
+                          case 'FLOAT':
+                            if (typeof val === 'number' && Number.isInteger(val)) {
+                              const precision = c?.enabled && c.resolution
+                                ? Math.max(1, Math.max(0, -Math.floor(Math.log10(c.resolution))))
+                                : 1;
+                              display = val.toFixed(precision);
+                            } else {
+                              display = String(val);
+                            }
+                            break;
+                          default:
+                            display = String(val);
+                        }
+                        return (
+                          <div key={attr.fieldName}>
+                            <span className="text-slate-500">{attr.fieldName}:</span>{' '}
+                            <span className="font-medium text-slate-800">{display}</span>
+                            {attr.unit && <span className="text-xs text-slate-400 ml-1">{attr.unit}</span>}
+                            <Badge variant="outline" className="text-[10px] ml-1.5 px-1 py-0">{attr.dataType}</Badge>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -1736,42 +1913,43 @@ export function AssetExplorerPage() {
               onClick={() => setWizardStep((s) => s + 1)}
               disabled={
                 (wizardStep === 1 && !selectedTemplateId) ||
-                (wizardStep === 2 && !newAsset.name.trim())
+                (wizardStep === 2 && !newAsset.name.trim()) ||
+                (wizardStep === 3 && selectedTemplateDetail && hasAttributeErrors(selectedTemplateDetail.attributeSchema ?? [], newAsset.attributes))
               }
             >
               Next
             </Button>
           ) : (
             <Button onClick={handleCreateAsset} disabled={saving}>
-              {saving ? 'Creating...' : 'Create Asset'}
+              {saving ? 'Creating...' : 'Create Entity'}
             </Button>
           )}
         </DialogFooter>
       </Dialog>
 
-      {/* ---- Edit Asset Dialog ---- */}
+      {/* ---- Edit Entity Dialog ---- */}
       <Dialog
         open={showEditDialog}
         onClose={() => setShowEditDialog(false)}
         className="max-w-2xl max-h-[85vh] overflow-y-auto"
       >
         <DialogHeader>
-          <DialogTitle>Edit Asset</DialogTitle>
+          <DialogTitle>Edit Entity</DialogTitle>
           <DialogDescription>
-            Update asset information and attribute values
+            Update entity information and attribute values
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="space-y-1.5">
             <label className="text-sm font-semibold text-slate-700">
-              Asset Name <span className="text-red-500">*</span>
+              Entity Name <span className="text-red-500">*</span>
             </label>
             <Input
               type="text"
               value={editAsset.name}
               onChange={(e) => setEditAsset((p) => ({ ...p, name: e.target.value }))}
-              placeholder="Enter asset name"
+              placeholder="Enter entity name"
               autoFocus
             />
           </div>
@@ -1782,11 +1960,11 @@ export function AssetExplorerPage() {
               rows={3}
               value={editAsset.description}
               onChange={(e) => setEditAsset((p) => ({ ...p, description: e.target.value }))}
-              placeholder="Describe this asset..."
+              placeholder="Describe this entity..."
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-sm font-semibold text-slate-700">Parent Asset</label>
+            <label className="text-sm font-semibold text-slate-700">Parent Entity</label>
             <Select
               value={editAsset.parentId ?? ''}
               onChange={(e) => setEditAsset((p) => ({ ...p, parentId: e.target.value || null }))}
@@ -1825,7 +2003,14 @@ export function AssetExplorerPage() {
           <Button variant="outline" onClick={() => setShowEditDialog(false)}>
             Cancel
           </Button>
-          <Button onClick={handleUpdateAsset} disabled={saving || !editAsset.name.trim()}>
+          <Button
+            onClick={handleUpdateAsset}
+            disabled={
+              saving ||
+              !editAsset.name.trim() ||
+              (selectedAsset?.template?.attributeSchema && hasAttributeErrors((selectedAsset.template.attributeSchema as any) ?? [], editAsset.attributes))
+            }
+          >
             {saving ? 'Saving...' : 'Save Changes'}
           </Button>
         </DialogFooter>
@@ -1843,7 +2028,7 @@ export function AssetExplorerPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
               </svg>
             </div>
-            Delete Asset
+            Delete Entity
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
@@ -1852,11 +2037,11 @@ export function AssetExplorerPage() {
           </p>
           {selectedAsset && selectedAsset.sourceRelations?.length > 0 && (
             <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-700">
-              This asset has {selectedAsset.sourceRelations.length} relationship(s) that will also be removed.
+              This entity has {selectedAsset.sourceRelations.length} relationship(s) that will also be removed.
             </div>
           )}
           <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
-            This will also deactivate all child assets. This action cannot be easily undone.
+            This will also deactivate all child entities. This action cannot be easily undone.
           </div>
         </div>
         <DialogFooter>
@@ -1864,33 +2049,33 @@ export function AssetExplorerPage() {
             Cancel
           </Button>
           <Button variant="destructive" onClick={handleDeleteAsset} disabled={saving}>
-            {saving ? 'Deleting...' : 'Delete Asset'}
+            {saving ? 'Deleting...' : 'Delete Entity'}
           </Button>
         </DialogFooter>
       </Dialog>
 
-      {/* ---- Link Assets Dialog ---- */}
+      {/* ---- Link Entities Dialog ---- */}
       <Dialog
         open={showLinkDialog}
         onClose={() => { setShowLinkDialog(false); resetLinkDialog(); }}
         className="max-w-2xl"
       >
         <DialogHeader>
-          <DialogTitle>Link Assets</DialogTitle>
+          <DialogTitle>Link Entities</DialogTitle>
           <DialogDescription>
-            Create relationships between assets. Select one source and one or more targets.
+            Create relationships between entities. Select one source and one or more targets.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-5">
           {/* Source */}
           <div className="space-y-1.5">
-            <label className="text-sm font-semibold text-slate-700">Source Asset</label>
+            <label className="text-sm font-semibold text-slate-700">Source Entity</label>
             <Select
               value={linkSource}
               onChange={(e) => setLinkSource(e.target.value)}
             >
-              <option value="">Select source asset...</option>
+              <option value="">Select source entity...</option>
               {flatAssetList.map((a) => (
                 <option key={a.id} value={a.id}>
                   {'\u00A0'.repeat(a.depth * 2)}{a.depth > 0 ? '\u2514 ' : ''}{a.name} ({a.templateName})
@@ -1902,59 +2087,30 @@ export function AssetExplorerPage() {
           {/* Relationship Type */}
           <div className="space-y-1.5">
             <label className="text-sm font-semibold text-slate-700">Relationship Type</label>
-            {/* Linking rule info banner */}
-            {linkingRuleValidation && linkingRuleValidation.hasRules && !linkingRuleValidation.bypassedByRole && (
-              <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-700">
-                <svg className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                </svg>
-                <span>Template linking rules restrict available relationship types for these templates.</span>
-              </div>
-            )}
-            {linkingRuleValidation && linkingRuleValidation.bypassedByRole && linkingRuleValidation.hasRules && (
-              <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-700">
-                <svg className="w-4 h-4 flex-shrink-0 mt-0.5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                </svg>
-                <span>Your role bypasses template linking rules. All relationship types are available.</span>
-              </div>
-            )}
             <div className="space-y-1">
-              {FORWARD_RELATIONSHIP_TYPES.map((type) => {
-                const isAllowed = !linkingRuleValidation?.hasRules || linkingRuleValidation.bypassedByRole || linkingRuleValidation.allowedRelationships.includes(type);
-                return (
+              {ALL_RELATIONSHIP_TYPES.map((type) => (
                   <label
                     key={type}
                     className={cn(
                       'flex items-center gap-3 px-3 py-2 rounded-lg border transition-colors cursor-pointer',
                       linkType === type
                         ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-200'
-                        : isAllowed
-                          ? 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                          : 'border-slate-100 bg-slate-50/50 opacity-50 cursor-not-allowed',
+                        : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50',
                     )}
-                    title={!isAllowed ? 'Not allowed by template linking rules' : undefined}
                   >
                     <input
                       type="radio"
                       name="linkType"
                       value={type}
                       checked={linkType === type}
-                      disabled={!isAllowed}
                       onChange={() => setLinkType(type)}
                       className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
                     />
-                    <span className={cn('text-sm font-medium', !isAllowed ? 'text-slate-400' : 'text-slate-700')}>
+                    <span className="text-sm font-medium text-slate-700">
                       {RELATIONSHIP_LABELS[type] || type}
                     </span>
-                    {!isAllowed && (
-                      <svg className="w-4 h-4 text-slate-300 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                      </svg>
-                    )}
                   </label>
-                );
-              })}
+              ))}
             </div>
             {linkType === 'CUSTOM' && (
               <Input
@@ -1967,10 +2123,10 @@ export function AssetExplorerPage() {
             )}
           </div>
 
-          {/* Target Assets (multi-select) */}
+          {/* Target Entities (multi-select) */}
           <div className="space-y-1.5">
             <label className="text-sm font-semibold text-slate-700">
-              Target Assets
+              Target Entities
               {linkTargets.length > 0 && (
                 <span className="ml-2 text-xs font-normal text-blue-600">
                   ({linkTargets.length} selected)
@@ -2006,7 +2162,7 @@ export function AssetExplorerPage() {
             <Input
               value={linkTargetSearch}
               onChange={(e) => setLinkTargetSearch(e.target.value)}
-              placeholder="Search assets..."
+              placeholder="Search entities..."
               className="text-sm"
             />
             {/* Scrollable checkbox list */}
@@ -2016,33 +2172,39 @@ export function AssetExplorerPage() {
                 .filter((a) => !linkTargetSearch || a.name.toLowerCase().includes(linkTargetSearch.toLowerCase()) || a.templateName.toLowerCase().includes(linkTargetSearch.toLowerCase()))
                 .map((a) => {
                   const isChecked = linkTargets.includes(a.id);
+                  const isParentNode = a.childCount > 0 && linkType === 'CONTAINS';
                   return (
                     <label
                       key={a.id}
                       className={cn(
-                        'flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors hover:bg-slate-50',
-                        isChecked && 'bg-blue-50/60',
+                        'flex items-center gap-3 px-3 py-2 transition-colors',
+                        isParentNode ? 'opacity-50 cursor-not-allowed bg-slate-50' : 'cursor-pointer hover:bg-slate-50',
+                        isChecked && !isParentNode && 'bg-blue-50/60',
                       )}
+                      title={isParentNode ? 'Parent nodes with children cannot be a target of CONTAINS' : undefined}
                     >
                       <input
                         type="checkbox"
                         checked={isChecked}
+                        disabled={isParentNode}
                         onChange={() => {
+                          if (isParentNode) return;
                           setLinkTargets((prev) =>
                             isChecked ? prev.filter((id) => id !== a.id) : [...prev, a.id],
                           );
                         }}
                         className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                       />
-                      <span className="text-sm text-slate-700">
+                      <span className={cn('text-sm', isParentNode ? 'text-slate-400' : 'text-slate-700')}>
                         {'\u00A0'.repeat(a.depth * 2)}{a.depth > 0 ? '\u2514 ' : ''}{a.name}
                       </span>
+                      {isParentNode && <span className="text-xs text-amber-600 font-medium">Parent Node</span>}
                       <span className="text-xs text-slate-400 ml-auto">{a.templateName}</span>
                     </label>
                   );
                 })}
               {flatAssetList.filter((a) => a.id !== linkSource).length === 0 && (
-                <div className="px-3 py-4 text-center text-sm text-slate-400">No assets available</div>
+                <div className="px-3 py-4 text-center text-sm text-slate-400">No entities available</div>
               )}
             </div>
           </div>
@@ -2088,7 +2250,7 @@ export function AssetExplorerPage() {
             onClick={handleCreateRelationship}
             disabled={saving || !linkSource || linkTargets.length === 0 || linkTargets.includes(linkSource)}
           >
-            {saving ? 'Linking...' : `Link ${linkTargets.length > 1 ? `${linkTargets.length} Assets` : 'Assets'}`}
+            {saving ? 'Linking...' : `Link ${linkTargets.length > 1 ? `${linkTargets.length} Entities` : 'Entities'}`}
           </Button>
         </DialogFooter>
       </Dialog>
@@ -2101,7 +2263,7 @@ export function AssetExplorerPage() {
         <DialogHeader>
           <DialogTitle>Add Identifier</DialogTitle>
           <DialogDescription>
-            Attach a physical identifier to this asset
+            Attach a physical identifier to this entity
           </DialogDescription>
         </DialogHeader>
 
@@ -2164,18 +2326,18 @@ export function AssetExplorerPage() {
         </DialogFooter>
       </Dialog>
 
-      {/* ---- Attach Existing Asset Dialog ---- */}
+      {/* ---- Attach Existing Entity Dialog ---- */}
       <Dialog
         open={showAttachExistingDialog}
         onClose={() => { setShowAttachExistingDialog(false); setAttachParentId(''); setAttachTargetId(''); setAttachSearch(''); }}
         className="max-w-lg"
       >
         <DialogHeader>
-          <DialogTitle>Attach Existing Asset</DialogTitle>
+          <DialogTitle>Attach Existing Entity</DialogTitle>
           <DialogDescription>
-            Link an existing asset as a child of{' '}
+            Link an existing entity as a child of{' '}
             <span className="font-semibold text-slate-700">
-              {flatAssetList.find((a) => a.id === attachParentId)?.name ?? 'this asset'}
+              {flatAssetList.find((a) => a.id === attachParentId)?.name ?? 'this entity'}
             </span>{' '}
             using a CONTAINS relationship.
           </DialogDescription>
@@ -2188,49 +2350,54 @@ export function AssetExplorerPage() {
 
           {/* Search */}
           <div className="space-y-1.5">
-            <label className="text-sm font-semibold text-slate-700">Select Asset</label>
+            <label className="text-sm font-semibold text-slate-700">Select Entity</label>
             <Input
               value={attachSearch}
               onChange={(e) => setAttachSearch(e.target.value)}
-              placeholder="Search assets by name or template..."
+              placeholder="Search entities by name or template..."
               className="text-sm"
               autoFocus
             />
           </div>
 
-          {/* Asset list */}
+          {/* Entity list */}
           <div className="max-h-64 overflow-y-auto rounded-xl border-2 border-slate-200 bg-white divide-y divide-slate-100">
             {flatAssetList
               .filter((a) => a.id !== attachParentId)
               .filter((a) => !attachSearch || a.name.toLowerCase().includes(attachSearch.toLowerCase()) || a.templateName.toLowerCase().includes(attachSearch.toLowerCase()))
               .map((a) => {
                 const isSelected = attachTargetId === a.id;
+                const isParentNode = a.childCount > 0;
                 return (
                   <label
                     key={a.id}
                     className={cn(
-                      'flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors hover:bg-slate-50',
-                      isSelected && 'bg-blue-50/60 border-l-2 border-blue-500',
+                      'flex items-center gap-3 px-3 py-2.5 transition-colors',
+                      isParentNode ? 'opacity-50 cursor-not-allowed bg-slate-50' : 'cursor-pointer hover:bg-slate-50',
+                      isSelected && !isParentNode && 'bg-blue-50/60 border-l-2 border-blue-500',
                     )}
+                    title={isParentNode ? 'Parent nodes with children cannot be attached as a child' : undefined}
                   >
                     <input
                       type="radio"
                       name="attachTarget"
                       checked={isSelected}
-                      onChange={() => setAttachTargetId(a.id)}
+                      onChange={() => !isParentNode && setAttachTargetId(a.id)}
+                      disabled={isParentNode}
                       className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
                     />
                     <div className="flex-1 min-w-0">
-                      <span className="text-sm font-medium text-slate-700 truncate block">
+                      <span className={cn('text-sm font-medium truncate block', isParentNode ? 'text-slate-400' : 'text-slate-700')}>
                         {'\u00A0'.repeat(a.depth * 2)}{a.depth > 0 ? '\u2514 ' : ''}{a.name}
                       </span>
                     </div>
+                    {isParentNode && <span className="text-xs text-amber-600 font-medium flex-shrink-0">Parent Node</span>}
                     <span className="text-xs text-slate-400 flex-shrink-0">{a.templateName}</span>
                   </label>
                 );
               })}
             {flatAssetList.filter((a) => a.id !== attachParentId).length === 0 && (
-              <div className="px-3 py-6 text-center text-sm text-slate-400">No assets available to attach</div>
+              <div className="px-3 py-6 text-center text-sm text-slate-400">No entities available to attach</div>
             )}
           </div>
 
@@ -2255,7 +2422,7 @@ export function AssetExplorerPage() {
             onClick={handleAttachExisting}
             disabled={saving || !attachTargetId || attachTargetId === attachParentId}
           >
-            {saving ? 'Attaching...' : 'Attach Asset'}
+            {saving ? 'Attaching...' : 'Attach Entity'}
           </Button>
         </DialogFooter>
       </Dialog>
@@ -2264,7 +2431,7 @@ export function AssetExplorerPage() {
 }
 
 // =============================================
-// Asset Detail Panel Component
+// Entity Detail Panel Component
 // =============================================
 
 interface AssetDetailPanelProps {
@@ -2348,12 +2515,12 @@ function AssetDetailPanel({
       }
     }
 
-    // Track which asset+type combos are already covered by outgoing
+    // Track which entity+type combos are already covered by outgoing
     const outgoingPairs = new Set(
       relations.map((r) => `${r.relatedAsset.id}:${r.type}`),
     );
 
-    // Only add incoming if there's no matching outgoing inverse to the same asset
+    // Only add incoming if there's no matching outgoing inverse to the same entity
     for (const r of asset.targetRelations ?? []) {
       if (r.sourceAsset) {
         const inverseType = INVERSE_MAP[r.relationshipType];
@@ -2499,6 +2666,71 @@ function AssetDetailPanel({
               {asset.updatedBy && <p className="text-xs text-slate-400">by {asset.updatedBy}</p>}
             </CardContent>
           </Card>
+          {/* Connection cards */}
+          {(() => {
+            const maxConn = asset.template?.maxConnections ?? 10;
+            const usedConn = asset._count?.sourceRelations ?? 0;
+            const isUnlimited = maxConn === 0;
+            const pct = isUnlimited ? 0 : Math.min(100, Math.round((usedConn / maxConn) * 100));
+            const atLimit = !isUnlimited && usedConn >= maxConn;
+
+            const maxParent = asset.template?.maxParentConnections ?? 1;
+            const parentUsed = (asset.targetRelations || []).filter((r) => r.relationshipType === 'CONTAINS').length;
+            const parentNoLimit = maxParent === 0;
+            const parentPct = parentNoLimit ? 0 : maxParent > 0 ? Math.min(100, Math.round((parentUsed / maxParent) * 100)) : 0;
+            const parentAtLimit = !parentNoLimit && parentUsed >= maxParent;
+
+            return (
+              <>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Connections Allowed</p>
+                    <p className="text-sm font-medium text-slate-800">{isUnlimited ? 'Unlimited' : maxConn}</p>
+                    <p className="text-xs text-slate-400">max total connections (all types)</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Connections Used</p>
+                    <p className="text-sm font-medium text-slate-800">
+                      {usedConn}{!isUnlimited && ` / ${maxConn}`}
+                    </p>
+                    {!isUnlimited && (
+                      <div className="mt-1.5 h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                        <div
+                          className={cn('h-full rounded-full transition-all', atLimit ? 'bg-red-500' : 'bg-emerald-500')}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Parent Connections Allowed</p>
+                    <p className="text-sm font-medium text-slate-800">{parentNoLimit ? 'Not Allowed' : maxParent}</p>
+                    <p className="text-xs text-slate-400">max CONTAINS parent connections</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Parent Connections Used</p>
+                    <p className="text-sm font-medium text-slate-800">
+                      {parentUsed}{!parentNoLimit && ` / ${maxParent}`}
+                    </p>
+                    {!parentNoLimit && maxParent > 0 && (
+                      <div className="mt-1.5 h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                        <div
+                          className={cn('h-full rounded-full transition-all', parentAtLimit ? 'bg-red-500' : 'bg-emerald-500')}
+                          style={{ width: `${parentPct}%` }}
+                        />
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </>
+            );
+          })()}
         </div>
       )}
 
@@ -2567,7 +2799,7 @@ function AssetDetailPanel({
             if (!telSchema || telSchema.length === 0) {
               return (
                 <div className="text-center py-8">
-                  <p className="text-sm text-slate-500">No telemetry points defined in this asset's template.</p>
+                  <p className="text-sm text-slate-500">No telemetry points defined in this entity's template.</p>
                 </div>
               );
             }
@@ -2641,7 +2873,7 @@ function AssetDetailPanel({
               childMap.set(rel.sourceAssetId, list);
             }
 
-            // Walk up from current asset to find topmost root
+            // Walk up from current entity to find topmost root
             const parentMap = new Map<string, { id: string; name: string }>();
             for (const rel of allRelationships) {
               if (!FORWARD_TYPES.has(rel.relationshipType)) continue;
@@ -2716,10 +2948,10 @@ function AssetDetailPanel({
                       >
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
                       </button>
-                      {/* Attach existing asset as child */}
+                      {/* Attach existing entity as child */}
                       <button
                         className="w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-sm hover:bg-blue-600 transition-colors"
-                        title="Attach existing asset"
+                        title="Attach existing entity"
                         onClick={(e) => { e.stopPropagation(); onAttachExisting(nodeId); }}
                       >
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101M10.172 13.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
@@ -2810,11 +3042,11 @@ function AssetDetailPanel({
                 <div className="flex items-center gap-4 mt-4 pt-3 border-t border-slate-100">
                   <div className="flex items-center gap-1.5">
                     <span className="inline-block w-3 h-3 rounded border-2 border-blue-500 bg-blue-50 ring-1 ring-blue-200" />
-                    <span className="text-[10px] text-slate-500">Current asset</span>
+                    <span className="text-[10px] text-slate-500">Current entity</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="inline-block w-3 h-3 rounded border-2 border-slate-300 bg-white" />
-                    <span className="text-[10px] text-slate-500">Related asset</span>
+                    <span className="text-[10px] text-slate-500">Related entity</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="inline-block px-1.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-[8px] text-emerald-600 font-semibold">Label</span>
@@ -2829,7 +3061,7 @@ function AssetDetailPanel({
           {/* ---- Relationship Table ---- */}
           {allRelations.length === 0 ? (
             <div className="text-center py-8">
-              <p className="text-sm text-slate-500">No relationships defined for this asset.</p>
+              <p className="text-sm text-slate-500">No relationships defined for this entity.</p>
             </div>
           ) : (
             <Table>
@@ -2837,7 +3069,7 @@ function AssetDetailPanel({
                 <TableRow>
                   <TableHead>Type</TableHead>
                   <TableHead>Direction</TableHead>
-                  <TableHead>Related Asset</TableHead>
+                  <TableHead>Related Entity</TableHead>
                   <TableHead className="w-16">Remove</TableHead>
                 </TableRow>
               </TableHeader>
@@ -2898,7 +3130,7 @@ function AssetDetailPanel({
           </div>
           {(!asset.identifiers || asset.identifiers.length === 0) ? (
             <div className="text-center py-8">
-              <p className="text-sm text-slate-500">No identifiers attached to this asset.</p>
+              <p className="text-sm text-slate-500">No identifiers attached to this entity.</p>
             </div>
           ) : (
             <Table>

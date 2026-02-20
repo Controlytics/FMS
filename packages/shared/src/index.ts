@@ -42,17 +42,14 @@ export type { ActionReauthConfig } from './schemas/action-reauth.js';
 export {
   ATTRIBUTE_DATA_TYPES, TELEMETRY_DATA_TYPES, RELATIONSHIP_TYPES, IDENTIFIER_TYPES,
   ASSET_STATUSES, INVERSE_RELATIONSHIP_MAP, ALARM_RULE_TYPES, ALARM_SEVERITIES,
-  LINKING_RULE_SCOPES, FORWARD_RELATIONSHIP_TYPES,
   createAssetTemplateSchema, updateAssetTemplateSchema,
   createAssetInstanceSchema, updateAssetInstanceSchema,
   createAssetRelationshipSchema, createAssetIdentifierSchema,
-  createTemplateLinkingRuleSchema, updateTemplateLinkingRuleSchema,
   assetQuerySchema, templateQuerySchema,
 } from './schemas/assets.js';
 export type {
   CreateAssetTemplateInput, UpdateAssetTemplateInput,
   CreateAssetInstanceInput, UpdateAssetInstanceInput,
   CreateAssetRelationshipInput, CreateAssetIdentifierInput,
-  CreateTemplateLinkingRuleInput, UpdateTemplateLinkingRuleInput,
   AssetQueryInput, TemplateQueryInput,
 } from './schemas/assets.js';

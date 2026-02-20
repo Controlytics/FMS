@@ -6,7 +6,6 @@ import {
   createAssetTemplateSchema, updateAssetTemplateSchema,
   createAssetInstanceSchema, updateAssetInstanceSchema,
   createAssetRelationshipSchema, createAssetIdentifierSchema,
-  createTemplateLinkingRuleSchema, updateTemplateLinkingRuleSchema,
   assetQuerySchema, templateQuerySchema,
   INVERSE_RELATIONSHIP_MAP,
 } from '@digilog/shared';
@@ -14,6 +13,92 @@ import {
 // =============================================
 // Helpers
 // =============================================
+
+/**
+ * Validate attribute values against the template's attribute schema.
+ * Returns an array of error messages (empty if all valid).
+ */
+function validateAttributeValues(
+  attributes: Record<string, any>,
+  attributeSchema: any[],
+): string[] {
+  const errors: string[] = [];
+  if (!attributeSchema || attributeSchema.length === 0) return errors;
+
+  for (const schemaDef of attributeSchema) {
+    const { fieldName, dataType, required } = schemaDef;
+    const value = attributes[fieldName];
+
+    // Check required fields
+    if (required && (value === undefined || value === null || value === '')) {
+      errors.push(`"${fieldName}" is required`);
+      continue;
+    }
+
+    // Skip validation if value is not provided and not required
+    if (value === undefined || value === null || value === '') continue;
+
+    switch (dataType) {
+      case 'INTEGER':
+        if (typeof value !== 'number' || !Number.isInteger(value)) {
+          errors.push(`"${fieldName}" must be an integer`);
+        } else if (schemaDef.numericConstraints?.enabled) {
+          const c = schemaDef.numericConstraints;
+          if (c.min !== undefined && value < c.min) errors.push(`"${fieldName}" must be >= ${c.min}`);
+          if (c.max !== undefined && value > c.max) errors.push(`"${fieldName}" must be <= ${c.max}`);
+        }
+        break;
+      case 'FLOAT':
+        if (typeof value !== 'number' || !isFinite(value)) {
+          errors.push(`"${fieldName}" must be a number`);
+        } else if (schemaDef.numericConstraints?.enabled) {
+          const c = schemaDef.numericConstraints;
+          if (c.min !== undefined && value < c.min) errors.push(`"${fieldName}" must be >= ${c.min}`);
+          if (c.max !== undefined && value > c.max) errors.push(`"${fieldName}" must be <= ${c.max}`);
+        }
+        break;
+      case 'BOOLEAN':
+        if (typeof value !== 'boolean') {
+          errors.push(`"${fieldName}" must be a boolean (true/false)`);
+        }
+        break;
+      case 'TEXT':
+      case 'FILE':
+        if (typeof value !== 'string') {
+          errors.push(`"${fieldName}" must be a text string`);
+        }
+        break;
+      case 'URL':
+        if (typeof value !== 'string') {
+          errors.push(`"${fieldName}" must be a URL string`);
+        } else {
+          try { new URL(value); } catch {
+            errors.push(`"${fieldName}" must be a valid URL`);
+          }
+        }
+        break;
+      case 'DATE':
+        if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+          errors.push(`"${fieldName}" must be a valid date (YYYY-MM-DD)`);
+        }
+        break;
+      case 'DATETIME':
+        if (typeof value !== 'string' || isNaN(Date.parse(value))) {
+          errors.push(`"${fieldName}" must be a valid datetime`);
+        }
+        break;
+      case 'DROPDOWN':
+        if (typeof value !== 'string') {
+          errors.push(`"${fieldName}" must be a string`);
+        } else if (schemaDef.dropdownOptions && !schemaDef.dropdownOptions.includes(value)) {
+          errors.push(`"${fieldName}" must be one of: ${schemaDef.dropdownOptions.join(', ')}`);
+        }
+        break;
+    }
+  }
+
+  return errors;
+}
 
 /**
  * Walk up the parent chain from sourceId. If targetId is found, there's a cycle.
@@ -48,56 +133,6 @@ async function collectDescendantIds(parentId: string): Promise<string[]> {
   return ids;
 }
 
-/**
- * Validate whether a relationship between two assets is allowed by template linking rules.
- * Priority: USER > ROLE > GLOBAL. If no rules exist, allow by default.
- */
-async function validateLinkingRule(
-  sourceAssetId: string,
-  targetAssetId: string,
-  relationshipType: string,
-  userRole: string,
-  userId: string,
-): Promise<{ allowed: boolean; reason?: string }> {
-  // Fetch both assets with their templateIds
-  const [source, target] = await Promise.all([
-    prisma.assetInstance.findUnique({ where: { id: sourceAssetId }, select: { templateId: true, name: true, template: { select: { name: true } } } }),
-    prisma.assetInstance.findUnique({ where: { id: targetAssetId }, select: { templateId: true, name: true, template: { select: { name: true } } } }),
-  ]);
-  if (!source || !target) return { allowed: true }; // Let other validation handle missing assets
-
-  // Check if user's role has allowCrossTemplateLinking
-  const role = await prisma.role.findUnique({ where: { name: userRole }, select: { allowCrossTemplateLinking: true } });
-  if (role?.allowCrossTemplateLinking) return { allowed: true };
-
-  // Find applicable rules (highest priority first)
-  const rules = await prisma.templateLinkingRule.findMany({
-    where: {
-      sourceTemplateId: source.templateId,
-      targetTemplateId: target.templateId,
-      isActive: true,
-    },
-    orderBy: { priority: 'desc' },
-  });
-
-  if (rules.length === 0) return { allowed: true }; // No rules = allow all (backwards compatible)
-
-  // Find highest priority applicable rule: USER > ROLE > GLOBAL
-  const userRule = rules.find(r => r.scope === 'USER' && r.scopeValue === userId);
-  const roleRule = rules.find(r => r.scope === 'ROLE' && r.scopeValue === userRole);
-  const globalRule = rules.find(r => r.scope === 'GLOBAL');
-
-  const applicableRule = userRule ?? roleRule ?? globalRule;
-  if (!applicableRule) return { allowed: true };
-
-  const allowedTypes = applicableRule.allowedRelationships as string[];
-  if (allowedTypes.includes(relationshipType)) return { allowed: true };
-
-  return {
-    allowed: false,
-    reason: `Relationship type "${relationshipType}" is not allowed between "${source.template.name}" and "${target.template.name}" templates. Allowed: ${allowedTypes.join(', ')}`,
-  };
-}
 
 // =============================================
 // Routes
@@ -106,15 +141,15 @@ async function validateLinkingRule(
 export default async function assetRoutes(app: FastifyInstance) {
 
   // =========================================================================
-  // TEMPLATE ENDPOINTS (tag: 'Asset Templates')
+  // TEMPLATE ENDPOINTS (tag: 'Entity Templates')
   // =========================================================================
 
   // 1. GET /templates — List templates with search/pagination
   app.get('/templates', {
     preHandler: [app.requirePermission('ASSET_VIEW')],
     schema: {
-      tags: ['Asset Templates'],
-      summary: 'List asset templates',
+      tags: ['Entity Templates'],
+      summary: 'List entity templates',
       description: 'List templates with optional search, isActive filter, and pagination.',
       querystring: {
         type: 'object',
@@ -137,11 +172,17 @@ export default async function assetRoutes(app: FastifyInstance) {
                   id: { type: 'string' },
                   name: { type: 'string' },
                   description: { type: 'string' },
+                  category: { type: 'string' },
                   icon: { type: 'string' },
                   version: { type: 'integer' },
                   attributeSchema: { type: 'array' },
+                  telemetrySchema: { type: 'array' },
                   expectedIdentifiers: { type: 'array' },
+                  expectedRelationships: { type: 'array' },
+                  statusLifecycle: { type: 'array' },
                   alarmRules: { type: 'array' },
+                  maxParentConnections: { type: 'integer' },
+                  maxConnections: { type: 'integer' },
                   isActive: { type: 'boolean' },
                   createdAt: { type: 'string' },
                   updatedAt: { type: 'string' },
@@ -194,9 +235,9 @@ export default async function assetRoutes(app: FastifyInstance) {
   app.get('/templates/:id', {
     preHandler: [app.requirePermission('ASSET_VIEW')],
     schema: {
-      tags: ['Asset Templates'],
-      summary: 'Get asset template by ID',
-      description: 'Retrieve a single template by its UUID, including instance count.',
+      tags: ['Entity Templates'],
+      summary: 'Get entity template by ID',
+      description: 'Retrieve a single entity template by its UUID, including instance count.',
       params: {
         type: 'object',
         required: ['id'],
@@ -209,11 +250,17 @@ export default async function assetRoutes(app: FastifyInstance) {
             id: { type: 'string' },
             name: { type: 'string' },
             description: { type: 'string' },
+            category: { type: 'string' },
             icon: { type: 'string' },
             version: { type: 'integer' },
             attributeSchema: { type: 'array' },
+            telemetrySchema: { type: 'array' },
             expectedIdentifiers: { type: 'array' },
+            expectedRelationships: { type: 'array' },
+            statusLifecycle: { type: 'array' },
             alarmRules: { type: 'array' },
+            maxParentConnections: { type: 'integer' },
+            maxConnections: { type: 'integer' },
             isActive: { type: 'boolean' },
             createdAt: { type: 'string' },
             updatedAt: { type: 'string' },
@@ -241,19 +288,24 @@ export default async function assetRoutes(app: FastifyInstance) {
   app.post('/templates', {
     preHandler: [app.requirePermission('ASSET_TEMPLATE_MANAGE')],
     schema: {
-      tags: ['Asset Templates'],
-      summary: 'Create asset template',
-      description: 'Create a new asset template. Auto-creates version 1 snapshot. Requires ASSET_TEMPLATE_MANAGE permission.',
+      tags: ['Entity Templates'],
+      summary: 'Create entity template',
+      description: 'Create a new entity template. Auto-creates version 1 snapshot. Requires ASSET_TEMPLATE_MANAGE permission.',
       body: {
         type: 'object',
         required: ['name'],
         properties: {
           name: { type: 'string' },
           description: { type: 'string' },
+          category: { type: 'string', description: 'Template category (Equipment, Room, Building, etc.)' },
           icon: { type: 'string' },
           attributeSchema: { type: 'array' },
           expectedIdentifiers: { type: 'array' },
+          expectedRelationships: { type: 'array', description: 'Expected relationship type definitions' },
+          statusLifecycle: { type: 'array', description: 'Status definitions with transitions' },
           alarmRules: { type: 'array' },
+          maxParentConnections: { type: 'integer', description: 'Number of Parent Connections: 0=not allowed, 1=single parent only, 2+=multiple parents' },
+          maxConnections: { type: 'integer', description: 'Max total connections (all types): 0=unlimited, N=limit' },
         },
       },
       response: {
@@ -286,12 +338,17 @@ export default async function assetRoutes(app: FastifyInstance) {
       data: {
         name: parsed.data.name,
         description: parsed.data.description,
+        category: parsed.data.category,
         icon: parsed.data.icon,
         version: 1,
         attributeSchema: parsed.data.attributeSchema as any,
         telemetrySchema: parsed.data.telemetrySchema as any,
         expectedIdentifiers: parsed.data.expectedIdentifiers as any,
+        expectedRelationships: parsed.data.expectedRelationships as any,
+        statusLifecycle: parsed.data.statusLifecycle as any,
         alarmRules: parsed.data.alarmRules as any,
+        maxParentConnections: parsed.data.maxParentConnections ?? 1,
+        maxConnections: parsed.data.maxConnections ?? 10,
         createdBy: req.user.username,
       },
     });
@@ -312,6 +369,8 @@ export default async function assetRoutes(app: FastifyInstance) {
           expectedRelationships: template.expectedRelationships,
           statusLifecycle: template.statusLifecycle,
           alarmRules: template.alarmRules,
+          maxParentConnections: template.maxParentConnections,
+          maxConnections: template.maxConnections,
         },
         changeNotes: 'Initial version',
         createdBy: req.user.username,
@@ -337,9 +396,9 @@ export default async function assetRoutes(app: FastifyInstance) {
   app.put('/templates/:id', {
     preHandler: [app.requirePermission('ASSET_TEMPLATE_MANAGE')],
     schema: {
-      tags: ['Asset Templates'],
-      summary: 'Update asset template',
-      description: 'Update a template. Increments version and creates a new version snapshot. Requires ASSET_TEMPLATE_MANAGE permission.',
+      tags: ['Entity Templates'],
+      summary: 'Update entity template',
+      description: 'Update an entity template. Increments version and creates a new version snapshot. Requires ASSET_TEMPLATE_MANAGE permission.',
       params: {
         type: 'object',
         required: ['id'],
@@ -350,10 +409,15 @@ export default async function assetRoutes(app: FastifyInstance) {
         properties: {
           name: { type: 'string' },
           description: { type: 'string' },
+          category: { type: 'string', description: 'Template category (Equipment, Room, Building, etc.)' },
           icon: { type: 'string' },
           attributeSchema: { type: 'array' },
           expectedIdentifiers: { type: 'array' },
+          expectedRelationships: { type: 'array', description: 'Expected relationship type definitions' },
+          statusLifecycle: { type: 'array', description: 'Status definitions with transitions' },
           alarmRules: { type: 'array' },
+          maxParentConnections: { type: 'integer', description: 'Number of Parent Connections: 0=not allowed, 1=single parent only, 2+=multiple parents' },
+          maxConnections: { type: 'integer', description: 'Max total connections (all types): 0=unlimited, N=limit' },
         },
       },
       response: {
@@ -397,11 +461,16 @@ export default async function assetRoutes(app: FastifyInstance) {
       data: {
         ...(parsed.data.name !== undefined && { name: parsed.data.name }),
         ...(parsed.data.description !== undefined && { description: parsed.data.description }),
+        ...(parsed.data.category !== undefined && { category: parsed.data.category }),
         ...(parsed.data.icon !== undefined && { icon: parsed.data.icon }),
         ...(parsed.data.attributeSchema !== undefined && { attributeSchema: parsed.data.attributeSchema as any }),
         ...(parsed.data.telemetrySchema !== undefined && { telemetrySchema: parsed.data.telemetrySchema as any }),
         ...(parsed.data.expectedIdentifiers !== undefined && { expectedIdentifiers: parsed.data.expectedIdentifiers as any }),
+        ...(parsed.data.expectedRelationships !== undefined && { expectedRelationships: parsed.data.expectedRelationships as any }),
+        ...(parsed.data.statusLifecycle !== undefined && { statusLifecycle: parsed.data.statusLifecycle as any }),
         ...(parsed.data.alarmRules !== undefined && { alarmRules: parsed.data.alarmRules as any }),
+        ...(parsed.data.maxParentConnections !== undefined && { maxParentConnections: parsed.data.maxParentConnections }),
+        ...(parsed.data.maxConnections !== undefined && { maxConnections: parsed.data.maxConnections }),
         version: newVersion,
         updatedBy: req.user.username,
       },
@@ -423,6 +492,8 @@ export default async function assetRoutes(app: FastifyInstance) {
           expectedRelationships: template.expectedRelationships,
           statusLifecycle: template.statusLifecycle,
           alarmRules: template.alarmRules,
+          maxParentConnections: template.maxParentConnections,
+          maxConnections: template.maxConnections,
         },
         changeNotes: `Updated to version ${newVersion}`,
         createdBy: req.user.username,
@@ -449,9 +520,9 @@ export default async function assetRoutes(app: FastifyInstance) {
   app.delete('/templates/:id', {
     preHandler: [app.requirePermission('ASSET_TEMPLATE_MANAGE')],
     schema: {
-      tags: ['Asset Templates'],
-      summary: 'Soft-delete asset template',
-      description: 'Set isActive=false on a template. Requires ASSET_TEMPLATE_MANAGE permission.',
+      tags: ['Entity Templates'],
+      summary: 'Soft-delete entity template',
+      description: 'Set isActive=false on an entity template. Requires ASSET_TEMPLATE_MANAGE permission.',
       params: {
         type: 'object',
         required: ['id'],
@@ -488,7 +559,7 @@ export default async function assetRoutes(app: FastifyInstance) {
       targetId: id,
       beforeValue: { name: existing.name, isActive: existing.isActive },
       afterValue: { isActive: false },
-      signatureMeaning: `Asset template "${existing.name}" deactivated`,
+      signatureMeaning: `Entity template "${existing.name}" deactivated`,
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
       sessionId: req.user.sessionId,
@@ -501,9 +572,9 @@ export default async function assetRoutes(app: FastifyInstance) {
   app.get('/templates/:id/versions', {
     preHandler: [app.requirePermission('ASSET_VIEW')],
     schema: {
-      tags: ['Asset Templates'],
+      tags: ['Entity Templates'],
       summary: 'List template versions',
-      description: 'Get all version snapshots for a template, ordered by version number descending.',
+      description: 'Get all version snapshots for an entity template, ordered by version number descending.',
       params: {
         type: 'object',
         required: ['id'],
@@ -546,16 +617,16 @@ export default async function assetRoutes(app: FastifyInstance) {
   });
 
   // =========================================================================
-  // INSTANCE ENDPOINTS (tag: 'Assets')
+  // INSTANCE ENDPOINTS (tag: 'Entities')
   // =========================================================================
 
   // 7. GET /instances — List instances with search/filter/pagination
   app.get('/instances', {
     preHandler: [app.requirePermission('ASSET_VIEW')],
     schema: {
-      tags: ['Assets'],
-      summary: 'List asset instances',
-      description: 'List instances with optional search, filter by templateId, status, parentId, isActive, and pagination.',
+      tags: ['Entities'],
+      summary: 'List entity instances',
+      description: 'List entity instances with optional search, filter by templateId, status, parentId, isActive, and pagination.',
       querystring: {
         type: 'object',
         properties: {
@@ -584,7 +655,7 @@ export default async function assetRoutes(app: FastifyInstance) {
                   templateVersion: { type: 'integer' },
                   status: { type: 'string' },
                   attributes: { type: 'object', additionalProperties: true },
-                  parentId: { type: 'string' },
+                  parentId: { type: ['string', 'null'], nullable: true },
                   isActive: { type: 'boolean' },
                   createdAt: { type: 'string' },
                   updatedAt: { type: 'string' },
@@ -651,8 +722,8 @@ export default async function assetRoutes(app: FastifyInstance) {
   app.get('/instances/tree', {
     preHandler: [app.requirePermission('ASSET_VIEW')],
     schema: {
-      tags: ['Assets'],
-      summary: 'Get asset instance tree',
+      tags: ['Entities'],
+      summary: 'Get entity instance tree',
       description: 'Return all active instances with parentId relationships as a flat array. The frontend builds the tree from this.',
       response: {
         200: {
@@ -697,9 +768,9 @@ export default async function assetRoutes(app: FastifyInstance) {
   app.get('/instances/:id', {
     preHandler: [app.requirePermission('ASSET_VIEW')],
     schema: {
-      tags: ['Assets'],
-      summary: 'Get asset instance by ID',
-      description: 'Retrieve a single asset instance with template info, relationships, identifiers, and parent info.',
+      tags: ['Entities'],
+      summary: 'Get entity instance by ID',
+      description: 'Retrieve a single entity instance with template info, relationships, identifiers, and parent info.',
       params: {
         type: 'object',
         required: ['id'],
@@ -725,6 +796,8 @@ export default async function assetRoutes(app: FastifyInstance) {
             telemetrySchema: true,
             expectedIdentifiers: true,
             version: true,
+            maxConnections: true,
+            maxParentConnections: true,
           },
         },
         parent: { select: { id: true, name: true, templateId: true } },
@@ -735,10 +808,11 @@ export default async function assetRoutes(app: FastifyInstance) {
           include: { sourceAsset: { select: { id: true, name: true } } },
         },
         identifiers: true,
+        _count: { select: { sourceRelations: true } },
       },
     });
     if (!instance) {
-      return reply.code(404).send({ error: 'Asset instance not found' });
+      return reply.code(404).send({ error: 'Entity instance not found' });
     }
     return instance;
   });
@@ -747,9 +821,9 @@ export default async function assetRoutes(app: FastifyInstance) {
   app.post('/instances', {
     preHandler: [app.requirePermission('ASSET_CREATE')],
     schema: {
-      tags: ['Assets'],
-      summary: 'Create asset instance',
-      description: 'Create a new asset instance from a template. If parentId is set, auto-creates CONTAINS/CONTAINED_IN relationships.',
+      tags: ['Entities'],
+      summary: 'Create entity instance',
+      description: 'Create a new entity instance from a template. If parentId is set, auto-creates CONTAINS/CONTAINED_IN relationships.',
       body: {
         type: 'object',
         required: ['name', 'templateId'],
@@ -784,17 +858,40 @@ export default async function assetRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
 
-    // Verify template exists and is active
+    // Verify template exists
     const template = await prisma.assetTemplate.findUnique({ where: { id: parsed.data.templateId } });
-    if (!template || !template.isActive) {
-      return reply.code(400).send({ error: 'Template not found or is inactive' });
+    if (!template) {
+      return reply.code(400).send({ error: 'Template not found' });
     }
 
-    // If parentId is set, verify parent exists
+    // Validate attribute values against template schema
+    const attrSchema = (template as any).attributeSchema as any[] | undefined;
+    if (attrSchema && attrSchema.length > 0 && parsed.data.attributes) {
+      const attrErrors = validateAttributeValues(parsed.data.attributes, attrSchema);
+      if (attrErrors.length > 0) {
+        return reply.code(400).send({ error: 'ATTRIBUTE_VALIDATION_ERROR', details: attrErrors });
+      }
+    }
+
+    // If parentId is set, verify parent exists and check parent connection limit
     if (parsed.data.parentId) {
       const parent = await prisma.assetInstance.findUnique({ where: { id: parsed.data.parentId } });
       if (!parent) {
-        return reply.code(400).send({ error: 'Parent asset instance not found' });
+        return reply.code(400).send({ error: 'Parent entity instance not found' });
+      }
+      const maxParent = (template as any).maxParentConnections ?? 1;
+      if (maxParent === 0) {
+        return reply.code(400).send({ error: 'This template does not allow parent connections (Number of Parent Connections = 0). Create this entity without a parent.' });
+      }
+
+      // Check parent's total connection limit
+      const parentTemplate = await prisma.assetTemplate.findUnique({ where: { id: parent.templateId }, select: { maxConnections: true } });
+      const parentMax = parentTemplate?.maxConnections ?? 10;
+      if (parentMax > 0) {
+        const parentUsed = await prisma.assetRelationship.count({ where: { sourceAssetId: parsed.data.parentId! } });
+        if (parentUsed >= parentMax) {
+          return reply.code(400).send({ error: `Parent entity has reached max connections (${parentUsed}/${parentMax})` });
+        }
       }
     }
 
@@ -854,9 +951,9 @@ export default async function assetRoutes(app: FastifyInstance) {
   app.put('/instances/:id', {
     preHandler: [app.requirePermission('ASSET_UPDATE')],
     schema: {
-      tags: ['Assets'],
-      summary: 'Update asset instance',
-      description: 'Update an asset instance. If parentId changes, updates CONTAINS relationships.',
+      tags: ['Entities'],
+      summary: 'Update entity instance',
+      description: 'Update an entity instance. If parentId changes, updates CONTAINS relationships.',
       params: {
         type: 'object',
         required: ['id'],
@@ -897,7 +994,21 @@ export default async function assetRoutes(app: FastifyInstance) {
 
     const existing = await prisma.assetInstance.findUnique({ where: { id } });
     if (!existing) {
-      return reply.code(404).send({ error: 'Asset instance not found' });
+      return reply.code(404).send({ error: 'Entity instance not found' });
+    }
+
+    // Validate attribute values against template schema if attributes are being updated
+    if (parsed.data.attributes) {
+      const template = await prisma.assetTemplate.findUnique({ where: { id: existing.templateId } });
+      if (template) {
+        const attrSchema = (template as any).attributeSchema as any[] | undefined;
+        if (attrSchema && attrSchema.length > 0) {
+          const attrErrors = validateAttributeValues(parsed.data.attributes, attrSchema);
+          if (attrErrors.length > 0) {
+            return reply.code(400).send({ error: 'ATTRIBUTE_VALIDATION_ERROR', details: attrErrors });
+          }
+        }
+      }
     }
 
     const beforeValue = {
@@ -914,12 +1025,20 @@ export default async function assetRoutes(app: FastifyInstance) {
     if (parentIdChanging && parsed.data.parentId) {
       const parent = await prisma.assetInstance.findUnique({ where: { id: parsed.data.parentId } });
       if (!parent) {
-        return reply.code(400).send({ error: 'Parent asset instance not found' });
+        return reply.code(400).send({ error: 'Parent entity instance not found' });
       }
 
       // Prevent setting self as parent
       if (parsed.data.parentId === id) {
         return reply.code(400).send({ error: 'Cannot set self as parent' });
+      }
+
+      // If this asset is already a parent (has children), it cannot become a child
+      const childCount = await prisma.assetRelationship.count({
+        where: { sourceAssetId: id, relationshipType: 'CONTAINS' },
+      });
+      if (childCount > 0) {
+        return reply.code(400).send({ error: 'This entity is already a parent node with children and cannot be connected as a child node' });
       }
 
       // Prevent cycle: ensure new parent is not a descendant
@@ -1000,9 +1119,9 @@ export default async function assetRoutes(app: FastifyInstance) {
   app.patch('/instances/:id/status', {
     preHandler: [app.requirePermission('ASSET_UPDATE')],
     schema: {
-      tags: ['Assets'],
-      summary: 'Change asset instance status',
-      description: 'Update the status of an asset instance. Requires ASSET_UPDATE permission.',
+      tags: ['Entities'],
+      summary: 'Change entity instance status',
+      description: 'Update the status of an entity instance. Requires ASSET_UPDATE permission.',
       params: {
         type: 'object',
         required: ['id'],
@@ -1039,7 +1158,7 @@ export default async function assetRoutes(app: FastifyInstance) {
 
     const existing = await prisma.assetInstance.findUnique({ where: { id } });
     if (!existing) {
-      return reply.code(404).send({ error: 'Asset instance not found' });
+      return reply.code(404).send({ error: 'Entity instance not found' });
     }
 
     const instance = await prisma.assetInstance.update({
@@ -1070,9 +1189,9 @@ export default async function assetRoutes(app: FastifyInstance) {
   app.delete('/instances/:id', {
     preHandler: [app.requirePermission('ASSET_DELETE')],
     schema: {
-      tags: ['Assets'],
-      summary: 'Soft-delete asset instance',
-      description: 'Set isActive=false on an instance and cascade to all children. Also removes related relationships and identifiers.',
+      tags: ['Entities'],
+      summary: 'Soft-delete entity instance',
+      description: 'Set isActive=false on an entity instance and cascade to all children. Also removes related relationships and identifiers.',
       params: {
         type: 'object',
         required: ['id'],
@@ -1096,7 +1215,7 @@ export default async function assetRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const existing = await prisma.assetInstance.findUnique({ where: { id } });
     if (!existing) {
-      return reply.code(404).send({ error: 'Asset instance not found' });
+      return reply.code(404).send({ error: 'Entity instance not found' });
     }
 
     // Collect all descendant IDs for cascade soft-delete
@@ -1132,7 +1251,7 @@ export default async function assetRoutes(app: FastifyInstance) {
       targetId: id,
       beforeValue: { name: existing.name, status: existing.status, isActive: existing.isActive },
       afterValue: { isActive: false, cascadeDeactivated: descendantIds.length },
-      signatureMeaning: `Asset "${existing.name}" and ${descendantIds.length} children deactivated`,
+      signatureMeaning: `Entity "${existing.name}" and ${descendantIds.length} children deactivated`,
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
       sessionId: req.user.sessionId,
@@ -1145,9 +1264,9 @@ export default async function assetRoutes(app: FastifyInstance) {
   app.get('/instances/:id/children', {
     preHandler: [app.requirePermission('ASSET_VIEW')],
     schema: {
-      tags: ['Assets'],
-      summary: 'Get direct children of an asset instance',
-      description: 'Return the direct children of an asset instance.',
+      tags: ['Entities'],
+      summary: 'Get direct children of an entity instance',
+      description: 'Return the direct children of an entity instance.',
       params: {
         type: 'object',
         required: ['id'],
@@ -1181,7 +1300,7 @@ export default async function assetRoutes(app: FastifyInstance) {
     // Verify parent exists
     const parent = await prisma.assetInstance.findUnique({ where: { id } });
     if (!parent) {
-      return reply.code(404).send({ error: 'Asset instance not found' });
+      return reply.code(404).send({ error: 'Entity instance not found' });
     }
 
     const children = await prisma.assetInstance.findMany({
@@ -1202,20 +1321,20 @@ export default async function assetRoutes(app: FastifyInstance) {
   });
 
   // =========================================================================
-  // RELATIONSHIP ENDPOINTS (tag: 'Asset Relationships')
+  // RELATIONSHIP ENDPOINTS (tag: 'Entity Relationships')
   // =========================================================================
 
   // 15. GET /relationships — List relationships
   app.get('/relationships', {
     preHandler: [app.requirePermission('ASSET_VIEW')],
     schema: {
-      tags: ['Asset Relationships'],
-      summary: 'List asset relationships',
-      description: 'List relationships with optional filter by assetId (source or target) and type.',
+      tags: ['Entity Relationships'],
+      summary: 'List entity relationships',
+      description: 'List relationships with optional filter by entity ID (source or target) and type.',
       querystring: {
         type: 'object',
         properties: {
-          assetId: { type: 'string', format: 'uuid', description: 'Filter by source or target asset ID' },
+          assetId: { type: 'string', format: 'uuid', description: 'Filter by source or target entity ID' },
           type: { type: 'string', description: 'Filter by relationship type' },
         },
       },
@@ -1270,9 +1389,9 @@ export default async function assetRoutes(app: FastifyInstance) {
   app.post('/relationships', {
     preHandler: [app.requirePermission('ASSET_RELATIONSHIP_MANAGE')],
     schema: {
-      tags: ['Asset Relationships'],
-      summary: 'Create asset relationship',
-      description: 'Create a relationship between two assets and auto-create the inverse relationship. Validates no self-referencing, no duplicates, and no CONTAINS cycles.',
+      tags: ['Entity Relationships'],
+      summary: 'Create entity relationship',
+      description: 'Create a relationship between two entities and auto-create the inverse relationship. Validates no self-referencing, no duplicates, and no CONTAINS cycles.',
       body: {
         type: 'object',
         required: ['sourceAssetId', 'targetAssetId', 'relationshipType'],
@@ -1309,7 +1428,7 @@ export default async function assetRoutes(app: FastifyInstance) {
 
     // No self-referencing
     if (sourceAssetId === targetAssetId) {
-      return reply.code(400).send({ error: 'Cannot create a relationship from an asset to itself' });
+      return reply.code(400).send({ error: 'Cannot create a relationship from an entity to itself' });
     }
 
     // Verify both assets exist
@@ -1318,10 +1437,10 @@ export default async function assetRoutes(app: FastifyInstance) {
       prisma.assetInstance.findUnique({ where: { id: targetAssetId } }),
     ]);
     if (!source) {
-      return reply.code(400).send({ error: 'Source asset not found' });
+      return reply.code(400).send({ error: 'Source entity not found' });
     }
     if (!target) {
-      return reply.code(400).send({ error: 'Target asset not found' });
+      return reply.code(400).send({ error: 'Target entity not found' });
     }
 
     // No duplicate
@@ -1336,36 +1455,69 @@ export default async function assetRoutes(app: FastifyInstance) {
       return reply.code(409).send({ error: 'Relationship already exists' });
     }
 
-    // CONTAINS cycle detection
+    // ---- Total connection limit enforcement for BOTH assets ----
+    const [sourceTemplate, targetTemplate_conn] = await Promise.all([
+      prisma.assetTemplate.findUnique({ where: { id: source.templateId }, select: { maxConnections: true } }),
+      prisma.assetTemplate.findUnique({ where: { id: target.templateId }, select: { maxConnections: true } }),
+    ]);
+
+    const sourceMax = sourceTemplate?.maxConnections ?? 10;
+    const targetMax = targetTemplate_conn?.maxConnections ?? 10;
+
+    // Count existing connections (each row where asset is source = 1 logical connection)
+    const [sourceUsed, targetUsed] = await Promise.all([
+      prisma.assetRelationship.count({ where: { sourceAssetId } }),
+      prisma.assetRelationship.count({ where: { sourceAssetId: targetAssetId } }),
+    ]);
+
+    if (sourceMax > 0 && sourceUsed >= sourceMax) {
+      return reply.code(400).send({
+        error: `Source entity has reached max connections (${sourceUsed}/${sourceMax})`,
+        connectionInfo: { entity: 'source', used: sourceUsed, allowed: sourceMax },
+      });
+    }
+    if (targetMax > 0 && targetUsed >= targetMax) {
+      return reply.code(400).send({
+        error: `Target entity has reached max connections (${targetUsed}/${targetMax})`,
+        connectionInfo: { entity: 'target', used: targetUsed, allowed: targetMax },
+      });
+    }
+
+    // CONTAINS: parent-node check, max parent connections check + cycle detection
     if (relationshipType === 'CONTAINS') {
+      // If target asset is already a parent (has children), it cannot become a child
+      const targetChildCount = await prisma.assetRelationship.count({
+        where: { sourceAssetId: targetAssetId, relationshipType: 'CONTAINS' },
+      });
+      if (targetChildCount > 0) {
+        return reply.code(400).send({ error: 'This entity is already a parent node with children and cannot be connected as a child node' });
+      }
+
+      // Check max parent connections on target asset's template
+      const targetTemplate = await prisma.assetTemplate.findUnique({
+        where: { id: target.templateId },
+        select: { maxParentConnections: true },
+      });
+      const maxParent = targetTemplate?.maxParentConnections ?? 1;
+      if (maxParent === 0) {
+        return reply.code(400).send({ error: 'This entity\'s template does not allow parent connections (Number of Parent Connections = 0)' });
+      }
+      const currentParentCount = await prisma.assetRelationship.count({
+        where: { targetAssetId, relationshipType: 'CONTAINS' },
+      });
+      if (currentParentCount >= maxParent) {
+        return reply.code(400).send({ error: `Target entity has reached the Number of Parent Connections limit (${maxParent}) defined by its template` });
+      }
+
       const wouldCycle = await hasContainsCycle(sourceAssetId, targetAssetId);
       if (wouldCycle) {
         return reply.code(400).send({ error: 'Cannot create CONTAINS relationship: would create a cycle' });
       }
     }
 
-    // Template linking rule validation
-    const linkingValidation = await validateLinkingRule(
-      sourceAssetId, targetAssetId, relationshipType, req.user.role, req.user.sub,
-    );
-    if (!linkingValidation.allowed) {
-      await app.auditLog({
-        userId: req.user.username,
-        userRole: req.user.role,
-        action: 'UNAUTHORIZED_ACTION_ATTEMPT',
-        targetType: 'asset_relationship',
-        targetId: `${sourceAssetId}->${targetAssetId}`,
-        afterValue: { blocked: true, reason: linkingValidation.reason, relationshipType },
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent'],
-        sessionId: req.user.sessionId,
-      });
-      return reply.code(403).send({ error: linkingValidation.reason });
-    }
-
     const inverseType = INVERSE_RELATIONSHIP_MAP[relationshipType] ?? relationshipType;
 
-    const [relationship, inverse] = await prisma.$transaction([
+    const txOps: any[] = [
       prisma.assetRelationship.create({
         data: {
           sourceAssetId,
@@ -1386,7 +1538,19 @@ export default async function assetRoutes(app: FastifyInstance) {
           createdBy: req.user.username,
         },
       }),
-    ]);
+    ];
+
+    // CONTAINS: also set parentId on child asset so tree hierarchy is updated
+    if (relationshipType === 'CONTAINS') {
+      txOps.push(
+        prisma.assetInstance.update({
+          where: { id: targetAssetId },
+          data: { parentId: sourceAssetId },
+        }),
+      );
+    }
+
+    const [relationship, inverse] = await prisma.$transaction(txOps);
 
     await app.auditLog({
       userId: req.user.username,
@@ -1400,16 +1564,24 @@ export default async function assetRoutes(app: FastifyInstance) {
       sessionId: req.user.sessionId,
     });
 
-    return reply.code(201).send({ success: true, data: relationship, inverse });
+    return reply.code(201).send({
+      success: true,
+      data: relationship,
+      inverse,
+      connectionInfo: {
+        source: { used: sourceUsed + 1, allowed: sourceMax, remaining: sourceMax > 0 ? sourceMax - sourceUsed - 1 : -1 },
+        target: { used: targetUsed + 1, allowed: targetMax, remaining: targetMax > 0 ? targetMax - targetUsed - 1 : -1 },
+      },
+    });
   });
 
   // 17. DELETE /relationships/:id — Delete relationship + its inverse
   app.delete('/relationships/:id', {
     preHandler: [app.requirePermission('ASSET_RELATIONSHIP_MANAGE')],
     schema: {
-      tags: ['Asset Relationships'],
-      summary: 'Delete asset relationship and its inverse',
-      description: 'Delete a relationship and automatically delete its inverse relationship.',
+      tags: ['Entity Relationships'],
+      summary: 'Delete entity relationship and its inverse',
+      description: 'Delete an entity relationship and automatically delete its inverse relationship.',
       params: {
         type: 'object',
         required: ['id'],
@@ -1444,10 +1616,26 @@ export default async function assetRoutes(app: FastifyInstance) {
       },
     });
 
-    // Delete both in a transaction
-    const deleteOps = [prisma.assetRelationship.delete({ where: { id } })];
+    // Delete both in a transaction + clear parentId if CONTAINS
+    const deleteOps: any[] = [prisma.assetRelationship.delete({ where: { id } })];
     if (inverse) {
       deleteOps.push(prisma.assetRelationship.delete({ where: { id: inverse.id } }));
+    }
+    // If deleting a CONTAINS relationship, clear parentId on the child asset
+    if (existing.relationshipType === 'CONTAINS') {
+      deleteOps.push(
+        prisma.assetInstance.update({
+          where: { id: existing.targetAssetId },
+          data: { parentId: null },
+        }),
+      );
+    } else if (existing.relationshipType === 'CONTAINED_IN') {
+      deleteOps.push(
+        prisma.assetInstance.update({
+          where: { id: existing.sourceAssetId },
+          data: { parentId: null },
+        }),
+      );
     }
     await prisma.$transaction(deleteOps);
 
@@ -1472,20 +1660,20 @@ export default async function assetRoutes(app: FastifyInstance) {
   });
 
   // =========================================================================
-  // IDENTIFIER ENDPOINTS (tag: 'Asset Identifiers')
+  // IDENTIFIER ENDPOINTS (tag: 'Entity Identifiers')
   // =========================================================================
 
   // 18. GET /identifiers — List identifiers
   app.get('/identifiers', {
     preHandler: [app.requirePermission('ASSET_VIEW')],
     schema: {
-      tags: ['Asset Identifiers'],
-      summary: 'List asset identifiers',
-      description: 'List identifiers with optional filter by assetId and type.',
+      tags: ['Entity Identifiers'],
+      summary: 'List entity identifiers',
+      description: 'List identifiers with optional filter by entity ID and type.',
       querystring: {
         type: 'object',
         properties: {
-          assetId: { type: 'string', format: 'uuid', description: 'Filter by asset ID' },
+          assetId: { type: 'string', format: 'uuid', description: 'Filter by entity ID' },
           type: { type: 'string', description: 'Filter by identifier type' },
         },
       },
@@ -1535,9 +1723,9 @@ export default async function assetRoutes(app: FastifyInstance) {
   app.get('/identifiers/lookup/:value', {
     preHandler: [app.requirePermission('ASSET_VIEW')],
     schema: {
-      tags: ['Asset Identifiers'],
-      summary: 'Lookup asset by identifier value',
-      description: 'Find an asset by scanning or entering an identifier value (QR, barcode, RFID, etc.).',
+      tags: ['Entity Identifiers'],
+      summary: 'Lookup entity by identifier value',
+      description: 'Find an entity by scanning or entering an identifier value (QR, barcode, RFID, etc.).',
       params: {
         type: 'object',
         required: ['value'],
@@ -1583,9 +1771,9 @@ export default async function assetRoutes(app: FastifyInstance) {
   app.post('/identifiers', {
     preHandler: [app.requirePermission('ASSET_IDENTIFIER_MANAGE')],
     schema: {
-      tags: ['Asset Identifiers'],
-      summary: 'Create asset identifier',
-      description: 'Attach a physical identifier (QR, barcode, RFID, NFC, manual) to an asset.',
+      tags: ['Entity Identifiers'],
+      summary: 'Create entity identifier',
+      description: 'Attach a physical identifier (QR, barcode, RFID, NFC, manual) to an entity.',
       body: {
         type: 'object',
         required: ['assetId', 'identifierType', 'identifierValue'],
@@ -1609,6 +1797,9 @@ export default async function assetRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('CREATE_ASSET_IDENTIFIER', req, reply);
+    if (!ok) return;
+
     const parsed = createAssetIdentifierSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
@@ -1617,7 +1808,7 @@ export default async function assetRoutes(app: FastifyInstance) {
     // Verify asset exists
     const asset = await prisma.assetInstance.findUnique({ where: { id: parsed.data.assetId } });
     if (!asset) {
-      return reply.code(400).send({ error: 'Asset instance not found' });
+      return reply.code(400).send({ error: 'Entity instance not found' });
     }
 
     // Check unique value
@@ -1658,9 +1849,9 @@ export default async function assetRoutes(app: FastifyInstance) {
   app.delete('/identifiers/:id', {
     preHandler: [app.requirePermission('ASSET_IDENTIFIER_MANAGE')],
     schema: {
-      tags: ['Asset Identifiers'],
-      summary: 'Delete asset identifier',
-      description: 'Remove a physical identifier from an asset.',
+      tags: ['Entity Identifiers'],
+      summary: 'Delete entity identifier',
+      description: 'Remove a physical identifier from an entity.',
       params: {
         type: 'object',
         required: ['id'],
@@ -1675,6 +1866,9 @@ export default async function assetRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('DELETE_ASSET_IDENTIFIER', req, reply);
+    if (!ok) return;
+
     const { id } = req.params as { id: string };
     const existing = await prisma.assetIdentifier.findUnique({ where: { id } });
     if (!existing) {
@@ -1703,355 +1897,4 @@ export default async function assetRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
-  // =========================================================================
-  // TEMPLATE LINKING RULE ENDPOINTS (tag: 'Template Linking Rules')
-  // =========================================================================
-
-  // 22. GET /linking-rules — List linking rules
-  app.get('/linking-rules', {
-    preHandler: [app.requirePermission('ASSET_VIEW')],
-    schema: {
-      tags: ['Template Linking Rules'],
-      summary: 'List template linking rules',
-      description: 'List all template linking rules with optional filtering by source or target template.',
-      querystring: {
-        type: 'object',
-        properties: {
-          sourceTemplateId: { type: 'string', format: 'uuid' },
-          targetTemplateId: { type: 'string', format: 'uuid' },
-        },
-      },
-      response: {
-        200: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              id: { type: 'string' },
-              sourceTemplateId: { type: 'string' },
-              targetTemplateId: { type: 'string' },
-              allowedRelationships: { type: 'array', items: { type: 'string' } },
-              scope: { type: 'string' },
-              scopeValue: { type: ['string', 'null'] },
-              priority: { type: 'integer' },
-              isActive: { type: 'boolean' },
-              createdAt: { type: 'string' },
-              updatedAt: { type: 'string' },
-              createdBy: { type: ['string', 'null'] },
-              sourceTemplate: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' } } },
-              targetTemplate: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' } } },
-            },
-          },
-        },
-        ...errorResponses,
-      },
-    },
-  }, async (req) => {
-    const { sourceTemplateId, targetTemplateId } = req.query as { sourceTemplateId?: string; targetTemplateId?: string };
-    const where: Record<string, unknown> = { isActive: true };
-    if (sourceTemplateId) where.sourceTemplateId = sourceTemplateId;
-    if (targetTemplateId) where.targetTemplateId = targetTemplateId;
-
-    return prisma.templateLinkingRule.findMany({
-      where: where as any,
-      include: {
-        sourceTemplate: { select: { id: true, name: true } },
-        targetTemplate: { select: { id: true, name: true } },
-      },
-      orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
-    });
-  });
-
-  // 23. GET /linking-rules/validate — Check which relationship types are allowed between two assets
-  app.get('/linking-rules/validate', {
-    preHandler: [app.requirePermission('ASSET_VIEW')],
-    schema: {
-      tags: ['Template Linking Rules'],
-      summary: 'Validate allowed relationship types',
-      description: 'Given two asset IDs, returns which relationship types are allowed by linking rules.',
-      querystring: {
-        type: 'object',
-        required: ['sourceAssetId', 'targetAssetId'],
-        properties: {
-          sourceAssetId: { type: 'string', format: 'uuid' },
-          targetAssetId: { type: 'string', format: 'uuid' },
-        },
-      },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            hasRules: { type: 'boolean' },
-            allowedRelationships: { type: 'array', items: { type: 'string' } },
-            bypassedByRole: { type: 'boolean' },
-          },
-        },
-        ...errorResponses,
-      },
-    },
-  }, async (req) => {
-    const { sourceAssetId, targetAssetId } = req.query as { sourceAssetId: string; targetAssetId: string };
-
-    // Fetch assets with templates
-    const [source, target] = await Promise.all([
-      prisma.assetInstance.findUnique({ where: { id: sourceAssetId }, select: { templateId: true } }),
-      prisma.assetInstance.findUnique({ where: { id: targetAssetId }, select: { templateId: true } }),
-    ]);
-    if (!source || !target) return { hasRules: false, allowedRelationships: [], bypassedByRole: false };
-
-    // Check role bypass
-    const role = await prisma.role.findUnique({ where: { name: req.user.role }, select: { allowCrossTemplateLinking: true } });
-    if (role?.allowCrossTemplateLinking) {
-      return { hasRules: false, allowedRelationships: [], bypassedByRole: true };
-    }
-
-    // Find applicable rules
-    const rules = await prisma.templateLinkingRule.findMany({
-      where: { sourceTemplateId: source.templateId, targetTemplateId: target.templateId, isActive: true },
-      orderBy: { priority: 'desc' },
-    });
-
-    if (rules.length === 0) return { hasRules: false, allowedRelationships: [], bypassedByRole: false };
-
-    const userRule = rules.find(r => r.scope === 'USER' && r.scopeValue === req.user.sub);
-    const roleRule = rules.find(r => r.scope === 'ROLE' && r.scopeValue === req.user.role);
-    const globalRule = rules.find(r => r.scope === 'GLOBAL');
-    const applicableRule = userRule ?? roleRule ?? globalRule;
-
-    if (!applicableRule) return { hasRules: false, allowedRelationships: [], bypassedByRole: false };
-
-    return {
-      hasRules: true,
-      allowedRelationships: applicableRule.allowedRelationships as string[],
-      bypassedByRole: false,
-    };
-  });
-
-  // 24. POST /linking-rules — Create linking rule
-  app.post('/linking-rules', {
-    preHandler: [app.requirePermission('TEMPLATE_LINKING_RULE_MANAGE')],
-    schema: {
-      tags: ['Template Linking Rules'],
-      summary: 'Create template linking rule',
-      description: 'Create a rule defining which relationship types are allowed between two template types.',
-      body: {
-        type: 'object',
-        required: ['sourceTemplateId', 'targetTemplateId', 'allowedRelationships'],
-        properties: {
-          sourceTemplateId: { type: 'string', format: 'uuid' },
-          targetTemplateId: { type: 'string', format: 'uuid' },
-          allowedRelationships: { type: 'array', items: { type: 'string' } },
-          scope: { type: 'string', enum: ['GLOBAL', 'ROLE', 'USER'] },
-          scopeValue: { type: 'string' },
-        },
-      },
-      response: {
-        201: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            data: { type: 'object', additionalProperties: true },
-          },
-        },
-        ...errorResponses,
-      },
-    },
-  }, async (req, reply) => {
-    const { ok } = await enforceReauth('CREATE_TEMPLATE_LINKING_RULE', req, reply);
-    if (!ok) return;
-
-    const parsed = createTemplateLinkingRuleSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
-
-    const { sourceTemplateId, targetTemplateId, allowedRelationships, scope, scopeValue } = parsed.data;
-
-    // Verify templates exist
-    const [sourceTpl, targetTpl] = await Promise.all([
-      prisma.assetTemplate.findUnique({ where: { id: sourceTemplateId }, select: { id: true, name: true } }),
-      prisma.assetTemplate.findUnique({ where: { id: targetTemplateId }, select: { id: true, name: true } }),
-    ]);
-    if (!sourceTpl) return reply.code(400).send({ error: 'Source template not found' });
-    if (!targetTpl) return reply.code(400).send({ error: 'Target template not found' });
-
-    // Scope validation
-    if (scope === 'ROLE' && !scopeValue) return reply.code(400).send({ error: 'scopeValue is required for ROLE scope' });
-    if (scope === 'USER' && !scopeValue) return reply.code(400).send({ error: 'scopeValue is required for USER scope' });
-
-    // Check for duplicate rule (same source + target + scope + scopeValue)
-    const existing = await prisma.templateLinkingRule.findFirst({
-      where: {
-        sourceTemplateId,
-        targetTemplateId,
-        scope: scope ?? 'GLOBAL',
-        scopeValue: scopeValue ?? null,
-      },
-    });
-    if (existing) {
-      return reply.code(409).send({ error: 'A linking rule already exists for this template pair with the same scope' });
-    }
-
-    // Set priority based on scope
-    const priority = scope === 'USER' ? 20 : scope === 'ROLE' ? 10 : 0;
-
-    const rule = await prisma.templateLinkingRule.create({
-      data: {
-        sourceTemplateId,
-        targetTemplateId,
-        allowedRelationships: allowedRelationships as any,
-        scope: scope ?? 'GLOBAL',
-        scopeValue: scopeValue ?? null,
-        priority,
-        createdBy: req.user.username,
-      },
-    });
-
-    await app.auditLog({
-      userId: req.user.username,
-      userRole: req.user.role,
-      action: 'TEMPLATE_LINKING_RULE_CREATED',
-      targetType: 'template_linking_rule',
-      targetId: rule.id,
-      afterValue: { ...rule, sourceTemplateName: sourceTpl.name, targetTemplateName: targetTpl.name },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-      sessionId: req.user.sessionId,
-    });
-
-    return reply.code(201).send({ success: true, data: rule });
-  });
-
-  // 25. PUT /linking-rules/:id — Update linking rule
-  app.put('/linking-rules/:id', {
-    preHandler: [app.requirePermission('TEMPLATE_LINKING_RULE_MANAGE')],
-    schema: {
-      tags: ['Template Linking Rules'],
-      summary: 'Update template linking rule',
-      params: {
-        type: 'object',
-        required: ['id'],
-        properties: { id: { type: 'string', format: 'uuid' } },
-      },
-      body: {
-        type: 'object',
-        properties: {
-          sourceTemplateId: { type: 'string', format: 'uuid' },
-          targetTemplateId: { type: 'string', format: 'uuid' },
-          allowedRelationships: { type: 'array', items: { type: 'string' } },
-          scope: { type: 'string', enum: ['GLOBAL', 'ROLE', 'USER'] },
-          scopeValue: { type: 'string' },
-        },
-      },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            data: { type: 'object', additionalProperties: true },
-          },
-        },
-        ...errorResponses,
-      },
-    },
-  }, async (req, reply) => {
-    const { ok } = await enforceReauth('UPDATE_TEMPLATE_LINKING_RULE', req, reply);
-    if (!ok) return;
-
-    const { id } = req.params as { id: string };
-    const parsed = updateTemplateLinkingRuleSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
-
-    const existing = await prisma.templateLinkingRule.findUnique({
-      where: { id },
-      include: { sourceTemplate: { select: { name: true } }, targetTemplate: { select: { name: true } } },
-    });
-    if (!existing) return reply.code(404).send({ error: 'Linking rule not found' });
-
-    const scope = parsed.data.scope ?? existing.scope;
-    const priority = scope === 'USER' ? 20 : scope === 'ROLE' ? 10 : 0;
-
-    const rule = await prisma.templateLinkingRule.update({
-      where: { id },
-      data: {
-        ...(parsed.data.sourceTemplateId !== undefined && { sourceTemplateId: parsed.data.sourceTemplateId }),
-        ...(parsed.data.targetTemplateId !== undefined && { targetTemplateId: parsed.data.targetTemplateId }),
-        ...(parsed.data.allowedRelationships !== undefined && { allowedRelationships: parsed.data.allowedRelationships as any }),
-        ...(parsed.data.scope !== undefined && { scope: parsed.data.scope }),
-        ...(parsed.data.scopeValue !== undefined && { scopeValue: parsed.data.scopeValue }),
-        priority,
-        updatedBy: req.user.username,
-      },
-    });
-
-    await app.auditLog({
-      userId: req.user.username,
-      userRole: req.user.role,
-      action: 'TEMPLATE_LINKING_RULE_UPDATED',
-      targetType: 'template_linking_rule',
-      targetId: id,
-      beforeValue: existing,
-      afterValue: rule,
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-      sessionId: req.user.sessionId,
-    });
-
-    return { success: true, data: rule };
-  });
-
-  // 26. DELETE /linking-rules/:id — Delete linking rule
-  app.delete('/linking-rules/:id', {
-    preHandler: [app.requirePermission('TEMPLATE_LINKING_RULE_MANAGE')],
-    schema: {
-      tags: ['Template Linking Rules'],
-      summary: 'Delete template linking rule',
-      params: {
-        type: 'object',
-        required: ['id'],
-        properties: { id: { type: 'string', format: 'uuid' } },
-      },
-      response: {
-        200: {
-          type: 'object',
-          properties: { success: { type: 'boolean' } },
-        },
-        ...errorResponses,
-      },
-    },
-  }, async (req, reply) => {
-    const { ok } = await enforceReauth('DELETE_TEMPLATE_LINKING_RULE', req, reply);
-    if (!ok) return;
-
-    const { id } = req.params as { id: string };
-    const existing = await prisma.templateLinkingRule.findUnique({
-      where: { id },
-      include: { sourceTemplate: { select: { name: true } }, targetTemplate: { select: { name: true } } },
-    });
-    if (!existing) return reply.code(404).send({ error: 'Linking rule not found' });
-
-    await prisma.templateLinkingRule.delete({ where: { id } });
-
-    await app.auditLog({
-      userId: req.user.username,
-      userRole: req.user.role,
-      action: 'TEMPLATE_LINKING_RULE_DELETED',
-      targetType: 'template_linking_rule',
-      targetId: id,
-      beforeValue: {
-        sourceTemplate: existing.sourceTemplate.name,
-        targetTemplate: existing.targetTemplate.name,
-        allowedRelationships: existing.allowedRelationships,
-        scope: existing.scope,
-      },
-      afterValue: { deleted: true },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-      sessionId: req.user.sessionId,
-    });
-
-    return { success: true };
-  });
 }

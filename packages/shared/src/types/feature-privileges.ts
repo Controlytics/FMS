@@ -27,15 +27,14 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'config.edit', label: 'Edit Configuration', category: 'System', icon: 'settings-edit' },
   { id: 'notifications.manage', label: 'Manage Notifications', category: 'System', icon: 'bell' },
 
-  // Asset Management
-  { id: 'assets.view', label: 'View Assets', category: 'Asset Management', icon: 'eye' },
-  { id: 'assets.create', label: 'Create Assets', category: 'Asset Management', icon: 'plus' },
-  { id: 'assets.edit', label: 'Edit Assets', category: 'Asset Management', icon: 'edit' },
-  { id: 'assets.delete', label: 'Delete Assets', category: 'Asset Management', icon: 'trash' },
-  { id: 'assets.templates', label: 'Manage Templates', category: 'Asset Management', icon: 'template' },
-  { id: 'assets.relationships', label: 'Manage Relationships', category: 'Asset Management', icon: 'link' },
-  { id: 'assets.identifiers', label: 'Manage Identifiers', category: 'Asset Management', icon: 'qrcode' },
-  { id: 'assets.linking_rules', label: 'Manage Linking Rules', category: 'Asset Management', icon: 'link' },
+  // Entity Management
+  { id: 'assets.view', label: 'View Entities', category: 'Entity Management', icon: 'eye' },
+  { id: 'assets.create', label: 'Create Entities', category: 'Entity Management', icon: 'plus' },
+  { id: 'assets.edit', label: 'Edit Entities', category: 'Entity Management', icon: 'edit' },
+  { id: 'assets.delete', label: 'Delete Entities', category: 'Entity Management', icon: 'trash' },
+  { id: 'assets.templates', label: 'Manage Templates', category: 'Entity Management', icon: 'template' },
+  { id: 'assets.relationships', label: 'Manage Relationships', category: 'Entity Management', icon: 'link' },
+  { id: 'assets.identifiers', label: 'Manage Identifiers', category: 'Entity Management', icon: 'qrcode' },
 ];
 
 /**

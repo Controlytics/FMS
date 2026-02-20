@@ -103,11 +103,16 @@ const alarmRuleSchema = z.object({
 export const createAssetTemplateSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
+  category: z.string().max(50).default('General'),
   icon: z.string().max(50).default('box'),
   attributeSchema: z.array(attributeDefinitionSchema).default([]),
   telemetrySchema: z.array(telemetryDefinitionSchema).default([]),
   expectedIdentifiers: z.array(expectedIdentifierSchema).default([]),
+  expectedRelationships: z.array(z.record(z.any())).default([]),
+  statusLifecycle: z.array(z.record(z.any())).default([]),
   alarmRules: z.array(alarmRuleSchema).default([]),
+  maxParentConnections: z.number().int().min(0).optional().default(1), // 0=no parents, 1+=limit
+  maxConnections: z.number().int().min(0).optional().default(10), // 0=unlimited, N=max total connections
 });
 
 export const updateAssetTemplateSchema = createAssetTemplateSchema.partial();
@@ -195,25 +200,3 @@ export const templateQuerySchema = z.object({
 export type AssetQueryInput = z.infer<typeof assetQuerySchema>;
 export type TemplateQueryInput = z.infer<typeof templateQuerySchema>;
 
-// =============================================
-// Template Linking Rule Schemas
-// =============================================
-
-export const LINKING_RULE_SCOPES = ['GLOBAL', 'ROLE', 'USER'] as const;
-
-export const FORWARD_RELATIONSHIP_TYPES = [
-  'CONTAINS', 'CONNECTED_TO', 'FEEDS', 'DEPENDS_ON', 'BACKS_UP', 'MONITORS', 'CUSTOM',
-] as const;
-
-export const createTemplateLinkingRuleSchema = z.object({
-  sourceTemplateId: z.string().uuid(),
-  targetTemplateId: z.string().uuid(),
-  allowedRelationships: z.array(z.enum(FORWARD_RELATIONSHIP_TYPES)).min(1),
-  scope: z.enum(LINKING_RULE_SCOPES).default('GLOBAL'),
-  scopeValue: z.string().max(100).optional(),
-});
-
-export const updateTemplateLinkingRuleSchema = createTemplateLinkingRuleSchema.partial();
-
-export type CreateTemplateLinkingRuleInput = z.infer<typeof createTemplateLinkingRuleSchema>;
-export type UpdateTemplateLinkingRuleInput = z.infer<typeof updateTemplateLinkingRuleSchema>;
