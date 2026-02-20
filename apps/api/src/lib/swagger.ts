@@ -61,7 +61,6 @@ export async function registerSwagger(app: FastifyInstance) {
         { name: 'Entities', description: 'Entity instance management — create, configure, and operate entity instances' },
         { name: 'Entity Relationships', description: 'Entity relationships — bidirectional connections between entities' },
         { name: 'Entity Identifiers', description: 'Entity identifiers — QR, RFID, NFC, Barcode, Manual identifiers' },
-        { name: 'Template Linking Rules', description: 'Template linking rules — define which template types can be linked together' },
       ],
       components: {
         securitySchemes: {

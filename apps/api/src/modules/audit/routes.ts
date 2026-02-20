@@ -58,6 +58,7 @@ export default async function auditRoutes(app: FastifyInstance) {
             totalPages: { type: 'integer' },
           },
         },
+        ...errorResponses,
       },
     },
   }, async (req) => {
@@ -176,12 +177,7 @@ export default async function auditRoutes(app: FastifyInstance) {
             integrityValid: { type: 'boolean', description: 'Whether the checksum integrity verification passed' },
           },
         },
-        404: {
-          type: 'object',
-          properties: {
-            error: { type: 'string' },
-          },
-        },
+        ...errorResponses,
       },
     },
   }, async (req, reply) => {

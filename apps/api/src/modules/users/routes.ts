@@ -5,6 +5,7 @@ import { createUserSchema, updateUserSchema, resetPasswordSchema, userQuerySchem
 import { createNotification } from '../notifications/routes.js';
 import { validateUserId } from '../../lib/user-id-validator.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
+import { errorResponses } from '../../lib/error-schemas.js';
 
 async function getPasswordExpiresAt(): Promise<Date | null> {
   const config = await prisma.systemConfig.findUnique({ where: { configKey: 'password-policy' } });
@@ -35,6 +36,22 @@ export default async function userRoutes(app: FastifyInstance) {
           confirmPassword: { type: 'string' },
           status: { type: 'string', enum: ['ENABLED', 'DISABLED'] },
         },
+      },
+      response: {
+        201: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            username: { type: 'string' },
+            fullName: { type: 'string' },
+            email: { type: 'string' },
+            department: { type: 'string', nullable: true },
+            role: { type: 'string' },
+            status: { type: 'string' },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        ...errorResponses,
       },
     },
   }, async (req, reply) => {
@@ -192,6 +209,35 @@ export default async function userRoutes(app: FastifyInstance) {
           search: { type: 'string', description: 'Search by username, name, or email' },
         },
       },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            data: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  username: { type: 'string' },
+                  fullName: { type: 'string' },
+                  email: { type: 'string' },
+                  department: { type: 'string', nullable: true },
+                  role: { type: 'string' },
+                  status: { type: 'string' },
+                  lastLogin: { type: 'string', format: 'date-time', nullable: true },
+                  createdAt: { type: 'string', format: 'date-time' },
+                  createdBy: { type: 'string', nullable: true },
+                },
+              },
+            },
+            total: { type: 'integer' },
+            page: { type: 'integer' },
+            limit: { type: 'integer' },
+            totalPages: { type: 'integer' },
+          },
+        },
+      },
     },
   }, async (req) => {
     const query = userQuerySchema.parse(req.query);
@@ -232,6 +278,30 @@ export default async function userRoutes(app: FastifyInstance) {
       summary: 'Get user by ID',
       description: 'Get full user details',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            username: { type: 'string' },
+            fullName: { type: 'string' },
+            email: { type: 'string' },
+            department: { type: 'string', nullable: true },
+            role: { type: 'string' },
+            status: { type: 'string' },
+            failedLoginAttempts: { type: 'integer' },
+            forcePasswordChange: { type: 'boolean' },
+            isTemporaryPassword: { type: 'boolean' },
+            lastLogin: { type: 'string', format: 'date-time', nullable: true },
+            passwordChangedAt: { type: 'string', format: 'date-time', nullable: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+            createdBy: { type: 'string', nullable: true },
+            updatedBy: { type: 'string', nullable: true },
+          },
+        },
+        ...errorResponses,
+      },
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
@@ -265,6 +335,20 @@ export default async function userRoutes(app: FastifyInstance) {
           role: { type: 'string' },
           status: { type: 'string', enum: ['ENABLED', 'DISABLED'] },
         },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            username: { type: 'string' },
+            fullName: { type: 'string' },
+            email: { type: 'string' },
+            role: { type: 'string' },
+            status: { type: 'string' },
+          },
+        },
+        ...errorResponses,
       },
     },
   }, async (req, reply) => {
@@ -331,6 +415,15 @@ export default async function userRoutes(app: FastifyInstance) {
       summary: 'Delete user',
       description: 'Permanently delete a user and all related data. SUPER_ADMIN only.',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+          },
+        },
+        ...errorResponses,
+      },
     },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('DELETE_USER', req, reply);
@@ -387,6 +480,26 @@ export default async function userRoutes(app: FastifyInstance) {
             maxItems: 50,
           },
         },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            deletedCount: { type: 'integer' },
+            deletedUsers: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  username: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+        ...errorResponses,
       },
     },
   }, async (req, reply) => {
@@ -457,6 +570,15 @@ export default async function userRoutes(app: FastifyInstance) {
       summary: 'Enable user',
       description: 'Re-enable a disabled user account',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+          },
+        },
+        ...errorResponses,
+      },
     },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('ENABLE_USER', req, reply);
@@ -507,6 +629,15 @@ export default async function userRoutes(app: FastifyInstance) {
       summary: 'Disable user',
       description: 'Disable a user account and terminate all active sessions',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+          },
+        },
+        ...errorResponses,
+      },
     },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('DISABLE_USER', req, reply);
@@ -568,6 +699,16 @@ export default async function userRoutes(app: FastifyInstance) {
         required: ['newPassword'],
         properties: { newPassword: { type: 'string', minLength: 8 } },
       },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            message: { type: 'string' },
+          },
+        },
+        ...errorResponses,
+      },
     },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('UNLOCK_USER', req, reply);
@@ -626,6 +767,16 @@ export default async function userRoutes(app: FastifyInstance) {
         required: ['newPassword'],
         properties: { newPassword: { type: 'string', minLength: 8 } },
       },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            message: { type: 'string' },
+          },
+        },
+        ...errorResponses,
+      },
     },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('RESET_PASSWORD', req, reply);
@@ -682,6 +833,31 @@ export default async function userRoutes(app: FastifyInstance) {
       tags: ['Users'],
       summary: 'List password reset requests',
       description: 'Get all password reset requests (pending and processed)',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            data: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  userId: { type: 'string' },
+                  status: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED'] },
+                  processedBy: { type: 'string', nullable: true },
+                  notes: { type: 'string', nullable: true },
+                  requestedAt: { type: 'string', format: 'date-time' },
+                  processedAt: { type: 'string', format: 'date-time', nullable: true },
+                  userFullName: { type: 'string' },
+                  userEmail: { type: 'string' },
+                  userDepartment: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
     },
   }, async () => {
     const requests = await prisma.passwordResetRequest.findMany({
@@ -718,6 +894,14 @@ export default async function userRoutes(app: FastifyInstance) {
       tags: ['Users'],
       summary: 'Pending reset request count',
       description: 'Get count of pending password reset requests',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            count: { type: 'integer' },
+          },
+        },
+      },
     },
   }, async () => {
     const count = await prisma.passwordResetRequest.count({
@@ -742,6 +926,16 @@ export default async function userRoutes(app: FastifyInstance) {
           newPassword: { type: 'string', description: 'Required when approving' },
           notes: { type: 'string' },
         },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            message: { type: 'string' },
+          },
+        },
+        ...errorResponses,
       },
     },
   }, async (req, reply) => {

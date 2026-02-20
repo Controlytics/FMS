@@ -1,6 +1,7 @@
 import { type FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { z } from 'zod';
+import { errorResponses } from '../../lib/error-schemas.js';
 
 const notificationQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -204,12 +205,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
             success: { type: 'boolean' },
           },
         },
-        404: {
-          type: 'object',
-          properties: {
-            error: { type: 'string' },
-          },
-        },
+        ...errorResponses,
       },
     },
   }, async (req, reply) => {
@@ -290,12 +286,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
             success: { type: 'boolean' },
           },
         },
-        404: {
-          type: 'object',
-          properties: {
-            error: { type: 'string' },
-          },
-        },
+        ...errorResponses,
       },
     },
   }, async (req, reply) => {
@@ -436,12 +427,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
             success: { type: 'boolean' },
           },
         },
-        404: {
-          type: 'object',
-          properties: {
-            error: { type: 'string' },
-          },
-        },
+        ...errorResponses,
       },
     },
   }, async (req, reply) => {
