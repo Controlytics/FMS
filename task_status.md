@@ -40,13 +40,14 @@
 - Password history enforcement (configurable reuse prevention)
 - Session-based auth with immediate invalidation on disable/logout
 - SHA-256 audit trail checksums (tamper-evident)
-- Template-driven asset creation with JSONB attribute merging
+- Template-driven asset creation with JSONB attribute merging (no isActive filter on templates)
 - ltree-based unlimited-depth hierarchy
 - Dynamic role management (create/edit/delete custom roles)
 - Action re-authentication with in-memory cache
 - Configurable audit text templates
 - Configurable pagination options
 - Re-auth enforcement helper (`apps/api/src/lib/reauth-check.ts`)
+- ~~Template linking rules~~ *(Feature removed — any asset can link to any other with any relationship type)*
 
 ## Frontend (`apps/web`) — React 19 + Vite + Tailwind 4
 

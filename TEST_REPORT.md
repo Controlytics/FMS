@@ -1,6 +1,6 @@
 # DigiLog Test Report
 
-**Date:** 2026-02-19
+**Date:** 2026-02-20
 **Tester:** Automated + Manual
 **Environment:** EC2 (43.205.32.23), PostgreSQL 16, Node.js, PM2
 **Build:** Turborepo (shared -> api -> web), all packages compiled successfully
@@ -93,7 +93,7 @@
 |---------|--------|-------|
 | Source Asset dropdown | PASS | Fixed — API now returns `null` for root parentId; frontend handles null/empty/undefined |
 | Target Assets multi-select | PASS | Checkbox list with search, chips — populates correctly from flatAssetList |
-| Relationship type selector | PASS | 7 forward types |
+| Relationship type selector | PASS | All 12 types (forward + inverse) |
 | Direction preview | PASS | Shows all source->target pairs |
 | Bulk relationship creation | PASS (API) | Creates relationships sequentially |
 | Tree auto-expand after link | PASS | Expands source node |
@@ -120,7 +120,11 @@
 
 ---
 
-## 6. Open Items
+## 6. ~~Linking Rule Enforcement Tests~~ *(Feature removed 2026-02-20)*
+
+> Template Linking Rules feature was completely removed. Any asset can now link to any other asset with any relationship type — no restrictions. All linking rule tests are no longer applicable.
+
+## 7. Open Items
 
 | Item | Priority | Description |
 |------|----------|-------------|

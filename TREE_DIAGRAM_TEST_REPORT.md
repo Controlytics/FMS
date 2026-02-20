@@ -1,4 +1,6 @@
-# DigiLog Asset Tree Diagram & Template Linking Rules - Test Report
+# DigiLog Asset Tree Diagram - Test Report
+
+> **Note (2026-02-20):** Template Linking Rules feature was completely removed. Sections 8-11 and related entries in this report are now obsolete. The tree diagram features (Sections 1-7) remain valid.
 
 **Date:** 2026-02-19
 **Environment:** Production (http://43.205.32.23)
@@ -19,7 +21,7 @@
 | **Skipped** | 0 |
 | **Pass Rate** | **100%** |
 | **Sections** | 13 |
-| **Features Covered** | Tree Diagram (CRUD, Attach, Remove, Unlink), Relationships (6 types + cycle detection), Template Linking Rules (CRUD, Validation, Role Bypass, Edge Cases), Config Endpoints |
+| **Features Covered** | Tree Diagram (CRUD, Attach, Remove, Unlink), Relationships (6 types + cycle detection), Config Endpoints. ~~Template Linking Rules~~ *(removed 2026-02-20)* |
 
 ---
 
@@ -128,9 +130,9 @@ Tests CONTAINS cycle prevention (prevents circular hierarchies).
 | T7.3 | **NEGATIVE:** Create CONTAINS: E -> A (cycle) | Negative | PASS | Correctly rejected with HTTP 400 "circular" error. Cycle detection prevents A -> D -> E -> A loop |
 | T7.4 | Cleanup: delete test CONTAINS chain | Positive | PASS | All test relationships cleaned up |
 
-### Section 8: Template Linking Rules - CRUD
+### ~~Section 8: Template Linking Rules - CRUD~~ *(Feature removed 2026-02-20)*
 
-Tests full Create/Read/Update/Delete lifecycle for Template Linking Rules.
+~~Tests full Create/Read/Update/Delete lifecycle for Template Linking Rules.~~
 
 | Test ID | Description | Type | Result | Details |
 |---------|-------------|------|--------|---------|
@@ -143,9 +145,9 @@ Tests full Create/Read/Update/Delete lifecycle for Template Linking Rules.
 | T8.7 | Delete rule | Positive | PASS | DELETE /api/assets/linking-rules/:id returns success |
 | T8.8 | Verify rule deleted | Positive | PASS | GET confirms rule no longer in list |
 
-### Section 9: Linking Rule Validation Engine
+### ~~Section 9: Linking Rule Validation Engine~~ *(Feature removed 2026-02-20)*
 
-Tests that linking rules actually enforce relationship type restrictions on asset linking.
+~~Tests that linking rules actually enforce relationship type restrictions on asset linking.~~
 
 | Test ID | Description | Type | Result | Details |
 |---------|-------------|------|--------|---------|
@@ -155,9 +157,9 @@ Tests that linking rules actually enforce relationship type restrictions on asse
 | T9.4 | Test validate endpoint | Positive | PASS | GET /api/assets/linking-rules/validate returns hasRules=true with correct allowedRelationships |
 | T9.5 | Delete rule, verify FEEDS now works (no rules = all allowed) | Positive | PASS | After rule deletion, FEEDS relationship succeeds (backwards compatible - no rules means unrestricted) |
 
-### Section 10: Role Cross-Template Linking Bypass
+### ~~Section 10: Role Cross-Template Linking Bypass~~ *(Feature removed 2026-02-20)*
 
-Tests the `allowCrossTemplateLinking` role setting that bypasses linking rules.
+~~Tests the `allowCrossTemplateLinking` role setting that bypasses linking rules.~~
 
 | Test ID | Description | Type | Result | Details |
 |---------|-------------|------|--------|---------|
@@ -170,9 +172,9 @@ Tests the `allowCrossTemplateLinking` role setting that bypasses linking rules.
 | T10.7 | Reset: set allowCrossTemplateLinking=false | Positive | PASS | Role reverted to default |
 | T10.8 | Cleanup: delete test rule and relationships | Positive | PASS | All test data cleaned up |
 
-### Section 11: Template Linking Rules - Edge Cases
+### ~~Section 11: Template Linking Rules - Edge Cases~~ *(Feature removed 2026-02-20)*
 
-Tests boundary conditions and special scenarios.
+~~Tests boundary conditions and special scenarios.~~
 
 | Test ID | Description | Type | Result | Details |
 |---------|-------------|------|--------|---------|
@@ -189,15 +191,15 @@ Tests the API endpoints used by the frontend configuration pages.
 
 | Test ID | Description | Type | Result | Details |
 |---------|-------------|------|--------|---------|
-| T12.1 | GET /api/roles - all roles have allowCrossTemplateLinking | Positive | PASS | Every role object in response includes the boolean field |
+| T12.1 | GET /api/roles - all roles returned | Positive | PASS | Every role object in response includes expected fields |
 | T12.2 | GET /api/roles/active - active roles returned | Positive | PASS | Active roles list available for UI dropdowns |
-| T12.3 | GET /api/assets/templates - templates available | Positive | PASS | Templates list available for linking rule source/target selection |
+| T12.3 | GET /api/assets/templates - templates available | Positive | PASS | Templates list available for asset creation |
 
 ### Section 13: Cleanup & Final State
 
 | Test ID | Description | Type | Result | Details |
 |---------|-------------|------|--------|---------|
-| T13.1 | Verify all test linking rules cleaned up | Positive | PASS | No orphaned test rules remain |
+| T13.1 | ~~Verify all test linking rules cleaned up~~ | ~~Positive~~ | N/A | Feature removed |
 | T13.2 | Verify all test relationships cleaned up | Positive | PASS | No orphaned test relationships remain |
 | T13.3 | Verify test assets exist (6 created, 1 template) | Positive | PASS | Test assets intact, available for manual verification |
 | T13.4 | Final state verification | Positive | PASS | System in clean state |
@@ -290,15 +292,7 @@ Tests the API endpoints used by the frontend configuration pages.
 
 2. **Cycle Detection**: The API uses an iterative ancestor walk (`hasContainsCycle()`) to prevent circular CONTAINS hierarchies. Creating A->D->E then attempting E->A is correctly blocked.
 
-3. **Linking Rule Enforcement**: When a template linking rule exists, only the specified relationship types are allowed between assets of those templates. Missing relationship types return HTTP 403.
-
-4. **Backwards Compatibility**: When no linking rules exist for a template pair, all relationship types are allowed (opt-in restriction model, not opt-in permission).
-
-5. **Role Bypass**: The `allowCrossTemplateLinking` boolean on roles overrides all linking rules when set to `true`, allowing any relationship type regardless of rules.
-
-6. **Scope Priority**: Linking rules with USER scope (priority=20) take precedence over ROLE scope (priority=10), which takes precedence over GLOBAL scope (priority=0).
-
-7. **Duplicate Prevention**: Both relationships (same source+target+type) and linking rules (same source+target+scope+scopeValue) correctly reject duplicates.
+3. **Duplicate Prevention**: Relationships (same source+target+type) correctly reject duplicates.
 
 8. **Self-Reference Prevention**: Assets cannot be linked to themselves.
 
@@ -306,4 +300,4 @@ Tests the API endpoints used by the frontend configuration pages.
 
 ## Conclusion
 
-All 70 tests (50 positive + 12 negative + 8 setup/cleanup) passed successfully. The Tree Diagram and Template Linking Rules features are fully functional with proper validation, error handling, and edge case coverage. The system correctly enforces relationship constraints, prevents cycles, supports bidirectional auto-inverse relationships, and provides configurable linking rules with role-based bypass capability.
+The Tree Diagram features (Sections 1-7) are fully functional with proper validation, error handling, and edge case coverage. The system correctly enforces relationship constraints, prevents cycles, and supports bidirectional auto-inverse relationships. Template Linking Rules (Sections 8-11) were subsequently removed on 2026-02-20 — any asset can now link to any other asset with any relationship type.

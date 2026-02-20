@@ -86,7 +86,16 @@
       "Bash(tee:*)",
       "Bash(/tmp/digilog-full-test.sh:*)",
       "Bash(chmod:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI3N2ZiODQ0Yi05Y2UyLTQ4OTAtYTg0Zi1jMGFmNDZjZTg0Y2YiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6IlNVUEVSX0FETUlOIiwic2Vzc2lvbklkIjoiYWFhYzViZjQtZjg3YS00YjlmLThiMzEtMWRjYzM2NmI4Y2E3IiwiaWF0IjoxNzcxNTk3MTI5LCJleHAiOjE3NzE2MjU5Mjl9.WngsFSW1kViRw7q5UQMd2BdUCsxWAZwLLSVOTu4B5r0\" __NEW_LINE_8f8803607b2d8799__ echo \"=== TREE ===\" curl -s http://localhost:3000/api/assets/instances/tree -H \"Authorization: Bearer $TOKEN\")",
+      "Bash(1 __NEW_LINE_8f8803607b2d8799__ echo \"\" echo \"=== ALL INSTANCES \\(full\\) ===\" curl -s \"http://localhost:3000/api/assets/instances?limit=100\" -H \"Authorization: Bearer $TOKEN\")",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI3N2ZiODQ0Yi05Y2UyLTQ4OTAtYTg0Zi1jMGFmNDZjZTg0Y2YiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6IlNVUEVSX0FETUlOIiwic2Vzc2lvbklkIjoiYWFhYzViZjQtZjg3YS00YjlmLThiMzEtMWRjYzM2NmI4Y2E3IiwiaWF0IjoxNzcxNTk3MTI5LCJleHAiOjE3NzE2MjU5Mjl9.WngsFSW1kViRw7q5UQMd2BdUCsxWAZwLLSVOTu4B5r0\" __NEW_LINE_cedfaef65ae95563__ curl -s \"http://localhost:3000/api/assets/relationships\" -H \"Authorization: Bearer $TOKEN\")",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI3N2ZiODQ0Yi05Y2UyLTQ4OTAtYTg0Zi1jMGFmNDZjZTg0Y2YiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6IlNVUEVSX0FETUlOIiwic2Vzc2lvbklkIjoiYWFhYzViZjQtZjg3YS00YjlmLThiMzEtMWRjYzM2NmI4Y2E3IiwiaWF0IjoxNzcxNTk3MTI5LCJleHAiOjE3NzE2MjU5Mjl9.WngsFSW1kViRw7q5UQMd2BdUCsxWAZwLLSVOTu4B5r0\" __NEW_LINE_1a02a6a7ddc64047__ echo \"=== Tree \\(now with fixed parentIds\\) ===\" curl -s \"http://localhost:3000/api/assets/instances/tree\" -H \"Authorization: Bearer $TOKEN\")",
+      "Bash(__NEW_LINE_5a848c30c3ab0477__ echo \"\")",
+      "Bash(__NEW_LINE_5a848c30c3ab0477__ psql \"postgresql://digilog_user:digilog_secret@localhost:5432/digilog_db\" -c \"\n-- Step 2: Set parentId from CONTAINS relationships where parentId is null\nUPDATE asset_instances ai\nSET parent_id = sub.source_id\nFROM \\(\n  SELECT DISTINCT ON \\(ar.target_asset_id\\) ar.target_asset_id as target_id, ar.source_asset_id as source_id\n  FROM asset_relationships ar\n  WHERE ar.relationship_type = ''CONTAINS''\n  ORDER BY ar.target_asset_id, ar.created_at ASC\n\\) sub\nWHERE ai.id = sub.target_id\nAND ai.parent_id IS NULL;\n\")",
+      "Bash(PGPASSWORD=postgres psql:*)",
+      "Bash(npx turbo run build:*)",
+      "Bash(export:*)"
     ],
     "deny": [],
     "ask": []
