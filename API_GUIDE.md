@@ -74,12 +74,27 @@ All entity endpoints use `requirePermission()` (checks role.permissions JSON arr
 
 | Method | Endpoint | Permission | Reauth | Description |
 |--------|----------|-----------|--------|-------------|
-| GET | `/api/assets/templates` | ASSET_VIEW | — | List templates (paginated, searchable) |
-| GET | `/api/assets/templates/:id` | ASSET_VIEW | — | Get single template with full schema |
+| GET | `/api/assets/templates` | ASSET_VIEW | — | List templates (paginated, searchable, filterable by isActive) |
+| GET | `/api/assets/templates/:id` | ASSET_VIEW | — | Get single template with full schema + instance count |
 | POST | `/api/assets/templates` | ASSET_TEMPLATE_MANAGE | CREATE_ASSET_TEMPLATE | Create template (auto-creates v1 snapshot) |
-| PUT | `/api/assets/templates/:id` | ASSET_TEMPLATE_MANAGE | UPDATE_ASSET_TEMPLATE | Update template (increments version) |
+| PUT | `/api/assets/templates/:id` | ASSET_TEMPLATE_MANAGE | UPDATE_ASSET_TEMPLATE | Update template (increments version, creates snapshot) |
 | DELETE | `/api/assets/templates/:id` | ASSET_TEMPLATE_MANAGE | DELETE_ASSET_TEMPLATE | Soft-delete template (isActive=false) |
-| GET | `/api/assets/templates/:id/versions` | ASSET_VIEW | — | List template version history |
+| GET | `/api/assets/templates/:id/versions` | ASSET_VIEW | — | List template version history (descending) |
+
+**Template fields:** `name`, `description`, `category`, `icon`, `attributeSchema`, `telemetrySchema`, `expectedIdentifiers`, `expectedRelationships`, `statusLifecycle`, `alarmRules`, `checklistSchema`, `maxParentConnections`, `maxConnections`
+
+**checklistSchema** — Array of checklist question items. Each item has:
+- `question` (required, string) — The question text
+- `questionType` (required, enum) — One of 14 types: `PASS_FAIL`, `YES_NO`, `YES_NO_NA`, `MCQ`, `MULTI_SELECT`, `TEXT`, `NUMERIC`, `DROPDOWN`, `PHOTO`, `DATE_TIME`, `SIGNATURE`, `YES_NO_COMMENT`, `CALCULATED`, `CONDITIONAL`
+- `required` (boolean) — Whether an answer is mandatory
+- `section` (string) — Grouping label
+- `description` (string) — Help text
+- `options` (string[]) — Choices for MCQ, MULTI_SELECT, DROPDOWN types
+- `numericUnit` (string) — Unit label for NUMERIC type
+- `numericMin`, `numericMax` (number) — Range constraints for NUMERIC type
+- `passCriteria` (string) — Pass description for PASS_FAIL type
+- `expression` (string) — Formula for CALCULATED type
+- `conditionField`, `conditionValue` (string) — Trigger for CONDITIONAL type
 
 ### Entity Instances
 
@@ -306,3 +321,69 @@ All entity endpoints use `requirePermission()` (checks role.permissions JSON arr
 | Global | 100 req/min per IP |
 | Login | 10 req/min per IP |
 | Forgot Password | 5 req/5min per IP |
+
+---
+
+## Example Payloads
+
+### Create Entity Template (with checklist)
+```json
+POST /api/assets/templates
+{
+  "name": "Reactor Vessel",
+  "description": "Chemical reactor vessel template",
+  "category": "Equipment",
+  "icon": "flask",
+  "attributeSchema": [
+    { "fieldName": "serialNumber", "dataType": "TEXT" },
+    { "fieldName": "capacity", "dataType": "FLOAT", "numericConstraints": { "enabled": true, "min": 0, "max": 10000, "resolution": 0.1 } }
+  ],
+  "checklistSchema": [
+    { "question": "Is the vessel clean?", "questionType": "YES_NO", "required": true, "section": "Pre-check" },
+    { "question": "Rate the condition", "questionType": "MCQ", "options": ["Good", "Fair", "Poor"], "section": "Inspection" },
+    { "question": "Measure temperature", "questionType": "NUMERIC", "numericUnit": "C", "numericMin": 10, "numericMax": 80, "required": true },
+    { "question": "Visual inspection", "questionType": "PASS_FAIL", "passCriteria": "No visible damage" },
+    { "question": "Supervisor sign-off", "questionType": "SIGNATURE", "required": true }
+  ],
+  "statusLifecycle": [
+    { "status": "Active", "color": "#22c55e", "transitions": ["Under Maintenance", "Inactive"] },
+    { "status": "Under Maintenance", "color": "#f59e0b", "transitions": ["Active", "Decommissioned"] }
+  ],
+  "maxParentConnections": 1,
+  "maxConnections": 10
+}
+```
+
+### Create Entity Instance
+```json
+POST /api/assets/instances
+{
+  "name": "Reactor-001",
+  "templateId": "uuid-of-template",
+  "parentId": "uuid-of-parent-or-null",
+  "attributes": { "serialNumber": "RV-2024-001", "capacity": 500.5 },
+  "status": "Active"
+}
+```
+
+### Create Relationship
+```json
+POST /api/assets/relationships
+{
+  "sourceAssetId": "uuid-of-source",
+  "targetAssetId": "uuid-of-target",
+  "relationshipType": "FEEDS"
+}
+```
+Response includes `connectionInfo: { used, allowed, remaining }` for both source and target.
+
+### Create Identifier
+```json
+POST /api/assets/identifiers
+{
+  "assetId": "uuid-of-instance",
+  "identifierType": "QR",
+  "identifierValue": "RV-2024-001-QR",
+  "isPrimary": true
+}
+```

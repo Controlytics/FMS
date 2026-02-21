@@ -1,26 +1,8 @@
 import { type FastifyInstance } from 'fastify';
-import { prisma } from '../../lib/prisma.js';
-import { z } from 'zod';
 import { enforceReauth } from '../../lib/reauth-check.js';
-
-// Validation schemas
-const createRoleSchema = z.object({
-  name: z.string().min(2).max(50).regex(/^[A-Z][A-Z0-9_]*$/, 'Name must be uppercase with underscores only'),
-  displayName: z.string().min(2).max(100),
-  description: z.string().max(500).optional(),
-  hierarchyLevel: z.number().int().min(1).max(10),
-  permissions: z.array(z.string()).default([]),
-  color: z.string().max(100).default('#6366f1'),
-});
-
-const updateRoleSchema = z.object({
-  displayName: z.string().min(2).max(100).optional(),
-  description: z.string().max(500).optional(),
-  hierarchyLevel: z.number().int().min(1).max(10).optional(),
-  permissions: z.array(z.string()).optional(),
-  color: z.string().max(100).optional(),
-  isActive: z.boolean().optional(),
-});
+import { buildContext } from '../../lib/build-context.js';
+import { AppError } from '../../lib/errors.js';
+import { roleService } from './role.service.js';
 
 export default async function roleRoutes(app: FastifyInstance) {
   // GET /api/roles — List all roles
@@ -51,11 +33,8 @@ export default async function roleRoutes(app: FastifyInstance) {
         },
       },
     },
-  }, async (req) => {
-    const roles = await prisma.role.findMany({
-      orderBy: { hierarchyLevel: 'desc' },
-    });
-    return roles;
+  }, async () => {
+    return roleService.listAll();
   });
 
   // GET /api/roles/active — List only active roles (for dropdowns)
@@ -80,19 +59,8 @@ export default async function roleRoutes(app: FastifyInstance) {
         },
       },
     },
-  }, async (req) => {
-    const roles = await prisma.role.findMany({
-      where: { isActive: true },
-      orderBy: { hierarchyLevel: 'desc' },
-      select: {
-        id: true,
-        name: true,
-        displayName: true,
-        hierarchyLevel: true,
-        color: true,
-      },
-    });
-    return roles;
+  }, async () => {
+    return roleService.listActive();
   });
 
   // GET /api/roles/:name — Get single role by name
@@ -132,13 +100,9 @@ export default async function roleRoutes(app: FastifyInstance) {
         },
       },
     },
-  }, async (req, reply) => {
+  }, async (req) => {
     const { name } = req.params as { name: string };
-    const role = await prisma.role.findUnique({ where: { name } });
-    if (!role) {
-      return reply.code(404).send({ error: 'Role not found' });
-    }
-    return role;
+    return roleService.getByName(name);
   });
 
   // POST /api/roles — Create new role (SUPER_ADMIN only)
@@ -187,43 +151,8 @@ export default async function roleRoutes(app: FastifyInstance) {
     const { ok } = await enforceReauth('CREATE_ROLE', req, reply);
     if (!ok) return;
 
-    const parsed = createRoleSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
-
-    // Check if role name already exists
-    const existing = await prisma.role.findUnique({ where: { name: parsed.data.name } });
-    if (existing) {
-      return reply.code(409).send({ error: 'Role name already exists' });
-    }
-
-    const role = await prisma.role.create({
-      data: {
-        name: parsed.data.name,
-        displayName: parsed.data.displayName,
-        description: parsed.data.description,
-        hierarchyLevel: parsed.data.hierarchyLevel,
-        permissions: parsed.data.permissions,
-        color: parsed.data.color,
-        isSystem: false,
-        createdBy: req.user.username,
-      },
-    });
-
-    await app.auditLog({
-      userId: req.user.username,
-      userRole: req.user.role,
-      action: 'ROLE_CREATED',
-      targetType: 'role',
-      targetId: role.name,
-      afterValue: role,
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-      sessionId: req.user.sessionId,
-    });
-
-    return { success: true, data: role };
+    const ctx = buildContext(req);
+    return roleService.create(req.body, ctx);
   });
 
   // PUT /api/roles/:name — Update role (SUPER_ADMIN only)
@@ -279,71 +208,8 @@ export default async function roleRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     const { name } = req.params as { name: string };
-    const parsed = updateRoleSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
-
-    const existing = await prisma.role.findUnique({ where: { name } });
-    if (!existing) {
-      return reply.code(404).send({ error: 'Role not found' });
-    }
-
-    // System roles can only have permissions, color, and display info updated
-    if (existing.isSystem) {
-      const allowedUpdates: any = {};
-      if (parsed.data.permissions !== undefined) allowedUpdates.permissions = parsed.data.permissions;
-      if (parsed.data.color !== undefined) allowedUpdates.color = parsed.data.color;
-      if (parsed.data.displayName !== undefined) allowedUpdates.displayName = parsed.data.displayName;
-      if (parsed.data.description !== undefined) allowedUpdates.description = parsed.data.description;
-
-      const role = await prisma.role.update({
-        where: { name },
-        data: {
-          ...allowedUpdates,
-          updatedBy: req.user.username,
-        },
-      });
-
-      await app.auditLog({
-        userId: req.user.username,
-        userRole: req.user.role,
-        action: 'ROLE_UPDATED',
-        targetType: 'role',
-        targetId: role.name,
-        beforeValue: existing,
-        afterValue: role,
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent'],
-        sessionId: req.user.sessionId,
-      });
-
-      return { success: true, data: role };
-    }
-
-    // Non-system roles can be fully updated
-    const role = await prisma.role.update({
-      where: { name },
-      data: {
-        ...parsed.data,
-        updatedBy: req.user.username,
-      },
-    });
-
-    await app.auditLog({
-      userId: req.user.username,
-      userRole: req.user.role,
-      action: 'ROLE_UPDATED',
-      targetType: 'role',
-      targetId: role.name,
-      beforeValue: existing,
-      afterValue: role,
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-      sessionId: req.user.sessionId,
-    });
-
-    return { success: true, data: role };
+    const ctx = buildContext(req);
+    return roleService.update(name, req.body, ctx);
   });
 
   // DELETE /api/roles/:name — Delete role (SUPER_ADMIN only)
@@ -393,38 +259,19 @@ export default async function roleRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     const { name } = req.params as { name: string };
+    const ctx = buildContext(req);
 
-    const existing = await prisma.role.findUnique({ where: { name } });
-    if (!existing) {
-      return reply.code(404).send({ error: 'Role not found' });
+    try {
+      return await roleService.delete(name, ctx);
+    } catch (err) {
+      if (err instanceof AppError && (err as any).usersCount !== undefined) {
+        return reply.code(err.statusCode as 409).send({
+          error: err.message,
+          usersCount: (err as any).usersCount,
+        });
+      }
+      throw err;
     }
-
-    // Check if any users have this role
-    const usersWithRole = await prisma.user.count({ where: { role: name } });
-    if (usersWithRole > 0) {
-      return reply.code(409).send({
-        error: 'Cannot delete role with assigned users',
-        usersCount: usersWithRole,
-      });
-    }
-
-    await prisma.role.delete({ where: { name } });
-
-    await app.auditLog({
-      userId: req.user.username,
-      userRole: req.user.role,
-      action: 'ROLE_DELETED',
-      targetType: 'role',
-      targetId: name,
-      beforeValue: { name: existing.name, displayName: existing.displayName, hierarchyLevel: existing.hierarchyLevel, permissions: existing.permissions },
-      afterValue: { deleted: true },
-      signatureMeaning: `Custom role "${existing.displayName}" permanently deleted`,
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-      sessionId: req.user.sessionId,
-    });
-
-    return { success: true };
   });
 
   // GET /api/roles/permissions/all — Get all available permissions
@@ -454,28 +301,7 @@ export default async function roleRoutes(app: FastifyInstance) {
       },
     },
   }, async () => {
-    return {
-      permissions: [
-        // User management
-        { key: 'USER_CREATE', label: 'Create Users', category: 'User Management' },
-        { key: 'USER_READ', label: 'View Users', category: 'User Management' },
-        { key: 'USER_UPDATE', label: 'Update Users', category: 'User Management' },
-        { key: 'USER_DELETE', label: 'Delete Users', category: 'User Management' },
-        { key: 'USER_ENABLE_DISABLE', label: 'Enable/Disable Users', category: 'User Management' },
-        { key: 'USER_UNLOCK', label: 'Unlock Users', category: 'User Management' },
-        { key: 'USER_RESET_PASSWORD', label: 'Reset Passwords', category: 'User Management' },
-        // Configuration
-        { key: 'CONFIG_READ', label: 'View Configuration', category: 'Configuration' },
-        { key: 'CONFIG_UPDATE', label: 'Update Configuration', category: 'Configuration' },
-        { key: 'FIELD_ID_UPDATE', label: 'Update Field Labels', category: 'Configuration' },
-        { key: 'ROLE_MANAGE', label: 'Manage Roles', category: 'Configuration' },
-        // Audit
-        { key: 'AUDIT_READ', label: 'View Audit Trail', category: 'Audit' },
-        // Approvals
-        { key: 'APPROVAL_REVIEW', label: 'Review Approvals', category: 'Approvals' },
-        { key: 'APPROVAL_REQUEST', label: 'Request Approvals', category: 'Approvals' },
-      ],
-    };
+    return roleService.getAllPermissions();
   });
 
   // GET /api/roles/:name/creatable — Get roles that this role can create
@@ -513,29 +339,8 @@ export default async function roleRoutes(app: FastifyInstance) {
         },
       },
     },
-  }, async (req, reply) => {
+  }, async (req) => {
     const { name } = req.params as { name: string };
-
-    const currentRole = await prisma.role.findUnique({ where: { name } });
-    if (!currentRole) {
-      return reply.code(404).send({ error: 'Role not found' });
-    }
-
-    // Get all roles with hierarchy level <= current role's level
-    const creatableRoles = await prisma.role.findMany({
-      where: {
-        isActive: true,
-        hierarchyLevel: { lte: currentRole.hierarchyLevel },
-      },
-      orderBy: { hierarchyLevel: 'desc' },
-      select: {
-        name: true,
-        displayName: true,
-        hierarchyLevel: true,
-        color: true,
-      },
-    });
-
-    return creatableRoles;
+    return roleService.getCreatableRoles(name);
   });
 }

@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { type PasswordPolicyConfig } from '@digilog/shared';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
 
 interface ResetRequest {
   id: string;
@@ -23,79 +24,11 @@ interface ResetRequest {
   notes?: string;
 }
 
-// Default password policy
-const defaultPolicy: PasswordPolicyConfig = {
-  minLength: 8,
-  maxLength: 128,
-  requireUppercase: true,
-  requireLowercase: true,
-  requireNumbers: true,
-  requireSpecialChars: true,
-  minUppercase: 1,
-  minLowercase: 1,
-  minNumbers: 1,
-  minSpecialChars: 1,
-  preventReuseCount: 12,
-  cannotBeUserId: true,
-  cannotContainUserId: true,
-  maxFailedAttempts: 5,
-  passwordExpiryDays: 90,
-  autoLogoutEnabled: true,
-  idleTimeoutMinutes: 15,
-  warningMinutes: 2,
-};
-
-// Generate password based on policy
-function generatePassword(policy: PasswordPolicyConfig): string {
-  const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  const lowercase = 'abcdefghijklmnopqrstuvwxyz';
-  const numbers = '0123456789';
-  const special = '!@#$%^&*()_+-=[]{}|;:,.<>?';
-
-  let password = '';
-  const allChars: string[] = [];
-
-  if (policy.requireUppercase) {
-    for (let i = 0; i < policy.minUppercase; i++) {
-      password += uppercase[Math.floor(Math.random() * uppercase.length)];
-    }
-    allChars.push(...uppercase.split(''));
-  }
-
-  if (policy.requireLowercase) {
-    for (let i = 0; i < policy.minLowercase; i++) {
-      password += lowercase[Math.floor(Math.random() * lowercase.length)];
-    }
-    allChars.push(...lowercase.split(''));
-  }
-
-  if (policy.requireNumbers) {
-    for (let i = 0; i < policy.minNumbers; i++) {
-      password += numbers[Math.floor(Math.random() * numbers.length)];
-    }
-    allChars.push(...numbers.split(''));
-  }
-
-  if (policy.requireSpecialChars) {
-    for (let i = 0; i < policy.minSpecialChars; i++) {
-      password += special[Math.floor(Math.random() * special.length)];
-    }
-    allChars.push(...special.split(''));
-  }
-
-  const targetLength = Math.max(policy.minLength, password.length + 4);
-  while (password.length < targetLength) {
-    password += allChars[Math.floor(Math.random() * allChars.length)];
-  }
-
-  return password.split('').sort(() => Math.random() - 0.5).join('');
-}
-
 export function ResetRequestsPage() {
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
   const { data, mutate } = useSWR<{ data: ResetRequest[] }>('/api/users/reset-requests');
   const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy');
-  const policy = { ...defaultPolicy, ...policyData };
+  const policy = { ...DEFAULT_PASSWORD_POLICY, ...policyData };
 
   const [selectedRequest, setSelectedRequest] = useState<ResetRequest | null>(null);
   const [actionDialog, setActionDialog] = useState<'approve' | 'reject' | null>(null);

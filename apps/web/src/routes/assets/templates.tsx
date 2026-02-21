@@ -1,327 +1,36 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
-import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
+import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
-import { Select } from '@/components/ui/select';
 import { Link } from 'react-router-dom';
-import { cn } from '@/lib/cn';
 import { apiClient } from '@/lib/api-client';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface AttributeDef {
-  fieldName: string;
-  dataType: 'TEXT' | 'INTEGER' | 'FLOAT' | 'DATE' | 'DATETIME' | 'BOOLEAN' | 'DROPDOWN' | 'URL' | 'FILE';
-  required: boolean;
-  unit: string;
-  defaultValue: string;
-  options?: string; // comma-separated, for DROPDOWN
-  enableConstraints?: boolean;
-  min?: number | '';
-  max?: number | '';
-  resolution?: number | '';
-}
-
-interface IdentifierDef {
-  identifierType: 'QR' | 'BARCODE' | 'RFID' | 'NFC' | 'MANUAL';
-  label: string;
-  required: boolean;
-}
-
-interface AlarmRuleDef {
-  name: string;
-  type: 'HIGH' | 'LOW' | 'HIGH_HIGH' | 'LOW_LOW' | 'RATE_OF_CHANGE' | 'BOOLEAN_STATE' | 'CUSTOM';
-  severity: 'WARNING' | 'ALARM' | 'CRITICAL';
-  sourceField: string;
-  condition: string;
-  threshold: number | '';
-  deadband: number | '';
-  message: string;
-  notifyRoles: string; // comma-separated
-  enabled: boolean;
-}
-
-interface TelemetryDef {
-  fieldName: string;
-  dataType: string;
-  unit: string;
-  description: string;
-}
-
-interface TemplateData {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  version: number;
-  attributeSchema: AttributeDef[];
-  telemetrySchema: TelemetryDef[];
-  expectedIdentifiers: IdentifierDef[];
-  alarmRules: AlarmRuleDef[];
-  maxParentConnections: number;
-  maxConnections: number;
-  isActive: boolean;
-  _count?: { instances: number };
-}
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const ICONS = [
-  { value: 'box', label: 'Box' },
-  { value: 'server', label: 'Server' },
-  { value: 'camera', label: 'Camera' },
-  { value: 'thermometer', label: 'Thermometer' },
-  { value: 'building', label: 'Building' },
-  { value: 'door-open', label: 'Door' },
-  { value: 'truck', label: 'Truck' },
-  { value: 'wrench', label: 'Wrench' },
-  { value: 'shield', label: 'Shield' },
-  { value: 'monitor', label: 'Monitor' },
-];
-
-const ATTRIBUTE_DATA_TYPES = ['TEXT', 'INTEGER', 'FLOAT', 'DATE', 'DATETIME', 'BOOLEAN', 'DROPDOWN', 'URL', 'FILE'] as const;
-const IDENTIFIER_TYPES = ['QR', 'BARCODE', 'RFID', 'NFC', 'MANUAL'] as const;
-const TELEMETRY_DATA_TYPES = ['INTEGER', 'FLOAT', 'BOOLEAN', 'STRING', 'ENUM'] as const;
-const ALARM_RULE_TYPES = ['HIGH', 'LOW', 'HIGH_HIGH', 'LOW_LOW', 'RATE_OF_CHANGE', 'BOOLEAN_STATE', 'CUSTOM'] as const;
-const ALARM_SEVERITIES = ['WARNING', 'ALARM', 'CRITICAL'] as const;
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function emptyAttribute(): AttributeDef {
-  return { fieldName: '', dataType: 'TEXT', required: false, unit: '', defaultValue: '', options: '', enableConstraints: false, min: '', max: '', resolution: '' };
-}
-
-function emptyIdentifier(): IdentifierDef {
-  return { identifierType: 'QR', label: '', required: false };
-}
-
-function emptyTelemetry(): TelemetryDef {
-  return { fieldName: '', dataType: 'FLOAT', unit: '', description: '' };
-}
-
-function emptyAlarmRule(): AlarmRuleDef {
-  return { name: '', type: 'HIGH', severity: 'ALARM', sourceField: '', condition: '', threshold: '', deadband: '', message: '', notifyRoles: '', enabled: true };
-}
-
-interface FormData {
-  name: string;
-  description: string;
-  icon: string;
-  maxParentConnections: number;
-  maxConnections: number;
-  attributeSchema: AttributeDef[];
-  telemetrySchema: TelemetryDef[];
-  expectedIdentifiers: IdentifierDef[];
-  alarmRules: AlarmRuleDef[];
-}
-
-function emptyForm(): FormData {
-  return {
-    name: '',
-    description: '',
-    icon: 'box',
-    maxParentConnections: 1,
-    maxConnections: 10,
-    attributeSchema: [],
-    telemetrySchema: [],
-    expectedIdentifiers: [],
-    alarmRules: [],
-  };
-}
-
-/** Build the numeric constraint preview string. */
-function constraintPreview(min: number | '' | undefined, max: number | '' | undefined, resolution: number | '' | undefined): string | null {
-  const mn = typeof min === 'number' ? min : undefined;
-  const mx = typeof max === 'number' ? max : undefined;
-  const res = typeof resolution === 'number' && resolution > 0 ? resolution : undefined;
-  if (mn === undefined || mx === undefined || res === undefined) return null;
-  if (mx <= mn) return null;
-  const count = Math.floor((mx - mn) / res) + 1;
-  if (count <= 0) return null;
-  const values: number[] = [];
-  for (let i = 0; i < Math.min(3, count); i++) {
-    values.push(mn + i * res);
-  }
-  const last3: number[] = [];
-  for (let i = Math.max(0, count - 3); i < count; i++) {
-    const v = mn + i * res;
-    if (!values.includes(v)) last3.push(v);
-  }
-  const parts = values.map((v) => String(v));
-  if (last3.length > 0) parts.push('...', ...last3.map((v) => String(v)));
-  return `Valid values: ${parts.join(', ')}`;
-}
-
-// ---------------------------------------------------------------------------
-// Collapsible Section Component
-// ---------------------------------------------------------------------------
-
-function CollapsibleSection({ title, count, defaultOpen = false, children }: { title: string; count?: number; defaultOpen?: boolean; children: React.ReactNode }) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="rounded-xl border border-slate-200 overflow-hidden">
-      <button
-        type="button"
-        className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
-        onClick={() => setOpen(!open)}
-      >
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-slate-700">{title}</span>
-          {count !== undefined && (
-            <Badge className="bg-purple-100 text-purple-700 border-purple-200 text-[10px]">{count}</Badge>
-          )}
-        </div>
-        <svg
-          className={cn('w-4 h-4 text-slate-500 transition-transform duration-200', open && 'rotate-180')}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      {open && <div className="p-4 space-y-4 bg-white">{children}</div>}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Numeric Constraints Panel
-// ---------------------------------------------------------------------------
-
-function NumericConstraintsPanel({
-  enableConstraints,
-  min,
-  max,
-  resolution,
-  dataType,
-  onChange,
-}: {
-  enableConstraints: boolean;
-  min: number | '';
-  max: number | '';
-  resolution: number | '';
-  dataType: 'INTEGER' | 'FLOAT';
-  onChange: (field: string, value: unknown) => void;
-}) {
-  const preview = enableConstraints ? constraintPreview(min, max, resolution) : null;
-  const isInt = dataType === 'INTEGER';
-
-  // Local display strings so we can show "24.0" after blur without interfering while typing
-  const fmt = (v: number | '') => {
-    if (v === '') return '';
-    if (!isInt && Number.isInteger(v)) return v.toFixed(1);
-    return String(v);
-  };
-  const [minStr, setMinStr] = useState(fmt(min));
-  const [maxStr, setMaxStr] = useState(fmt(max));
-  const [resStr, setResStr] = useState(fmt(resolution));
-
-  // Sync from parent when external value changes (e.g. loading edit form)
-  useEffect(() => { setMinStr(fmt(min)); }, [min, isInt]);
-  useEffect(() => { setMaxStr(fmt(max)); }, [max, isInt]);
-  useEffect(() => { setResStr(fmt(resolution)); }, [resolution, isInt]);
-
-  const handleLocalChange = (field: string, raw: string, setLocal: (v: string) => void) => {
-    if (raw === '' || raw === '-') { setLocal(raw); onChange(field, ''); return; }
-    if (isInt) {
-      if (/^-?\d+$/.test(raw)) { setLocal(raw); onChange(field, parseInt(raw, 10)); }
-    } else {
-      if (/^-?\d*\.?\d*$/.test(raw)) {
-        setLocal(raw);
-        const n = Number(raw);
-        if (!isNaN(n) && raw !== '.' && raw !== '-.' && raw !== '-') onChange(field, n);
-      }
-    }
-  };
-
-  const handleBlur = (raw: string, setLocal: (v: string) => void) => {
-    if (!isInt && raw !== '' && /^-?\d+$/.test(raw)) {
-      setLocal(raw + '.0');
-    }
-  };
-
-  return (
-    <div className="mt-2 p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-3">
-      <label className="flex items-center gap-2 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={enableConstraints}
-          onChange={(e) => onChange('enableConstraints', e.target.checked)}
-          className="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
-        />
-        <span className="text-xs font-medium text-slate-600">Enable Numeric Constraints</span>
-      </label>
-      {enableConstraints && (
-        <>
-          <div className="grid grid-cols-3 gap-2">
-            <div className="space-y-1">
-              <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Min</label>
-              <Input
-                type="text"
-                inputMode="numeric"
-                value={minStr}
-                onChange={(e) => handleLocalChange('min', e.target.value, setMinStr)}
-                onBlur={() => handleBlur(minStr, setMinStr)}
-                className="h-8 text-xs"
-                placeholder={isInt ? '0' : '0.0'}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Max</label>
-              <Input
-                type="text"
-                inputMode="numeric"
-                value={maxStr}
-                onChange={(e) => handleLocalChange('max', e.target.value, setMaxStr)}
-                onBlur={() => handleBlur(maxStr, setMaxStr)}
-                className="h-8 text-xs"
-                placeholder={isInt ? '100' : '100.0'}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Resolution</label>
-              <Input
-                type="text"
-                inputMode="numeric"
-                value={resStr}
-                onChange={(e) => handleLocalChange('resolution', e.target.value, setResStr)}
-                onBlur={() => handleBlur(resStr, setResStr)}
-                className="h-8 text-xs"
-                placeholder={isInt ? '1' : '0.1'}
-              />
-            </div>
-          </div>
-          {preview && (
-            <p className="text-[11px] text-purple-600 font-medium bg-purple-50 px-2 py-1 rounded">{preview}</p>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
+import { TemplateFormEditor } from './components/template-form-editor';
+import { TemplateViewDialog } from './components/template-view-dialog';
+import type { TemplateData, FormData } from './template-types';
+import type { AuditRecord } from './types';
+import {
+  emptyForm,
+  emptyAttribute,
+  emptyIdentifier,
+  emptyTelemetry,
+  emptyAlarmRule,
+  emptyChecklistItem,
+} from './template-types';
 
 // ---------------------------------------------------------------------------
 // Main Page Component
 // ---------------------------------------------------------------------------
 
 export function AssetTemplatesPage() {
-  const { user } = useAuth();
   const { mutate } = useSWRConfig();
   const reauth = useReauth();
+  const { formatDateTime } = useDatetimeFormat();
 
   // Data
   const { data: templatesRes, isLoading } = useSWR<{ data: TemplateData[] }>('/api/assets/templates');
@@ -335,6 +44,15 @@ export function AssetTemplatesPage() {
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateData | null>(null);
   const [viewTemplate, setViewTemplate] = useState<TemplateData | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TemplateData | null>(null);
+
+  // Audit history for viewed template
+  const [viewAuditTab, setViewAuditTab] = useState(false);
+  const { data: templateAuditData } = useSWR<{ data: AuditRecord[] }>(
+    viewTemplate && viewAuditTab
+      ? `/api/audit?targetType=asset_template&targetId=${viewTemplate.id}&limit=50`
+      : null,
+  );
+  const templateAuditRecords = templateAuditData?.data ?? [];
 
   // Form state
   const [formData, setFormData] = useState<FormData>(emptyForm());
@@ -429,6 +147,22 @@ export function AssetTemplatesPage() {
         notifyRoles: Array.isArray(a.notifyRoles) ? a.notifyRoles.join(', ') : (a.notifyRoles || ''),
         enabled: a.enabled !== false,
       })),
+      checklistSchema: (template.checklistSchema || []).map((c: any) => ({
+        ...emptyChecklistItem(),
+        question: c.question || '',
+        questionType: c.questionType || 'PASS_FAIL',
+        required: c.required || false,
+        section: c.section || '',
+        description: c.description || '',
+        options: Array.isArray(c.options) ? c.options.join(', ') : (c.options || ''),
+        passCriteria: c.passCriteria || '',
+        numericUnit: c.numericUnit || '',
+        numericMin: c.numericMin ?? '',
+        numericMax: c.numericMax ?? '',
+        calculatedExpression: c.calculatedExpression || '',
+        conditionalField: c.conditionalField || '',
+        conditionalValue: c.conditionalValue || '',
+      })),
     });
     setError('');
     setShowEditDialog(true);
@@ -442,6 +176,7 @@ export function AssetTemplatesPage() {
 
   const openViewDialog = useCallback((template: TemplateData) => {
     setViewTemplate(template);
+    setViewAuditTab(false);
     setShowViewDialog(true);
   }, []);
 
@@ -550,6 +285,32 @@ export function AssetTemplatesPage() {
   };
 
   // -----------------------------------------------------------------------
+  // Checklist helpers
+  // -----------------------------------------------------------------------
+
+  const addChecklistItem = () => {
+    setFormData((prev) => ({
+      ...prev,
+      checklistSchema: [...prev.checklistSchema, emptyChecklistItem()],
+    }));
+  };
+
+  const updateChecklistItem = (index: number, field: string, value: unknown) => {
+    setFormData((prev) => {
+      const updated = [...prev.checklistSchema];
+      updated[index] = { ...updated[index], [field]: value };
+      return { ...prev, checklistSchema: updated };
+    });
+  };
+
+  const removeChecklistItem = (index: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      checklistSchema: prev.checklistSchema.filter((_, i) => i !== index),
+    }));
+  };
+
+  // -----------------------------------------------------------------------
   // Build the body payload, stripping internal-only fields
   // -----------------------------------------------------------------------
 
@@ -622,6 +383,23 @@ export function AssetTemplatesPage() {
           ...(rest.message.trim() ? { message: rest.message.trim() } : {}),
           notifyRoles: rest.notifyRoles ? rest.notifyRoles.split(',').map((r) => r.trim()).filter(Boolean) : [],
           enabled: rest.enabled,
+        })),
+      checklistSchema: formData.checklistSchema
+        .filter((c) => c.question.trim())
+        .map(({ numericMin, numericMax, options, ...rest }) => ({
+          question: rest.question.trim(),
+          questionType: rest.questionType,
+          required: rest.required,
+          ...(rest.section.trim() ? { section: rest.section.trim() } : {}),
+          ...(rest.description.trim() ? { description: rest.description.trim() } : {}),
+          ...(options.trim() ? { options: options.split(',').map((o) => o.trim()).filter(Boolean) } : { options: [] }),
+          ...(rest.passCriteria.trim() ? { passCriteria: rest.passCriteria.trim() } : {}),
+          ...(rest.numericUnit.trim() ? { numericUnit: rest.numericUnit.trim() } : {}),
+          ...(typeof numericMin === 'number' ? { numericMin } : {}),
+          ...(typeof numericMax === 'number' ? { numericMax } : {}),
+          ...(rest.calculatedExpression.trim() ? { calculatedExpression: rest.calculatedExpression.trim() } : {}),
+          ...(rest.conditionalField.trim() ? { conditionalField: rest.conditionalField.trim() } : {}),
+          ...(rest.conditionalValue.trim() ? { conditionalValue: rest.conditionalValue.trim() } : {}),
         })),
     };
   };
@@ -822,528 +600,34 @@ export function AssetTemplatesPage() {
   };
 
   // -----------------------------------------------------------------------
-  // Template form (shared between Create and Edit dialogs)
+  // Form change handler for the extracted TemplateFormEditor
   // -----------------------------------------------------------------------
 
-  const renderTemplateForm = () => (
-    <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-1">
-      {error && (
-        <div className="flex items-center gap-3 rounded-xl bg-red-50 border border-red-200 p-4">
-          <div className="p-2 rounded-lg bg-red-100">
-            <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <p className="text-sm text-red-700">{error}</p>
-        </div>
-      )}
+  const handleFormChange = useCallback((updates: Partial<FormData>) => {
+    setFormData((prev) => ({ ...prev, ...updates }));
+  }, []);
 
-      {/* Section 1: Basic Info */}
-      <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-          <div className="w-6 h-6 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 text-xs font-bold">1</div>
-          Basic Info
-        </h3>
-        <div className="space-y-1.5">
-          <label className="text-sm font-semibold text-slate-700">Template Name *</label>
-          <Input
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            placeholder="e.g., Temperature Sensor"
-            className="h-11"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <label className="text-sm font-semibold text-slate-700">Description</label>
-          <textarea
-            value={formData.description}
-            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-            placeholder="Brief description of this template's purpose"
-            rows={3}
-            className="flex w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#3b82f6] focus:ring-2 focus:ring-[#3b82f6]/20 hover:border-slate-300 transition-all duration-200 resize-none"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <label className="text-sm font-semibold text-slate-700">Icon</label>
-          <Select
-            value={formData.icon}
-            onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
-            selectSize="md"
-          >
-            {ICONS.map((ic) => (
-              <option key={ic.value} value={ic.value}>{ic.label}</option>
-            ))}
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <label className="text-sm font-semibold text-slate-700">Number of Parent Connections</label>
-          <Input
-            type="number"
-            min={0}
-            step={1}
-            value={formData.maxParentConnections}
-            onChange={(e) => setFormData({ ...formData, maxParentConnections: Math.max(0, parseInt(e.target.value) || 0) })}
-            className="h-11"
-          />
-          <p className="text-xs text-slate-500">
-            {formData.maxParentConnections === 0
-              ? 'Entities of this template cannot be placed under any parent.'
-              : formData.maxParentConnections === 1
-              ? 'Only 1 parent connection allowed — the selected entity becomes the parent node, other contained entities go as child nodes.'
-              : `Up to ${formData.maxParentConnections} parent connections allowed.`}
-          </p>
-        </div>
-        <div className="space-y-1.5">
-          <label className="text-sm font-semibold text-slate-700">Max Connections (All Types)</label>
-          <Input
-            type="number"
-            min={0}
-            step={1}
-            value={formData.maxConnections}
-            onChange={(e) => setFormData({ ...formData, maxConnections: Math.max(0, parseInt(e.target.value) || 0) })}
-            className="h-11"
-          />
-          <p className="text-xs text-slate-500">
-            {formData.maxConnections === 0
-              ? 'Unlimited — no cap on total connections.'
-              : `Max ${formData.maxConnections} total connections across all relationship types.`}
-          </p>
-        </div>
-      </div>
-
-      {/* Section 2: Attribute Schema */}
-      <CollapsibleSection title="Attribute Schema" count={formData.attributeSchema.length} defaultOpen={formData.attributeSchema.length > 0}>
-        {formData.attributeSchema.map((attr, idx) => (
-          <div key={idx} className="rounded-lg border border-slate-200 p-3 space-y-3 bg-white relative">
-            <button
-              type="button"
-              onClick={() => removeAttribute(idx)}
-              className="absolute top-2 right-2 p-1 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-            <div className="grid grid-cols-3 gap-3 pr-6">
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Field Name</label>
-                <Input
-                  value={attr.fieldName}
-                  onChange={(e) => updateAttribute(idx, 'fieldName', e.target.value)}
-                  placeholder="e.g., serialNumber"
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Data Type</label>
-                <Select
-                  value={attr.dataType}
-                  onChange={(e) => {
-                    updateAttribute(idx, 'dataType', e.target.value);
-                    updateAttribute(idx, 'defaultValue', '');
-                  }}
-                  selectSize="sm"
-                >
-                  {ATTRIBUTE_DATA_TYPES.map((dt) => (
-                    <option key={dt} value={dt}>{dt}</option>
-                  ))}
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Unit</label>
-                <Input
-                  value={attr.unit}
-                  onChange={(e) => updateAttribute(idx, 'unit', e.target.value)}
-                  placeholder="e.g., kg, mm"
-                  className="h-8 text-xs"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Default Value</label>
-                {attr.dataType === 'BOOLEAN' ? (
-                  <label className="flex items-center gap-2 cursor-pointer h-8">
-                    <input
-                      type="checkbox"
-                      checked={attr.defaultValue === 'true'}
-                      onChange={(e) => updateAttribute(idx, 'defaultValue', e.target.checked ? 'true' : 'false')}
-                      className="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
-                    />
-                    <span className="text-xs text-slate-600">{attr.defaultValue === 'true' ? 'Yes' : 'No'}</span>
-                  </label>
-                ) : attr.dataType === 'INTEGER' ? (
-                  <Input
-                    type="text"
-                    inputMode="numeric"
-                    value={attr.defaultValue}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === '' || v === '-') { updateAttribute(idx, 'defaultValue', v); return; }
-                      if (/^-?\d+$/.test(v)) updateAttribute(idx, 'defaultValue', v);
-                    }}
-                    placeholder="e.g., 0 (whole numbers only)"
-                    className="h-8 text-xs"
-                  />
-                ) : attr.dataType === 'FLOAT' ? (
-                  <Input
-                    type="text"
-                    inputMode="decimal"
-                    value={attr.defaultValue}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === '' || v === '-' || v === '.' || v === '-.') { updateAttribute(idx, 'defaultValue', v); return; }
-                      if (/^-?\d*\.?\d*$/.test(v)) updateAttribute(idx, 'defaultValue', v);
-                    }}
-                    onBlur={() => {
-                      const v = attr.defaultValue;
-                      if (v !== '' && /^-?\d+$/.test(v)) updateAttribute(idx, 'defaultValue', v + '.0');
-                    }}
-                    placeholder="e.g., 0.0 (decimal numbers)"
-                    className="h-8 text-xs"
-                  />
-                ) : attr.dataType === 'DATE' ? (
-                  <Input
-                    type="date"
-                    value={attr.defaultValue}
-                    onChange={(e) => updateAttribute(idx, 'defaultValue', e.target.value)}
-                    className="h-8 text-xs"
-                  />
-                ) : attr.dataType === 'DATETIME' ? (
-                  <Input
-                    type="datetime-local"
-                    value={attr.defaultValue}
-                    onChange={(e) => updateAttribute(idx, 'defaultValue', e.target.value)}
-                    className="h-8 text-xs"
-                  />
-                ) : attr.dataType === 'DROPDOWN' ? (
-                  <Select
-                    value={attr.defaultValue}
-                    onChange={(e) => updateAttribute(idx, 'defaultValue', e.target.value)}
-                    selectSize="sm"
-                  >
-                    <option value="">No default</option>
-                    {(attr.options ? attr.options.split(',').map(o => o.trim()).filter(Boolean) : []).map((opt) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </Select>
-                ) : attr.dataType === 'URL' ? (
-                  <Input
-                    type="url"
-                    value={attr.defaultValue}
-                    onChange={(e) => updateAttribute(idx, 'defaultValue', e.target.value)}
-                    placeholder="https://..."
-                    className="h-8 text-xs"
-                  />
-                ) : (
-                  <Input
-                    type="text"
-                    value={attr.defaultValue}
-                    onChange={(e) => updateAttribute(idx, 'defaultValue', e.target.value)}
-                    placeholder="Default"
-                    className="h-8 text-xs"
-                  />
-                )}
-              </div>
-              <div className="flex items-end pb-1">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={attr.required}
-                    onChange={(e) => updateAttribute(idx, 'required', e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
-                  />
-                  <span className="text-xs font-medium text-slate-600">Required</span>
-                </label>
-              </div>
-            </div>
-            {/* DROPDOWN options */}
-            {attr.dataType === 'DROPDOWN' && (
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Options (comma-separated)</label>
-                <textarea
-                  value={attr.options || ''}
-                  onChange={(e) => updateAttribute(idx, 'options', e.target.value)}
-                  placeholder="Option1, Option2, Option3"
-                  rows={2}
-                  className="flex w-full rounded-lg border-2 border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#3b82f6] focus:ring-2 focus:ring-[#3b82f6]/20 hover:border-slate-300 transition-all duration-200 resize-none"
-                />
-              </div>
-            )}
-            {/* Numeric constraints */}
-            {(attr.dataType === 'INTEGER' || attr.dataType === 'FLOAT') && (
-              <NumericConstraintsPanel
-                enableConstraints={!!attr.enableConstraints}
-                min={attr.min ?? ''}
-                max={attr.max ?? ''}
-                resolution={attr.resolution ?? ''}
-                dataType={attr.dataType as 'INTEGER' | 'FLOAT'}
-                onChange={(field, value) => updateAttribute(idx, field, value)}
-              />
-            )}
-          </div>
-        ))}
-        <Button variant="outline" size="sm" onClick={addAttribute} className="w-full border-dashed">
-          <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Add Attribute
-        </Button>
-      </CollapsibleSection>
-
-      {/* Section 3: Telemetry Schema */}
-      <CollapsibleSection title="Telemetry Schema" count={formData.telemetrySchema.length} defaultOpen={formData.telemetrySchema.length > 0}>
-        {formData.telemetrySchema.map((tel, idx) => (
-          <div key={idx} className="rounded-lg border border-slate-200 p-3 space-y-3 bg-white relative">
-            <button
-              type="button"
-              onClick={() => removeTelemetry(idx)}
-              className="absolute top-2 right-2 p-1 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-            <div className="grid grid-cols-4 gap-3 pr-8">
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Field Name</label>
-                <Input
-                  value={tel.fieldName}
-                  onChange={(e) => updateTelemetry(idx, 'fieldName', e.target.value)}
-                  placeholder="e.g. temperature"
-                  className="text-xs"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Data Type</label>
-                <Select
-                  value={tel.dataType}
-                  onChange={(e) => updateTelemetry(idx, 'dataType', e.target.value)}
-                  selectSize="sm"
-                >
-                  {TELEMETRY_DATA_TYPES.map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Unit</label>
-                <Input
-                  value={tel.unit}
-                  onChange={(e) => updateTelemetry(idx, 'unit', e.target.value)}
-                  placeholder="e.g. °C, psi, %"
-                  className="text-xs"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Description</label>
-                <Input
-                  value={tel.description}
-                  onChange={(e) => updateTelemetry(idx, 'description', e.target.value)}
-                  placeholder="Optional description"
-                  className="text-xs"
-                />
-              </div>
-            </div>
-          </div>
-        ))}
-        <Button variant="outline" size="sm" onClick={addTelemetry} className="w-full border-dashed">
-          <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Add Telemetry Point
-        </Button>
-      </CollapsibleSection>
-
-      {/* Section 4: Expected Identifiers */}
-      <CollapsibleSection title="Expected Identifiers" count={formData.expectedIdentifiers.length} defaultOpen={formData.expectedIdentifiers.length > 0}>
-        {formData.expectedIdentifiers.map((ident, idx) => (
-          <div key={idx} className="rounded-lg border border-slate-200 p-3 bg-white relative">
-            <button
-              type="button"
-              onClick={() => removeIdentifier(idx)}
-              className="absolute top-2 right-2 p-1 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-            <div className="grid grid-cols-3 gap-3 pr-6">
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Identifier Type</label>
-                <Select
-                  value={ident.identifierType}
-                  onChange={(e) => updateIdentifier(idx, 'identifierType', e.target.value)}
-                  selectSize="sm"
-                >
-                  {IDENTIFIER_TYPES.map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Label</label>
-                <Input
-                  value={ident.label}
-                  onChange={(e) => updateIdentifier(idx, 'label', e.target.value)}
-                  placeholder="e.g., Equipment QR Code"
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div className="flex items-end pb-1">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={ident.required}
-                    onChange={(e) => updateIdentifier(idx, 'required', e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
-                  />
-                  <span className="text-xs font-medium text-slate-600">Required</span>
-                </label>
-              </div>
-            </div>
-          </div>
-        ))}
-        <Button variant="outline" size="sm" onClick={addIdentifier} className="w-full border-dashed">
-          <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Add Identifier
-        </Button>
-      </CollapsibleSection>
-
-      {/* Section 5: Alarm Rules */}
-      <CollapsibleSection title="Alarm Rules" count={formData.alarmRules.length}>
-        {formData.alarmRules.map((rule, idx) => (
-          <div key={idx} className="rounded-lg border border-slate-200 p-3 bg-white relative">
-            <button
-              type="button"
-              onClick={() => removeAlarmRule(idx)}
-              className="absolute top-2 right-2 p-1 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-            <div className="grid grid-cols-3 gap-3 pr-6 mb-2">
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Rule Name *</label>
-                <Input
-                  value={rule.name}
-                  onChange={(e) => updateAlarmRule(idx, 'name', e.target.value)}
-                  placeholder="e.g., High Temperature"
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Type</label>
-                <select
-                  value={rule.type}
-                  onChange={(e) => updateAlarmRule(idx, 'type', e.target.value)}
-                  className="w-full h-8 text-xs rounded-md border border-slate-200 px-2 bg-white"
-                >
-                  {ALARM_RULE_TYPES.map((t) => (
-                    <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Severity</label>
-                <select
-                  value={rule.severity}
-                  onChange={(e) => updateAlarmRule(idx, 'severity', e.target.value)}
-                  className="w-full h-8 text-xs rounded-md border border-slate-200 px-2 bg-white"
-                >
-                  {ALARM_SEVERITIES.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3 mb-2">
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Source Field</label>
-                <Input
-                  value={rule.sourceField}
-                  onChange={(e) => updateAlarmRule(idx, 'sourceField', e.target.value)}
-                  placeholder="e.g., Temperature, Recording Status"
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Threshold</label>
-                <Input
-                  type="number"
-                  value={rule.threshold}
-                  onChange={(e) => updateAlarmRule(idx, 'threshold', e.target.value === '' ? '' : Number(e.target.value))}
-                  placeholder="e.g., 85"
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Deadband</label>
-                <Input
-                  type="number"
-                  value={rule.deadband}
-                  onChange={(e) => updateAlarmRule(idx, 'deadband', e.target.value === '' ? '' : Number(e.target.value))}
-                  placeholder="Hysteresis value"
-                  className="h-8 text-xs"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3 mb-2">
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Condition / Expression</label>
-                <Input
-                  value={rule.condition}
-                  onChange={(e) => updateAlarmRule(idx, 'condition', e.target.value)}
-                  placeholder="e.g., > 85.0, = Off, custom expression"
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Message Template</label>
-                <Input
-                  value={rule.message}
-                  onChange={(e) => updateAlarmRule(idx, 'message', e.target.value)}
-                  placeholder="e.g., Temperature exceeded {threshold} for {entity.name}"
-                  className="h-8 text-xs"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Notify Roles (comma-separated)</label>
-                <Input
-                  value={rule.notifyRoles}
-                  onChange={(e) => updateAlarmRule(idx, 'notifyRoles', e.target.value)}
-                  placeholder="e.g., SUPERVISOR, ADMIN"
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div className="flex items-end pb-1">
-                <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={rule.enabled}
-                    onChange={(e) => updateAlarmRule(idx, 'enabled', e.target.checked)}
-                    className="rounded border-slate-300"
-                  />
-                  Enabled
-                </label>
-              </div>
-            </div>
-          </div>
-        ))}
-        <Button variant="outline" size="sm" onClick={addAlarmRule} className="w-full border-dashed">
-          <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Add Alarm Rule
-        </Button>
-      </CollapsibleSection>
-    </div>
-  );
+  // Shared form editor props
+  const formEditorProps = {
+    formData,
+    error,
+    onFormChange: handleFormChange,
+    onAddAttribute: addAttribute,
+    onUpdateAttribute: updateAttribute,
+    onRemoveAttribute: removeAttribute,
+    onAddTelemetry: addTelemetry,
+    onUpdateTelemetry: updateTelemetry,
+    onRemoveTelemetry: removeTelemetry,
+    onAddIdentifier: addIdentifier,
+    onUpdateIdentifier: updateIdentifier,
+    onRemoveIdentifier: removeIdentifier,
+    onAddAlarmRule: addAlarmRule,
+    onUpdateAlarmRule: updateAlarmRule,
+    onRemoveAlarmRule: removeAlarmRule,
+    onAddChecklistItem: addChecklistItem,
+    onUpdateChecklistItem: updateChecklistItem,
+    onRemoveChecklistItem: removeChecklistItem,
+  };
 
   // -----------------------------------------------------------------------
   // Render
@@ -1558,7 +842,7 @@ export function AssetTemplatesPage() {
             Create New Template
           </DialogTitle>
         </DialogHeader>
-        {renderTemplateForm()}
+        <TemplateFormEditor {...formEditorProps} />
         {error && <p className="text-sm text-red-600 text-right px-1 mt-2">{error}</p>}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => { setShowCreateDialog(false); setSaving(false); }}>
@@ -1587,7 +871,7 @@ export function AssetTemplatesPage() {
             Edit Template: {selectedTemplate?.name}
           </DialogTitle>
         </DialogHeader>
-        {renderTemplateForm()}
+        <TemplateFormEditor {...formEditorProps} />
         {error && <p className="text-sm text-red-600 text-right px-1 mt-2">{error}</p>}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => { setShowEditDialog(false); setSelectedTemplate(null); setSaving(false); }}>
@@ -1666,190 +950,16 @@ export function AssetTemplatesPage() {
       </Dialog>
 
       {/* View Template Dialog */}
-      <Dialog open={showViewDialog} onClose={() => { setShowViewDialog(false); setViewTemplate(null); }} className="max-w-4xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-blue-100 text-blue-600">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-            </div>
-            Template Details: {viewTemplate?.name}
-          </DialogTitle>
-        </DialogHeader>
-        {viewTemplate && (
-          <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
-            {/* Basic Info */}
-            <div className="rounded-xl border border-slate-200 p-4 space-y-3">
-              <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                Basic Information
-              </h4>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Name</p>
-                  <p className="text-sm text-slate-800 font-medium">{viewTemplate.name}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Icon</p>
-                  <p className="text-sm text-slate-800">{viewTemplate.icon}</p>
-                </div>
-                <div className="col-span-2">
-                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Description</p>
-                  <p className="text-sm text-slate-600">{viewTemplate.description || '—'}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Version</p>
-                  <p className="text-sm text-slate-800">v{viewTemplate.version}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Status</p>
-                  <Badge className={viewTemplate.isActive ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-red-100 text-red-700 border-red-200'}>
-                    {viewTemplate.isActive ? 'Active' : 'Inactive'}
-                  </Badge>
-                </div>
-                <div>
-                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Parent Connections Limit</p>
-                  <p className="text-sm text-slate-800">{viewTemplate.maxParentConnections === 0 ? 'Not Allowed' : viewTemplate.maxParentConnections}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Max Connections (All Types)</p>
-                  <p className="text-sm text-slate-800">{viewTemplate.maxConnections === 0 ? 'Unlimited' : viewTemplate.maxConnections}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Instances</p>
-                  <p className="text-sm text-slate-800">{viewTemplate._count?.instances ?? 0}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Attributes */}
-            {viewTemplate.attributeSchema?.length > 0 && (
-              <div className="rounded-xl border border-slate-200 p-4 space-y-3">
-                <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
-                  Attributes
-                  <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">{viewTemplate.attributeSchema.length}</Badge>
-                </h4>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-left text-slate-500 border-b border-slate-100">
-                        <th className="pb-2 font-medium">Field Name</th>
-                        <th className="pb-2 font-medium">Type</th>
-                        <th className="pb-2 font-medium">Required</th>
-                        <th className="pb-2 font-medium">Unit</th>
-                        <th className="pb-2 font-medium">Default</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {viewTemplate.attributeSchema.map((attr: any, i: number) => (
-                        <tr key={i} className="text-slate-700">
-                          <td className="py-1.5 font-medium">{attr.fieldName}</td>
-                          <td className="py-1.5"><Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">{attr.dataType}</Badge></td>
-                          <td className="py-1.5">{attr.required ? <span className="text-emerald-600">Yes</span> : <span className="text-slate-400">No</span>}</td>
-                          <td className="py-1.5 text-slate-500">{attr.unit || '—'}</td>
-                          <td className="py-1.5 text-slate-500">{attr.defaultValue != null && attr.defaultValue !== '' ? String(attr.defaultValue) : '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* Telemetry */}
-            {viewTemplate.telemetrySchema?.length > 0 && (
-              <div className="rounded-xl border border-slate-200 p-4 space-y-3">
-                <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-                  Telemetry
-                  <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">{viewTemplate.telemetrySchema.length}</Badge>
-                </h4>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-left text-slate-500 border-b border-slate-100">
-                        <th className="pb-2 font-medium">Field Name</th>
-                        <th className="pb-2 font-medium">Type</th>
-                        <th className="pb-2 font-medium">Unit</th>
-                        <th className="pb-2 font-medium">Description</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {viewTemplate.telemetrySchema.map((tel: any, i: number) => (
-                        <tr key={i} className="text-slate-700">
-                          <td className="py-1.5 font-medium">{tel.fieldName}</td>
-                          <td className="py-1.5"><Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">{tel.dataType}</Badge></td>
-                          <td className="py-1.5 text-slate-500">{tel.unit || '—'}</td>
-                          <td className="py-1.5 text-slate-500">{tel.description || '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* Expected Identifiers */}
-            {viewTemplate.expectedIdentifiers?.length > 0 && (
-              <div className="rounded-xl border border-slate-200 p-4 space-y-3">
-                <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" /></svg>
-                  Expected Identifiers
-                  <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">{viewTemplate.expectedIdentifiers.length}</Badge>
-                </h4>
-                <div className="flex flex-wrap gap-2">
-                  {viewTemplate.expectedIdentifiers.map((id: any, i: number) => (
-                    <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs">
-                      <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">{id.identifierType}</Badge>
-                      <span className="text-slate-700 font-medium">{id.label}</span>
-                      {id.required && <span className="text-red-500 text-[10px]">Required</span>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Alarm Rules */}
-            {viewTemplate.alarmRules?.length > 0 && (
-              <div className="rounded-xl border border-slate-200 p-4 space-y-3">
-                <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                  Alarm Rules
-                  <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">{viewTemplate.alarmRules.length}</Badge>
-                </h4>
-                <div className="space-y-2">
-                  {viewTemplate.alarmRules.map((rule: any, i: number) => (
-                    <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs">
-                      <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">{rule.severity}</Badge>
-                      <span className="font-medium text-slate-700">{rule.name}</span>
-                      <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">{rule.type}</Badge>
-                      {rule.sourceField && <span className="text-slate-500">on {rule.sourceField}</span>}
-                      {!rule.enabled && <span className="text-red-400 italic">Disabled</span>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-        <DialogFooter>
-          <Button variant="outline" onClick={() => { setShowViewDialog(false); setViewTemplate(null); }}>
-            Close
-          </Button>
-          <Button
-            onClick={() => { setShowViewDialog(false); setViewTemplate(null); if (viewTemplate) openEditDialog(viewTemplate); }}
-            className="bg-gradient-to-r from-purple-500 to-indigo-600"
-          >
-            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-            </svg>
-            Edit Template
-          </Button>
-        </DialogFooter>
-      </Dialog>
+      <TemplateViewDialog
+        open={showViewDialog}
+        template={viewTemplate}
+        onClose={() => { setShowViewDialog(false); setViewTemplate(null); }}
+        onEdit={() => { setShowViewDialog(false); const t = viewTemplate; setViewTemplate(null); if (t) openEditDialog(t); }}
+        formatDateTime={formatDateTime}
+        auditRecords={templateAuditRecords}
+        viewAuditTab={viewAuditTab}
+        setViewAuditTab={setViewAuditTab}
+      />
 
       {/* Reauth Dialog */}
       <ReauthDialog

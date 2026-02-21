@@ -238,6 +238,7 @@ model AssetTemplate {
   expectedRelationships Json     @default("[]") @map("expected_relationships") @db.JsonB // Array of expected relationship types
   statusLifecycle       Json     @default("[]") @map("status_lifecycle") @db.JsonB    // Array of status definitions with transitions
   alarmRules            Json     @default("[]") @map("alarm_rules") @db.JsonB       // Array of alarm rule definitions (threshold + custom logic)
+  checklistSchema       Json     @default("[]") @map("checklist_schema") @db.JsonB  // Array of checklist question definitions
   maxParentConnections  Int      @default(1) @map("max_parent_connections")         // Max CONTAINS parents: 0=none, 1+=limit
   maxConnections        Int      @default(10) @map("max_connections")               // Max total connections (all types): 0=unlimited, N=limit
   isActive              Boolean  @default(true) @map("is_active")

@@ -2,6 +2,44 @@
 
 All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are documented here.
 
+## [Unreleased] - 2026-02-21
+
+### Added
+- **Checklist Schema on Entity Templates** — 14-type checklist question system for structured inspections/verifications
+  - Question types: PASS_FAIL, YES_NO, YES_NO_NA, MCQ, MULTI_SELECT, TEXT, NUMERIC, DROPDOWN, PHOTO, DATE_TIME, SIGNATURE, YES_NO_COMMENT, CALCULATED, CONDITIONAL
+  - Each question supports: `question`, `questionType`, `required`, `section`, `description`, `options` (MCQ/MULTI_SELECT/DROPDOWN), `numericUnit`/`numericMin`/`numericMax` (NUMERIC), `passCriteria` (PASS_FAIL), `expression` (CALCULATED), `conditionField`/`conditionValue` (CONDITIONAL)
+  - Shared package: `CHECKLIST_QUESTION_TYPES` constant, `checklistItemSchema` Zod schema, added `checklistSchema` to `createAssetTemplateSchema` and `updateAssetTemplateSchema`
+  - API: `checklistSchema` in Swagger request/response schemas for all template endpoints (POST, PUT, GET list, GET by ID)
+  - Version snapshots include `checklistSchema`
+  - Frontend: Checklist builder section in template create/edit dialog; read-only display in view dialog
+
+- **Audit Log Descriptions for Entity Management** — Human-readable audit trail entries for entity operations
+  - 12 entity actions in `AUDIT_TEMPLATE_DEFAULTS`: template CRUD (ASSET_TEMPLATE_CREATED/UPDATED/DELETED/VERSION_CREATED), instance CRUD (ASSET_CREATED/UPDATED/STATUS_CHANGED/DELETED), relationships (ASSET_RELATIONSHIP_CREATED/DELETED), identifiers (ASSET_IDENTIFIER_CREATED/DELETED)
+  - Entity Management category in `AUDIT_TEMPLATE_CATEGORIES`
+  - Placeholder system: `{actor}`, `{templateName}`, `{entityName}`, `{beforeStatus}`, `{afterStatus}`, etc.
+
+- **Entity Feature Privileges** — Entity operations in role-privilege configuration
+  - 7 entity privileges in `FEATURE_PRIVILEGES`: `assets.view`, `assets.create`, `assets.edit`, `assets.delete`, `assets.templates`, `assets.relationships`, `assets.identifiers`
+
+- **Entity Reauth Actions** — Entity operations in action re-authentication configuration
+  - 8 entity reauth actions: `CREATE/UPDATE/DELETE_ASSET_TEMPLATE`, `CREATE/UPDATE/DELETE_ASSET`, `CREATE/DELETE_ASSET_RELATIONSHIP`, `CREATE/DELETE_ASSET_IDENTIFIER`
+  - Entity Management category in `REAUTH_ACTION_CATEGORIES`
+
+- **Test Suite** — 51 new tests (267 total: 151 shared + 116 API)
+  - `packages/shared/src/schemas/assets.test.ts` — 20 checklist schema unit tests (constants, valid/invalid items, all 14 types, edge cases)
+  - `packages/shared/src/types/audit-templates.test.ts` — 17 audit template unit tests (categories, required fields, placeholder consistency, action groups)
+  - `apps/api/src/e2e/checklist-templates.test.ts` — 14 E2E tests (create/read/update/delete with checklistSchema, version snapshots, validation, all 14 types)
+
+### Fixed
+- **`checklistSchema` stripped from GET `/templates/:id` response** — Fastify response serialization was removing `checklistSchema` because the field was missing from the GET-by-ID Swagger response schema. Added `checklistSchema: { type: 'array' }` to the response properties.
+- **Audit template placeholder mismatch** — `FORCED_LOGOUT` listed `actor` in placeholders array but template string only used `{targetUser}`. Documented as known data-level exception.
+
+### Changed
+- Audit filter categories in frontend audit page aligned with updated action names
+- `audit-logger.ts` aligned with updated audit template placeholders
+
+---
+
 ## [Unreleased] - 2026-02-20 (Phase 2)
 
 ### Added

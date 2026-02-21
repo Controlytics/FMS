@@ -1,0 +1,286 @@
+import type { FastifyInstance } from 'fastify';
+import { enforceReauth } from '../../../lib/reauth-check.js';
+import { buildContext } from '../../../lib/build-context.js';
+import { errorResponses } from '../../../lib/error-schemas.js';
+import { createAssetTemplateSchema, updateAssetTemplateSchema, templateQuerySchema } from '@digilog/shared';
+import { templateService } from '../services/template.service.js';
+
+export default async function templateRoutes(app: FastifyInstance) {
+
+  // 1. GET /templates — List templates with search/pagination
+  app.get('/templates', {
+    preHandler: [app.requirePermission('ASSET_VIEW')],
+    schema: {
+      tags: ['Entity Templates'],
+      summary: 'List entity templates',
+      description: 'List templates with optional search, isActive filter, and pagination.',
+      querystring: {
+        type: 'object',
+        properties: {
+          search: { type: 'string', description: 'Search by name' },
+          isActive: { type: 'string', description: '"true" or "false"' },
+          page: { type: 'integer', default: 1 },
+          limit: { type: 'integer', default: 50 },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            data: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  name: { type: 'string' },
+                  description: { type: 'string' },
+                  category: { type: 'string' },
+                  icon: { type: 'string' },
+                  version: { type: 'integer' },
+                  attributeSchema: { type: 'array' },
+                  telemetrySchema: { type: 'array' },
+                  expectedIdentifiers: { type: 'array' },
+                  expectedRelationships: { type: 'array' },
+                  statusLifecycle: { type: 'array' },
+                  alarmRules: { type: 'array' },
+                  checklistSchema: { type: 'array' },
+                  maxParentConnections: { type: 'integer' },
+                  maxConnections: { type: 'integer' },
+                  isActive: { type: 'boolean' },
+                  createdAt: { type: 'string' },
+                  updatedAt: { type: 'string' },
+                  createdBy: { type: 'string' },
+                  _count: { type: 'object', properties: { instances: { type: 'integer' } } },
+                },
+              },
+            },
+            total: { type: 'integer' },
+            page: { type: 'integer' },
+            limit: { type: 'integer' },
+            totalPages: { type: 'integer' },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const query = templateQuerySchema.parse(req.query);
+    return templateService.list(query);
+  });
+
+  // 2. GET /templates/:id — Get single template by UUID
+  app.get('/templates/:id', {
+    preHandler: [app.requirePermission('ASSET_VIEW')],
+    schema: {
+      tags: ['Entity Templates'],
+      summary: 'Get entity template by ID',
+      description: 'Retrieve a single entity template by its UUID, including instance count.',
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: { id: { type: 'string', format: 'uuid' } },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            name: { type: 'string' },
+            description: { type: 'string' },
+            category: { type: 'string' },
+            icon: { type: 'string' },
+            version: { type: 'integer' },
+            attributeSchema: { type: 'array' },
+            telemetrySchema: { type: 'array' },
+            expectedIdentifiers: { type: 'array' },
+            expectedRelationships: { type: 'array' },
+            statusLifecycle: { type: 'array' },
+            alarmRules: { type: 'array' },
+            checklistSchema: { type: 'array' },
+            maxParentConnections: { type: 'integer' },
+            maxConnections: { type: 'integer' },
+            isActive: { type: 'boolean' },
+            createdAt: { type: 'string' },
+            updatedAt: { type: 'string' },
+            createdBy: { type: 'string' },
+            updatedBy: { type: 'string' },
+            _count: { type: 'object', properties: { instances: { type: 'integer' } } },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const { id } = req.params as { id: string };
+    return templateService.getById(id);
+  });
+
+  // 3. POST /templates — Create template
+  app.post('/templates', {
+    preHandler: [app.requirePermission('ASSET_TEMPLATE_MANAGE')],
+    schema: {
+      tags: ['Entity Templates'],
+      summary: 'Create entity template',
+      description: 'Create a new entity template. Auto-creates version 1 snapshot. Requires ASSET_TEMPLATE_MANAGE permission.',
+      body: {
+        type: 'object',
+        required: ['name'],
+        properties: {
+          name: { type: 'string' },
+          description: { type: 'string' },
+          category: { type: 'string', description: 'Template category (Equipment, Room, Building, etc.)' },
+          icon: { type: 'string' },
+          attributeSchema: { type: 'array' },
+          expectedIdentifiers: { type: 'array' },
+          expectedRelationships: { type: 'array', description: 'Expected relationship type definitions' },
+          statusLifecycle: { type: 'array', description: 'Status definitions with transitions' },
+          alarmRules: { type: 'array' },
+          checklistSchema: { type: 'array', description: 'Checklist question definitions' },
+          maxParentConnections: { type: 'integer', description: 'Number of Parent Connections: 0=not allowed, 1=single parent only, 2+=multiple parents' },
+          maxConnections: { type: 'integer', description: 'Max total connections (all types): 0=unlimited, N=limit' },
+        },
+      },
+      response: {
+        201: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            data: { type: 'object', additionalProperties: true },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('CREATE_ASSET_TEMPLATE', req, reply);
+    if (!ok) return;
+
+    const parsed = createAssetTemplateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
+    }
+
+    const template = await templateService.create(parsed.data, buildContext(req));
+    return reply.code(201).send({ success: true, data: template });
+  });
+
+  // 4. PUT /templates/:id — Update template
+  app.put('/templates/:id', {
+    preHandler: [app.requirePermission('ASSET_TEMPLATE_MANAGE')],
+    schema: {
+      tags: ['Entity Templates'],
+      summary: 'Update entity template',
+      description: 'Update an entity template. Increments version and creates a new version snapshot. Requires ASSET_TEMPLATE_MANAGE permission.',
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: { id: { type: 'string', format: 'uuid' } },
+      },
+      body: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          description: { type: 'string' },
+          category: { type: 'string', description: 'Template category (Equipment, Room, Building, etc.)' },
+          icon: { type: 'string' },
+          attributeSchema: { type: 'array' },
+          expectedIdentifiers: { type: 'array' },
+          expectedRelationships: { type: 'array', description: 'Expected relationship type definitions' },
+          statusLifecycle: { type: 'array', description: 'Status definitions with transitions' },
+          alarmRules: { type: 'array' },
+          checklistSchema: { type: 'array', description: 'Checklist question definitions' },
+          maxParentConnections: { type: 'integer', description: 'Number of Parent Connections: 0=not allowed, 1=single parent only, 2+=multiple parents' },
+          maxConnections: { type: 'integer', description: 'Max total connections (all types): 0=unlimited, N=limit' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            data: { type: 'object', additionalProperties: true },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_ASSET_TEMPLATE', req, reply);
+    if (!ok) return;
+
+    const { id } = req.params as { id: string };
+    const parsed = updateAssetTemplateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
+    }
+
+    const template = await templateService.update(id, parsed.data, buildContext(req));
+    return { success: true, data: template };
+  });
+
+  // 5. DELETE /templates/:id — Soft-delete (set isActive=false)
+  app.delete('/templates/:id', {
+    preHandler: [app.requirePermission('ASSET_TEMPLATE_MANAGE')],
+    schema: {
+      tags: ['Entity Templates'],
+      summary: 'Soft-delete entity template',
+      description: 'Set isActive=false on an entity template. Requires ASSET_TEMPLATE_MANAGE permission.',
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: { id: { type: 'string', format: 'uuid' } },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: { success: { type: 'boolean' } },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('DELETE_ASSET_TEMPLATE', req, reply);
+    if (!ok) return;
+
+    const { id } = req.params as { id: string };
+    await templateService.delete(id, buildContext(req));
+    return { success: true };
+  });
+
+  // 6. GET /templates/:id/versions — List versions for a template
+  app.get('/templates/:id/versions', {
+    preHandler: [app.requirePermission('ASSET_VIEW')],
+    schema: {
+      tags: ['Entity Templates'],
+      summary: 'List template versions',
+      description: 'Get all version snapshots for an entity template, ordered by version number descending.',
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: { id: { type: 'string', format: 'uuid' } },
+      },
+      response: {
+        200: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              templateId: { type: 'string' },
+              versionNumber: { type: 'integer' },
+              snapshot: { type: 'object', additionalProperties: true },
+              changeNotes: { type: 'string' },
+              createdAt: { type: 'string' },
+              createdBy: { type: 'string' },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const { id } = req.params as { id: string };
+    return templateService.getVersions(id);
+  });
+}

@@ -1,0 +1,107 @@
+import { prisma } from '../../lib/prisma.js';
+
+export const configRepository = {
+  async getSystemConfig(key: string) {
+    return prisma.systemConfig.findUnique({ where: { configKey: key } });
+  },
+
+  async upsertSystemConfig(key: string, value: any, configType: string, requiresReauth: boolean, updatedBy: string) {
+    return prisma.systemConfig.upsert({
+      where: { configKey: key },
+      create: { configKey: key, configValue: value, configType, requiresReauth, updatedBy },
+      update: { configValue: value, updatedAt: new Date(), updatedBy },
+    });
+  },
+
+  // Role Configuration
+  async findAllRoleConfigs() {
+    return prisma.roleConfig.findMany({ orderBy: { role: 'asc' } });
+  },
+
+  async findRoleConfig(role: string) {
+    return prisma.roleConfig.findUnique({ where: { role: role as any } });
+  },
+
+  async upsertRoleConfig(role: string, data: { sidebarItems?: string[]; homeWidgets?: string[]; permissions?: Record<string, boolean> }, existing: any, updatedBy: string) {
+    return prisma.roleConfig.upsert({
+      where: { role: role as any },
+      create: {
+        role: role as any,
+        sidebarItems: data.sidebarItems ?? [],
+        homeWidgets: data.homeWidgets ?? [],
+        permissions: data.permissions ?? {},
+        updatedBy,
+      },
+      update: {
+        sidebarItems: data.sidebarItems ?? existing?.sidebarItems ?? [],
+        homeWidgets: data.homeWidgets ?? existing?.homeWidgets ?? [],
+        permissions: data.permissions ?? existing?.permissions ?? {},
+        updatedAt: new Date(),
+        updatedBy,
+      },
+    });
+  },
+
+  // User Configuration
+  async findUserConfig(userId: string) {
+    return prisma.userConfig.findUnique({ where: { userId } });
+  },
+
+  async upsertUserConfig(userId: string, data: { sidebarItems?: string[]; homeWidgets?: string[]; permissions?: Record<string, boolean> }, existing: any, updatedBy: string) {
+    return prisma.userConfig.upsert({
+      where: { userId },
+      create: {
+        userId,
+        sidebarItems: data.sidebarItems ?? [],
+        homeWidgets: data.homeWidgets ?? [],
+        permissions: data.permissions ?? {},
+        updatedBy,
+      },
+      update: {
+        sidebarItems: data.sidebarItems ?? existing?.sidebarItems ?? [],
+        homeWidgets: data.homeWidgets ?? existing?.homeWidgets ?? [],
+        permissions: data.permissions ?? existing?.permissions ?? {},
+        updatedAt: new Date(),
+        updatedBy,
+      },
+    });
+  },
+
+  async findUserByUsername(username: string) {
+    return prisma.user.findUnique({ where: { username } });
+  },
+
+  async findUserById(id: string) {
+    return prisma.user.findUnique({ where: { id } });
+  },
+
+  // Field IDs
+  async findAllFieldIds() {
+    return prisma.fieldIdConfig.findMany({ orderBy: { fieldId: 'asc' } });
+  },
+
+  async findFieldId(fieldId: string) {
+    return prisma.fieldIdConfig.findUnique({ where: { fieldId } });
+  },
+
+  async updateFieldId(fieldId: string, displayName: string, updatedBy: string) {
+    return prisma.fieldIdConfig.update({
+      where: { fieldId },
+      data: { displayName: displayName.trim(), updatedBy, updatedAt: new Date() },
+    });
+  },
+
+  // Raw queries for User ID next
+  async getMaxUserIdNum(prefix: string) {
+    return prisma.$queryRawUnsafe<{ max_num: number | null }[]>(
+      `SELECT MAX(CAST(SUBSTRING(username FROM '\\d+$') AS INTEGER)) AS max_num FROM users WHERE username LIKE $1`,
+      `${prefix}%`
+    );
+  },
+
+  async getMaxUserIdNumAll() {
+    return prisma.$queryRawUnsafe<{ max_num: number | null }[]>(
+      `SELECT MAX(CAST(SUBSTRING(username FROM '\\d+$') AS INTEGER)) AS max_num FROM users WHERE username ~ '\\d+$'`
+    );
+  },
+};

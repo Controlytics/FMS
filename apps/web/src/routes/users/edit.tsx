@@ -15,77 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-
-// Default password policy
-const defaultPolicy: PasswordPolicyConfig = {
-  minLength: 8,
-  maxLength: 128,
-  requireUppercase: true,
-  requireLowercase: true,
-  requireNumbers: true,
-  requireSpecialChars: true,
-  minUppercase: 1,
-  minLowercase: 1,
-  minNumbers: 1,
-  minSpecialChars: 1,
-  preventReuseCount: 12,
-  cannotBeUserId: true,
-  cannotContainUserId: true,
-  maxFailedAttempts: 5,
-  passwordExpiryDays: 90,
-  autoLogoutEnabled: true,
-  idleTimeoutMinutes: 15,
-  warningMinutes: 2,
-};
-
-// Generate password based on policy
-function generatePassword(policy: PasswordPolicyConfig): string {
-  const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  const lowercase = 'abcdefghijklmnopqrstuvwxyz';
-  const numbers = '0123456789';
-  const special = '!@#$%^&*()_+-=[]{}|;:,.<>?';
-
-  let password = '';
-  const allChars: string[] = [];
-
-  // Add required characters
-  if (policy.requireUppercase) {
-    for (let i = 0; i < policy.minUppercase; i++) {
-      password += uppercase[Math.floor(Math.random() * uppercase.length)];
-    }
-    allChars.push(...uppercase.split(''));
-  }
-
-  if (policy.requireLowercase) {
-    for (let i = 0; i < policy.minLowercase; i++) {
-      password += lowercase[Math.floor(Math.random() * lowercase.length)];
-    }
-    allChars.push(...lowercase.split(''));
-  }
-
-  if (policy.requireNumbers) {
-    for (let i = 0; i < policy.minNumbers; i++) {
-      password += numbers[Math.floor(Math.random() * numbers.length)];
-    }
-    allChars.push(...numbers.split(''));
-  }
-
-  if (policy.requireSpecialChars) {
-    for (let i = 0; i < policy.minSpecialChars; i++) {
-      password += special[Math.floor(Math.random() * special.length)];
-    }
-    allChars.push(...special.split(''));
-  }
-
-  // Fill remaining length with random characters
-  const targetLength = Math.max(policy.minLength, password.length + 4);
-  while (password.length < targetLength) {
-    password += allChars[Math.floor(Math.random() * allChars.length)];
-  }
-
-  // Shuffle the password
-  return password.split('').sort(() => Math.random() - 0.5).join('');
-}
+import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
 
 const statusConfig: Record<string, { color: string; bg: string; icon: string }> = {
   ENABLED: { color: 'text-emerald-700', bg: 'bg-gradient-to-r from-emerald-400 to-teal-400', icon: 'M5 13l4 4L19 7' },
@@ -110,7 +40,7 @@ export function EditUserPage() {
 
   // Fetch password policy
   const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy');
-  const policy = { ...defaultPolicy, ...policyData };
+  const policy = { ...DEFAULT_PASSWORD_POLICY, ...policyData };
 
   // Fetch roles that current user can create
   const { data: creatableRolesData } = useSWR<RoleData[]>(

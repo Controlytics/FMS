@@ -3,15 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
 import { Badge } from '../ui/badge';
 import { useBranding } from '@/hooks/use-branding';
-
-const API_BASE = 'http://localhost:3000';
-
-// Helper to get full photo URL
-const getPhotoUrl = (url: string | undefined) => {
-  if (!url) return '';
-  if (url.startsWith('http')) return url;
-  return `${API_BASE}${url}`;
-};
+import { getPhotoUrl } from '../../lib/url-utils';
 
 interface HeaderProps {
   user: {

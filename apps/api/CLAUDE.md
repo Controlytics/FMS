@@ -17,7 +17,7 @@ Fastify 5, TypeScript, Prisma ORM, PostgreSQL 16, bcrypt, jose (JWT), Zod valida
   - `notifications/` — Role-based user alerts
   - `uploads/` — File uploads (profile photos)
 - `src/lib/` — Shared utilities (prisma client, JWT, password hashing, hash chain, error schemas, reauth, user-id validator, swagger)
-- `prisma/schema.prisma` — Database schema (5 asset models: AssetTemplate, AssetTemplateVersion, AssetInstance, AssetRelationship, AssetIdentifier)
+- `prisma/schema.prisma` — Database schema (5 asset models: AssetTemplate, AssetTemplateVersion, AssetInstance, AssetRelationship, AssetIdentifier). AssetTemplate includes `checklistSchema` JSONB field for checklist question definitions.
 - `prisma/seed.ts` — Seed script for default data
 
 ## Running
@@ -36,10 +36,10 @@ Swagger UI available at `/docs`. Auto-generated from route schemas. Tags: Health
 JWT token in `Authorization: Bearer <token>` header. Sessions stored in DB for invalidation support.
 
 ## Roles
-Dynamic roles stored in DB. Default: SUPER_ADMIN (no audit), ADMIN, SUPERVISOR, MAINTENANCE, OPERATOR, VIEWER.
+Dynamic roles stored in DB. Default: SUPER_ADMIN, ADMIN, SUPERVISOR, MAINTENANCE, OPERATOR, VIEWER.
 
 ## Audit Trail
-SHA-256 checksummed entries. SUPER_ADMIN actions are never logged. All other roles are logged for every mutation.
+SHA-256 checksummed entries. All roles (including SUPER_ADMIN) are logged for every mutation per 21 CFR Part 11 compliance.
 
 ## Route Schema Pattern
 All routes with error responses MUST include `...errorResponses` in their schema `response` object (imported from `src/lib/error-schemas.ts`). Without this, Fastify 5's TypeScript types reject `reply.code(400)` etc.
@@ -52,7 +52,7 @@ All routes with error responses MUST include `...errorResponses` in their schema
   - Reauth: CREATE_ASSET_TEMPLATE, UPDATE_ASSET_TEMPLATE, DELETE_ASSET_TEMPLATE
   - Update auto-creates AssetTemplateVersion snapshot, increments version number
   - Template includes `category`, `expectedRelationships`, `statusLifecycle`, `maxParentConnections`, and `maxConnections` fields.
-  - All JSONB fields (`attributeSchema`, `telemetrySchema`, `expectedIdentifiers`, `expectedRelationships`, `statusLifecycle`, `alarmRules`) declared in both body and response schemas
+  - All JSONB fields (`attributeSchema`, `telemetrySchema`, `expectedIdentifiers`, `expectedRelationships`, `statusLifecycle`, `alarmRules`, `checklistSchema`) declared in both body and response schemas
 - **Instances** (8): GET `/instances`, GET `/instances/tree`, GET/POST/PUT/DELETE `/instances/:id`, PATCH `/instances/:id/status`, GET `/instances/:id/children`
   - Permissions: ASSET_VIEW (GET), ASSET_CREATE (POST), ASSET_UPDATE (PUT/PATCH), ASSET_DELETE (DELETE)
   - POST /instances: Template existence check only (no isActive filter — assets can be created from any template)

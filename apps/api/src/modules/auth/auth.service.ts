@@ -1,0 +1,299 @@
+import type { RequestContext } from '../../types/context.js';
+import { auditLog } from '../../lib/audit.js';
+import { hashPassword, verifyPassword } from '../../lib/password.js';
+import { signToken, signVerificationToken, verifyToken } from '../../lib/jwt.js';
+import { AppError, NotFoundError, ValidationError, ConflictError } from '../../lib/errors.js';
+import { authRepository } from './auth.repository.js';
+import { createNotification } from '../notifications/notification.service.js';
+
+const DUMMY_HASH = '$2b$12$7fXFzVUc/0SLHtxesM41PODN09mcQBJ0QB/uy7BQHDWzsklxK9yh6';
+
+export const authService = {
+  async login(username: string, password: string, ip: string, userAgent: string | undefined) {
+    const user = await authRepository.findUserByUsername(username);
+    if (!user) {
+      await verifyPassword(password, DUMMY_HASH);
+      throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid user ID or password.');
+    }
+
+    // Check account status
+    if (user.status === 'LOCKED') {
+      if (user.lockoutUntil && user.lockoutUntil < new Date()) {
+        await authRepository.updateUser(user.id, { status: 'ENABLED', failedLoginAttempts: 0, lockoutUntil: null, lockedAt: null });
+      } else {
+        throw new AppError(403, 'ACCOUNT_LOCKED', 'Account locked due to multiple failed login attempts. Contact administrator.');
+      }
+    }
+
+    if (user.status === 'DISABLED') {
+      throw new AppError(403, 'ACCOUNT_DISABLED', 'Your account has been disabled. Contact administrator.');
+    }
+
+    if (user.status === 'EXPIRED') {
+      if (user.isTemporaryPassword && user.forcePasswordChange) {
+        await authRepository.updateUser(user.id, { status: 'ENABLED' });
+      } else {
+        throw new AppError(403, 'PASSWORD_EXPIRED', 'Your password has expired. Contact an administrator to reset your password.');
+      }
+    }
+
+    const valid = await verifyPassword(password, user.passwordHash);
+    if (!valid) {
+      const loginSecurity = await authRepository.getLoginSecurityConfig();
+      const maxAttempts = loginSecurity.maxFailedAttempts ?? 5;
+      const lockoutType = loginSecurity.lockoutType ?? 'TEMPORARY';
+      const lockoutDurationMinutes = loginSecurity.lockoutDurationMinutes ?? 30;
+      const newAttempts = user.failedLoginAttempts + 1;
+
+      if (newAttempts >= maxAttempts) {
+        const lockoutData: Record<string, unknown> = {
+          failedLoginAttempts: newAttempts, status: 'LOCKED' as const, lockedAt: new Date(),
+        };
+        if (lockoutType === 'TEMPORARY') {
+          lockoutData.lockoutUntil = new Date(Date.now() + lockoutDurationMinutes * 60 * 1000);
+        }
+        await authRepository.updateUser(user.id, lockoutData);
+
+        await auditLog({
+          userId: user.username, userRole: user.role, action: 'ACCOUNT_LOCKED',
+          targetType: 'user', targetId: user.id,
+          afterValue: { username: user.username, fullName: user.fullName },
+          ipAddress: ip, userAgent,
+        });
+
+        await createNotification({
+          type: 'ACCOUNT_LOCKED', title: 'Account Locked',
+          message: `User ${user.fullName} (${user.username}) has been locked due to multiple failed login attempts.`,
+          targetUserId: user.username, forRole: 'ADMIN',
+        });
+        await createNotification({
+          type: 'ACCOUNT_LOCKED', title: 'Your Account Has Been Locked',
+          message: `Your account has been locked due to multiple failed login attempts. Please contact an administrator.`,
+          targetUserId: user.username, forUserId: user.username,
+        });
+
+        throw new AppError(403, 'ACCOUNT_LOCKED', 'Account locked due to multiple failed login attempts. Contact administrator.');
+      }
+
+      await authRepository.updateUser(user.id, { failedLoginAttempts: newAttempts, lastLogin: undefined });
+
+      await auditLog({
+        userId: user.username, userRole: user.role, action: 'LOGIN_FAILED',
+        targetType: 'user', targetId: user.id,
+        afterValue: { username: user.username, fullName: user.fullName },
+        ipAddress: ip, userAgent,
+      });
+
+      const err = new AppError(401, 'INVALID_CREDENTIALS', 'Invalid user ID or password.');
+      (err as any).attemptsRemaining = maxAttempts - newAttempts;
+      throw err;
+    }
+
+    // Check password expiry
+    if (user.passwordExpiresAt && user.passwordExpiresAt < new Date() && !user.forcePasswordChange) {
+      await authRepository.updateUser(user.id, { forcePasswordChange: true });
+      user.forcePasswordChange = true;
+
+      await auditLog({
+        userId: user.username, userRole: user.role, action: 'PASSWORD_EXPIRED',
+        targetType: 'user', targetId: user.id,
+        afterValue: { username: user.username, fullName: user.fullName },
+        signatureMeaning: 'System detected expired password at login',
+        ipAddress: ip, userAgent,
+      });
+    }
+
+    // Terminate existing sessions
+    const existingSessions = await authRepository.findActiveSessions(user.id);
+    if (existingSessions.length > 0) {
+      await authRepository.terminateActiveSessions(user.id, 'new_login');
+      await auditLog({
+        userId: user.username, userRole: user.role, action: 'FORCED_LOGOUT',
+        targetType: 'session', targetId: existingSessions.map(s => s.id).join(','),
+        afterValue: { username: user.username, fullName: user.fullName },
+        signatureMeaning: 'Previous sessions auto-terminated for new login',
+        ipAddress: ip, userAgent,
+      });
+    }
+
+    // Create session
+    const sessionCfg = await authRepository.getSessionConfig();
+    const sessionDurationHours = sessionCfg.sessionDurationHours ?? 8;
+    const session = await authRepository.createSession(user.id, ip, userAgent, sessionDurationHours);
+
+    const token = await signToken({
+      sub: user.id, username: user.username, role: user.role, sessionId: session.id,
+    }, sessionDurationHours);
+
+    await authRepository.updateUser(user.id, { failedLoginAttempts: 0, lastLogin: new Date(), lockoutUntil: null });
+
+    await auditLog({
+      userId: user.username, userRole: user.role, action: 'LOGIN_SUCCESS',
+      targetType: 'user', targetId: user.id,
+      afterValue: { username: user.username, fullName: user.fullName },
+      signatureMeaning: 'User authenticated with username and password',
+      ipAddress: ip, userAgent, sessionId: session.id,
+    });
+
+    return {
+      success: true, token,
+      user: {
+        id: user.id, username: user.username, fullName: user.fullName, role: user.role,
+        forcePasswordChange: user.forcePasswordChange, isTemporaryPassword: user.isTemporaryPassword,
+      },
+      expiresIn: `${sessionDurationHours}h`,
+    };
+  },
+
+  async logout(sessionId: string, username: string, role: string, ip: string, userAgent: string | undefined) {
+    await authRepository.terminateSession(sessionId, 'logout');
+    await auditLog({
+      userId: username, userRole: role, action: 'LOGOUT',
+      targetType: 'session', targetId: sessionId,
+      afterValue: { username }, ipAddress: ip, userAgent, sessionId,
+    });
+  },
+
+  async beaconLogout(token: string, ip: string, userAgent: string | undefined) {
+    try {
+      const payload = await verifyToken(token);
+      const session = await authRepository.findSessionById(payload.sessionId);
+      if (session) {
+        await authRepository.terminateSession(session.id, 'tab_closed');
+        await auditLog({
+          userId: payload.username, userRole: payload.role, action: 'LOGOUT',
+          targetType: 'session', targetId: payload.sessionId,
+          afterValue: { username: payload.username, reason: 'tab_closed' },
+          ipAddress: ip, userAgent, sessionId: payload.sessionId,
+        });
+      }
+    } catch {
+      // Token invalid/expired — session is already dead
+    }
+  },
+
+  async getProfile(userId: string) {
+    return authRepository.findUserByIdSelect(userId);
+  },
+
+  async updateProfile(userId: string, data: { fullName?: string; email?: string; department?: string; photoUrl?: string }, ip: string, userAgent: string | undefined, sessionId: string) {
+    const user = await authRepository.findUserById(userId);
+    if (!user) throw new NotFoundError('User not found');
+
+    if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+      throw new ValidationError('Invalid email format');
+    }
+    if (data.fullName && (data.fullName.length < 2 || data.fullName.length > 100)) {
+      throw new ValidationError('Full name must be 2-100 characters');
+    }
+    if (data.email && data.email !== user.email) {
+      const existing = await authRepository.findUserByEmail(data.email);
+      if (existing) throw new ConflictError('Email already in use');
+    }
+
+    const beforeValue = { fullName: user.fullName, email: user.email, department: user.department, photoUrl: user.photoUrl };
+
+    const updateData: Record<string, string | null | undefined> = {};
+    if (data.fullName !== undefined) updateData.fullName = data.fullName;
+    if (data.email !== undefined) updateData.email = data.email;
+    if (data.department !== undefined) updateData.department = data.department || null;
+    if (data.photoUrl !== undefined) updateData.photoUrl = data.photoUrl || null;
+
+    const updatedUser = await authRepository.updateUserProfile(userId, updateData);
+
+    await auditLog({
+      userId: user.username, userRole: user.role, action: 'PROFILE_UPDATED',
+      targetType: 'user', targetId: user.id,
+      beforeValue, afterValue: { ...updateData, username: user.username, fullName: updatedUser.fullName },
+      ipAddress: ip, userAgent, sessionId,
+    });
+
+    return updatedUser;
+  },
+
+  async changePassword(userId: string, currentPassword: string | undefined, newPassword: string, ip: string, userAgent: string | undefined, sessionId: string) {
+    const user = await authRepository.findUserById(userId);
+    if (!user) throw new NotFoundError('User not found');
+
+    if (!user.isTemporaryPassword) {
+      if (!currentPassword) throw new AppError(400, 'INVALID_PASSWORD', 'Current password is required');
+      const valid = await verifyPassword(currentPassword, user.passwordHash);
+      if (!valid) throw new AppError(400, 'INVALID_PASSWORD', 'Current password is incorrect');
+    }
+
+    const policy = await authRepository.getPasswordPolicyConfig();
+    const minLength = (policy.minLength as number) ?? 8;
+    const maxLength = (policy.maxLength as number) ?? 128;
+    if (newPassword.length < minLength) throw new AppError(400, 'POLICY_VIOLATION', `Password must be at least ${minLength} characters`);
+    if (newPassword.length > maxLength) throw new AppError(400, 'POLICY_VIOLATION', `Password must be at most ${maxLength} characters`);
+
+    if (policy.requireUppercase) {
+      const minUpper = (policy.minUppercase as number) ?? 1;
+      if ((newPassword.match(/[A-Z]/g) || []).length < minUpper) throw new AppError(400, 'POLICY_VIOLATION', `Password must contain at least ${minUpper} uppercase letter(s)`);
+    }
+    if (policy.requireLowercase) {
+      const minLower = (policy.minLowercase as number) ?? 1;
+      if ((newPassword.match(/[a-z]/g) || []).length < minLower) throw new AppError(400, 'POLICY_VIOLATION', `Password must contain at least ${minLower} lowercase letter(s)`);
+    }
+    if (policy.requireNumbers) {
+      const minNum = (policy.minNumbers as number) ?? 1;
+      if ((newPassword.match(/[0-9]/g) || []).length < minNum) throw new AppError(400, 'POLICY_VIOLATION', `Password must contain at least ${minNum} number(s)`);
+    }
+    if (policy.requireSpecialChars) {
+      const minSpecial = (policy.minSpecialChars as number) ?? 1;
+      if ((newPassword.match(/[^A-Za-z0-9]/g) || []).length < minSpecial) throw new AppError(400, 'POLICY_VIOLATION', `Password must contain at least ${minSpecial} special character(s)`);
+    }
+    if (policy.cannotBeUserId !== false && newPassword === user.username) throw new AppError(400, 'POLICY_VIOLATION', 'Password cannot be same as User ID');
+    if (policy.cannotContainUserId !== false && newPassword.toLowerCase().includes(user.username.toLowerCase())) throw new AppError(400, 'POLICY_VIOLATION', 'Password cannot contain User ID');
+
+    if (user.isTemporaryPassword) {
+      const sameAsTemp = await verifyPassword(newPassword, user.passwordHash);
+      if (sameAsTemp) throw new AppError(400, 'POLICY_VIOLATION', 'New password cannot be same as temporary password');
+    }
+
+    const reuseCount = (policy.preventReuseCount as number) ?? 12;
+    const history = await authRepository.getPasswordHistory(user.id, reuseCount);
+    for (const h of history) {
+      const reused = await verifyPassword(newPassword, h.passwordHash);
+      if (reused) throw new AppError(400, 'POLICY_VIOLATION', `Password cannot match any of your last ${reuseCount} passwords`);
+    }
+
+    const newHash = await hashPassword(newPassword);
+    const expiryDays = (policy.passwordExpiryDays as number) ?? 90;
+    const passwordExpiresAt = expiryDays > 0 ? new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000) : null;
+
+    await authRepository.changePassword(user.id, newHash, passwordExpiresAt);
+
+    await auditLog({
+      userId: user.username, userRole: user.role, action: 'PASSWORD_CHANGED',
+      targetType: 'user', targetId: user.id,
+      afterValue: { username: user.username, fullName: user.fullName },
+      signatureMeaning: 'User changed password',
+      ipAddress: ip, userAgent, sessionId,
+    });
+  },
+
+  async verify(userId: string, password: string) {
+    const user = await authRepository.findUserById(userId);
+    if (!user) throw new NotFoundError('User not found');
+    const valid = await verifyPassword(password, user.passwordHash);
+    if (!valid) throw new AppError(401, 'INVALID_PASSWORD', 'Password is incorrect');
+    return await signVerificationToken(user.id);
+  },
+
+  async forgotPassword(username: string, ip: string, userAgent: string | undefined) {
+    const user = await authRepository.findUserByUsername(username);
+    if (!user) return;
+
+    const existingRequest = await authRepository.findPendingResetRequest(user.username);
+    if (existingRequest) return 'pending';
+
+    await authRepository.createResetRequest(user.username);
+
+    await createNotification({
+      type: 'PASSWORD_RESET_REQUEST', title: 'Password Reset Request',
+      message: `User ${user.fullName} (${user.username}) has requested a password reset.`,
+      targetUserId: user.username, forRole: 'ADMIN',
+    });
+  },
+};

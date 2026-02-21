@@ -19,7 +19,8 @@ import uploadRoutes from './modules/uploads/routes.js';
 import notificationRoutes from './modules/notifications/routes.js';
 import roleRoutes from './modules/roles/routes.js';
 import backupRoutes from './modules/backup/routes.js';
-import assetRoutes from './modules/assets/routes.js';
+import assetRoutes from './modules/assets/index.js';
+import { AppError } from './lib/errors.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -71,6 +72,27 @@ await app.register(fastifyStatic, {
 await app.register(auditLoggerPlugin);
 await app.register(authPlugin);
 await app.register(rbacPlugin);
+
+// Global error handler — maps AppError to HTTP responses
+app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
+  if (err instanceof AppError) {
+    return reply.code(err.statusCode).send({
+      error: err.code,
+      message: err.message,
+      ...(err.details ? { details: err.details } : {}),
+    });
+  }
+  // Rate limit errors from @fastify/rate-limit
+  if (err.statusCode === 429) {
+    return reply.code(429).send({ error: 'TOO_MANY_REQUESTS', message: err.message });
+  }
+  // Let Fastify handle other errors (validation, etc.)
+  app.log.error(err);
+  return reply.code(err.statusCode ?? 500).send({
+    error: 'INTERNAL_ERROR',
+    message: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message,
+  });
+});
 
 // Health check
 app.get('/api/health', {

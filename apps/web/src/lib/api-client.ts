@@ -41,7 +41,8 @@ class ApiClient {
         }
         throw new Error(err.message ?? 'Invalid credentials');
       }
-      const error = new Error(err.error ?? err.message ?? `Request failed: ${res.status}`);
+      const error = new Error(err.message ?? err.error ?? `Request failed: ${res.status}`);
+      (error as any).code = err.error;
       (error as any).connectionInfo = err.connectionInfo;
       throw error;
     }
@@ -72,6 +73,13 @@ class ApiClient {
   putWithReauth<T>(url: string, body: unknown, password: string) {
     return this.request<T>(url, {
       method: 'PUT',
+      body: JSON.stringify({ ...(body as object), _currentPassword: password }),
+      headers: { 'x-reauth-password': password },
+    });
+  }
+  patchWithReauth<T>(url: string, body: unknown, password: string) {
+    return this.request<T>(url, {
+      method: 'PATCH',
       body: JSON.stringify({ ...(body as object), _currentPassword: password }),
       headers: { 'x-reauth-password': password },
     });

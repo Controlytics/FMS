@@ -32,7 +32,7 @@ async function main() {
         'USER_CREATE', 'USER_READ', 'USER_UPDATE', 'USER_DELETE', 'USER_ENABLE_DISABLE', 'USER_UNLOCK', 'USER_RESET_PASSWORD',
         'CONFIG_READ', 'CONFIG_UPDATE',
         'AUDIT_READ',
-        'ASSET_CREATE', 'ASSET_UPDATE', 'ASSET_DELETE',
+        'ASSET_TEMPLATE_MANAGE', 'ASSET_CREATE', 'ASSET_UPDATE', 'ASSET_DELETE',
         'ASSET_RELATIONSHIP_MANAGE', 'ASSET_IDENTIFIER_MANAGE', 'ASSET_VIEW',
       ],
       color: 'bg-gradient-to-r from-purple-500 to-indigo-500',

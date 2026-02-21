@@ -96,7 +96,9 @@
       "Bash(PGPASSWORD=postgres psql:*)",
       "Bash(npx turbo run build:*)",
       "Bash(export:*)",
-      "Bash(git remote set-url:*)"
+      "Bash(git remote set-url:*)",
+      "Bash(tree:*)",
+      "Bash(npx vitest run:*)"
     ],
     "deny": [],
     "ask": []

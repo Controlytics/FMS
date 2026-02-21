@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useBranding } from '@/hooks/use-branding';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
@@ -8,8 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-
-const API_BASE = 'http://localhost:3000';
+import { getPhotoUrl, API_BASE } from '../../lib/url-utils';
 
 const roleColors: Record<string, string> = {
   SUPER_ADMIN: 'bg-gradient-to-r from-red-500 to-pink-500 text-white border-0',
@@ -46,13 +45,6 @@ export function ProfilePage() {
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
-
-  // Get full photo URL
-  const getPhotoUrl = useCallback((url: string) => {
-    if (!url) return '';
-    if (url.startsWith('http')) return url;
-    return `${API_BASE}${url}`;
-  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;

@@ -1,0 +1,89 @@
+import { prisma } from '../../lib/prisma.js';
+
+export const roleRepository = {
+  /** Find all roles ordered by hierarchy level descending. */
+  async findAll() {
+    return prisma.role.findMany({
+      orderBy: { hierarchyLevel: 'desc' },
+    });
+  },
+
+  /** Find active roles with minimal fields for dropdowns. */
+  async findActive() {
+    return prisma.role.findMany({
+      where: { isActive: true },
+      orderBy: { hierarchyLevel: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        displayName: true,
+        hierarchyLevel: true,
+        color: true,
+      },
+    });
+  },
+
+  /** Find a single role by its unique name. */
+  async findByName(name: string) {
+    return prisma.role.findUnique({ where: { name } });
+  },
+
+  /** Create a new role. */
+  async create(data: {
+    name: string;
+    displayName: string;
+    description?: string;
+    hierarchyLevel: number;
+    permissions: string[];
+    color: string;
+    createdBy: string;
+  }) {
+    return prisma.role.create({
+      data: {
+        name: data.name,
+        displayName: data.displayName,
+        description: data.description,
+        hierarchyLevel: data.hierarchyLevel,
+        permissions: data.permissions,
+        color: data.color,
+        isSystem: false,
+        createdBy: data.createdBy,
+      },
+    });
+  },
+
+  /** Update a role by name. */
+  async update(name: string, data: Record<string, unknown>) {
+    return prisma.role.update({
+      where: { name },
+      data,
+    });
+  },
+
+  /** Delete a role by name. */
+  async delete(name: string) {
+    return prisma.role.delete({ where: { name } });
+  },
+
+  /** Count users assigned to a given role name. */
+  async countUsersByRole(roleName: string) {
+    return prisma.user.count({ where: { role: roleName } });
+  },
+
+  /** Find active roles with hierarchy level at or below the given level. */
+  async findCreatableRoles(hierarchyLevel: number) {
+    return prisma.role.findMany({
+      where: {
+        isActive: true,
+        hierarchyLevel: { lte: hierarchyLevel },
+      },
+      orderBy: { hierarchyLevel: 'desc' },
+      select: {
+        name: true,
+        displayName: true,
+        hierarchyLevel: true,
+        color: true,
+      },
+    });
+  },
+};
