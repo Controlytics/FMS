@@ -29,7 +29,7 @@ export async function registerSwagger(app: FastifyInstance) {
 | SUPER_ADMIN | 6 | Full access, actions not audited |
 | ADMIN | 5 | User & config management |
 | SUPERVISOR | 4 | Approval workflows |
-| MAINTENANCE | 3 | Entity management |
+| MAINTENANCE | 3 | Maintenance operations |
 | OPERATOR | 2 | Data entry |
 | VIEWER | 1 | Read-only access |`,
         version: '1.0.0',
@@ -57,10 +57,6 @@ export async function registerSwagger(app: FastifyInstance) {
         { name: 'Notifications', description: 'Notifications — role-based user alerts and badges' },
         { name: 'Uploads', description: 'File uploads — profile photos (JPEG, PNG, GIF, WebP, max 5MB)' },
         { name: 'Backup', description: 'Database backup & restore — export (JSON, SQL, CSV, BAK), validate, and restore with SHA-256 checksum integrity' },
-        { name: 'Entity Templates', description: 'Entity template management — reusable blueprints for entity types' },
-        { name: 'Entities', description: 'Entity instance management — create, configure, and operate entity instances' },
-        { name: 'Entity Relationships', description: 'Entity relationships — bidirectional connections between entities' },
-        { name: 'Entity Identifiers', description: 'Entity identifiers — QR, RFID, NFC, Barcode, Manual identifiers' },
       ],
       components: {
         securitySchemes: {

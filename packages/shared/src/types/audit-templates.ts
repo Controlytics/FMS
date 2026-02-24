@@ -12,7 +12,6 @@ export const AUDIT_TEMPLATE_CATEGORIES = [
   'Role Management',
   'Backup',
   'Data & Approvals',
-  'Entity Management',
 ] as const;
 
 export type AuditTemplateCategory = (typeof AUDIT_TEMPLATE_CATEGORIES)[number];
@@ -234,86 +233,6 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     category: 'Data & Approvals',
     template: 'Unauthorized action attempted by {actor}',
     placeholders: ['actor'],
-  },
-
-  // Entity Template Management
-  ASSET_TEMPLATE_CREATED: {
-    label: 'Entity Template Created',
-    category: 'Entity Management',
-    template: 'New entity template "{targetName}" created with attribute schema, telemetry, and lifecycle configuration by {actor}',
-    placeholders: ['actor', 'targetName'],
-  },
-  ASSET_TEMPLATE_UPDATED: {
-    label: 'Entity Template Updated',
-    category: 'Entity Management',
-    template: 'Entity template "{targetName}" updated (new version {version}) by {actor}',
-    placeholders: ['actor', 'targetName', 'version'],
-  },
-  ASSET_TEMPLATE_DELETED: {
-    label: 'Entity Template Deactivated',
-    category: 'Entity Management',
-    template: 'Entity template "{targetName}" deactivated (soft-deleted) by {actor}',
-    placeholders: ['actor', 'targetName'],
-  },
-  ASSET_TEMPLATE_VERSION_CREATED: {
-    label: 'Template Version Created',
-    category: 'Entity Management',
-    template: 'Version {version} snapshot of entity template "{targetName}" created by {actor}',
-    placeholders: ['actor', 'targetName', 'version'],
-  },
-
-  // Entity Instance Management
-  ASSET_CREATED: {
-    label: 'Entity Created',
-    category: 'Entity Management',
-    template: 'New entity "{targetName}" created from template by {actor}',
-    placeholders: ['actor', 'targetName'],
-  },
-  ASSET_UPDATED: {
-    label: 'Entity Updated',
-    category: 'Entity Management',
-    template: 'Entity "{targetName}" attributes and configuration updated by {actor}',
-    placeholders: ['actor', 'targetName'],
-  },
-  ASSET_STATUS_CHANGED: {
-    label: 'Entity Status Changed',
-    category: 'Entity Management',
-    template: 'Entity "{targetName}" status changed from "{beforeStatus}" to "{afterStatus}" by {actor}',
-    placeholders: ['actor', 'targetName', 'beforeStatus', 'afterStatus'],
-  },
-  ASSET_DELETED: {
-    label: 'Entity Deactivated',
-    category: 'Entity Management',
-    template: 'Entity "{targetName}" and its descendants deactivated (cascade soft-delete) by {actor}',
-    placeholders: ['actor', 'targetName'],
-  },
-
-  // Entity Relationships
-  ASSET_RELATIONSHIP_CREATED: {
-    label: 'Entity Relationship Created',
-    category: 'Entity Management',
-    template: 'Relationship created: "{sourceName}" linked to "{targetName}" by {actor}',
-    placeholders: ['actor', 'sourceName', 'targetName'],
-  },
-  ASSET_RELATIONSHIP_DELETED: {
-    label: 'Entity Relationship Deleted',
-    category: 'Entity Management',
-    template: 'Relationship removed: "{sourceName}" unlinked from "{targetName}" by {actor}',
-    placeholders: ['actor', 'sourceName', 'targetName'],
-  },
-
-  // Entity Identifiers
-  ASSET_IDENTIFIER_CREATED: {
-    label: 'Entity Identifier Added',
-    category: 'Entity Management',
-    template: 'New identifier ({identifierType}) added to entity "{targetName}" by {actor}',
-    placeholders: ['actor', 'targetName', 'identifierType'],
-  },
-  ASSET_IDENTIFIER_DELETED: {
-    label: 'Entity Identifier Removed',
-    category: 'Entity Management',
-    template: 'Identifier ({identifierType}) removed from entity "{targetName}" by {actor}',
-    placeholders: ['actor', 'targetName', 'identifierType'],
   },
 };
 

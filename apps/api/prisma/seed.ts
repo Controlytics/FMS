@@ -17,8 +17,6 @@ async function main() {
         'USER_CREATE', 'USER_READ', 'USER_UPDATE', 'USER_DELETE', 'USER_ENABLE_DISABLE', 'USER_UNLOCK', 'USER_RESET_PASSWORD',
         'CONFIG_READ', 'CONFIG_UPDATE', 'FIELD_ID_UPDATE',
         'AUDIT_READ', 'APPROVAL_REVIEW', 'APPROVAL_REQUEST', 'ROLE_MANAGE',
-        'ASSET_TEMPLATE_MANAGE', 'ASSET_CREATE', 'ASSET_UPDATE', 'ASSET_DELETE',
-        'ASSET_RELATIONSHIP_MANAGE', 'ASSET_IDENTIFIER_MANAGE', 'ASSET_VIEW',
       ],
       color: 'bg-gradient-to-r from-red-500 to-pink-500',
       isSystem: true,
@@ -32,8 +30,6 @@ async function main() {
         'USER_CREATE', 'USER_READ', 'USER_UPDATE', 'USER_DELETE', 'USER_ENABLE_DISABLE', 'USER_UNLOCK', 'USER_RESET_PASSWORD',
         'CONFIG_READ', 'CONFIG_UPDATE',
         'AUDIT_READ',
-        'ASSET_TEMPLATE_MANAGE', 'ASSET_CREATE', 'ASSET_UPDATE', 'ASSET_DELETE',
-        'ASSET_RELATIONSHIP_MANAGE', 'ASSET_IDENTIFIER_MANAGE', 'ASSET_VIEW',
       ],
       color: 'bg-gradient-to-r from-purple-500 to-indigo-500',
       isSystem: true,
@@ -45,7 +41,6 @@ async function main() {
       hierarchyLevel: 4,
       permissions: [
         'AUDIT_READ', 'APPROVAL_REVIEW',
-        'ASSET_VIEW', 'ASSET_CREATE',
       ],
       color: 'bg-gradient-to-r from-blue-500 to-cyan-500',
       isSystem: true,
@@ -53,11 +48,10 @@ async function main() {
     {
       name: 'MAINTENANCE',
       displayName: 'Maintenance',
-      description: 'Maintenance staff with entity and template management',
+      description: 'Maintenance staff with operational access',
       hierarchyLevel: 3,
       permissions: [
         'AUDIT_READ', 'APPROVAL_REQUEST',
-        'ASSET_VIEW', 'ASSET_CREATE', 'ASSET_UPDATE',
       ],
       color: 'bg-gradient-to-r from-amber-500 to-orange-500',
       isSystem: true,
@@ -69,7 +63,6 @@ async function main() {
       hierarchyLevel: 2,
       permissions: [
         'AUDIT_READ',
-        'ASSET_VIEW',
       ],
       color: 'bg-gradient-to-r from-emerald-500 to-green-500',
       isSystem: true,
@@ -81,7 +74,6 @@ async function main() {
       hierarchyLevel: 1,
       permissions: [
         'AUDIT_READ',
-        'ASSET_VIEW',
       ],
       color: 'bg-gradient-to-r from-slate-400 to-slate-500',
       isSystem: true,
@@ -208,12 +200,28 @@ async function main() {
 
   // 4. Field ID configurations
   const fieldIds = [
+    // User Management
     { fieldId: 'FLD_USER_001', defaultName: 'User ID', displayName: 'User ID', module: 'User Management' },
     { fieldId: 'FLD_USER_002', defaultName: 'Full Name', displayName: 'Full Name', module: 'User Management' },
     { fieldId: 'FLD_USER_003', defaultName: 'Email', displayName: 'Email', module: 'User Management' },
     { fieldId: 'FLD_USER_004', defaultName: 'Department', displayName: 'Department', module: 'User Management' },
     { fieldId: 'FLD_USER_005', defaultName: 'Role', displayName: 'Role', module: 'User Management' },
     { fieldId: 'FLD_USER_006', defaultName: 'Status', displayName: 'Status', module: 'User Management' },
+    { fieldId: 'FLD_USER_007', defaultName: 'Last Login', displayName: 'Last Login', module: 'User Management' },
+    { fieldId: 'FLD_USER_008', defaultName: 'Created', displayName: 'Created', module: 'User Management' },
+    { fieldId: 'FLD_USER_009', defaultName: 'Actions', displayName: 'Actions', module: 'User Management' },
+    // Audit Trail
+    { fieldId: 'FLD_AUDIT_001', defaultName: 'Timestamp', displayName: 'Timestamp', module: 'Audit Trail' },
+    { fieldId: 'FLD_AUDIT_002', defaultName: 'Action', displayName: 'Action', module: 'Audit Trail' },
+    { fieldId: 'FLD_AUDIT_003', defaultName: 'Performed By', displayName: 'Performed By', module: 'Audit Trail' },
+    { fieldId: 'FLD_AUDIT_004', defaultName: 'Description', displayName: 'Description', module: 'Audit Trail' },
+    { fieldId: 'FLD_AUDIT_005', defaultName: 'IP Address', displayName: 'IP Address', module: 'Audit Trail' },
+    { fieldId: 'FLD_AUDIT_006', defaultName: 'Status', displayName: 'Status', module: 'Audit Trail' },
+    // Notifications
+    { fieldId: 'FLD_NOTIF_001', defaultName: 'Title', displayName: 'Title', module: 'Notifications' },
+    { fieldId: 'FLD_NOTIF_002', defaultName: 'Message', displayName: 'Message', module: 'Notifications' },
+    { fieldId: 'FLD_NOTIF_003', defaultName: 'Type', displayName: 'Type', module: 'Notifications' },
+    { fieldId: 'FLD_NOTIF_004', defaultName: 'Date', displayName: 'Date', module: 'Notifications' },
   ];
 
   for (const field of fieldIds) {

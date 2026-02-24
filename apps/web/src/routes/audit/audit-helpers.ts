@@ -41,26 +41,6 @@ export const ACTION_COLORS: Record<string, string> = {
   APPROVAL_GRANTED: 'bg-green-100 text-green-700 border-green-200',
   APPROVAL_REJECTED: 'bg-red-100 text-red-700 border-red-200',
   UNAUTHORIZED_ACTION_ATTEMPT: 'bg-red-100 text-red-700 border-red-200',
-
-  // Entity Template Management
-  ASSET_TEMPLATE_CREATED: 'bg-indigo-100 text-indigo-700 border-indigo-200',
-  ASSET_TEMPLATE_UPDATED: 'bg-indigo-100 text-indigo-700 border-indigo-200',
-  ASSET_TEMPLATE_DELETED: 'bg-red-100 text-red-700 border-red-200',
-  ASSET_TEMPLATE_VERSION_CREATED: 'bg-indigo-100 text-indigo-700 border-indigo-200',
-
-  // Entity Instance Management
-  ASSET_CREATED: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  ASSET_UPDATED: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  ASSET_STATUS_CHANGED: 'bg-amber-100 text-amber-700 border-amber-200',
-  ASSET_DELETED: 'bg-red-100 text-red-700 border-red-200',
-
-  // Entity Relationships
-  ASSET_RELATIONSHIP_CREATED: 'bg-sky-100 text-sky-700 border-sky-200',
-  ASSET_RELATIONSHIP_DELETED: 'bg-red-100 text-red-700 border-red-200',
-
-  // Entity Identifiers
-  ASSET_IDENTIFIER_CREATED: 'bg-lime-100 text-lime-700 border-lime-200',
-  ASSET_IDENTIFIER_DELETED: 'bg-red-100 text-red-700 border-red-200',
 };
 
 // Actions that represent failures

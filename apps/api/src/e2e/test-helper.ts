@@ -9,7 +9,6 @@ import userRoutes from '../modules/users/routes.js';
 import configRoutes from '../modules/config/routes.js';
 import auditRoutes from '../modules/audit/routes.js';
 import roleRoutes from '../modules/roles/routes.js';
-import assetRoutes from '../modules/assets/index.js';
 import notificationRoutes from '../modules/notifications/routes.js';
 
 /** Default admin password used in tests */
@@ -46,7 +45,6 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(configRoutes, { prefix: '/api/config' });
   await app.register(auditRoutes, { prefix: '/api/audit' });
   await app.register(roleRoutes, { prefix: '/api/roles' });
-  await app.register(assetRoutes, { prefix: '/api/assets' });
   await app.register(notificationRoutes, { prefix: '/api/notifications' });
 
   await app.ready();

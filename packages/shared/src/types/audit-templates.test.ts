@@ -11,8 +11,8 @@ import {
 // =============================================
 
 describe('AUDIT_TEMPLATE_CATEGORIES', () => {
-  it('has 7 categories', () => {
-    expect(AUDIT_TEMPLATE_CATEGORIES).toHaveLength(7);
+  it('has 6 categories', () => {
+    expect(AUDIT_TEMPLATE_CATEGORIES).toHaveLength(6);
   });
 
   it('contains all expected categories', () => {
@@ -23,7 +23,6 @@ describe('AUDIT_TEMPLATE_CATEGORIES', () => {
       'Role Management',
       'Backup',
       'Data & Approvals',
-      'Entity Management',
     ];
     for (const cat of expected) {
       expect(AUDIT_TEMPLATE_CATEGORIES).toContain(cat);
@@ -90,19 +89,6 @@ describe('AUDIT_TEMPLATE_DEFAULTS', () => {
     }
   });
 
-  it('contains Entity Management actions', () => {
-    const entityActions = [
-      'ASSET_TEMPLATE_CREATED', 'ASSET_TEMPLATE_UPDATED', 'ASSET_TEMPLATE_DELETED', 'ASSET_TEMPLATE_VERSION_CREATED',
-      'ASSET_CREATED', 'ASSET_UPDATED', 'ASSET_STATUS_CHANGED', 'ASSET_DELETED',
-      'ASSET_RELATIONSHIP_CREATED', 'ASSET_RELATIONSHIP_DELETED',
-      'ASSET_IDENTIFIER_CREATED', 'ASSET_IDENTIFIER_DELETED',
-    ];
-    for (const action of entityActions) {
-      expect(AUDIT_TEMPLATE_DEFAULTS[action], `missing ${action}`).toBeDefined();
-      expect(AUDIT_TEMPLATE_DEFAULTS[action].category).toBe('Entity Management');
-    }
-  });
-
   it('contains Role Management actions', () => {
     const roleActions = ['ROLE_CREATED', 'ROLE_UPDATED', 'ROLE_DELETED'];
     for (const action of roleActions) {
@@ -116,20 +102,6 @@ describe('AUDIT_TEMPLATE_DEFAULTS', () => {
     expect(AUDIT_TEMPLATE_DEFAULTS['BACKUP_RESTORED']).toBeDefined();
   });
 
-  it('entity template actions include actor placeholder', () => {
-    const templateActions = ['ASSET_TEMPLATE_CREATED', 'ASSET_TEMPLATE_UPDATED', 'ASSET_TEMPLATE_DELETED'];
-    for (const action of templateActions) {
-      expect(AUDIT_TEMPLATE_DEFAULTS[action].placeholders).toContain('actor');
-    }
-  });
-
-  it('ASSET_STATUS_CHANGED includes before/after status placeholders', () => {
-    const def = AUDIT_TEMPLATE_DEFAULTS['ASSET_STATUS_CHANGED'];
-    expect(def.placeholders).toContain('beforeStatus');
-    expect(def.placeholders).toContain('afterStatus');
-    expect(def.template).toContain('{beforeStatus}');
-    expect(def.template).toContain('{afterStatus}');
-  });
 });
 
 // =============================================

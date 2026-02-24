@@ -30,8 +30,6 @@ import { PaginationConfigPage } from './routes/config/pagination';
 import { AuditTrailPage } from './routes/audit/index';
 import { NotificationsPage } from './routes/notifications/index';
 import { ProfilePage } from './routes/profile/index';
-import { AssetsPage } from './routes/assets/index';
-import { AssetTemplatesPage } from './routes/assets/templates';
 import { ToastProvider } from './components/toast-provider';
 import './app.css';
 
@@ -74,10 +72,6 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/action-reauth" element={<RequireRole roles={['SUPER_ADMIN']}><ActionReauthPage /></RequireRole>} />
             <Route path="/config/audit-templates" element={<RequireRole roles={['SUPER_ADMIN']}><AuditTemplatesConfigPage /></RequireRole>} />
             <Route path="/config/pagination" element={<RequireRole roles={['SUPER_ADMIN']}><PaginationConfigPage /></RequireRole>} />
-
-            {/* Entity Management */}
-            <Route path="/assets" element={<AssetsPage />} />
-            <Route path="/assets/templates" element={<AssetTemplatesPage />} />
 
             {/* Notifications */}
             <Route path="/notifications" element={<NotificationsPage />} />

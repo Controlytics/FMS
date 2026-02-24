@@ -27,18 +27,6 @@ export const REAUTH_ACTIONS = {
   // Backup
   EXPORT_BACKUP: { label: 'Export Backup', category: 'Backup' },
   RESTORE_BACKUP: { label: 'Restore Backup', category: 'Backup' },
-
-  // Entity Management
-  CREATE_ASSET_TEMPLATE: { label: 'Create Entity Template', category: 'Entity Management' },
-  UPDATE_ASSET_TEMPLATE: { label: 'Update Entity Template', category: 'Entity Management' },
-  DELETE_ASSET_TEMPLATE: { label: 'Delete Entity Template', category: 'Entity Management' },
-  CREATE_ASSET: { label: 'Create Entity', category: 'Entity Management' },
-  UPDATE_ASSET: { label: 'Update Entity', category: 'Entity Management' },
-  DELETE_ASSET: { label: 'Delete Entity', category: 'Entity Management' },
-  CREATE_ASSET_RELATIONSHIP: { label: 'Create Entity Relationship', category: 'Entity Management' },
-  DELETE_ASSET_RELATIONSHIP: { label: 'Delete Entity Relationship', category: 'Entity Management' },
-  CREATE_ASSET_IDENTIFIER: { label: 'Create Entity Identifier', category: 'Entity Management' },
-  DELETE_ASSET_IDENTIFIER: { label: 'Delete Entity Identifier', category: 'Entity Management' },
 } as const;
 
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;
@@ -48,7 +36,6 @@ export const REAUTH_ACTION_CATEGORIES = [
   'Configuration',
   'Role Management',
   'Backup',
-  'Entity Management',
 ] as const;
 
 export type ReauthActionCategory = (typeof REAUTH_ACTION_CATEGORIES)[number];

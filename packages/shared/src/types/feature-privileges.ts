@@ -27,15 +27,6 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'config.edit', label: 'Edit Configuration', category: 'System', icon: 'settings-edit' },
   { id: 'roles.manage', label: 'Manage Roles', category: 'System', icon: 'shield' },
   { id: 'notifications.manage', label: 'Manage Notifications', category: 'System', icon: 'bell' },
-
-  // Entity Management
-  { id: 'assets.view', label: 'View Entities', category: 'Entity Management', icon: 'eye' },
-  { id: 'assets.create', label: 'Create Entities', category: 'Entity Management', icon: 'plus' },
-  { id: 'assets.edit', label: 'Edit Entities', category: 'Entity Management', icon: 'edit' },
-  { id: 'assets.delete', label: 'Delete Entities', category: 'Entity Management', icon: 'trash' },
-  { id: 'assets.templates', label: 'Manage Templates', category: 'Entity Management', icon: 'template' },
-  { id: 'assets.relationships', label: 'Manage Relationships', category: 'Entity Management', icon: 'link' },
-  { id: 'assets.identifiers', label: 'Manage Identifiers', category: 'Entity Management', icon: 'qrcode' },
 ];
 
 /**
@@ -68,13 +59,4 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'config.edit': ['CONFIG_UPDATE', 'CONFIG_READ'],
   'roles.manage': ['ROLE_MANAGE'],
   'notifications.manage': ['NOTIFICATION_MANAGE'],
-
-  // Entity Management
-  'assets.view': ['ASSET_VIEW'],
-  'assets.create': ['ASSET_CREATE', 'ASSET_VIEW'],
-  'assets.edit': ['ASSET_UPDATE', 'ASSET_VIEW'],
-  'assets.delete': ['ASSET_DELETE', 'ASSET_VIEW'],
-  'assets.templates': ['ASSET_TEMPLATE_CREATE', 'ASSET_TEMPLATE_UPDATE', 'ASSET_TEMPLATE_DELETE', 'ASSET_VIEW'],
-  'assets.relationships': ['ASSET_RELATIONSHIP_MANAGE', 'ASSET_VIEW'],
-  'assets.identifiers': ['ASSET_IDENTIFIER_MANAGE', 'ASSET_VIEW'],
 };

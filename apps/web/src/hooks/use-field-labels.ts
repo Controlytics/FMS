@@ -18,16 +18,21 @@ const defaultLabels: Record<string, string> = {
   'FLD_USER_004': 'Department',
   'FLD_USER_005': 'Role',
   'FLD_USER_006': 'Status',
-  // Entity Management
-  'FLD_ASSET_001': 'Building Name',
-  'FLD_ASSET_002': 'Block Name',
-  'FLD_ASSET_003': 'Area Name',
-  'FLD_ASSET_004': 'Device Name',
-  'FLD_ASSET_005': 'Serial Number',
-  // Attributes
-  'FLD_ATTR_001': 'Attribute Name',
-  // Telemetry
-  'FLD_TELE_001': 'Telemetry Name',
+  'FLD_USER_007': 'Last Login',
+  'FLD_USER_008': 'Created',
+  'FLD_USER_009': 'Actions',
+  // Audit Trail
+  'FLD_AUDIT_001': 'Timestamp',
+  'FLD_AUDIT_002': 'Action',
+  'FLD_AUDIT_003': 'Performed By',
+  'FLD_AUDIT_004': 'Description',
+  'FLD_AUDIT_005': 'IP Address',
+  'FLD_AUDIT_006': 'Status',
+  // Notifications
+  'FLD_NOTIF_001': 'Title',
+  'FLD_NOTIF_002': 'Message',
+  'FLD_NOTIF_003': 'Type',
+  'FLD_NOTIF_004': 'Date',
 };
 
 export function useFieldLabels() {
@@ -58,31 +63,33 @@ export function useFieldLabels() {
     department: labels['FLD_USER_004'] || 'Department',
     role: labels['FLD_USER_005'] || 'Role',
     status: labels['FLD_USER_006'] || 'Status',
+    lastLogin: labels['FLD_USER_007'] || 'Last Login',
+    created: labels['FLD_USER_008'] || 'Created',
+    actions: labels['FLD_USER_009'] || 'Actions',
   };
 
-  const assetLabels = {
-    buildingName: labels['FLD_ASSET_001'] || 'Building Name',
-    blockName: labels['FLD_ASSET_002'] || 'Block Name',
-    areaName: labels['FLD_ASSET_003'] || 'Area Name',
-    deviceName: labels['FLD_ASSET_004'] || 'Device Name',
-    serialNumber: labels['FLD_ASSET_005'] || 'Serial Number',
+  const auditLabels = {
+    timestamp: labels['FLD_AUDIT_001'] || 'Timestamp',
+    action: labels['FLD_AUDIT_002'] || 'Action',
+    performedBy: labels['FLD_AUDIT_003'] || 'Performed By',
+    description: labels['FLD_AUDIT_004'] || 'Description',
+    ipAddress: labels['FLD_AUDIT_005'] || 'IP Address',
+    status: labels['FLD_AUDIT_006'] || 'Status',
   };
 
-  const attributeLabels = {
-    attributeName: labels['FLD_ATTR_001'] || 'Attribute Name',
-  };
-
-  const telemetryLabels = {
-    telemetryName: labels['FLD_TELE_001'] || 'Telemetry Name',
+  const notificationLabels = {
+    title: labels['FLD_NOTIF_001'] || 'Title',
+    message: labels['FLD_NOTIF_002'] || 'Message',
+    type: labels['FLD_NOTIF_003'] || 'Type',
+    date: labels['FLD_NOTIF_004'] || 'Date',
   };
 
   return {
     labels,
     getLabel,
     userLabels,
-    assetLabels,
-    attributeLabels,
-    telemetryLabels,
+    auditLabels,
+    notificationLabels,
     isLoading,
     error,
     mutate,

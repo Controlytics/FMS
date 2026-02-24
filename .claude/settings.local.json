@@ -99,7 +99,8 @@
       "Bash(git remote set-url:*)",
       "Bash(tree:*)",
       "Bash(npx vitest run:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI3N2ZiODQ0Yi05Y2UyLTQ4OTAtYTg0Zi1jMGFmNDZjZTg0Y2YiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6IlNVUEVSX0FETUlOIiwic2Vzc2lvbklkIjoiZjAyMDU3OTItMjBlNC00MWEyLWFhZmEtMGM4NTM4MDQwNTg4IiwiaWF0IjoxNzcxOTMzMzE3LCJleHAiOjE3NzE5NjIxMTd9.gc9xx5JT2l3aR8R82q133oXbHS-p02Z9MHr8f20_FUE\")"
     ],
     "deny": [],
     "ask": []
