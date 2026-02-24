@@ -33,7 +33,7 @@ export function AssetTemplatesPage() {
   const { formatDateTime } = useDatetimeFormat();
 
   // Data
-  const { data: templatesRes, isLoading } = useSWR<{ data: TemplateData[] }>('/api/assets/templates');
+  const { data: templatesRes, isLoading } = useSWR<{ data: TemplateData[] }>('/api/assets/templates?isActive=true');
   const templates = templatesRes?.data;
 
   // Dialog states

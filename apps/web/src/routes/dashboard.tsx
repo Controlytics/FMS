@@ -67,7 +67,7 @@ export function DashboardPage() {
   const { branding } = useBranding();
   const { formatDate } = useDatetimeFormat();
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
+  const isAdmin = isSuperAdmin || (user?.permissions?.includes('USER_READ') ?? false);
 
   const swrOpts = { revalidateOnMount: true, revalidateOnFocus: true, dedupingInterval: 2000 };
   const { data: userStats } = useSWR(isAdmin ? '/api/users/stats' : null, swrOpts);

@@ -17,6 +17,9 @@ async function rbacPlugin(app: FastifyInstance) {
         return reply.code(401).send({ error: 'UNAUTHORIZED', message: 'Not authenticated' });
       }
 
+      // SUPER_ADMIN bypasses all permission checks
+      if (userRole === 'SUPER_ADMIN') return;
+
       // Fetch role permissions from database
       const role = await prisma.role.findUnique({
         where: { name: userRole },

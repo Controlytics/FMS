@@ -7,11 +7,11 @@ import { roleService } from './role.service.js';
 export default async function roleRoutes(app: FastifyInstance) {
   // GET /api/roles — List all roles
   app.get('/', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
     schema: {
       tags: ['Roles'],
       summary: 'List all roles',
-      description: 'Retrieve all roles ordered by hierarchy level. Requires SUPER_ADMIN or ADMIN role.',
+      description: 'Retrieve all roles ordered by hierarchy level. Requires ROLE_MANAGE permission.',
       response: {
         200: {
           type: 'array',
@@ -65,11 +65,11 @@ export default async function roleRoutes(app: FastifyInstance) {
 
   // GET /api/roles/:name — Get single role by name
   app.get('/:name', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
     schema: {
       tags: ['Roles'],
       summary: 'Get role by name',
-      description: 'Retrieve a single role by its unique name. Requires SUPER_ADMIN or ADMIN role.',
+      description: 'Retrieve a single role by its unique name. Requires ROLE_MANAGE permission.',
       params: {
         type: 'object',
         required: ['name'],
@@ -107,11 +107,11 @@ export default async function roleRoutes(app: FastifyInstance) {
 
   // POST /api/roles — Create new role (SUPER_ADMIN only)
   app.post('/', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
     schema: {
       tags: ['Roles'],
       summary: 'Create a new role',
-      description: 'Create a custom role with specified permissions, hierarchy level, and display properties. SUPER_ADMIN only.',
+      description: 'Create a custom role with specified permissions, hierarchy level, and display properties. Requires ROLE_MANAGE permission.',
       body: {
         type: 'object',
         required: ['name', 'displayName', 'hierarchyLevel'],
@@ -157,11 +157,11 @@ export default async function roleRoutes(app: FastifyInstance) {
 
   // PUT /api/roles/:name — Update role (SUPER_ADMIN only)
   app.put('/:name', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
     schema: {
       tags: ['Roles'],
       summary: 'Update a role',
-      description: 'Update role properties. System roles can only have permissions, color, display name, and description updated. SUPER_ADMIN only.',
+      description: 'Update role properties. System roles can only have permissions, color, display name, and description updated. Requires ROLE_MANAGE permission.',
       params: {
         type: 'object',
         required: ['name'],
@@ -214,11 +214,11 @@ export default async function roleRoutes(app: FastifyInstance) {
 
   // DELETE /api/roles/:name — Delete role (SUPER_ADMIN only)
   app.delete('/:name', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
     schema: {
       tags: ['Roles'],
       summary: 'Delete a role',
-      description: 'Permanently delete a custom role. System roles cannot be deleted. Roles with assigned users cannot be deleted. SUPER_ADMIN only.',
+      description: 'Permanently delete a custom role. System roles cannot be deleted. Roles with assigned users cannot be deleted. Requires ROLE_MANAGE permission.',
       params: {
         type: 'object',
         required: ['name'],
@@ -276,11 +276,11 @@ export default async function roleRoutes(app: FastifyInstance) {
 
   // GET /api/roles/permissions/all — Get all available permissions
   app.get('/permissions/all', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
     schema: {
       tags: ['Roles'],
       summary: 'List all available permissions',
-      description: 'Return the complete list of available permissions grouped by category. SUPER_ADMIN only.',
+      description: 'Return the complete list of available permissions grouped by category. Requires ROLE_MANAGE permission.',
       response: {
         200: {
           type: 'object',
@@ -306,7 +306,7 @@ export default async function roleRoutes(app: FastifyInstance) {
 
   // GET /api/roles/:name/creatable — Get roles that this role can create
   app.get('/:name/creatable', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
     schema: {
       tags: ['Roles'],
       summary: 'Get creatable roles for a role',

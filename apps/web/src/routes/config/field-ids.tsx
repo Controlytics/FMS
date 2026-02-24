@@ -225,40 +225,11 @@ export function FieldIdsPage() {
                   <div className="flex items-center gap-2 ml-4">
                     {editingField === field.fieldId ? (
                       <>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={handleCancel}
-                          disabled={saving}
-                          className="rounded-lg hover:bg-slate-100"
-                        >
-                          <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
+                        <Button variant="outline" size="sm" onClick={handleCancel} disabled={saving}>
                           Cancel
                         </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => handleSave(field.fieldId)}
-                          disabled={saving || !editValue.trim()}
-                          className="rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 shadow-lg shadow-cyan-500/25"
-                        >
-                          {saving ? (
-                            <>
-                              <svg className="w-4 h-4 mr-1.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                              </svg>
-                              Saving...
-                            </>
-                          ) : (
-                            <>
-                              <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                              </svg>
-                              Save
-                            </>
-                          )}
+                        <Button size="sm" onClick={() => handleSave(field.fieldId)} disabled={saving || !editValue.trim()}>
+                          {saving ? 'Saving...' : 'Save'}
                         </Button>
                       </>
                     ) : (

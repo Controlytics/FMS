@@ -21,7 +21,7 @@ export default async function configRoutes(app: FastifyInstance) {
 
     // GET
     app.get(`/${key}`, {
-      preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+      preHandler: [app.requirePermission('CONFIG_READ')],
       schema: {
         tags: ['Config'],
         summary: `Get ${titleKey} configuration`,
@@ -36,7 +36,7 @@ export default async function configRoutes(app: FastifyInstance) {
 
     // PUT
     app.put(`/${key}`, {
-      preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+      preHandler: [app.requirePermission('CONFIG_UPDATE')],
       schema: {
         tags: ['Config'],
         summary: `Update ${titleKey} configuration`,
@@ -124,7 +124,7 @@ export default async function configRoutes(app: FastifyInstance) {
 
   // User ID config - SUPER_ADMIN only for PUT
   app.get('/user-id', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('CONFIG_READ')],
     schema: {
       tags: ['Config'],
       summary: 'Get User ID configuration',
@@ -138,11 +138,11 @@ export default async function configRoutes(app: FastifyInstance) {
   });
 
   app.put('/user-id', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
     schema: {
       tags: ['Config'],
       summary: 'Update User ID configuration',
-      description: 'Update User ID format, prefix, auto-generation, and validation settings. SUPER_ADMIN only.',
+      description: 'Update User ID format, prefix, auto-generation, and validation settings. Requires CONFIG_UPDATE permission.',
       body: { type: 'object', description: 'User ID configuration values' },
       response: {
         200: {
@@ -172,7 +172,7 @@ export default async function configRoutes(app: FastifyInstance) {
 
   // GET next available User ID (for auto-generation)
   app.get('/user-id/next', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('USER_CREATE')],
     schema: {
       tags: ['Config'],
       summary: 'Get next available User ID',
@@ -193,7 +193,7 @@ export default async function configRoutes(app: FastifyInstance) {
 
   // Validate a User ID against config
   app.post('/user-id/validate', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('USER_CREATE')],
     schema: {
       tags: ['Config'],
       summary: 'Validate a User ID',
@@ -246,11 +246,11 @@ export default async function configRoutes(app: FastifyInstance) {
   });
 
   app.put('/branding', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
     schema: {
       tags: ['Config'],
       summary: 'Update branding configuration',
-      description: 'Update branding settings such as company name, logo URL, and theme colors. SUPER_ADMIN only.',
+      description: 'Update branding settings such as company name, logo URL, and theme colors. Requires CONFIG_UPDATE permission.',
       body: { type: 'object', description: 'Branding configuration values' },
       response: {
         200: {
@@ -282,7 +282,7 @@ export default async function configRoutes(app: FastifyInstance) {
 
   // GET /api/config/roles — get all role configurations
   app.get('/roles', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('CONFIG_READ')],
     schema: {
       tags: ['Config'],
       summary: 'List all role configurations',
@@ -308,7 +308,7 @@ export default async function configRoutes(app: FastifyInstance) {
 
   // GET /api/config/roles/:role — get single role configuration
   app.get('/roles/:role', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('CONFIG_READ')],
     schema: {
       tags: ['Config'],
       summary: 'Get role configuration',
@@ -339,11 +339,11 @@ export default async function configRoutes(app: FastifyInstance) {
 
   // PUT /api/config/roles/:role — update role configuration
   app.put('/roles/:role', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
     schema: {
       tags: ['Config'],
       summary: 'Update role configuration',
-      description: 'Update sidebar items, home widgets, and permissions for a specific role. SUPER_ADMIN only.',
+      description: 'Update sidebar items, home widgets, and permissions for a specific role. Requires CONFIG_UPDATE permission.',
       params: {
         type: 'object',
         required: ['role'],
@@ -389,7 +389,7 @@ export default async function configRoutes(app: FastifyInstance) {
 
   // GET /api/config/users/:userId — get user-specific configuration
   app.get('/users/:userId', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('CONFIG_READ')],
     schema: {
       tags: ['Config'],
       summary: 'Get user-specific configuration',
@@ -420,7 +420,7 @@ export default async function configRoutes(app: FastifyInstance) {
 
   // PUT /api/config/users/:userId — update user-specific configuration
   app.put('/users/:userId', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
     schema: {
       tags: ['Config'],
       summary: 'Update user-specific configuration',
@@ -509,11 +509,11 @@ export default async function configRoutes(app: FastifyInstance) {
 
   // PUT /api/config/field-ids/:fieldId — SUPER_ADMIN only
   app.put('/field-ids/:fieldId', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
     schema: {
       tags: ['Config'],
       summary: 'Update field ID display name',
-      description: 'Update the display name for a specific field ID. SUPER_ADMIN only.',
+      description: 'Update the display name for a specific field ID. Requires CONFIG_UPDATE permission.',
       params: {
         type: 'object',
         required: ['fieldId'],
@@ -562,7 +562,7 @@ export default async function configRoutes(app: FastifyInstance) {
 
   // GET /api/config/action-reauth — full config (SUPER_ADMIN only)
   app.get('/action-reauth', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requirePermission('CONFIG_READ')],
     schema: {
       tags: ['Config'],
       summary: 'Get action re-authentication configuration',
@@ -577,7 +577,7 @@ export default async function configRoutes(app: FastifyInstance) {
 
   // PUT /api/config/action-reauth — update config (SUPER_ADMIN only)
   app.put('/action-reauth', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
     schema: {
       tags: ['Config'],
       summary: 'Update action re-authentication configuration',
@@ -632,11 +632,11 @@ export default async function configRoutes(app: FastifyInstance) {
 
   // GET /api/config/audit-templates — full config (SUPER_ADMIN only)
   app.get('/audit-templates', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requirePermission('CONFIG_READ')],
     schema: {
       tags: ['Config'],
       summary: 'Get audit text templates',
-      description: 'Retrieve the full audit text templates configuration. SUPER_ADMIN only. Returns saved templates merged with defaults.',
+      description: 'Retrieve the full audit text templates configuration. Returns saved templates merged with defaults.',
       response: {
         200: { type: 'object', additionalProperties: true },
       },
@@ -647,11 +647,11 @@ export default async function configRoutes(app: FastifyInstance) {
 
   // PUT /api/config/audit-templates — update templates (SUPER_ADMIN only)
   app.put('/audit-templates', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
     schema: {
       tags: ['Config'],
       summary: 'Update audit text templates',
-      description: 'Save custom audit text templates. Pass an object mapping action keys to template strings. SUPER_ADMIN only.',
+      description: 'Save custom audit text templates. Pass an object mapping action keys to template strings.',
       body: { type: 'object', additionalProperties: true },
       response: {
         200: {

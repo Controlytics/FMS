@@ -8,7 +8,7 @@ import { userService } from './user.service.js';
 export default async function userRoutes(app: FastifyInstance) {
   // POST /api/users — Create user
   app.post('/', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('USER_CREATE')],
     schema: {
       tags: ['Users'],
       summary: 'Create user',
@@ -54,7 +54,7 @@ export default async function userRoutes(app: FastifyInstance) {
 
   // GET /api/users/stats — User count stats by status
   app.get('/stats', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('USER_READ')],
     schema: {
       tags: ['Users'],
       summary: 'Get user statistics',
@@ -75,7 +75,7 @@ export default async function userRoutes(app: FastifyInstance) {
 
   // GET /api/users — List users
   app.get('/', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('USER_READ')],
     schema: {
       tags: ['Users'],
       summary: 'List users',
@@ -118,7 +118,7 @@ export default async function userRoutes(app: FastifyInstance) {
 
   // GET /api/users/:id — Get user detail
   app.get('/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('USER_READ')],
     schema: {
       tags: ['Users'],
       summary: 'Get user by ID',
@@ -149,7 +149,7 @@ export default async function userRoutes(app: FastifyInstance) {
 
   // PUT /api/users/:id — Update user
   app.put('/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('USER_UPDATE')],
     schema: {
       tags: ['Users'],
       summary: 'Update user',
@@ -187,13 +187,13 @@ export default async function userRoutes(app: FastifyInstance) {
     return userService.update(id, parsed.data, buildContext(req));
   });
 
-  // DELETE /api/users/:id — Only SUPER_ADMIN can permanently delete users
+  // DELETE /api/users/:id — Requires USER_DELETE permission
   app.delete('/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requirePermission('USER_DELETE')],
     schema: {
       tags: ['Users'],
       summary: 'Delete user',
-      description: 'Permanently delete a user and all related data. SUPER_ADMIN only.',
+      description: 'Permanently delete a user and all related data. Requires USER_DELETE permission.',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
       response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses },
     },
@@ -206,13 +206,13 @@ export default async function userRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
-  // POST /api/users/bulk-delete — Bulk permanently delete users (SUPER_ADMIN only)
+  // POST /api/users/bulk-delete — Requires USER_DELETE permission
   app.post('/bulk-delete', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requirePermission('USER_DELETE')],
     schema: {
       tags: ['Users'],
       summary: 'Bulk delete users',
-      description: 'Permanently delete multiple users and all related data. SUPER_ADMIN only.',
+      description: 'Permanently delete multiple users and all related data. Requires USER_DELETE permission.',
       body: {
         type: 'object',
         required: ['userIds'],
@@ -246,7 +246,7 @@ export default async function userRoutes(app: FastifyInstance) {
 
   // POST /api/users/:id/enable
   app.post('/:id/enable', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('USER_ENABLE_DISABLE')],
     schema: {
       tags: ['Users'], summary: 'Enable user', description: 'Re-enable a disabled user account',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
@@ -262,7 +262,7 @@ export default async function userRoutes(app: FastifyInstance) {
 
   // POST /api/users/:id/disable
   app.post('/:id/disable', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('USER_ENABLE_DISABLE')],
     schema: {
       tags: ['Users'], summary: 'Disable user', description: 'Disable a user account and terminate all active sessions',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
@@ -278,7 +278,7 @@ export default async function userRoutes(app: FastifyInstance) {
 
   // POST /api/users/:id/unlock
   app.post('/:id/unlock', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('USER_UNLOCK')],
     schema: {
       tags: ['Users'], summary: 'Unlock user',
       description: 'Unlock a locked user account with a temporary password. User must change password on next login.',
@@ -297,7 +297,7 @@ export default async function userRoutes(app: FastifyInstance) {
 
   // POST /api/users/:id/reset-password
   app.post('/:id/reset-password', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('USER_RESET_PASSWORD')],
     schema: {
       tags: ['Users'], summary: 'Reset password', description: 'Admin-initiated password reset. Sets temporary password.',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
@@ -318,7 +318,7 @@ export default async function userRoutes(app: FastifyInstance) {
 
   // GET /api/users/reset-requests — List password reset requests
   app.get('/reset-requests', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('USER_RESET_PASSWORD')],
     schema: {
       tags: ['Users'], summary: 'List password reset requests', description: 'Get all password reset requests (pending and processed)',
       response: {
@@ -348,7 +348,7 @@ export default async function userRoutes(app: FastifyInstance) {
 
   // GET /api/users/reset-requests/pending — Get count of pending reset requests
   app.get('/reset-requests/pending', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('USER_RESET_PASSWORD')],
     schema: {
       tags: ['Users'], summary: 'Pending reset request count', description: 'Get count of pending password reset requests',
       response: { 200: { type: 'object', properties: { count: { type: 'integer' } } } },
@@ -359,7 +359,7 @@ export default async function userRoutes(app: FastifyInstance) {
 
   // POST /api/users/reset-requests/:id/process — Process a password reset request
   app.post('/reset-requests/:id/process', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('USER_RESET_PASSWORD')],
     schema: {
       tags: ['Users'], summary: 'Process reset request', description: 'Approve or reject a password reset request',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },

@@ -45,7 +45,7 @@ const CASE_OPTIONS = [
 
 export function UserIdConfigPage() {
   const { user } = useAuth();
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN' || (user?.permissions?.includes('CONFIG_UPDATE') ?? false);
 
   const { data: config, mutate } = useSWR<UserIdConfig>('/api/config/user-id');
   const { data: nextIdData } = useSWR<{ autoGenerate: boolean; nextId: string | null }>(
@@ -365,28 +365,12 @@ export function UserIdConfigPage() {
 
           {/* Save Button */}
           {isSuperAdmin && (
-            <div className="flex justify-end">
-              <Button
-                onClick={handleSave}
-                disabled={saving}
-                className="gap-2 bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700"
-              >
-                {saving ? (
-                  <>
-                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    Save Configuration
-                  </>
-                )}
+            <div className="flex justify-end gap-3 pt-4 mt-6 border-t border-slate-100">
+              <Button variant="outline" onClick={() => window.history.back()}>
+                Cancel
+              </Button>
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? 'Saving...' : 'Save Configuration'}
               </Button>
             </div>
           )}

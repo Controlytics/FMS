@@ -25,6 +25,7 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'audit.export', label: 'Export Audit Trail', category: 'System', icon: 'download' },
   { id: 'config.view', label: 'View Configuration', category: 'System', icon: 'settings' },
   { id: 'config.edit', label: 'Edit Configuration', category: 'System', icon: 'settings-edit' },
+  { id: 'roles.manage', label: 'Manage Roles', category: 'System', icon: 'shield' },
   { id: 'notifications.manage', label: 'Manage Notifications', category: 'System', icon: 'bell' },
 
   // Entity Management
@@ -45,3 +46,35 @@ export const FEATURE_PRIVILEGE_CATEGORIES = FEATURE_PRIVILEGES.reduce((acc, feat
   acc[feature.category].push(feature);
   return acc;
 }, {} as Record<string, FeaturePrivilege[]>);
+
+/**
+ * Maps feature privilege IDs to permission constants used by the API.
+ * When a feature privilege is enabled/disabled in the Role Privileges page,
+ * these permission constants are synced to the role's permissions array.
+ */
+export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
+  // User Management
+  'users.create': ['USER_CREATE', 'USER_READ'],
+  'users.edit': ['USER_UPDATE', 'USER_READ'],
+  'users.delete': ['USER_DELETE', 'USER_READ'],
+  'users.reset_password': ['USER_RESET_PASSWORD', 'USER_READ'],
+  'users.unlock': ['USER_UNLOCK', 'USER_READ'],
+  'users.enable_disable': ['USER_ENABLE_DISABLE', 'USER_READ'],
+
+  // System
+  'audit.view': ['AUDIT_READ'],
+  'audit.export': ['AUDIT_EXPORT', 'AUDIT_READ'],
+  'config.view': ['CONFIG_READ'],
+  'config.edit': ['CONFIG_UPDATE', 'CONFIG_READ'],
+  'roles.manage': ['ROLE_MANAGE'],
+  'notifications.manage': ['NOTIFICATION_MANAGE'],
+
+  // Entity Management
+  'assets.view': ['ASSET_VIEW'],
+  'assets.create': ['ASSET_CREATE', 'ASSET_VIEW'],
+  'assets.edit': ['ASSET_UPDATE', 'ASSET_VIEW'],
+  'assets.delete': ['ASSET_DELETE', 'ASSET_VIEW'],
+  'assets.templates': ['ASSET_TEMPLATE_CREATE', 'ASSET_TEMPLATE_UPDATE', 'ASSET_TEMPLATE_DELETE', 'ASSET_VIEW'],
+  'assets.relationships': ['ASSET_RELATIONSHIP_MANAGE', 'ASSET_VIEW'],
+  'assets.identifiers': ['ASSET_IDENTIFIER_MANAGE', 'ASSET_VIEW'],
+};

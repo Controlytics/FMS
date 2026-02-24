@@ -25,7 +25,7 @@ interface UserLabels {
 }
 
 interface UserTableProps {
-  isSuperAdmin: boolean;
+  canDeleteUsers: boolean;
   displayedUsers: any[];
   selectedIds: Set<string>;
   toggleSelect: (id: string) => void;
@@ -45,7 +45,7 @@ interface UserTableProps {
 }
 
 export function UserTable({
-  isSuperAdmin,
+  canDeleteUsers,
   displayedUsers,
   selectedIds,
   toggleSelect,
@@ -66,7 +66,7 @@ export function UserTable({
       <Table>
         <TableHeader>
           <TableRow className="bg-gradient-to-r from-slate-50 to-white border-b border-slate-100">
-            {isSuperAdmin && (
+            {canDeleteUsers && (
               <TableHead className="w-12">
                 <input
                   type="checkbox"
@@ -88,7 +88,7 @@ export function UserTable({
         <TableBody>
           {displayedUsers.map((user: any) => (
             <TableRow key={user.id} className={`hover:bg-slate-50/50 transition-colors ${selectedIds.has(user.id) ? 'bg-blue-50/50' : ''}`}>
-              {isSuperAdmin && (
+              {canDeleteUsers && (
                 <TableCell className="w-12">
                   {user.id !== currentUser?.id && user.role !== 'SUPER_ADMIN' ? (
                     <input
@@ -181,8 +181,8 @@ export function UserTable({
                       Enable
                     </Button>
                   )}
-                  {/* Delete button - only for SUPER_ADMIN and not for own account */}
-                  {isSuperAdmin && user.id !== currentUser?.id && (
+                  {/* Delete button - requires USER_DELETE permission, not for own account */}
+                  {canDeleteUsers && user.id !== currentUser?.id && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -201,7 +201,7 @@ export function UserTable({
           ))}
           {displayedUsers.length === 0 && (
             <TableRow>
-              <TableCell colSpan={isSuperAdmin ? 7 : 6} className="text-center py-16">
+              <TableCell colSpan={canDeleteUsers ? 7 : 6} className="text-center py-16">
                 <div className="flex flex-col items-center gap-4">
                   <div className="p-4 rounded-2xl bg-slate-100">
                     <svg className="w-10 h-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

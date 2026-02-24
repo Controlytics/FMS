@@ -318,7 +318,10 @@ export function ProfilePage() {
               </div>
             </div>
           </CardContent>
-          <CardFooter className="flex justify-end gap-3">
+          <CardFooter className="flex justify-end gap-3 border-t border-slate-100 pt-4 mt-2">
+            <Button variant="outline" onClick={() => window.history.back()}>
+              Cancel
+            </Button>
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? 'Saving...' : 'Save Changes'}
             </Button>

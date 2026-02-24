@@ -9,7 +9,7 @@ import { createNotification } from '../notifications/notification.service.js';
 const DUMMY_HASH = '$2b$12$7fXFzVUc/0SLHtxesM41PODN09mcQBJ0QB/uy7BQHDWzsklxK9yh6';
 
 export const authService = {
-  async login(username: string, password: string, ip: string, userAgent: string | undefined) {
+  async login(username: string, password: string, ip: string, userAgent: string | undefined, force?: boolean) {
     const user = await authRepository.findUserByUsername(username);
     if (!user) {
       await verifyPassword(password, DUMMY_HASH);
@@ -103,15 +103,28 @@ export const authService = {
       });
     }
 
-    // Terminate existing sessions
+    // Check for existing sessions (same account, different location)
     const existingSessions = await authRepository.findActiveSessions(user.id);
     if (existingSessions.length > 0) {
+      if (!force) {
+        // Return session conflict — let the user decide
+        const oldSession = existingSessions[0];
+        const err = new AppError(409, 'SESSION_CONFLICT', 'An active session already exists for this account.');
+        (err as any).activeSession = {
+          ipAddress: oldSession.ipAddress ?? 'Unknown',
+          loginTime: oldSession.createdAt.toISOString(),
+          lastActiveAt: oldSession.lastActiveAt.toISOString(),
+        };
+        throw err;
+      }
+
+      // force=true: terminate existing sessions and proceed
       await authRepository.terminateActiveSessions(user.id, 'new_login');
       await auditLog({
         userId: user.username, userRole: user.role, action: 'FORCED_LOGOUT',
         targetType: 'session', targetId: existingSessions.map(s => s.id).join(','),
         afterValue: { username: user.username, fullName: user.fullName },
-        signatureMeaning: 'Previous sessions auto-terminated for new login',
+        signatureMeaning: 'Previous sessions terminated by user on new login',
         ipAddress: ip, userAgent,
       });
     }
@@ -173,7 +186,10 @@ export const authService = {
   },
 
   async getProfile(userId: string) {
-    return authRepository.findUserByIdSelect(userId);
+    const user = await authRepository.findUserByIdSelect(userId);
+    if (!user) return null;
+    const permissions = await authRepository.getRolePermissions(user.role);
+    return { ...user, permissions };
   },
 
   async updateProfile(userId: string, data: { fullName?: string; email?: string; department?: string; photoUrl?: string }, ip: string, userAgent: string | undefined, sessionId: string) {

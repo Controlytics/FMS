@@ -250,13 +250,8 @@ export function AuditTemplatesConfigPage() {
       {/* Bottom Save Bar */}
       {hasChanges && (
         <div className="sticky bottom-4 z-10">
-          <div className="bg-white rounded-2xl border-2 border-indigo-200 shadow-xl p-4 flex items-center justify-between">
-            <div className="flex items-center gap-2 text-indigo-700">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
-              <span className="text-sm font-medium">You have unsaved changes</span>
-            </div>
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl p-4 flex items-center justify-between border-t border-t-slate-100">
+            <p className="text-sm text-slate-500">You have unsaved changes.</p>
             <div className="flex items-center gap-3">
               <Button variant="outline" size="sm" onClick={() => { setTemplates(null); setSuccessMsg(''); }}>
                 Discard

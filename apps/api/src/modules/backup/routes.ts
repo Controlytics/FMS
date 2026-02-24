@@ -8,7 +8,7 @@ export default async function backupRoutes(app: FastifyInstance) {
 
   // GET /api/backup/export — Generate and download backup
   app.get('/export', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
     schema: {
       tags: ['Backup'],
       summary: 'Export database backup',
@@ -57,7 +57,7 @@ export default async function backupRoutes(app: FastifyInstance) {
 
   // POST /api/backup/restore — Restore from backup file
   app.post('/restore', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
     schema: {
       tags: ['Backup'],
       summary: 'Restore database from backup',
@@ -111,7 +111,7 @@ export default async function backupRoutes(app: FastifyInstance) {
 
   // POST /api/backup/validate — Validate a backup file without restoring
   app.post('/validate', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
     schema: {
       tags: ['Backup'],
       summary: 'Validate backup file',

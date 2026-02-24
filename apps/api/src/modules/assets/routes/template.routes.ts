@@ -118,7 +118,7 @@ export default async function templateRoutes(app: FastifyInstance) {
 
   // 3. POST /templates — Create template
   app.post('/templates', {
-    preHandler: [app.requirePermission('ASSET_TEMPLATE_MANAGE')],
+    preHandler: [app.requirePermission('ASSET_TEMPLATE_CREATE')],
     schema: {
       tags: ['Entity Templates'],
       summary: 'Create entity template',
@@ -167,7 +167,7 @@ export default async function templateRoutes(app: FastifyInstance) {
 
   // 4. PUT /templates/:id — Update template
   app.put('/templates/:id', {
-    preHandler: [app.requirePermission('ASSET_TEMPLATE_MANAGE')],
+    preHandler: [app.requirePermission('ASSET_TEMPLATE_UPDATE')],
     schema: {
       tags: ['Entity Templates'],
       summary: 'Update entity template',
@@ -221,7 +221,7 @@ export default async function templateRoutes(app: FastifyInstance) {
 
   // 5. DELETE /templates/:id — Soft-delete (set isActive=false)
   app.delete('/templates/:id', {
-    preHandler: [app.requirePermission('ASSET_TEMPLATE_MANAGE')],
+    preHandler: [app.requirePermission('ASSET_TEMPLATE_DELETE')],
     schema: {
       tags: ['Entity Templates'],
       summary: 'Soft-delete entity template',

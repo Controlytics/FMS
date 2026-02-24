@@ -192,11 +192,11 @@ export default async function auditRoutes(app: FastifyInstance) {
 
   // DELETE /api/audit/:id — delete single audit record (SUPER_ADMIN only)
   app.delete('/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
     schema: {
       tags: ['Audit'],
-      summary: 'Delete audit record (SUPER_ADMIN)',
-      description: 'Permanently delete a single audit trail record. SUPER_ADMIN only.',
+      summary: 'Delete audit record',
+      description: 'Permanently delete a single audit trail record. Requires CONFIG_UPDATE permission.',
       params: {
         type: 'object',
         required: ['id'],
@@ -232,11 +232,11 @@ export default async function auditRoutes(app: FastifyInstance) {
 
   // POST /api/audit/bulk-delete — delete multiple audit records (SUPER_ADMIN only)
   app.post('/bulk-delete', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
     schema: {
       tags: ['Audit'],
-      summary: 'Delete selected audit records (SUPER_ADMIN)',
-      description: 'Permanently delete multiple audit trail records by their IDs. SUPER_ADMIN only.',
+      summary: 'Delete selected audit records',
+      description: 'Permanently delete multiple audit trail records by their IDs. Requires CONFIG_UPDATE permission.',
       body: {
         type: 'object',
         required: ['ids'],

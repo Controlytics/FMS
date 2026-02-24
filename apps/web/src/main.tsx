@@ -52,23 +52,25 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/" element={<DashboardPage />} />
             <Route path="/profile" element={<ProfilePage />} />
 
-            {/* User management (ADMIN+) */}
-            <Route path="/users" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><UserListPage /></RequireRole>} />
-            <Route path="/users/create" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><CreateUserPage /></RequireRole>} />
-            <Route path="/users/reset-requests" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><ResetRequestsPage /></RequireRole>} />
-            <Route path="/users/:id" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><EditUserPage /></RequireRole>} />
+            {/* User management — permission-based */}
+            <Route path="/users" element={<RequireRole permissions={['USER_READ']}><UserListPage /></RequireRole>} />
+            <Route path="/users/create" element={<RequireRole permissions={['USER_CREATE']}><CreateUserPage /></RequireRole>} />
+            <Route path="/users/reset-requests" element={<RequireRole permissions={['USER_RESET_PASSWORD']}><ResetRequestsPage /></RequireRole>} />
+            <Route path="/users/:id" element={<RequireRole permissions={['USER_READ']}><EditUserPage /></RequireRole>} />
 
-            {/* Configuration (ADMIN+) */}
-            <Route path="/config" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><ConfigIndexPage /></RequireRole>} />
-            <Route path="/config/password-policy" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><PasswordPolicyPage /></RequireRole>} />
-            <Route path="/config/datetime" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><DatetimeConfigPage /></RequireRole>} />
-            <Route path="/config/branding" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><BrandingConfigPage /></RequireRole>} />
-            <Route path="/config/role-privileges" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><RolePrivilegesPage /></RequireRole>} />
-            <Route path="/config/roles" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><RolesManagementPage /></RequireRole>} />
-            <Route path="/config/sidebar" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><SidebarConfigPage /></RequireRole>} />
-            <Route path="/config/field-ids" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><FieldIdsPage /></RequireRole>} />
-            <Route path="/config/user-id" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><UserIdConfigPage /></RequireRole>} />
-            <Route path="/config/backup" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><BackupRestorePage /></RequireRole>} />
+            {/* Configuration — permission-based */}
+            <Route path="/config" element={<RequireRole permissions={['CONFIG_READ']}><ConfigIndexPage /></RequireRole>} />
+            <Route path="/config/password-policy" element={<RequireRole permissions={['CONFIG_READ']}><PasswordPolicyPage /></RequireRole>} />
+            <Route path="/config/datetime" element={<RequireRole permissions={['CONFIG_READ']}><DatetimeConfigPage /></RequireRole>} />
+            <Route path="/config/backup" element={<RequireRole permissions={['CONFIG_READ']}><BackupRestorePage /></RequireRole>} />
+
+            {/* Super Admin Settings — SUPER_ADMIN role only */}
+            <Route path="/config/branding" element={<RequireRole roles={['SUPER_ADMIN']}><BrandingConfigPage /></RequireRole>} />
+            <Route path="/config/role-privileges" element={<RequireRole roles={['SUPER_ADMIN']}><RolePrivilegesPage /></RequireRole>} />
+            <Route path="/config/roles" element={<RequireRole roles={['SUPER_ADMIN']}><RolesManagementPage /></RequireRole>} />
+            <Route path="/config/sidebar" element={<RequireRole roles={['SUPER_ADMIN']}><SidebarConfigPage /></RequireRole>} />
+            <Route path="/config/field-ids" element={<RequireRole roles={['SUPER_ADMIN']}><FieldIdsPage /></RequireRole>} />
+            <Route path="/config/user-id" element={<RequireRole roles={['SUPER_ADMIN']}><UserIdConfigPage /></RequireRole>} />
             <Route path="/config/action-reauth" element={<RequireRole roles={['SUPER_ADMIN']}><ActionReauthPage /></RequireRole>} />
             <Route path="/config/audit-templates" element={<RequireRole roles={['SUPER_ADMIN']}><AuditTemplatesConfigPage /></RequireRole>} />
             <Route path="/config/pagination" element={<RequireRole roles={['SUPER_ADMIN']}><PaginationConfigPage /></RequireRole>} />

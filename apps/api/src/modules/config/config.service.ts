@@ -3,8 +3,25 @@ import { auditLog } from '../../lib/audit.js';
 import { NotFoundError, ValidationError } from '../../lib/errors.js';
 import { configRepository } from './config.repository.js';
 import { getActionReauthConfig, invalidateReauthCache, isReauthRequired } from '../../lib/reauth-check.js';
-import { getDefaultTemplates } from '@digilog/shared';
+import { getDefaultTemplates, FEATURE_TO_PERMISSION_MAP, FEATURE_PRIVILEGES } from '@digilog/shared';
 import { validateUserId } from '../../lib/user-id-validator.js';
+import { prisma } from '../../lib/prisma.js';
+
+/**
+ * Reverse-map a role's permission constants to feature privilege booleans.
+ * Used to populate the Role Privileges page when role_configs has no data.
+ */
+function reverseMapPermissions(rolePermissions: string[]): Record<string, boolean> {
+  const featurePerms: Record<string, boolean> = {};
+  for (const feature of FEATURE_PRIVILEGES) {
+    const requiredPerms = FEATURE_TO_PERMISSION_MAP[feature.id];
+    if (requiredPerms) {
+      // Feature is enabled if ANY of its mapped permissions exist in the role
+      featurePerms[feature.id] = requiredPerms.some(p => rolePermissions.includes(p));
+    }
+  }
+  return featurePerms;
+}
 
 export const configService = {
   async getConfig(key: string, schema: any) {
@@ -40,6 +57,24 @@ export const configService = {
 
   async getRoleConfig(role: string) {
     const config = await configRepository.findRoleConfig(role);
+    const permissions = (config?.permissions as Record<string, boolean>) ?? {};
+
+    // If role_configs has no feature privileges, reverse-map from roles.permissions
+    const hasFeaturePerms = Object.keys(permissions).length > 0;
+    if (!hasFeaturePerms) {
+      const roleRecord = await prisma.role.findUnique({ where: { name: role }, select: { permissions: true } });
+      const rolePerms = (roleRecord?.permissions as string[]) ?? [];
+      if (rolePerms.length > 0) {
+        const mapped = reverseMapPermissions(rolePerms);
+        return {
+          role,
+          sidebarItems: (config?.sidebarItems as string[]) ?? [],
+          homeWidgets: (config?.homeWidgets as string[]) ?? [],
+          permissions: mapped,
+        };
+      }
+    }
+
     return config ?? { role, sidebarItems: [], homeWidgets: [], permissions: {} };
   },
 
@@ -48,6 +83,23 @@ export const configService = {
     const beforeValue = existing ? { sidebarItems: existing.sidebarItems, homeWidgets: existing.homeWidgets, permissions: existing.permissions } : null;
 
     const config = await configRepository.upsertRoleConfig(role, data, existing, ctx.userId);
+
+    // Sync feature privileges to role's permissions array
+    if (data.permissions) {
+      const permissionSet = new Set<string>();
+      for (const [featureId, enabled] of Object.entries(data.permissions)) {
+        if (enabled && FEATURE_TO_PERMISSION_MAP[featureId]) {
+          for (const perm of FEATURE_TO_PERMISSION_MAP[featureId]) {
+            permissionSet.add(perm);
+          }
+        }
+      }
+      const permissionsArray = Array.from(permissionSet);
+      await prisma.role.updateMany({
+        where: { name: role },
+        data: { permissions: permissionsArray },
+      });
+    }
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'CONFIG_CHANGED',

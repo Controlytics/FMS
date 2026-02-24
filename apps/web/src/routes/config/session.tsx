@@ -69,7 +69,7 @@ export function SessionConfigPage() {
               </>
             )}
           </CardContent>
-          <CardFooter className="gap-2">
+          <CardFooter className="gap-3 border-t border-slate-100 pt-4 mt-2 justify-end">
             <Button type="button" variant="outline" onClick={() => navigate('/config')}>Cancel</Button>
             <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Saving...' : 'Save Changes'}</Button>
           </CardFooter>

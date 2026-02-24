@@ -25,6 +25,7 @@ export default async function authRoutes(app: FastifyInstance) {
         properties: {
           username: { type: 'string', example: 'admin' },
           password: { type: 'string', example: 'Admin@123' },
+          force: { type: 'boolean', description: 'Force login by terminating existing sessions' },
         },
       },
       response: {
@@ -57,8 +58,14 @@ export default async function authRoutes(app: FastifyInstance) {
     }
 
     try {
-      return await authService.login(parsed.data.username, parsed.data.password, req.ip, req.headers['user-agent']);
+      return await authService.login(parsed.data.username, parsed.data.password, req.ip, req.headers['user-agent'], parsed.data.force);
     } catch (err) {
+      // Special handling for session conflicts — include activeSession details
+      if (err instanceof AppError && (err.code === 'SESSION_CONFLICT' || err.code === 'DIFFERENT_USER_SESSION_CONFLICT')) {
+        return reply.code(err.statusCode).send({
+          error: err.code, message: err.message, activeSession: (err as any).activeSession,
+        });
+      }
       // Special handling for attemptsRemaining field (must be top-level, not in details)
       if (err instanceof AppError && (err as any).attemptsRemaining !== undefined) {
         return reply.code(err.statusCode).send({
@@ -134,6 +141,7 @@ export default async function authRoutes(app: FastifyInstance) {
             isTemporaryPassword: { type: 'boolean' },
             lastLogin: { type: 'string', nullable: true, format: 'date-time' },
             createdAt: { type: 'string', format: 'date-time' },
+            permissions: { type: 'array', items: { type: 'string' } },
           },
         },
       },

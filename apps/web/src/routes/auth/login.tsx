@@ -19,6 +19,19 @@ export function LoginPage() {
   const [systemSession, setSystemSession] = useState<ActiveSessionInfo | null>(null);
   const [showSystemSessionDialog, setShowSystemSessionDialog] = useState(false);
 
+  // Session conflict state (server-side active session detected)
+  const [sessionConflict, setSessionConflict] = useState<{
+    type: 'same_user' | 'different_user';
+    ipAddress: string;
+    loginTime: string;
+    lastActiveAt?: string;
+    username?: string;
+    fullName?: string;
+  } | null>(null);
+  const [showSessionConflictDialog, setShowSessionConflictDialog] = useState(false);
+  const [pendingCredentials, setPendingCredentials] = useState<{ username: string; password: string } | null>(null);
+  const [forceLoginLoading, setForceLoginLoading] = useState(false);
+
   // Check for existing system session on mount
   useEffect(() => {
     const existingSystemSession = checkExistingUserSession();
@@ -35,19 +48,48 @@ export function LoginPage() {
   const onSubmit = async (data: LoginInput) => {
     setError('');
 
-    // Re-check for existing system session before login
-    const existingSystemSession = checkExistingUserSession();
-    if (existingSystemSession) {
-      setSystemSession(existingSystemSession);
-      setShowSystemSessionDialog(true);
-      return;
-    }
-
     try {
       await login(data.username, data.password);
     } catch (err: any) {
+      if (err.code === 'SESSION_CONFLICT' && err.activeSession) {
+        setPendingCredentials({ username: data.username, password: data.password });
+        setSessionConflict({ type: 'same_user', ...err.activeSession });
+        setShowSessionConflictDialog(true);
+        return;
+      }
+      if (err.code === 'DIFFERENT_USER_SESSION_CONFLICT' && err.activeSession) {
+        setPendingCredentials({ username: data.username, password: data.password });
+        setSessionConflict({ type: 'different_user', ...err.activeSession });
+        setShowSessionConflictDialog(true);
+        return;
+      }
       setError(err.message || 'Login failed');
     }
+  };
+
+  const handleForceLogin = async () => {
+    if (!pendingCredentials) return;
+    setForceLoginLoading(true);
+    setError('');
+    try {
+      await login(pendingCredentials.username, pendingCredentials.password, true);
+      setShowSessionConflictDialog(false);
+      setPendingCredentials(null);
+      setSessionConflict(null);
+    } catch (err: any) {
+      setShowSessionConflictDialog(false);
+      setPendingCredentials(null);
+      setSessionConflict(null);
+      setError(err.message || 'Login failed');
+    } finally {
+      setForceLoginLoading(false);
+    }
+  };
+
+  const handleCancelConflict = () => {
+    setShowSessionConflictDialog(false);
+    setPendingCredentials(null);
+    setSessionConflict(null);
   };
 
   return (
@@ -267,6 +309,105 @@ export function LoginPage() {
             className="w-full"
           >
             Close
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      {/* Session Conflict Dialog - Same user or different user conflict (server-side) */}
+      <Dialog open={showSessionConflictDialog} onClose={handleCancelConflict} className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+              sessionConflict?.type === 'different_user' ? 'bg-red-100' : 'bg-amber-100'
+            }`}>
+              <svg className={`w-5 h-5 ${
+                sessionConflict?.type === 'different_user' ? 'text-red-600' : 'text-amber-600'
+              }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            {sessionConflict?.type === 'different_user' ? 'Another User is Logged In' : 'Active Session Detected'}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">
+            {sessionConflict?.type === 'different_user'
+              ? 'Another user is currently logged in from this system. For security reasons, only one user can be active per system. Continuing will terminate their session.'
+              : 'Your account is currently logged in from another location. Continuing will terminate the existing session.'}
+          </p>
+
+          {sessionConflict && (
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+              <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Existing Session</p>
+              <div className="space-y-2">
+                {sessionConflict.type === 'different_user' && sessionConflict.username && (
+                  <div className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                    <span className="text-sm text-slate-700">
+                      <span className="font-medium">User:</span> {sessionConflict.fullName || sessionConflict.username} ({sessionConflict.username})
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                  </svg>
+                  <span className="text-sm text-slate-700">
+                    <span className="font-medium">IP Address:</span> {sessionConflict.ipAddress}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="text-sm text-slate-700">
+                    <span className="font-medium">Logged in:</span> {new Date(sessionConflict.loginTime).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <p className="text-sm text-slate-500">
+            {sessionConflict?.type === 'different_user'
+              ? 'Do you want to continue and logout the other user\'s session?'
+              : 'Do you want to continue and logout the other session?'}
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button
+            onClick={handleCancelConflict}
+            variant="outline"
+            disabled={forceLoginLoading}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleForceLogin}
+            disabled={forceLoginLoading}
+            className="font-semibold"
+            style={{
+              background: sessionConflict?.type === 'different_user'
+                ? undefined
+                : `linear-gradient(to right, ${branding.primaryColor}, ${branding.secondaryColor})`,
+              backgroundColor: sessionConflict?.type === 'different_user' ? '#dc2626' : undefined,
+            }}
+          >
+            {forceLoginLoading ? (
+              <span className="flex items-center gap-2">
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Continuing...
+              </span>
+            ) : sessionConflict?.type === 'different_user'
+              ? `Continue & Logout ${sessionConflict?.username ?? 'User'}`
+              : 'Continue & Logout Old Session'}
           </Button>
         </DialogFooter>
       </Dialog>

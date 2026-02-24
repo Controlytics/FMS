@@ -29,6 +29,7 @@ const app = Fastify({
   logger: {
     level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
   },
+  trustProxy: true,
   ajv: {
     customOptions: {
       keywords: ['example'],

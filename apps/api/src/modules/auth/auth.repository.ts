@@ -21,6 +21,14 @@ export const authRepository = {
     });
   },
 
+  async getRolePermissions(roleName: string) {
+    const role = await prisma.role.findUnique({
+      where: { name: roleName },
+      select: { permissions: true },
+    });
+    return (role?.permissions as string[]) || [];
+  },
+
   async findUserByEmail(email: string) {
     return prisma.user.findUnique({ where: { email } });
   },
@@ -43,6 +51,18 @@ export const authRepository = {
   async findActiveSessions(userId: string) {
     return prisma.session.findMany({
       where: { userId, isActive: true, expiresAt: { gt: new Date() } },
+    });
+  },
+
+  async findActiveSessionsByIp(ipAddress: string, excludeUserId: string) {
+    return prisma.session.findMany({
+      where: {
+        ipAddress,
+        isActive: true,
+        expiresAt: { gt: new Date() },
+        userId: { not: excludeUserId },
+      },
+      include: { user: { select: { username: true, fullName: true } } },
     });
   },
 

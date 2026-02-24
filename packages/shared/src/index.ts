@@ -11,7 +11,7 @@ export type { Permission } from './types/permissions.js';
 export { PERMISSION_CATEGORIES } from './types/permission-categories.js';
 export type { PermissionItem } from './types/permission-categories.js';
 
-export { FEATURE_PRIVILEGES, FEATURE_PRIVILEGE_CATEGORIES } from './types/feature-privileges.js';
+export { FEATURE_PRIVILEGES, FEATURE_PRIVILEGE_CATEGORIES, FEATURE_TO_PERMISSION_MAP } from './types/feature-privileges.js';
 export type { FeaturePrivilege } from './types/feature-privileges.js';
 
 export { SIDEBAR_ITEMS } from './types/sidebar-items.js';

@@ -83,7 +83,7 @@ const typeIcons: Record<string, React.ReactNode> = {
 
 export function NotificationsPage() {
   const { user } = useAuth();
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN' || (user?.permissions?.includes('NOTIFICATION_MANAGE') ?? false);
   const { formatDate: fmtDate } = useDatetimeFormat();
   const paginationOptions = usePaginationConfig();
   const [page, setPage] = useState(1);

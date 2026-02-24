@@ -16,6 +16,7 @@ interface User {
   isTemporaryPassword: boolean;
   lastLogin: string | null;
   createdAt?: string;
+  permissions?: string[];
 }
 
 interface LoginResponse {
@@ -37,10 +38,11 @@ export function useAuth() {
     sessionStorage.getItem('access_token') ? '/api/auth/me' : null,
   );
 
-  const login = async (username: string, password: string) => {
+  const login = async (username: string, password: string, force?: boolean) => {
     const res = await apiClient.post<LoginResponse>('/api/auth/login', {
       username,
       password,
+      ...(force && { force }),
     });
     sessionStorage.setItem('access_token', res.token);
 

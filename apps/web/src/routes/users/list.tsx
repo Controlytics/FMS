@@ -61,7 +61,7 @@ export function UserListPage() {
   // Get available roles for filter, excluding SUPER_ADMIN for Admin users
   const availableRoles = useMemo(() => {
     if (!rolesData) return [];
-    if (currentUser?.role === 'ADMIN') {
+    if (currentUser?.role !== 'SUPER_ADMIN') {
       return rolesData.filter(r => r.name !== 'SUPER_ADMIN');
     }
     return rolesData;
@@ -82,7 +82,7 @@ export function UserListPage() {
   // Filter out SUPER_ADMIN users from the list for Admin users (only affects display, not server query)
   const data = rawData ? {
     ...rawData,
-    data: currentUser?.role === 'ADMIN'
+    data: currentUser?.role !== 'SUPER_ADMIN'
       ? rawData.data?.filter((u: any) => u.role !== 'SUPER_ADMIN')
       : rawData.data,
   } : null;
@@ -133,6 +133,7 @@ export function UserListPage() {
   };
 
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
+  const canDeleteUsers = isSuperAdmin || (currentUser?.permissions?.includes('USER_DELETE') ?? false);
 
   // Get filtered user list for display
   const displayedUsers = data?.data ?? [];
@@ -318,7 +319,7 @@ export function UserListPage() {
       )}
 
       {/* Bulk Selection Toolbar */}
-      {isSuperAdmin && selectedIds.size > 0 && (
+      {canDeleteUsers && selectedIds.size > 0 && (
         <div className="bg-gradient-to-r from-red-50 to-rose-50 rounded-2xl border border-red-200 p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-red-100">
@@ -356,7 +357,7 @@ export function UserListPage() {
 
       {/* Table */}
       <UserTable
-        isSuperAdmin={isSuperAdmin}
+        canDeleteUsers={canDeleteUsers}
         displayedUsers={displayedUsers}
         selectedIds={selectedIds}
         toggleSelect={toggleSelect}

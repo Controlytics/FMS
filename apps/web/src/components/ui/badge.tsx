@@ -1,12 +1,12 @@
 import { cn } from '@/lib/cn';
 
 const variants = {
-  default: 'bg-gradient-to-r from-[#1e3a5f] to-[#2d4a6f] text-white',
+  default: 'bg-slate-100 text-slate-700 border border-slate-200',
   secondary: 'bg-slate-100 text-slate-700 border border-slate-200',
-  destructive: 'bg-gradient-to-r from-red-500 to-red-600 text-white',
+  destructive: 'bg-red-100 text-red-700 border border-red-200',
   outline: 'text-slate-700 border-2 border-slate-300 bg-white',
-  success: 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white',
-  warning: 'bg-gradient-to-r from-amber-400 to-orange-500 text-white',
+  success: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
+  warning: 'bg-amber-100 text-amber-700 border border-amber-200',
 } as const;
 
 interface BadgeProps extends React.HTMLAttributes<HTMLDivElement> {

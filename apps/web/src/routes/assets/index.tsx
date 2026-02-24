@@ -224,7 +224,7 @@ export function AssetExplorerPage() {
   );
 
   const { data: templatesData } = useSWR<{ data: AssetTemplate[] }>(
-    '/api/assets/templates?limit=100',
+    '/api/assets/templates?limit=100&isActive=true',
   );
 
   const { data: listData, isLoading: listLoading } = useSWR<PaginatedInstances>(
@@ -1289,17 +1289,6 @@ export function AssetExplorerPage() {
       {/* DIALOGS */}
       {/* ============================================= */}
 
-      {/* Reauth Dialog */}
-      <ReauthDialog
-        open={reauth.isOpen}
-        password={reauth.password}
-        error={reauth.error}
-        isVerifying={reauth.isVerifying}
-        onPasswordChange={reauth.setPassword}
-        onConfirm={reauth.confirm}
-        onCancel={reauth.cancel}
-      />
-
       {/* ---- Add Entity Wizard Dialog ---- */}
       <Dialog
         open={showAddDialog}
@@ -2065,6 +2054,17 @@ export function AssetExplorerPage() {
           </Button>
         </DialogFooter>
       </Dialog>
+
+      {/* Reauth Dialog — rendered last so it stacks on top of all other dialogs */}
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+      />
     </div>
   );
 }

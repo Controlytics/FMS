@@ -2,13 +2,13 @@ import { type ButtonHTMLAttributes, forwardRef } from 'react';
 import { cn } from '@/lib/cn';
 
 const variants = {
-  default: 'bg-gradient-to-r from-[#1e3a5f] to-[#2d4a6f] text-white hover:from-[#2d4a6f] hover:to-[#3d5a7f] shadow-md hover:shadow-lg',
-  destructive: 'bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 shadow-md hover:shadow-lg',
+  default: 'bg-blue-600 text-white hover:bg-blue-700 shadow-md hover:shadow-lg',
+  destructive: 'bg-red-600 text-white hover:bg-red-700 shadow-md hover:shadow-lg',
   outline: 'border-2 border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 text-slate-700',
   secondary: 'bg-slate-100 text-slate-700 hover:bg-slate-200',
   ghost: 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
   link: 'text-[#3b82f6] underline-offset-4 hover:underline',
-  success: 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 shadow-md hover:shadow-lg',
+  success: 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-md hover:shadow-lg',
 } as const;
 
 const sizes = {

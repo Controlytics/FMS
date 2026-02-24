@@ -18,7 +18,7 @@ export function AuditTrailPage() {
   const { user } = useAuth();
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
   const paginationOptions = usePaginationConfig();
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN' || (user?.permissions?.includes('CONFIG_UPDATE') ?? false);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(paginationOptions[0]);
 

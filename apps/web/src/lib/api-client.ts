@@ -44,6 +44,7 @@ class ApiClient {
       const error = new Error(err.message ?? err.error ?? `Request failed: ${res.status}`);
       (error as any).code = err.error;
       (error as any).connectionInfo = err.connectionInfo;
+      (error as any).activeSession = err.activeSession;
       throw error;
     }
 

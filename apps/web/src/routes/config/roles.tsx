@@ -139,7 +139,7 @@ export function RolesManagementPage() {
     }
   };
 
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN' || (user?.permissions?.includes('ROLE_MANAGE') ?? false);
 
   return (
     <div className="space-y-6 animate-fade-in">
