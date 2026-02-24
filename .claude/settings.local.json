@@ -98,7 +98,8 @@
       "Bash(export:*)",
       "Bash(git remote set-url:*)",
       "Bash(tree:*)",
-      "Bash(npx vitest run:*)"
+      "Bash(npx vitest run:*)",
+      "Bash(git stash:*)"
     ],
     "deny": [],
     "ask": []
