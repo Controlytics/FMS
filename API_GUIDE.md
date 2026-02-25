@@ -6,6 +6,9 @@
 All endpoints require `Authorization: Bearer <token>` header unless marked "No auth".
 
 **Total Endpoints: 82**
+**Last Updated:** 2026-02-25 (v2.1.1)
+
+> **No API changes in this update (v2.1.1).** Documentation governance enforcement activated — process-only change. All 82 endpoints remain unchanged.
 
 ---
 

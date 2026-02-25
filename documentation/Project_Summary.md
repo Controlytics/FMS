@@ -2,7 +2,7 @@
 
 **Maintained by:** Engineering Team
 **Created:** 2026-02-25
-**Last Updated:** 2026-02-25
+**Last Updated:** 2026-02-25 (v2.1.1)
 **Policy:** This document must be updated after every feature addition, bug fix, or structural change.
 
 ---
@@ -265,8 +265,22 @@ All testing documents are centralized in `/documentation/testing/`:
 
 ---
 
+### Documentation Compliance Status
+
+| Status | Details |
+|--------|---------|
+| **Governance Mode** | Active (self-enforcing) |
+| **Current Version** | 2.1.1 |
+| **Auto-Sync Documents** | 7 (CHANGELOG, API_GUIDE, task_status, BUSINESS_CONTEXT, CODEBASE_CONTEXT, PLAN, Project_Summary) |
+| **Bug Lifecycle** | Enforced (Git issue → fix → Bug_Resolution_Log → close) |
+| **Testing Docs** | Centralized at `/documentation/testing/` |
+| **Last Full Sync** | 2026-02-25 |
+
+---
+
 ## Version History
 
 | Date | Version | Change |
 |------|---------|--------|
+| 2026-02-25 | 2.1.1 | Documentation governance enforcement activated; all 7 core documents auto-synchronized |
 | 2026-02-25 | 1.0 | Initial creation — comprehensive project summary reflecting current system state |

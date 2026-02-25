@@ -2,6 +2,29 @@
 
 All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are documented here.
 
+## [2.1.1] - 2026-02-25
+
+### Changed — Documentation Governance
+- **Documentation governance enforcement activated** — All 7 core documents now auto-updated on every change (PATCH)
+  - Module: Documentation / Governance
+  - Files affected: `CHANGELOG.md`, `API_GUIDE.md`, `task_status.md`, `BUSINESS_CONTEXT.md`, `CODEBASE_CONTEXT.md`, `PLAN.md`, `documentation/Project_Summary.md`
+  - Established permanent self-enforcing documentation synchronization rule
+  - Every prompt, fix, feature, or structural change will trigger mandatory updates to all 7 governance files
+  - Added documentation compliance status tracking in `Project_Summary.md`
+
+### Changed — Documentation Centralization (2026-02-25)
+- **Testing documents centralized** to `/documentation/testing/` with subfolders: `manual/`, `reports/`, `automation/`, `validation/`
+- **Created `Bug_Resolution_Log.md`** — 12 historical bugs cataloged with structured format
+- **Created `Project_Summary.md`** — Comprehensive project summary with architecture, features, testing, bug metrics
+- **Created `.github/ISSUE_TEMPLATE/bug_report.md`** — Structured bug report template
+- **Updated all cross-references** in PLAN.md, BUSINESS_CONTEXT.md, CODEBASE_CONTEXT.md, CHANGELOG.md, task_status.md
+  - Module: Documentation
+  - Files moved: 8 testing documents from root to `/documentation/testing/`
+  - Files created: 3 (`Bug_Resolution_Log.md`, `Project_Summary.md`, `bug_report.md`)
+  - Files updated: 5 (`PLAN.md`, `BUSINESS_CONTEXT.md`, `CODEBASE_CONTEXT.md`, `CHANGELOG.md`, `task_status.md`)
+
+---
+
 ## [Unreleased] - 2026-02-21
 
 ### Added

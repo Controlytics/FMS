@@ -241,5 +241,53 @@ Fix Fastify stripping `checklistSchema` from GET-by-ID responses due to missing 
 - HTTPS/TLS certificates
 - CI/CD pipeline
 
+---
+
+## Governance Task Log
+
+### TASK-GOV-001: Documentation Governance Enforcement Activation
+
+| Field | Details |
+|-------|---------|
+| **Task Name** | Activate documentation governance enforcement |
+| **Status** | Completed |
+| **Module** | Documentation / Governance |
+| **Date** | 2026-02-25 |
+| **Version** | 2.1.1 |
+| **Description** | Activated permanent self-enforcing documentation synchronization. All 7 core documents (CHANGELOG.md, API_GUIDE.md, task_status.md, BUSINESS_CONTEXT.md, CODEBASE_CONTEXT.md, PLAN.md, Project_Summary.md) now auto-updated on every prompt. |
+| **Technical Notes** | Process-only change. No code, API, or schema modifications. Establishes audit-ready documentation governance for enterprise compliance. |
+
+**Documentation Update Checklist:**
+- CHANGELOG.md ✅
+- API_GUIDE.md ✅
+- task_status.md ✅
+- BUSINESS_CONTEXT.md ✅
+- CODEBASE_CONTEXT.md ✅
+- PLAN.md ✅
+- Project_Summary.md ✅
+
+### TASK-GOV-002: Testing Documentation Centralization
+
+| Field | Details |
+|-------|---------|
+| **Task Name** | Centralize testing documents to /documentation/testing/ |
+| **Status** | Completed |
+| **Module** | Documentation |
+| **Date** | 2026-02-25 |
+| **Version** | 2.1.1 |
+| **Description** | Moved 8 testing documents from root to centralized `/documentation/testing/` with subfolders. Created Bug_Resolution_Log.md (12 bugs), Project_Summary.md, and Git issue template. Updated all cross-references. |
+| **Technical Notes** | Git mv used for history preservation. Subfolders: manual/, reports/, automation/, validation/, regression/. |
+
+**Documentation Update Checklist:**
+- CHANGELOG.md ✅
+- API_GUIDE.md ✅
+- task_status.md ✅
+- BUSINESS_CONTEXT.md ✅
+- CODEBASE_CONTEXT.md ✅
+- PLAN.md ✅
+- Project_Summary.md ✅
+
+---
+
 ## Summary
-**Phase 1 is code-complete and deployed.** All User Management, Entity Management, and Configuration features are built end-to-end with 82 API endpoints. The app is running on EC2 at `43.205.32.23` via PM2 + nginx. Entity Management module (assets), Auth, and Config have been refactored to Routes → Services → Repositories. Test coverage includes 267 tests (151 shared + 116 API). Checklist feature supports 14 question types on entity templates.
+**Phase 1 is code-complete and deployed.** All User Management, Entity Management, and Configuration features are built end-to-end with 82 API endpoints. The app is running on EC2 at `43.205.32.23` via PM2 + nginx. Entity Management module (assets), Auth, and Config have been refactored to Routes → Services → Repositories. Test coverage includes 477 tests (334 unit/E2E + 73 RBAC + 70 feature). Checklist feature supports 14 question types on entity templates. Documentation governance enforcement active as of v2.1.1 — all 7 core documents auto-synchronized on every change.

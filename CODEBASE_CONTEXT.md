@@ -794,3 +794,51 @@ npm run dev                   # Start API + Web
 | `packages/shared/src/types/roles.ts` | Role definitions |
 | `packages/shared/src/types/reauth-actions.ts` | Reauth action constants |
 | `packages/shared/src/types/audit-actions.ts` | Audit action constants |
+
+### Documentation & Governance
+| File | Purpose |
+|------|---------|
+| `CHANGELOG.md` | Semantic versioned change history |
+| `API_GUIDE.md` | Complete API endpoint reference |
+| `task_status.md` | Development task tracking with governance checklist |
+| `BUSINESS_CONTEXT.md` | Business context and regulatory compliance |
+| `CODEBASE_CONTEXT.md` | This file — technical architecture reference |
+| `PLAN.md` | Master development plan and roadmap |
+| `documentation/Project_Summary.md` | Comprehensive project summary with metrics |
+| `documentation/Bug_Resolution_Log.md` | Structured bug lifecycle tracking |
+| `.github/ISSUE_TEMPLATE/bug_report.md` | Standardized bug report template |
+
+---
+
+## 16. Documentation Governance
+
+**Version:** 2.1.1 | **Activated:** 2026-02-25
+
+### Mandatory Update Rule
+
+Every code change, bug fix, feature addition, or structural modification triggers mandatory updates to all 7 governance files:
+
+1. `CHANGELOG.md` — Semantic versioned entry
+2. `API_GUIDE.md` — API impact or explicit "No API changes" notation
+3. `task_status.md` — Task entry with documentation compliance checklist
+4. `BUSINESS_CONTEXT.md` — Business/operational impact
+5. `CODEBASE_CONTEXT.md` — Architecture/technical impact
+6. `PLAN.md` — Roadmap/status updates
+7. `documentation/Project_Summary.md` — Current state reflection
+
+### Bug Lifecycle
+
+1. Create Git issue (`.github/ISSUE_TEMPLATE/bug_report.md`)
+2. Implement fix with validation
+3. Add entry to `documentation/Bug_Resolution_Log.md`
+4. Close issue with commit reference
+5. Update all 7 governance files
+
+### Testing Documentation
+
+Centralized at `documentation/testing/`:
+- `manual/` — Test plans, cases, summaries
+- `reports/` — Execution reports
+- `automation/` — Test scripts
+- `validation/` — Compliance verification
+- `regression/` — Regression results

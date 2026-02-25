@@ -17,6 +17,7 @@
 | 2026-02-20 | API refactoring Phase 0-1 (infrastructure + entity management module) | Done |
 | 2026-02-20 | API refactoring Phase 2-4 (auth, config, users modules) | Done |
 | 2026-02-21 | Checklist feature, audit descriptions, privileges, reauth, tests | Done |
+| 2026-02-25 | **v2.1.1** — Documentation governance, testing centralization, bug log, project summary | Done |
 | TBD | API refactoring Phase 5-7 (backup, roles, notifications) | Pending |
 | TBD | Frontend refactoring Phase 8-13 | Pending |
 | TBD | Future features (e-signatures, logbooks, data ingestion, reports) | Pending |
