@@ -1,7 +1,7 @@
 # DigiLog — Master Development Plan
 
-**Last updated:** 2026-02-21
-**Status:** Phase 1 complete, Phase 2 features in progress, refactoring ongoing
+**Last updated:** 2026-02-25
+**Status:** Phase 1 complete, Phase 2 features in progress, refactoring ongoing, documentation governance established
 
 ---
 
@@ -286,14 +286,36 @@ pm2 restart digilog-api
 | `packages/shared/CLAUDE.md` | Shared package structure and usage |
 | `PLAN.md` | This file — master development plan |
 | `BUSINESS_CONTEXT.md` | Business context, regulatory compliance, target industries |
-| `TEST.md` | Comprehensive test summary (334 tests across all features) |
+| `CODEBASE_CONTEXT.md` | Codebase context and architecture overview |
 | `CHANGELOG.md` | Version history and change details |
 | `API_GUIDE.md` | Complete API endpoint reference with examples |
 | `task_status.md` | Current development status and progress tracking |
-| `CODEBASE_CONTEXT.md` | Codebase context and architecture overview |
-| `TEST_CASES.md` | Test case definitions |
-| `TEST_REPORT.md` | Test execution reports |
-| `TEST_SUMMARY.md` | Test coverage summary |
-| `21CFR_PART11_VERIFICATION.md` | Regulatory compliance verification |
 | `apps/api/DECISIONS.md` | API architectural decisions |
 | `apps/web/DECISIONS.md` | Frontend architectural decisions |
+| `documentation/Bug_Resolution_Log.md` | Structured bug tracking with root cause analysis |
+| `documentation/Project_Summary.md` | Comprehensive project summary with metrics |
+
+### Testing Documentation (centralized at `/documentation/testing/`)
+
+| File | Subfolder | Purpose |
+|------|-----------|---------|
+| `TEST.md` | `manual/` | Comprehensive test summary (334 tests) |
+| `TEST_CASES.md` | `manual/` | Test case definitions |
+| `TEST_SUMMARY.md` | `manual/` | Test coverage summary |
+| `TEST_REPORT.md` | `reports/` | Test execution reports |
+| `TREE_DIAGRAM_TEST_REPORT.md` | `reports/` | Tree diagram feature tests (70 tests) |
+| `RBAC_TEST_RESULTS.md` | `reports/` | RBAC permission tests (73 tests) |
+| `rbac-test.sh` | `automation/` | Automated RBAC test script |
+| `21CFR_PART11_VERIFICATION.md` | `validation/` | 21 CFR Part 11 compliance verification |
+
+---
+
+## Change Log
+
+| Date | Change | Author |
+|------|--------|--------|
+| 2026-02-25 | Documentation governance: centralized testing docs to `/documentation/testing/`, created Bug_Resolution_Log.md, Project_Summary.md, Git issue template, updated all references | Engineering Team |
+| 2026-02-21 | Added checklist feature, audit descriptions, entity privileges, reauth actions, 51 new tests | Engineering Team |
+| 2026-02-20 | Phase 2 enhancements, API refactoring phases 0-4, connection limits, toast system | Engineering Team |
+| 2026-02-19 | Dynamic tree diagram, telemetry schema, multi-select linking | Engineering Team |
+| 2026-02-17 | v1.0.0 initial release, action reauth, audit templates, pagination config | Engineering Team |

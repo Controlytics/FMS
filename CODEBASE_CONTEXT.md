@@ -1,7 +1,7 @@
 # DigiLog Codebase Context & Reference
 
 > Comprehensive reference for working on the DigiLog 21 CFR Part 11 Compliant Digital Logbook.
-> Generated: 2026-02-20
+> Updated: 2026-02-25 (documentation governance, testing docs centralization)
 
 ---
 
@@ -73,6 +73,20 @@ DigiLog is a regulatory-compliant digital logbook for pharma/biotech/food manufa
 │           ├── schemas/        # auth, users, config, audit, action-reauth, assets
 │           ├── types/          # roles, permissions, sidebar-items, audit-actions, reauth-actions, etc.
 │           └── index.ts        # Re-exports everything
+│
+├── documentation/               # Centralized documentation
+│   ├── Bug_Resolution_Log.md   # Structured bug tracking
+│   ├── Project_Summary.md      # Comprehensive project summary
+│   └── testing/                # All testing documentation
+│       ├── manual/             # TEST.md, TEST_CASES.md, TEST_SUMMARY.md
+│       ├── reports/            # TEST_REPORT.md, TREE_DIAGRAM_TEST_REPORT.md, RBAC_TEST_RESULTS.md
+│       ├── automation/         # rbac-test.sh
+│       ├── validation/         # 21CFR_PART11_VERIFICATION.md
+│       └── regression/         # Regression test results
+│
+├── .github/
+│   └── ISSUE_TEMPLATE/
+│       └── bug_report.md       # Structured bug report template
 │
 ├── turbo.json                  # Turborepo pipeline: shared -> api -> web
 ├── package.json                # Root scripts

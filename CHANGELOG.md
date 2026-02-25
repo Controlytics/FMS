@@ -156,7 +156,7 @@ All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are do
 
 - **Comprehensive Test Suite** — 70/70 tests passed
   - 13 sections: tree CRUD, attach existing, remove, unlink, 6 relationship types, cycle detection, config endpoints, cleanup
-  - Full report: `TREE_DIAGRAM_TEST_REPORT.md`
+  - Full report: `documentation/testing/reports/TREE_DIAGRAM_TEST_REPORT.md`
 
 ### Changed
 - Entity Explorer `index.tsx` grew from ~2382 to ~2993 lines (tree diagram actions + attach existing + rule enforcement)

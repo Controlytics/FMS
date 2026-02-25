@@ -1,6 +1,6 @@
 # DigiLog — Business Context
 
-**Last updated:** 2026-02-21
+**Last updated:** 2026-02-25
 
 ---
 
@@ -408,8 +408,16 @@ DigiLog is positioned for **small-to-medium regulated manufacturers** (50-500 em
 | Attribute data types | 9 |
 | Alarm rule types | 7 |
 | Configuration endpoints | 33 |
-| Automated tests | 334 |
+| Automated tests | 477 (334 unit/E2E + 73 RBAC + 70 feature) |
 | Default roles | 6 |
+
+### Documentation & Governance
+
+| Metric | Value |
+|--------|-------|
+| Documented bugs | 12 (11 resolved, 1 open low-priority) |
+| Test documentation files | 8 (centralized in `/documentation/testing/`) |
+| Governance documents | 10+ (plans, summaries, bug logs, compliance) |
 
 ### Compliance Coverage
 

@@ -121,12 +121,21 @@
 - `DECISIONS.md` in api and web — **Done**
 - `CHANGELOG.md` — **Done**
 - `API_GUIDE.md` — **Done**
-- `TEST_CASES.md` — **Done**
-- `TEST_SUMMARY.md` — **Done**
-- `21CFR_PART11_VERIFICATION.md` — **Done**
 - `BUSINESS_CONTEXT.md` — **Done**
 - `PLAN.md` — **Done**
-- `TEST.md` — **Done**
+- `documentation/Bug_Resolution_Log.md` — **Done**
+- `documentation/Project_Summary.md` — **Done**
+- `.github/ISSUE_TEMPLATE/bug_report.md` — **Done**
+
+### Testing Documentation (centralized at `documentation/testing/`)
+- `documentation/testing/manual/TEST.md` — **Done**
+- `documentation/testing/manual/TEST_CASES.md` — **Done**
+- `documentation/testing/manual/TEST_SUMMARY.md` — **Done**
+- `documentation/testing/reports/TEST_REPORT.md` — **Done**
+- `documentation/testing/reports/TREE_DIAGRAM_TEST_REPORT.md` — **Done**
+- `documentation/testing/reports/RBAC_TEST_RESULTS.md` — **Done**
+- `documentation/testing/automation/rbac-test.sh` — **Done**
+- `documentation/testing/validation/21CFR_PART11_VERIFICATION.md` — **Done**
 
 ## Tests
 
