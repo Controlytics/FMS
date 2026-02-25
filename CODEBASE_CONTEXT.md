@@ -812,7 +812,7 @@ npm run dev                   # Start API + Web
 
 ## 16. Documentation Governance
 
-**Version:** 2.1.1 | **Activated:** 2026-02-25
+**Version:** 2.1.2 | **Activated:** 2026-02-25
 
 ### Mandatory Update Rule
 
@@ -833,6 +833,16 @@ Every code change, bug fix, feature addition, or structural modification trigger
 3. Add entry to `documentation/Bug_Resolution_Log.md`
 4. Close issue with commit reference
 5. Update all 7 governance files
+
+### Git Issue Tracking
+
+All bugs tracked via GitHub Issues with structured templates:
+- **Repository:** `pankajexa/21cfrlogbook`
+- **Issue template:** `.github/ISSUE_TEMPLATE/bug_report.md`
+- **Total issues created:** 12 (#2–#13)
+- **Closed:** 11 | **Open:** 1 (#13)
+- **Labels:** `bug`, `severity:<level>`, `module:<name>`
+- **Traceability chain:** Bug_Resolution_Log.md → GitHub Issue → Commit
 
 ### Testing Documentation
 

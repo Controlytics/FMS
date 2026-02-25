@@ -2,7 +2,7 @@
 
 **Maintained by:** Engineering Team
 **Created:** 2026-02-25
-**Last Updated:** 2026-02-25 (v2.1.1)
+**Last Updated:** 2026-02-25 (v2.1.2)
 **Policy:** This document must be updated after every feature addition, bug fix, or structural change.
 
 ---
@@ -200,7 +200,8 @@ All testing documents are centralized in `/documentation/testing/`:
 |--------|-------|
 | Total Bugs Identified | 12 |
 | Total Resolved | 11 |
-| Open Issues | 1 (low priority) |
+| Open Issues | 1 ([#13](https://github.com/pankajexa/21cfrlogbook/issues/13) — low priority) |
+| Git Issues Created | 12 (#2–#13) |
 | Critical Severity | 0 |
 | High Severity | 5 |
 | Medium Severity | 4 |
@@ -270,7 +271,7 @@ All testing documents are centralized in `/documentation/testing/`:
 | Status | Details |
 |--------|---------|
 | **Governance Mode** | Active (self-enforcing) |
-| **Current Version** | 2.1.1 |
+| **Current Version** | 2.1.2 |
 | **Auto-Sync Documents** | 7 (CHANGELOG, API_GUIDE, task_status, BUSINESS_CONTEXT, CODEBASE_CONTEXT, PLAN, Project_Summary) |
 | **Bug Lifecycle** | Enforced (Git issue → fix → Bug_Resolution_Log → close) |
 | **Testing Docs** | Centralized at `/documentation/testing/` |
@@ -282,5 +283,6 @@ All testing documents are centralized in `/documentation/testing/`:
 
 | Date | Version | Change |
 |------|---------|--------|
+| 2026-02-25 | 2.1.2 | Git issue lifecycle: 12 bugs converted to GitHub issues (#2–#13), 11 closed, 1 open |
 | 2026-02-25 | 2.1.1 | Documentation governance enforcement activated; all 7 core documents auto-synchronized |
 | 2026-02-25 | 1.0 | Initial creation — comprehensive project summary reflecting current system state |

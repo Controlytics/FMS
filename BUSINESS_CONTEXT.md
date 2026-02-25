@@ -469,9 +469,18 @@ In 21 CFR Part 11 environments, **documentation integrity is as critical as syst
 | Version-tracked governance documents | Change control compliance — every modification is logged |
 | Mandatory documentation update on every change | Eliminates documentation drift — a common FDA audit finding |
 
+### Git Issue Lifecycle (v2.1.2)
+
+All 12 historical bugs have been converted to structured GitHub issues (#2–#13) with full traceability:
+- **11 issues closed** with linked commit references
+- **1 issue open** (#13 — low priority test expectation mismatch)
+- Each issue includes: module, severity, root cause analysis, impact, resolution
+- Bug_Resolution_Log.md links each bug entry to its GitHub issue
+
 ### Risk Reduction
 
 - **Eliminates documentation lag** — the #1 cause of 483 observations related to electronic records
 - **Ensures traceability** — every code change maps to documentation changes
+- **Full bug traceability** — Bug_Resolution_Log → Git Issue → Commit → Documentation
 - **Supports audit preparation** — structured documents reduce audit preparation from weeks to hours
 - **Maintains system validated state** — documentation always reflects current validated configuration

@@ -287,7 +287,28 @@ Fix Fastify stripping `checklistSchema` from GET-by-ID responses due to missing 
 - PLAN.md ✅
 - Project_Summary.md ✅
 
+### TASK-GOV-003: Git Issue Lifecycle for Bug Resolution Log
+
+| Field | Details |
+|-------|---------|
+| **Task Name** | Create Git issues for all bugs in Bug_Resolution_Log.md |
+| **Status** | Completed |
+| **Module** | Documentation / Bug Lifecycle |
+| **Date** | 2026-02-25 |
+| **Version** | 2.1.2 |
+| **Description** | Created 12 structured GitHub issues (#2–#13) for all bugs. Closed 11 resolved issues with commit references. BUG-012 (#13) remains open (low priority). Updated Bug_Resolution_Log.md with linked Git Issue IDs. |
+| **Technical Notes** | Process-only change. No code modifications. Labels applied: bug, severity, module. Full traceability chain: Bug_Resolution_Log → Git Issue → Commit. |
+
+**Documentation Update Checklist:**
+- CHANGELOG.md ✅
+- API_GUIDE.md ✅
+- task_status.md ✅
+- BUSINESS_CONTEXT.md ✅
+- CODEBASE_CONTEXT.md ✅
+- PLAN.md ✅
+- Project_Summary.md ✅
+
 ---
 
 ## Summary
-**Phase 1 is code-complete and deployed.** All User Management, Entity Management, and Configuration features are built end-to-end with 82 API endpoints. The app is running on EC2 at `43.205.32.23` via PM2 + nginx. Entity Management module (assets), Auth, and Config have been refactored to Routes → Services → Repositories. Test coverage includes 477 tests (334 unit/E2E + 73 RBAC + 70 feature). Checklist feature supports 14 question types on entity templates. Documentation governance enforcement active as of v2.1.1 — all 7 core documents auto-synchronized on every change.
+**Phase 1 is code-complete and deployed.** All User Management, Entity Management, and Configuration features are built end-to-end with 82 API endpoints. The app is running on EC2 at `43.205.32.23` via PM2 + nginx. Entity Management module (assets), Auth, and Config have been refactored to Routes → Services → Repositories. Test coverage includes 477 tests (334 unit/E2E + 73 RBAC + 70 feature). Checklist feature supports 14 question types on entity templates. Documentation governance enforcement active as of v2.1.2 — all 7 core documents auto-synchronized. 12 bug Git issues created (#2–#13), 11 closed, 1 open.

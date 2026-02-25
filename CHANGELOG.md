@@ -2,6 +2,19 @@
 
 All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are documented here.
 
+## [2.1.2] - 2026-02-25
+
+### Changed — Git Issue Lifecycle for Bug Resolution Log
+- **Created 12 GitHub issues** (#2–#13) for all bugs in Bug_Resolution_Log.md (PATCH)
+  - Module: Documentation / Bug Lifecycle
+  - Files affected: `documentation/Bug_Resolution_Log.md`, all 7 governance docs
+  - 11 issues closed with commit references, 1 remains open (#13 — BUG-012, low priority)
+  - Each issue follows structured template: Summary, Module, Severity, Steps to Reproduce, Root Cause, Impact, Resolution
+  - Labels applied: `bug`, `severity:<level>`, `module:<name>`
+  - Bug_Resolution_Log.md updated with linked Git Issue IDs for full traceability
+
+---
+
 ## [2.1.1] - 2026-02-25
 
 ### Changed — Documentation Governance

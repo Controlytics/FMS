@@ -2,7 +2,7 @@
 
 **Maintained by:** Engineering Team
 **Created:** 2026-02-25
-**Last Updated:** 2026-02-25
+**Last Updated:** 2026-02-25 (v2.1.2)
 **Policy:** Every bug MUST be documented here before closing the associated Git issue.
 
 ---
@@ -12,8 +12,10 @@
 | Metric | Count |
 |--------|-------|
 | Total Bugs Identified | 12 |
-| Total Resolved | 12 |
-| Open Issues | 0 |
+| Total Resolved | 11 |
+| Open Issues | 1 (BUG-012, low priority) |
+| Git Issues Created | 12 (#2–#13) |
+| Git Issues Closed | 11 |
 | Recurring Patterns | 2 (Fastify schema serialization, async race conditions) |
 
 ---
@@ -25,6 +27,7 @@
 | Field | Details |
 |-------|---------|
 | **Issue ID** | BUG-001 |
+| **Git Issue** | [#2](https://github.com/pankajexa/21cfrlogbook/issues/2) (closed) |
 | **Bug Title** | `checklistSchema` stripped from GET `/templates/:id` response |
 | **Date Identified** | 2026-02-21 |
 | **Module** | Entity Management — Templates |
@@ -45,6 +48,7 @@
 | Field | Details |
 |-------|---------|
 | **Issue ID** | BUG-002 |
+| **Git Issue** | [#3](https://github.com/pankajexa/21cfrlogbook/issues/3) (closed) |
 | **Bug Title** | Audit template placeholder mismatch for `FORCED_LOGOUT` action |
 | **Date Identified** | 2026-02-21 |
 | **Module** | Audit Trail — Templates |
@@ -65,6 +69,7 @@
 | Field | Details |
 |-------|---------|
 | **Issue ID** | BUG-003 |
+| **Git Issue** | [#4](https://github.com/pankajexa/21cfrlogbook/issues/4) (closed) |
 | **Bug Title** | Missing `enforceReauth()` on POST/DELETE `/identifiers` endpoints |
 | **Date Identified** | 2026-02-20 |
 | **Module** | Entity Management — Identifiers |
@@ -85,6 +90,7 @@
 | Field | Details |
 |-------|---------|
 | **Issue ID** | BUG-004 |
+| **Git Issue** | [#5](https://github.com/pankajexa/21cfrlogbook/issues/5) (closed) |
 | **Bug Title** | Missing `await` on `reauth.execute()` in delete handlers |
 | **Date Identified** | 2026-02-20 |
 | **Module** | Entity Management — Relationships, Templates |
@@ -105,6 +111,7 @@
 | Field | Details |
 |-------|---------|
 | **Issue ID** | BUG-005 |
+| **Git Issue** | [#6](https://github.com/pankajexa/21cfrlogbook/issues/6) (closed) |
 | **Bug Title** | `category`, `expectedRelationships`, `statusLifecycle` missing from template API |
 | **Date Identified** | 2026-02-20 |
 | **Module** | Entity Management — Templates |
@@ -125,6 +132,7 @@
 | Field | Details |
 |-------|---------|
 | **Issue ID** | BUG-006 |
+| **Git Issue** | [#7](https://github.com/pankajexa/21cfrlogbook/issues/7) (closed) |
 | **Bug Title** | `maxConnections` and `telemetrySchema` stripped from GET `/templates` list |
 | **Date Identified** | 2026-02-20 |
 | **Module** | Entity Management — Templates |
@@ -145,6 +153,7 @@
 | Field | Details |
 |-------|---------|
 | **Issue ID** | BUG-007 |
+| **Git Issue** | [#8](https://github.com/pankajexa/21cfrlogbook/issues/8) (closed) |
 | **Bug Title** | `parentId` coerced from `null` to `""` in instance list response |
 | **Date Identified** | 2026-02-19 |
 | **Module** | Entity Management — Instances |
@@ -165,6 +174,7 @@
 | Field | Details |
 |-------|---------|
 | **Issue ID** | BUG-008 |
+| **Git Issue** | [#9](https://github.com/pankajexa/21cfrlogbook/issues/9) (closed) |
 | **Bug Title** | Entity creation rejected with 400 error for inactive templates |
 | **Date Identified** | 2026-02-20 |
 | **Module** | Entity Management — Instances |
@@ -185,6 +195,7 @@
 | Field | Details |
 |-------|---------|
 | **Issue ID** | BUG-009 |
+| **Git Issue** | [#10](https://github.com/pankajexa/21cfrlogbook/issues/10) (closed) |
 | **Bug Title** | Role Privileges page crash — missing `CATEGORY_COLORS` entry |
 | **Date Identified** | 2026-02-20 |
 | **Module** | Configuration — Role Privileges |
@@ -205,6 +216,7 @@
 | Field | Details |
 |-------|---------|
 | **Issue ID** | BUG-010 |
+| **Git Issue** | [#11](https://github.com/pankajexa/21cfrlogbook/issues/11) (closed) |
 | **Bug Title** | Custom roles rejected by hardcoded Zod enum validation |
 | **Date Identified** | 2026-02-17 |
 | **Module** | User Management |
@@ -225,6 +237,7 @@
 | Field | Details |
 |-------|---------|
 | **Issue ID** | BUG-011 |
+| **Git Issue** | [#12](https://github.com/pankajexa/21cfrlogbook/issues/12) (closed) |
 | **Bug Title** | Role Privileges page uses hardcoded ROLES constant instead of API |
 | **Date Identified** | 2026-02-17 |
 | **Module** | Configuration — Role Privileges |
@@ -245,6 +258,7 @@
 | Field | Details |
 |-------|---------|
 | **Issue ID** | BUG-012 |
+| **Git Issue** | [#13](https://github.com/pankajexa/21cfrlogbook/issues/13) (open) |
 | **Bug Title** | E2E test expects `INVALID_CREDENTIALS` but gets `Unauthorized` |
 | **Date Identified** | 2026-02-17 |
 | **Module** | Authentication |
@@ -284,4 +298,5 @@
 
 | Date | Version | Change |
 |------|---------|--------|
+| 2026-02-25 | 1.1 | Git issue lifecycle: created 12 GitHub issues (#2–#13), closed 11, linked all entries |
 | 2026-02-25 | 1.0 | Initial creation — cataloged 12 historical bugs from CHANGELOG.md and test reports |
