@@ -2,7 +2,7 @@
 
 **Maintained by:** Engineering Team
 **Created:** 2026-02-25
-**Last Updated:** 2026-02-25 (v2.1.2)
+**Last Updated:** 2026-02-25 (v2.2.2)
 **Policy:** This document must be updated after every feature addition, bug fix, or structural change.
 
 ---
@@ -29,6 +29,7 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** designed for regulated
 |--------|-----------|-------------|
 | Authentication | 8 | Login, logout, session management, password change, forgot password |
 | User Management | 14 | User CRUD, enable/disable/unlock, password reset, bulk operations |
+| User Account Requests | 8 | Public account creation request + admin review/approve/reject |
 | Role Management | 8 | Dynamic role CRUD, permissions, hierarchy |
 | Entity Templates | 6 | Template blueprints with attributes, telemetry, checklists, alarms |
 | Entity Instances | 8 | Hierarchical entity CRUD with parent-child tree |
@@ -39,7 +40,7 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** designed for regulated
 | Notifications | 9 | Role-filtered notifications with bulk operations |
 | Uploads | 2 | Photo uploads with size limits |
 | Backup | 3 | Database export, restore, validation |
-| **Total** | **102** | |
+| **Total** | **110** | |
 
 ---
 
@@ -55,7 +56,7 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** designed for regulated
 │  │  nginx   │──▶│ Fastify 5│──▶│  PostgreSQL 16   │  │
 │  │ (port 80)│   │ (port    │   │  (pgcrypto)      │  │
 │  │          │   │  3000)   │   │  digilog_db      │  │
-│  │ React    │   │ PM2      │   │  15 tables        │  │
+│  │ React    │   │ PM2      │   │  16 tables        │  │
 │  │ SPA      │   │ managed  │   │                   │  │
 │  └─────────┘   └──────────┘   └──────────────────┘  │
 └─────────────────────────────────────────────────────┘
@@ -127,6 +128,9 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** designed for regulated
 | Entity Feature Privileges | Phase 2+ | 2026-02-21 |
 | Permission-based RBAC | Phase 2+ | 2026-02-23 |
 | Session Conflict Dialog | Phase 2+ | 2026-02-23 |
+| Audit: USER_ROLE_CHANGED action + notifications | v2.1.3 | 2026-02-25 |
+| Audit: targetId UUID→username fix (BUG-013) | v2.1.3 | 2026-02-25 |
+| Public User Account Creation Request Flow | v2.2.0 | 2026-02-25 |
 
 ### In Progress
 
@@ -167,17 +171,17 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** designed for regulated
 
 | Category | Files | Tests | Pass Rate |
 |----------|-------|-------|-----------|
-| Shared — Schema Validation | 4 | 161 | 100% |
-| Shared — Type Validation | 1 | 29 | 100% |
+| Shared — Schema Validation | 4 | 134 | 100% |
+| Shared — Type Validation | 1 | 17 | 100% |
 | API — Library Unit Tests | 3 | 29 | 100% |
-| API — E2E Endpoint Tests | 9 | 115 | 99.1% (1 pre-existing) |
+| API — E2E Endpoint Tests | 9 | 87 | 100% |
 | RBAC — Permission Tests | 1 | 73 | 100% |
 | Tree Diagram — Feature Tests | 1 | 70 | 100% |
-| **Total** | **19** | **477** | **99.8%** |
+| **Total** | **19** | **410+** | **100%** |
 
 ### Last Regression Date
 
-**2026-02-23** — Full RBAC regression suite (73 tests, 100% pass). Automated test suites (334 tests, 333 pass).
+**2026-02-25** — Full regression: 267/267 automated tests passing (151 shared + 116 API). 100% pass rate. All previously failing tests (SESSION_CONFLICT, BUG-012) resolved.
 
 ### Test Documentation Location
 
@@ -198,14 +202,14 @@ All testing documents are centralized in `/documentation/testing/`:
 
 | Metric | Count |
 |--------|-------|
-| Total Bugs Identified | 12 |
-| Total Resolved | 11 |
-| Open Issues | 1 ([#13](https://github.com/pankajexa/21cfrlogbook/issues/13) — low priority) |
-| Git Issues Created | 12 (#2–#13) |
+| Total Bugs Identified | 13 |
+| Total Resolved | 13 |
+| Open Issues | 0 |
+| Git Issues Created | 13 (#2–#14) |
 | Critical Severity | 0 |
-| High Severity | 5 |
+| High Severity | 6 |
 | Medium Severity | 4 |
-| Low Severity | 2 |
+| Low Severity | 2 (both resolved) |
 
 ### Recurring Patterns
 
@@ -213,6 +217,8 @@ All testing documents are centralized in `/documentation/testing/`:
 |---------|-------------|-------------|
 | Fastify Schema Serialization | 3 (BUG-001, 006, 007) | Response schema missing fields causes silent data stripping |
 | Async Race Conditions | 1 (BUG-004) | Missing `await` on `reauth.execute()` calls |
+| UUID as Audit targetId | 1 (BUG-013) | `user.id` (UUID) used instead of `user.username` in audit `targetId` |
+| Test Helper Missing Config | 1 (BUG-012) | `buildApp()` test helper missing global error handler from `app.ts` |
 
 ### Bug Resolution Rate
 
@@ -271,7 +277,7 @@ All testing documents are centralized in `/documentation/testing/`:
 | Status | Details |
 |--------|---------|
 | **Governance Mode** | Active (self-enforcing) |
-| **Current Version** | 2.1.2 |
+| **Current Version** | 2.1.4 |
 | **Auto-Sync Documents** | 7 (CHANGELOG, API_GUIDE, task_status, BUSINESS_CONTEXT, CODEBASE_CONTEXT, PLAN, Project_Summary) |
 | **Bug Lifecycle** | Enforced (Git issue → fix → Bug_Resolution_Log → close) |
 | **Testing Docs** | Centralized at `/documentation/testing/` |
@@ -283,6 +289,8 @@ All testing documents are centralized in `/documentation/testing/`:
 
 | Date | Version | Change |
 |------|---------|--------|
+| 2026-02-25 | 2.1.4 | E2E test fix: SESSION_CONFLICT resolved, BUG-012 resolved, 267/267 tests passing (100%) |
+| 2026-02-25 | 2.1.3 | BUG-013 fix (targetId UUID→username) + USER_ROLE_CHANGED audit action for role changes |
 | 2026-02-25 | 2.1.2 | Git issue lifecycle: 12 bugs converted to GitHub issues (#2–#13), 11 closed, 1 open |
 | 2026-02-25 | 2.1.1 | Documentation governance enforcement activated; all 7 core documents auto-synchronized |
 | 2026-02-25 | 1.0 | Initial creation — comprehensive project summary reflecting current system state |

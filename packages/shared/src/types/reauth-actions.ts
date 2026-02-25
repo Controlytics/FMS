@@ -9,6 +9,8 @@ export const REAUTH_ACTIONS = {
   UNLOCK_USER: { label: 'Unlock User', category: 'User Management' },
   RESET_PASSWORD: { label: 'Reset Password', category: 'User Management' },
   PROCESS_RESET_REQUEST: { label: 'Process Reset Request', category: 'User Management' },
+  APPROVE_USER_REQUEST: { label: 'Approve User Creation Request', category: 'User Management' },
+  REJECT_USER_REQUEST: { label: 'Reject User Creation Request', category: 'User Management' },
 
   // Config Changes
   UPDATE_PASSWORD_POLICY: { label: 'Update Password Policy', category: 'Configuration' },

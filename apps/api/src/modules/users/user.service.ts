@@ -80,7 +80,7 @@ export const userService = {
       userId: ctx.userId, userRole: ctx.userRole,
       action: 'USER_CREATED',
       targetType: 'user',
-      targetId: user.id,
+      targetId: user.username,
       afterValue: { username: data.username, fullName: data.fullName, email: data.email, role: data.role, status: data.status },
       signatureMeaning: 'New user account created by administrator',
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
@@ -121,6 +121,7 @@ export const userService = {
     }
 
     const beforeValue = { fullName: existing.fullName, email: existing.email, department: existing.department, role: existing.role, status: existing.status };
+    const roleChanged = data.role && data.role !== existing.role;
 
     const user = await userRepository.update(id, {
       ...data,
@@ -129,15 +130,45 @@ export const userService = {
       updatedBy: ctx.userId,
     });
 
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'USER_UPDATED',
-      targetType: 'user',
-      targetId: id,
-      beforeValue,
-      afterValue: { ...data, username: user.username, fullName: user.fullName },
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-    });
+    if (roleChanged) {
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'USER_ROLE_CHANGED',
+        targetType: 'user',
+        targetId: existing.username,
+        beforeValue: { username: existing.username, fullName: existing.fullName, role: existing.role },
+        afterValue: { username: user.username, fullName: user.fullName, role: data.role },
+        signatureMeaning: `User role changed from ${existing.role} to ${data.role}`,
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      });
+
+      await createNotification({
+        type: 'ROLE_CHANGED',
+        title: 'User Role Changed',
+        message: `User ${existing.fullName} (${existing.username}) role changed from ${existing.role} to ${data.role}.`,
+        targetUserId: existing.username,
+        forRole: 'ADMIN',
+        createdBy: ctx.userId,
+      });
+      await createNotification({
+        type: 'ROLE_CHANGED',
+        title: 'Your Role Has Been Changed',
+        message: `Your role has been changed from ${existing.role} to ${data.role} by ${ctx.userId}.`,
+        targetUserId: existing.username,
+        forUserId: existing.username,
+        createdBy: ctx.userId,
+      });
+    } else {
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'USER_UPDATED',
+        targetType: 'user',
+        targetId: existing.username,
+        beforeValue,
+        afterValue: { ...data, username: user.username, fullName: user.fullName },
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      });
+    }
 
     return { id: user.id, username: user.username, fullName: user.fullName, email: user.email, role: user.role, status: user.status };
   },
@@ -151,7 +182,7 @@ export const userService = {
       userId: ctx.userId, userRole: ctx.userRole,
       action: 'USER_DELETED',
       targetType: 'user',
-      targetId: id,
+      targetId: existing.username,
       beforeValue: { username: existing.username, fullName: existing.fullName, email: existing.email, role: existing.role, status: existing.status },
       afterValue: { deleted: true },
       signatureMeaning: 'User account permanently deleted by administrator',
@@ -179,7 +210,7 @@ export const userService = {
         userId: ctx.userId, userRole: ctx.userRole,
         action: 'BULK_USER_DELETED',
         targetType: 'user',
-        targetId: user.id,
+        targetId: user.username,
         beforeValue: { username: user.username, fullName: user.fullName, role: user.role, status: user.status },
         afterValue: { deleted: true },
         signatureMeaning: 'User account permanently deleted via bulk delete by administrator',
@@ -199,7 +230,7 @@ export const userService = {
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'USER_ENABLED',
-      targetType: 'user', targetId: id,
+      targetType: 'user', targetId: user.username,
       beforeValue: { username: user.username, fullName: user.fullName, status: user.status },
       afterValue: { username: user.username, status: 'ENABLED' },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
@@ -226,7 +257,7 @@ export const userService = {
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'USER_DISABLED',
-      targetType: 'user', targetId: id,
+      targetType: 'user', targetId: user.username,
       beforeValue: { username: user.username, fullName: user.fullName, status: user.status },
       afterValue: { username: user.username, status: 'DISABLED' },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
@@ -255,7 +286,7 @@ export const userService = {
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'ACCOUNT_UNLOCKED',
-      targetType: 'user', targetId: id,
+      targetType: 'user', targetId: user.username,
       beforeValue: { username: user.username, fullName: user.fullName, status: user.status, failedLoginAttempts: user.failedLoginAttempts },
       afterValue: { username: user.username, fullName: user.fullName, status: 'ENABLED', failedLoginAttempts: 0, forcePasswordChange: true, isTemporaryPassword: true },
       signatureMeaning: 'User account unlocked by administrator with temporary password',
@@ -274,9 +305,9 @@ export const userService = {
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'PASSWORD_RESET',
-      targetType: 'user', targetId: id,
+      targetType: 'user', targetId: user.username,
       beforeValue: { username: user.username, fullName: user.fullName, status: user.status },
-      afterValue: { status: 'ENABLED', forcePasswordChange: true, isTemporaryPassword: true },
+      afterValue: { username: user.username, fullName: user.fullName, status: 'ENABLED', forcePasswordChange: true, isTemporaryPassword: true },
       signatureMeaning: 'Administrator reset user password',
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
@@ -323,8 +354,8 @@ export const userService = {
 
       await auditLog({
         userId: ctx.userId, userRole: ctx.userRole, action: 'PASSWORD_RESET_REQUEST_APPROVED',
-        targetType: 'user', targetId: user.id,
-        afterValue: { requestId: id, username: resetRequest.userId },
+        targetType: 'user', targetId: resetRequest.userId,
+        afterValue: { requestId: id, username: resetRequest.userId, fullName: user.fullName },
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       });
 

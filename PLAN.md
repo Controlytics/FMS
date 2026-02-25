@@ -19,6 +19,11 @@
 | 2026-02-21 | Checklist feature, audit descriptions, privileges, reauth, tests | Done |
 | 2026-02-25 | **v2.1.1** — Documentation governance, testing centralization, bug log, project summary | Done |
 | 2026-02-25 | **v2.1.2** — Git issue lifecycle: 12 bug issues created (#2–#13), 11 closed | Done |
+| 2026-02-25 | **v2.1.3** — BUG-013 fix: audit targetId UUID→username + USER_ROLE_CHANGED audit action | Done |
+| 2026-02-25 | **v2.1.4** — E2E test infrastructure fix: SESSION_CONFLICT + BUG-012 resolved, 267/267 tests pass | Done |
+| 2026-02-25 | **v2.2.0** — Public user account creation request flow (8 endpoints, 2 pages, 16-model schema) | Done |
+| 2026-02-25 | **v2.2.1** — Code quality: creation-requests.tsx split (400-line compliance), search debounce | Done |
+| 2026-02-25 | **v2.2.2** — BUG-014 fix: runtime `h.map` crash on /request-account (stale PM2 + missing Array.isArray guard) | Done |
 | TBD | API refactoring Phase 5-7 (backup, roles, notifications) | Pending |
 | TBD | Frontend refactoring Phase 8-13 | Pending |
 | TBD | Future features (e-signatures, logbooks, data ingestion, reports) | Pending |
@@ -31,9 +36,9 @@
 
 Full-stack 21 CFR Part 11 compliant digital logbook with:
 
-- **82 API endpoints** across 12 modules (auth, users, roles, config, entity templates, entity instances, entity relationships, entity identifiers, audit, notifications, uploads, backup)
+- **90 API endpoints** across 13 modules (auth, users, roles, config, entity templates, entity instances, entity relationships, entity identifiers, audit, notifications, uploads, backup)
 - **28 frontend pages** with role-based access control
-- **15 Prisma models** (User, Role, PasswordHistory, Session, PasswordResetRequest, SystemConfig, UserConfig, RoleConfig, FieldIdConfig, AuditTrail, Notification, AssetTemplate, AssetTemplateVersion, AssetInstance, AssetRelationship, AssetIdentifier)
+- **16 Prisma models** (User, Role, PasswordHistory, Session, PasswordResetRequest, SystemConfig, UserConfig, RoleConfig, FieldIdConfig, AuditTrail, Notification, AssetTemplate, AssetTemplateVersion, AssetInstance, AssetRelationship, AssetIdentifier)
 - **9 custom hooks** (useAuth, useReauth, useSession, useSingleTab, useToast, useBranding, useDatetimeFormat, useFieldLabels, usePaginationConfig)
 - **Shared package** with Zod schemas, TypeScript types, and constants
 
@@ -316,6 +321,8 @@ pm2 restart digilog-api
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-02-25 | E2E test fix: SESSION_CONFLICT resolved (force:true in loginAs), BUG-012 resolved (global error handler in buildApp), 267/267 tests pass | Engineering Team |
+| 2026-02-25 | BUG-013 fix: audit targetId UUID→username + USER_ROLE_CHANGED audit action + role change notifications | Engineering Team |
 | 2026-02-25 | Documentation governance: centralized testing docs to `/documentation/testing/`, created Bug_Resolution_Log.md, Project_Summary.md, Git issue template, updated all references | Engineering Team |
 | 2026-02-21 | Added checklist feature, audit descriptions, entity privileges, reauth actions, 51 new tests | Engineering Team |
 | 2026-02-20 | Phase 2 enhancements, API refactoring phases 0-4, connection limits, toast system | Engineering Team |

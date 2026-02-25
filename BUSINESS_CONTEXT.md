@@ -1,6 +1,6 @@
 # DigiLog — Business Context
 
-**Last updated:** 2026-02-25
+**Last updated:** 2026-02-25 (v2.2.2)
 
 ---
 
@@ -177,13 +177,14 @@ Custom roles can be created with granular permission combinations for specialize
 - Forced password change on first login (temporary passwords)
 - Admin-initiated password reset workflow
 - Bulk user operations for large deployments
+- **Self-service account request** — unauthenticated users can request a new account from the login page; admins review, approve (generating a one-time temp password), or reject with mandatory reason. Full audit trail for all request lifecycle events. Defensive API response validation prevents frontend crashes from stale deployments (BUG-014).
 
 ### 6.3 Audit Trail
 
 **Business need:** Prove that records are authentic, unmodified, and attributable — the foundation of 21 CFR Part 11.
 
 **What it does:**
-- Every mutation (create, update, delete, status change) generates an audit record
+- Every mutation (create, update, delete, status change, role change) generates an audit record
 - Records include: who (user), what (action), when (timestamp), before/after values, IP address
 - SHA-256 checksum on each record — any modification is detectable
 - Integrity verification on every read (recomputes checksum)
@@ -408,14 +409,14 @@ DigiLog is positioned for **small-to-medium regulated manufacturers** (50-500 em
 | Attribute data types | 9 |
 | Alarm rule types | 7 |
 | Configuration endpoints | 33 |
-| Automated tests | 477 (334 unit/E2E + 73 RBAC + 70 feature) |
+| Automated tests | 267 unit/E2E (100% pass) + 73 RBAC + 70 feature |
 | Default roles | 6 |
 
 ### Documentation & Governance
 
 | Metric | Value |
 |--------|-------|
-| Documented bugs | 12 (11 resolved, 1 open low-priority) |
+| Documented bugs | 13 (all 13 resolved) |
 | Test documentation files | 8 (centralized in `/documentation/testing/`) |
 | Governance documents | 10+ (plans, summaries, bug logs, compliance) |
 
@@ -472,8 +473,8 @@ In 21 CFR Part 11 environments, **documentation integrity is as critical as syst
 ### Git Issue Lifecycle (v2.1.2)
 
 All 12 historical bugs have been converted to structured GitHub issues (#2–#13) with full traceability:
-- **11 issues closed** with linked commit references
-- **1 issue open** (#13 — low priority test expectation mismatch)
+- **13 issues closed** with linked commit references (including #14 for BUG-013)
+- **0 issues open** — BUG-012 (#13) resolved in v2.1.4
 - Each issue includes: module, severity, root cause analysis, impact, resolution
 - Bug_Resolution_Log.md links each bug entry to its GitHub issue
 

@@ -99,7 +99,22 @@
       "Bash(git remote set-url:*)",
       "Bash(tree:*)",
       "Bash(npx vitest run:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI3N2ZiODQ0Yi05Y2UyLTQ4OTAtYTg0Zi1jMGFmNDZjZTg0Y2YiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6IlNVUEVSX0FETUlOIiwic2Vzc2lvbklkIjoiZjAyMDU3OTItMjBlNC00MWEyLWFhZmEtMGM4NTM4MDQwNTg4IiwiaWF0IjoxNzcxOTMzMzE3LCJleHAiOjE3NzE5NjIxMTd9.gc9xx5JT2l3aR8R82q133oXbHS-p02Z9MHr8f20_FUE\")",
+      "Bash(git fetch:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI3N2ZiODQ0Yi05Y2UyLTQ4OTAtYTg0Zi1jMGFmNDZjZTg0Y2YiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6IlNVUEVSX0FETUlOIiwic2Vzc2lvbklkIjoiYWQwZTMyNzUtMjdlZi00MDZhLWJkYmEtNzBjYjRkZWJlNGEwIiwiaWF0IjoxNzcxOTk1MzAxLCJleHAiOjE3NzIwMjQxMDF9.nTM7MWqReo5E4rHFi6RFLmaTwS2O-txXID_4SSZ6AnE\")",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI3N2ZiODQ0Yi05Y2UyLTQ4OTAtYTg0Zi1jMGFmNDZjZTg0Y2YiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6IlNVUEVSX0FETUlOIiwic2Vzc2lvbklkIjoiM2Y4NWFiZDktZDAxNi00YmY0LTk2NWItY2Q5YmM3NzhjZTdjIiwiaWF0IjoxNzcxOTk1NDQwLCJleHAiOjE3NzIwMjQyNDB9.zTDzA0QZ-RUz43ejPDbH8MEuZmpJbVHovh-SmqJ16DA\")",
+      "Bash(git mv:*)",
+      "Bash(for module in assets audit auth backup config notifications roles uploads users)",
+      "Bash(do echo '=== Cross-module imports in $module ===' grep -h from.*modules/ /home/ubuntu/21cfrlogbook/apps/api/src/modules/$module/*.ts /home/ubuntu/21cfrlogbook/apps/api/src/modules/$module/**/*.ts)",
+      "Bash(uniq echo done)",
+      "Bash(do echo \"=== $f ===\" grep \"from.*modules/\" \"$f\" done)",
+      "Bash(gh auth login:*)",
+      "Bash(GH_TOKEN=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 gh api repos/pankajexa/21cfrlogbook --jq '.full_name')",
+      "Bash(GH_TOKEN=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 gh api:*)",
+      "Bash(gh issue list:*)",
+      "Bash(npx ts-node:*)",
+      "Bash(gh issue close:*)"
     ],
     "deny": [],
     "ask": []

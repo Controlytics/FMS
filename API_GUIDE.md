@@ -5,10 +5,12 @@
 
 All endpoints require `Authorization: Bearer <token>` header unless marked "No auth".
 
-**Total Endpoints: 82**
-**Last Updated:** 2026-02-25 (v2.1.2)
+**Total Endpoints: 90**
+**Last Updated:** 2026-02-25 (v2.2.2)
 
-> **No API changes in this update (v2.1.2).** Git issue lifecycle processed for 12 bugs — process-only change. All 82 endpoints remain unchanged.
+> **v2.2.0 adds 8 new endpoints** for the public user account creation request flow (2 public + 6 admin).
+> **v2.2.1** — No API changes. Frontend code quality improvements (file split, search debounce).
+> **v2.2.2** — No API changes. Fixed runtime `h.map` crash on `/request-account` (BUG-014). Added `Array.isArray` guard + HTTP status check on roles fetch.
 
 ---
 
@@ -51,6 +53,35 @@ All endpoints require `Authorization: Bearer <token>` header unless marked "No a
 | GET | `/api/users/reset-requests` | SUPER_ADMIN, ADMIN | — | List password reset requests |
 | GET | `/api/users/reset-requests/pending` | SUPER_ADMIN, ADMIN | — | List pending reset requests |
 | POST | `/api/users/reset-requests/:id/process` | SUPER_ADMIN, ADMIN | PROCESS_RESET_REQUEST | Process reset request |
+
+---
+
+## User Account Creation Requests (`/api/user-requests`)
+
+### Public Endpoints (no auth)
+
+| Method | Endpoint | Auth | Rate Limit | Description |
+|--------|----------|------|-----------|-------------|
+| GET | `/api/user-requests/roles` | No | 10/min | Active roles for form dropdown |
+| POST | `/api/user-requests` | No | 5/min | Submit account creation request |
+
+### Admin Endpoints (requires `USER_CREATE` permission)
+
+| Method | Endpoint | Permission | Reauth | Description |
+|--------|----------|-----------|--------|-------------|
+| GET | `/api/user-requests` | USER_CREATE | — | List requests (paginated, filterable by status/search) |
+| GET | `/api/user-requests/pending/count` | USER_CREATE | — | Pending count for badge |
+| GET | `/api/user-requests/:id` | USER_CREATE | — | Request detail |
+| POST | `/api/user-requests/:id/approve` | USER_CREATE | APPROVE_USER_REQUEST | Approve request (creates user with temp password) |
+| POST | `/api/user-requests/:id/reject` | USER_CREATE | REJECT_USER_REQUEST | Reject request with mandatory reason |
+| POST | `/api/user-requests/:id/password-viewed` | USER_CREATE | — | Mark temp password as viewed |
+
+**Notes:**
+- Approve creates the user in the system with `forcePasswordChange: true` and returns a one-time temp password
+- Temp password is 16 chars (upper+lower+digits+special), generated with `crypto.randomBytes`
+- `isPasswordViewed` flag prevents re-display of temp password after admin acknowledges
+- Duplicate detection checks both `users` table and pending creation requests
+- Role hierarchy enforced: admin cannot approve creation of users with higher-level roles
 
 ---
 

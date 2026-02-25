@@ -14,6 +14,8 @@ import { UserListPage } from './routes/users/list';
 import { CreateUserPage } from './routes/users/create';
 import { EditUserPage } from './routes/users/edit';
 import { ResetRequestsPage } from './routes/users/reset-requests';
+import { RequestAccountPage } from './routes/auth/request-account';
+import { CreationRequestsPage } from './routes/users/creation-requests';
 import { ConfigIndexPage } from './routes/config/index';
 import { PasswordPolicyPage } from './routes/config/password-policy';
 import { DatetimeConfigPage } from './routes/config/datetime';
@@ -46,6 +48,7 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/login" element={<LoginPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/change-password" element={<ChangePasswordPage />} />
+          <Route path="/request-account" element={<RequestAccountPage />} />
 
           {/* Protected routes */}
           <Route element={<AppLayout />}>
@@ -56,6 +59,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/users" element={<RequireRole permissions={['USER_READ']}><UserListPage /></RequireRole>} />
             <Route path="/users/create" element={<RequireRole permissions={['USER_CREATE']}><CreateUserPage /></RequireRole>} />
             <Route path="/users/reset-requests" element={<RequireRole permissions={['USER_RESET_PASSWORD']}><ResetRequestsPage /></RequireRole>} />
+            <Route path="/users/creation-requests" element={<RequireRole permissions={['USER_CREATE']}><CreationRequestsPage /></RequireRole>} />
             <Route path="/users/:id" element={<RequireRole permissions={['USER_READ']}><EditUserPage /></RequireRole>} />
 
             {/* Configuration — permission-based */}

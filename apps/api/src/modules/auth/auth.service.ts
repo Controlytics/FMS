@@ -56,7 +56,7 @@ export const authService = {
 
         await auditLog({
           userId: user.username, userRole: user.role, action: 'ACCOUNT_LOCKED',
-          targetType: 'user', targetId: user.id,
+          targetType: 'user', targetId: user.username,
           afterValue: { username: user.username, fullName: user.fullName },
           ipAddress: ip, userAgent,
         });
@@ -79,7 +79,7 @@ export const authService = {
 
       await auditLog({
         userId: user.username, userRole: user.role, action: 'LOGIN_FAILED',
-        targetType: 'user', targetId: user.id,
+        targetType: 'user', targetId: user.username,
         afterValue: { username: user.username, fullName: user.fullName },
         ipAddress: ip, userAgent,
       });
@@ -96,7 +96,7 @@ export const authService = {
 
       await auditLog({
         userId: user.username, userRole: user.role, action: 'PASSWORD_EXPIRED',
-        targetType: 'user', targetId: user.id,
+        targetType: 'user', targetId: user.username,
         afterValue: { username: user.username, fullName: user.fullName },
         signatureMeaning: 'System detected expired password at login',
         ipAddress: ip, userAgent,
@@ -142,7 +142,7 @@ export const authService = {
 
     await auditLog({
       userId: user.username, userRole: user.role, action: 'LOGIN_SUCCESS',
-      targetType: 'user', targetId: user.id,
+      targetType: 'user', targetId: user.username,
       afterValue: { username: user.username, fullName: user.fullName },
       signatureMeaning: 'User authenticated with username and password',
       ipAddress: ip, userAgent, sessionId: session.id,
@@ -219,7 +219,7 @@ export const authService = {
 
     await auditLog({
       userId: user.username, userRole: user.role, action: 'PROFILE_UPDATED',
-      targetType: 'user', targetId: user.id,
+      targetType: 'user', targetId: user.username,
       beforeValue, afterValue: { ...updateData, username: user.username, fullName: updatedUser.fullName },
       ipAddress: ip, userAgent, sessionId,
     });
@@ -282,7 +282,7 @@ export const authService = {
 
     await auditLog({
       userId: user.username, userRole: user.role, action: 'PASSWORD_CHANGED',
-      targetType: 'user', targetId: user.id,
+      targetType: 'user', targetId: user.username,
       afterValue: { username: user.username, fullName: user.fullName },
       signatureMeaning: 'User changed password',
       ipAddress: ip, userAgent, sessionId,

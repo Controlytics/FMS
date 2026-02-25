@@ -9,7 +9,7 @@ declare module 'fastify' {
   }
 }
 
-const PUBLIC_PATHS = ['/api/auth/login', '/api/auth/forgot-password', '/api/auth/beacon-logout', '/api/health', '/docs', '/docs/'];
+const PUBLIC_PATHS = ['/api/auth/login', '/api/auth/forgot-password', '/api/auth/beacon-logout', '/api/health', '/docs', '/docs/', '/api/user-requests/roles', '/api/user-requests/user-id-rules'];
 
 // Paths that are public only for GET requests
 const PUBLIC_GET_PATHS = ['/api/config/branding', '/api/config/datetime/current', '/uploads/'];
@@ -21,6 +21,10 @@ async function authPlugin(app: FastifyInstance) {
 
     // Paths that are public only for GET requests
     if (req.method === 'GET' && PUBLIC_GET_PATHS.some((p) => req.url.startsWith(p))) return;
+
+    // POST-only public paths for user creation requests
+    if (req.method === 'POST' && /^\/api\/user-requests\/?(\?.*)?$/.test(req.url)) return;
+    if (req.method === 'POST' && /^\/api\/user-requests\/check-availability(\?.*)?$/.test(req.url)) return;
 
     const header = req.headers.authorization;
     if (!header?.startsWith('Bearer ')) {

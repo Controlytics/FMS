@@ -147,7 +147,7 @@ export const notificationService = {
 
 // Exported for use by other modules (auth.service.ts, user.service.ts)
 export async function createNotification(data: {
-  type: 'ACCOUNT_LOCKED' | 'ACCOUNT_DISABLED' | 'ACCOUNT_ENABLED' | 'PASSWORD_RESET_REQUEST' | 'PASSWORD_RESET_APPROVED' | 'PASSWORD_RESET_REJECTED' | 'USER_CREATED' | 'USER_UPDATED' | 'ROLE_CHANGED';
+  type: 'ACCOUNT_LOCKED' | 'ACCOUNT_DISABLED' | 'ACCOUNT_ENABLED' | 'PASSWORD_RESET_REQUEST' | 'PASSWORD_RESET_APPROVED' | 'PASSWORD_RESET_REJECTED' | 'USER_CREATED' | 'USER_UPDATED' | 'ROLE_CHANGED' | 'USER_CREATION_REQUEST_SUBMITTED' | 'USER_CREATION_REQUEST_APPROVED' | 'USER_CREATION_REQUEST_REJECTED';
   title: string;
   message: string;
   targetUserId?: string;

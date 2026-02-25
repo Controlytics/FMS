@@ -21,6 +21,7 @@ export const ACTION_COLORS: Record<string, string> = {
   PASSWORD_EXPIRED: 'bg-orange-100 text-orange-700 border-orange-200',
   PROFILE_UPDATED: 'bg-cyan-100 text-cyan-700 border-cyan-200',
   ROLE_ASSIGNED: 'bg-violet-100 text-violet-700 border-violet-200',
+  USER_ROLE_CHANGED: 'bg-violet-100 text-violet-700 border-violet-200',
 
   // Configuration
   CONFIG_CHANGED: 'bg-purple-100 text-purple-700 border-purple-200',
@@ -41,6 +42,11 @@ export const ACTION_COLORS: Record<string, string> = {
   APPROVAL_GRANTED: 'bg-green-100 text-green-700 border-green-200',
   APPROVAL_REJECTED: 'bg-red-100 text-red-700 border-red-200',
   UNAUTHORIZED_ACTION_ATTEMPT: 'bg-red-100 text-red-700 border-red-200',
+
+  // User Creation Requests
+  USER_CREATION_REQUEST_SUBMITTED: 'bg-blue-100 text-blue-700 border-blue-200',
+  USER_CREATION_REQUEST_APPROVED: 'bg-green-100 text-green-700 border-green-200',
+  USER_CREATION_REQUEST_REJECTED: 'bg-red-100 text-red-700 border-red-200',
 
   // Entity Template Management
   ASSET_TEMPLATE_CREATED: 'bg-indigo-100 text-indigo-700 border-indigo-200',
@@ -89,6 +95,8 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   const beforeStatus = before.status || '';
   const afterStatus = after.status || '';
   const identifierType = after.identifierType || before.identifierType || '';
+  const beforeRole = before.role || '';
+  const afterRole = after.role || '';
 
   const replacePlaceholders = (tpl: string) =>
     tpl
@@ -101,7 +109,9 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
       .replace(/\{sourceName\}/g, sourceName)
       .replace(/\{beforeStatus\}/g, beforeStatus)
       .replace(/\{afterStatus\}/g, afterStatus)
-      .replace(/\{identifierType\}/g, identifierType);
+      .replace(/\{identifierType\}/g, identifierType)
+      .replace(/\{beforeRole\}/g, beforeRole)
+      .replace(/\{afterRole\}/g, afterRole);
 
   // Self-action handling: check for _SELF variant
   const selfActions = ['USER_UPDATED', 'PROFILE_UPDATED', 'PASSWORD_CHANGED'];

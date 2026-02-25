@@ -2,6 +2,95 @@
 
 All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are documented here.
 
+## [2.2.2] - 2026-02-25
+
+### Fixed — Runtime `h.map is not a function` Error (BUG-014)
+- **Root cause:** PM2 was running stale API build without the `/api/user-requests/roles` endpoint; public roles fetch returned a 404 error object instead of an array, causing `roles.map()` to crash in production
+- **Fix 1:** Rebuilt API (`rm -rf dist && tsc`) and restarted PM2 to register user-requests module
+- **Fix 2:** Added defensive `Array.isArray()` guard + `r.ok` HTTP status check in `request-account.tsx` roles fetch to prevent future non-array responses from crashing the page
+- **Impact:** Public `/request-account` page now loads reliably; error boundary no longer triggered
+
+---
+
+## [2.2.1] - 2026-02-25
+
+### Fixed — User Creation Requests Code Quality & 400-Line Compliance
+- **Split `creation-requests.tsx` (451→331 lines)** — extracted 3 dialog components to `creation-request-dialogs.tsx` (209 lines)
+  - `ApproveDialog` — approve confirmation with request details
+  - `RejectDialog` — reject with mandatory reason textarea
+  - `TempPasswordDialog` — one-time temp password display with copy/show/hide
+- **Added 300ms search debounce** to admin requests list (per frontend CLAUDE.md performance guidelines)
+- All user-requests module files now comply with 400-line limit
+
+---
+
+## [2.2.0] - 2026-02-25
+
+### Added — Public User Account Creation Request Flow (NEW FEATURE)
+- **Self-service account onboarding** — unauthenticated users can request a new account from the login page
+  - Module: User Management — User Requests
+  - New Prisma model: `UserCreationRequest` with status tracking, reviewer FK, temp password hash
+  - New API module: `apps/api/src/modules/user-requests/` (repository, service, routes)
+  - 8 new API endpoints (2 public, 6 admin):
+    - `GET /api/user-requests/roles` — Public, active roles for form dropdown (rate limited 10/min)
+    - `POST /api/user-requests` — Public, submit creation request (rate limited 5/min)
+    - `GET /api/user-requests` — Admin, list requests (paginated, filterable)
+    - `GET /api/user-requests/pending/count` — Admin, pending count for badge
+    - `GET /api/user-requests/:id` — Admin, request detail
+    - `POST /api/user-requests/:id/approve` — Admin, approve with reauth (creates user with temp password)
+    - `POST /api/user-requests/:id/reject` — Admin, reject with mandatory reason and reauth
+    - `POST /api/user-requests/:id/password-viewed` — Admin, mark temp password as viewed
+  - New frontend pages:
+    - `/request-account` — Public form (User ID, Full Name, Email, Department, Role) styled to match login/forgot-password branding
+    - `/users/creation-requests` — Admin review panel with pending requests, approve/reject workflow, temp password one-time display, request history
+  - Sidebar nav item: "Account Requests" (visible to SUPER_ADMIN, ADMIN)
+  - Login page: "Request Account" link added alongside "Forgot password?"
+  - 3 new audit actions: `USER_CREATION_REQUEST_SUBMITTED`, `USER_CREATION_REQUEST_APPROVED`, `USER_CREATION_REQUEST_REJECTED`
+  - 2 new reauth actions: `APPROVE_USER_REQUEST`, `REJECT_USER_REQUEST`
+  - 3 new notification types matching the audit actions
+  - 3 new audit templates with `{actor}`, `{targetUser}`, `{requestedRole}` placeholders
+  - Security: rate limiting on public endpoints, duplicate detection (users + pending requests), role hierarchy enforcement, server-side user ID validation, crypto.randomBytes temp password generation, one-time display with isPasswordViewed flag
+  - Shared package: `createUserRequestSchema`, `userRequestQuerySchema`, `rejectUserRequestSchema`
+
+---
+
+## [2.1.3] - 2026-02-25
+
+### Fixed — Audit Trail Showing UUID Instead of User ID (BUG-013)
+- **Audit trail `targetId` now shows username instead of UUID** for all user-related actions (BUG FIX)
+  - Module: Audit Trail — User & Auth Services
+  - Severity: HIGH
+  - Root cause: 15 audit log calls in `user.service.ts` (9) and `auth.service.ts` (6) passed `user.id` (UUID) as `targetId` instead of `user.username`
+  - Files fixed: `apps/api/src/modules/users/user.service.ts`, `apps/api/src/modules/auth/auth.service.ts`
+  - Actions fixed: USER_CREATED, USER_UPDATED, USER_DELETED, BULK_USER_DELETED, USER_ENABLED, USER_DISABLED, ACCOUNT_UNLOCKED, PASSWORD_RESET, PASSWORD_RESET_REQUEST_APPROVED, ACCOUNT_LOCKED, LOGIN_FAILED, PASSWORD_EXPIRED, LOGIN_SUCCESS, PROFILE_UPDATED, PASSWORD_CHANGED
+  - Also added `fullName` to `afterValue` in PASSWORD_RESET and PASSWORD_RESET_REQUEST_APPROVED audit entries
+  - Frontend reset-requests page success message now shows both fullName and userId
+  - Git Issue: [#14](https://github.com/pankajexa/21cfrlogbook/issues/14)
+
+### Added — Separate Audit Action for Role Changes (USER_ROLE_CHANGED)
+- **Role changes now logged as `USER_ROLE_CHANGED`** instead of generic `USER_UPDATED` (ENHANCEMENT)
+  - Module: Audit Trail — User Service
+  - Files changed:
+    - `apps/api/src/modules/users/user.service.ts` — `update()` detects role change, logs `USER_ROLE_CHANGED` with before/after role values
+    - `packages/shared/src/types/audit-actions.ts` — Added `USER_ROLE_CHANGED` constant
+    - `packages/shared/src/types/audit-templates.ts` — Added template: `Role changed for "{targetUser}" from {beforeRole} to {afterRole} by {actor}`
+    - `apps/web/src/routes/audit/audit-helpers.ts` — Added `USER_ROLE_CHANGED` color (violet), added `{beforeRole}`/`{afterRole}` placeholder support
+  - Behavior: role changed → logs `USER_ROLE_CHANGED` only; no role change → logs `USER_UPDATED` only (always one record per update, never two)
+  - Notifications: role change sends two notifications — one to ADMIN users ("User X role changed from Y to Z") and one to the affected user ("Your role has been changed from Y to Z")
+
+### Fixed — E2E Test Infrastructure (BUG-012 + SESSION_CONFLICT)
+- **E2E test helper `loginAs()` now sends `force: true`** — resolves SESSION_CONFLICT failures when active admin session exists (BUG FIX)
+  - Module: Testing Infrastructure
+  - Root cause: `loginAs()` in `apps/api/src/e2e/test-helper.ts` did not pass `force: true` to `/api/auth/login`, causing 409 SESSION_CONFLICT errors in all test suites that needed authentication
+  - Files fixed:
+    - `apps/api/src/e2e/test-helper.ts` — Added `force: true` to login payload in `loginAs()`; added global error handler (matching `app.ts`) to `buildApp()` so `AppError` instances are serialized correctly
+    - `apps/api/src/e2e/auth.test.ts` — Added `force: true` to direct login test call
+    - `apps/api/src/e2e/roles.test.ts` — Removed `VIEWER` role assertion (role deleted from test DB); test now checks only guaranteed roles (SUPER_ADMIN, ADMIN)
+  - BUG-012 resolved: `buildApp()` was missing the global error handler, so `AppError(401, 'INVALID_CREDENTIALS')` was serialized as Fastify's default `Unauthorized` instead of the custom error code
+  - **Result: 267/267 tests passing (151 shared + 116 API) — 100% pass rate**
+
+---
+
 ## [2.1.2] - 2026-02-25
 
 ### Changed — Git Issue Lifecycle for Bug Resolution Log

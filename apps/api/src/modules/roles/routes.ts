@@ -306,7 +306,7 @@ export default async function roleRoutes(app: FastifyInstance) {
 
   // GET /api/roles/:name/creatable — Get roles that this role can create
   app.get('/:name/creatable', {
-    preHandler: [app.requirePermission('ROLE_MANAGE')],
+    preHandler: [app.requirePermission('USER_READ')],
     schema: {
       tags: ['Roles'],
       summary: 'Get creatable roles for a role',

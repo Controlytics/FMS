@@ -219,7 +219,16 @@ export function LoginPage() {
                     {errors.password.message}
                   </p>
                 )}
-                <div className="flex justify-end pt-1">
+                <div className="flex justify-between items-center pt-1">
+                  <a
+                    href="/request-account"
+                    className="text-sm font-semibold transition-colors"
+                    style={{ color: branding.secondaryColor }}
+                    onMouseOver={(e) => e.currentTarget.style.color = branding.primaryColor}
+                    onMouseOut={(e) => e.currentTarget.style.color = branding.secondaryColor}
+                  >
+                    Request Account
+                  </a>
                   <a
                     href="/forgot-password"
                     className="text-sm font-semibold transition-colors"

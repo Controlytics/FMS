@@ -79,6 +79,12 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Role assigned to "{targetUser}" by {actor}',
     placeholders: ['actor', 'targetUser'],
   },
+  USER_ROLE_CHANGED: {
+    label: 'User Role Changed',
+    category: 'User Management',
+    template: 'Role changed for "{targetUser}" from {beforeRole} to {afterRole} by {actor}',
+    placeholders: ['actor', 'targetUser', 'beforeRole', 'afterRole'],
+  },
 
   // Password actions
   PROFILE_UPDATED: {
@@ -314,6 +320,26 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     category: 'Entity Management',
     template: 'Identifier ({identifierType}) removed from entity "{targetName}" by {actor}',
     placeholders: ['actor', 'targetName', 'identifierType'],
+  },
+
+  // User Creation Requests
+  USER_CREATION_REQUEST_SUBMITTED: {
+    label: 'User Creation Request Submitted',
+    category: 'User Management',
+    template: 'New user creation request submitted for "{targetUser}" with role {requestedRole}',
+    placeholders: ['targetUser', 'requestedRole'],
+  },
+  USER_CREATION_REQUEST_APPROVED: {
+    label: 'User Creation Request Approved',
+    category: 'User Management',
+    template: 'User creation request approved for "{targetUser}" by {actor}',
+    placeholders: ['actor', 'targetUser'],
+  },
+  USER_CREATION_REQUEST_REJECTED: {
+    label: 'User Creation Request Rejected',
+    category: 'User Management',
+    template: 'User creation request rejected for "{targetUser}" by {actor}',
+    placeholders: ['actor', 'targetUser'],
   },
 };
 

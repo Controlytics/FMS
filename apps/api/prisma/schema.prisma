@@ -58,8 +58,9 @@ model User {
   createdBy            String?     @map("created_by") @db.VarChar(50)
   updatedBy            String?     @map("updated_by") @db.VarChar(50)
 
-  passwordHistory      PasswordHistory[]
-  sessions             Session[]
+  passwordHistory              PasswordHistory[]
+  sessions                     Session[]
+  reviewedCreationRequests     UserCreationRequest[]
 
   @@index([role])
   @@index([status])
@@ -134,6 +135,32 @@ model PasswordResetRequest {
   @@map("password_reset_requests")
 }
 
+// Public user account creation request
+model UserCreationRequest {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requestedUserId   String    @map("requested_user_id") @db.VarChar(50)
+  fullName          String    @map("full_name") @db.VarChar(100)
+  department        String?   @db.VarChar(50)
+  email             String    @db.VarChar(100)
+  roleName          String    @map("role_name") @db.VarChar(50)
+  status            String    @default("PENDING") @db.VarChar(20)
+  requestedAt       DateTime  @default(now()) @map("requested_at") @db.Timestamptz
+  reviewedBy        String?   @map("reviewed_by") @db.Uuid
+  reviewedAt        DateTime? @map("reviewed_at") @db.Timestamptz
+  rejectionReason   String?   @map("rejection_reason") @db.VarChar(500)
+  tempPasswordHash  String?   @map("temp_password_hash")
+  isPasswordViewed  Boolean   @default(false) @map("is_password_viewed")
+  ipAddress         String?   @map("ip_address") @db.VarChar(45)
+
+  reviewer User? @relation(fields: [reviewedBy], references: [id])
+
+  @@index([status])
+  @@index([requestedAt(sort: Desc)])
+  @@index([requestedUserId])
+  @@index([email])
+  @@map("user_creation_requests")
+}
+
 model AuditTrail {
   id            Int       @id @default(autoincrement())
   timestamp     DateTime  @default(now()) @db.Timestamptz
@@ -171,6 +198,9 @@ enum NotificationType {
   USER_CREATED
   USER_UPDATED
   ROLE_CHANGED
+  USER_CREATION_REQUEST_SUBMITTED
+  USER_CREATION_REQUEST_APPROVED
+  USER_CREATION_REQUEST_REJECTED
 }
 
 model Notification {

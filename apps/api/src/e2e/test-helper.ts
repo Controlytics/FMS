@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
+import { AppError } from '../lib/errors.js';
 import authPlugin from '../plugins/auth.js';
 import auditLoggerPlugin from '../plugins/audit-logger.js';
 import rbacPlugin from '../plugins/rbac.js';
@@ -37,6 +38,24 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(authPlugin);
   await app.register(rbacPlugin);
 
+  // Global error handler — matches app.ts behavior for AppError
+  app.setErrorHandler((err: Error & { statusCode?: number; details?: unknown }, _req, reply) => {
+    if (err instanceof AppError) {
+      return reply.code(err.statusCode).send({
+        error: err.code,
+        message: err.message,
+        ...(err.details ? { details: err.details } : {}),
+      });
+    }
+    if (err.statusCode === 429) {
+      return reply.code(429).send({ error: 'TOO_MANY_REQUESTS', message: err.message });
+    }
+    return reply.code(err.statusCode ?? 500).send({
+      error: 'INTERNAL_ERROR',
+      message: err.message,
+    });
+  });
+
   // Health check
   app.get('/api/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
 
@@ -64,7 +83,7 @@ export async function loginAs(
   const res = await app.inject({
     method: 'POST',
     url: '/api/auth/login',
-    payload: { username, password },
+    payload: { username, password, force: true },
   });
 
   const body = JSON.parse(res.body);

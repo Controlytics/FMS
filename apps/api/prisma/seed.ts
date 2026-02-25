@@ -208,12 +208,74 @@ async function main() {
 
   // 4. Field ID configurations
   const fieldIds = [
+    // User Management
     { fieldId: 'FLD_USER_001', defaultName: 'User ID', displayName: 'User ID', module: 'User Management' },
     { fieldId: 'FLD_USER_002', defaultName: 'Full Name', displayName: 'Full Name', module: 'User Management' },
     { fieldId: 'FLD_USER_003', defaultName: 'Email', displayName: 'Email', module: 'User Management' },
     { fieldId: 'FLD_USER_004', defaultName: 'Department', displayName: 'Department', module: 'User Management' },
     { fieldId: 'FLD_USER_005', defaultName: 'Role', displayName: 'Role', module: 'User Management' },
     { fieldId: 'FLD_USER_006', defaultName: 'Status', displayName: 'Status', module: 'User Management' },
+    { fieldId: 'FLD_USER_007', defaultName: 'Last Login', displayName: 'Last Login', module: 'User Management' },
+    { fieldId: 'FLD_USER_008', defaultName: 'Created', displayName: 'Created', module: 'User Management' },
+    { fieldId: 'FLD_USER_009', defaultName: 'Actions', displayName: 'Actions', module: 'User Management' },
+    // Entity Templates
+    { fieldId: 'FLD_TMPL_001', defaultName: 'Template Name', displayName: 'Template Name', module: 'Entity Templates' },
+    { fieldId: 'FLD_TMPL_002', defaultName: 'Description', displayName: 'Description', module: 'Entity Templates' },
+    { fieldId: 'FLD_TMPL_003', defaultName: 'Category', displayName: 'Category', module: 'Entity Templates' },
+    { fieldId: 'FLD_TMPL_004', defaultName: 'Attributes', displayName: 'Attributes', module: 'Entity Templates' },
+    { fieldId: 'FLD_TMPL_005', defaultName: 'Instances', displayName: 'Instances', module: 'Entity Templates' },
+    { fieldId: 'FLD_TMPL_006', defaultName: 'Actions', displayName: 'Actions', module: 'Entity Templates' },
+    // Entity Instances
+    { fieldId: 'FLD_INST_001', defaultName: 'Entity Name', displayName: 'Entity Name', module: 'Entity Instances' },
+    { fieldId: 'FLD_INST_002', defaultName: 'Description', displayName: 'Description', module: 'Entity Instances' },
+    { fieldId: 'FLD_INST_003', defaultName: 'Template', displayName: 'Template', module: 'Entity Instances' },
+    { fieldId: 'FLD_INST_004', defaultName: 'Parent Entity', displayName: 'Parent Entity', module: 'Entity Instances' },
+    { fieldId: 'FLD_INST_005', defaultName: 'Status', displayName: 'Status', module: 'Entity Instances' },
+    { fieldId: 'FLD_INST_006', defaultName: 'Created', displayName: 'Created', module: 'Entity Instances' },
+    { fieldId: 'FLD_INST_007', defaultName: 'Last Modified', displayName: 'Last Modified', module: 'Entity Instances' },
+    { fieldId: 'FLD_INST_008', defaultName: 'Children', displayName: 'Children', module: 'Entity Instances' },
+    { fieldId: 'FLD_INST_009', defaultName: 'Actions', displayName: 'Actions', module: 'Entity Instances' },
+    // Entity Attributes
+    { fieldId: 'FLD_ATTR_001', defaultName: 'Attribute Name', displayName: 'Attribute Name', module: 'Entity Attributes' },
+    { fieldId: 'FLD_ATTR_002', defaultName: 'Data Type', displayName: 'Data Type', module: 'Entity Attributes' },
+    { fieldId: 'FLD_ATTR_003', defaultName: 'Required', displayName: 'Required', module: 'Entity Attributes' },
+    { fieldId: 'FLD_ATTR_004', defaultName: 'Default Value', displayName: 'Default Value', module: 'Entity Attributes' },
+    // Entity Telemetry
+    { fieldId: 'FLD_TELE_001', defaultName: 'Telemetry Name', displayName: 'Telemetry Name', module: 'Entity Telemetry' },
+    { fieldId: 'FLD_TELE_002', defaultName: 'Unit', displayName: 'Unit', module: 'Entity Telemetry' },
+    { fieldId: 'FLD_TELE_003', defaultName: 'Data Type', displayName: 'Data Type', module: 'Entity Telemetry' },
+    // Entity Relationships
+    { fieldId: 'FLD_REL_001', defaultName: 'Relationship Type', displayName: 'Relationship Type', module: 'Entity Relationships' },
+    { fieldId: 'FLD_REL_002', defaultName: 'Source Entity', displayName: 'Source Entity', module: 'Entity Relationships' },
+    { fieldId: 'FLD_REL_003', defaultName: 'Target Entity', displayName: 'Target Entity', module: 'Entity Relationships' },
+    { fieldId: 'FLD_REL_004', defaultName: 'Notes', displayName: 'Notes', module: 'Entity Relationships' },
+    // Entity Identifiers
+    { fieldId: 'FLD_IDENT_001', defaultName: 'Identifier Type', displayName: 'Identifier Type', module: 'Entity Identifiers' },
+    { fieldId: 'FLD_IDENT_002', defaultName: 'Identifier Value', displayName: 'Identifier Value', module: 'Entity Identifiers' },
+    { fieldId: 'FLD_IDENT_003', defaultName: 'Label', displayName: 'Label', module: 'Entity Identifiers' },
+    // Audit Trail
+    { fieldId: 'FLD_AUDIT_001', defaultName: 'Timestamp', displayName: 'Timestamp', module: 'Audit Trail' },
+    { fieldId: 'FLD_AUDIT_002', defaultName: 'Action', displayName: 'Action', module: 'Audit Trail' },
+    { fieldId: 'FLD_AUDIT_003', defaultName: 'Performed By', displayName: 'Performed By', module: 'Audit Trail' },
+    { fieldId: 'FLD_AUDIT_004', defaultName: 'Description', displayName: 'Description', module: 'Audit Trail' },
+    { fieldId: 'FLD_AUDIT_005', defaultName: 'IP Address', displayName: 'IP Address', module: 'Audit Trail' },
+    { fieldId: 'FLD_AUDIT_006', defaultName: 'Status', displayName: 'Status', module: 'Audit Trail' },
+    // Notifications
+    { fieldId: 'FLD_NOTIF_001', defaultName: 'Title', displayName: 'Title', module: 'Notifications' },
+    { fieldId: 'FLD_NOTIF_002', defaultName: 'Message', displayName: 'Message', module: 'Notifications' },
+    { fieldId: 'FLD_NOTIF_003', defaultName: 'Type', displayName: 'Type', module: 'Notifications' },
+    { fieldId: 'FLD_NOTIF_004', defaultName: 'Date', displayName: 'Date', module: 'Notifications' },
+    // Connection Status
+    { fieldId: 'FLD_CONN_001', defaultName: 'Connections Allowed', displayName: 'Connections Allowed', module: 'Connection Status' },
+    { fieldId: 'FLD_CONN_002', defaultName: 'Connections Used', displayName: 'Connections Used', module: 'Connection Status' },
+    { fieldId: 'FLD_CONN_003', defaultName: 'Parent Connections Allowed', displayName: 'Parent Connections Allowed', module: 'Connection Status' },
+    { fieldId: 'FLD_CONN_004', defaultName: 'Parent Connections Used', displayName: 'Parent Connections Used', module: 'Connection Status' },
+    // Entity Hierarchy (legacy/asset labels)
+    { fieldId: 'FLD_ASSET_001', defaultName: 'Building Name', displayName: 'Building Name', module: 'Entity Hierarchy' },
+    { fieldId: 'FLD_ASSET_002', defaultName: 'Block Name', displayName: 'Block Name', module: 'Entity Hierarchy' },
+    { fieldId: 'FLD_ASSET_003', defaultName: 'Area Name', displayName: 'Area Name', module: 'Entity Hierarchy' },
+    { fieldId: 'FLD_ASSET_004', defaultName: 'Device Name', displayName: 'Device Name', module: 'Entity Hierarchy' },
+    { fieldId: 'FLD_ASSET_005', defaultName: 'Serial Number', displayName: 'Serial Number', module: 'Entity Hierarchy' },
   ];
 
   for (const field of fieldIds) {

@@ -2,7 +2,7 @@
 
 **Maintained by:** Engineering Team
 **Created:** 2026-02-25
-**Last Updated:** 2026-02-25 (v2.1.2)
+**Last Updated:** 2026-02-25 (v2.2.2)
 **Policy:** Every bug MUST be documented here before closing the associated Git issue.
 
 ---
@@ -11,12 +11,12 @@
 
 | Metric | Count |
 |--------|-------|
-| Total Bugs Identified | 12 |
-| Total Resolved | 11 |
-| Open Issues | 1 (BUG-012, low priority) |
-| Git Issues Created | 12 (#2–#13) |
-| Git Issues Closed | 11 |
-| Recurring Patterns | 2 (Fastify schema serialization, async race conditions) |
+| Total Bugs Identified | 14 |
+| Total Resolved | 14 |
+| Open Issues | 0 |
+| Git Issues Created | 13 (#2–#14) |
+| Git Issues Closed | 13 |
+| Recurring Patterns | 5 (Fastify schema serialization, async race conditions, UUID-as-targetId in audit, test helper missing app config, unguarded API response `.map()`) |
 
 ---
 
@@ -258,18 +258,60 @@
 | Field | Details |
 |-------|---------|
 | **Issue ID** | BUG-012 |
-| **Git Issue** | [#13](https://github.com/pankajexa/21cfrlogbook/issues/13) (open) |
+| **Git Issue** | [#13](https://github.com/pankajexa/21cfrlogbook/issues/13) (closed) |
 | **Bug Title** | E2E test expects `INVALID_CREDENTIALS` but gets `Unauthorized` |
 | **Date Identified** | 2026-02-17 |
-| **Module** | Authentication |
+| **Module** | Testing Infrastructure |
 | **Severity** | LOW |
-| **Root Cause Analysis** | `auth.test.ts` E2E test `returns 401 for non-existent user` expects the response body to contain error code `INVALID_CREDENTIALS`, but the Fastify error handler returns the generic `Unauthorized` message. |
-| **Technical Explanation** | The login route throws `reply.unauthorized()` (Fastify sensible plugin) which produces `{ statusCode: 401, error: 'Unauthorized', message: 'Unauthorized' }`. The test expects a custom `code` field with value `INVALID_CREDENTIALS` which was never implemented. This is a test expectation mismatch, not a functional bug. |
-| **Code-Level Fix** | Pending — requires either updating the test expectation or adding custom error codes to the login failure response. |
-| **Preventive Measures** | E2E tests should match actual API behavior. Review test expectations against implementation during test creation. |
-| **Testing Done** | Pre-existing. 333/334 tests pass. This single failure is isolated and does not affect functionality. |
-| **Resolution Date** | Open (low priority) |
-| **Linked Commit** | N/A |
+| **Root Cause Analysis** | The `buildApp()` test helper in `test-helper.ts` did not register the global error handler from `app.ts`. Without it, `AppError` instances were handled by Fastify's default error handler, which serializes 401 errors as `{ error: 'Unauthorized' }` instead of the custom `{ error: 'INVALID_CREDENTIALS' }` format. |
+| **Technical Explanation** | The auth service throws `new AppError(401, 'INVALID_CREDENTIALS', ...)` for invalid logins. In production (`app.ts`), the global `setErrorHandler` catches `AppError` and returns `{ error: err.code, message: err.message }`. But the test helper's `buildApp()` didn't register this handler, so Fastify's default handler produced `{ error: 'Unauthorized' }` instead. The test expectation was correct — the test infrastructure was wrong. |
+| **Code-Level Fix** | Added global error handler to `buildApp()` in `apps/api/src/e2e/test-helper.ts` that matches the `app.ts` error handler behavior — catches `AppError` instances and serializes them with `{ error: err.code, message: err.message }`. |
+| **Preventive Measures** | Test helper `buildApp()` must mirror all global middleware from `app.ts`, especially error handlers. Any changes to `app.ts` error handling must be reflected in `test-helper.ts`. |
+| **Testing Done** | All 116 API E2E tests now pass, including the previously failing `returns 401 for non-existent user` test. |
+| **Resolution Date** | 2026-02-25 |
+| **Linked Commit** | Pending (current branch `feature/user-id-config`) |
+| **Linked PR** | N/A |
+
+---
+
+### BUG-013: Audit trail `targetId` stores UUID instead of User ID (username)
+
+| Field | Details |
+|-------|---------|
+| **Issue ID** | BUG-013 |
+| **Git Issue** | [#14](https://github.com/pankajexa/21cfrlogbook/issues/14) (closed) |
+| **Bug Title** | Audit trail `targetId` stores internal UUID instead of human-readable User ID |
+| **Date Identified** | 2026-02-25 |
+| **Module** | Audit Trail — User & Auth Services |
+| **Severity** | HIGH |
+| **Root Cause Analysis** | All user-related audit log calls in `user.service.ts` and `auth.service.ts` passed `user.id` (UUID, e.g., `350601b6-c407-4de0-be18-325c6f5351aa`) or the route parameter `id` (also UUID) as the `targetId` field. The audit trail frontend displays `targetId` directly, so users saw UUIDs instead of the human-readable username (e.g., "090909"). |
+| **Technical Explanation** | The `auditLog()` function stores whatever `targetId` string is passed. In `user.service.ts`, 9 audit calls used `user.id` (UUID from Prisma) or route param `id` (UUID). In `auth.service.ts`, 6 audit calls used `user.id` (UUID). The `User` model has `id` (UUID primary key) and `username` (human-readable User ID). The `PasswordResetRequest.userId` field stores the username correctly, but the `PASSWORD_RESET_REQUEST_APPROVED` audit entry was using `user.id` (the looked-up User's UUID) instead. |
+| **Code-Level Fix** | Changed `targetId` from UUID to username in 15 audit log calls across 2 files: `user.service.ts` (9 calls: USER_CREATED, USER_UPDATED, USER_DELETED, BULK_USER_DELETED, USER_ENABLED, USER_DISABLED, ACCOUNT_UNLOCKED, PASSWORD_RESET, PASSWORD_RESET_REQUEST_APPROVED) and `auth.service.ts` (6 calls: ACCOUNT_LOCKED, LOGIN_FAILED, PASSWORD_EXPIRED, LOGIN_SUCCESS, PROFILE_UPDATED, PASSWORD_CHANGED). Also added `fullName` to `afterValue` in PASSWORD_RESET and PASSWORD_RESET_REQUEST_APPROVED entries. |
+| **Preventive Measures** | All audit log calls with `targetType: 'user'` must use `username` (not UUID) as `targetId`. UUID (`user.id`) should only appear as `targetId` when `targetType` refers to non-user entities. Added as architecture guideline. |
+| **Testing Done** | Manual verification — performed password reset approval, confirmed audit trail now shows username instead of UUID in `targetId`. API restart and health check confirmed. |
+| **Resolution Date** | 2026-02-25 |
+| **Linked Commit** | Pending (current branch `feature/user-id-config`) |
+| **Linked PR** | N/A |
+
+---
+
+### BUG-014: Runtime `h.map is not a function` crash on /request-account
+
+| Field | Details |
+|-------|---------|
+| **Issue ID** | BUG-014 |
+| **Git Issue** | N/A (fixed in same session) |
+| **Bug Title** | Runtime `h.map is not a function` crash on /request-account page |
+| **Date Identified** | 2026-02-25 |
+| **Module** | User Account Requests — Frontend |
+| **Severity** | HIGH |
+| **Root Cause Analysis** | PM2 was running a stale API build that did not include the newly registered `/api/user-requests/` endpoints. When the frontend's `/request-account` page fetched `/api/user-requests/roles`, it received a 404 JSON error object (`{ statusCode: 404, error: 'Not Found', message: '...' }`) instead of the expected role array. The code then called `.map()` on this non-array object, causing a TypeError. In the minified production build, the variable was renamed to `h`, producing the cryptic error `h.map is not a function`. |
+| **Technical Explanation** | The `request-account.tsx` component fetched roles via `fetch('/api/user-requests/roles').then(r => r.json()).then(data => setRoles(data))`. Without checking `r.ok` or validating that the response was an array, it set `roles` to whatever the API returned. When PM2 served the old API build, the 404 response body was an object, and the subsequent `roles.map(r => ...)` in the JSX threw `TypeError: h.map is not a function` (minified). |
+| **Code-Level Fix** | Two-part fix: (1) Rebuilt the API (`rm -rf apps/api/dist && tsc`) and restarted PM2 so the `/api/user-requests/` routes were registered. (2) Added defensive response handling in `request-account.tsx`: check `r.ok` before parsing, and wrap with `Array.isArray(data) ? data : []` before calling `setRoles()`. |
+| **Preventive Measures** | All frontend `fetch()` calls to API endpoints that return arrays must: (a) check `response.ok` before parsing JSON, (b) validate with `Array.isArray()` before calling `.map()`. After deploying new backend modules, always rebuild and restart PM2. |
+| **Testing Done** | `curl` verified `/api/user-requests/roles` returns proper array. Frontend tested — page loads correctly with role dropdown populated. Error path tested — graceful fallback to empty array on API failure. |
+| **Resolution Date** | 2026-02-25 |
+| **Linked Commit** | Pending (current branch `feature/user-id-config`) |
 | **Linked PR** | N/A |
 
 ---
@@ -292,11 +334,38 @@
 
 **Prevention:** All `reauth.execute()` calls must be `await`-ed. Added as architecture principle in CLAUDE.md.
 
+### Pattern 3: UUID Used as `targetId` in Audit Trail
+
+**Bugs Affected:** BUG-013
+
+**Pattern:** Service-layer audit log calls used `user.id` (UUID primary key) as `targetId` for user-related actions instead of `user.username` (human-readable User ID). The audit trail frontend displays `targetId` directly, so users saw UUIDs like `350601b6-...` instead of usernames like "090909".
+
+**Prevention:** All audit log calls with `targetType: 'user'` must use `user.username` as `targetId`. Reserve UUIDs for internal references only.
+
+### Pattern 4: Test Helper Missing App Configuration
+
+**Bugs Affected:** BUG-012 (+ SESSION_CONFLICT failures)
+
+**Pattern:** The `buildApp()` test helper did not mirror all global configuration from `app.ts`. Missing the global error handler caused `AppError` instances to be serialized differently in tests vs production. Missing `force: true` in `loginAs()` caused SESSION_CONFLICT when the production DB had active sessions.
+
+**Prevention:** Test helper `buildApp()` must include all global middleware from `app.ts` (error handler, static files, etc.). The `loginAs()` helper must always use `force: true` to ensure tests run reliably regardless of database state.
+
+### Pattern 5: Unguarded API Response `.map()`
+
+**Bugs Affected:** BUG-014
+
+**Pattern:** Frontend code called `.map()` on API response data without verifying the response was successful or that the data was actually an array. When the API returned an error object (e.g., 404 response) instead of the expected array, `.map()` threw a TypeError. In minified production builds, the cryptic error message (`h.map is not a function`) made diagnosis difficult.
+
+**Prevention:** All frontend `fetch()` calls returning arrays must: (1) check `response.ok` before parsing, (2) validate with `Array.isArray(data)` before calling `.map()`. Use a defensive pattern: `setData(Array.isArray(data) ? data : [])`.
+
 ---
 
 ## Version History
 
 | Date | Version | Change |
 |------|---------|--------|
+| 2026-02-25 | 1.4 | BUG-014 added (runtime h.map crash on /request-account), new recurring pattern #5 (unguarded API response .map()), all 14 bugs resolved |
+| 2026-02-25 | 1.3 | BUG-012 resolved (test helper missing global error handler), SESSION_CONFLICT fixed (force:true in loginAs), new recurring pattern #4, all 13 bugs resolved |
+| 2026-02-25 | 1.2 | Added BUG-013 (audit trail UUID-as-targetId), new recurring pattern #3, updated metrics |
 | 2026-02-25 | 1.1 | Git issue lifecycle: created 12 GitHub issues (#2–#13), closed 11, linked all entries |
 | 2026-02-25 | 1.0 | Initial creation — cataloged 12 historical bugs from CHANGELOG.md and test reports |

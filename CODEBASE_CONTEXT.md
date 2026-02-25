@@ -1,7 +1,7 @@
 # DigiLog Codebase Context & Reference
 
 > Comprehensive reference for working on the DigiLog 21 CFR Part 11 Compliant Digital Logbook.
-> Updated: 2026-02-25 (documentation governance, testing docs centralization)
+> Updated: 2026-02-25 (v2.2.2 — BUG-014 fix: h.map runtime crash, Array.isArray guard on roles fetch)
 
 ---
 
@@ -50,9 +50,9 @@ DigiLog is a regulatory-compliant digital logbook for pharma/biotech/food manufa
 │   │   │   ├── app.ts          # Entry point, middleware stack
 │   │   │   ├── lib/            # Utilities (jwt, password, prisma, reauth, hash-chain, etc.)
 │   │   │   ├── plugins/        # Fastify plugins (auth, rbac, audit-logger)
-│   │   │   └── modules/        # Feature modules (auth, users, roles, config, assets, audit, notifications, uploads, backup)
+│   │   │   └── modules/        # Feature modules (auth, users, roles, config, assets, audit, notifications, uploads, backup, user-requests)
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma   # Database schema (15 models)
+│   │   │   ├── schema.prisma   # Database schema (16 models)
 │   │   │   ├── seed.ts         # Default data seeding
 │   │   │   └── sql/            # PostgreSQL extensions
 │   │   └── uploads/            # Uploaded files directory
@@ -149,7 +149,8 @@ apps/api/src/
     ├── audit/routes.ts             # Audit trail query + integrity (4 endpoints)
     ├── notifications/routes.ts     # Notification delivery (4 endpoints)
     ├── uploads/routes.ts           # File upload (2 endpoints)
-    └── backup/routes.ts            # Backup/restore (3 endpoints)
+    ├── backup/routes.ts            # Backup/restore (3 endpoints)
+    └── user-requests/routes.ts     # Account creation requests (8 endpoints)
 ```
 
 ### Middleware Stack (in order)
@@ -168,6 +169,7 @@ apps/api/src/
 - `GET /api/health`
 - `POST /api/auth/login`, `/api/auth/forgot-password`, `/api/auth/beacon-logout`
 - `GET /api/config/branding`, `/api/config/datetime/current`
+- `GET /api/user-requests/roles`, `POST /api/user-requests` (account creation requests)
 - `GET /uploads/*`
 - `GET /docs` (Swagger)
 
@@ -294,7 +296,7 @@ const { data: tree } = useSWR<TreeNode[]>('/api/assets/instances/tree');
 | `permission-categories.ts` | `PERMISSION_CATEGORIES` | Grouped permissions for role editor UI |
 | `feature-privileges.ts` | `FEATURE_PRIVILEGES`, `FEATURE_PRIVILEGE_CATEGORIES` | Config page privilege management |
 | `sidebar-items.ts` | `SIDEBAR_ITEMS` | Sidebar navigation config |
-| `audit-actions.ts` | `AUDIT_ACTIONS` (29+ actions) | All audit log action types |
+| `audit-actions.ts` | `AUDIT_ACTIONS` (30+ actions) | All audit log action types |
 | `reauth-actions.ts` | `REAUTH_ACTIONS` (21+ actions), `REAUTH_ACTION_CATEGORIES` | Actions requiring re-auth |
 | `audit-templates.ts` | `AUDIT_TEMPLATE_DEFAULTS`, `AUDIT_TEMPLATE_CATEGORIES` | Customizable audit messages |
 
@@ -385,6 +387,8 @@ Entity: ASSET_TEMPLATE_MANAGE, ASSET_CREATE, ASSET_UPDATE, ASSET_DELETE, ASSET_V
 - **SUPER_ADMIN actions are NOT logged** (21 CFR Part 11 exemption)
 - SHA-256 checksum on: timestamp, userId, action, targetType, targetId, afterValue
 - Read-time verification: recompute checksum, return `integrityValid: boolean`
+- **targetId convention**: For `targetType: 'user'`, always use `user.username` (human-readable User ID), NOT `user.id` (UUID). For `targetType: 'session'`, use session ID. For entity types, use entity ID.
+- **Role change detection**: User `update()` service detects role changes and logs `USER_ROLE_CHANGED` (with `beforeValue.role` / `afterValue.role`) instead of `USER_UPDATED`. Mutually exclusive — one record per update. Template uses `{beforeRole}` and `{afterRole}` placeholders. Also sends `ROLE_CHANGED` notifications to ADMIN users and the affected user.
 
 ---
 
@@ -512,6 +516,18 @@ Entity: ASSET_TEMPLATE_MANAGE, ASSET_CREATE, ASSET_UPDATE, ASSET_DELETE, ASSET_V
 | GET | / | List backups (SUPER_ADMIN) |
 | POST | /restore | Restore from backup (SUPER_ADMIN) |
 
+### User Account Creation Requests (`/api/user-requests`) — 8 endpoints
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | /roles | Public (10/min) | Active roles for form dropdown |
+| POST | / | Public (5/min) | Submit account creation request |
+| GET | / | USER_CREATE | List requests (paginated) |
+| GET | /pending/count | USER_CREATE | Pending count for badge |
+| GET | /:id | USER_CREATE | Request detail |
+| POST | /:id/approve | USER_CREATE + reauth | Approve (creates user + temp password) |
+| POST | /:id/reject | USER_CREATE + reauth | Reject with reason |
+| POST | /:id/password-viewed | USER_CREATE | Mark temp password as viewed |
+
 ---
 
 ## 10. Frontend Routes & Pages
@@ -527,6 +543,8 @@ Entity: ASSET_TEMPLATE_MANAGE, ASSET_CREATE, ASSET_UPDATE, ASSET_DELETE, ASSET_V
 | `/users/create` | CreateUserPage | SUPER_ADMIN, ADMIN | Create user |
 | `/users/:id` | EditUserPage | SUPER_ADMIN, ADMIN | Edit user |
 | `/users/reset-requests` | ResetRequestsPage | SUPER_ADMIN, ADMIN | Password reset requests |
+| `/users/creation-requests` | CreationRequestsPage | USER_CREATE permission | Account creation request review (dialogs in `creation-request-dialogs.tsx`) |
+| `/request-account` | RequestAccountPage | Public | Self-service account request form |
 | `/assets` | AssetExplorerPage | Protected | Entity Explorer (tree + list) |
 | `/assets/templates` | AssetTemplatesPage | SUPER_ADMIN, ADMIN | Entity Template Manager |
 | `/audit` | AuditTrailPage | Protected | Audit trail viewing |
@@ -812,7 +830,7 @@ npm run dev                   # Start API + Web
 
 ## 16. Documentation Governance
 
-**Version:** 2.1.2 | **Activated:** 2026-02-25
+**Version:** 2.1.4 | **Activated:** 2026-02-25
 
 ### Mandatory Update Rule
 
@@ -839,8 +857,8 @@ Every code change, bug fix, feature addition, or structural modification trigger
 All bugs tracked via GitHub Issues with structured templates:
 - **Repository:** `pankajexa/21cfrlogbook`
 - **Issue template:** `.github/ISSUE_TEMPLATE/bug_report.md`
-- **Total issues created:** 12 (#2–#13)
-- **Closed:** 11 | **Open:** 1 (#13)
+- **Total issues created:** 13 (#2–#14)
+- **Closed:** 13 | **Open:** 0
 - **Labels:** `bug`, `severity:<level>`, `module:<name>`
 - **Traceability chain:** Bug_Resolution_Log.md → GitHub Issue → Commit
 

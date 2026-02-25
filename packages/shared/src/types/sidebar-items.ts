@@ -14,6 +14,7 @@ export interface SidebarItem {
 export const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: '\u{1F3E0}', description: 'Main dashboard view' },
   { id: 'users', label: 'Users', icon: '\u{1F465}', description: 'User management' },
+  { id: 'creation-requests', label: 'Account Requests', icon: '\u{1F4DD}', description: 'User account creation requests' },
   { id: 'assets', label: 'Entities', icon: '\u{1F3ED}', description: 'Entity management and explorer' },
   { id: 'asset-templates', label: 'Entity Templates', icon: '\u{1F4CB}', description: 'Entity template blueprints' },
   { id: 'configuration', label: 'Configuration', icon: '\u2699\uFE0F', description: 'System settings' },

@@ -20,6 +20,7 @@ import notificationRoutes from './modules/notifications/routes.js';
 import roleRoutes from './modules/roles/routes.js';
 import backupRoutes from './modules/backup/routes.js';
 import assetRoutes from './modules/assets/index.js';
+import userRequestRoutes from './modules/user-requests/routes.js';
 import { AppError } from './lib/errors.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -124,6 +125,7 @@ await app.register(notificationRoutes, { prefix: '/api/notifications' });
 await app.register(roleRoutes, { prefix: '/api/roles' });
 await app.register(backupRoutes, { prefix: '/api/backup' });
 await app.register(assetRoutes, { prefix: '/api/assets' });
+await app.register(userRequestRoutes, { prefix: '/api/user-requests' });
 
 
 // Start

@@ -21,7 +21,7 @@ describe('Auth endpoints', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/api/auth/login',
-        payload: { username: 'admin', password: 'Admin@123' },
+        payload: { username: 'admin', password: 'Admin@123', force: true },
       });
 
       expect(res.statusCode).toBe(200);

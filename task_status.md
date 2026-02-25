@@ -1,12 +1,55 @@
 # DigiLog — Development Status
 
+## Latest Task: Fix Runtime `h.map` Crash — BUG-014 (v2.2.2)
+
+| Step | Status |
+|------|--------|
+| Root cause: PM2 stale build + missing Array.isArray guard | Done |
+| API clean rebuild (`rm -rf dist && tsc`) | Done |
+| PM2 restart (`pm2 restart digilog-api`) | Done |
+| Add `Array.isArray()` + `r.ok` check in request-account.tsx | Done |
+| Web rebuild + deploy | Done |
+| CHANGELOG.md | Done |
+| API_GUIDE.md | Done |
+| task_status.md | Done |
+| BUSINESS_CONTEXT.md | Done |
+| CODEBASE_CONTEXT.md | Done |
+| PLAN.md | Done |
+| documentation/Project_Summary.md | Done |
+
+---
+
+## Previous Task: User Creation Requests — Code Quality Fix (v2.2.1)
+
+| Step | Status |
+|------|--------|
+| Split creation-requests.tsx (451→331 lines) + dialogs file (209 lines) | Done |
+| Add 300ms search debounce to admin requests list | Done |
+| Build verification (all 3 packages pass) | Done |
+| All 7 governance docs | Done |
+
+---
+
+## Previous Task: Public User Account Creation Request Flow (v2.2.0)
+
+| Step | Status |
+|------|--------|
+| Shared package (schemas, audit, reauth types) | Done |
+| Database migration (Prisma schema + db push) | Done |
+| Backend API module (repository, service, routes) | Done |
+| Frontend (public form + admin review page) | Done |
+| Build verification (all 3 packages pass) | Done |
+| All 7 governance docs | Done |
+
+---
+
 ## Infrastructure
 
 | Component | Status | Details |
 |-----------|--------|---------|
 | Turborepo Monorepo | Done | `apps/api`, `apps/web`, `packages/shared` |
 | Docker Compose | Done | PostgreSQL 16 with ltree + pgcrypto |
-| Prisma Schema | Done | 15 models, migrations applied |
+| Prisma Schema | Done | 16 models, migrations applied |
 | Database Seed | Done | Default admin, system configs, field IDs |
 | EC2 Deployment | Done | API :3000, nginx frontend, PostgreSQL :5432 |
 | PM2 Process Manager | Done | `digilog-api` cluster mode |
@@ -25,6 +68,7 @@
 |--------|-----------|--------|--------------|
 | **Auth** (8) | login, logout, beacon-logout, me, profile, change-password, verify, forgot-password | Done | Routes → Services → Repositories |
 | **Users** (14) | CRUD + enable/disable/unlock/reset-password + reset-requests + bulk-delete + stats | Done | Routes → Services → Repositories |
+| **User Requests** (8) | Public submit + roles, Admin list/detail/approve/reject/password-viewed/pending-count | Done | Routes → Services → Repositories |
 | **Roles** (8) | CRUD + active list + creatable roles + permissions | Done | Routes → Services → Repositories |
 | **Config** (33) | password-policy, login-security, session, datetime, user-id, branding, roles, users, field-ids, action-reauth, audit-templates, pagination | Done | Routes → Services → Repositories |
 | **Entity Templates** (6) | CRUD + versioning + checklistSchema (14 question types) | Done | Routes → Services → Repositories |
@@ -142,22 +186,32 @@
 ### Unit Tests (`packages/shared`)
 | Suite | Tests | Status |
 |-------|-------|--------|
-| `schemas/assets.test.ts` | Checklist schema validation (20 tests) | Passing |
-| `schemas/auth.test.ts` | Auth schema validation | Passing |
-| `schemas/config.test.ts` | Config schema validation | Passing |
-| `schemas/users.test.ts` | User schema validation | Passing |
+| `schemas/assets.test.ts` | Checklist schema validation (66 tests) | Passing |
+| `schemas/auth.test.ts` | Auth schema validation (12 tests) | Passing |
+| `schemas/config.test.ts` | Config schema validation (31 tests) | Passing |
+| `schemas/users.test.ts` | User schema validation (25 tests) | Passing |
 | `types/audit-templates.test.ts` | Audit template categories, defaults, getDefaultTemplates (17 tests) | Passing |
 | **Total** | **151 tests** | **All passing** |
 
 ### API Tests (`apps/api`)
 | Suite | Tests | Status |
 |-------|-------|--------|
+| `e2e/auth.test.ts` | Auth endpoints (18 tests) | Passing |
 | `e2e/checklist-templates.test.ts` | Checklist CRUD lifecycle (14 tests) | Passing |
-| `e2e/entities.test.ts` | Entity instance + relationship + identifier E2E | Passing |
-| `lib/hash-chain.test.ts` | Hash chain utilities | Passing |
-| `lib/jwt.test.ts` | JWT utilities | Passing |
-| `lib/password.test.ts` | Password hashing | Passing |
-| **Total** | **116 tests** | **115 passing, 1 pre-existing failure** |
+| `e2e/entities.test.ts` | Entity instance + relationship + identifier E2E (23 tests) | Passing |
+| `e2e/config.test.ts` | Config endpoints (11 tests) | Passing |
+| `e2e/users.test.ts` | User endpoints (6 tests) | Passing |
+| `e2e/roles.test.ts` | Role endpoints (6 tests) | Passing |
+| `e2e/audit.test.ts` | Audit trail endpoints (5 tests) | Passing |
+| `e2e/notifications.test.ts` | Notification endpoints (2 tests) | Passing |
+| `e2e/health.test.ts` | Health check (2 tests) | Passing |
+| `lib/hash-chain.test.ts` | Hash chain utilities (13 tests) | Passing |
+| `lib/jwt.test.ts` | JWT utilities (9 tests) | Passing |
+| `lib/password.test.ts` | Password hashing (7 tests) | Passing |
+| **Total** | **116 tests** | **All 116 passing (100%)** |
+
+### Last Full Regression
+**2026-02-25** — 267/267 tests passing (151 shared + 116 API). 100% pass rate.
 
 ### Test Infrastructure
 - Vitest with `globals: true`, `environment: 'node'`
@@ -185,6 +239,38 @@
 | `lib/build-context.ts` — extract user info from request | Done |
 | `lib/error-schemas.ts` — reusable Swagger error response schemas | Done |
 | Global error handler in `app.ts` | Done |
+
+## Recent Changes (v2.1.3)
+
+### E2E Test Infrastructure Fix — SESSION_CONFLICT + BUG-012 Resolved
+Fixed 3 long-standing E2E test issues bringing test pass rate to 100%.
+
+| File | Change |
+|------|--------|
+| `apps/api/src/e2e/test-helper.ts` | Added `force: true` to `loginAs()` payload; added global error handler to `buildApp()` matching `app.ts` for proper `AppError` serialization |
+| `apps/api/src/e2e/auth.test.ts` | Added `force: true` to direct login test call |
+| `apps/api/src/e2e/roles.test.ts` | Removed `VIEWER` role assertion (role deleted from test DB), checks only guaranteed roles |
+
+### BUG-013 Fix — Audit Trail targetId UUID→Username
+Fixed 15 audit log calls that stored `user.id` (UUID) as `targetId` instead of `user.username` (human-readable User ID).
+
+| File | Calls Fixed | Actions |
+|------|-------------|---------|
+| `apps/api/src/modules/users/user.service.ts` | 9 | USER_CREATED, USER_UPDATED, USER_DELETED, BULK_USER_DELETED, USER_ENABLED, USER_DISABLED, ACCOUNT_UNLOCKED, PASSWORD_RESET, PASSWORD_RESET_REQUEST_APPROVED |
+| `apps/api/src/modules/auth/auth.service.ts` | 6 | ACCOUNT_LOCKED, LOGIN_FAILED, PASSWORD_EXPIRED, LOGIN_SUCCESS, PROFILE_UPDATED, PASSWORD_CHANGED |
+| `apps/web/src/routes/users/reset-requests.tsx` | — | Success message now shows fullName + userId |
+
+### USER_ROLE_CHANGED — Separate Audit Action + Notifications for Role Changes
+Role changes now log a distinct `USER_ROLE_CHANGED` action instead of generic `USER_UPDATED`. Always one record per update — role changed → `USER_ROLE_CHANGED` only; no role change → `USER_UPDATED` only. Two notifications sent: one to ADMIN users, one to the affected user.
+
+| File | Change |
+|------|--------|
+| `apps/api/src/modules/users/user.service.ts` | `update()` detects role change → logs `USER_ROLE_CHANGED` + sends 2 notifications (ADMIN + user); else logs `USER_UPDATED` |
+| `packages/shared/src/types/audit-actions.ts` | Added `USER_ROLE_CHANGED` constant |
+| `packages/shared/src/types/audit-templates.ts` | Added template with `{beforeRole}` / `{afterRole}` placeholders |
+| `apps/web/src/routes/audit/audit-helpers.ts` | Added color (violet) + `{beforeRole}`/`{afterRole}` placeholder support |
+
+---
 
 ## Recent Changes (Phase 2+)
 
@@ -311,4 +397,4 @@ Fix Fastify stripping `checklistSchema` from GET-by-ID responses due to missing 
 ---
 
 ## Summary
-**Phase 1 is code-complete and deployed.** All User Management, Entity Management, and Configuration features are built end-to-end with 82 API endpoints. The app is running on EC2 at `43.205.32.23` via PM2 + nginx. Entity Management module (assets), Auth, and Config have been refactored to Routes → Services → Repositories. Test coverage includes 477 tests (334 unit/E2E + 73 RBAC + 70 feature). Checklist feature supports 14 question types on entity templates. Documentation governance enforcement active as of v2.1.2 — all 7 core documents auto-synchronized. 12 bug Git issues created (#2–#13), 11 closed, 1 open.
+**Phase 1 is code-complete and deployed.** All User Management, Entity Management, and Configuration features are built end-to-end with 90 API endpoints (98 total including 8 user-request endpoints). The app is running on EC2 at `43.205.32.23` via PM2 + nginx. Entity Management module (assets), Auth, Config, and User Requests have been refactored to Routes → Services → Repositories. Test coverage: 267/267 automated tests passing (151 shared + 116 API, 100% pass rate) + 73 RBAC + 70 feature tests. Checklist feature supports 14 question types on entity templates. Documentation governance enforcement active as of v2.1.4 — all 7 core documents auto-synchronized. 14 bug records tracked (BUG-001–BUG-014).

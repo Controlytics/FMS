@@ -43,7 +43,7 @@ npm run dev                   # Start API + Web
 ## Roles
 Dynamic roles stored in DB. Default: SUPER_ADMIN (level 6), ADMIN (5), SUPERVISOR (4), MAINTENANCE (3), OPERATOR (2), VIEWER (1). Roles have name, displayName, color, hierarchyLevel, permissions (JSON array), isSystem, isActive fields. All roles (including system) can be deleted. Frontend fetches roles from `/api/roles/active` via SWR (sidebar.tsx, role-privileges.tsx).
 
-## API Endpoints (82 total)
+## API Endpoints (90 total)
 
 ### Auth (8 endpoints) — `/api/auth`
 POST /login (no auth, rate limited 10/min), POST /logout, POST /beacon-logout (no auth), GET /me, PUT /profile, POST /change-password, POST /verify, POST /forgot-password (no auth, rate limited 5/5min).
@@ -92,6 +92,10 @@ POST /api/uploads/photo (auth required, 5MB max), GET /uploads/:filename (public
 ### Backup (3 endpoints) — `/api/backup`
 GET /export (ADMIN+, reauth EXPORT_BACKUP), POST /restore (ADMIN+, reauth RESTORE_BACKUP), POST /validate (ADMIN+).
 
+### User Account Creation Requests (8 endpoints) — `/api/user-requests`
+**Public (no auth):** GET /roles (active roles for dropdown, rate 10/min), POST / (submit request, rate 5/min).
+**Admin (USER_CREATE permission):** GET / (list), GET /pending/count, GET /:id (detail), POST /:id/approve (reauth APPROVE_USER_REQUEST, creates user + temp password), POST /:id/reject (reauth REJECT_USER_REQUEST), POST /:id/password-viewed.
+
 ### Health
 GET /api/health (no auth).
 
@@ -132,14 +136,14 @@ Global toast system via React Context (`ToastProvider` + `useToast` hook). Appli
 ### Entity Template View Dialog
 Read-only view dialog accessible via eye icon in template table. Shows all template details: basic info, attributes, telemetry, identifiers, alarm rules. Has "Edit Template" button to transition to edit mode.
 
-## Database Schema (15 Prisma Models)
+## Database Schema (16 Prisma Models)
 
-**User & Auth:** User, Role, PasswordHistory, Session, PasswordResetRequest
+**User & Auth:** User, Role, PasswordHistory, Session, PasswordResetRequest, UserCreationRequest
 **Configuration:** SystemConfig (9 config keys), UserConfig, RoleConfig, FieldIdConfig
 **Audit & Notifications:** AuditTrail (SHA-256 checksums), Notification
 **Entity Management:** AssetTemplate, AssetTemplateVersion, AssetInstance, AssetRelationship, AssetIdentifier
 
-## Frontend (28 pages, 9 custom hooks)
+## Frontend (30 pages, 9 custom hooks)
 
 ### Custom Hooks
 - `useAuth()` — login/logout, JWT in sessionStorage, SWR-based /api/auth/me
@@ -153,9 +157,9 @@ Read-only view dialog accessible via eye icon in template table. Shows all templ
 - `usePaginationConfig()` — pagination options from /api/config/pagination/current
 
 ### Frontend Routes
-**Public:** /login, /forgot-password, /change-password
+**Public:** /login, /forgot-password, /change-password, /request-account
 **Protected:** / (dashboard), /profile, /assets (Entity Explorer), /audit, /notifications
-**Admin (SUPER_ADMIN/ADMIN):** /users, /users/create, /users/:id, /users/reset-requests, /assets/templates, /config/*
+**Admin (SUPER_ADMIN/ADMIN):** /users, /users/create, /users/:id, /users/reset-requests, /users/creation-requests, /assets/templates, /config/*
 **SUPER_ADMIN only:** /config/action-reauth, /config/audit-templates, /config/pagination
 
 ## Key Commands
@@ -192,8 +196,8 @@ rm -rf apps/api/dist && cd apps/api && npm run build
 
 ## Shared Package (`@digilog/shared`)
 Single source of truth for Zod schemas and TypeScript types consumed by both apps:
-- **Schemas:** auth (login, password, reauth), users (CRUD, query, bulk delete), config (branding, password policy, session, datetime, user-id, audit templates, pagination), audit (query), action-reauth, assets (templates, instances, relationships, identifiers, queries)
-- **Types:** roles (RoleData interface, DEFAULT_ROLES, USER_STATUS), permissions (21 constants), permission-categories, feature-privileges, sidebar-items, audit-actions (29+), reauth-actions (21+), audit-templates
+- **Schemas:** auth (login, password, reauth), users (CRUD, query, bulk delete), user-requests (create, query, reject), config (branding, password policy, session, datetime, user-id, audit templates, pagination), audit (query), action-reauth, assets (templates, instances, relationships, identifiers, queries)
+- **Types:** roles (RoleData interface, DEFAULT_ROLES, USER_STATUS), permissions (21 constants), permission-categories, feature-privileges, sidebar-items, audit-actions (30+), reauth-actions (21+), audit-templates
 - **Constants:** ATTRIBUTE_DATA_TYPES (9), TELEMETRY_DATA_TYPES (5), RELATIONSHIP_TYPES (12), IDENTIFIER_TYPES (5), ASSET_STATUSES (5), INVERSE_RELATIONSHIP_MAP, ALARM_RULE_TYPES (7), ALARM_SEVERITIES (3)
 
 ## Environment
