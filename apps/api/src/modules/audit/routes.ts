@@ -127,7 +127,7 @@ export default async function auditRoutes(app: FastifyInstance) {
     ]);
 
     // Verify checksum integrity for each record
-    const data = records.map((record) => ({
+    const data = records.map((record: any) => ({
       ...record,
       integrityValid: verifyAuditChecksum(record),
     }));

@@ -1,198 +1,194 @@
 # DigiLog API Guide
 
-**Base URL:** `http://localhost:3000/api` (dev) | `http://43.205.32.23/api` (production)
-**Swagger UI:** `http://43.205.32.23/docs`
+**Production URL:** `http://3.108.185.106`
+**Swagger UI:** `http://3.108.185.106/docs`
+**Base API Path:** `/api`
 
-All endpoints require `Authorization: Bearer <token>` header unless marked "No auth".
+All endpoints require `Authorization: Bearer <token>` header unless noted otherwise.
 
-**Total Endpoints: 82**
-**Last Updated:** 2026-02-25 (v2.1.2)
-
-> **No API changes in this update (v2.1.2).** Git issue lifecycle processed for 12 bugs — process-only change. All 82 endpoints remain unchanged.
-
----
-
-## Authentication
-
-| Method | Endpoint | Auth | Reauth | Description |
-|--------|----------|------|--------|-------------|
-| POST | `/api/auth/login` | No | — | Login with username/password (rate limited: 10/min) |
-| POST | `/api/auth/logout` | Yes | — | Logout and invalidate session |
-| POST | `/api/auth/beacon-logout` | No | — | Logout via sendBeacon (tab close, token in body) |
-| GET | `/api/auth/me` | Yes | — | Get current user profile |
-| PUT | `/api/auth/profile` | Yes | — | Update own profile (fullName, email, department, photoUrl) |
-| POST | `/api/auth/change-password` | Yes | — | Change own password |
-| POST | `/api/auth/verify` | Yes | — | Re-authenticate with password (returns verification token) |
-| POST | `/api/auth/forgot-password` | No | — | Submit password reset request (rate limited: 5/5min) |
-
-## Health
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/api/health` | No | Health check |
+**170 Total API Endpoints -- 27 Tag Groups**
+**Last Updated:** 2026-02-26
 
 ---
 
-## Users
+## Table of Contents
 
-| Method | Endpoint | Roles | Reauth | Description |
-|--------|----------|-------|--------|-------------|
-| GET | `/api/users` | SUPER_ADMIN, ADMIN | — | List users (paginated, filterable by role/status/search) |
-| GET | `/api/users/stats` | SUPER_ADMIN, ADMIN | — | User count stats by status |
-| POST | `/api/users` | SUPER_ADMIN, ADMIN | CREATE_USER | Create user |
-| GET | `/api/users/:id` | SUPER_ADMIN, ADMIN | — | Get user by ID |
-| PUT | `/api/users/:id` | SUPER_ADMIN, ADMIN | UPDATE_USER | Update user |
-| DELETE | `/api/users/:id` | SUPER_ADMIN | DELETE_USER | Delete user |
-| POST | `/api/users/bulk-delete` | SUPER_ADMIN | BULK_DELETE_USERS | Bulk delete users |
-| POST | `/api/users/:id/enable` | SUPER_ADMIN, ADMIN | ENABLE_USER | Enable user account |
-| POST | `/api/users/:id/disable` | SUPER_ADMIN, ADMIN | DISABLE_USER | Disable user account |
-| POST | `/api/users/:id/unlock` | SUPER_ADMIN, ADMIN | UNLOCK_USER | Unlock locked account |
-| POST | `/api/users/:id/reset-password` | SUPER_ADMIN, ADMIN | RESET_PASSWORD | Admin password reset |
-| GET | `/api/users/reset-requests` | SUPER_ADMIN, ADMIN | — | List password reset requests |
-| GET | `/api/users/reset-requests/pending` | SUPER_ADMIN, ADMIN | — | List pending reset requests |
-| POST | `/api/users/reset-requests/:id/process` | SUPER_ADMIN, ADMIN | PROCESS_RESET_REQUEST | Process reset request |
-
----
-
-## Roles
-
-| Method | Endpoint | Roles | Reauth | Description |
-|--------|----------|-------|--------|-------------|
-| GET | `/api/roles` | SUPER_ADMIN, ADMIN | — | List all roles |
-| GET | `/api/roles/active` | Any | — | List active roles (for dropdowns) |
-| GET | `/api/roles/:name` | SUPER_ADMIN, ADMIN | — | Get role by name |
-| GET | `/api/roles/permissions/all` | SUPER_ADMIN | — | List all available permissions |
-| GET | `/api/roles/:name/creatable` | SUPER_ADMIN, ADMIN | — | Get roles this role can create |
-| POST | `/api/roles` | SUPER_ADMIN | CREATE_ROLE | Create custom role |
-| PUT | `/api/roles/:name` | SUPER_ADMIN | UPDATE_ROLE | Update role |
-| DELETE | `/api/roles/:name` | SUPER_ADMIN | DELETE_ROLE | Delete role |
+1. [Alarms (4)](#alarms)
+2. [Attributes (2)](#attributes)
+3. [Audit (4)](#audit)
+4. [Auth (8)](#auth)
+5. [Backup (3)](#backup)
+6. [Checklists (2)](#checklists)
+7. [Config (33)](#config)
+8. [Connectivity (6)](#connectivity)
+9. [Data Ingestion (8)](#data-ingestion)
+10. [Entities (8)](#entities)
+11. [Entity Identifiers (4)](#entity-identifiers)
+12. [Entity Relationships (3)](#entity-relationships)
+13. [Entity Templates (6)](#entity-templates)
+14. [Export (5)](#export)
+15. [Health (1)](#health)
+16. [Help (6)](#help)
+17. [Internal MQTT (3)](#internal-mqtt)
+18. [Notifications (9)](#notifications)
+19. [QR Codes (4)](#qr-codes)
+20. [Retention (4)](#retention)
+21. [Roles (8)](#roles)
+22. [Rule Chains (14)](#rule-chains)
+23. [System Health (1)](#system-health)
+24. [Telemetry (3)](#telemetry)
+25. [UNS (6)](#uns)
+26. [Uploads (1)](#uploads)
+27. [Users (14)](#users)
 
 ---
 
-## Entity Management (`/api/assets`)
+## Alarms
 
-All entity endpoints use `requirePermission()` (checks role.permissions JSON array in DB).
+4 endpoints. JWT auth required.
 
-### Entity Templates
-
-| Method | Endpoint | Permission | Reauth | Description |
-|--------|----------|-----------|--------|-------------|
-| GET | `/api/assets/templates` | ASSET_VIEW | — | List templates (paginated, searchable, filterable by isActive) |
-| GET | `/api/assets/templates/:id` | ASSET_VIEW | — | Get single template with full schema + instance count |
-| POST | `/api/assets/templates` | ASSET_TEMPLATE_MANAGE | CREATE_ASSET_TEMPLATE | Create template (auto-creates v1 snapshot) |
-| PUT | `/api/assets/templates/:id` | ASSET_TEMPLATE_MANAGE | UPDATE_ASSET_TEMPLATE | Update template (increments version, creates snapshot) |
-| DELETE | `/api/assets/templates/:id` | ASSET_TEMPLATE_MANAGE | DELETE_ASSET_TEMPLATE | Soft-delete template (isActive=false) |
-| GET | `/api/assets/templates/:id/versions` | ASSET_VIEW | — | List template version history (descending) |
-
-**Template fields:** `name`, `description`, `category`, `icon`, `attributeSchema`, `telemetrySchema`, `expectedIdentifiers`, `expectedRelationships`, `statusLifecycle`, `alarmRules`, `checklistSchema`, `maxParentConnections`, `maxConnections`
-
-**checklistSchema** — Array of checklist question items. Each item has:
-- `question` (required, string) — The question text
-- `questionType` (required, enum) — One of 14 types: `PASS_FAIL`, `YES_NO`, `YES_NO_NA`, `MCQ`, `MULTI_SELECT`, `TEXT`, `NUMERIC`, `DROPDOWN`, `PHOTO`, `DATE_TIME`, `SIGNATURE`, `YES_NO_COMMENT`, `CALCULATED`, `CONDITIONAL`
-- `required` (boolean) — Whether an answer is mandatory
-- `section` (string) — Grouping label
-- `description` (string) — Help text
-- `options` (string[]) — Choices for MCQ, MULTI_SELECT, DROPDOWN types
-- `numericUnit` (string) — Unit label for NUMERIC type
-- `numericMin`, `numericMax` (number) — Range constraints for NUMERIC type
-- `passCriteria` (string) — Pass description for PASS_FAIL type
-- `expression` (string) — Formula for CALCULATED type
-- `conditionField`, `conditionValue` (string) — Trigger for CONDITIONAL type
-
-### Entity Instances
-
-| Method | Endpoint | Permission | Reauth | Description |
-|--------|----------|-----------|--------|-------------|
-| GET | `/api/assets/instances` | ASSET_VIEW | — | List instances (paginated, filterable) |
-| GET | `/api/assets/instances/tree` | ASSET_VIEW | — | Get flat array for tree building (all active instances) |
-| GET | `/api/assets/instances/:id` | ASSET_VIEW | — | Get single instance with template info |
-| POST | `/api/assets/instances` | ASSET_CREATE | CREATE_ASSET | Create instance (validates attributes, enforces connection limits) |
-| PUT | `/api/assets/instances/:id` | ASSET_UPDATE | UPDATE_ASSET | Update instance |
-| PATCH | `/api/assets/instances/:id/status` | ASSET_UPDATE | UPDATE_ASSET | Update instance status only |
-| DELETE | `/api/assets/instances/:id` | ASSET_DELETE | DELETE_ASSET | Cascade soft-delete (marks descendants inactive) |
-| GET | `/api/assets/instances/:id/children` | ASSET_VIEW | — | Get direct children |
-
-### Entity Relationships
-
-| Method | Endpoint | Permission | Reauth | Description |
-|--------|----------|-----------|--------|-------------|
-| GET | `/api/assets/relationships` | ASSET_VIEW | — | List relationships (filterable by assetId, type) |
-| POST | `/api/assets/relationships` | ASSET_RELATIONSHIP_MANAGE | CREATE_ASSET_RELATIONSHIP | Create relationship (auto-creates inverse, enforces maxConnections, cycle detection for CONTAINS) |
-| DELETE | `/api/assets/relationships/:id` | ASSET_RELATIONSHIP_MANAGE | DELETE_ASSET_RELATIONSHIP | Delete relationship (deletes both sides) |
-
-### Entity Identifiers
-
-| Method | Endpoint | Permission | Reauth | Description |
-|--------|----------|-----------|--------|-------------|
-| GET | `/api/assets/identifiers` | ASSET_VIEW | — | List identifiers (filterable by assetId) |
-| GET | `/api/assets/identifiers/lookup/:value` | ASSET_VIEW | — | Lookup by identifier value (globally unique) |
-| POST | `/api/assets/identifiers` | ASSET_IDENTIFIER_MANAGE | CREATE_ASSET_IDENTIFIER | Create identifier |
-| DELETE | `/api/assets/identifiers/:id` | ASSET_IDENTIFIER_MANAGE | DELETE_ASSET_IDENTIFIER | Delete identifier |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/alarms/` | List alarms (paginated, filterable) |
+| GET | `/api/alarms/{entityId}` | Get alarms for a specific entity |
+| POST | `/api/alarms/{id}/acknowledge` | Acknowledge an alarm (e-signature) |
+| POST | `/api/alarms/{id}/clear` | Clear an alarm (e-signature) |
 
 ---
 
-## Configuration
+## Attributes
 
-### Security & Session Config
+2 endpoints. JWT auth required.
 
-| Method | Endpoint | Roles | Reauth | Description |
-|--------|----------|-------|--------|-------------|
-| GET | `/api/config/password-policy` | SUPER_ADMIN, ADMIN | — | Get password policy |
-| PUT | `/api/config/password-policy` | SUPER_ADMIN, ADMIN | UPDATE_PASSWORD_POLICY | Update password policy |
-| GET | `/api/config/login-security` | SUPER_ADMIN, ADMIN | — | Get login security settings |
-| PUT | `/api/config/login-security` | SUPER_ADMIN, ADMIN | UPDATE_LOGIN_SECURITY | Update login security |
-| GET | `/api/config/session` | SUPER_ADMIN, ADMIN | — | Get session config |
-| PUT | `/api/config/session` | SUPER_ADMIN, ADMIN | UPDATE_SESSION_CONFIG | Update session config |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/attributes/{entityId}/history` | Get attribute change history |
+| GET | `/api/attributes/{entityId}/{scope}` | Get current attributes by scope |
 
-### DateTime & Pagination Config
+---
+
+## Audit
+
+4 endpoints. JWT auth required. Delete operations require SUPER_ADMIN role.
 
 | Method | Endpoint | Roles | Description |
 |--------|----------|-------|-------------|
-| GET | `/api/config/datetime` | SUPER_ADMIN, ADMIN | Get datetime config (admin view) |
-| PUT | `/api/config/datetime` | SUPER_ADMIN, ADMIN | Update datetime config |
-| GET | `/api/config/datetime/current` | Any | Get effective datetime format (public) |
-| GET | `/api/config/pagination` | SUPER_ADMIN, ADMIN | Get pagination config (admin view) |
-| PUT | `/api/config/pagination` | SUPER_ADMIN, ADMIN | Update pagination config |
-| GET | `/api/config/pagination/current` | Any | Get effective pagination options (public) |
+| GET | `/api/audit/` | Any | Query audit trail (paginated, filterable by date/user/action/targetType) |
+| GET | `/api/audit/{id}` | Any | Get audit record by ID (includes checksum integrity verification) |
+| DELETE | `/api/audit/{id}` | SUPER_ADMIN | Delete single audit record |
+| POST | `/api/audit/bulk-delete` | SUPER_ADMIN | Delete selected audit records |
 
-### User ID Config
+---
+
+## Auth
+
+8 endpoints. Mixed auth requirements. Rate limiting applied to login and forgot-password.
+
+| Method | Endpoint | Auth | Rate Limit | Description |
+|--------|----------|------|------------|-------------|
+| POST | `/api/auth/login` | No | 10/min | Login with username/password |
+| POST | `/api/auth/logout` | JWT | -- | Logout and invalidate session |
+| POST | `/api/auth/beacon-logout` | No | -- | Beacon logout (tab close, token in body) |
+| GET | `/api/auth/me` | JWT | -- | Get current user profile |
+| PUT | `/api/auth/profile` | JWT | -- | Update own profile (fullName, email, department, photoUrl) |
+| POST | `/api/auth/change-password` | JWT | -- | Change own password |
+| POST | `/api/auth/verify` | JWT | -- | Re-authenticate (returns verification token) |
+| POST | `/api/auth/forgot-password` | No | 5/5min | Submit password reset request |
+
+---
+
+## Backup
+
+3 endpoints. Requires ADMIN+ role. Export and restore use reauth.
+
+| Method | Endpoint | Reauth | Description |
+|--------|----------|--------|-------------|
+| GET | `/api/backup/export` | EXPORT_BACKUP | Export database backup (ZIP) |
+| POST | `/api/backup/restore` | RESTORE_BACKUP | Restore from backup |
+| POST | `/api/backup/validate` | -- | Validate backup file |
+
+---
+
+## Checklists
+
+2 endpoints. JWT auth required.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/checklist/{entityId}/responses` | List checklist responses for an entity |
+| GET | `/api/checklist/{entityId}/responses/{checklistId}` | Get single checklist response |
+
+---
+
+## Config
+
+33 endpoints. Various auth requirements. PUT operations generally require reauth.
+
+### Security & Session
 
 | Method | Endpoint | Roles | Reauth | Description |
 |--------|----------|-------|--------|-------------|
-| GET | `/api/config/user-id` | SUPER_ADMIN, ADMIN | — | Get user ID config |
+| GET | `/api/config/password-policy` | ADMIN+ | -- | Get password policy |
+| PUT | `/api/config/password-policy` | ADMIN+ | UPDATE_PASSWORD_POLICY | Update password policy |
+| GET | `/api/config/login-security` | ADMIN+ | -- | Get login security settings |
+| PUT | `/api/config/login-security` | ADMIN+ | UPDATE_LOGIN_SECURITY | Update login security |
+| GET | `/api/config/session` | ADMIN+ | -- | Get session config |
+| PUT | `/api/config/session` | ADMIN+ | UPDATE_SESSION_CONFIG | Update session config |
+
+### DateTime
+
+| Method | Endpoint | Roles | Description |
+|--------|----------|-------|-------------|
+| GET | `/api/config/datetime` | ADMIN+ | Get datetime config |
+| PUT | `/api/config/datetime` | ADMIN+ | Update datetime config |
+| GET | `/api/config/datetime/current` | Any (public) | Get effective datetime format |
+
+### Pagination
+
+| Method | Endpoint | Roles | Description |
+|--------|----------|-------|-------------|
+| GET | `/api/config/pagination` | ADMIN+ | Get pagination config |
+| PUT | `/api/config/pagination` | ADMIN+ | Update pagination config |
+| GET | `/api/config/pagination/current` | Any | Get effective pagination options |
+
+### User ID
+
+| Method | Endpoint | Roles | Reauth | Description |
+|--------|----------|-------|--------|-------------|
+| GET | `/api/config/user-id` | ADMIN+ | -- | Get user ID config |
 | PUT | `/api/config/user-id` | SUPER_ADMIN | UPDATE_USERID_CONFIG | Update user ID config |
-| GET | `/api/config/user-id/next` | SUPER_ADMIN, ADMIN | — | Get next auto-generated ID |
-| POST | `/api/config/user-id/validate` | SUPER_ADMIN, ADMIN | — | Validate a user ID against rules |
+| GET | `/api/config/user-id/next` | ADMIN+ | -- | Get next auto-generated ID |
+| POST | `/api/config/user-id/validate` | ADMIN+ | -- | Validate a user ID against rules |
 
 ### Branding
 
 | Method | Endpoint | Auth | Reauth | Description |
 |--------|----------|------|--------|-------------|
-| GET | `/api/config/branding` | No | — | Get branding config (public) |
+| GET | `/api/config/branding` | No (public) | -- | Get branding config |
 | PUT | `/api/config/branding` | SUPER_ADMIN | UPDATE_BRANDING | Update branding (colors, logo, app name) |
 
 ### Role Configuration
 
 | Method | Endpoint | Roles | Reauth | Description |
 |--------|----------|-------|--------|-------------|
-| GET | `/api/config/roles` | SUPER_ADMIN, ADMIN | — | Get all role configs |
-| GET | `/api/config/roles/:role` | SUPER_ADMIN, ADMIN | — | Get single role config (sidebar, permissions) |
-| PUT | `/api/config/roles/:role` | SUPER_ADMIN | UPDATE_ROLE_CONFIG | Update role config |
+| GET | `/api/config/roles` | ADMIN+ | -- | Get all role configs |
+| GET | `/api/config/roles/{role}` | ADMIN+ | -- | Get single role config |
+| PUT | `/api/config/roles/{role}` | SUPER_ADMIN | UPDATE_ROLE_CONFIG | Update role config |
 
 ### User Configuration
 
 | Method | Endpoint | Roles | Description |
 |--------|----------|-------|-------------|
-| GET | `/api/config/users/:userId` | SUPER_ADMIN, ADMIN | Get user-specific config |
-| PUT | `/api/config/users/:userId` | SUPER_ADMIN, ADMIN | Update user-specific config |
+| GET | `/api/config/users/{userId}` | ADMIN+ | Get user-specific config |
+| PUT | `/api/config/users/{userId}` | ADMIN+ | Update user-specific config |
 | GET | `/api/config/my-config` | Any | Get current user's effective config |
 
 ### Field IDs
 
 | Method | Endpoint | Roles | Description |
 |--------|----------|-------|-------------|
-| GET | `/api/config/field-ids` | Any | List all field ID configs (customizable labels) |
-| PUT | `/api/config/field-ids/:fieldId` | SUPER_ADMIN | Update field display name |
+| GET | `/api/config/field-ids` | Any | List all field ID configs |
+| PUT | `/api/config/field-ids/{fieldId}` | SUPER_ADMIN | Update field display name |
 
 ### Action Re-authentication
 
@@ -200,7 +196,7 @@ All entity endpoints use `requirePermission()` (checks role.permissions JSON arr
 |--------|----------|-------|-------------|
 | GET | `/api/config/action-reauth` | SUPER_ADMIN | Get full reauth config matrix |
 | PUT | `/api/config/action-reauth` | SUPER_ADMIN | Update reauth config |
-| GET | `/api/config/action-reauth/check?action=X` | Any | Check if specific action requires reauth |
+| GET | `/api/config/action-reauth/check` | Any | Check if specific action requires reauth |
 | GET | `/api/config/action-reauth/my-actions` | Any | Get reauth actions for current user's role |
 
 ### Audit Text Templates
@@ -213,49 +209,333 @@ All entity endpoints use `requirePermission()` (checks role.permissions JSON arr
 
 ---
 
-## Audit Trail
+## Connectivity
+
+6 endpoints. JWT auth required.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/connectivity/{entityId}` | Get connectivity status |
+| GET | `/api/connectivity/{entityId}/history` | Get connection history |
+| GET | `/api/connectivity/{entityId}/snippets` | Get code snippets (Python/Node.js/cURL/Arduino) |
+| POST | `/api/connectivity/{entityId}/test` | Test entity connectivity |
+| POST | `/api/connectivity/{entityId}/token` | Generate device token |
+| DELETE | `/api/connectivity/{entityId}/token` | Revoke device token |
+
+---
+
+## Data Ingestion
+
+8 endpoints. Mixed auth: device token auth for device-facing endpoints, JWT auth for user-facing endpoints.
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/data/telemetry` | Device Token | Submit telemetry data |
+| POST | `/api/data/attributes` | Device Token | Submit device attributes |
+| GET | `/api/data/attributes` | Device Token | Get shared attributes |
+| POST | `/api/data/binary` | Device Token | Submit binary data |
+| POST | `/api/data/checklist` | JWT | Submit checklist response |
+| POST | `/api/data/event` | Device Token | Submit device event |
+| POST | `/api/data/rpc` | JWT | Send RPC request |
+| GET | `/api/data/rpc/response/{requestId}` | JWT | Get RPC response |
+
+**Device Token auth:** Use `Authorization: Bearer <device-token>` where the token is generated via `POST /api/connectivity/{entityId}/token`.
+
+---
+
+## Entities
+
+8 endpoints. All use `requirePermission()` (checks role.permissions JSON array in DB).
+
+| Method | Endpoint | Permission | Reauth | Description |
+|--------|----------|-----------|--------|-------------|
+| GET | `/api/assets/instances` | ASSET_VIEW | -- | List instances (paginated, filterable) |
+| POST | `/api/assets/instances` | ASSET_CREATE | CREATE_ASSET | Create instance |
+| GET | `/api/assets/instances/tree` | ASSET_VIEW | -- | Get flat array for tree building |
+| GET | `/api/assets/instances/{id}` | ASSET_VIEW | -- | Get instance by ID |
+| PUT | `/api/assets/instances/{id}` | ASSET_UPDATE | UPDATE_ASSET | Update instance |
+| DELETE | `/api/assets/instances/{id}` | ASSET_DELETE | DELETE_ASSET | Soft-delete (cascade to descendants) |
+| PATCH | `/api/assets/instances/{id}/status` | ASSET_UPDATE | UPDATE_ASSET | Change instance status |
+| GET | `/api/assets/instances/{id}/children` | ASSET_VIEW | -- | Get direct children |
+
+---
+
+## Entity Identifiers
+
+4 endpoints. All use `requirePermission()`.
+
+| Method | Endpoint | Permission | Reauth | Description |
+|--------|----------|-----------|--------|-------------|
+| GET | `/api/assets/identifiers` | ASSET_VIEW | -- | List identifiers |
+| POST | `/api/assets/identifiers` | ASSET_IDENTIFIER_MANAGE | CREATE_ASSET_IDENTIFIER | Create identifier |
+| GET | `/api/assets/identifiers/lookup/{value}` | ASSET_VIEW | -- | Lookup by identifier value |
+| DELETE | `/api/assets/identifiers/{id}` | ASSET_IDENTIFIER_MANAGE | DELETE_ASSET_IDENTIFIER | Delete identifier |
+
+---
+
+## Entity Relationships
+
+3 endpoints. All use `requirePermission()`.
+
+| Method | Endpoint | Permission | Reauth | Description |
+|--------|----------|-----------|--------|-------------|
+| GET | `/api/assets/relationships` | ASSET_VIEW | -- | List relationships |
+| POST | `/api/assets/relationships` | ASSET_RELATIONSHIP_MANAGE | CREATE_ASSET_RELATIONSHIP | Create relationship (auto-creates inverse, cycle detection) |
+| DELETE | `/api/assets/relationships/{id}` | ASSET_RELATIONSHIP_MANAGE | DELETE_ASSET_RELATIONSHIP | Delete relationship (deletes both sides) |
+
+---
+
+## Entity Templates
+
+6 endpoints. All use `requirePermission()`.
+
+| Method | Endpoint | Permission | Reauth | Description |
+|--------|----------|-----------|--------|-------------|
+| GET | `/api/assets/templates` | ASSET_VIEW | -- | List templates |
+| POST | `/api/assets/templates` | ASSET_TEMPLATE_MANAGE | CREATE_ASSET_TEMPLATE | Create template |
+| GET | `/api/assets/templates/{id}` | ASSET_VIEW | -- | Get template by ID |
+| PUT | `/api/assets/templates/{id}` | ASSET_TEMPLATE_MANAGE | UPDATE_ASSET_TEMPLATE | Update template (increments version) |
+| DELETE | `/api/assets/templates/{id}` | ASSET_TEMPLATE_MANAGE | DELETE_ASSET_TEMPLATE | Soft-delete template |
+| GET | `/api/assets/templates/{id}/versions` | ASSET_VIEW | -- | List template version history |
+
+---
+
+## Export
+
+5 endpoints. JWT auth required.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/export/alarms` | Export alarms (CSV/JSON) |
+| GET | `/api/export/attributes/{entityId}` | Export attribute history |
+| GET | `/api/export/checklist/{entityId}` | Export checklist responses |
+| GET | `/api/export/status/{jobId}` | Check export job status |
+| GET | `/api/export/telemetry/{entityId}` | Export telemetry data |
+
+---
+
+## Health
+
+1 endpoint. No auth required.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/health` | Health check (public) |
+
+---
+
+## Help
+
+6 endpoints. JWT auth required. Write operations require SUPER_ADMIN.
 
 | Method | Endpoint | Roles | Description |
 |--------|----------|-------|-------------|
-| GET | `/api/audit` | Any | Query audit trail (paginated, filterable by date/user/action/targetType) |
-| GET | `/api/audit/:id` | Any | Get single record with checksum integrity verification |
-| DELETE | `/api/audit/:id` | SUPER_ADMIN | Delete single audit record |
-| POST | `/api/audit/bulk-delete` | SUPER_ADMIN | Bulk delete audit records |
+| GET | `/api/help/` | Any | List help articles |
+| POST | `/api/help/` | SUPER_ADMIN | Create help article |
+| GET | `/api/help/{key}` | Any | Get article by key |
+| PUT | `/api/help/{id}` | SUPER_ADMIN | Update article (versioned) |
+| DELETE | `/api/help/{id}` | SUPER_ADMIN | Delete article |
+| GET | `/api/help/{id}/versions` | ADMIN+ | Article version history |
+
+---
+
+## Internal MQTT
+
+3 endpoints. Internal use only (EMQX broker callbacks). Not exposed to external clients.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/internal/mqtt/auth` | MQTT client authentication callback |
+| POST | `/api/internal/mqtt/acl` | MQTT ACL authorization callback |
+| POST | `/api/internal/mqtt/superuser` | MQTT superuser check callback |
 
 ---
 
 ## Notifications
 
+9 endpoints. JWT auth required. Bulk delete requires SUPER_ADMIN.
+
 | Method | Endpoint | Roles | Description |
 |--------|----------|-------|-------------|
-| GET | `/api/notifications` | Any | List notifications (role-filtered: SUPER_ADMIN sees all, ADMIN sees non-SUPER_ADMIN, others see own) |
-| GET | `/api/notifications/unread-count` | Any | Get unread count for badge |
-| PUT | `/api/notifications/:id/read` | Any | Mark single as read |
-| PUT | `/api/notifications/:id/unread` | Any | Mark single as unread |
+| GET | `/api/notifications/` | Any | List notifications (role-filtered) |
+| GET | `/api/notifications/unread-count` | Any | Get unread count |
+| PUT | `/api/notifications/{id}/read` | Any | Mark as read |
+| PUT | `/api/notifications/{id}/unread` | Any | Mark as unread |
 | PUT | `/api/notifications/mark-all-read` | Any | Mark all as read |
 | PUT | `/api/notifications/bulk-read` | Any | Bulk mark as read |
 | PUT | `/api/notifications/bulk-unread` | Any | Bulk mark as unread |
-| DELETE | `/api/notifications/:id` | Any | Delete single notification |
+| DELETE | `/api/notifications/{id}` | Any | Delete notification |
 | POST | `/api/notifications/bulk-delete` | SUPER_ADMIN | Bulk delete notifications |
+
+---
+
+## QR Codes
+
+4 endpoints. JWT auth required.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/qr/{entityId}` | Get QR code data |
+| DELETE | `/api/qr/{entityId}` | Delete QR code |
+| POST | `/api/qr/{entityId}/generate` | Generate QR code |
+| GET | `/api/qr/{entityId}/svg` | Get QR code as SVG |
+
+---
+
+## Retention
+
+4 endpoints. Mixed: config endpoints under `/api/config/retention`, execution under `/api/retention`.
+
+| Method | Endpoint | Roles | Description |
+|--------|----------|-------|-------------|
+| GET | `/api/config/retention` | SUPER_ADMIN | Get retention policies |
+| PUT | `/api/config/retention` | SUPER_ADMIN | Update retention policies |
+| POST | `/api/retention/archive` | SUPER_ADMIN | Archive data |
+| POST | `/api/retention/execute` | SUPER_ADMIN | Execute retention cleanup |
+
+---
+
+## Roles
+
+8 endpoints. Read operations require ADMIN+. Write operations require SUPER_ADMIN.
+
+| Method | Endpoint | Roles | Reauth | Description |
+|--------|----------|-------|--------|-------------|
+| GET | `/api/roles/` | ADMIN+ | -- | List all roles |
+| POST | `/api/roles/` | SUPER_ADMIN | CREATE_ROLE | Create custom role |
+| GET | `/api/roles/active` | Any | -- | List active roles (for dropdowns) |
+| GET | `/api/roles/permissions/all` | SUPER_ADMIN | -- | List all available permissions |
+| GET | `/api/roles/{name}` | ADMIN+ | -- | Get role by name |
+| PUT | `/api/roles/{name}` | SUPER_ADMIN | UPDATE_ROLE | Update role |
+| DELETE | `/api/roles/{name}` | SUPER_ADMIN | DELETE_ROLE | Delete role |
+| GET | `/api/roles/{name}/creatable` | ADMIN+ | -- | Get creatable roles for this role |
+
+---
+
+## Rule Chains
+
+14 endpoints. All require ADMIN+ role.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/rule-chains/` | List rule chains |
+| POST | `/api/rule-chains/` | Create rule chain |
+| GET | `/api/rule-chains/node-types` | List available node types |
+| GET | `/api/rule-chains/{id}` | Get rule chain by ID (with nodes and connections) |
+| PUT | `/api/rule-chains/{id}` | Update rule chain metadata |
+| DELETE | `/api/rule-chains/{id}` | Delete rule chain |
+| POST | `/api/rule-chains/{id}/save` | Save full chain state (nodes + connections) |
+| POST | `/api/rule-chains/{id}/nodes` | Add node to chain |
+| PUT | `/api/rule-chains/{id}/nodes/{nodeId}` | Update node |
+| DELETE | `/api/rule-chains/{id}/nodes/{nodeId}` | Delete node |
+| POST | `/api/rule-chains/{id}/connections` | Add connection between nodes |
+| DELETE | `/api/rule-chains/{id}/connections/{connectionId}` | Delete connection |
+| GET | `/api/rule-chains/{id}/debug` | Get debug buffer |
+| DELETE | `/api/rule-chains/{id}/debug` | Clear debug buffer |
+
+---
+
+## System Health
+
+1 endpoint. Requires ADMIN+ role.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/system-health/` | Get system health metrics (queue sizes, uptime, memory) |
+
+---
+
+## Telemetry
+
+3 endpoints. JWT auth required.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/telemetry/{entityId}/keys` | List available telemetry keys |
+| GET | `/api/telemetry/{entityId}/latest` | Get latest telemetry values |
+| GET | `/api/telemetry/{entityId}/timeseries` | Query time-series data (with aggregation) |
+
+---
+
+## UNS
+
+6 endpoints. Unified Namespace (ISA-95) hierarchy management. All require ADMIN+ role.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/uns/tree` | Get full UNS hierarchy tree |
+| GET | `/api/uns/search` | Search by wildcard pattern |
+| GET | `/api/uns/entity/{entityId}` | Get entity UNS mapping |
+| PUT | `/api/uns/entity/{entityId}` | Override entity UNS path |
+| POST | `/api/uns/entity/{entityId}/move` | Generate move impact report |
+| POST | `/api/uns/entity/{entityId}/move/confirm` | Confirm and execute cascade move |
 
 ---
 
 ## Uploads
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| POST | `/api/uploads/photo` | Yes | Upload photo (5MB max, multipart/form-data) |
-| GET | `/uploads/:filename` | No | Serve uploaded file (public, served via fastifyStatic) |
+1 endpoint. JWT auth required.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/uploads/photo` | Upload profile photo (5MB max, multipart/form-data) |
+
+Static file serving: `GET /uploads/{filename}` (public, no auth, served by Fastify static).
 
 ---
 
-## Backup & Restore
+## Users
+
+14 endpoints. All require ADMIN+ role. Mutations use reauth.
 
 | Method | Endpoint | Roles | Reauth | Description |
 |--------|----------|-------|--------|-------------|
-| GET | `/api/backup/export` | SUPER_ADMIN, ADMIN | EXPORT_BACKUP | Export database backup (ZIP) |
-| POST | `/api/backup/restore` | SUPER_ADMIN, ADMIN | RESTORE_BACKUP | Restore from backup |
-| POST | `/api/backup/validate` | SUPER_ADMIN, ADMIN | — | Validate backup file |
+| GET | `/api/users/` | ADMIN+ | -- | List users (paginated, filterable) |
+| POST | `/api/users/` | ADMIN+ | CREATE_USER | Create user |
+| GET | `/api/users/stats` | ADMIN+ | -- | User count stats by status |
+| GET | `/api/users/{id}` | ADMIN+ | -- | Get user by ID |
+| PUT | `/api/users/{id}` | ADMIN+ | UPDATE_USER | Update user |
+| DELETE | `/api/users/{id}` | SUPER_ADMIN | DELETE_USER | Delete user |
+| POST | `/api/users/{id}/enable` | ADMIN+ | ENABLE_USER | Enable user account |
+| POST | `/api/users/{id}/disable` | ADMIN+ | DISABLE_USER | Disable user account |
+| POST | `/api/users/{id}/unlock` | ADMIN+ | UNLOCK_USER | Unlock locked account |
+| POST | `/api/users/{id}/reset-password` | ADMIN+ | RESET_PASSWORD | Admin password reset |
+| POST | `/api/users/bulk-delete` | SUPER_ADMIN | BULK_DELETE_USERS | Bulk delete users |
+| GET | `/api/users/reset-requests` | ADMIN+ | -- | List password reset requests |
+| GET | `/api/users/reset-requests/pending` | ADMIN+ | -- | Pending reset request count |
+| POST | `/api/users/reset-requests/{id}/process` | ADMIN+ | PROCESS_RESET_REQUEST | Process reset request |
+
+---
+
+## Rate Limiting
+
+| Scope | Limit |
+|-------|-------|
+| Global | 100 req/min per IP |
+| Login (`POST /api/auth/login`) | 10 req/min per IP |
+| Forgot Password (`POST /api/auth/forgot-password`) | 5 req/5min per IP |
+
+---
+
+## Authentication Flow
+
+1. **Login:** `POST /api/auth/login` with `{ username, password }` returns `{ token, user }`
+2. **Use token:** Include `Authorization: Bearer <token>` on all subsequent requests
+3. **Re-auth:** For sensitive actions, send password via `_currentPassword` body field or `x-reauth-password` header
+4. **Logout:** `POST /api/auth/logout` or `POST /api/auth/beacon-logout` (tab close)
+
+## Device Token Auth
+
+Device-facing Data Ingestion endpoints use per-entity device tokens:
+1. **Generate token:** `POST /api/connectivity/{entityId}/token` (JWT auth)
+2. **Use token:** Include `Authorization: Bearer <device-token>` on data ingestion requests
+3. **Revoke token:** `DELETE /api/connectivity/{entityId}/token` (JWT auth)
+
+## Permission System
+
+- **Entity routes** use `requirePermission()` -- checks `role.permissions` JSON array in DB
+- **Non-entity routes** use `requireRole()` -- checks role name string
+- **39 permissions** across categories: Entity, User, Config, Audit, Approval, Data Ingestion, Rule Chain, Alarm, UNS, and more
 
 ---
 
@@ -264,7 +544,7 @@ All entity endpoints use `requirePermission()` (checks role.permissions JSON arr
 ### Paginated Response
 ```json
 {
-  "data": [...],
+  "data": [],
   "total": 100,
   "page": 1,
   "limit": 20,
@@ -275,8 +555,8 @@ All entity endpoints use `requirePermission()` (checks role.permissions JSON arr
 ### Tree Response (flat array)
 ```json
 [
-  { "id": "...", "name": "...", "parentId": null, "templateId": "...", ... },
-  { "id": "...", "name": "...", "parentId": "parent-id", ... }
+  { "id": "...", "name": "...", "parentId": null, "templateId": "..." },
+  { "id": "...", "name": "...", "parentId": "parent-id" }
 ]
 ```
 
@@ -300,93 +580,5 @@ All entity endpoints use `requirePermission()` (checks role.permissions JSON arr
 ```
 
 ### Common Error Codes
+
 `VALIDATION_ERROR`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `REAUTH_REQUIRED`, `REAUTH_FAILED`, `CONCURRENT_SESSION`, `TOKEN_EXPIRED`, `FORCE_PASSWORD_CHANGE`, `PASSWORD_EXPIRED`, `CONNECTION_LIMIT_REACHED`
-
----
-
-## Authentication Flow
-
-1. **Login:** `POST /api/auth/login` with `{ username, password }` → returns `{ token, user }`
-2. **Use token:** Include `Authorization: Bearer <token>` on all subsequent requests
-3. **Re-auth:** For sensitive actions, password sent via `_currentPassword` body field or `x-reauth-password` header
-4. **Logout:** `POST /api/auth/logout` or `POST /api/auth/beacon-logout` (for tab close)
-
-## Permission System
-
-- **Entity routes** use `requirePermission()` — checks `role.permissions` JSON array in DB
-- **Non-entity routes** use `requireRole()` — checks role name string
-- **Permissions:** ASSET_VIEW, ASSET_CREATE, ASSET_UPDATE, ASSET_DELETE, ASSET_TEMPLATE_MANAGE, ASSET_RELATIONSHIP_MANAGE, ASSET_IDENTIFIER_MANAGE, USER_CREATE, USER_READ, USER_UPDATE, USER_DELETE, USER_ENABLE_DISABLE, USER_UNLOCK, USER_RESET_PASSWORD, CONFIG_READ, CONFIG_UPDATE, FIELD_ID_UPDATE, ROLE_MANAGE, AUDIT_READ, APPROVAL_REVIEW, APPROVAL_REQUEST
-
-## Rate Limiting
-
-| Scope | Limit |
-|-------|-------|
-| Global | 100 req/min per IP |
-| Login | 10 req/min per IP |
-| Forgot Password | 5 req/5min per IP |
-
----
-
-## Example Payloads
-
-### Create Entity Template (with checklist)
-```json
-POST /api/assets/templates
-{
-  "name": "Reactor Vessel",
-  "description": "Chemical reactor vessel template",
-  "category": "Equipment",
-  "icon": "flask",
-  "attributeSchema": [
-    { "fieldName": "serialNumber", "dataType": "TEXT" },
-    { "fieldName": "capacity", "dataType": "FLOAT", "numericConstraints": { "enabled": true, "min": 0, "max": 10000, "resolution": 0.1 } }
-  ],
-  "checklistSchema": [
-    { "question": "Is the vessel clean?", "questionType": "YES_NO", "required": true, "section": "Pre-check" },
-    { "question": "Rate the condition", "questionType": "MCQ", "options": ["Good", "Fair", "Poor"], "section": "Inspection" },
-    { "question": "Measure temperature", "questionType": "NUMERIC", "numericUnit": "C", "numericMin": 10, "numericMax": 80, "required": true },
-    { "question": "Visual inspection", "questionType": "PASS_FAIL", "passCriteria": "No visible damage" },
-    { "question": "Supervisor sign-off", "questionType": "SIGNATURE", "required": true }
-  ],
-  "statusLifecycle": [
-    { "status": "Active", "color": "#22c55e", "transitions": ["Under Maintenance", "Inactive"] },
-    { "status": "Under Maintenance", "color": "#f59e0b", "transitions": ["Active", "Decommissioned"] }
-  ],
-  "maxParentConnections": 1,
-  "maxConnections": 10
-}
-```
-
-### Create Entity Instance
-```json
-POST /api/assets/instances
-{
-  "name": "Reactor-001",
-  "templateId": "uuid-of-template",
-  "parentId": "uuid-of-parent-or-null",
-  "attributes": { "serialNumber": "RV-2024-001", "capacity": 500.5 },
-  "status": "Active"
-}
-```
-
-### Create Relationship
-```json
-POST /api/assets/relationships
-{
-  "sourceAssetId": "uuid-of-source",
-  "targetAssetId": "uuid-of-target",
-  "relationshipType": "FEEDS"
-}
-```
-Response includes `connectionInfo: { used, allowed, remaining }` for both source and target.
-
-### Create Identifier
-```json
-POST /api/assets/identifiers
-{
-  "assetId": "uuid-of-instance",
-  "identifierType": "QR",
-  "identifierValue": "RV-2024-001-QR",
-  "isPrimary": true
-}
-```

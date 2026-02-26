@@ -167,12 +167,12 @@ export const userService = {
     const users = await userRepository.findManyByIds(userIds);
     if (users.length === 0) throw new NotFoundError('No users found with the provided IDs');
 
-    const superAdmins = users.filter(u => u.role === 'SUPER_ADMIN');
+    const superAdmins = users.filter((u: any) => u.role === 'SUPER_ADMIN');
     if (superAdmins.length > 0) {
-      throw new ForbiddenError(`Cannot delete SUPER_ADMIN users: ${superAdmins.map(u => u.username).join(', ')}`);
+      throw new ForbiddenError(`Cannot delete SUPER_ADMIN users: ${superAdmins.map((u: any) => u.username).join(', ')}`);
     }
 
-    const validIds = users.map(u => u.id);
+    const validIds = users.map((u: any) => u.id);
 
     for (const user of users) {
       await auditLog({
@@ -188,7 +188,7 @@ export const userService = {
     }
 
     await userRepository.deleteMany(validIds);
-    return { deletedCount: validIds.length, deletedUsers: users.map(u => ({ id: u.id, username: u.username })) };
+    return { deletedCount: validIds.length, deletedUsers: users.map((u: any) => ({ id: u.id, username: u.username })) };
   },
 
   async enable(id: string, ctx: RequestContext) {
@@ -284,13 +284,13 @@ export const userService = {
 
   async listResetRequests() {
     const requests = await userRepository.findResetRequests();
-    const userIds = [...new Set(requests.map(r => r.userId))];
+    const userIds = [...new Set(requests.map((r: any) => r.userId))] as string[];
     const users = userIds.length > 0 ? await userRepository.findUsersByUsernames(userIds) : [];
-    const userMap = new Map(users.map(u => [u.username, u]));
+    const userMap = new Map(users.map((u: any) => [u.username, u]));
 
     return {
-      data: requests.map(request => {
-        const user = userMap.get(request.userId);
+      data: requests.map((request: any) => {
+        const user = userMap.get(request.userId) as any;
         return {
           ...request,
           userFullName: user?.fullName ?? request.userId,

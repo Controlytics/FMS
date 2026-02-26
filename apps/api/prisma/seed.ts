@@ -225,6 +225,130 @@ async function main() {
   }
   console.log('  Created default field ID configurations');
 
+  // 5. Ingestion System Configuration (30+ hot-reload settings from Section 20.3)
+  const ingestionConfigs = [
+    // Rule Engine
+    { key: 'rule_engine.script_timeout_ms', value: '5000', dataType: 'INTEGER', category: 'rule_engine', label: 'Script Execution Timeout', description: 'Maximum time a rule chain script can run', defaultValue: '5000', minValue: '1000', maxValue: '30000', unit: 'ms' },
+    { key: 'rule_engine.script_memory_mb', value: '16', dataType: 'INTEGER', category: 'rule_engine', label: 'Script Memory Limit', description: 'Maximum memory allocated to script sandbox', defaultValue: '16', minValue: '4', maxValue: '64', unit: 'MB' },
+    { key: 'rule_engine.debug_buffer_size', value: '100', dataType: 'INTEGER', category: 'rule_engine', label: 'Debug Events Per Node', description: 'Number of debug events kept in buffer per node', defaultValue: '100', minValue: '10', maxValue: '1000', unit: 'events' },
+    { key: 'rule_engine.debug_ttl_hours', value: '24', dataType: 'INTEGER', category: 'rule_engine', label: 'Debug Event Retention', description: 'How long debug events are retained', defaultValue: '24', minValue: '1', maxValue: '168', unit: 'hours' },
+    { key: 'rule_engine.max_chain_depth', value: '10', dataType: 'INTEGER', category: 'rule_engine', label: 'Max Rule Chain Depth', description: 'Maximum depth for nested rule chain calls', defaultValue: '10', minValue: '3', maxValue: '50', unit: 'chains' },
+
+    // Device
+    { key: 'device.default_inactivity_timeout_sec', value: '60', dataType: 'INTEGER', category: 'device', label: 'Default Inactivity Timeout', description: 'Seconds of inactivity before device marked offline', defaultValue: '60', minValue: '10', maxValue: '3600', unit: 'seconds' },
+    { key: 'device.ip_validation_enabled', value: 'true', dataType: 'BOOLEAN', category: 'device', label: 'IP Allowlist Enforcement', description: 'Enforce IP allowlist on device connections', defaultValue: 'true' },
+    { key: 'device.rate_limit_enabled', value: 'true', dataType: 'BOOLEAN', category: 'device', label: 'Per-Device Rate Limiting', description: 'Enable per-device message rate limiting', defaultValue: 'true' },
+    { key: 'device.default_max_data_rate_per_min', value: '600', dataType: 'INTEGER', category: 'device', label: 'Default Rate Limit', description: 'Default max messages per minute per device', defaultValue: '600', minValue: '10', maxValue: '10000', unit: 'msg/min' },
+
+    // Pipeline
+    { key: 'pipeline.timestamp_max_drift_hours', value: '24', dataType: 'INTEGER', category: 'pipeline', label: 'Max Clock Drift Tolerance', description: 'Maximum allowed clock drift between client and server', defaultValue: '24', minValue: '1', maxValue: '168', unit: 'hours' },
+    { key: 'pipeline.dlq_alarm_threshold', value: '100', dataType: 'INTEGER', category: 'pipeline', label: 'DLQ Depth Alert Threshold', description: 'Dead Letter Queue depth that triggers alarm', defaultValue: '100', minValue: '10', maxValue: '10000', unit: 'messages' },
+    { key: 'pipeline.telemetry_batch_size', value: '100', dataType: 'INTEGER', category: 'pipeline', label: 'Telemetry Write Batch Size', description: 'Number of rows to batch before writing to TSDB', defaultValue: '100', minValue: '1', maxValue: '1000', unit: 'rows' },
+    { key: 'pipeline.telemetry_batch_flush_ms', value: '500', dataType: 'INTEGER', category: 'pipeline', label: 'Telemetry Batch Flush Interval', description: 'Maximum time to hold batch before flushing', defaultValue: '500', minValue: '100', maxValue: '5000', unit: 'ms' },
+    { key: 'pipeline.trace_enabled', value: 'false', dataType: 'BOOLEAN', category: 'pipeline', label: 'Global Pipeline Trace', description: 'Trace ALL messages from ALL entities (high overhead)', defaultValue: 'false' },
+    { key: 'pipeline.trace_max_per_entity', value: '10000', dataType: 'INTEGER', category: 'pipeline', label: 'Max Traces Per Entity', description: 'Maximum trace records kept per entity', defaultValue: '10000', minValue: '1000', maxValue: '100000', unit: 'traces' },
+
+    // RPC
+    { key: 'rpc.timeout_ms', value: '30000', dataType: 'INTEGER', category: 'rpc', label: 'RPC Response Timeout', description: 'Maximum time to wait for device RPC response', defaultValue: '30000', minValue: '5000', maxValue: '120000', unit: 'ms' },
+    { key: 'rpc.response_cache_ttl_ms', value: '300000', dataType: 'INTEGER', category: 'rpc', label: 'RPC Response Cache TTL', description: 'How long to cache RPC responses', defaultValue: '300000', minValue: '60000', maxValue: '900000', unit: 'ms' },
+
+    // Export
+    { key: 'export.max_range_days', value: '90', dataType: 'INTEGER', category: 'export', label: 'Max Export Date Range', description: 'Maximum date range for data export', defaultValue: '90', minValue: '7', maxValue: '365', unit: 'days' },
+    { key: 'export.max_rows', value: '1000000', dataType: 'INTEGER', category: 'export', label: 'Max Export Row Count', description: 'Maximum rows in a single export', defaultValue: '1000000', minValue: '10000', maxValue: '10000000', unit: 'rows' },
+    { key: 'export.pdf_max_rows', value: '10000', dataType: 'INTEGER', category: 'export', label: 'Max PDF Export Rows', description: 'Maximum rows in PDF export', defaultValue: '10000', minValue: '1000', maxValue: '100000', unit: 'rows' },
+    { key: 'export.rate_limit_per_min', value: '5', dataType: 'INTEGER', category: 'export', label: 'Export Requests Per Minute', description: 'Rate limit for export requests', defaultValue: '5', minValue: '1', maxValue: '20', unit: 'requests' },
+    { key: 'export.async_threshold_rows', value: '10000', dataType: 'INTEGER', category: 'export', label: 'Async Export Threshold', description: 'Row count above which export runs async', defaultValue: '10000', minValue: '1000', maxValue: '100000', unit: 'rows' },
+
+    // WebSocket
+    { key: 'websocket.max_connections_per_user', value: '10', dataType: 'INTEGER', category: 'websocket', label: 'Max WebSocket Connections', description: 'Maximum WebSocket connections per user', defaultValue: '10', minValue: '1', maxValue: '50', unit: 'connections' },
+
+    // Retention
+    { key: 'retention.auto_enabled', value: 'false', dataType: 'BOOLEAN', category: 'retention', label: 'Auto-Retention Enabled', description: 'Enable automatic data retention policies', defaultValue: 'false' },
+    { key: 'retention.requires_archive', value: 'true', dataType: 'BOOLEAN', category: 'retention', label: 'Require Archive Before Delete', description: 'Require data archive before retention deletion', defaultValue: 'true' },
+    { key: 'retention.compression_after_days', value: '7', dataType: 'INTEGER', category: 'retention', label: 'Compress Data After', description: 'Days after which data is compressed', defaultValue: '7', minValue: '1', maxValue: '90', unit: 'days' },
+
+    // MQTT
+    { key: 'mqtt.max_payload_bytes', value: '1048576', dataType: 'INTEGER', category: 'mqtt', label: 'MQTT Max Payload Size', description: 'Maximum MQTT message payload size', defaultValue: '1048576', minValue: '1024', maxValue: '10485760', unit: 'bytes' },
+
+    // Binary uploads
+    { key: 'binary.max_image_size_mb', value: '10', dataType: 'INTEGER', category: 'binary', label: 'Max Image Upload Size', description: 'Maximum image file upload size', defaultValue: '10', minValue: '1', maxValue: '50', unit: 'MB' },
+    { key: 'binary.max_audio_size_mb', value: '50', dataType: 'INTEGER', category: 'binary', label: 'Max Audio Upload Size', description: 'Maximum audio file upload size', defaultValue: '50', minValue: '5', maxValue: '200', unit: 'MB' },
+    { key: 'binary.max_vibration_size_mb', value: '100', dataType: 'INTEGER', category: 'binary', label: 'Max Vibration Upload Size', description: 'Maximum vibration data file size', defaultValue: '100', minValue: '10', maxValue: '500', unit: 'MB' },
+
+    // Ingestion Worker (requiresRestart: true)
+    { key: 'ingestion.worker_concurrency', value: '10', dataType: 'INTEGER', category: 'ingestion', label: 'Ingestion Worker Concurrency', description: 'Number of concurrent ingestion jobs', defaultValue: '10', minValue: '1', maxValue: '50', unit: 'jobs', requiresRestart: true },
+    { key: 'ingestion.worker_rate_limit', value: '1000', dataType: 'INTEGER', category: 'ingestion', label: 'Ingestion Worker Rate Limit', description: 'Maximum ingestion jobs per second', defaultValue: '1000', minValue: '100', maxValue: '10000', unit: 'jobs/sec', requiresRestart: true },
+    { key: 'pipeline.trace_ttl_hours', value: '48', dataType: 'INTEGER', category: 'pipeline', label: 'Trace Retention Period', description: 'How long pipeline traces are kept before auto-purge', defaultValue: '48', minValue: '1', maxValue: '168', unit: 'hours', requiresRestart: true },
+  ];
+
+  for (const config of ingestionConfigs) {
+    await prisma.ingestionSystemConfig.upsert({
+      where: { key: config.key },
+      update: {},
+      create: {
+        key: config.key,
+        value: config.value,
+        dataType: config.dataType,
+        category: config.category,
+        label: config.label,
+        description: config.description ?? null,
+        defaultValue: config.defaultValue,
+        minValue: config.minValue ?? null,
+        maxValue: config.maxValue ?? null,
+        unit: config.unit ?? null,
+        requiresRestart: config.requiresRestart ?? false,
+      },
+    });
+  }
+  console.log('  Created ingestion system configuration (33 settings)');
+
+  // 6. Default Help Articles (from Appendix B)
+  const helpArticles = [
+    { key: 'entity.overview', title: 'Entity Management Overview', category: 'entity', sortOrder: 1 },
+    { key: 'entity.templates', title: 'Working with Entity Templates', category: 'entity', sortOrder: 2 },
+    { key: 'entity.tree', title: 'Navigating the Entity Tree', category: 'entity', sortOrder: 3 },
+    { key: 'entity.relationships', title: 'Entity Relationships Guide', category: 'entity', sortOrder: 4 },
+    { key: 'entity.identifiers', title: 'Entity Identifiers (QR, RFID, NFC)', category: 'entity', sortOrder: 5 },
+    { key: 'rule-chain.overview', title: 'Rule Chain Engine Overview', category: 'rule-chain', sortOrder: 1 },
+    { key: 'rule-chain.nodes', title: 'Rule Node Types Reference', category: 'rule-chain', sortOrder: 2 },
+    { key: 'rule-chain.scripting', title: 'Writing Rule Chain Scripts', category: 'rule-chain', sortOrder: 3 },
+    { key: 'rule-chain.debug', title: 'Debugging Rule Chains', category: 'rule-chain', sortOrder: 4 },
+    { key: 'rule-chain.default', title: 'Understanding the Default Rule Chain', category: 'rule-chain', sortOrder: 5 },
+    { key: 'connectivity.overview', title: 'Device Connectivity Guide', category: 'connectivity', sortOrder: 1 },
+    { key: 'connectivity.mqtt', title: 'MQTT Protocol Setup', category: 'connectivity', sortOrder: 2 },
+    { key: 'connectivity.http', title: 'HTTP API Integration', category: 'connectivity', sortOrder: 3 },
+    { key: 'connectivity.testing', title: 'Testing Device Connectivity', category: 'connectivity', sortOrder: 4 },
+    { key: 'data.telemetry', title: 'Telemetry Data Guide', category: 'data', sortOrder: 1 },
+    { key: 'data.attributes', title: 'Entity Attributes (Client/Server/Shared)', category: 'data', sortOrder: 2 },
+    { key: 'data.binary', title: 'Binary Data (Images, Audio, Vibration)', category: 'data', sortOrder: 3 },
+    { key: 'checklist.overview', title: 'Checklist System Overview', category: 'checklist', sortOrder: 1 },
+    { key: 'checklist.mobile', title: 'Filling Checklists on Mobile', category: 'checklist', sortOrder: 2 },
+    { key: 'checklist.qr-code', title: 'QR Code Scanning Guide', category: 'checklist', sortOrder: 3 },
+    { key: 'checklist.approval', title: 'Checklist Approval Workflow', category: 'checklist', sortOrder: 4 },
+    { key: 'uns.overview', title: 'Unified Namespace (UNS) Concepts', category: 'uns', sortOrder: 1 },
+    { key: 'uns.isa95', title: 'ISA-95 Hierarchy Mapping', category: 'uns', sortOrder: 2 },
+    { key: 'uns.wildcards', title: 'UNS Wildcard Patterns', category: 'uns', sortOrder: 3 },
+    { key: 'alarms.overview', title: 'Alarm System Overview', category: 'alarms', sortOrder: 1 },
+    { key: 'alarms.management', title: 'Managing and Acknowledging Alarms', category: 'alarms', sortOrder: 2 },
+    { key: 'audit.overview', title: 'Audit Trail & Compliance', category: 'audit', sortOrder: 1 },
+    { key: 'users.roles', title: 'User Roles & Permissions', category: 'users', sortOrder: 1 },
+  ];
+
+  for (const article of helpArticles) {
+    await prisma.helpArticle.upsert({
+      where: { key: article.key },
+      update: {},
+      create: {
+        key: article.key,
+        title: article.title,
+        content: `# ${article.title}\n\nContent for this help article will be added during implementation.`,
+        category: article.category,
+        sortOrder: article.sortOrder,
+      },
+    });
+  }
+  console.log('  Created default help articles (28 articles)');
+
   console.log('Seed completed successfully!');
 }
 

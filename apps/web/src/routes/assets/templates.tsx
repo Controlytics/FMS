@@ -163,6 +163,13 @@ export function AssetTemplatesPage() {
         conditionalField: c.conditionalField || '',
         conditionalValue: c.conditionalValue || '',
       })),
+      dataIngestionEnabled: template.dataIngestionEnabled || false,
+      transportType: template.transportType || '',
+      credentialType: template.credentialType || 'TOKEN',
+      inactivityTimeout: template.inactivityTimeout ?? 60,
+      defaultMaxDataRate: template.defaultMaxDataRate ?? 600,
+      autoProvision: template.autoProvision !== false,
+      defaultRuleChainId: template.defaultRuleChainId || '',
     });
     setError('');
     setShowEditDialog(true);
@@ -401,6 +408,13 @@ export function AssetTemplatesPage() {
           ...(rest.conditionalField.trim() ? { conditionalField: rest.conditionalField.trim() } : {}),
           ...(rest.conditionalValue.trim() ? { conditionalValue: rest.conditionalValue.trim() } : {}),
         })),
+      dataIngestionEnabled: formData.dataIngestionEnabled,
+      ...(formData.transportType ? { transportType: formData.transportType } : { transportType: null }),
+      credentialType: formData.credentialType || 'TOKEN',
+      inactivityTimeout: formData.inactivityTimeout,
+      defaultMaxDataRate: formData.defaultMaxDataRate,
+      autoProvision: formData.autoProvision,
+      ...(formData.defaultRuleChainId ? { defaultRuleChainId: formData.defaultRuleChainId } : { defaultRuleChainId: null }),
     };
   };
 

@@ -171,6 +171,9 @@ enum NotificationType {
   USER_CREATED
   USER_UPDATED
   ROLE_CHANGED
+  USER_CREATION_REQUEST_SUBMITTED
+  USER_CREATION_REQUEST_APPROVED
+  USER_CREATION_REQUEST_REJECTED
 }
 
 model Notification {
@@ -247,8 +250,18 @@ model AssetTemplate {
   createdBy             String?  @map("created_by") @db.VarChar(50)
   updatedBy             String?  @map("updated_by") @db.VarChar(50)
 
-  versions  AssetTemplateVersion[]
-  instances AssetInstance[]
+  // ─── Data Ingestion Blueprint (Phase A) ────────────────
+  dataIngestionEnabled  Boolean   @default(false) @map("data_ingestion_enabled")
+  transportType         String?   @map("transport_type") @db.VarChar(20)     // MQTT | HTTP | WEBSOCKET
+  credentialType        String?   @default("TOKEN") @map("credential_type") @db.VarChar(20) // TOKEN | BASIC | X509
+  inactivityTimeout     Int       @default(60) @map("inactivity_timeout")    // seconds
+  defaultMaxDataRate    Int       @default(600) @map("default_max_data_rate") // default rate limit for instances
+  autoProvision         Boolean   @default(true) @map("auto_provision")      // auto-create credentials on instance creation
+  defaultRuleChainId    String?   @map("default_rule_chain_id") @db.Uuid
+
+  versions         AssetTemplateVersion[]
+  instances        AssetInstance[]
+  defaultRuleChain RuleChain? @relation(fields: [defaultRuleChainId], references: [id])
 
   @@index([isActive])
   @@index([category])
@@ -347,5 +360,357 @@ model AssetIdentifier {
   @@index([assetId])
   @@index([identifierType])
   @@map("asset_identifiers")
+}
+
+// =============================================
+// DATA INGESTION & INTEGRATION MODELS (Phase A)
+// =============================================
+
+// Device Credentials (per entity instance)
+model DeviceCredential {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityId          String    @unique @map("entity_id") @db.Uuid
+  accessToken       String    @unique @map("access_token")
+  credentialData    Json?     @map("credential_data") @db.JsonB
+  status            String    @default("INACTIVE") @db.VarChar(20) // INACTIVE | ACTIVE
+  allowedIps        String[]  @default([]) @map("allowed_ips")
+  deviceFingerprint String?   @map("device_fingerprint")
+  maxDataRatePerMin Int       @default(600) @map("max_data_rate_per_min")
+  isActive          Boolean   @default(true) @map("is_active")
+  firstConnectedAt  DateTime? @map("first_connected_at") @db.Timestamptz
+  lastConnectedAt   DateTime? @map("last_connected_at") @db.Timestamptz
+  lastDisconnectedAt DateTime? @map("last_disconnected_at") @db.Timestamptz
+  lastSourceIp      String?   @map("last_source_ip") @db.VarChar(45)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([status])
+  @@map("device_credentials")
+}
+
+// Rule Chains (SUPER_ADMIN only)
+model RuleChain {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String    @db.VarChar(200)
+  description      String?
+  isRoot           Boolean   @default(false) @map("is_root")
+  isSystem         Boolean   @default(false) @map("is_system")
+  firstRuleNodeId  String?   @map("first_rule_node_id") @db.Uuid
+  configuration    Json?     @db.JsonB
+  currentVersion   Int       @default(1) @map("current_version")
+  isActive         Boolean   @default(true) @map("is_active")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  nodes       RuleNode[]
+  connections RuleNodeConnection[]
+  versions    RuleChainVersion[]
+  templates   AssetTemplate[]
+
+  @@index([isRoot])
+  @@index([isActive])
+  @@map("rule_chains")
+}
+
+// Rule Chain Versions (append-only snapshots)
+model RuleChainVersion {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ruleChainId  String    @map("rule_chain_id") @db.Uuid
+  version      Int
+  snapshot     Json      @db.JsonB
+  status       String    @default("ACTIVE") @db.VarChar(20) // ACTIVE | SUPERSEDED
+  createdBy    String    @map("created_by") @db.VarChar(50)
+  changeNotes  String?   @map("change_notes")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  ruleChain RuleChain @relation(fields: [ruleChainId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleChainId, version])
+  @@map("rule_chain_versions")
+}
+
+// Rule Nodes
+model RuleNode {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ruleChainId   String    @map("rule_chain_id") @db.Uuid
+  type          String    @db.VarChar(100)
+  name          String    @db.VarChar(200)
+  configuration Json      @default("{}") @db.JsonB
+  debugEnabled  Boolean   @default(false) @map("debug_enabled")
+  positionX     Float     @default(0) @map("position_x")
+  positionY     Float     @default(0) @map("position_y")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  ruleChain       RuleChain            @relation(fields: [ruleChainId], references: [id], onDelete: Cascade)
+  fromConnections RuleNodeConnection[] @relation("FromNode")
+  toConnections   RuleNodeConnection[] @relation("ToNode")
+
+  @@index([ruleChainId])
+  @@map("rule_nodes")
+}
+
+// Rule Node Connections
+model RuleNodeConnection {
+  id           String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ruleChainId  String @map("rule_chain_id") @db.Uuid
+  fromNodeId   String @map("from_node_id") @db.Uuid
+  toNodeId     String @map("to_node_id") @db.Uuid
+  label        String @db.VarChar(100)
+
+  ruleChain RuleChain @relation(fields: [ruleChainId], references: [id], onDelete: Cascade)
+  fromNode  RuleNode  @relation("FromNode", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNode    RuleNode  @relation("ToNode", fields: [toNodeId], references: [id], onDelete: Cascade)
+
+  @@index([ruleChainId])
+  @@map("rule_node_connections")
+}
+
+// Alarm (single-row lifecycle: ACTIVE -> ACKNOWLEDGED -> CLEARED)
+model Alarm {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityId           String    @map("entity_id") @db.Uuid
+  alarmType          String    @map("alarm_type") @db.VarChar(100)
+  severity           String    @db.VarChar(20) // CRITICAL | MAJOR | MINOR | WARNING | INFO
+  status             String    @default("ACTIVE") @db.VarChar(20) // ACTIVE | ACKNOWLEDGED | CLEARED
+  unsPath            String    @map("uns_path")
+
+  // Creation
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  createdByRuleChain String?   @map("created_by_rule_chain") @db.Uuid
+  triggerDetails     Json?     @map("trigger_details") @db.JsonB
+
+  // Acknowledgment
+  acknowledged       Boolean   @default(false)
+  acknowledgedBy     String?   @map("acknowledged_by") @db.VarChar(50)
+  acknowledgedAt     DateTime? @map("acknowledged_at") @db.Timestamptz
+  ackRemarks         String?   @map("ack_remarks")
+  ackSignatureId     String?   @map("ack_signature_id") @db.Uuid
+
+  // Clearance
+  cleared            Boolean   @default(false)
+  clearedAt          DateTime? @map("cleared_at") @db.Timestamptz
+  clearedBy          String?   @map("cleared_by") @db.VarChar(50)
+  clearRemarks       String?   @map("clear_remarks")
+  clearSignatureId   String?   @map("clear_signature_id") @db.Uuid
+
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([entityId, status])
+  @@index([severity, status])
+  @@index([createdAt])
+  @@map("alarms")
+}
+
+// Checklist Review (3-step approval workflow)
+model ChecklistReview {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  checklistId      String    @unique @map("checklist_id") // Links to ts_checklist_responses
+  entityId         String    @map("entity_id") @db.Uuid
+  templateId       String    @map("template_id") @db.Uuid
+
+  // Current state
+  currentStep      String    @default("SUBMITTED") @map("current_step") @db.VarChar(30)
+  currentSequence  Int       @default(1) @map("current_sequence")
+
+  // Step 1: Performed By
+  performedBy          String    @map("performed_by") @db.VarChar(50)
+  performedAt          DateTime  @map("performed_at") @db.Timestamptz
+  performedSignatureId String?   @map("performed_signature_id") @db.Uuid
+
+  // Step 2: Checked By
+  checkedBy            String?   @map("checked_by") @db.VarChar(50)
+  checkedAt            DateTime? @map("checked_at") @db.Timestamptz
+  checkedRemarks       String?   @map("checked_remarks")
+  checkedSignatureId   String?   @map("checked_signature_id") @db.Uuid
+
+  // Step 3: Verified By
+  verifiedBy           String?   @map("verified_by") @db.VarChar(50)
+  verifiedAt           DateTime? @map("verified_at") @db.Timestamptz
+  verifiedRemarks      String?   @map("verified_remarks")
+  verifiedSignatureId  String?   @map("verified_signature_id") @db.Uuid
+
+  // Rejection
+  rejectedBy           String?   @map("rejected_by") @db.VarChar(50)
+  rejectedAt           DateTime? @map("rejected_at") @db.Timestamptz
+  rejectionReason      String?   @map("rejection_reason")
+
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([entityId])
+  @@index([currentStep])
+  @@map("checklist_reviews")
+}
+
+// Electronic Signature (21 CFR Part 11 -- SS11.50 + SS11.70)
+model ElectronicSignature {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  recordType      String    @map("record_type") @db.VarChar(30) // 'alarm' | 'checklist'
+  recordId        String    @map("record_id")                   // Alarm.id or ChecklistReview.id
+  signerUserId    String    @map("signer_user_id") @db.VarChar(50)
+  signerFullName  String    @map("signer_full_name") @db.VarChar(100) // SS11.50(a)
+  signerRole      String    @map("signer_role") @db.VarChar(50)
+  signedAt        DateTime  @default(now()) @map("signed_at") @db.Timestamptz // SS11.50(b)
+  meaning         String    @db.VarChar(100) // SS11.50(c): "Performed By" | "Checked By" | "Verified By" | etc.
+  recordHash      String    @map("record_hash") @db.VarChar(64) // SS11.70
+  signatureHash   String    @map("signature_hash") @db.VarChar(64) // SS11.70: SHA-256(recordHash + signerUserId + signedAt)
+  reAuthVerified  Boolean   @default(true) @map("re_auth_verified")
+  reAuthMethod    String    @default("password") @map("re_auth_method") @db.VarChar(20)
+  signatureImage  String?   @map("signature_image") @db.Text
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([recordType, recordId])
+  @@map("electronic_signatures")
+}
+
+// Latest Telemetry (cache for current values)
+model LatestTelemetry {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityId    String    @map("entity_id") @db.Uuid
+  key         String    @db.VarChar(200)
+  valueNum    Float?    @map("value_num")
+  valueStr    String?   @map("value_str")
+  valueBool   Boolean?  @map("value_bool")
+  valueJson   Json?     @map("value_json") @db.JsonB
+  lastUpdated DateTime  @map("last_updated") @db.Timestamptz
+
+  @@unique([entityId, key])
+  @@map("latest_telemetry")
+}
+
+// UNS Mapping (entity -> ISA-95 UNS path)
+model UnsMapping {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityId     String    @unique @map("entity_id") @db.Uuid
+  unsPath      String    @unique @map("uns_path")
+  pathSegments Json      @map("path_segments") @db.JsonB
+  isOverridden Boolean   @default(false) @map("is_overridden")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("uns_mappings")
+}
+
+// Connectivity Status (per entity)
+model ConnectivityStatus {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityId           String    @unique @map("entity_id") @db.Uuid
+  status             String    @default("UNKNOWN") @db.VarChar(20) // ONLINE | OFFLINE | UNKNOWN
+  lastActivityAt     DateTime? @map("last_activity_at") @db.Timestamptz
+  lastConnectedAt    DateTime? @map("last_connected_at") @db.Timestamptz
+  lastDisconnectedAt DateTime? @map("last_disconnected_at") @db.Timestamptz
+  protocol           String?   @db.VarChar(20) // MQTT | HTTP | WEBSOCKET
+  sourceIp           String?   @map("source_ip") @db.VarChar(45)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("connectivity_status")
+}
+
+// QR Codes (per entity)
+model QrCode {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityId     String    @unique @map("entity_id") @db.Uuid
+  qrData       String    @map("qr_data")            // URL only -- NO tokens
+  imagePath    String    @map("image_path")
+  svgData      String?   @map("svg_data") @db.Text
+  size         String    @default("MEDIUM") @db.VarChar(10)
+  includeLabel Boolean   @default(true) @map("include_label")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("qr_codes")
+}
+
+// Help Articles (version-controlled)
+model HelpArticle {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key            String    @unique @db.VarChar(100)
+  title          String    @db.VarChar(200)
+  content        String    @db.Text
+  category       String    @db.VarChar(50)
+  sortOrder      Int       @default(0) @map("sort_order")
+  currentVersion Int       @default(1) @map("current_version")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  versions HelpArticleVersion[]
+
+  @@map("help_articles")
+}
+
+// Help Article Versions
+model HelpArticleVersion {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  helpArticleId String    @map("help_article_id") @db.Uuid
+  version       Int
+  content       String    @db.Text
+  changedBy     String    @map("changed_by") @db.VarChar(50)
+  changeNotes   String?   @map("change_notes")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  helpArticle HelpArticle @relation(fields: [helpArticleId], references: [id], onDelete: Cascade)
+
+  @@unique([helpArticleId, version])
+  @@map("help_article_versions")
+}
+
+// Data Stream Registration (telemetry key registry per entity)
+model DataStream {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityId  String    @map("entity_id") @db.Uuid
+  key       String    @db.VarChar(200)
+  dataType  String    @map("data_type") @db.VarChar(20)
+  unit      String?   @db.VarChar(50)
+  unsPath   String    @map("uns_path")
+  source    String    @default("device") @db.VarChar(20) // device | manual | rule_engine | api
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@unique([entityId, key])
+  @@map("data_streams")
+}
+
+// Dead Letter Queue (failed pipeline messages)
+model DeadLetterQueue {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  messageId     String    @map("message_id")
+  entityId      String?   @map("entity_id") @db.Uuid
+  messageType   String    @map("message_type") @db.VarChar(50)
+  payload       Json      @db.JsonB
+  errorMessage  String    @map("error_message")
+  errorStage    String    @map("error_stage") @db.VarChar(50)
+  retryCount    Int       @default(0) @map("retry_count")
+  maxRetries    Int       @default(3) @map("max_retries")
+  status        String    @default("PENDING") @db.VarChar(20) // PENDING | RETRYING | RESOLVED | DEAD
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("dead_letter_queue")
+}
+
+// Ingestion System Config (hot-reload operational settings)
+model IngestionSystemConfig {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key            String    @unique @db.VarChar(100)
+  value          String                             // JSON-encoded value
+  dataType       String    @map("data_type") @db.VarChar(20) // STRING | INTEGER | FLOAT | BOOLEAN | JSON
+  category       String    @db.VarChar(50)          // rule_engine | device | mqtt | export | pipeline | retention | websocket | rpc
+  label          String    @db.VarChar(200)
+  description    String?
+  defaultValue   String    @map("default_value")    // JSON-encoded factory default
+  minValue       String?   @map("min_value")
+  maxValue       String?   @map("max_value")
+  unit           String?   @db.VarChar(20)          // ms | seconds | minutes | MB | rows | etc.
+  requiresRestart Boolean  @default(false) @map("requires_restart")
+  isSecret       Boolean   @default(false) @map("is_secret")
+  updatedBy      String?   @map("updated_by") @db.VarChar(50)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("ingestion_system_config")
 }
 

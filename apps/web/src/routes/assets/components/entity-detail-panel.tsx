@@ -1,4 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
+import useSWR from 'swr';
+import { QRCodeSVG } from 'qrcode.react';
+import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -126,8 +129,12 @@ export function AssetDetailPanel({
     { key: 'overview', label: 'Overview' },
     { key: 'attributes', label: 'Attributes' },
     { key: 'telemetry', label: 'Telemetry' },
+    { key: 'connectivity', label: 'Connectivity' },
     { key: 'relationships', label: `Relationships (${allRelations.length})` },
     { key: 'identifiers', label: `Identifiers (${asset.identifiers?.length ?? 0})` },
+    { key: 'alarms', label: 'Alarms' },
+    { key: 'checklist-history', label: 'Checklists' },
+    { key: 'qr-code', label: 'QR Code' },
     { key: 'audit', label: 'Audit History' },
   ];
 
@@ -760,6 +767,26 @@ export function AssetDetailPanel({
         </div>
       )}
 
+      {/* Connectivity Tab */}
+      {activeTab === 'connectivity' && (
+        <ConnectivityTab entityId={asset.id} entityName={asset.name} formatDateTime={formatDateTime} />
+      )}
+
+      {/* Alarms Tab */}
+      {activeTab === 'alarms' && (
+        <AlarmsTab entityId={asset.id} formatDateTime={formatDateTime} />
+      )}
+
+      {/* Checklist History Tab */}
+      {activeTab === 'checklist-history' && (
+        <ChecklistHistoryTab entityId={asset.id} formatDateTime={formatDateTime} />
+      )}
+
+      {/* QR Code Tab */}
+      {activeTab === 'qr-code' && (
+        <QrCodeTab entityId={asset.id} entityName={asset.name} />
+      )}
+
       {/* Audit History Tab */}
       {activeTab === 'audit' && (
         <div>
@@ -803,6 +830,319 @@ export function AssetDetailPanel({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Connectivity Tab
+   ═══════════════════════════════════════════════════════════ */
+function ConnectivityTab({ entityId, entityName, formatDateTime }: { entityId: string; entityName: string; formatDateTime: (v: string | Date) => string }) {
+  const { data: status, isLoading } = useSWR<{ status: string; lastActivityAt?: string; lastConnectedAt?: string; lastDisconnectedAt?: string; protocol?: string; sourceIp?: string }>(`/api/connectivity/${entityId}`);
+  const { data: credential } = useSWR<{ accessToken?: string; status?: string; allowedIps?: string[]; maxDataRatePerMin?: number }>(`/api/connectivity/${entityId}/credentials`);
+  const [snippetProto, setSnippetProto] = useState('curl');
+  const { data: snippets } = useSWR<Record<string, string>>(`/api/connectivity/${entityId}/snippets/${snippetProto}`);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const handleTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await apiClient.post<{ success: boolean; message: string }>(`/api/connectivity/${entityId}/test`, {});
+      setTestResult(res);
+    } catch {
+      setTestResult({ success: false, message: 'Test failed' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const statusColors: Record<string, string> = {
+    ONLINE: 'bg-emerald-500',
+    OFFLINE: 'bg-red-500',
+    UNKNOWN: 'bg-slate-400',
+  };
+
+  if (isLoading) return <div className="text-center py-8"><svg className="w-6 h-6 animate-spin mx-auto text-cyan-500" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg></div>;
+
+  return (
+    <div className="space-y-6">
+      {/* Status Card */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <div className="flex items-center gap-3 mb-4">
+          <div className={cn('w-3 h-3 rounded-full', statusColors[status?.status ?? 'UNKNOWN'] ?? 'bg-slate-400')} />
+          <span className="font-semibold text-slate-800">{status?.status ?? 'UNKNOWN'}</span>
+          {status?.protocol && <Badge variant="outline" className="text-xs">{status.protocol}</Badge>}
+        </div>
+        <div className="grid grid-cols-2 gap-4 text-sm">
+          <div><span className="text-slate-500">Last Activity:</span><br/>{status?.lastActivityAt ? formatDateTime(status.lastActivityAt) : 'Never'}</div>
+          <div><span className="text-slate-500">Source IP:</span><br/>{status?.sourceIp ?? 'N/A'}</div>
+          <div><span className="text-slate-500">Last Connected:</span><br/>{status?.lastConnectedAt ? formatDateTime(status.lastConnectedAt) : 'Never'}</div>
+          <div><span className="text-slate-500">Last Disconnected:</span><br/>{status?.lastDisconnectedAt ? formatDateTime(status.lastDisconnectedAt) : 'Never'}</div>
+        </div>
+      </div>
+
+      {/* Credentials Card */}
+      {credential && (
+        <div className="bg-white rounded-xl border border-slate-200 p-5">
+          <h4 className="font-semibold text-slate-800 mb-3">Device Credentials</h4>
+          <div className="space-y-2 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500 w-28">Access Token:</span>
+              <code className="bg-slate-100 px-2 py-1 rounded text-xs font-mono flex-1 truncate">{credential.accessToken ? '••••••••' + credential.accessToken.slice(-6) : 'N/A'}</code>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500 w-28">Status:</span>
+              <Badge variant={credential.status === 'ACTIVE' ? 'default' : 'secondary'} className="text-xs">{credential.status ?? 'N/A'}</Badge>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500 w-28">Rate Limit:</span>
+              <span>{credential.maxDataRatePerMin ?? 600} msg/min</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Test Connection */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <h4 className="font-semibold text-slate-800 mb-3">Test Connection</h4>
+        <Button onClick={handleTest} disabled={testing} className="bg-gradient-to-r from-cyan-500 to-blue-600 text-white">
+          {testing ? 'Testing...' : 'Send Test Message'}
+        </Button>
+        {testResult && (
+          <div className={cn('mt-3 p-3 rounded-lg text-sm', testResult.success ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700')}>
+            {testResult.message}
+          </div>
+        )}
+      </div>
+
+      {/* Code Snippets */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <h4 className="font-semibold text-slate-800 mb-3">Code Snippets</h4>
+        <div className="flex gap-2 mb-3">
+          {['curl', 'python', 'nodejs', 'arduino'].map(p => (
+            <button key={p} onClick={() => setSnippetProto(p)} className={cn('px-3 py-1.5 rounded-lg text-xs font-medium transition-colors', snippetProto === p ? 'bg-cyan-100 text-cyan-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
+              {p}
+            </button>
+          ))}
+        </div>
+        <pre className="bg-slate-900 text-slate-100 rounded-lg p-4 text-xs overflow-x-auto max-h-48">
+          {snippets ? (typeof snippets === 'string' ? snippets : JSON.stringify(snippets, null, 2)) : 'Loading...'}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Alarms Tab
+   ═══════════════════════════════════════════════════════════ */
+function AlarmsTab({ entityId, formatDateTime }: { entityId: string; formatDateTime: (v: string | Date) => string }) {
+  const [statusFilter, setStatusFilter] = useState('');
+  const params = new URLSearchParams({ entityId, page: '1', pageSize: '20' });
+  if (statusFilter) params.set('status', statusFilter);
+  const { data, isLoading } = useSWR<{ data: any[]; total: number }>(`/api/alarms?${params}`);
+  const alarms = data?.data ?? [];
+
+  const severityColors: Record<string, string> = {
+    CRITICAL: 'bg-red-100 text-red-700 border-red-200',
+    MAJOR: 'bg-orange-100 text-orange-700 border-orange-200',
+    MINOR: 'bg-amber-100 text-amber-700 border-amber-200',
+    WARNING: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+    INFO: 'bg-blue-100 text-blue-700 border-blue-200',
+  };
+  const statusBadgeColors: Record<string, string> = {
+    ACTIVE: 'bg-red-100 text-red-700',
+    ACKNOWLEDGED: 'bg-amber-100 text-amber-700',
+    CLEARED: 'bg-emerald-100 text-emerald-700',
+  };
+
+  if (isLoading) return <div className="text-center py-8"><svg className="w-6 h-6 animate-spin mx-auto text-cyan-500" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg></div>;
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        {['', 'ACTIVE', 'ACKNOWLEDGED', 'CLEARED'].map(s => (
+          <button key={s} onClick={() => setStatusFilter(s)} className={cn('px-3 py-1.5 rounded-lg text-xs font-medium transition-colors', statusFilter === s ? 'bg-cyan-100 text-cyan-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
+            {s || 'All'}
+          </button>
+        ))}
+      </div>
+      {alarms.length === 0 ? (
+        <div className="text-center py-8"><p className="text-sm text-slate-500">No alarms found for this entity.</p></div>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Severity</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Created</TableHead>
+              <TableHead>Details</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {alarms.map((alarm: any) => (
+              <TableRow key={alarm.id}>
+                <TableCell><Badge className={cn('text-xs border', severityColors[alarm.severity] ?? '')}>{alarm.severity}</Badge></TableCell>
+                <TableCell className="text-sm font-medium">{alarm.alarmType}</TableCell>
+                <TableCell><Badge className={cn('text-xs', statusBadgeColors[alarm.status] ?? '')}>{alarm.status}</Badge></TableCell>
+                <TableCell className="text-sm whitespace-nowrap">{formatDateTime(alarm.createdAt)}</TableCell>
+                <TableCell className="text-xs text-slate-500 max-w-xs truncate">{alarm.triggerDetails ? JSON.stringify(alarm.triggerDetails).substring(0, 80) : '-'}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+      {data && data.total > 0 && <p className="text-xs text-slate-500 mt-3">Showing {alarms.length} of {data.total} alarms</p>}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Checklist History Tab
+   ═══════════════════════════════════════════════════════════ */
+function ChecklistHistoryTab({ entityId, formatDateTime }: { entityId: string; formatDateTime: (v: string | Date) => string }) {
+  const { data, isLoading } = useSWR<{ data: any[]; total: number }>(`/api/checklist/${entityId}/responses?page=1&pageSize=20`);
+  const responses = data?.data ?? [];
+
+  const stepColors: Record<string, string> = {
+    SUBMITTED: 'bg-blue-100 text-blue-700',
+    CHECKED: 'bg-amber-100 text-amber-700',
+    VERIFIED: 'bg-emerald-100 text-emerald-700',
+    APPROVED: 'bg-emerald-100 text-emerald-700',
+    REJECTED: 'bg-red-100 text-red-700',
+  };
+
+  if (isLoading) return <div className="text-center py-8"><svg className="w-6 h-6 animate-spin mx-auto text-cyan-500" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg></div>;
+
+  return (
+    <div>
+      {responses.length === 0 ? (
+        <div className="text-center py-8"><p className="text-sm text-slate-500">No checklists submitted for this entity.</p></div>
+      ) : (
+        <div className="space-y-3">
+          {responses.map((resp: any) => (
+            <div key={resp.checklistId || resp.id} className="bg-white rounded-xl border border-slate-200 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Badge className={cn('text-xs', stepColors[resp.currentStep] ?? 'bg-slate-100 text-slate-700')}>
+                    {resp.currentStep ?? 'SUBMITTED'}
+                  </Badge>
+                  <span className="text-xs text-slate-500">
+                    {resp.time ? formatDateTime(resp.time) : resp.submittedAt ? formatDateTime(resp.submittedAt) : ''}
+                  </span>
+                </div>
+                <span className="text-xs text-slate-400 font-mono">{(resp.checklistId || resp.id || '').substring(0, 8)}...</span>
+              </div>
+              <div className="text-sm text-slate-600">
+                <span className="text-slate-500">Submitted by:</span> {resp.submittedBy ?? resp.performedBy ?? 'Unknown'}
+              </div>
+              {resp.answers && (
+                <div className="mt-2 text-xs text-slate-500">
+                  {Array.isArray(resp.answers) ? `${resp.answers.length} answers` : 'Answers recorded'}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {data && data.total > 0 && <p className="text-xs text-slate-500 mt-3">Showing {responses.length} of {data.total} responses</p>}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   QR Code Tab
+   ═══════════════════════════════════════════════════════════ */
+function QrCodeTab({ entityId, entityName }: { entityId: string; entityName: string }) {
+  const [size, setSize] = useState(200);
+  const [generating, setGenerating] = useState(false);
+  const [generated, setGenerated] = useState(false);
+  const { data: existing } = useSWR<{ id?: string; qrData?: string }>(`/api/qr/${entityId}`);
+  const qrUrl = `${window.location.origin}/checklist/${entityId}`;
+  const svgRef = useRef<HTMLDivElement>(null);
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    try {
+      await apiClient.post(`/api/qr/${entityId}/generate`, { size: size >= 300 ? 'LARGE' : size >= 200 ? 'MEDIUM' : 'SMALL', includeLabel: true });
+      setGenerated(true);
+    } catch { /* ignore */ }
+    setGenerating(false);
+  };
+
+  const handleDownloadSVG = () => {
+    const svgEl = svgRef.current?.querySelector('svg');
+    if (!svgEl) return;
+    const svgData = new XMLSerializer().serializeToString(svgEl);
+    const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${entityName}-qr.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadPNG = () => {
+    const svgEl = svgRef.current?.querySelector('svg');
+    if (!svgEl) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = size * 2;
+    canvas.height = size * 2;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const img = new Image();
+    const svgData = new XMLSerializer().serializeToString(svgEl);
+    img.onload = () => {
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = `${entityName}-qr.png`;
+      a.click();
+    };
+    img.src = 'data:image/svg+xml;base64,' + btoa(svgData);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-xl border border-slate-200 p-6 text-center">
+        <h4 className="font-semibold text-slate-800 mb-4">QR Code for {entityName}</h4>
+        <p className="text-sm text-slate-500 mb-4">Scan this QR code to open the checklist for this entity.</p>
+        <div ref={svgRef} className="inline-block p-4 bg-white rounded-xl border-2 border-slate-100 shadow-sm">
+          <QRCodeSVG value={qrUrl} size={size} level="M" includeMargin />
+        </div>
+        <p className="text-xs text-slate-400 mt-3 font-mono break-all">{qrUrl}</p>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <h4 className="font-semibold text-slate-800 mb-3">Options</h4>
+        <div className="flex items-center gap-3 mb-4">
+          <label className="text-sm text-slate-600">Size:</label>
+          {[150, 200, 300].map(s => (
+            <button key={s} onClick={() => setSize(s)} className={cn('px-3 py-1.5 rounded-lg text-xs font-medium', size === s ? 'bg-cyan-100 text-cyan-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
+              {s}px
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-3">
+          <Button onClick={handleDownloadPNG} className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-sm">
+            Download PNG
+          </Button>
+          <Button onClick={handleDownloadSVG} variant="outline" className="text-sm">
+            Download SVG
+          </Button>
+          {!existing?.id && !generated && (
+            <Button onClick={handleGenerate} disabled={generating} variant="outline" className="text-sm">
+              {generating ? 'Saving...' : 'Save to Entity'}
+            </Button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

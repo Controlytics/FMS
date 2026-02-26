@@ -47,6 +47,13 @@ export const templateService = {
       checklistSchema: data.checklistSchema,
       maxParentConnections: data.maxParentConnections,
       maxConnections: data.maxConnections,
+      dataIngestionEnabled: data.dataIngestionEnabled,
+      transportType: data.transportType,
+      credentialType: data.credentialType,
+      inactivityTimeout: data.inactivityTimeout,
+      defaultMaxDataRate: data.defaultMaxDataRate,
+      autoProvision: data.autoProvision,
+      defaultRuleChainId: data.defaultRuleChainId,
       createdBy: ctx.userId,
     });
 
@@ -67,6 +74,13 @@ export const templateService = {
         checklistSchema: template.checklistSchema,
         maxParentConnections: template.maxParentConnections,
         maxConnections: template.maxConnections,
+        dataIngestionEnabled: template.dataIngestionEnabled,
+        transportType: template.transportType,
+        credentialType: template.credentialType,
+        inactivityTimeout: template.inactivityTimeout,
+        defaultMaxDataRate: template.defaultMaxDataRate,
+        autoProvision: template.autoProvision,
+        defaultRuleChainId: template.defaultRuleChainId,
       },
       changeNotes: 'Initial version',
       createdBy: ctx.userId,
@@ -106,7 +120,8 @@ export const templateService = {
     const newVersion = existing.version + 1;
 
     const updateData: Record<string, unknown> = { version: newVersion, updatedBy: ctx.userId };
-    for (const key of ['name', 'description', 'category', 'icon', 'maxParentConnections', 'maxConnections']) {
+    for (const key of ['name', 'description', 'category', 'icon', 'maxParentConnections', 'maxConnections',
+      'dataIngestionEnabled', 'transportType', 'credentialType', 'inactivityTimeout', 'defaultMaxDataRate', 'autoProvision', 'defaultRuleChainId']) {
       if (data[key] !== undefined) updateData[key] = data[key];
     }
     for (const key of ['attributeSchema', 'telemetrySchema', 'expectedIdentifiers', 'expectedRelationships', 'statusLifecycle', 'alarmRules', 'checklistSchema']) {
@@ -132,6 +147,13 @@ export const templateService = {
         checklistSchema: template.checklistSchema,
         maxParentConnections: template.maxParentConnections,
         maxConnections: template.maxConnections,
+        dataIngestionEnabled: template.dataIngestionEnabled,
+        transportType: template.transportType,
+        credentialType: template.credentialType,
+        inactivityTimeout: template.inactivityTimeout,
+        defaultMaxDataRate: template.defaultMaxDataRate,
+        autoProvision: template.autoProvision,
+        defaultRuleChainId: template.defaultRuleChainId,
       },
       changeNotes: `Updated to version ${newVersion}`,
       createdBy: ctx.userId,
@@ -226,6 +248,15 @@ function buildChangeSummary(existing: any, data: Record<string, any>): string[] 
   }
   if (data.maxConnections !== undefined && data.maxConnections !== existing.maxConnections) {
     changes.push(`Max connections: ${existing.maxConnections} → ${data.maxConnections}`);
+  }
+  if (data.dataIngestionEnabled !== undefined && data.dataIngestionEnabled !== existing.dataIngestionEnabled) {
+    changes.push(`Data ingestion: ${data.dataIngestionEnabled ? 'enabled' : 'disabled'}`);
+  }
+  if (data.transportType !== undefined && data.transportType !== existing.transportType) {
+    changes.push(`Transport: ${existing.transportType || 'none'} → ${data.transportType || 'none'}`);
+  }
+  if (data.credentialType !== undefined && data.credentialType !== existing.credentialType) {
+    changes.push(`Credential type: ${existing.credentialType || 'TOKEN'} → ${data.credentialType}`);
   }
   return changes;
 }

@@ -1,0 +1,202 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+const {
+  mockConfigRepo,
+  mockAuditLog,
+  mockGetActionReauthConfig,
+  mockInvalidateReauthCache,
+  mockIsReauthRequired,
+  mockGetDefaultTemplates,
+  mockValidateUserId,
+  mockPrisma,
+} = vi.hoisted(() => ({
+  mockConfigRepo: {
+    getSystemConfig: vi.fn(),
+    upsertSystemConfig: vi.fn(),
+    findAllRoleConfigs: vi.fn(),
+    findRoleConfig: vi.fn(),
+    upsertRoleConfig: vi.fn(),
+    findUserConfig: vi.fn(),
+    upsertUserConfig: vi.fn(),
+    findUserByUsername: vi.fn(),
+    findUserById: vi.fn(),
+    findAllFieldIds: vi.fn(),
+    findFieldId: vi.fn(),
+    updateFieldId: vi.fn(),
+    getMaxUserIdNum: vi.fn(),
+    getMaxUserIdNumAll: vi.fn(),
+  },
+  mockAuditLog: vi.fn(),
+  mockGetActionReauthConfig: vi.fn(),
+  mockInvalidateReauthCache: vi.fn(),
+  mockIsReauthRequired: vi.fn(),
+  mockGetDefaultTemplates: vi.fn(),
+  mockValidateUserId: vi.fn(),
+  mockPrisma: { role: { findUnique: vi.fn(), updateMany: vi.fn() } },
+}));
+
+vi.mock('../config.repository.js', () => ({ configRepository: mockConfigRepo }));
+vi.mock('../../../lib/audit.js', () => ({ auditLog: mockAuditLog }));
+vi.mock('../../../lib/reauth-check.js', () => ({
+  getActionReauthConfig: mockGetActionReauthConfig,
+  invalidateReauthCache: mockInvalidateReauthCache,
+  isReauthRequired: mockIsReauthRequired,
+}));
+vi.mock('@digilog/shared', () => ({
+  getDefaultTemplates: mockGetDefaultTemplates,
+  FEATURE_TO_PERMISSION_MAP: { 'user-management': ['USER_CREATE', 'USER_READ'] },
+  FEATURE_PRIVILEGES: [{ id: 'user-management', label: 'User Management' }],
+}));
+vi.mock('../../../lib/user-id-validator.js', () => ({ validateUserId: mockValidateUserId }));
+vi.mock('../../../lib/prisma.js', () => ({ prisma: mockPrisma }));
+
+import { configService } from '../config.service.js';
+
+const ctx = { userId: 'admin', userSub: 'sub-1', userRole: 'SUPER_ADMIN', ipAddress: '127.0.0.1', userAgent: 'test', sessionId: 'sess-1' };
+
+describe('configService', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuditLog.mockResolvedValue(undefined);
+  });
+
+  describe('getConfig', () => {
+    it('returns parsed config from DB', async () => {
+      mockConfigRepo.getSystemConfig.mockResolvedValue({ configValue: { minLength: 8 } });
+      const schema = { safeParse: (d: any) => ({ success: true, data: d }) };
+
+      const result = await configService.getConfig('password-policy', schema);
+      expect(result.minLength).toBe(8);
+    });
+
+    it('returns empty object when no config exists', async () => {
+      mockConfigRepo.getSystemConfig.mockResolvedValue(null);
+      const schema = { safeParse: () => ({ success: true, data: {} }) };
+
+      const result = await configService.getConfig('password-policy', schema);
+      expect(result).toEqual({});
+    });
+  });
+
+  describe('updateConfig', () => {
+    it('upserts and audits config change', async () => {
+      mockConfigRepo.getSystemConfig.mockResolvedValue({ configValue: { old: true } });
+      mockConfigRepo.upsertSystemConfig.mockResolvedValue({});
+      const schema = { safeParse: (d: any) => ({ success: true, data: d }) };
+
+      const result = await configService.updateConfig('session', { timeout: 15 }, schema, 'security', true, ctx);
+      expect(result.timeout).toBe(15);
+      expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'CONFIG_CHANGED' }));
+    });
+
+    it('throws ValidationError on invalid data', async () => {
+      const schema = { safeParse: () => ({ success: false, error: { flatten: () => ({}) } }) };
+
+      await expect(configService.updateConfig('bad', {}, schema, 'x', false, ctx))
+        .rejects.toThrow();
+    });
+  });
+
+  describe('getRoleConfig', () => {
+    it('returns config from DB', async () => {
+      mockConfigRepo.findRoleConfig.mockResolvedValue({
+        role: 'ADMIN', sidebarItems: ['users'], homeWidgets: [], permissions: { 'user-management': true },
+      });
+
+      const result = await configService.getRoleConfig('ADMIN');
+      expect(result.role).toBe('ADMIN');
+    });
+
+    it('reverse-maps permissions when no feature perms exist', async () => {
+      mockConfigRepo.findRoleConfig.mockResolvedValue({
+        role: 'ADMIN', sidebarItems: [], homeWidgets: [], permissions: {},
+      });
+      mockPrisma.role.findUnique.mockResolvedValue({ permissions: ['USER_CREATE', 'USER_READ'] });
+
+      const result = await configService.getRoleConfig('ADMIN');
+      expect(result.permissions['user-management']).toBe(true);
+    });
+  });
+
+  describe('getUserConfig', () => {
+    it('returns user config', async () => {
+      mockConfigRepo.findUserConfig.mockResolvedValue({ userId: 'u1', sidebarItems: ['a'], homeWidgets: [], permissions: {} });
+      const result = await configService.getUserConfig('u1');
+      expect(result.sidebarItems).toEqual(['a']);
+    });
+
+    it('returns defaults when no config', async () => {
+      mockConfigRepo.findUserConfig.mockResolvedValue(null);
+      const result = await configService.getUserConfig('u1');
+      expect(result.sidebarItems).toEqual([]);
+    });
+  });
+
+  describe('getMyConfig', () => {
+    it('returns user config if present', async () => {
+      mockConfigRepo.findUserByUsername.mockResolvedValue({ id: 'u1', role: 'ADMIN' });
+      mockConfigRepo.findUserConfig.mockResolvedValue({ sidebarItems: ['x'], homeWidgets: [], permissions: {} });
+
+      const result = await configService.getMyConfig('admin');
+      expect(result.sidebarItems).toEqual(['x']);
+    });
+
+    it('falls back to role config', async () => {
+      mockConfigRepo.findUserByUsername.mockResolvedValue({ id: 'u1', role: 'ADMIN' });
+      mockConfigRepo.findUserConfig.mockResolvedValue({ sidebarItems: [], homeWidgets: [], permissions: {} });
+      mockConfigRepo.findRoleConfig.mockResolvedValue({ sidebarItems: ['role-item'], homeWidgets: [], permissions: {} });
+
+      const result = await configService.getMyConfig('admin');
+      expect(result.sidebarItems).toEqual(['role-item']);
+    });
+  });
+
+  describe('updateFieldId', () => {
+    it('updates field display name', async () => {
+      mockConfigRepo.findFieldId.mockResolvedValue({ fieldId: 'username', displayName: 'User ID' });
+      mockConfigRepo.updateFieldId.mockResolvedValue({});
+
+      await configService.updateFieldId('username', 'Employee ID', ctx);
+      expect(mockConfigRepo.updateFieldId).toHaveBeenCalledWith('username', 'Employee ID', 'admin');
+    });
+
+    it('throws for empty display name', async () => {
+      await expect(configService.updateFieldId('f', '', ctx)).rejects.toThrow('required');
+    });
+
+    it('throws NotFoundError for unknown field', async () => {
+      mockConfigRepo.findFieldId.mockResolvedValue(null);
+      await expect(configService.updateFieldId('bad', 'X', ctx)).rejects.toThrow('not found');
+    });
+  });
+
+  describe('checkReauth', () => {
+    it('returns required:true when configured', async () => {
+      mockIsReauthRequired.mockResolvedValue(true);
+      const result = await configService.checkReauth('DELETE_USER', 'ADMIN');
+      expect(result.required).toBe(true);
+    });
+  });
+
+  describe('getMyActions', () => {
+    it('returns actions requiring reauth for role', async () => {
+      mockGetActionReauthConfig.mockResolvedValue({ DELETE_USER: ['ADMIN'], CREATE_USER: ['ADMIN', 'SUPER_ADMIN'] });
+
+      const result = await configService.getMyActions('ADMIN');
+      expect(result.actions).toContain('DELETE_USER');
+      expect(result.actions).toContain('CREATE_USER');
+    });
+  });
+
+  describe('validateUserId', () => {
+    it('returns valid result', async () => {
+      mockValidateUserId.mockResolvedValue({ valid: true, errors: [] });
+      const result = await configService.validateUserId('EMP001');
+      expect(result.valid).toBe(true);
+    });
+
+    it('throws for empty user ID', async () => {
+      await expect(configService.validateUserId('')).rejects.toThrow('required');
+    });
+  });
+});

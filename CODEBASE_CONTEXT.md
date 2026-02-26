@@ -1,7 +1,7 @@
 # DigiLog Codebase Context & Reference
 
 > Comprehensive reference for working on the DigiLog 21 CFR Part 11 Compliant Digital Logbook.
-> Updated: 2026-02-25 (documentation governance, testing docs centralization)
+> Updated: 2026-02-26 (Phases B–K Complete)
 
 ---
 
@@ -22,6 +22,7 @@
 13. [Configuration System](#13-configuration-system)
 14. [Production Deployment](#14-production-deployment)
 15. [Git & Development Workflow](#15-git--development-workflow)
+16. [Test Suite](#16-test-suite)
 
 ---
 
@@ -35,6 +36,7 @@ DigiLog is a regulatory-compliant digital logbook for pharma/biotech/food manufa
 - **System Configuration** for branding, security, datetime, pagination, field labels
 - **Notification System** with role-based delivery
 - **Backup/Restore** functionality
+- **Data Ingestion & Integration** with MQTT transport, WebSocket real-time streaming, rule chain engine (26 node types), telemetry queries, alarm management, Unified Namespace (ISA-95), entity connectivity tracking, and QR code generation
 
 **Default Login:** `admin` / `Admin@123` (forces password change)
 
@@ -50,7 +52,16 @@ DigiLog is a regulatory-compliant digital logbook for pharma/biotech/food manufa
 │   │   │   ├── app.ts          # Entry point, middleware stack
 │   │   │   ├── lib/            # Utilities (jwt, password, prisma, reauth, hash-chain, etc.)
 │   │   │   ├── plugins/        # Fastify plugins (auth, rbac, audit-logger)
-│   │   │   └── modules/        # Feature modules (auth, users, roles, config, assets, audit, notifications, uploads, backup)
+│   │   │   ├── modules/        # Feature modules (auth, users, roles, config, assets, audit, notifications, uploads, backup)
+│   │   │   │   ├── data-ingestion/   # HTTP ingestion, entity resolver, normalizer, pipeline, DLQ
+│   │   │   │   ├── rule-chain/       # Rule chain engine, 26 node types, debug recorder
+│   │   │   │   ├── uns/              # Unified Namespace (ISA-95)
+│   │   │   │   ├── queries/          # Telemetry, alarms, export, retention
+│   │   │   │   ├── connectivity/     # Entity connectivity status & code snippets
+│   │   │   │   ├── qr-code/          # QR code generation
+│   │   │   │   └── help/             # Help articles with versioning
+│   │   │   ├── transport/      # MQTT auth, MQTT client, WebSocket handler
+│   │   │   └── workers/        # BullMQ ingestion & maintenance workers
 │   │   ├── prisma/
 │   │   │   ├── schema.prisma   # Database schema (15 models)
 │   │   │   ├── seed.ts         # Default data seeding
@@ -68,11 +79,13 @@ DigiLog is a regulatory-compliant digital logbook for pharma/biotech/food manufa
 │       └── public/             # Static assets
 │
 ├── packages/
-│   └── shared/                 # Zod schemas + TypeScript types (consumed by both apps)
-│       └── src/
-│           ├── schemas/        # auth, users, config, audit, action-reauth, assets
-│           ├── types/          # roles, permissions, sidebar-items, audit-actions, reauth-actions, etc.
-│           └── index.ts        # Re-exports everything
+│   ├── shared/                 # Zod schemas + TypeScript types (consumed by both apps)
+│   │   └── src/
+│   │       ├── schemas/        # auth, users, config, audit, action-reauth, assets
+│   │       ├── types/          # roles, permissions, sidebar-items, audit-actions, reauth-actions, etc.
+│   │       └── index.ts        # Re-exports everything
+│   ├── db/                     # Prisma singleton + TimescaleDB pg Pool (Phase A)
+│   └── queue/                  # BullMQ queue definitions + Redis connection (Phase A)
 │
 ├── documentation/               # Centralized documentation
 │   ├── Bug_Resolution_Log.md   # Structured bug tracking
@@ -90,7 +103,8 @@ DigiLog is a regulatory-compliant digital logbook for pharma/biotech/food manufa
 │
 ├── turbo.json                  # Turborepo pipeline: shared -> api -> web
 ├── package.json                # Root scripts
-├── docker-compose.yml          # PostgreSQL 16
+├── init-tsdb.sql               # TimescaleDB initialization (6 hypertables)
+├── docker-compose.yml          # PostgreSQL 16 + TimescaleDB + EMQX + Redis
 ├── .env                        # Environment variables
 └── CLAUDE.md                   # Project instructions
 ```
@@ -115,6 +129,11 @@ DigiLog is a regulatory-compliant digital logbook for pharma/biotech/food manufa
 | **Forms** | React Hook Form | 7.54.0 |
 | **Icons** | Lucide React | 0.474.0 |
 | **Process Manager** | PM2 | Production |
+| **Time-Series DB** | TimescaleDB | latest-pg16 |
+| **MQTT Broker** | EMQX | 5-elixir |
+| **Queue** | BullMQ | 5.x |
+| **Redis** | Redis | 7-alpine |
+| **MQTT Client** | mqtt.js | 5.x |
 
 **Key Backend Plugins:** @fastify/cors, @fastify/helmet, @fastify/rate-limit, @fastify/multipart, @fastify/static, @fastify/swagger, @fastify/swagger-ui
 
@@ -140,16 +159,30 @@ apps/api/src/
 │   ├── auth.ts                     # JWT validation, session checks, public path exclusions
 │   ├── rbac.ts                     # requirePermission() + requireRole() decorators
 │   └── audit-logger.ts             # Audit trail with SHA-256 checksums
-└── modules/
-    ├── auth/routes.ts              # Login, logout, password, reauth (8 endpoints)
-    ├── users/routes.ts             # User CRUD, unlock, reset (11 endpoints)
-    ├── roles/routes.ts             # Role management (8 endpoints)
-    ├── config/routes.ts            # System configuration (15+ endpoints)
-    ├── assets/routes.ts            # Entity templates/instances/relationships/identifiers (21 endpoints)
-    ├── audit/routes.ts             # Audit trail query + integrity (4 endpoints)
-    ├── notifications/routes.ts     # Notification delivery (4 endpoints)
-    ├── uploads/routes.ts           # File upload (2 endpoints)
-    └── backup/routes.ts            # Backup/restore (3 endpoints)
+├── modules/
+│   ├── auth/routes.ts              # Login, logout, password, reauth (8 endpoints)
+│   ├── users/routes.ts             # User CRUD, unlock, reset (11 endpoints)
+│   ├── roles/routes.ts             # Role management (8 endpoints)
+│   ├── config/routes.ts            # System configuration (15+ endpoints)
+│   ├── assets/routes.ts            # Entity templates/instances/relationships/identifiers (21 endpoints)
+│   ├── audit/routes.ts             # Audit trail query + integrity (4 endpoints)
+│   ├── notifications/routes.ts     # Notification delivery (4 endpoints)
+│   ├── uploads/routes.ts           # File upload (2 endpoints)
+│   ├── backup/routes.ts            # Backup/restore (3 endpoints)
+│   ├── data-ingestion/             # HTTP data ingestion, pipeline, DLQ (8 endpoints)
+│   ├── rule-chain/routes.ts        # Rule chain engine (14 endpoints)
+│   ├── uns/routes.ts               # Unified Namespace ISA-95 (6 endpoints)
+│   ├── queries/                    # Telemetry (7), alarms (4), export (5), retention (4)
+│   ├── connectivity/routes.ts      # Entity connectivity (6 endpoints)
+│   ├── qr-code/routes.ts           # QR code generation (4 endpoints)
+│   └── help/routes.ts              # Help articles (6 endpoints)
+├── transport/
+│   ├── mqtt-auth.ts                # MQTT broker authentication (3 endpoints)
+│   ├── mqtt-client.ts              # MQTT client connection
+│   └── ws-handler.ts               # WebSocket handler
+└── workers/
+    ├── ingestion.worker.ts         # BullMQ ingestion worker
+    └── maintenance.worker.ts       # DLQ + connectivity maintenance
 ```
 
 ### Middleware Stack (in order)
@@ -290,19 +323,19 @@ const { data: tree } = useSWR<TreeNode[]>('/api/assets/instances/tree');
 | File | Exports | Purpose |
 |------|---------|---------|
 | `roles.ts` | `DEFAULT_ROLES`, `USER_STATUS`, `RoleData` interface | Role hierarchy, user status enum |
-| `permissions.ts` | `PERMISSIONS` (21 keys), `Permission` type | All permission constants |
+| `permissions.ts` | `PERMISSIONS` (39 keys), `Permission` type | All permission constants |
 | `permission-categories.ts` | `PERMISSION_CATEGORIES` | Grouped permissions for role editor UI |
 | `feature-privileges.ts` | `FEATURE_PRIVILEGES`, `FEATURE_PRIVILEGE_CATEGORIES` | Config page privilege management |
 | `sidebar-items.ts` | `SIDEBAR_ITEMS` | Sidebar navigation config |
-| `audit-actions.ts` | `AUDIT_ACTIONS` (29+ actions) | All audit log action types |
-| `reauth-actions.ts` | `REAUTH_ACTIONS` (21+ actions), `REAUTH_ACTION_CATEGORIES` | Actions requiring re-auth |
+| `audit-actions.ts` | `AUDIT_ACTIONS` (60+ actions) | All audit log action types |
+| `reauth-actions.ts` | `REAUTH_ACTIONS` (42+ actions), `REAUTH_ACTION_CATEGORIES` (13 categories) | Actions requiring re-auth |
 | `audit-templates.ts` | `AUDIT_TEMPLATE_DEFAULTS`, `AUDIT_TEMPLATE_CATEGORIES` | Customizable audit messages |
 
 ---
 
 ## 7. Database Schema (Prisma)
 
-### 15 Models
+### 30 Models
 
 #### User & Auth (5 models)
 - **User** — username, fullName, email, passwordHash, role (string), status (ENABLED/DISABLED/LOCKED/EXPIRED), forcePasswordChange, failedLoginAttempts, lockoutUntil, passwordExpiresAt
@@ -323,11 +356,29 @@ const { data: tree } = useSWR<TreeNode[]>('/api/assets/instances/tree');
 - **Notification** — type, title, message, targetUserId, forUserId, forRole, isRead, metadata (JSON)
 
 #### Entity Management (5 models)
-- **AssetTemplate** — name (unique), description, category, icon, version, attributeSchema (JSON), telemetrySchema (JSON), expectedIdentifiers (JSON), expectedRelationships (JSON), statusLifecycle (JSON), alarmRules (JSON), maxParentConnections, maxConnections, isActive
+- **AssetTemplate** — name (unique), description, category, icon, version, attributeSchema (JSON), telemetrySchema (JSON), expectedIdentifiers (JSON), expectedRelationships (JSON), statusLifecycle (JSON), alarmRules (JSON), maxParentConnections, maxConnections, isActive, dataIngestionEnabled, transportType, credentialType, inactivityTimeout, defaultMaxDataRate, autoProvision, defaultRuleChainId
 - **AssetTemplateVersion** — templateId (FK), versionNumber, snapshot (full JSON), changeNotes
 - **AssetInstance** — name, templateId (FK), templateVersion, status, attributes (JSON), telemetryConfig (JSON), customAttributes (JSON), parentId (self-FK for tree), unsPath, isActive
 - **AssetRelationship** — sourceAssetId, targetAssetId, relationshipType (enum), customLabel, notes
 - **AssetIdentifier** — assetId (FK), identifierType (enum), identifierValue (globally unique), label, isPrimary
+
+#### Data Ingestion & Integration (15 models — Phase A)
+- **DeviceCredential** — entityId (unique), accessToken (unique), credentialData (JSON), status (INACTIVE/ACTIVE), allowedIps, maxDataRatePerMin, connection timestamps
+- **RuleChain** — name, isRoot, isSystem, firstRuleNodeId, configuration (JSON), currentVersion, isActive
+- **RuleChainVersion** — ruleChainId (FK), version, snapshot (JSON), status (ACTIVE/SUPERSEDED), createdBy
+- **RuleNode** — ruleChainId (FK), type, name, configuration (JSON), debugEnabled, positionX/Y
+- **RuleNodeConnection** — ruleChainId (FK), fromNodeId (FK), toNodeId (FK), label
+- **Alarm** — entityId, alarmType, severity, status (ACTIVE/ACKNOWLEDGED/CLEARED), unsPath, trigger details, ack/clear tracking with e-signatures
+- **ChecklistReview** — checklistId (unique), entityId, templateId, 3-step workflow (performed→checked→verified), rejection tracking
+- **ElectronicSignature** — recordType, recordId, signer info, signedAt, meaning, recordHash (SHA-256), signatureHash (SHA-256), reAuthVerified
+- **LatestTelemetry** — entityId + key (unique), valueNum/valueStr/valueBool/valueJson, lastUpdated
+- **UnsMapping** — entityId (unique), unsPath (unique), pathSegments (JSON), isOverridden
+- **ConnectivityStatus** — entityId (unique), status (ONLINE/OFFLINE/UNKNOWN), last activity/connection timestamps, protocol, sourceIp
+- **QrCode** — entityId (unique), qrData, imagePath, svgData, size, includeLabel
+- **HelpArticle** — key (unique), title, content, category, sortOrder, currentVersion, versions relation
+- **HelpArticleVersion** — helpArticleId (FK), version, content, changedBy, changeNotes
+- **DataStream** — entityId + key (unique), dataType, unit, unsPath, source
+- **IngestionSystemConfig** — key (unique), value, dataType, category, label, description, defaultValue, min/maxValue, unit, requiresRestart, isSecret
 
 ### Default Seed Data
 
@@ -336,6 +387,10 @@ const { data: tree } = useSWR<TreeNode[]>('/api/assets/instances/tree');
 **Default User:** admin / Admin@123 (SUPER_ADMIN, forcePasswordChange: true)
 
 **Config Defaults:** password-policy (minLength=8, reuseCount=12, expiryDays=90), login-security (maxFailed=5, lockout=30min), session (8h duration, 15min idle), datetime (DD/MM/YYYY, 24h, UTC), pagination (recordsPerPage=20)
+
+**Ingestion Config (33):** Hot-reload settings across categories: rule_engine, device, pipeline, rpc, export, websocket, retention, mqtt, binary, ingestion
+
+**Help Articles (28):** Getting Started, User Management, Entity Management, Data & Telemetry, Alarms, Rule Chains, Checklists, UNS, Connectivity, QR Codes, Compliance, System Administration
 
 ---
 
@@ -362,7 +417,7 @@ const { data: tree } = useSWR<TreeNode[]>('/api/assets/instances/tree');
 | `requirePermission(perm)` | Checks role.permissions JSON array in DB | Entity/Asset routes | Dynamic, based on configured role permissions |
 | `requireRole(...names)` | Checks role name string | User, Role, Config routes | Static role name matching |
 
-### Permission Constants (21 total)
+### Permission Constants (39 total)
 
 ```
 User: USER_CREATE, USER_READ, USER_UPDATE, USER_DELETE, USER_ENABLE_DISABLE, USER_UNLOCK, USER_RESET_PASSWORD
@@ -370,6 +425,11 @@ Config: CONFIG_READ, CONFIG_UPDATE, FIELD_ID_UPDATE, ROLE_MANAGE
 Audit: AUDIT_READ
 Approvals: APPROVAL_REVIEW, APPROVAL_REQUEST
 Entity: ASSET_TEMPLATE_MANAGE, ASSET_CREATE, ASSET_UPDATE, ASSET_DELETE, ASSET_VIEW, ASSET_RELATIONSHIP_MANAGE, ASSET_IDENTIFIER_MANAGE
+Data Ingestion: DATA_INGEST, DATA_VIEW, DATA_MANAGE, DATA_EXPORT
+Rule Chain: RULE_CHAIN_VIEW, RULE_CHAIN_MANAGE
+Alarm: ALARM_VIEW, ALARM_MANAGE
+UNS: UNS_VIEW, UNS_MANAGE
+Other: QR_CODE_GENERATE, HELP_MANAGE, CHECKLIST_SUBMIT, CHECKLIST_REVIEW, CHECKLIST_APPROVE, RETENTION_MANAGE, SYSTEM_CONFIG_MANAGE, READ_DEBUG_TRACE, MANAGE_DEBUG_TRACE
 ```
 
 ### Re-Authentication (enforceReauth)
@@ -512,6 +572,117 @@ Entity: ASSET_TEMPLATE_MANAGE, ASSET_CREATE, ASSET_UPDATE, ASSET_DELETE, ASSET_V
 | GET | / | List backups (SUPER_ADMIN) |
 | POST | /restore | Restore from backup (SUPER_ADMIN) |
 
+### Data Ingestion (`/api/data`) — 8 endpoints
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | / | Ingest telemetry data (HTTP transport) |
+| POST | /batch | Batch telemetry ingestion |
+| GET | /streams | List data streams for entity |
+| POST | /streams | Create/update data stream config |
+| GET | /credentials | Get device credentials |
+| POST | /credentials | Create device credentials |
+| PUT | /credentials/:id | Update device credentials |
+| DELETE | /credentials/:id | Delete device credentials |
+
+### MQTT Auth (`/api/internal/mqtt`) — 3 endpoints
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | /auth | MQTT client authentication |
+| POST | /acl | MQTT topic ACL check |
+| POST | /superuser | MQTT superuser check |
+
+### Rule Chains (`/api/rule-chains`) — 14 endpoints
+| Method | Path | Permission | Purpose |
+|--------|------|-----------|---------|
+| GET | / | RULE_CHAIN_VIEW | List rule chains |
+| GET | /:id | RULE_CHAIN_VIEW | Get rule chain details |
+| POST | / | RULE_CHAIN_MANAGE | Create rule chain |
+| PUT | /:id | RULE_CHAIN_MANAGE | Update rule chain |
+| DELETE | /:id | RULE_CHAIN_MANAGE | Delete rule chain |
+| GET | /:id/versions | RULE_CHAIN_VIEW | List versions |
+| POST | /:id/nodes | RULE_CHAIN_MANAGE | Add node |
+| PUT | /:id/nodes/:nodeId | RULE_CHAIN_MANAGE | Update node |
+| DELETE | /:id/nodes/:nodeId | RULE_CHAIN_MANAGE | Delete node |
+| POST | /:id/connections | RULE_CHAIN_MANAGE | Add connection |
+| DELETE | /:id/connections/:connId | RULE_CHAIN_MANAGE | Delete connection |
+| POST | /:id/debug | MANAGE_DEBUG_TRACE | Start debug session |
+| GET | /:id/debug | READ_DEBUG_TRACE | Get debug trace |
+| DELETE | /:id/debug | MANAGE_DEBUG_TRACE | Clear debug trace |
+
+### UNS (`/api/uns`) — 6 endpoints
+| Method | Path | Permission | Purpose |
+|--------|------|-----------|---------|
+| GET | /tree | UNS_VIEW | Get UNS hierarchy tree |
+| GET | /mappings | UNS_VIEW | List entity-to-path mappings |
+| POST | /mappings | UNS_MANAGE | Create/update UNS mapping |
+| DELETE | /mappings/:id | UNS_MANAGE | Delete UNS mapping |
+| POST | /auto-map | UNS_MANAGE | Auto-generate UNS paths |
+| GET | /browse | UNS_VIEW | Browse UNS path |
+
+### Telemetry Queries (`/api/queries/telemetry`) — 7 endpoints
+| Method | Path | Permission | Purpose |
+|--------|------|-----------|---------|
+| GET | /latest | DATA_VIEW | Latest telemetry values |
+| GET | /history | DATA_VIEW | Historical time-series data |
+| GET | /keys | DATA_VIEW | Available telemetry keys |
+| GET | /aggregated | DATA_VIEW | Aggregated telemetry (avg, min, max, sum) |
+| GET | /compare | DATA_VIEW | Cross-entity comparison |
+| GET | /delta | DATA_VIEW | Value deltas over time |
+| GET | /stats | DATA_VIEW | Statistical summary |
+
+### Alarms (`/api/queries/alarms`) — 4 endpoints
+| Method | Path | Permission | Purpose |
+|--------|------|-----------|---------|
+| GET | / | ALARM_VIEW | List alarms (filterable) |
+| GET | /:id | ALARM_VIEW | Get alarm details |
+| POST | /:id/acknowledge | ALARM_MANAGE | Acknowledge alarm (e-signature) |
+| POST | /:id/clear | ALARM_MANAGE | Clear alarm (e-signature) |
+
+### Export (`/api/queries/export`) — 5 endpoints
+| Method | Path | Permission | Purpose |
+|--------|------|-----------|---------|
+| POST | /telemetry | DATA_EXPORT | Export telemetry data |
+| POST | /alarms | DATA_EXPORT | Export alarm data |
+| POST | /audit | DATA_EXPORT | Export audit trail |
+| GET | /jobs | DATA_EXPORT | List export jobs |
+| GET | /jobs/:id/download | DATA_EXPORT | Download export file |
+
+### Retention (`/api/queries`) — 4 endpoints
+| Method | Path | Permission | Purpose |
+|--------|------|-----------|---------|
+| GET | /retention | RETENTION_MANAGE | Get retention policies |
+| POST | /retention | RETENTION_MANAGE | Create retention policy |
+| PUT | /retention/:id | RETENTION_MANAGE | Update retention policy |
+| DELETE | /retention/:id | RETENTION_MANAGE | Delete retention policy |
+
+### Connectivity (`/api/connectivity`) — 6 endpoints
+| Method | Path | Permission | Purpose |
+|--------|------|-----------|---------|
+| GET | / | DATA_VIEW | List connectivity statuses |
+| GET | /:entityId | DATA_VIEW | Get entity connectivity |
+| GET | /:entityId/history | DATA_VIEW | Connectivity history |
+| GET | /:entityId/snippet | DATA_VIEW | Code snippet for integration |
+| POST | /check | DATA_MANAGE | Trigger connectivity check |
+| GET | /stats | DATA_VIEW | Connectivity statistics |
+
+### QR Codes (`/api/qr`) — 4 endpoints
+| Method | Path | Permission | Purpose |
+|--------|------|-----------|---------|
+| POST | /generate | QR_CODE_GENERATE | Generate QR code for entity |
+| GET | /:entityId | DATA_VIEW | Get entity QR code |
+| DELETE | /:entityId | QR_CODE_GENERATE | Delete QR code |
+| GET | /scan/:data | DATA_VIEW | Lookup entity by QR data |
+
+### Help Articles (`/api/help`) — 6 endpoints
+| Method | Path | Permission | Purpose |
+|--------|------|-----------|---------|
+| GET | / | Any | List help articles |
+| GET | /:key | Any | Get article by key |
+| POST | / | HELP_MANAGE | Create help article |
+| PUT | /:key | HELP_MANAGE | Update help article |
+| DELETE | /:key | HELP_MANAGE | Delete help article |
+| GET | /:key/versions | HELP_MANAGE | Get article version history |
+
 ---
 
 ## 10. Frontend Routes & Pages
@@ -546,6 +717,9 @@ Entity: ASSET_TEMPLATE_MANAGE, ASSET_CREATE, ASSET_UPDATE, ASSET_DELETE, ASSET_V
 | `/config/action-reauth` | ActionReauthPage | SUPER_ADMIN | Reauth config |
 | `/config/audit-templates` | AuditTemplatesConfigPage | SUPER_ADMIN | Audit templates |
 | `/config/pagination` | PaginationConfigPage | SUPER_ADMIN | Pagination options |
+| `/rule-chains` | RuleChainsPage | SUPER_ADMIN, ADMIN | Rule chain management |
+| `/alarms` | AlarmDashboardPage | Protected | Alarm monitoring |
+| `/config/uns` | UnsConfigPage | SUPER_ADMIN, ADMIN | UNS configuration |
 
 ---
 
@@ -757,6 +931,16 @@ npm run dev                   # Start API + Web
 | `apps/api/src/modules/notifications/routes.ts` | Notification endpoints |
 | `apps/api/src/modules/uploads/routes.ts` | Upload endpoints |
 | `apps/api/src/modules/backup/routes.ts` | Backup endpoints |
+| `apps/api/src/modules/data-ingestion/` | Data ingestion pipeline, DLQ, normalizer |
+| `apps/api/src/modules/rule-chain/routes.ts` | Rule chain endpoints (14) |
+| `apps/api/src/modules/uns/routes.ts` | UNS endpoints (6) |
+| `apps/api/src/modules/queries/index.ts` | Query module aggregator |
+| `apps/api/src/modules/connectivity/routes.ts` | Connectivity endpoints (6) |
+| `apps/api/src/modules/qr-code/routes.ts` | QR code endpoints (4) |
+| `apps/api/src/modules/help/routes.ts` | Help article endpoints (6) |
+| `apps/api/src/transport/mqtt-client.ts` | MQTT client |
+| `apps/api/src/transport/ws-handler.ts` | WebSocket handler |
+| `apps/api/src/workers/ingestion.worker.ts` | BullMQ ingestion worker |
 | `apps/api/prisma/schema.prisma` | Database schema |
 | `apps/api/prisma/seed.ts` | Seed data |
 
@@ -781,6 +965,9 @@ npm run dev                   # Start API + Web
 | `apps/web/src/routes/config/role-privileges.tsx` | Role Privileges |
 | `apps/web/src/routes/config/roles.tsx` | Role Management |
 | `apps/web/src/routes/audit/index.tsx` | Audit Trail |
+| `apps/web/src/routes/rule-chains/index.tsx` | Rule Chain management |
+| `apps/web/src/routes/alarms/index.tsx` | Alarm Dashboard |
+| `apps/web/src/routes/config/uns.tsx` | UNS Configuration |
 
 ### Shared
 | File | Purpose |
@@ -794,6 +981,11 @@ npm run dev                   # Start API + Web
 | `packages/shared/src/types/roles.ts` | Role definitions |
 | `packages/shared/src/types/reauth-actions.ts` | Reauth action constants |
 | `packages/shared/src/types/audit-actions.ts` | Audit action constants |
+| `packages/db/src/prisma.ts` | PrismaClient singleton |
+| `packages/db/src/tsdb.ts` | TimescaleDB pg Pool |
+| `packages/queue/src/queues.ts` | BullMQ queue definitions |
+| `packages/queue/src/connection.ts` | Redis connection factory |
+| `init-tsdb.sql` | TimescaleDB hypertable initialization |
 
 ### Documentation & Governance
 | File | Purpose |
@@ -810,7 +1002,51 @@ npm run dev                   # Start API + Web
 
 ---
 
-## 16. Documentation Governance
+## 16. Test Suite
+
+**Phase K (Testing & Documentation) — COMPLETE**
+425 total tests across 18 test files in 3 packages (`packages/shared`, `packages/db`, `apps/api`).
+
+### New Test Files (13 added in Phase K)
+
+| # | File | Type | Package |
+|---|------|------|---------|
+| 1 | `apps/api/src/e2e/auth.test.ts` | E2E | apps/api |
+| 2 | `apps/api/src/e2e/users.test.ts` | E2E | apps/api |
+| 3 | `apps/api/src/e2e/roles.test.ts` | E2E | apps/api |
+| 4 | `apps/api/src/e2e/config.test.ts` | E2E | apps/api |
+| 5 | `apps/api/src/e2e/audit.test.ts` | E2E | apps/api |
+| 6 | `apps/api/src/e2e/notifications.test.ts` | E2E | apps/api |
+| 7 | `apps/api/src/e2e/health.test.ts` | E2E | apps/api |
+| 8 | `apps/api/src/modules/data-ingestion/__tests__/ingestion.service.test.ts` | Unit | apps/api |
+| 9 | `apps/api/src/modules/data-ingestion/__tests__/ingestion-config.service.test.ts` | Unit | apps/api |
+| 10 | `apps/api/src/modules/data-ingestion/__tests__/connectivity-tracker.test.ts` | Unit | apps/api |
+| 11 | `apps/api/src/modules/data-ingestion/__tests__/dlq-manager.test.ts` | Unit | apps/api |
+| 12 | `apps/api/src/modules/data-ingestion/__tests__/pipeline-tracer.test.ts` | Unit | apps/api |
+| 13 | `packages/db/src/__tests__/telemetry-batcher.test.ts` | Unit | packages/db |
+
+### Pre-existing Test Files (5)
+
+| File | Type | Package |
+|------|------|---------|
+| `packages/shared/src/schemas/assets.test.ts` | Unit | packages/shared |
+| `packages/shared/src/schemas/auth.test.ts` | Unit | packages/shared |
+| `packages/shared/src/schemas/config.test.ts` | Unit | packages/shared |
+| `packages/shared/src/schemas/users.test.ts` | Unit | packages/shared |
+| `packages/shared/src/types/audit-templates.test.ts` | Unit | packages/shared |
+
+### Vitest Testing Patterns
+
+- **`vi.hoisted()`**: Used to hoist mock variables above imports so they are available when `vi.mock()` factory functions execute. Required because ES module mocking occurs before module evaluation.
+- **Class-based mocks for ioredis/bullmq**: Redis (`ioredis`) and BullMQ (`Queue`, `Worker`) are mocked using class constructors that return mock instances with spied methods. This avoids connecting to real Redis during tests.
+- **Mock path conventions**: Module mocks use relative paths matching the import paths in source code. `__tests__/` directories are co-located with the modules they test (e.g., `modules/data-ingestion/__tests__/`).
+- **Test runner**: Vitest with `globals: true`, `environment: 'node'`.
+- **E2E pattern**: `buildApp()` + `app.inject()` (no HTTP server needed).
+- **Assertion style**: Vitest `expect()` with Jest-compatible matchers.
+
+---
+
+## 17. Documentation Governance
 
 **Version:** 2.1.2 | **Activated:** 2026-02-25
 

@@ -5,6 +5,7 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
+import websocket from '@fastify/websocket';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registerSwagger } from './lib/swagger.js';
@@ -20,6 +21,26 @@ import notificationRoutes from './modules/notifications/routes.js';
 import roleRoutes from './modules/roles/routes.js';
 import backupRoutes from './modules/backup/routes.js';
 import assetRoutes from './modules/assets/index.js';
+import mqttAuthRoutes from './transport/mqtt-auth-routes.js';
+import dataIngestionRoutes from './modules/data-ingestion/routes.js';
+import ruleChainRoutes from './modules/rule-chain/routes.js';
+import unsRoutes from './modules/uns/routes.js';
+import queriesModule from './modules/queries/index.js';
+import connectivityRoutes from './modules/connectivity/routes.js';
+import qrCodeRoutes from './modules/qr-code/routes.js';
+import helpRoutes from './modules/help/routes.js';
+import systemHealthRoutes, { trackRequest } from './modules/system-health/routes.js';
+import wsHandler from './transport/ws-handler.js';
+import { initMqttClient, closeMqttClient } from './transport/mqtt-client.js';
+import { closeWsRedis } from './transport/ws-handler.js';
+import { closeRpcRedis } from './modules/data-ingestion/rpc-handler.js';
+import { closePipelineRedis } from './modules/data-ingestion/ingestion.service.js';
+import { closeTracerRedis } from './modules/data-ingestion/pipeline-tracer.js';
+import { closeDebugRedis } from './modules/rule-chain/debug-recorder.js';
+import { initializeNodes } from './modules/rule-chain/nodes/index.js';
+import { startIngestionWorker, stopIngestionWorker } from './workers/ingestion.worker.js';
+import { startMaintenanceWorker, stopMaintenanceWorker } from './workers/maintenance.worker.js';
+import { getTsdbPool, initTelemetryBatcher, closeTelemetryBatcher } from '@digilog/db';
 import { AppError } from './lib/errors.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -53,13 +74,14 @@ await app.register(helmet, {
     preload: true,
   },
 });
-await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
+await app.register(rateLimit, { max: 500, timeWindow: '1 minute' });
 await app.register(multipart, {
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB max
     files: 1,
   },
 });
+await app.register(websocket);
 
 // Serve uploaded files
 const uploadsDir = path.join(__dirname, '..', 'uploads');
@@ -95,6 +117,12 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
   });
 });
 
+// Request tracking hook for system health metrics
+app.addHook('onRequest', (_req, _reply, done) => {
+  trackRequest();
+  done();
+});
+
 // Health check
 app.get('/api/health', {
   schema: {
@@ -125,6 +153,20 @@ await app.register(roleRoutes, { prefix: '/api/roles' });
 await app.register(backupRoutes, { prefix: '/api/backup' });
 await app.register(assetRoutes, { prefix: '/api/assets' });
 
+// Data Ingestion & Transport routes
+await app.register(mqttAuthRoutes, { prefix: '/api/internal/mqtt' });
+await app.register(dataIngestionRoutes, { prefix: '/api/data' });
+await app.register(ruleChainRoutes, { prefix: '/api/rule-chains' });
+await app.register(unsRoutes, { prefix: '/api/uns' });
+await app.register(queriesModule, { prefix: '/api' });
+await app.register(connectivityRoutes, { prefix: '/api/connectivity' });
+await app.register(qrCodeRoutes, { prefix: '/api/qr' });
+await app.register(helpRoutes, { prefix: '/api/help' });
+await app.register(systemHealthRoutes, { prefix: '/api/system-health' });
+await app.register(wsHandler);
+
+// Initialize rule chain node registry
+initializeNodes();
 
 // Start
 const port = parseInt(process.env.PORT ?? '3000', 10);
@@ -132,7 +174,67 @@ try {
   await app.listen({ port, host: '0.0.0.0' });
   app.log.info(`DigiLog API running on http://localhost:${port}`);
   app.log.info(`Swagger UI: http://localhost:${port}/docs`);
+
+  // Initialize MQTT client after server is listening
+  try {
+    await initMqttClient();
+    app.log.info('MQTT client initialized');
+  } catch (mqttErr) {
+    app.log.warn('MQTT client initialization failed — server continuing without MQTT');
+    app.log.warn(mqttErr);
+  }
+
+  // Initialize telemetry batcher (Phase C)
+  try {
+    const tsdbPool = getTsdbPool();
+    initTelemetryBatcher(tsdbPool, { batchSize: 100, flushIntervalMs: 1000 });
+    app.log.info('Telemetry batcher initialized');
+  } catch (batchErr) {
+    app.log.warn('Telemetry batcher initialization failed — continuing without batching');
+    app.log.warn(batchErr);
+  }
+
+  // Start ingestion pipeline worker (Phase C)
+  try {
+    await startIngestionWorker();
+    app.log.info('Ingestion worker started');
+  } catch (workerErr) {
+    app.log.warn('Ingestion worker failed to start — server continuing without worker');
+    app.log.warn(workerErr);
+  }
+
+  // Start maintenance worker (Phase C)
+  try {
+    await startMaintenanceWorker();
+    app.log.info('Maintenance worker started');
+  } catch (maintErr) {
+    app.log.warn('Maintenance worker failed to start — server continuing');
+    app.log.warn(maintErr);
+  }
 } catch (err) {
   app.log.error(err);
   process.exit(1);
 }
+
+// Graceful shutdown
+const shutdown = async (signal: string) => {
+  app.log.info(`Received ${signal}, shutting down gracefully...`);
+  try {
+    await stopIngestionWorker();
+    await stopMaintenanceWorker();
+    await closeTelemetryBatcher();
+    await closeMqttClient();
+    await closeWsRedis();
+    await closeRpcRedis();
+    await closePipelineRedis();
+    await closeTracerRedis();
+    await closeDebugRedis();
+    await app.close();
+  } catch (err) {
+    app.log.error(err as Error, 'Error during shutdown');
+  }
+  process.exit(0);
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

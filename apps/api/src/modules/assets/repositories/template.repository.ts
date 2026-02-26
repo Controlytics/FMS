@@ -40,6 +40,13 @@ export const templateRepository = {
     checklistSchema?: any;
     maxParentConnections?: number;
     maxConnections?: number;
+    dataIngestionEnabled?: boolean;
+    transportType?: string | null;
+    credentialType?: string;
+    inactivityTimeout?: number;
+    defaultMaxDataRate?: number;
+    autoProvision?: boolean;
+    defaultRuleChainId?: string | null;
     createdBy: string;
   }) {
     return prisma.assetTemplate.create({
@@ -58,6 +65,13 @@ export const templateRepository = {
         checklistSchema: data.checklistSchema as any,
         maxParentConnections: data.maxParentConnections ?? 1,
         maxConnections: data.maxConnections ?? 10,
+        dataIngestionEnabled: data.dataIngestionEnabled ?? false,
+        transportType: data.transportType,
+        credentialType: data.credentialType ?? 'TOKEN',
+        inactivityTimeout: data.inactivityTimeout ?? 60,
+        defaultMaxDataRate: data.defaultMaxDataRate ?? 600,
+        autoProvision: data.autoProvision ?? true,
+        defaultRuleChainId: data.defaultRuleChainId,
         createdBy: data.createdBy,
       },
     });

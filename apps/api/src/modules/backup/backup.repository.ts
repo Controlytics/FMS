@@ -9,9 +9,9 @@ export async function fetchAllTablesRaw(): Promise<Record<string, Record<string,
   const result: Record<string, Record<string, any>[]> = {};
   for (const table of DB_TABLES) {
     const orderClause = table === 'audit_trail' ? ' ORDER BY id ASC' : '';
-    const rows = await prisma.$queryRawUnsafe<Record<string, any>[]>(
+    const rows = await prisma.$queryRawUnsafe(
       `SELECT * FROM "${table}"${orderClause}`,
-    );
+    ) as Record<string, any>[];
     result[table] = rows;
   }
   return result;
@@ -52,7 +52,7 @@ export async function fetchAllTablesPrisma(): Promise<Record<string, any[]>> {
 // ---------------------------------------------------------------------------
 
 export async function restoreFromBackup(backup: BackupData): Promise<void> {
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: any) => {
     // Temporarily disable audit_trail immutability triggers for restore
     await tx.$executeRawUnsafe('ALTER TABLE "audit_trail" DISABLE TRIGGER audit_trail_no_update');
     await tx.$executeRawUnsafe('ALTER TABLE "audit_trail" DISABLE TRIGGER audit_trail_no_delete');

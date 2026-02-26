@@ -12,6 +12,8 @@ import {
   ALARM_RULE_TYPES,
   ALARM_SEVERITIES,
   CHECKLIST_QUESTION_TYPES,
+  TRANSPORT_TYPES,
+  CREDENTIAL_TYPES,
 } from '../template-types';
 
 export interface TemplateFormEditorProps {
@@ -239,6 +241,102 @@ export function TemplateFormEditor({
           </svg>
           Add Checklist Question
         </Button>
+      </CollapsibleSection>
+
+      {/* Section 7: Transport & Connectivity */}
+      <CollapsibleSection title="Transport & Connectivity" count={formData.dataIngestionEnabled ? 1 : 0} defaultOpen={formData.dataIngestionEnabled}>
+        <div className="space-y-4">
+          {/* Enable Data Ingestion Toggle */}
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={formData.dataIngestionEnabled}
+              onChange={(e) => onFormChange({ dataIngestionEnabled: e.target.checked })}
+              className="w-5 h-5 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+            />
+            <div>
+              <span className="text-sm font-medium text-slate-700">Enable Data Ingestion</span>
+              <p className="text-xs text-slate-500">Allow devices created from this template to send telemetry, attributes, and events</p>
+            </div>
+          </label>
+
+          {formData.dataIngestionEnabled && (
+            <div className="space-y-4 pl-2 border-l-2 border-purple-200">
+              {/* Transport Protocol */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Transport Protocol</label>
+                <div className="flex gap-3">
+                  {TRANSPORT_TYPES.map((t) => (
+                    <label key={t} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="transportType"
+                        value={t}
+                        checked={formData.transportType === t}
+                        onChange={() => onFormChange({ transportType: t })}
+                        className="text-purple-600 focus:ring-purple-500"
+                      />
+                      <span className="text-sm text-slate-700">{t}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-500 mt-1">Protocol used by devices to send data</p>
+              </div>
+
+              {/* Credential Type */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Credential Type</label>
+                <Select
+                  value={formData.credentialType}
+                  onChange={(e) => onFormChange({ credentialType: e.target.value })}
+                >
+                  {CREDENTIAL_TYPES.map((c) => (
+                    <option key={c} value={c}>{c === 'TOKEN' ? 'Access Token' : c === 'BASIC' ? 'Basic Auth' : 'X.509 Certificate'}</option>
+                  ))}
+                </Select>
+                <p className="text-xs text-slate-500 mt-1">How devices authenticate when connecting</p>
+              </div>
+
+              {/* Inactivity Timeout */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Inactivity Timeout (seconds)</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={formData.inactivityTimeout}
+                    onChange={(e) => onFormChange({ inactivityTimeout: parseInt(e.target.value, 10) || 0 })}
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Seconds before device is marked offline (0 = disabled)</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Max Data Rate (messages/window)</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={formData.defaultMaxDataRate}
+                    onChange={(e) => onFormChange({ defaultMaxDataRate: parseInt(e.target.value, 10) || 0 })}
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Rate limit per device (0 = unlimited)</p>
+                </div>
+              </div>
+
+              {/* Auto-Provision */}
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.autoProvision}
+                  onChange={(e) => onFormChange({ autoProvision: e.target.checked })}
+                  className="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+                />
+                <div>
+                  <span className="text-sm font-medium text-slate-700">Auto-Provision Credentials</span>
+                  <p className="text-xs text-slate-500">Automatically create device credentials when an entity is created from this template</p>
+                </div>
+              </label>
+            </div>
+          )}
+        </div>
       </CollapsibleSection>
     </div>
   );

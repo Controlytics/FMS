@@ -122,7 +122,7 @@ export const authService = {
       await authRepository.terminateActiveSessions(user.id, 'new_login');
       await auditLog({
         userId: user.username, userRole: user.role, action: 'FORCED_LOGOUT',
-        targetType: 'session', targetId: existingSessions.map(s => s.id).join(','),
+        targetType: 'session', targetId: existingSessions.map((s: any) => s.id).join(','),
         afterValue: { username: user.username, fullName: user.fullName },
         signatureMeaning: 'Previous sessions terminated by user on new login',
         ipAddress: ip, userAgent,

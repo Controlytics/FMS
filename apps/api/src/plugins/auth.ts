@@ -9,7 +9,16 @@ declare module 'fastify' {
   }
 }
 
-const PUBLIC_PATHS = ['/api/auth/login', '/api/auth/forgot-password', '/api/auth/beacon-logout', '/api/health', '/docs', '/docs/'];
+const PUBLIC_PATHS = [
+  '/api/auth/login', '/api/auth/forgot-password', '/api/auth/beacon-logout',
+  '/api/health', '/docs', '/docs/',
+  '/api/internal/mqtt',  // EMQX auth callbacks (no JWT)
+  '/api/ws',             // WebSocket (authenticates via message flow)
+  '/api/data/telemetry', // Device token auth (handled by route preHandler)
+  '/api/data/attributes',// Device token auth (handled by route preHandler)
+  '/api/data/binary',    // Device token auth (handled by route preHandler)
+  '/api/data/event',     // Device token auth (handled by route preHandler)
+];
 
 // Paths that are public only for GET requests
 const PUBLIC_GET_PATHS = ['/api/config/branding', '/api/config/datetime/current', '/uploads/'];

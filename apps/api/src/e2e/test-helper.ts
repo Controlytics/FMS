@@ -11,6 +11,14 @@ import auditRoutes from '../modules/audit/routes.js';
 import roleRoutes from '../modules/roles/routes.js';
 import assetRoutes from '../modules/assets/index.js';
 import notificationRoutes from '../modules/notifications/routes.js';
+import backupRoutes from '../modules/backup/routes.js';
+import ruleChainRoutes from '../modules/rule-chain/routes.js';
+import connectivityRoutes from '../modules/connectivity/routes.js';
+import qrCodeRoutes from '../modules/qr-code/routes.js';
+import unsRoutes from '../modules/uns/routes.js';
+import systemHealthRoutes from '../modules/system-health/routes.js';
+import { prisma } from '../lib/prisma.js';
+import { AppError } from '../lib/errors.js';
 
 /** Default admin password used in tests */
 export const ADMIN_PASSWORD = 'Admin@123';
@@ -37,6 +45,23 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(authPlugin);
   await app.register(rbacPlugin);
 
+  // Global error handler — matches production app.ts behavior
+  // Must be set before routes so child contexts inherit it
+  app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
+    if (err instanceof AppError) {
+      return reply.code(err.statusCode).send({
+        error: err.code,
+        message: err.message,
+        ...(err.details ? { details: err.details } : {}),
+      });
+    }
+    if (err.statusCode === 429) {
+      return reply.code(429).send({ error: 'TOO_MANY_REQUESTS', message: err.message });
+    }
+    const status = err.statusCode ?? 500;
+    return reply.code(status).send({ error: err.message || 'Internal Server Error' });
+  });
+
   // Health check
   app.get('/api/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
 
@@ -48,6 +73,12 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(roleRoutes, { prefix: '/api/roles' });
   await app.register(assetRoutes, { prefix: '/api/assets' });
   await app.register(notificationRoutes, { prefix: '/api/notifications' });
+  await app.register(backupRoutes, { prefix: '/api/backup' });
+  await app.register(ruleChainRoutes, { prefix: '/api/rule-chains' });
+  await app.register(connectivityRoutes, { prefix: '/api/connectivity' });
+  await app.register(qrCodeRoutes, { prefix: '/api/qr' });
+  await app.register(unsRoutes, { prefix: '/api/uns' });
+  await app.register(systemHealthRoutes, { prefix: '/api/system-health' });
 
   await app.ready();
   return app;
@@ -61,6 +92,28 @@ export async function loginAs(
   username = 'admin',
   password = ADMIN_PASSWORD,
 ): Promise<string> {
+  // Ensure user can login: clear forcePasswordChange and terminate ALL sessions
+  const user = await prisma.user.findUnique({ where: { username } });
+  if (user) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        forcePasswordChange: false,
+        isTemporaryPassword: false,
+        status: 'ENABLED',
+        failedLoginAttempts: 0,
+        lockedAt: null,
+        lockoutUntil: null,
+      },
+    });
+  }
+
+  // Terminate ALL active sessions for this user (handles parallel test processes)
+  await prisma.session.updateMany({
+    where: { user: { username }, isActive: true },
+    data: { isActive: false, terminationReason: 'test_cleanup' },
+  });
+
   const res = await app.inject({
     method: 'POST',
     url: '/api/auth/login',
@@ -68,6 +121,25 @@ export async function loginAs(
   });
 
   const body = JSON.parse(res.body);
+
+  // Retry once if SESSION_CONFLICT (race condition with parallel tests)
+  if (body.error === 'SESSION_CONFLICT') {
+    await prisma.session.updateMany({
+      where: { user: { username }, isActive: true },
+      data: { isActive: false, terminationReason: 'test_cleanup' },
+    });
+    const retry = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { username, password },
+    });
+    const retryBody = JSON.parse(retry.body);
+    if (!retryBody.token) {
+      throw new Error(`Login failed for ${username} (retry): ${retry.body}`);
+    }
+    return retryBody.token;
+  }
+
   if (!body.token) {
     throw new Error(`Login failed for ${username}: ${res.body}`);
   }

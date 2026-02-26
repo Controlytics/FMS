@@ -39,6 +39,29 @@ export const REAUTH_ACTIONS = {
   DELETE_ASSET_RELATIONSHIP: { label: 'Delete Entity Relationship', category: 'Entity Management' },
   CREATE_ASSET_IDENTIFIER: { label: 'Create Entity Identifier', category: 'Entity Management' },
   DELETE_ASSET_IDENTIFIER: { label: 'Delete Entity Identifier', category: 'Entity Management' },
+
+  // Data Ingestion & Integration (Phase A)
+  ACKNOWLEDGE_ALARM: { label: 'Acknowledge Alarm', category: 'Alarms' },
+  CLEAR_ALARM: { label: 'Clear Alarm', category: 'Alarms' },
+  SUBMIT_CHECKLIST_WITH_SIGNATURE: { label: 'Submit Checklist with Signature', category: 'Checklist' },
+  REVIEW_CHECKLIST: { label: 'Review Checklist', category: 'Checklist' },
+  APPROVE_CHECKLIST: { label: 'Approve Checklist', category: 'Checklist' },
+  CREATE_RULE_CHAIN: { label: 'Create Rule Chain', category: 'Rule Chain' },
+  UPDATE_RULE_CHAIN: { label: 'Update Rule Chain', category: 'Rule Chain' },
+  DELETE_RULE_CHAIN: { label: 'Delete Rule Chain', category: 'Rule Chain' },
+  SET_ROOT_RULE_CHAIN: { label: 'Set Root Rule Chain', category: 'Rule Chain' },
+  IMPORT_RULE_CHAIN: { label: 'Import Rule Chain', category: 'Rule Chain' },
+  REGENERATE_CREDENTIALS: { label: 'Regenerate Device Credentials', category: 'Connectivity' },
+  OVERRIDE_UNS_PATH: { label: 'Override UNS Path', category: 'UNS' },
+  UPDATE_UNS_CONFIG: { label: 'Update UNS Config', category: 'UNS' },
+  CREATE_HELP_ARTICLE: { label: 'Create Help Article', category: 'Help' },
+  UPDATE_HELP_ARTICLE: { label: 'Update Help Article', category: 'Help' },
+  DELETE_HELP_ARTICLE: { label: 'Delete Help Article', category: 'Help' },
+  UPDATE_RETENTION_POLICY: { label: 'Update Retention Policy', category: 'Retention' },
+  ARCHIVE_DATA: { label: 'Archive Data', category: 'Retention' },
+  EXECUTE_RETENTION: { label: 'Execute Retention', category: 'Retention' },
+  UPDATE_SYSTEM_CONFIG: { label: 'Update System Config', category: 'System Config' },
+  RESTART_SERVER: { label: 'Restart Server', category: 'System Config' },
 } as const;
 
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;
@@ -49,6 +72,14 @@ export const REAUTH_ACTION_CATEGORIES = [
   'Role Management',
   'Backup',
   'Entity Management',
+  'Alarms',
+  'Checklist',
+  'Rule Chain',
+  'Connectivity',
+  'UNS',
+  'Help',
+  'Retention',
+  'System Config',
 ] as const;
 
 export type ReauthActionCategory = (typeof REAUTH_ACTION_CATEGORIES)[number];

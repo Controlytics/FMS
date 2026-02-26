@@ -72,6 +72,14 @@ export interface TemplateData {
   maxConnections: number;
   isActive: boolean;
   _count?: { instances: number };
+  // Transport & Connectivity
+  dataIngestionEnabled?: boolean;
+  transportType?: string | null;
+  credentialType?: string;
+  inactivityTimeout?: number;
+  defaultMaxDataRate?: number;
+  autoProvision?: boolean;
+  defaultRuleChainId?: string | null;
 }
 
 export interface FormData {
@@ -85,6 +93,14 @@ export interface FormData {
   expectedIdentifiers: IdentifierDef[];
   alarmRules: AlarmRuleDef[];
   checklistSchema: ChecklistItemDef[];
+  // Transport & Connectivity
+  dataIngestionEnabled: boolean;
+  transportType: string;
+  credentialType: string;
+  inactivityTimeout: number;
+  defaultMaxDataRate: number;
+  autoProvision: boolean;
+  defaultRuleChainId: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +130,8 @@ export const CHECKLIST_QUESTION_TYPES = [
   'TEXT', 'NUMERIC', 'DROPDOWN', 'PHOTO', 'DATE_TIME',
   'SIGNATURE', 'YES_NO_COMMENT', 'CALCULATED', 'CONDITIONAL',
 ] as const;
+export const TRANSPORT_TYPES = ['MQTT', 'HTTP', 'WEBSOCKET'] as const;
+export const CREDENTIAL_TYPES = ['TOKEN', 'BASIC', 'X509'] as const;
 
 // ---------------------------------------------------------------------------
 // Factory functions
@@ -151,6 +169,13 @@ export function emptyForm(): FormData {
     expectedIdentifiers: [],
     alarmRules: [],
     checklistSchema: [],
+    dataIngestionEnabled: false,
+    transportType: '',
+    credentialType: 'TOKEN',
+    inactivityTimeout: 60,
+    defaultMaxDataRate: 600,
+    autoProvision: true,
+    defaultRuleChainId: '',
   };
 }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type FastifyInstance } from 'fastify';
-import { buildApp, loginAs, authGet, authPost, authPut, authDelete, ADMIN_PASSWORD } from './test-helper.js';
+import { buildApp, loginAs, authGet, authPost, authPut, authDelete, authPatch, ADMIN_PASSWORD } from './test-helper.js';
 
 // Use unique suffixes to avoid collisions between test runs
 const SUFFIX = Date.now().toString(36);
@@ -153,6 +153,25 @@ describe('Entity Management endpoints', () => {
       const body = JSON.parse(res.body);
       const data = body.data || body;
       expect(data.name).toBe(`Pump Updated ${SUFFIX}`);
+    });
+
+    it('PATCH /api/assets/instances/:id/status updates just the status', async () => {
+      expect(instanceId).toBeTruthy();
+      const res = await authPatch(app, `/api/assets/instances/${instanceId}/status`, adminToken, {
+        status: 'Active',
+      }, ADMIN_PASSWORD);
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(true);
+      expect(body.data).toBeDefined();
+      expect(body.data.status).toBe('Active');
+    });
+
+    it('PATCH /api/assets/instances/:id/status rejects missing status', async () => {
+      expect(instanceId).toBeTruthy();
+      const res = await authPatch(app, `/api/assets/instances/${instanceId}/status`, adminToken, {}, ADMIN_PASSWORD);
+      expect([400, 500]).toContain(res.statusCode);
     });
 
     it('GET /api/assets/instances/:id/children returns children', async () => {

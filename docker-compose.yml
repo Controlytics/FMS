@@ -1,20 +1,88 @@
 services:
+  # ─── PostgreSQL (Prisma — lifecycle data) ────────────────────
   db:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: digilog
-      POSTGRES_USER: digilog
+      POSTGRES_USER: digilog_app
       POSTGRES_PASSWORD: ${DB_PASSWORD:-digilog_secret}
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pg_data:/var/lib/postgresql/data
       - ./apps/api/prisma/sql/extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U digilog"]
+      test: ["CMD-SHELL", "pg_isready -U digilog_app"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+
+  # ─── TimescaleDB (time-series — separate instance) ──────────
+  tsdb:
+    image: timescale/timescaledb:latest-pg16
+    ports:
+      - "5433:5432"
+    volumes:
+      - tsdb_data:/var/lib/postgresql/data
+      - ./init-tsdb.sql:/docker-entrypoint-initdb.d/init-tsdb.sql
+    environment:
+      POSTGRES_DB: digilog_tsdb
+      POSTGRES_USER: digilog_app
+      POSTGRES_PASSWORD: ${TSDB_PASSWORD:-tsdb_secret}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U digilog_app"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ─── EMQX MQTT Broker ──────────────────────────────────────
+  emqx:
+    image: emqx/emqx:5-elixir
+    ports:
+      - "1883:1883"       # MQTT
+      - "8883:8883"       # MQTT/TLS
+      - "8083:8083"       # MQTT/WebSocket
+      - "8084:8084"       # MQTT/WebSocket/TLS
+      - "18083:18083"     # EMQX Dashboard
+    environment:
+      EMQX_DASHBOARD__DEFAULT_USERNAME: admin
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_ADMIN_PASSWORD:-emqx_admin_secret}
+      EMQX_AUTHENTICATION__1__MECHANISM: password_based
+      EMQX_AUTHENTICATION__1__BACKEND: http
+      EMQX_AUTHENTICATION__1__METHOD: post
+      EMQX_AUTHENTICATION__1__URL: "http://api:3000/api/internal/mqtt/auth"
+      EMQX_AUTHENTICATION__1__BODY: '{"username":"${username}","password":"${password}"}'
+      EMQX_AUTHENTICATION__1__HEADERS__CONTENT-TYPE: application/json
+      EMQX_AUTHORIZATION__SOURCES__1__TYPE: http
+      EMQX_AUTHORIZATION__SOURCES__1__METHOD: post
+      EMQX_AUTHORIZATION__SOURCES__1__URL: "http://api:3000/api/internal/mqtt/acl"
+      EMQX_AUTHORIZATION__SOURCES__1__BODY: '{"username":"${username}","topic":"${topic}","action":"${action}"}'
+      EMQX_AUTHORIZATION__SOURCES__1__HEADERS__CONTENT-TYPE: application/json
+    volumes:
+      - emqx_data:/opt/emqx/data
+      - emqx_log:/opt/emqx/log
+    restart: unless-stopped
+
+  # ─── Redis (BullMQ + Pub/Sub) ──────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
 volumes:
-  pgdata:
+  pg_data:
+  tsdb_data:
+  emqx_data:
+  emqx_log:
+  redis_data:

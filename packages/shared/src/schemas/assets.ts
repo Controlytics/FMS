@@ -123,6 +123,9 @@ const alarmRuleSchema = z.object({
 // Template Schemas
 // =============================================
 
+export const TRANSPORT_TYPES = ['MQTT', 'HTTP', 'WEBSOCKET'] as const;
+export const CREDENTIAL_TYPES = ['TOKEN', 'BASIC', 'X509'] as const;
+
 export const createAssetTemplateSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
@@ -137,6 +140,14 @@ export const createAssetTemplateSchema = z.object({
   checklistSchema: z.array(checklistItemSchema).default([]),
   maxParentConnections: z.number().int().min(0).optional().default(1), // 0=no parents, 1+=limit
   maxConnections: z.number().int().min(0).optional().default(10), // 0=unlimited, N=max total connections
+  // Transport & Connectivity
+  dataIngestionEnabled: z.boolean().default(false),
+  transportType: z.enum(TRANSPORT_TYPES).nullable().optional(),
+  credentialType: z.enum(CREDENTIAL_TYPES).default('TOKEN').optional(),
+  inactivityTimeout: z.number().int().min(0).default(60).optional(), // seconds
+  defaultMaxDataRate: z.number().int().min(0).default(600).optional(), // max messages per window
+  autoProvision: z.boolean().default(true).optional(),
+  defaultRuleChainId: z.string().uuid().nullable().optional(),
 });
 
 export const updateAssetTemplateSchema = createAssetTemplateSchema.partial();

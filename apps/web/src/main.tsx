@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+import { StrictMode, lazy, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { SWRConfig } from 'swr';
@@ -30,10 +30,33 @@ import { PaginationConfigPage } from './routes/config/pagination';
 import { AuditTrailPage } from './routes/audit/index';
 import { NotificationsPage } from './routes/notifications/index';
 import { ProfilePage } from './routes/profile/index';
-import { AssetsPage } from './routes/assets/index';
-import { AssetTemplatesPage } from './routes/assets/templates';
 import { ToastProvider } from './components/toast-provider';
 import './app.css';
+
+// Lazy-loaded heavy pages (code-split into separate chunks)
+const AssetsPage = lazy(() => import('./routes/assets/index').then(m => ({ default: m.AssetsPage })));
+const AssetTemplatesPage = lazy(() => import('./routes/assets/templates').then(m => ({ default: m.AssetTemplatesPage })));
+const RuleChainsPage = lazy(() => import('./routes/rule-chains/index').then(m => ({ default: m.RuleChainsPage })));
+const RuleChainEditorPage = lazy(() => import('./routes/rule-chains/editor').then(m => ({ default: m.RuleChainEditorPage })));
+const AlarmDashboardPage = lazy(() => import('./routes/alarms/index').then(m => ({ default: m.AlarmDashboardPage })));
+const UnsConfigPage = lazy(() => import('./routes/config/uns').then(m => ({ default: m.UnsConfigPage })));
+const HelpArticlesPage = lazy(() => import('./routes/config/help').then(m => ({ default: m.HelpArticlesPage })));
+const RetentionConfigPage = lazy(() => import('./routes/config/retention').then(m => ({ default: m.RetentionConfigPage })));
+const SystemConfigPage = lazy(() => import('./routes/config/system').then(m => ({ default: m.SystemConfigPage })));
+const SystemHealthPage = lazy(() => import('./routes/system-health/index').then(m => ({ default: m.SystemHealthPage })));
+const DebugTracesPage = lazy(() => import('./routes/debug/index').then(m => ({ default: m.DebugTracesPage })));
+const ChecklistPage = lazy(() => import('./routes/checklist/index').then(m => ({ default: m.ChecklistPage })));
+
+function LazyFallback() {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <svg className="w-6 h-6 animate-spin text-cyan-500" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+      </svg>
+    </div>
+  );
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -75,15 +98,43 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/audit-templates" element={<RequireRole roles={['SUPER_ADMIN']}><AuditTemplatesConfigPage /></RequireRole>} />
             <Route path="/config/pagination" element={<RequireRole roles={['SUPER_ADMIN']}><PaginationConfigPage /></RequireRole>} />
 
-            {/* Entity Management */}
-            <Route path="/assets" element={<AssetsPage />} />
-            <Route path="/assets/templates" element={<AssetTemplatesPage />} />
+            {/* Entity Management (lazy-loaded) */}
+            <Route path="/assets" element={<Suspense fallback={<LazyFallback />}><AssetsPage /></Suspense>} />
+            <Route path="/assets/templates" element={<Suspense fallback={<LazyFallback />}><AssetTemplatesPage /></Suspense>} />
+
+            {/* Rule Chains — Admin only (lazy-loaded) */}
+            <Route path="/rule-chains" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><Suspense fallback={<LazyFallback />}><RuleChainsPage /></Suspense></RequireRole>} />
+            <Route path="/rule-chains/:id" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><RuleChainEditorPage /></Suspense></RequireRole>} />
+
+            {/* Alarms (lazy-loaded) */}
+            <Route path="/alarms" element={<Suspense fallback={<LazyFallback />}><AlarmDashboardPage /></Suspense>} />
+
+            {/* System Health — Admin only (lazy-loaded) */}
+            <Route path="/system-health" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><Suspense fallback={<LazyFallback />}><SystemHealthPage /></Suspense></RequireRole>} />
+
+            {/* Pipeline Debug Traces — Admin only (lazy-loaded) */}
+            <Route path="/debug/traces" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><Suspense fallback={<LazyFallback />}><DebugTracesPage /></Suspense></RequireRole>} />
+
+            {/* UNS Configuration (lazy-loaded) */}
+            <Route path="/config/uns" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><Suspense fallback={<LazyFallback />}><UnsConfigPage /></Suspense></RequireRole>} />
+
+            {/* Help Article Manager (lazy-loaded) */}
+            <Route path="/config/help" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><HelpArticlesPage /></Suspense></RequireRole>} />
+
+            {/* Retention Management (lazy-loaded) */}
+            <Route path="/config/retention" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><RetentionConfigPage /></Suspense></RequireRole>} />
+
+            {/* System (Ingestion Pipeline) Configuration (lazy-loaded) */}
+            <Route path="/config/system" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><SystemConfigPage /></Suspense></RequireRole>} />
 
             {/* Notifications */}
             <Route path="/notifications" element={<NotificationsPage />} />
 
             {/* Audit trail */}
             <Route path="/audit" element={<AuditTrailPage />} />
+
+            {/* Mobile Checklist (lazy-loaded) */}
+            <Route path="/checklist/:entityId" element={<Suspense fallback={<LazyFallback />}><ChecklistPage /></Suspense>} />
           </Route>
         </Routes>
       </BrowserRouter>

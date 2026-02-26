@@ -35,6 +35,17 @@
 | **Notifications** (9) | List, unread-count, mark read/unread, bulk ops, delete | Done | Monolithic routes |
 | **Uploads** (2) | Photo upload + serve | Done | Monolithic routes |
 | **Backup** (3) | Export + Restore + Validate | Done | Monolithic routes |
+| **MQTT Auth** (3) | auth, acl, webhook | Done | Transport |
+| **Data Ingestion** (8) | HTTP telemetry/attributes/events + RPC + config | Done | Transport |
+| **Rule Chains** (14) | CRUD + nodes + connections + versions + activate/deactivate + debug | Done | Monolithic routes |
+| **UNS** (6) | tree, entity mapping, move, search | Done | Monolithic routes |
+| **Telemetry Queries** (7) | latest, timeseries, keys, attributes, attribute history, checklists | Done | Monolithic routes |
+| **Alarms** (4) | list, entity alarms, acknowledge, clear | Done | Monolithic routes |
+| **Export** (5) | telemetry, checklists, alarms, attributes CSV/JSON + status | Done | Monolithic routes |
+| **Retention** (4) | config GET/PUT, archive, execute | Done | Monolithic routes |
+| **Connectivity** (6) | status, test, snippets, token generate/revoke, history | Done | Monolithic routes |
+| **QR Codes** (4) | generate, get, SVG, delete | Done | Monolithic routes |
+| **Help Articles** (6) | list, get by key, create, update with versioning, version history, delete | Done | Monolithic routes |
 
 ### Key Backend Features
 - Temporary password flow with forced change on first login
@@ -98,6 +109,9 @@
 | `/assets/templates` | Entity Template Manager with 6-section editor + checklist builder | Done |
 | `/notifications` | Notifications list | Done |
 | `/audit` | Audit trail table with filters + detail dialog | Done |
+| `/rule-chains` | Rule Chain management (table, CRUD, pagination) | Done |
+| `/alarms` | Alarm Dashboard (summary cards, filterable table, acknowledge/clear) | Done |
+| `/config/uns` | UNS Config (tree, wildcard search, detail panel, path override) | Done |
 
 ### Key Frontend Features
 - Copy/paste/cut/drag disabled on password fields (21 CFR Part 11)
@@ -149,20 +163,49 @@
 | `types/audit-templates.test.ts` | Audit template categories, defaults, getDefaultTemplates (17 tests) | Passing |
 | **Total** | **151 tests** | **All passing** |
 
+### Unit Tests (`packages/db`) — Phase K
+| Suite | Tests | Status |
+|-------|-------|--------|
+| `__tests__/telemetry-batcher.test.ts` | Multi-row INSERT batcher | Passing |
+
 ### API Tests (`apps/api`)
 | Suite | Tests | Status |
 |-------|-------|--------|
+| `e2e/auth.test.ts` | Auth login/logout/me/change-password E2E | Passing |
+| `e2e/users.test.ts` | User CRUD + enable/disable/unlock E2E | Passing |
+| `e2e/roles.test.ts` | Role CRUD + permissions E2E | Passing |
+| `e2e/config.test.ts` | Config CRUD E2E | Passing |
+| `e2e/audit.test.ts` | Audit trail list/detail E2E | Passing |
+| `e2e/notifications.test.ts` | Notification list/read/delete E2E | Passing |
+| `e2e/health.test.ts` | Health endpoint E2E | Passing |
 | `e2e/checklist-templates.test.ts` | Checklist CRUD lifecycle (14 tests) | Passing |
 | `e2e/entities.test.ts` | Entity instance + relationship + identifier E2E | Passing |
+| `modules/data-ingestion/__tests__/ingestion.service.test.ts` | Pipeline stages 3/6/9/10/11 | Passing |
+| `modules/data-ingestion/__tests__/ingestion-config.service.test.ts` | IngestionSystemConfig reader | Passing |
+| `modules/data-ingestion/__tests__/connectivity-tracker.test.ts` | Online/offline tracking | Passing |
+| `modules/data-ingestion/__tests__/dlq-manager.test.ts` | Dead letter queue | Passing |
+| `modules/data-ingestion/__tests__/pipeline-tracer.test.ts` | Debug trace recorder | Passing |
 | `lib/hash-chain.test.ts` | Hash chain utilities | Passing |
 | `lib/jwt.test.ts` | JWT utilities | Passing |
 | `lib/password.test.ts` | Password hashing | Passing |
-| **Total** | **116 tests** | **115 passing, 1 pre-existing failure** |
+| **Total** | **274 tests** | **All passing** |
+
+### Phase K Summary
+| Metric | Value |
+|--------|-------|
+| Total tests | 425 |
+| Test files | 18 |
+| New test files (Phase K) | 13 |
+| Packages with tests | 3 (packages/shared, packages/db, apps/api) |
+| Status | COMPLETE |
 
 ### Test Infrastructure
 - Vitest with `globals: true`, `environment: 'node'`
 - E2E tests use `buildApp()` + `app.inject()` (no HTTP server)
 - `vitest.config.ts` in both `packages/shared` and `apps/api`
+- `vi.hoisted()` for hoisting mock variables above imports
+- Class-based mocks for `ioredis` and `bullmq` (avoids real Redis connections)
+- `__tests__/` directories co-located with source modules
 
 ## API Refactoring Status
 
@@ -236,10 +279,9 @@ Fix Fastify stripping `checklistSchema` from GET-by-ID responses due to missing 
 - Frontend refactoring: Extract sub-components/hooks from large page files
 - Electronic signatures (e-sign with re-authentication)
 - Logbook entries / digital forms
-- Data point ingestion (MQTT/OPC-UA)
-- Reports and exports
 - HTTPS/TLS certificates
 - CI/CD pipeline
+- Phase K: Testing & Documentation — **COMPLETE**
 
 ---
 
@@ -310,5 +352,20 @@ Fix Fastify stripping `checklistSchema` from GET-by-ID responses due to missing 
 
 ---
 
+### Data Ingestion & Integration Layer (Phases A-K)
+
+| Module | Files | Status |
+|--------|-------|--------|
+| Phase A: Infrastructure | Docker, TimescaleDB, 16 Prisma models, packages/db, packages/queue | Done |
+| Phase B: Transport | MQTT auth, MQTT client, WS handler, HTTP data ingestion, RPC | Done |
+| Phase C: Pipeline | BullMQ worker, 11 pipeline stages, telemetry batcher, DLQ, maintenance | Done |
+| Phase D: Rule Chain Engine | 26 node types, BFS execution, debug recorder, 14 API endpoints | Done |
+| Phase E: UNS | ISA-95 path builder, cascade moves, wildcard search, 6 endpoints | Done |
+| Phase F: Queries & Export | Telemetry, alarms, export, retention, 20 endpoints | Done |
+| Phase G-J: Integration | Connectivity, QR codes, help articles, 3 frontend pages | Done |
+| Phase K: Testing & Docs | 425 total tests, 18 test files, 3 packages (shared, db, api) | Done |
+
+---
+
 ## Summary
-**Phase 1 is code-complete and deployed.** All User Management, Entity Management, and Configuration features are built end-to-end with 82 API endpoints. The app is running on EC2 at `43.205.32.23` via PM2 + nginx. Entity Management module (assets), Auth, and Config have been refactored to Routes → Services → Repositories. Test coverage includes 477 tests (334 unit/E2E + 73 RBAC + 70 feature). Checklist feature supports 14 question types on entity templates. Documentation governance enforcement active as of v2.1.2 — all 7 core documents auto-synchronized. 12 bug Git issues created (#2–#13), 11 closed, 1 open.
+**Phase 1 is code-complete and deployed. Phases B through K are complete.** All User Management, Entity Management, Configuration, and Data Ingestion features are built end-to-end with ~138 API endpoints across 31 frontend pages. The app is running on EC2 at `43.205.32.23` via PM2 + nginx. Entity Management module (assets), Auth, and Config have been refactored to Routes → Services → Repositories. Test coverage includes 425 automated tests across 18 test files in 3 packages (packages/shared, packages/db, apps/api). Phase K added 13 new test files covering E2E API tests, data ingestion unit tests, and telemetry batcher tests. Checklist feature supports 14 question types on entity templates. Phases B-J added data ingestion (MQTT + HTTP + WebSocket), rule chain engine (26 node types), UNS (ISA-95 paths), telemetry queries, alarms, export (CSV/JSON), retention management, connectivity tracking, QR codes, and help articles. Documentation governance enforcement active as of v2.1.2 — all 7 core documents auto-synchronized. 12 bug Git issues created (#2-#13), 11 closed, 1 open.

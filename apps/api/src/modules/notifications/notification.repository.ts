@@ -36,7 +36,7 @@ export const notificationRepository = {
         targetUserId: data.targetUserId,
         forUserId: data.forUserId,
         forRole: data.forRole,
-        metadata: data.metadata as Parameters<typeof prisma.notification.create>[0]['data']['metadata'],
+        metadata: data.metadata as any,
         createdBy: data.createdBy,
       },
     });

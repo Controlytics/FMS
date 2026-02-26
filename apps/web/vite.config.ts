@@ -11,11 +11,16 @@ export default defineConfig({
     },
   },
   build: {
+    chunkSizeWarningLimit: 800,
     rollupOptions: {
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom', 'react-router-dom'],
           swr: ['swr'],
+          reactflow: ['reactflow'],
+          monaco: ['@monaco-editor/react'],
+          charts: ['recharts'],
+          qrcode: ['qrcode.react'],
         },
       },
     },

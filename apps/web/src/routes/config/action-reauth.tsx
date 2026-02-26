@@ -16,6 +16,14 @@ const CATEGORY_ICONS: Record<ReauthActionCategory, string> = {
   'Role Management': 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z',
   'Backup': 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4',
   'Entity Management': 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4',
+  'Alarms': 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9',
+  'Checklist': 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
+  'Rule Chain': 'M13 10V3L4 14h7v7l9-11h-7z',
+  'Connectivity': 'M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0',
+  'UNS': 'M4 6h16M4 12h16M4 18h7',
+  'Help': 'M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+  'Retention': 'M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16',
+  'System Config': 'M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01',
 };
 
 const CATEGORY_COLORS: Record<ReauthActionCategory, string> = {
@@ -24,6 +32,14 @@ const CATEGORY_COLORS: Record<ReauthActionCategory, string> = {
   'Role Management': 'from-amber-500 to-orange-600',
   'Backup': 'from-red-500 to-rose-600',
   'Entity Management': 'from-emerald-500 to-teal-600',
+  'Alarms': 'from-yellow-500 to-amber-600',
+  'Checklist': 'from-cyan-500 to-blue-600',
+  'Rule Chain': 'from-violet-500 to-purple-600',
+  'Connectivity': 'from-sky-500 to-cyan-600',
+  'UNS': 'from-slate-500 to-gray-600',
+  'Help': 'from-lime-500 to-green-600',
+  'Retention': 'from-orange-500 to-red-600',
+  'System Config': 'from-fuchsia-500 to-pink-600',
 };
 
 // Group actions by category

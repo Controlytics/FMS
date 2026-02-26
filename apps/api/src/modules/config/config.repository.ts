@@ -93,15 +93,15 @@ export const configRepository = {
 
   // Raw queries for User ID next
   async getMaxUserIdNum(prefix: string) {
-    return prisma.$queryRawUnsafe<{ max_num: number | null }[]>(
+    return prisma.$queryRawUnsafe(
       `SELECT MAX(CAST(SUBSTRING(username FROM '\\d+$') AS INTEGER)) AS max_num FROM users WHERE username LIKE $1`,
       `${prefix}%`
-    );
+    ) as Promise<{ max_num: number | null }[]>;
   },
 
   async getMaxUserIdNumAll() {
-    return prisma.$queryRawUnsafe<{ max_num: number | null }[]>(
+    return prisma.$queryRawUnsafe(
       `SELECT MAX(CAST(SUBSTRING(username FROM '\\d+$') AS INTEGER)) AS max_num FROM users WHERE username ~ '\\d+$'`
-    );
+    ) as Promise<{ max_num: number | null }[]>;
   },
 };

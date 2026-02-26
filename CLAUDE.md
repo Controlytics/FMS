@@ -11,20 +11,23 @@ DigiLog is a regulatory-compliant digital logbook for pharma/biotech/food manufa
 ## Tech Stack
 Turborepo, Fastify 5, React 19, Vite 6, Tailwind CSS 4, Prisma 6 ORM, PostgreSQL 16 (pgcrypto), bcrypt, jose (JWT), Zod, SWR, React Hook Form, Lucide React
 
-## Production Deployment
-- **App URL:** http://43.205.32.23 (port 80 via nginx)
-- **API:** PM2 process `digilog-api` on port 3000
-- **Swagger UI:** http://43.205.32.23/docs
-- **Database:** `digilog_db` on PostgreSQL 5432
+## Production Deployment (EC2: DL_DI)
+- **EC2 Instance:** `i-0df88b77a8ac636df` (DL_DI), t3.large, Ubuntu 24.04.3 LTS
+- **Public IP:** `3.108.185.106`
+- **SSH:** `ssh -i ~/Downloads/21cfrbook.pem ubuntu@3.108.185.106`
+- **App URL:** http://3.108.185.106 (port 80 via nginx)
+- **API:** PM2 process `digilog-api` on port 3000 (cluster mode)
+- **Swagger UI:** http://3.108.185.106/docs
+- **Database:** `digilog_db` on PostgreSQL 16 (localhost:5432)
+- **TimescaleDB:** `digilog_tsdb` on PostgreSQL 16 (localhost:5432)
+- **Redis:** localhost:6379 (BullMQ queue backend)
+- **EMQX:** MQTT broker on ports 1883/8883(TLS)/8083(WS)/8084(WSS), dashboard at :18083
+- **EMQX Dashboard:** http://3.108.185.106/emqx/ (proxied via nginx)
 - **nginx config:** `/etc/nginx/sites-available/digilog`
 - **nginx root:** `/home/ubuntu/21cfrlogbook/apps/web/dist` (served directly, no copy needed)
 - **PM2 ecosystem:** `/home/ubuntu/ecosystem.config.cjs`
-
-### Dual-App Server
-This server also runs the User Management app:
-- User Management at http://43.205.32.23:5175/ (PM2 process `usermgmt-api` on port 3001)
-- nginx config: `/etc/nginx/sites-available/usermgmt`
-- Database: `usermgmt_db`
+- **Node:** v20.20.0, npm 10.8.2
+- **Disk:** 29G (18% used), **RAM:** 7.6Gi
 
 ## Quick Start
 ```bash
@@ -198,3 +201,63 @@ Single source of truth for Zod schemas and TypeScript types consumed by both app
 
 ## Environment
 All env vars in root `.env` file. Key vars: DATABASE_URL, JWT_SECRET, VERIFICATION_TOKEN_SECRET, API_PORT, CORS_ORIGIN, ALLOWED_ORIGINS, UPLOAD_DIR, MAX_FILE_SIZE.
+
+
+
+Workflow Orchestration
+1. Plan Mode Default
+
+Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)
+If something goes sideways, STOP and re-plan immediately – don't keep pushing
+Use plan mode for verification steps, not just building
+Write detailed specs upfront to reduce ambiguity
+
+2. Subagent Strategy
+
+Use subagents liberally to keep main context window clean
+Offload research, exploration, and parallel analysis to subagents
+For complex problems, throw more compute at it via subagents
+One task per subagent for focused execution
+
+3. Self-Improvement Loop
+
+After ANY correction from the user: update tasks/lessons.md with the pattern
+Write rules for yourself that prevent the same mistake
+Ruthlessly iterate on these lessons until mistake rate drops
+Review lessons at session start for relevant project
+
+4. Verification Before Done
+
+Never mark a task complete without proving it works
+Diff behavior between main and your changes when relevant
+Ask yourself: "Would a staff engineer approve this?"
+Run tests, check logs, demonstrate correctness
+
+5. Demand Elegance (Balanced)
+
+For non-trivial changes: pause and ask "is there a more elegant way?"
+If a fix feels hacky: "Knowing everything I know now, implement the elegant solution"
+Skip this for simple, obvious fixes – don't over-engineer
+Challenge your own work before presenting it
+
+6. Autonomous Bug Fixing
+
+When given a bug report, just fix it. Don't ask for hand-holding
+Point at logs, errors, failing tests – then resolve them
+Zero context switching required from the user
+Go fix failing CI tests without being told how
+
+Task Management
+
+Plan First: Write plan to tasks/todo.md with checkable items
+Verify Plan: Check in before starting implementation
+Track Progress: Mark items complete as you go
+Explain Changes: High-level summary at each step
+Document Results: Add review section to tasks/todo.md
+Capture Lessons: Update tasks/lessons.md after corrections
+
+Core Principles
+
+Simplicity First: Make every change as simple as possible. Impact minimal code.
+No Laziness: Find root causes. No temporary fixes. Senior developer standards.
+Minimal Impact: Changes should only touch what's necessary. Avoid introducing bugs.
