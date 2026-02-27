@@ -326,3 +326,33 @@ Updated `apps/api/src/plugins/rbac.ts` to support permission hierarchy: when a g
 - OPERATOR and VIEWER roles (without template permissions) are correctly denied
 - SUPER_ADMIN continues to bypass all checks
 - All existing direct permission matches continue to work
+
+---
+
+## BUG-014: Template category field accepts any string value
+**Date:** 2026-02-27  
+**Severity:** Medium  
+**Found by:** API Tester Agent  
+
+### Symptom
+The template creation/update endpoints accepted any string for the `category` field, allowing invalid values like "INVALID" or inconsistent casing ("EQUIPMENT" vs "Equipment").
+
+### Root Cause
+The Zod schema in `packages/shared/src/schemas/assets.ts` defined `category` as `z.string().max(50)` — no enum constraint. The Fastify route schema similarly had `{ type: 'string' }` with no `enum` property.
+
+### Fix
+1. Added `TEMPLATE_CATEGORIES` enum constant: General, Equipment, Room, Building, Sensor, Vehicle, Utility, Process, Storage, Laboratory
+2. Updated Zod schema: `z.enum(TEMPLATE_CATEGORIES).default('General')`
+3. Updated Fastify route body schema with matching `enum` array
+4. Exported `TEMPLATE_CATEGORIES` from `@digilog/shared`
+5. Cleaned existing DB data: normalized "EQUIPMENT"→"Equipment", "INVALID"→"General", "Testing"→"General"
+
+### Files Changed
+- `packages/shared/src/schemas/assets.ts` — Added TEMPLATE_CATEGORIES, updated Zod schema
+- `packages/shared/src/index.ts` — Exported TEMPLATE_CATEGORIES
+- `apps/api/src/modules/assets/routes/template.routes.ts` — Added enum to route body schema
+
+### Verification
+- POST with `category: "INVALID_CATEGORY"` returns 400 VALIDATION_ERROR with allowed values list
+- POST with `category: "Equipment"` succeeds
+- All existing templates have valid categories
