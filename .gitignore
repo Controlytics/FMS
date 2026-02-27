@@ -23,3 +23,11 @@ apps/*/.env
 .DS_Store
 nul
 
+
+# Sensitive files - NEVER track
+.env.production
+.env.staging
+.env.*.local
+CREDENTIALS.md
+*.pem
+*.key
