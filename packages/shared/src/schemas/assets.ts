@@ -126,10 +126,15 @@ const alarmRuleSchema = z.object({
 export const TRANSPORT_TYPES = ['MQTT', 'HTTP', 'WEBSOCKET'] as const;
 export const CREDENTIAL_TYPES = ['TOKEN', 'BASIC', 'X509'] as const;
 
+export const TEMPLATE_CATEGORIES = [
+  'General', 'Equipment', 'Room', 'Building', 'Sensor',
+  'Vehicle', 'Utility', 'Process', 'Storage', 'Laboratory',
+] as const;
+
 export const createAssetTemplateSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
-  category: z.string().max(50).default('General'),
+  category: z.enum(TEMPLATE_CATEGORIES).default('General'),
   icon: z.string().max(50).default('box'),
   attributeSchema: z.array(attributeDefinitionSchema).default([]),
   telemetrySchema: z.array(telemetryDefinitionSchema).default([]),

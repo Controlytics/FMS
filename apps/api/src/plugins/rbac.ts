@@ -27,7 +27,26 @@ async function rbacPlugin(app: FastifyInstance) {
       });
 
       const perms = (role?.permissions as string[]) || [];
-      if (!perms.includes(permission)) {
+
+      // Check direct permission match first
+      let hasPermission = perms.includes(permission);
+
+      // If not found, check if user has the *_MANAGE parent permission
+      // e.g., ASSET_TEMPLATE_CREATE is granted by ASSET_TEMPLATE_MANAGE
+      if (!hasPermission) {
+        const manageVariants = ['_CREATE', '_UPDATE', '_DELETE', '_VIEW', '_READ', '_EXPORT'];
+        for (const suffix of manageVariants) {
+          if (permission.endsWith(suffix)) {
+            const managePermission = permission.slice(0, -suffix.length) + '_MANAGE';
+            if (perms.includes(managePermission)) {
+              hasPermission = true;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!hasPermission) {
         // Log unauthorized attempt
         await app.auditLog({
           userId: req.user.username,

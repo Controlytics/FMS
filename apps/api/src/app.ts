@@ -109,7 +109,15 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
   if (err.statusCode === 429) {
     return reply.code(429).send({ error: 'TOO_MANY_REQUESTS', message: err.message });
   }
-  // Let Fastify handle other errors (validation, etc.)
+  // Fastify validation errors (body/query/params schema validation)
+  if ((err as any).code === 'FST_ERR_VALIDATION' || (err as any).validation) {
+    return reply.code(400).send({
+      error: 'VALIDATION_ERROR',
+      message: err.message,
+      ...(err as any).validation ? { details: (err as any).validation } : {},
+    });
+  }
+  // Genuine internal errors
   app.log.error(err);
   return reply.code(err.statusCode ?? 500).send({
     error: 'INTERNAL_ERROR',

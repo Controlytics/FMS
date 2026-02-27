@@ -300,3 +300,29 @@
 |------|---------|--------|
 | 2026-02-25 | 1.1 | Git issue lifecycle: created 12 GitHub issues (#2–#13), closed 11, linked all entries |
 | 2026-02-25 | 1.0 | Initial creation — cataloged 12 historical bugs from CHANGELOG.md and test reports |
+
+---
+
+## BUG-013: RBAC Permission Mismatch - _MANAGE vs Granular Permissions
+
+**Date Found:** 2026-02-27  
+**Severity:** Critical  
+**Status:** RESOLVED  
+
+### Description
+Template routes enforced granular permissions (`ASSET_TEMPLATE_CREATE`, `ASSET_TEMPLATE_UPDATE`, `ASSET_TEMPLATE_DELETE`) but database roles only stored the coarse `ASSET_TEMPLATE_MANAGE` permission. This caused non-SUPER_ADMIN roles (like ADMIN) to be denied template management operations even though they should have access. SUPER_ADMIN was unaffected because it bypasses all permission checks.
+
+### Root Cause
+The `requirePermission()` check in `rbac.ts` used a simple `Array.includes()` match — no hierarchy or parent-permission resolution. When checking for `ASSET_TEMPLATE_CREATE`, it did not recognize that `ASSET_TEMPLATE_MANAGE` should grant that access.
+
+### Fix Applied
+Updated `apps/api/src/plugins/rbac.ts` to support permission hierarchy: when a granular permission check fails (e.g., `ASSET_TEMPLATE_CREATE`), the plugin now checks if the user has the corresponding `*_MANAGE` parent permission. Supported suffixes: `_CREATE`, `_UPDATE`, `_DELETE`, `_VIEW`, `_READ`, `_EXPORT`.
+
+### Files Changed
+- `apps/api/src/plugins/rbac.ts` — Added `_MANAGE` hierarchy resolution before permission denial
+
+### Verification
+- ADMIN role (with `ASSET_TEMPLATE_MANAGE`) can now CREATE, UPDATE, and DELETE templates
+- OPERATOR and VIEWER roles (without template permissions) are correctly denied
+- SUPER_ADMIN continues to bypass all checks
+- All existing direct permission matches continue to work

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { enforceReauth } from '../../../lib/reauth-check.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { errorResponses } from '../../../lib/error-schemas.js';
-import { createAssetTemplateSchema, updateAssetTemplateSchema, templateQuerySchema } from '@digilog/shared';
+import { createAssetTemplateSchema, updateAssetTemplateSchema, templateQuerySchema, TEMPLATE_CATEGORIES } from '@digilog/shared';
 import { templateService } from '../services/template.service.js';
 
 export default async function templateRoutes(app: FastifyInstance) {
@@ -48,12 +48,12 @@ export default async function templateRoutes(app: FastifyInstance) {
                   maxParentConnections: { type: 'integer' },
                   maxConnections: { type: 'integer' },
                   dataIngestionEnabled: { type: 'boolean' },
-                  transportType: { type: 'string' },
+                  transportType: { type: ['string', 'null'] },
                   credentialType: { type: 'string' },
                   inactivityTimeout: { type: 'integer' },
                   defaultMaxDataRate: { type: 'integer' },
                   autoProvision: { type: 'boolean' },
-                  defaultRuleChainId: { type: 'string' },
+                  defaultRuleChainId: { type: ['string', 'null'] },
                   isActive: { type: 'boolean' },
                   createdAt: { type: 'string' },
                   updatedAt: { type: 'string' },
@@ -107,6 +107,13 @@ export default async function templateRoutes(app: FastifyInstance) {
             checklistSchema: { type: 'array' },
             maxParentConnections: { type: 'integer' },
             maxConnections: { type: 'integer' },
+            dataIngestionEnabled: { type: 'boolean' },
+            transportType: { type: ['string', 'null'] },
+            credentialType: { type: 'string' },
+            inactivityTimeout: { type: 'integer' },
+            defaultMaxDataRate: { type: 'integer' },
+            autoProvision: { type: 'boolean' },
+            defaultRuleChainId: { type: ['string', 'null'] },
             isActive: { type: 'boolean' },
             createdAt: { type: 'string' },
             updatedAt: { type: 'string' },
@@ -136,7 +143,7 @@ export default async function templateRoutes(app: FastifyInstance) {
         properties: {
           name: { type: 'string' },
           description: { type: 'string' },
-          category: { type: 'string', description: 'Template category (Equipment, Room, Building, etc.)' },
+          category: { type: 'string', enum: ['General', 'Equipment', 'Room', 'Building', 'Sensor', 'Vehicle', 'Utility', 'Process', 'Storage', 'Laboratory'], description: 'Template category' },
           icon: { type: 'string' },
           attributeSchema: { type: 'array' },
           expectedIdentifiers: { type: 'array' },
@@ -147,12 +154,12 @@ export default async function templateRoutes(app: FastifyInstance) {
           maxParentConnections: { type: 'integer', description: 'Number of Parent Connections: 0=not allowed, 1=single parent only, 2+=multiple parents' },
           maxConnections: { type: 'integer', description: 'Max total connections (all types): 0=unlimited, N=limit' },
           dataIngestionEnabled: { type: 'boolean', description: 'Enable data ingestion for entities of this template' },
-          transportType: { type: 'string', enum: ['MQTT', 'HTTP', 'WEBSOCKET'], description: 'Transport protocol' },
+          transportType: { oneOf: [{ type: 'string', enum: ['MQTT', 'HTTP', 'WEBSOCKET'] }, { type: 'null' }], description: 'Transport protocol' },
           credentialType: { type: 'string', enum: ['TOKEN', 'BASIC', 'X509'], description: 'Device credential type' },
           inactivityTimeout: { type: 'integer', description: 'Inactivity timeout in seconds before marking device offline' },
           defaultMaxDataRate: { type: 'integer', description: 'Max messages per rate-limit window' },
           autoProvision: { type: 'boolean', description: 'Auto-create device credentials on first connect' },
-          defaultRuleChainId: { type: 'string', format: 'uuid', description: 'Default rule chain for processing' },
+          defaultRuleChainId: { oneOf: [{ type: 'string', format: 'uuid' }, { type: 'null' }], description: 'Default rule chain for processing' },
         },
       },
       response: {
@@ -196,7 +203,7 @@ export default async function templateRoutes(app: FastifyInstance) {
         properties: {
           name: { type: 'string' },
           description: { type: 'string' },
-          category: { type: 'string', description: 'Template category (Equipment, Room, Building, etc.)' },
+          category: { type: 'string', enum: ['General', 'Equipment', 'Room', 'Building', 'Sensor', 'Vehicle', 'Utility', 'Process', 'Storage', 'Laboratory'], description: 'Template category' },
           icon: { type: 'string' },
           attributeSchema: { type: 'array' },
           expectedIdentifiers: { type: 'array' },
@@ -207,12 +214,12 @@ export default async function templateRoutes(app: FastifyInstance) {
           maxParentConnections: { type: 'integer', description: 'Number of Parent Connections: 0=not allowed, 1=single parent only, 2+=multiple parents' },
           maxConnections: { type: 'integer', description: 'Max total connections (all types): 0=unlimited, N=limit' },
           dataIngestionEnabled: { type: 'boolean', description: 'Enable data ingestion for entities of this template' },
-          transportType: { type: 'string', enum: ['MQTT', 'HTTP', 'WEBSOCKET'], description: 'Transport protocol' },
+          transportType: { oneOf: [{ type: 'string', enum: ['MQTT', 'HTTP', 'WEBSOCKET'] }, { type: 'null' }], description: 'Transport protocol' },
           credentialType: { type: 'string', enum: ['TOKEN', 'BASIC', 'X509'], description: 'Device credential type' },
           inactivityTimeout: { type: 'integer', description: 'Inactivity timeout in seconds before marking device offline' },
           defaultMaxDataRate: { type: 'integer', description: 'Max messages per rate-limit window' },
           autoProvision: { type: 'boolean', description: 'Auto-create device credentials on first connect' },
-          defaultRuleChainId: { type: 'string', format: 'uuid', description: 'Default rule chain for processing' },
+          defaultRuleChainId: { oneOf: [{ type: 'string', format: 'uuid' }, { type: 'null' }], description: 'Default rule chain for processing' },
         },
       },
       response: {
