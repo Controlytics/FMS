@@ -122,6 +122,12 @@ export { AssetExplorerPage as AssetsPage };
 
 export function AssetExplorerPage() {
   const { user } = useAuth();
+
+  // Permission helpers for RBAC button visibility
+  const canCreate = user?.role === 'SUPER_ADMIN' || (user?.permissions?.includes('ASSET_CREATE') ?? false);
+  const canUpdate = user?.role === 'SUPER_ADMIN' || (user?.permissions?.includes('ASSET_UPDATE') ?? false);
+  const canDelete = user?.role === 'SUPER_ADMIN' || (user?.permissions?.includes('ASSET_DELETE') ?? false);
+  const canManageRelationships = user?.role === 'SUPER_ADMIN' || (user?.permissions?.includes('ASSET_RELATIONSHIP_MANAGE') ?? false);
   const { mutate } = useSWRConfig();
   const reauth = useReauth();
   const { toast } = useToast();
@@ -886,7 +892,7 @@ export function AssetExplorerPage() {
             {/* Hover action buttons */}
             <span className="flex-shrink-0 flex items-center gap-0.5 opacity-0 group-hover/treenode:opacity-100 transition-opacity">
               {/* Create new child entity */}
-              <span
+              {canCreate && <span
                 className="w-5 h-5 flex items-center justify-center text-emerald-500 hover:text-emerald-700 rounded hover:bg-emerald-100 transition-colors"
                 title="Create new child entity"
                 onClick={(e) => {
@@ -899,9 +905,9 @@ export function AssetExplorerPage() {
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
-              </span>
+              </span>}
               {/* Attach existing entity as child */}
-              <span
+              {canManageRelationships && <span
                 className="w-5 h-5 flex items-center justify-center text-blue-500 hover:text-blue-700 rounded hover:bg-blue-100 transition-colors"
                 title="Attach existing entity as child"
                 onClick={(e) => {
@@ -916,7 +922,7 @@ export function AssetExplorerPage() {
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101M10.172 13.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                 </svg>
-              </span>
+              </span>}
               {/* Unlink from parent */}
               {node.parentId && (
                 <span
@@ -963,18 +969,18 @@ export function AssetExplorerPage() {
           </Badge>
         </div>
         <div className="flex items-center gap-3">
-          <Button size="sm" onClick={openAddDialog}>
+          {canCreate && <Button size="sm" onClick={openAddDialog}>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
             Add Entity
-          </Button>
-          <Button size="sm" variant="outline" onClick={openLinkDialog}>
+          </Button>}
+          {canManageRelationships && <Button size="sm" variant="outline" onClick={openLinkDialog}>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
             </svg>
             Link Entities
-          </Button>
+          </Button>}
 
           {/* View Toggle */}
           <div className="flex rounded-lg border border-slate-200 overflow-hidden">
@@ -1108,6 +1114,10 @@ export function AssetExplorerPage() {
                   onEdit={openEditDialog}
                   onLink={openLinkDialog}
                   onDelete={() => { setError(''); setShowDeleteDialog(true); }}
+                  canUpdate={canUpdate}
+                  canDelete={canDelete}
+                  canCreate={canCreate}
+                  canManageRelationships={canManageRelationships}
                   onDeleteRelationship={handleDeleteRelationship}
                   onDeleteIdentifier={handleDeleteIdentifier}
                   onAddIdentifier={() => {

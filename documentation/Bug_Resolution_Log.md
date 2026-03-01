@@ -2,7 +2,7 @@
 
 **Maintained by:** Engineering Team
 **Created:** 2026-02-25
-**Last Updated:** 2026-02-27 (v2.1.3)
+**Last Updated:** 2026-03-01 (v2.2.0)
 **Policy:** Every bug MUST be documented here before closing the associated Git issue.
 
 ---
@@ -11,8 +11,8 @@
 
 | Metric | Count |
 |--------|-------|
-| Total Bugs Identified | 15 |
-| Total Resolved | 14 |
+| Total Bugs Identified | 25 |
+| Total Resolved | 24 |
 | Open Issues | 1 (BUG-012, low priority) |
 | Git Issues Created | 12 (#2–#13) |
 | Git Issues Closed | 11 |
@@ -561,3 +561,221 @@ The Zod schema in `packages/shared/src/schemas/assets.ts` defined `category` as 
 - `apps/web/src/routes/checklist/index.tsx` (history UI)
 
 **Verification:** Browser test — submit checklist, history table shows submission, expandable rows show answers, delete removes from both TSDB + PG.
+
+
+---
+
+## FIX-014: OPERATOR Missing "Entities" in Sidebar (OBS-004)
+
+**Date:** 2026-03-01
+**Type:** UI Fix
+**Severity:** Medium
+**Component:** Frontend — Sidebar
+
+**Problem (OBS-004):** OPERATOR role had `ASSET_VIEW` permission but the sidebar did not show the "Entities" navigation item. Users had to manually navigate to `/assets` via URL.
+
+**Root Cause:** The `allNavItems` array in `sidebar.tsx` had `defaultRoles: ['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'MAINTENANCE']` for the `assets` item — OPERATOR was not included.
+
+**Fix:** Added `'OPERATOR'` to the `defaultRoles` array for the `assets` sidebar item.
+
+**Files Changed:**
+- `apps/web/src/components/layout/sidebar.tsx`
+
+**Verification:** Logged in as OPERATOR (RB0001) — "Entities" now appears in sidebar, clicking navigates to Entity Explorer.
+
+---
+
+## FIX-015: Entity Explorer Write Buttons Visible Without Permissions (OBS-005)
+
+**Date:** 2026-03-01
+**Type:** Security Fix
+**Severity:** High
+**Component:** Frontend — Entity Explorer
+
+**Problem (OBS-005):** OPERATOR role (with only `ASSET_VIEW` permission) could see Add Entity, Link Entities, Edit, Link, Delete buttons in the Entity Explorer despite lacking `ASSET_CREATE`, `ASSET_UPDATE`, `ASSET_DELETE`, or `ASSET_RELATIONSHIP_MANAGE` permissions.
+
+**Root Cause:** No permission checks were applied to action buttons in either `index.tsx` (Entity Explorer) or `entity-detail-panel.tsx` (detail panel).
+
+**Fix:** 11 changes across 2 files:
+1. Added permission helper flags (`canCreate`, `canUpdate`, `canDelete`, `canManageRelationships`) derived from `user.permissions` in `index.tsx`
+2. Wrapped "Add Entity" button with `canCreate` guard
+3. Wrapped "Link Entities" button with `canManageRelationships` guard
+4. Wrapped tree node "Create child" icon with `canCreate` guard
+5. Wrapped tree node "Attach existing" icon with `canManageRelationships` guard
+6. Passed permission flags as props to `AssetDetailPanel`
+7. Added `canUpdate`, `canDelete`, `canCreate`, `canManageRelationships` to panel interface
+8. Destructured permission props with `false` defaults
+9. Wrapped "Edit" button with `canUpdate` guard
+10. Wrapped "Link" button with `canManageRelationships` guard
+11. Wrapped "Delete" button with `canDelete` guard
+
+**Files Changed:**
+- `apps/web/src/routes/assets/index.tsx` (6 changes)
+- `apps/web/src/routes/assets/components/entity-detail-panel.tsx` (5 changes)
+
+**Verification:** OPERATOR sees no write buttons; SUPER_ADMIN sees all buttons. Backend API already enforced permissions, this fix prevents misleading UI.
+
+---
+
+## FIX-016: Nginx Version Exposed + Missing Security Headers
+
+**Date:** 2026-03-01
+**Type:** Security Fix
+**Severity:** High
+**Component:** Nginx Configuration
+
+**Problem:** HTTP response headers exposed nginx version (`Server: nginx/1.24.0`) and lacked standard security headers (X-Frame-Options, X-Content-Type-Options, etc.).
+
+**Fix:**
+1. Uncommented `server_tokens off;` in `/etc/nginx/nginx.conf`
+2. Added 5 security headers in `/etc/nginx/sites-enabled/digilog`:
+   - `X-Frame-Options: SAMEORIGIN`
+   - `X-Content-Type-Options: nosniff`
+   - `X-XSS-Protection: 1; mode=block`
+   - `Referrer-Policy: strict-origin-when-cross-origin`
+   - `Permissions-Policy: camera=(), microphone=(), geolocation=()`
+
+**Files Changed:**
+- `/etc/nginx/nginx.conf`
+- `/etc/nginx/sites-enabled/digilog`
+
+**Verification:** `curl -sI http://localhost` shows `Server: nginx` (no version) and all 5 headers present.
+
+---
+
+## FIX-017: Rate Limit Bypass via X-Forwarded-For Spoofing
+
+**Date:** 2026-03-01
+**Type:** Security Fix
+**Severity:** Critical
+**Component:** API — Fastify Configuration
+
+**Problem:** `trustProxy: true` allowed attackers to spoof `X-Forwarded-For` headers with arbitrary IPs, bypassing per-IP rate limits on the login endpoint.
+
+**Root Cause:** `trustProxy: true` tells Fastify to trust ALL proxy hops in the X-Forwarded-For chain. An attacker could add a fake IP before nginx's real one.
+
+**Fix:** Changed `trustProxy: true` to `trustProxy: 1` in `apps/api/src/app.ts`. This tells Fastify to trust exactly 1 proxy hop (nginx), reading the real client IP that nginx appends.
+
+**Files Changed:**
+- `apps/api/src/app.ts` (line 59)
+
+**Verification:** 12 requests with different `X-Forwarded-For` IPs → rate limit triggered at attempt 11 (10/min limit). Spoofed IPs ignored.
+
+---
+
+## FIX-018: User Enumeration via attemptsRemaining
+
+**Date:** 2026-03-01
+**Type:** Security Fix
+**Severity:** High
+**Component:** API — Auth Service
+
+**Problem:** Login with a non-existent username returned a different error response than login with an existing username + wrong password. The non-existent user response lacked `attemptsRemaining`, allowing attackers to enumerate valid usernames.
+
+**Fix:** In the non-existent user block of `auth.service.ts`, added `attemptsRemaining` to the error response using `maxFailedAttempts` from password policy config. Combined with the existing timing-safe dummy hash comparison, both responses are now indistinguishable.
+
+**Files Changed:**
+- `apps/api/src/modules/auth/auth.service.ts`
+
+**Verification:** `POST /api/auth/login` with non-existent user and existing user both return `{"error":"INVALID_CREDENTIALS","message":"Invalid user ID or password.","attemptsRemaining":9}`.
+
+---
+
+## FIX-019: Session Sliding Window
+
+**Date:** 2026-03-01
+**Type:** Enhancement
+**Severity:** Medium
+**Component:** API — Auth Plugin
+
+**Problem:** Session `expiresAt` was set at login time and never extended. Active users could be unexpectedly logged out if their session duration expired even while actively using the app.
+
+**Fix:** In the session validation hook in `auth.plugin.ts`, after updating `lastActiveAt`, also extend `expiresAt` by the configured `sessionDurationHours`. Session config is cached with a 1-minute TTL module-level variable to avoid extra DB reads per request.
+
+**Files Changed:**
+- `apps/api/src/plugins/auth.plugin.ts`
+
+**Verification:** Session `expires_at` moved from `18:28:52` to `18:28:57` after a 5-second delay + API call. Active users' sessions keep extending; idle users still expire.
+
+---
+
+## FIX-020: Sessions Not Invalidated on Password Change
+
+**Date:** 2026-03-01
+**Type:** Security Fix
+**Severity:** Critical
+**Component:** API — Auth Service/Repository
+
+**Problem:** Changing a password did not invalidate other active sessions. If an attacker had a stolen session token, it remained valid even after the legitimate user changed their password.
+
+**Fix:**
+1. Added `terminateOtherSessions(userId, excludeSessionId, reason)` to `auth.repository.ts`
+2. Called it from `changePassword()` in `auth.service.ts` after password update
+3. Current session excluded (user isn't logged out after their own password change)
+4. Terminated sessions marked with `termination_reason: 'password_changed'`
+
+**Files Changed:**
+- `apps/api/src/modules/auth/auth.repository.ts`
+- `apps/api/src/modules/auth/auth.service.ts`
+
+**Verification:** Created 2 active sessions for RB0002, changed password, verified: fake session terminated with `password_changed` reason, current session still active (HTTP 200 on /auth/me).
+
+---
+
+## FIX-021: Orphaned Records on Entity Delete
+
+**Date:** 2026-03-01
+**Type:** Bug Fix
+**Severity:** High
+**Component:** API — Instance Service
+
+**Problem:** Deleting an entity left orphaned records in 6 dependent tables: `device_credentials`, `connectivity_status`, `uns_mappings`, `qr_codes`, `latest_telemetry`, `data_streams`. 47 existing orphaned records found from previously deleted entities.
+
+**Fix:**
+1. Added `deleteMany` calls for all 6 tables in `instance.service.ts` `delete()` method
+2. One-time cleanup SQL script removed 47 existing orphaned records
+
+**Files Changed:**
+- `apps/api/src/modules/assets/services/instance.service.ts`
+
+**Verification:** Created entity with telemetry data (device_credentials: 1, connectivity_status: 1, latest_telemetry: 2), deleted entity, verified all dependent tables show 0 records. TSDB data retained for compliance (handled by data retention policies).
+
+---
+
+## FIX-022: UNS Path Fallback Inconsistency
+
+**Date:** 2026-03-01
+**Type:** Bug Fix
+**Severity:** Medium
+**Component:** API — Connectivity Routes, Instance Service
+
+**Problem:** Three code paths used different fallback logic when an entity had no UNS path set:
+1. Snippets route: used entity name only
+2. Token route: used template/entity
+3. Auto-provision: used entity name only
+
+**Fix:** Created `apps/api/src/lib/uns-path.ts` with `getEntityUnsPath(entity)` utility function using consistent fallback: `entity.unsPath ?? templateName/entityName ?? entityName`. Replaced all 3 inconsistent patterns.
+
+**Files Changed:**
+- `apps/api/src/lib/uns-path.ts` (new)
+- `apps/api/src/modules/connectivity/routes.ts` (2 replacements)
+- `apps/api/src/modules/assets/services/instance.service.ts` (1 replacement)
+
+**Verification:** API returns consistent `unsPath: "CCTV/CCTV1"` and `# UNS Path: CCTV/CCTV1` in snippets for entities without explicit UNS paths. Note: Pre-existing credential `allowedTopics` retain old format (data migration not performed).
+
+---
+
+## FIX-023: VIEWER Role RBAC — Entity Explorer Access
+
+**Date:** 2026-03-01
+**Type:** Security Fix
+**Severity:** High
+**Component:** Database — Roles Table
+
+**Problem:** VIEWER role could access the Entity Explorer at `/assets` via direct URL despite the route being wrapped with `<RequireRole permissions={['ASSET_VIEW']}>`. The route guard was working correctly.
+
+**Root Cause:** The `roles` table had `permissions: '["AUDIT_READ", "ASSET_VIEW"]'` for the VIEWER role. Since VIEWER had `ASSET_VIEW` permission, the RequireRole guard passed.
+
+**Fix:** Updated roles table: `UPDATE roles SET permissions = '["AUDIT_READ"]'::jsonb WHERE name = 'VIEWER'`. VIEWER should only have audit access.
+
+**Verification:** Logged in as VIEWER (RB0003), navigated to `/assets` — page shows "Access Denied". Sidebar correctly shows only Dashboard, Notifications, Audit Trail, Alarms.
