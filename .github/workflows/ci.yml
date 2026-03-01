@@ -10,6 +10,12 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    env:
+      DATABASE_URL: postgresql://digilog:digilog123@localhost:5432/digilog_db
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: test-secret
+      NODE_ENV: test
+
     services:
       postgres:
         image: postgres:15
@@ -49,16 +55,9 @@ jobs:
 
       - name: Run database migrations
         run: npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma
-        env:
-          DATABASE_URL: postgresql://digilog:digilog123@localhost:5432/digilog_db
 
       - name: Build shared packages
         run: npx turbo run build --filter=@digilog/shared --filter=@digilog/db
 
       - name: Run tests
         run: npx turbo run test
-        env:
-          DATABASE_URL: postgresql://digilog:digilog123@localhost:5432/digilog_db
-          REDIS_URL: redis://localhost:6379
-          JWT_SECRET: test-secret
-          NODE_ENV: test
