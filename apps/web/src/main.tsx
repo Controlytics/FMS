@@ -98,9 +98,9 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/audit-templates" element={<RequireRole roles={['SUPER_ADMIN']}><AuditTemplatesConfigPage /></RequireRole>} />
             <Route path="/config/pagination" element={<RequireRole roles={['SUPER_ADMIN']}><PaginationConfigPage /></RequireRole>} />
 
-            {/* Entity Management (lazy-loaded) */}
-            <Route path="/assets" element={<Suspense fallback={<LazyFallback />}><AssetsPage /></Suspense>} />
-            <Route path="/assets/templates" element={<Suspense fallback={<LazyFallback />}><AssetTemplatesPage /></Suspense>} />
+            {/* Entity Management (lazy-loaded) — permission-based */}
+            <Route path="/assets" element={<RequireRole permissions={['ASSET_VIEW']}><Suspense fallback={<LazyFallback />}><AssetsPage /></Suspense></RequireRole>} />
+            <Route path="/assets/templates" element={<RequireRole permissions={['ASSET_VIEW']}><Suspense fallback={<LazyFallback />}><AssetTemplatesPage /></Suspense></RequireRole>} />
 
             {/* Rule Chains — Admin only (lazy-loaded) */}
             <Route path="/rule-chains" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><Suspense fallback={<LazyFallback />}><RuleChainsPage /></Suspense></RequireRole>} />
@@ -133,9 +133,10 @@ createRoot(document.getElementById('root')!).render(
             {/* Audit trail */}
             <Route path="/audit" element={<AuditTrailPage />} />
 
-            {/* Mobile Checklist (lazy-loaded) */}
-            <Route path="/checklist/:entityId" element={<Suspense fallback={<LazyFallback />}><ChecklistPage /></Suspense>} />
           </Route>
+
+          {/* Standalone checklist form (no sidebar/header, auth handled by component) */}
+          <Route path="/checklist/:entityId" element={<Suspense fallback={<LazyFallback />}><ChecklistPage /></Suspense>} />
         </Routes>
       </BrowserRouter>
     </SWRConfig>

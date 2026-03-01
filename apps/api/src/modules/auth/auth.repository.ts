@@ -101,7 +101,7 @@ export const authRepository = {
 
   async getLoginSecurityConfig() {
     const config = await prisma.systemConfig.findUnique({ where: { configKey: 'login-security' } });
-    return (config?.configValue as { maxFailedAttempts?: number; lockoutType?: string; lockoutDurationMinutes?: number }) ?? {};
+    return (config?.configValue as { lockoutType?: string; lockoutDurationMinutes?: number }) ?? {};
   },
 
   async getSessionConfig() {
@@ -154,6 +154,17 @@ export const authRepository = {
   async createResetRequest(username: string) {
     return prisma.passwordResetRequest.create({
       data: { userId: username, status: 'PENDING' },
+    });
+  },
+
+  async terminateOtherSessions(userId: string, excludeSessionId: string, reason: string) {
+    return prisma.session.updateMany({
+      where: {
+        userId,
+        isActive: true,
+        id: { not: excludeSessionId },
+      },
+      data: { isActive: false, terminationReason: reason },
     });
   },
 };

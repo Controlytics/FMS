@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma.js';
 import { randomBytes } from 'node:crypto';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { provisionUnsMapping } from '../uns/uns.service.js';
+import { getEntityUnsPath } from '../../lib/uns-path.js';
 
 export default async function connectivityRoutes(app: FastifyInstance) {
 
@@ -51,6 +52,8 @@ export default async function connectivityRoutes(app: FastifyInstance) {
                 allowedTopics: { type: 'array', items: { type: 'string' } },
               },
             },
+            unsPath: { type: ['string', 'null'] },
+            topics: { type: 'array', items: { type: 'string' } },
           },
         },
         ...errorResponses,
@@ -74,6 +77,10 @@ export default async function connectivityRoutes(app: FastifyInstance) {
         maxDataRatePerMin: true,
         credentialData: true,
       },
+    });
+
+    const unsMapping = await prisma.unsMapping.findUnique({
+      where: { entityId },
     });
 
     const connectivityResult = connectivity ?? {
@@ -100,9 +107,20 @@ export default async function connectivityRoutes(app: FastifyInstance) {
         }
       : null;
 
+    let unsPath = unsMapping?.unsPath ?? null;
+    if (!unsPath) {
+      const entity = await prisma.assetInstance.findUnique({
+        where: { id: entityId },
+        include: { template: { select: { name: true } } },
+      });
+      if (entity) unsPath = getEntityUnsPath(entity);
+    }
+
     return {
       connectivity: connectivityResult,
       credential: credentialResult,
+      unsPath,
+      topics: credentialResult?.allowedTopics ?? [],
     };
   });
 
@@ -119,6 +137,10 @@ export default async function connectivityRoutes(app: FastifyInstance) {
         properties: {
           entityId: { type: 'string', format: 'uuid' },
         },
+      },
+      body: {
+        type: 'object',
+        additionalProperties: true,
       },
       response: {
         200: {
@@ -219,7 +241,7 @@ export default async function connectivityRoutes(app: FastifyInstance) {
     });
 
     const token = credential?.accessToken ?? '<YOUR_DEVICE_TOKEN>';
-    const unsPath = entity.unsPath ?? `${entity.template.name}/${entity.name}`;
+    const unsPath = getEntityUnsPath(entity);
     const apiUrl = process.env.CORS_ORIGIN || process.env.ALLOWED_ORIGINS?.split(',')[0] || 'http://localhost:3000';
 
     const python = `import requests
@@ -369,6 +391,12 @@ void loop() {
           entityId: { type: 'string', format: 'uuid' },
         },
       },
+      body: {
+        type: 'object',
+        properties: {
+          customToken: { type: 'string', minLength: 8, maxLength: 128 },
+        },
+      },
       response: {
         200: {
           type: 'object',
@@ -386,7 +414,7 @@ void loop() {
     // Verify entity exists
     const entity = await prisma.assetInstance.findUnique({
       where: { id: entityId },
-      select: { id: true, unsPath: true, name: true },
+      select: { id: true, unsPath: true, name: true, template: { select: { name: true } } },
     });
 
     if (!entity) {
@@ -403,11 +431,12 @@ void loop() {
     // Re-fetch entity to get the freshly computed unsPath
     const updatedEntity = await prisma.assetInstance.findUnique({
       where: { id: entityId },
-      select: { unsPath: true, name: true },
+      select: { unsPath: true, name: true, template: { select: { name: true } } },
     });
 
-    const token = randomBytes(32).toString('hex');
-    const unsPath = updatedEntity?.unsPath ?? entity.unsPath ?? entity.name;
+    const customToken = (req.body as any)?.customToken;
+    const token = customToken || randomBytes(32).toString('hex');
+    const unsPath = getEntityUnsPath(updatedEntity ?? entity);
 
     // Build allowed topics from the entity's UNS path
     const allowedTopics = [

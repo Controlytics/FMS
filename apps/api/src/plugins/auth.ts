@@ -9,6 +9,21 @@ declare module 'fastify' {
   }
 }
 
+// Session config cache (1-min TTL) to avoid DB read per request
+let sessionConfigCache: { sessionDurationHours: number; cachedAt: number } | null = null;
+const SESSION_CONFIG_CACHE_TTL = 60_000; // 1 minute
+
+async function getSessionDurationHours(): Promise<number> {
+  const now = Date.now();
+  if (sessionConfigCache && (now - sessionConfigCache.cachedAt) < SESSION_CONFIG_CACHE_TTL) {
+    return sessionConfigCache.sessionDurationHours;
+  }
+  const config = await prisma.systemConfig.findUnique({ where: { configKey: 'session' } });
+  const hours = (config?.configValue as any)?.sessionDurationHours ?? 8;
+  sessionConfigCache = { sessionDurationHours: hours, cachedAt: now };
+  return hours;
+}
+
 const PUBLIC_PATHS = [
   '/api/auth/login', '/api/auth/forgot-password', '/api/auth/beacon-logout',
   '/api/health', '/docs', '/docs/',
@@ -95,10 +110,14 @@ async function authPlugin(app: FastifyInstance) {
         }
       }
 
-      // Update last active
+      // Update last active + extend session expiry (sliding window)
+      const durationHours = await getSessionDurationHours();
       await prisma.session.update({
         where: { id: session.id },
-        data: { lastActiveAt: new Date() },
+        data: {
+          lastActiveAt: new Date(),
+          expiresAt: new Date(Date.now() + durationHours * 60 * 60 * 1000),
+        },
       });
     } catch {
       return reply.code(401).send({ error: 'TOKEN_EXPIRED', message: 'Invalid or expired token' });

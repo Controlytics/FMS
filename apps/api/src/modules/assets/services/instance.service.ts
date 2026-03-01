@@ -8,6 +8,10 @@ import { templateRepository } from '../repositories/template.repository.js';
 import { validateAttributeValues } from '../helpers/attribute-validator.js';
 import { hasContainsCycle } from '../helpers/cycle-detection.js';
 import { collectDescendantIds } from '../helpers/descendant-collector.js';
+import { prisma } from '../../../lib/prisma.js';
+import { randomBytes } from 'node:crypto';
+import { provisionUnsMapping } from '../../uns/uns.service.js';
+import { getEntityUnsPath } from '../../../lib/uns-path.js';
 
 export const instanceService = {
   async list(query: { search?: string; templateId?: string; status?: string; parentId?: string | null; isActive?: string; page: number; limit: number }) {
@@ -106,6 +110,41 @@ export const instanceService = {
       reason: data.parentId ? `Entity created as child of parent ${data.parentId}` : 'Entity created',
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
+
+    // Auto-provision connectivity for data-ingestion-enabled templates
+    if ((template as any).dataIngestionEnabled) {
+      try {
+        await provisionUnsMapping(instance.id);
+        const token = randomBytes(32).toString('hex');
+        const updatedEntity = await instanceRepository.findByIdSimple(instance.id);
+        const unsPath = (updatedEntity as any)?.unsPath ?? `${template.name}/${instance.name}`;
+        const allowedTopics = [
+          `${unsPath}/telemetry`,
+          `${unsPath}/attributes`,
+          `${unsPath}/events`,
+          `${unsPath}/rpc/request`,
+          `${unsPath}/rpc/response`,
+        ];
+        await prisma.deviceCredential.create({
+          data: {
+            entityId: instance.id,
+            accessToken: token,
+            status: 'ACTIVE',
+            isActive: true,
+            credentialData: { allowedTopics },
+          },
+        });
+        await prisma.connectivityStatus.create({
+          data: {
+            entityId: instance.id,
+            status: 'OFFLINE',
+          },
+        });
+      } catch (err) {
+        // Non-fatal — log but don't fail entity creation
+        console.error('Auto-provision connectivity failed:', err);
+      }
+    }
 
     return instance;
   },
@@ -245,6 +284,14 @@ export const instanceService = {
     await instanceRepository.softDeleteMany(allIds, ctx.userId);
     await relationshipRepository.deleteByAssetIds(allIds);
     await identifierRepository.deleteByAssetIds(allIds);
+
+    // Clean up dependent records to prevent orphans
+    await prisma.deviceCredential.deleteMany({ where: { entityId: { in: allIds } } });
+    await prisma.connectivityStatus.deleteMany({ where: { entityId: { in: allIds } } });
+    await prisma.unsMapping.deleteMany({ where: { entityId: { in: allIds } } });
+    await prisma.qrCode.deleteMany({ where: { entityId: { in: allIds } } });
+    await prisma.latestTelemetry.deleteMany({ where: { entityId: { in: allIds } } });
+    await prisma.dataStream.deleteMany({ where: { entityId: { in: allIds } } });
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,

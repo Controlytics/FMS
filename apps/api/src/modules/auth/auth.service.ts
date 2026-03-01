@@ -13,12 +13,20 @@ export const authService = {
     const user = await authRepository.findUserByUsername(username);
     if (!user) {
       await verifyPassword(password, DUMMY_HASH);
-      throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid user ID or password.');
+      // Return attemptsRemaining to match existing-user response (prevents user enumeration)
+      const policy = await authRepository.getPasswordPolicyConfig();
+      const maxAttempts = (policy.maxFailedAttempts as number) ?? 5;
+      const err = new AppError(401, 'INVALID_CREDENTIALS', 'Invalid user ID or password.');
+      (err as any).attemptsRemaining = maxAttempts - 1;
+      throw err;
     }
 
-    // Check account status
+    // Check account status (SUPER_ADMIN auto-unlocks)
     if (user.status === 'LOCKED') {
-      if (user.lockoutUntil && user.lockoutUntil < new Date()) {
+      if (user.role === 'SUPER_ADMIN') {
+        // Auto-unlock SUPER_ADMIN accounts
+        await authRepository.updateUser(user.id, { status: 'ENABLED', failedLoginAttempts: 0, lockoutUntil: null, lockedAt: null });
+      } else if (user.lockoutUntil && user.lockoutUntil < new Date()) {
         await authRepository.updateUser(user.id, { status: 'ENABLED', failedLoginAttempts: 0, lockoutUntil: null, lockedAt: null });
       } else {
         throw new AppError(403, 'ACCOUNT_LOCKED', 'Account locked due to multiple failed login attempts. Contact administrator.');
@@ -30,7 +38,10 @@ export const authService = {
     }
 
     if (user.status === 'EXPIRED') {
-      if (user.isTemporaryPassword && user.forcePasswordChange) {
+      if (user.role === 'SUPER_ADMIN') {
+        // Auto-recover SUPER_ADMIN from EXPIRED status
+        await authRepository.updateUser(user.id, { status: 'ENABLED', forcePasswordChange: false });
+      } else if (user.isTemporaryPassword && user.forcePasswordChange) {
         await authRepository.updateUser(user.id, { status: 'ENABLED' });
       } else {
         throw new AppError(403, 'PASSWORD_EXPIRED', 'Your password has expired. Contact an administrator to reset your password.');
@@ -39,8 +50,20 @@ export const authService = {
 
     const valid = await verifyPassword(password, user.passwordHash);
     if (!valid) {
+      // SUPER_ADMIN accounts are exempt from lockout — they can always retry
+      if (user.role === 'SUPER_ADMIN') {
+        await auditLog({
+          userId: user.username, userRole: user.role, action: 'LOGIN_FAILED',
+          targetType: 'user', targetId: user.id,
+          afterValue: { username: user.username, fullName: user.fullName, adminExempt: true },
+          ipAddress: ip, userAgent,
+        });
+        throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid user ID or password.');
+      }
+
       const loginSecurity = await authRepository.getLoginSecurityConfig();
-      const maxAttempts = loginSecurity.maxFailedAttempts ?? 5;
+      const passwordPolicy = await authRepository.getPasswordPolicyConfig();
+      const maxAttempts = (passwordPolicy.maxFailedAttempts as number) ?? 5;
       const lockoutType = loginSecurity.lockoutType ?? 'TEMPORARY';
       const lockoutDurationMinutes = loginSecurity.lockoutDurationMinutes ?? 30;
       const newAttempts = user.failedLoginAttempts + 1;
@@ -89,8 +112,8 @@ export const authService = {
       throw err;
     }
 
-    // Check password expiry
-    if (user.passwordExpiresAt && user.passwordExpiresAt < new Date() && !user.forcePasswordChange) {
+    // Check password expiry (SUPER_ADMIN exempt)
+    if (user.role !== 'SUPER_ADMIN' && user.passwordExpiresAt && user.passwordExpiresAt < new Date() && !user.forcePasswordChange) {
       await authRepository.updateUser(user.id, { forcePasswordChange: true });
       user.forcePasswordChange = true;
 
@@ -279,6 +302,9 @@ export const authService = {
     const passwordExpiresAt = expiryDays > 0 ? new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000) : null;
 
     await authRepository.changePassword(user.id, newHash, passwordExpiresAt);
+
+    // Terminate all other sessions (security: invalidate potentially compromised sessions)
+    await authRepository.terminateOtherSessions(user.id, sessionId, 'password_changed');
 
     await auditLog({
       userId: user.username, userRole: user.role, action: 'PASSWORD_CHANGED',

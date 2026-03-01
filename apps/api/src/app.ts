@@ -30,6 +30,7 @@ import connectivityRoutes from './modules/connectivity/routes.js';
 import qrCodeRoutes from './modules/qr-code/routes.js';
 import helpRoutes from './modules/help/routes.js';
 import systemHealthRoutes, { trackRequest } from './modules/system-health/routes.js';
+import debugTraceRoutes from './modules/data-ingestion/debug-trace.routes.js';
 import wsHandler from './transport/ws-handler.js';
 import { initMqttClient, closeMqttClient } from './transport/mqtt-client.js';
 import { closeWsRedis } from './transport/ws-handler.js';
@@ -50,7 +51,8 @@ const app = Fastify({
   logger: {
     level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
   },
-  trustProxy: true,
+  trustProxy: 1,  // Trust exactly 1 proxy hop (nginx) — prevents X-Forwarded-For spoofing
+  bodyLimit: 10 * 1024 * 1024, // 10 MB for base64 image uploads in checklists
   ajv: {
     customOptions: {
       keywords: ['example'],
@@ -108,6 +110,16 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
   // Rate limit errors from @fastify/rate-limit
   if (err.statusCode === 429) {
     return reply.code(429).send({ error: 'TOO_MANY_REQUESTS', message: err.message });
+  }
+  // Body too large (e.g. base64 images in checklist submissions)
+  if ((err as any).code === 'FST_ERR_CTP_BODY_TOO_LARGE') {
+    const contentLength = _req.headers['content-length'];
+    const sizeMB = contentLength ? (parseInt(contentLength as string) / 1024 / 1024).toFixed(1) : 'unknown';
+    app.log.warn({ url: _req.url, contentLength, sizeMB }, 'Request body too large');
+    return reply.code(413).send({
+      error: 'BODY_TOO_LARGE',
+      message: `Request body too large (${sizeMB} MB). Maximum allowed is 10 MB. Try reducing image size or quality.`,
+    });
   }
   // Fastify validation errors (body/query/params schema validation)
   if ((err as any).code === 'FST_ERR_VALIDATION' || (err as any).validation) {
@@ -171,6 +183,7 @@ await app.register(connectivityRoutes, { prefix: '/api/connectivity' });
 await app.register(qrCodeRoutes, { prefix: '/api/qr' });
 await app.register(helpRoutes, { prefix: '/api/help' });
 await app.register(systemHealthRoutes, { prefix: '/api/system-health' });
+await app.register(debugTraceRoutes, { prefix: '/api/debug/traces' });
 await app.register(wsHandler);
 
 // Initialize rule chain node registry
