@@ -19,7 +19,7 @@ export function LoginSecurityPage() {
   const reauth = useReauth();
   const { data } = useSWR('/api/config/login-security');
 
-  const { register, handleSubmit, watch, formState: { isSubmitting } } = useForm<LoginSecurityConfig>({
+  const { register, handleSubmit, watch, reset, formState: { isSubmitting, isDirty } } = useForm<LoginSecurityConfig>({
     resolver: zodResolver(loginSecuritySchema),
     values: data ?? undefined,
   });
@@ -32,6 +32,7 @@ export function LoginSecurityPage() {
       if (password) await apiClient.put('/api/config/login-security', { ...formData, _currentPassword: password });
       else await apiClient.put('/api/config/login-security', formData);
       setSuccess('Login security updated successfully');
+      reset(formData);
     }, {
       onError: (err: any) => setError(err.message || 'Failed to update'),
     });
@@ -45,11 +46,6 @@ export function LoginSecurityPage() {
           <CardContent className="space-y-4">
             {error && <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
             {success && <div className="rounded-md bg-green-50 p-3 text-sm text-green-700">{success}</div>}
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Max Failed Attempts (3-10)</label>
-              <Input {...register('maxFailedAttempts', { valueAsNumber: true })} type="number" min={3} max={10} />
-            </div>
 
             <div className="space-y-2">
               <label className="text-sm font-medium">Lockout Type</label>
@@ -68,7 +64,7 @@ export function LoginSecurityPage() {
           </CardContent>
           <CardFooter className="gap-3 border-t border-slate-100 pt-4 mt-2 justify-end">
             <Button type="button" variant="outline" onClick={() => navigate('/config')}>Cancel</Button>
-            <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Saving...' : 'Save Changes'}</Button>
+            <Button type="submit" disabled={!isDirty || isSubmitting}>{isSubmitting ? 'Saving...' : 'Save Changes'}</Button>
           </CardFooter>
         </form>
       </Card>

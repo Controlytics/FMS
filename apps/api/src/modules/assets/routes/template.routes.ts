@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { enforceReauth } from '../../../lib/reauth-check.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { errorResponses } from '../../../lib/error-schemas.js';
-import { createAssetTemplateSchema, updateAssetTemplateSchema, templateQuerySchema, TEMPLATE_CATEGORIES } from '@digilog/shared';
+import { createAssetTemplateValidated, updateAssetTemplateSchema, templateQuerySchema, TEMPLATE_CATEGORIES } from '@digilog/shared';
 import { templateService } from '../services/template.service.js';
 
 export default async function templateRoutes(app: FastifyInstance) {
@@ -177,7 +177,7 @@ export default async function templateRoutes(app: FastifyInstance) {
     const { ok } = await enforceReauth('CREATE_ASSET_TEMPLATE', req, reply);
     if (!ok) return;
 
-    const parsed = createAssetTemplateSchema.safeParse(req.body);
+    const parsed = createAssetTemplateValidated.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }

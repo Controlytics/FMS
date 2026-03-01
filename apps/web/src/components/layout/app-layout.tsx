@@ -1,4 +1,4 @@
-import { Outlet, Navigate } from 'react-router-dom';
+import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/use-auth';
 import { useSession } from '@/hooks/use-session';
 import { useSingleTab } from '@/hooks/use-single-tab';
@@ -11,6 +11,7 @@ import useSWR from 'swr';
 
 export function AppLayout() {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
+  const location = useLocation();
   const { branding } = useBranding();
   const { data: passwordPolicy } = useSWR(isAuthenticated ? '/api/config/password-policy' : null);
   // Extract session settings from consolidated password policy config
@@ -44,7 +45,7 @@ export function AppLayout() {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to={`/login?returnUrl=${encodeURIComponent(location.pathname)}`} replace />;
   }
 
   // Force password change redirect

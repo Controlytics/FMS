@@ -50,7 +50,9 @@ export function useAuth() {
       navigate('/change-password');
     } else {
       await mutate();
-      navigate('/');
+      const params = new URLSearchParams(window.location.search);
+      const returnUrl = params.get('returnUrl') || '/';
+      navigate(returnUrl, { replace: true });
     }
 
     return res;

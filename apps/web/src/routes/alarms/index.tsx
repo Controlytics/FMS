@@ -166,7 +166,7 @@ export function AlarmDashboardPage() {
 
       await apiClient.post(endpoint, {
         remarks: remarks.trim(),
-        signerName: signerName.trim(),
+        signerFullName: signerName.trim(),
         meaning: meaning.trim(),
       });
 

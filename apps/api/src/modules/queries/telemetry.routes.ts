@@ -556,6 +556,110 @@ export default async function telemetryRoutes(app: FastifyInstance) {
   });
 
   // ─────────────────────────────────────────────────────────
+  // 6b. GET /checklist/:entityId/history — Time-range checklist history
+  // ─────────────────────────────────────────────────────────
+  app.get('/checklist/:entityId/history', {
+    preHandler: [app.requirePermission('ASSET_VIEW')],
+    schema: {
+      tags: ['Checklists'],
+      summary: 'Query checklist submission history with time range',
+      description: 'Returns checklist submissions from the TSDB within a time range, joined with review status from PG.',
+      params: {
+        type: 'object',
+        required: ['entityId'],
+        properties: {
+          entityId: { type: 'string', format: 'uuid' },
+        },
+      },
+      querystring: {
+        type: 'object',
+        required: ['from', 'to'],
+        properties: {
+          from: { type: 'string', format: 'date-time' },
+          to: { type: 'string', format: 'date-time' },
+          limit: { type: 'integer', default: 500, minimum: 1, maximum: 5000 },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            data: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  time: { type: 'string' },
+                  checklistId: { type: 'string' },
+                  submittedBy: { type: 'string' },
+                  answersHash: { type: 'string' },
+                  answers: { type: 'object', additionalProperties: true },
+                  currentStep: { type: 'string' },
+                  answersCount: { type: 'integer' },
+                },
+              },
+            },
+            meta: {
+              type: 'object',
+              properties: {
+                entityId: { type: 'string' },
+                from: { type: 'string' },
+                to: { type: 'string' },
+                totalPoints: { type: 'integer' },
+              },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const { entityId } = req.params as { entityId: string };
+    const query = req.query as { from: string; to: string; limit?: number };
+    const limit = Math.min(Math.max(query.limit ?? 500, 1), 5000);
+
+    const pool = getTsdbPool();
+    const result = await pool.query(
+      `SELECT time, checklist_id, submitted_by, answers_hash, answers, source_ip
+       FROM ts_checklist_responses
+       WHERE entity_id = $1 AND time >= $2 AND time <= $3
+       ORDER BY time DESC LIMIT $4`,
+      [entityId, new Date(query.from), new Date(query.to), limit]
+    );
+
+    // Fetch review statuses from PG for all checklist IDs
+    const checklistIds = result.rows.map((r: any) => r.checklist_id);
+    let reviewMap: Record<string, string> = {};
+    if (checklistIds.length > 0) {
+      const reviews = await prisma.checklistReview.findMany({
+        where: { checklistId: { in: checklistIds } },
+        select: { checklistId: true, currentStep: true },
+      });
+      reviewMap = Object.fromEntries(reviews.map((r: { checklistId: string; currentStep: string }) => [r.checklistId, r.currentStep]));
+    }
+
+    const data = result.rows.map((row: any) => ({
+      time: row.time,
+      checklistId: row.checklist_id,
+      submittedBy: row.submitted_by,
+      answersHash: row.answers_hash,
+      answers: row.answers,
+      currentStep: reviewMap[row.checklist_id] ?? 'SUBMITTED',
+      answersCount: row.answers ? Object.keys(row.answers).length : 0,
+    }));
+
+    return {
+      data,
+      meta: {
+        entityId,
+        from: query.from,
+        to: query.to,
+        totalPoints: data.length,
+      },
+    };
+  });
+
+  // ─────────────────────────────────────────────────────────
   // 7. GET /checklist/:entityId/responses/:checklistId — Single response
   // ─────────────────────────────────────────────────────────
   app.get('/checklist/:entityId/responses/:checklistId', {

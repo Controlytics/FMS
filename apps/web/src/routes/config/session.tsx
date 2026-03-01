@@ -18,7 +18,7 @@ export function SessionConfigPage() {
   const reauth = useReauth();
   const { data } = useSWR('/api/config/session');
 
-  const { register, handleSubmit, watch, formState: { isSubmitting } } = useForm<SessionConfig>({
+  const { register, handleSubmit, watch, reset, formState: { isSubmitting, isDirty } } = useForm<SessionConfig>({
     resolver: zodResolver(sessionConfigSchema),
     values: data ?? undefined,
   });
@@ -31,6 +31,7 @@ export function SessionConfigPage() {
       if (password) await apiClient.put('/api/config/session', { ...formData, _currentPassword: password });
       else await apiClient.put('/api/config/session', formData);
       setSuccess('Session configuration updated successfully');
+      reset(formData);
     }, {
       onError: (err: any) => setError(err.message || 'Failed to update'),
     });
@@ -71,7 +72,7 @@ export function SessionConfigPage() {
           </CardContent>
           <CardFooter className="gap-3 border-t border-slate-100 pt-4 mt-2 justify-end">
             <Button type="button" variant="outline" onClick={() => navigate('/config')}>Cancel</Button>
-            <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Saving...' : 'Save Changes'}</Button>
+            <Button type="submit" disabled={!isDirty || isSubmitting}>{isSubmitting ? 'Saving...' : 'Save Changes'}</Button>
           </CardFooter>
         </form>
       </Card>

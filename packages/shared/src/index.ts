@@ -42,7 +42,7 @@ export type { ActionReauthConfig } from './schemas/action-reauth.js';
 export {
   ATTRIBUTE_DATA_TYPES, TELEMETRY_DATA_TYPES, RELATIONSHIP_TYPES, IDENTIFIER_TYPES, TEMPLATE_CATEGORIES,
   ASSET_STATUSES, INVERSE_RELATIONSHIP_MAP, ALARM_RULE_TYPES, ALARM_SEVERITIES, CHECKLIST_QUESTION_TYPES,
-  createAssetTemplateSchema, updateAssetTemplateSchema,
+  createAssetTemplateSchema, createAssetTemplateValidated, updateAssetTemplateSchema,
   createAssetInstanceSchema, updateAssetInstanceSchema,
   createAssetRelationshipSchema, createAssetIdentifierSchema,
   assetQuerySchema, templateQuerySchema,

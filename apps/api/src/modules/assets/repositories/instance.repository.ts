@@ -38,7 +38,7 @@ export const instanceRepository = {
         template: {
           select: {
             id: true, name: true, icon: true,
-            attributeSchema: true, telemetrySchema: true,
+            attributeSchema: true, telemetrySchema: true, checklistSchema: true,
             expectedIdentifiers: true, version: true,
             maxConnections: true, maxParentConnections: true,
           },

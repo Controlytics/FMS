@@ -2,7 +2,7 @@
 
 **Maintained by:** Engineering Team
 **Created:** 2026-02-25
-**Last Updated:** 2026-02-25 (v2.1.2)
+**Last Updated:** 2026-02-27 (v2.1.3)
 **Policy:** Every bug MUST be documented here before closing the associated Git issue.
 
 ---
@@ -11,12 +11,12 @@
 
 | Metric | Count |
 |--------|-------|
-| Total Bugs Identified | 12 |
-| Total Resolved | 11 |
+| Total Bugs Identified | 15 |
+| Total Resolved | 14 |
 | Open Issues | 1 (BUG-012, low priority) |
 | Git Issues Created | 12 (#2–#13) |
 | Git Issues Closed | 11 |
-| Recurring Patterns | 2 (Fastify schema serialization, async race conditions) |
+| Recurring Patterns | 3 (Fastify schema serialization, async race conditions, ReactFlow custom node handles) |
 
 ---
 
@@ -356,3 +356,208 @@ The Zod schema in `packages/shared/src/schemas/assets.ts` defined `category` as 
 - POST with `category: "INVALID_CATEGORY"` returns 400 VALIDATION_ERROR with allowed values list
 - POST with `category: "Equipment"` succeeds
 - All existing templates have valid categories
+
+---
+
+## BUG-015: Rule Chain Editor — Missing Node Connection Handles
+
+| Field | Details |
+|-------|---------|
+| **Issue ID** | BUG-015 |
+| **Git Issue** | Pending |
+| **Bug Title** | Rule chain editor nodes have no connection handles — cannot create edges between nodes |
+| **Date Identified** | 2026-02-27 |
+| **Module** | Rule Chain — Visual Editor |
+| **Severity** | HIGH |
+| **Root Cause Analysis** | The  component in  did not render ReactFlow  components. Without handles, users had no connection points to drag edges between nodes, completely blocking the visual rule chain editing workflow. |
+| **Technical Explanation** | ReactFlow only auto-renders connection handles on its built-in default node type. When a custom node component is registered via , ReactFlow expects the component to explicitly render  and  components. The  had a comment saying React Flow handles rendered by ReactFlow itself — we position them via CSS which was incorrect. Neither  nor  were imported from the  package. The  handler, , and backend  endpoint were all implemented and functional — the only missing piece was the visual handle elements on the nodes. |
+| **Code-Level Fix** | (1) Added  and  to the  import statement. (2) Added  and  inside the  component, with Tailwind classes for sizing (), colors (), borders (), hover states ( for target,  for source), and positioning (, ). |
+| **Preventive Measures** | When creating custom ReactFlow node components, always include explicit  components — ReactFlow does not auto-render them for custom nodes. Added to development checklist. |
+| **Testing Done** | (1) Integration Expert: 11-endpoint post-build smoke test — all PASS. (2) API Tester: Full rule chain connection workflow (create chain → add nodes → create connection → verify → delete) — all PASS, 31 node types confirmed. (3) Manual Tester: Live Playwright browser test — nodes visible with handles, drag-to-connect triggers Create Connection dialog, labeled edge (True) rendered with arrow between Filter Messages → Save Data nodes. (4) Test chain cleaned up after verification. |
+| **Resolution Date** | 2026-02-27 |
+| **Linked Commit** | Pending |
+| **Linked PR** | N/A |
+
+### Recurring Pattern: ReactFlow Custom Node Handles
+
+**Bugs Affected:** BUG-015
+
+**Pattern:** ReactFlow's default node type auto-renders connection handles, but custom node components registered via \ must explicitly include \ components. A comment in the code incorrectly stated ReactFlow would render handles automatically, leading to a completely non-functional connection UI despite all backend and frontend connection logic being implemented.
+
+**Prevention:** Always verify custom ReactFlow nodes include \ and \. Test drag-to-connect immediately after creating custom node components.
+
+
+---
+
+## BUG-016: Rule Engine msg-type-filter Default Mismatch
+
+| Field | Value |
+|-------|-------|
+| **Bug ID** | BUG-016 |
+| **Bug Title** | Rule engine msg-type-filter node uses TELEMETRY but actual messageType is POST_TELEMETRY |
+| **Date Identified** | 2026-02-27 |
+| **Module** | Rule Engine — Node Execution |
+| **Severity** | MEDIUM |
+| **Root Cause Analysis** | The msg-type-filter node was configured with messageTypes: ["TELEMETRY"] but the message normalizer sets _messageType to "POST_TELEMETRY" for telemetry ingestion messages. This mismatch caused the filter to never pass telemetry messages through, preventing rule chain alarm creation. |
+| **Code-Level Fix** | Updated rule chain node config to include both "POST_TELEMETRY" and "TELEMETRY" in the messageTypes array. Saved as rule chain v3. |
+| **Resolution Date** | 2026-02-27 |
+
+---
+
+## BUG-017: Frontend Alarm Page Sends Wrong Field Name for Electronic Signature
+
+| Field | Value |
+|-------|-------|
+| **Bug ID** | BUG-017 |
+| **Bug Title** | Alarm acknowledge/clear sends signerName instead of signerFullName in request body |
+| **Date Identified** | 2026-02-27 |
+| **Module** | Frontend — Alarm Dashboard (apps/web/src/routes/alarms/index.tsx) |
+| **Severity** | HIGH |
+| **Root Cause Analysis** | The frontend alarm page line 169 sent the field as signerName in the POST body, but the API schema requires signerFullName. This caused a 400 validation error: body must have required property signerFullName. |
+| **Code-Level Fix** | Changed request body key from signerName to signerFullName in apps/web/src/routes/alarms/index.tsx line 169. The React state variable remains signerName (internal only). |
+| **Resolution Date** | 2026-02-27 |
+
+---
+
+## BUG-018: Backend Alarm Routes Use Wrong JWT Field for User ID
+
+| Field | Value |
+|-------|-------|
+| **Bug ID** | BUG-018 |
+| **Bug Title** | alarm.routes.ts uses user.id but JWT payload contains user.sub for user ID |
+| **Date Identified** | 2026-02-27 |
+| **Module** | Backend — Alarm Routes (apps/api/src/modules/queries/alarm.routes.ts) |
+| **Severity** | HIGH |
+| **Root Cause Analysis** | The acknowledge and clear handlers in alarm.routes.ts referenced user.id for signerUserId and hash computation, but the JWT payload structure uses sub for the user UUID (per jwt.ts). This caused signerUserId is missing errors since user.id was undefined. Also used user.id for acknowledgedBy/clearedBy display names instead of user.username. |
+| **Code-Level Fix** | (1) Changed type annotation from { id: string } to { sub: string }. (2) Changed user.id to user.sub for signerUserId and hash computation. (3) Changed user.id to user.username for acknowledgedBy/clearedBy display fields. Applied to both acknowledge (line 265-304) and clear (line 350-395) handlers. |
+| **Resolution Date** | 2026-02-27 |
+
+
+---
+
+## Observations (Non-Blocking)
+
+### OBS-001: Data Retention Deletions Not Logged in Audit Trail
+- **Observed:** 2026-02-28
+- **Severity:** Low (Observation)
+- **Description:** When Delete Data operations (telemetry or attributes) are performed via the Entity Explorer, the deletion is not recorded in the audit_trail table. While the operation succeeds correctly, there is no audit entry capturing who deleted what data and when.
+- **Recommendation:** Add an audit trail entry for all data retention/deletion operations to maintain full compliance with 21 CFR Part 11 requirements.
+
+### OBS-002: Entity Explorer Accessible to Operator via Direct URL
+- **Observed:** 2026-02-28
+- **Severity:** Low (Observation)
+- **Description:** The Entity Explorer page is accessible to Operator role users when navigating directly via URL. While the API correctly enforces RBAC (returning 403 for unauthorized actions), the UI does not hide action buttons (e.g., Delete Data) for non-admin users, which could cause confusion.
+- **Recommendation:** Hide or disable action buttons in Entity Explorer UI for users without the required permissions. Consider restricting direct URL access to the page for non-admin roles.
+
+---
+
+## OBS-003: Duplicate maxFailedAttempts Config Keys
+
+**Date:** 2026-02-28
+**Type:** Observation (Non-Blocking)
+**Severity:** Medium
+**Component:** Configuration (login-security vs password-policy)
+
+**Description:** The system stores `maxFailedAttempts` in two separate config keys:
+- `login-security.maxFailedAttempts` -- Used by the actual lockout logic in `auth.service.ts`
+- `password-policy.maxFailedAttempts` -- Stored but NOT used for lockout enforcement
+
+**Impact:** Changing maxFailedAttempts in the password-policy UI does NOT affect actual lockout behavior. Both config keys must be updated together.
+
+**Recommendation:** Consolidate into a single config key, or have the auth service read from `password-policy` for all settings.
+
+---
+
+## FIX-001: SUPER_ADMIN Account Protection
+
+**Date:** 2026-02-28
+**Type:** Security Enhancement
+**Severity:** High
+**Component:** `apps/api/src/modules/auth/auth.service.ts`
+
+**Problem:** SUPER_ADMIN accounts had no exemptions from lockout or password expiry. The default admin account (`admin/Admin@123`) could be locked out after 5 wrong attempts, creating a recovery problem.
+
+**Fix:** Applied 4 patches to `auth.service.ts`:
+1. SUPER_ADMIN never increments `failedLoginAttempts` on wrong password
+2. SUPER_ADMIN auto-unlocks if status is LOCKED
+3. SUPER_ADMIN password expiry does not trigger `forcePasswordChange`
+4. SUPER_ADMIN auto-recovers from EXPIRED status
+
+**Verification:** 6 consecutive wrong passwords for admin -- never locked. Correct password accepted immediately after. Non-admin accounts still properly locked.
+
+---
+
+## FIX-002: Consolidate maxFailedAttempts into Password Policy
+
+**Date:** 2026-02-28
+**Type:** Bug Fix
+**Severity:** High
+**Component:** Auth Service, Config Schemas, Frontend
+
+**Problem (OBS-003):** maxFailedAttempts was stored in two separate config keys (password-policy and login-security). The auth service only read from login-security, so changes made on the Password Policy UI page had no effect on actual lockout behavior. Admins could set maxFailedAttempts=3 on the Password Policy page but accounts would still lock at 5.
+
+**Fix:** 6 changes applied:
+1. Shared schema: Removed maxFailedAttempts from loginSecuritySchema
+2. Auth service: Changed to read maxFailedAttempts from getPasswordPolicyConfig()
+3. Auth repository: Removed maxFailedAttempts from getLoginSecurityConfig() return type
+4. Frontend: Removed maxFailedAttempts field from Login Security page
+5. Seed file: Removed maxFailedAttempts from login-security default
+6. Database: Removed maxFailedAttempts from existing login-security config value
+7. Test file: Updated loginSecuritySchema tests
+
+**Verification:** Set maxFailedAttempts=3 via Password Policy UI, tested with RB0003 -- account locked after exactly 3 wrong attempts (previously required 5). Restored to default (5), reset RB0003.
+
+---
+
+### FIX-003: Standalone Checklist QR Form
+**Date:** 2026-02-28
+**Severity:** Medium
+**Category:** UX / Data / API
+
+**Problem:** QR code for entity checklist opens full application UI (sidebar + header) instead of a clean standalone form. Additionally, checklist questions don't render due to missing `checklistSchema` in API response, schema format mismatch, and submit payload format mismatch.
+
+**Root Causes:**
+1. `/checklist/:entityId` route nested inside `<AppLayout>` wrapper
+2. `instance.repository.ts` `findById` doesn't select `checklistSchema` from template
+3. DB stores checklist as flat array `[{question, questionType}]` but component expects `{questions: [{id, label, type}]}`
+4. Frontend sends `answers` (array) but API expects `responses` (flat object)
+
+**Fix:**
+1. Moved route outside `<AppLayout>` in `main.tsx` for standalone rendering
+2. Added `checklistSchema: true` to Prisma template select in `instance.repository.ts`
+3. Normalized schema extraction in `checklist/index.tsx` to handle both formats
+4. Fixed submit payload from `answers` array to `responses` flat object
+
+**Files Changed:**
+- `apps/web/src/main.tsx`
+- `apps/api/src/modules/assets/repositories/instance.repository.ts`
+- `apps/web/src/routes/checklist/index.tsx` (2 patches)
+
+**Verification:** Browser test — standalone form renders, 5 questions load, submit succeeds with "Checklist Submitted" confirmation.
+
+---
+
+### FIX-004: Checklist Submission History
+**Date:** 2026-02-28
+**Severity:** Medium
+**Category:** Feature / Data / UX
+
+**Problem:** Checklist page had no way to view previously submitted checklists. Additionally, the `ts_checklist_responses` TSDB table was never created, so all checklist submissions were silently failing in the BullMQ worker.
+
+**Root Causes:**
+1. `ts_checklist_responses` table missing from database (DDL in init-tsdb.sql never executed)
+2. No time-range query endpoint for checklist history
+3. Retention delete system didn't support `checklists` data type
+
+**Fix:**
+1. Created `ts_checklist_responses` table + indexes in PostgreSQL
+2. Added `GET /checklist/:entityId/history?from=&to=&limit=` endpoint (TSDB + PG join)
+3. Added `checklists` to retention delete types with dual PG+TSDB cleanup
+4. Added `ChecklistHistory` component to checklist page: time range selector, table, expandable rows, pagination, admin-only delete dialog
+
+**Files Changed:**
+- `apps/api/src/modules/queries/telemetry.routes.ts` (new history endpoint)
+- `apps/api/src/modules/queries/retention.routes.ts` (delete support)
+- `apps/web/src/routes/checklist/index.tsx` (history UI)
+
+**Verification:** Browser test — submit checklist, history table shows submission, expandable rows show answers, delete removes from both TSDB + PG.

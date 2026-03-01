@@ -150,6 +150,18 @@ export function TemplateFormEditor({
 
       {/* Section 2: Attribute Schema */}
       <CollapsibleSection title="Attribute Schema" count={formData.attributeSchema.length} defaultOpen={formData.attributeSchema.length > 0}>
+        <p className="text-xs text-slate-500 -mt-1 mb-3">Define static properties for entities — serial numbers, model info, calibration dates, configuration values. These are key-value pairs stored with each entity instance.</p>
+        {formData.attributeSchema.length === 0 && (
+          <div className="text-center py-4 border border-dashed border-slate-200 rounded-lg mb-3">
+            <p className="text-sm text-slate-400">No attributes yet. Click "Add Attribute" to define properties like:</p>
+            <div className="flex flex-wrap gap-2 justify-center mt-2">
+              <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">serialNumber (TEXT)</span>
+              <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">calibrationDate (DATE)</span>
+              <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">maxPressure (FLOAT, PSI)</span>
+              <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">isCalibrated (BOOLEAN)</span>
+            </div>
+          </div>
+        )}
         {formData.attributeSchema.map((attr, idx) => (
           <AttributeRow
             key={idx}
@@ -169,6 +181,18 @@ export function TemplateFormEditor({
 
       {/* Section 3: Telemetry Schema */}
       <CollapsibleSection title="Telemetry Schema" count={formData.telemetrySchema.length} defaultOpen={formData.telemetrySchema.length > 0}>
+        <p className="text-xs text-slate-500 -mt-1 mb-3">Define real-time data points devices will send — temperature, humidity, pressure, RPM, etc. These are time-series values collected and stored continuously.</p>
+        {formData.telemetrySchema.length === 0 && (
+          <div className="text-center py-4 border border-dashed border-slate-200 rounded-lg mb-3">
+            <p className="text-sm text-slate-400">No telemetry points yet. Click "Add Telemetry Point" to define data streams like:</p>
+            <div className="flex flex-wrap gap-2 justify-center mt-2">
+              <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">temperature (FLOAT, °C)</span>
+              <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">humidity (FLOAT, %)</span>
+              <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">pressure (FLOAT, PSI)</span>
+              <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">isRunning (BOOLEAN)</span>
+            </div>
+          </div>
+        )}
         {formData.telemetrySchema.map((tel, idx) => (
           <TelemetryRow
             key={idx}
@@ -188,6 +212,18 @@ export function TemplateFormEditor({
 
       {/* Section 4: Expected Identifiers */}
       <CollapsibleSection title="Expected Identifiers" count={formData.expectedIdentifiers.length} defaultOpen={formData.expectedIdentifiers.length > 0}>
+        <p className="text-xs text-slate-500 -mt-1 mb-3">Specify how entities will be physically identified — QR codes, barcodes, RFID tags, or manual serial numbers. Operators scan these to locate entities.</p>
+        {formData.expectedIdentifiers.length === 0 && (
+          <div className="text-center py-4 border border-dashed border-slate-200 rounded-lg mb-3">
+            <p className="text-sm text-slate-400">No identifiers yet. Common examples:</p>
+            <div className="flex flex-wrap gap-2 justify-center mt-2">
+              <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded-full">QR — Equipment QR Code</span>
+              <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded-full">BARCODE — Asset Tag</span>
+              <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded-full">RFID — Proximity Badge</span>
+              <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded-full">MANUAL — Serial Number</span>
+            </div>
+          </div>
+        )}
         {formData.expectedIdentifiers.map((ident, idx) => (
           <IdentifierRow
             key={idx}
@@ -207,6 +243,17 @@ export function TemplateFormEditor({
 
       {/* Section 5: Alarm Rules */}
       <CollapsibleSection title="Alarm Rules" count={formData.alarmRules.length}>
+        <p className="text-xs text-slate-500 -mt-1 mb-3">Configure threshold-based alerts on telemetry data. Alarms trigger when values exceed limits and notify specified roles. Deadband prevents rapid on/off toggling.</p>
+        {formData.alarmRules.length === 0 && (
+          <div className="text-center py-4 border border-dashed border-slate-200 rounded-lg mb-3">
+            <p className="text-sm text-slate-400">No alarm rules yet. Example rules:</p>
+            <div className="flex flex-wrap gap-2 justify-center mt-2">
+              <span className="text-[10px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full">HIGH — Temperature {'>'} 85°C (WARNING)</span>
+              <span className="text-[10px] bg-red-50 text-red-600 px-2 py-0.5 rounded-full">HIGH_HIGH — Temperature {'>'} 100°C (CRITICAL)</span>
+              <span className="text-[10px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full">LOW — Pressure {'<'} 10 PSI (ALARM)</span>
+            </div>
+          </div>
+        )}
         {formData.alarmRules.map((rule, idx) => (
           <AlarmRuleRow
             key={idx}
@@ -226,6 +273,18 @@ export function TemplateFormEditor({
 
       {/* Section 6: Checklist Schema */}
       <CollapsibleSection title="Checklist Questions" count={formData.checklistSchema.length} defaultOpen={formData.checklistSchema.length > 0}>
+        <p className="text-xs text-slate-500 -mt-1 mb-3">Define inspection and compliance questions operators must answer. Supports pass/fail, numeric readings, photos, signatures, calculated fields, and conditional logic.</p>
+        {formData.checklistSchema.length === 0 && (
+          <div className="text-center py-4 border border-dashed border-slate-200 rounded-lg mb-3">
+            <p className="text-sm text-slate-400">No checklist questions yet. Example questions:</p>
+            <div className="flex flex-wrap gap-2 justify-center mt-2">
+              <span className="text-[10px] bg-purple-50 text-purple-600 px-2 py-0.5 rounded-full">PASS_FAIL — Equipment is clean?</span>
+              <span className="text-[10px] bg-purple-50 text-purple-600 px-2 py-0.5 rounded-full">NUMERIC — Current pressure reading?</span>
+              <span className="text-[10px] bg-purple-50 text-purple-600 px-2 py-0.5 rounded-full">PHOTO — Upload equipment photo</span>
+              <span className="text-[10px] bg-purple-50 text-purple-600 px-2 py-0.5 rounded-full">SIGNATURE — Operator sign-off</span>
+            </div>
+          </div>
+        )}
         {formData.checklistSchema.map((item, idx) => (
           <ChecklistItemRow
             key={idx}
@@ -273,7 +332,13 @@ export function TemplateFormEditor({
                         name="transportType"
                         value={t}
                         checked={formData.transportType === t}
-                        onChange={() => onFormChange({ transportType: t })}
+                        onChange={() => {
+                          const updates: any = { transportType: t };
+                          if (t !== 'MQTT' && formData.credentialType === 'X509') {
+                            updates.credentialType = 'TOKEN';
+                          }
+                          onFormChange(updates);
+                        }}
                         className="text-purple-600 focus:ring-purple-500"
                       />
                       <span className="text-sm text-slate-700">{t}</span>
@@ -290,7 +355,9 @@ export function TemplateFormEditor({
                   value={formData.credentialType}
                   onChange={(e) => onFormChange({ credentialType: e.target.value })}
                 >
-                  {CREDENTIAL_TYPES.map((c) => (
+                  {CREDENTIAL_TYPES
+                    .filter((c) => formData.transportType === 'MQTT' || c !== 'X509')
+                    .map((c) => (
                     <option key={c} value={c}>{c === 'TOKEN' ? 'Access Token' : c === 'BASIC' ? 'Basic Auth' : 'X.509 Certificate'}</option>
                   ))}
                 </Select>

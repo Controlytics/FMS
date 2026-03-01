@@ -5,6 +5,8 @@ import ReactFlow, {
   Background,
   Controls,
   MiniMap,
+  Handle,
+  Position,
   useNodesState,
   useEdgesState,
   addEdge,
@@ -188,7 +190,17 @@ function CustomRuleNode({ data }: { data: CustomNodeData }) {
         <p className="text-[10px] text-slate-400 mt-0.5 truncate">{data.nodeType}</p>
       </div>
 
-      {/* React Flow handles rendered by ReactFlow itself — we position them via CSS */}
+      {/* Connection handles */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!w-3 !h-3 !bg-slate-400 !border-2 !border-white hover:!bg-blue-500 !-left-1.5"
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!w-3 !h-3 !bg-slate-400 !border-2 !border-white hover:!bg-green-500 !-right-1.5"
+      />
     </div>
   );
 }

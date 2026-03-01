@@ -155,6 +155,25 @@ export const createAssetTemplateSchema = z.object({
   defaultRuleChainId: z.string().uuid().nullable().optional(),
 });
 
+// Cross-field validation for transport & credential type compatibility
+const transportCredentialRefine = (data: Record<string, any>, ctx: z.RefinementCtx) => {
+  if (data.credentialType === 'X509' && data.transportType && data.transportType !== 'MQTT') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'X.509 Certificate credentials are only supported with MQTT transport',
+      path: ['credentialType'],
+    });
+  }
+  if (data.dataIngestionEnabled && !data.transportType) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Transport protocol is required when data ingestion is enabled',
+      path: ['transportType'],
+    });
+  }
+};
+
+export const createAssetTemplateValidated = createAssetTemplateSchema.superRefine(transportCredentialRefine);
 export const updateAssetTemplateSchema = createAssetTemplateSchema.partial();
 
 export type CreateAssetTemplateInput = z.infer<typeof createAssetTemplateSchema>;

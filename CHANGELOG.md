@@ -2,6 +2,31 @@
 
 All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are documented here.
 
+## [Security] - 2026-02-28
+### Security
+- Added SUPER_ADMIN protection: exempt from account lockout (4 patches to auth.service.ts)
+- Added SUPER_ADMIN auto-unlock: locked admin accounts auto-recover on next login attempt
+- Added SUPER_ADMIN password expiry exemption: admin password never forces change
+- Added SUPER_ADMIN EXPIRED status recovery: auto-recovers from EXPIRED state
+
+### Testing
+- Completed Session 4: Password Policy testing (21 API tests, 100% pass rate)
+- Tested login lockout with maxFailedAttempts=3 and maxFailedAttempts=5
+- Tested password change validation: length, complexity, reuse, username containment
+- Tested strict and relaxed policy configurations
+- Verified SUPER_ADMIN protection: 6 wrong passwords, admin never locked
+- Verified non-admin accounts still properly locked after max failures
+- All user passwords reset to defaults after testing
+
+## [Testing] - 2026-02-28
+### Testing
+- Completed Session 3 comprehensive UI testing (78+ tests, 100% pass rate)
+- Tested all 7 rule chain nodes via MQTT and HTTP data simulation
+- Verified RBAC restrictions for Operator role (8 tests)
+- Tested Delete Data operations for telemetry and attributes
+- Documented 2 observations (OBS-001, OBS-002)
+
+
 ## [2.1.2] - 2026-02-25
 
 ### Changed — Git Issue Lifecycle for Bug Resolution Log

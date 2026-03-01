@@ -18,6 +18,7 @@ These agents work together to develop, test, and maintain the **DigiLog** platfo
 | 3b | **Frontend Tester** | UI Testing | 31 routes, components, hooks, state management |
 | 3c | **E2E Tester** | Integration Testing | Full user workflows, cross-module flows, regression |
 | 3d | **Security & Compliance Tester** | 21 CFR / Security | Part 11 compliance, auth, audit trail, electronic signatures |
+| 3e | **Manual Tester** | Live Platform Testing | Data ingestion (MQTT/HTTP), UI verification, delete ops, DB state checks |
 | 4 | **Infra Maintenance** | DevOps & Docs | Git, EC2, PM2, nginx, test scripts, .md files, build pipeline |
 
 ---
@@ -45,4 +46,5 @@ Developer makes changes
 - `agents/testing/frontend-tester/skills.md`
 - `agents/testing/e2e-tester/skills.md`
 - `agents/testing/security-compliance-tester/skills.md`
+- `agents/testing/manual-tester/skills.md`
 - `agents/infra-maintenance/skills.md`

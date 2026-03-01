@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
+
 // =============================================
 // Types
 // =============================================
@@ -381,13 +382,68 @@ interface PhotoInputProps {
 }
 function PhotoInput({ value, onChange }: PhotoInputProps) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5 MB
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const compressImage = (dataUrl: string, quality: number, maxDim: number): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          const ratio = Math.min(maxDim / width, maxDim / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = dataUrl;
+    });
+  };
+
+  const handleChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
     const reader = new FileReader();
-    reader.onload = () => {
-      onChange(reader.result as string);
+    reader.onload = async () => {
+      const dataUrl = reader.result as string;
+
+      // Check if base64 size exceeds limit
+      if (dataUrl.length > MAX_PHOTO_BYTES) {
+        const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+        const shouldCompress = window.confirm(
+          `Photo is ${sizeMB} MB which exceeds the 5 MB limit.\n\nWould you like to compress it automatically? The image will be resized and quality reduced to fit.`
+        );
+        if (!shouldCompress) {
+          if (fileRef.current) fileRef.current.value = '';
+          return;
+        }
+        // Progressively compress until under limit
+        let compressed = dataUrl;
+        const attempts = [
+          { quality: 0.7, maxDim: 1920 },
+          { quality: 0.5, maxDim: 1280 },
+          { quality: 0.3, maxDim: 800 },
+        ];
+        for (const { quality, maxDim } of attempts) {
+          compressed = await compressImage(dataUrl, quality, maxDim);
+          if (compressed.length <= MAX_PHOTO_BYTES) break;
+        }
+        if (compressed.length > MAX_PHOTO_BYTES) {
+          alert('Could not compress the image enough. Please use a smaller photo.');
+          if (fileRef.current) fileRef.current.value = '';
+          return;
+        }
+        const compressedMB = (compressed.length / 1024 / 1024).toFixed(1);
+        onChange(compressed);
+        return;
+      }
+      onChange(dataUrl);
     };
     reader.readAsDataURL(file);
   };
@@ -1035,14 +1091,20 @@ export function ChecklistPage() {
   // Redirect to login if not authenticated
   useEffect(() => {
     if (!authLoading && !user) {
-      navigate('/login', { replace: true });
+      navigate(`/login?returnUrl=${encodeURIComponent(`/checklist/${entityId}`)}`, { replace: true });
     }
   }, [authLoading, user, navigate]);
 
   // Sync CALCULATED answers automatically
   useEffect(() => {
-    if (!entity?.template?.checklistSchema?.questions) return;
-    const questions = entity.template.checklistSchema.questions;
+    const rawSchema2 = entity?.template?.checklistSchema;
+    const calcRaw: any[] = Array.isArray(rawSchema2) ? rawSchema2 : (rawSchema2?.questions ?? []);
+    if (calcRaw.length === 0) return;
+    const questions = calcRaw.map((q: any, idx: number) => ({
+      id: q.id || `q_${idx}`,
+      type: q.type || q.questionType || 'TEXT',
+      formula: q.formula,
+    }));
     const calcQuestions = questions.filter(
       (q) => q.type === QTYPE.CALCULATED && q.formula,
     );
@@ -1076,8 +1138,24 @@ export function ChecklistPage() {
     [],
   );
 
-  const questions: ChecklistQuestion[] =
-    entity?.template?.checklistSchema?.questions ?? [];
+  // Normalize checklist schema — DB may store as flat array or {questions:[...]} object
+  const rawSchema = entity?.template?.checklistSchema;
+  const rawQuestions: any[] = Array.isArray(rawSchema)
+    ? rawSchema
+    : (rawSchema?.questions ?? []);
+  const questions: ChecklistQuestion[] = rawQuestions.map((q: any, idx: number) => ({
+    id: q.id || `q_${idx}`,
+    label: q.label || q.question || `Question ${idx + 1}`,
+    type: q.type || q.questionType || 'TEXT',
+    required: q.required ?? false,
+    options: q.options,
+    helpText: q.helpText || q.description,
+    unit: q.unit || q.numericUnit,
+    min: q.min ?? q.numericMin,
+    max: q.max ?? q.numericMax,
+    formula: q.formula,
+    condition: q.condition,
+  }));
 
   const visibleQuestions = questions.filter((q) =>
     isQuestionVisible(q, answers),
@@ -1130,21 +1208,27 @@ export function ChecklistPage() {
 
     setSubmitting(true);
     try {
-      const answersArray = Object.entries(answers)
-        .filter(([, val]) => val !== null && val !== undefined)
-        .map(([questionId, value]) => ({ questionId, value }));
+      // Convert answers to flat object for API
+      const responsesObj: Record<string, unknown> = {};
+      Object.entries(answers).forEach(([questionId, value]) => {
+        if (value !== null && value !== undefined) {
+          responsesObj[questionId] = value;
+        }
+      });
 
       await apiClient.post('/api/data/checklist', {
         entityId,
-        answers: answersArray,
+        responses: responsesObj,
       });
 
       setSubmitted(true);
       toast.success('Checklist submitted successfully.');
     } catch (err: any) {
+      const msg = err?.message ?? 'Please try again.';
+      const isBodyTooLarge = msg.includes('too large') || msg.includes('BODY_TOO_LARGE');
       toast.error(
-        'Submission failed',
-        err?.message ?? 'Please try again.',
+        isBodyTooLarge ? 'File too large' : 'Submission failed',
+        isBodyTooLarge ? 'Photo exceeds the maximum size limit. Please use a smaller image (under 5 MB).' : msg,
       );
     } finally {
       setSubmitting(false);
@@ -1207,10 +1291,27 @@ export function ChecklistPage() {
 
   if (submitted) {
     return (
-      <SuccessCard
-        entityName={entity.name}
-        onBack={() => navigate(`/assets`)}
-      />
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100/50 pb-12">
+        <div className="max-w-lg mx-auto px-4 py-6 space-y-6">
+          <SuccessCard
+            entityName={entity.name}
+            onBack={() => navigate(`/assets`)}
+          />
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={() => {
+                setSubmitted(false);
+                setAnswers({});
+                setErrors({});
+              }}
+              className="text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors"
+            >
+              Submit Another Checklist
+            </button>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -1385,7 +1486,7 @@ export function ChecklistPage() {
         )}
 
         {/* ---- Spacer for fixed submit button ---- */}
-        {hasQuestions && <div className="h-4" />}
+        {hasQuestions && <div className="h-24" />}
       </div>
 
       {/* ---- Fixed submit button ---- */}

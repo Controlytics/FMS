@@ -111,6 +111,38 @@ export default async function alarmRoutes(app: FastifyInstance) {
     };
   });
 
+
+  // 1b. GET /summary — Alarm summary counts
+  app.get('/summary', {
+    preHandler: [app.requirePermission('ASSET_VIEW')],
+    schema: {
+      tags: ['Alarms'],
+      summary: 'Get alarm summary counts',
+      description: 'Returns counts of alarms by status and critical severity.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            active: { type: 'integer' },
+            acknowledged: { type: 'integer' },
+            cleared: { type: 'integer' },
+            critical: { type: 'integer' },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async () => {
+    const [active, acknowledged, cleared, critical] = await Promise.all([
+      prisma.alarm.count({ where: { status: 'ACTIVE' } }),
+      prisma.alarm.count({ where: { status: 'ACKNOWLEDGED' } }),
+      prisma.alarm.count({ where: { status: 'CLEARED' } }),
+      prisma.alarm.count({ where: { severity: 'CRITICAL', status: { not: 'CLEARED' } } }),
+    ]);
+
+    return { active, acknowledged, cleared, critical };
+  });
+
   // 2. GET /:entityId — Entity alarms
   app.get('/:entityId', {
     preHandler: [app.requirePermission('ASSET_VIEW')],
@@ -229,7 +261,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = req.body as { remarks?: string; signerFullName: string; meaning: string };
-    const user = (req as any).user as { id: string; username: string; role: string; fullName?: string };
+    const user = (req as any).user as { sub: string; username: string; role: string; fullName?: string };
 
     const alarm = await prisma.alarm.findUnique({ where: { id } });
     if (!alarm) {
@@ -246,7 +278,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
       .digest('hex');
 
     const signatureHash = createHash('sha256')
-      .update(recordHash + user.id + signedAt.toISOString())
+      .update(recordHash + user.sub + signedAt.toISOString())
       .digest('hex');
 
     const result = await prisma.$transaction(async (tx) => {
@@ -254,7 +286,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
         data: {
           recordType: 'alarm',
           recordId: alarm.id,
-          signerUserId: user.id,
+          signerUserId: user.sub,
           signerFullName: body.signerFullName,
           signerRole: user.role,
           meaning: body.meaning,
@@ -269,7 +301,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
         data: {
           status: 'ACKNOWLEDGED',
           acknowledged: true,
-          acknowledgedBy: user.id,
+          acknowledgedBy: user.username,
           acknowledgedAt: signedAt,
           ackRemarks: body.remarks ?? null,
           ackSignatureId: signature.id,
@@ -319,7 +351,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = req.body as { remarks?: string; signerFullName: string; meaning: string };
-    const user = (req as any).user as { id: string; username: string; role: string; fullName?: string };
+    const user = (req as any).user as { sub: string; username: string; role: string; fullName?: string };
 
     const alarm = await prisma.alarm.findUnique({ where: { id } });
     if (!alarm) {
@@ -336,7 +368,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
       .digest('hex');
 
     const signatureHash = createHash('sha256')
-      .update(recordHash + user.id + signedAt.toISOString())
+      .update(recordHash + user.sub + signedAt.toISOString())
       .digest('hex');
 
     const result = await prisma.$transaction(async (tx) => {
@@ -344,7 +376,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
         data: {
           recordType: 'alarm',
           recordId: alarm.id,
-          signerUserId: user.id,
+          signerUserId: user.sub,
           signerFullName: body.signerFullName,
           signerRole: user.role,
           meaning: body.meaning,
@@ -360,7 +392,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
           status: 'CLEARED',
           cleared: true,
           clearedAt: signedAt,
-          clearedBy: user.id,
+          clearedBy: user.username,
           clearRemarks: body.remarks ?? null,
           clearSignatureId: signature.id,
         },

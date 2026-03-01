@@ -56,7 +56,6 @@ export const passwordPolicySchema = z.object({
 
 // Keep these schemas for backward compatibility with existing data
 export const loginSecuritySchema = z.object({
-  maxFailedAttempts: z.number().min(3).max(10).default(5),
   lockoutType: z.enum(['TEMPORARY', 'PERMANENT']).default('TEMPORARY'),
   lockoutDurationMinutes: z.number().min(15).max(1440).default(30),
 });

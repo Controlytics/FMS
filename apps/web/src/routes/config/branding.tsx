@@ -22,7 +22,7 @@ export function BrandingConfigPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { data, mutate } = useSWR('/api/config/branding');
 
-  const { register, handleSubmit, watch, setValue, reset, formState: { errors, isSubmitting } } = useForm<BrandingConfig>({
+  const { register, handleSubmit, watch, setValue, reset, formState: { errors, isSubmitting, isDirty } } = useForm<BrandingConfig>({
     resolver: zodResolver(brandingConfigSchema),
     defaultValues: brandingConfigSchema.parse({}),
   });
@@ -74,6 +74,7 @@ export function BrandingConfigPage() {
       await apiClient.put('/api/config/branding', formData);
       // Refresh the global branding cache so sidebar/login page updates
       await globalMutate('/api/config/branding');
+      reset(formData);
       setShowSuccessPopup(true);
     } catch (err: any) {
       const errorMsg = err.message || 'Failed to update';
@@ -221,7 +222,7 @@ export function BrandingConfigPage() {
                   <Button type="button" variant="outline" onClick={() => navigate('/config')}>
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={isSubmitting}>
+                  <Button type="submit" disabled={!isDirty || isSubmitting}>
                     {isSubmitting ? 'Saving...' : 'Save Changes'}
                   </Button>
                 </div>

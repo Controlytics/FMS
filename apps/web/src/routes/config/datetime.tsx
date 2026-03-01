@@ -17,7 +17,7 @@ export function DatetimeConfigPage() {
   const { data } = useSWR('/api/config/datetime');
   const reauth = useReauth();
 
-  const { register, handleSubmit, watch, formState: { isSubmitting } } = useForm<DatetimeConfig>({
+  const { register, handleSubmit, watch, reset, formState: { isSubmitting, isDirty } } = useForm<DatetimeConfig>({
     resolver: zodResolver(datetimeConfigSchema),
     values: data ?? undefined,
   });
@@ -31,6 +31,7 @@ export function DatetimeConfigPage() {
       if (password) await apiClient.putWithReauth('/api/config/datetime', formData, password);
       else await apiClient.put('/api/config/datetime', formData);
       setSuccess('Date/time format updated successfully');
+      reset(formData);
     }, {
       onError: (err: any) => setError(err.message || 'Failed to update'),
     });
@@ -274,7 +275,7 @@ export function DatetimeConfigPage() {
           <Button type="button" variant="outline" onClick={() => navigate('/config')}>
             Cancel
           </Button>
-          <Button type="submit" disabled={isSubmitting}>
+          <Button type="submit" disabled={!isDirty || isSubmitting}>
             {isSubmitting ? 'Saving...' : 'Save Changes'}
           </Button>
         </div>

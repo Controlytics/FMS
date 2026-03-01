@@ -17,7 +17,7 @@ export function PasswordPolicyPage() {
   const reauth = useReauth();
   const { data } = useSWR('/api/config/password-policy');
 
-  const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<PasswordPolicyConfig>({
+  const { register, handleSubmit, watch, reset, formState: { errors, isSubmitting, isDirty } } = useForm<PasswordPolicyConfig>({
     resolver: zodResolver(passwordPolicySchema),
     values: data ?? undefined,
   });
@@ -31,6 +31,7 @@ export function PasswordPolicyPage() {
       if (password) await apiClient.put('/api/config/password-policy', { ...formData, _currentPassword: password });
       else await apiClient.put('/api/config/password-policy', formData);
       setSuccess('Settings updated successfully');
+      reset(formData);
     }, {
       onError: (err: any) => setError(err.message || 'Failed to update'),
     });
@@ -320,7 +321,7 @@ export function PasswordPolicyPage() {
           <Button type="button" variant="outline" onClick={() => navigate('/config')}>
             Cancel
           </Button>
-          <Button type="submit" disabled={isSubmitting}>
+          <Button type="submit" disabled={!isDirty || isSubmitting}>
             {isSubmitting ? 'Saving...' : 'Save Changes'}
           </Button>
         </div>

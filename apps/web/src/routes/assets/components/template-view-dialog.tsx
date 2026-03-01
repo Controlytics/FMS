@@ -263,7 +263,7 @@ export function TemplateViewDialog({
                       <tbody className="divide-y divide-slate-50">
                         {auditRecords.map((record) => (
                           <tr key={record.id} className="text-slate-700">
-                            <td className="py-1.5 whitespace-nowrap">{formatDateTime(record.createdAt)}</td>
+                            <td className="py-1.5 whitespace-nowrap">{formatDateTime(record.timestamp)}</td>
                             <td className="py-1.5">
                               <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-[10px]">
                                 {record.action.replace(/_/g, ' ')}

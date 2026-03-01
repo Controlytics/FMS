@@ -37,7 +37,11 @@ class ApiClient {
       if (res.status === 401) {
         if (!url.includes('/api/auth/login')) {
           sessionStorage.removeItem('access_token');
-          window.location.href = '/login';
+          // Redirect to login with returnUrl, but skip if already on /login
+          if (!window.location.pathname.startsWith('/login')) {
+            const returnPath = window.location.pathname + window.location.search;
+            window.location.href = returnPath !== '/' ? `/login?returnUrl=${encodeURIComponent(returnPath)}` : '/login';
+          }
         }
         throw new Error(err.message ?? 'Invalid credentials');
       }

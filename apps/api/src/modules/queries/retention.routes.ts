@@ -15,13 +15,14 @@ const DEFAULT_RETENTION_CONFIG = {
 };
 
 const VALID_ARCHIVE_DATA_TYPES = ['telemetry', 'attributes', 'events', 'checklists'] as const;
-const VALID_EXECUTE_DATA_TYPES = ['telemetry', 'attributes', 'events', 'traces'] as const;
+const VALID_EXECUTE_DATA_TYPES = ['telemetry', 'attributes', 'events', 'traces', 'checklists'] as const;
 
 const TSDB_TABLE_MAP: Record<string, string> = {
   telemetry: 'ts_telemetry',
   attributes: 'ts_attributes',
   events: 'ts_device_events',
   traces: 'ts_pipeline_traces',
+  checklists: 'ts_checklist_responses',
 };
 
 export default async function retentionRoutes(app: FastifyInstance) {
@@ -286,6 +287,127 @@ export default async function retentionRoutes(app: FastifyInstance) {
       deleted: result.rowCount ?? 0,
       dataType,
       olderThanDays,
+    };
+  });
+  // 5. POST /retention/execute-range — Delete data within a time range (optionally per entity)
+  app.post('/retention/execute-range', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    schema: {
+      tags: ['Retention'],
+      summary: 'Delete data within a time range',
+      description: 'Delete data from the specified time-series table within a from/to range, optionally scoped to an entity.',
+      body: {
+        type: 'object',
+        required: ['dataType', 'from', 'to', 'confirmed'],
+        properties: {
+          dataType: { type: 'string', enum: [...VALID_EXECUTE_DATA_TYPES, 'alarms'] },
+          from: { type: 'string', format: 'date-time' },
+          to: { type: 'string', format: 'date-time' },
+          entityId: { type: 'string', format: 'uuid' },
+          confirmed: { type: 'boolean' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            deleted: { type: 'integer' },
+            dataType: { type: 'string' },
+            from: { type: 'string' },
+            to: { type: 'string' },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { dataType, from, to, entityId, confirmed } = req.body as {
+      dataType: string;
+      from: string;
+      to: string;
+      entityId?: string;
+      confirmed: boolean;
+    };
+
+    if (confirmed !== true) {
+      return reply.code(400).send({
+        error: 'CONFIRMATION_REQUIRED',
+        message: 'You must set confirmed: true to execute data deletion. This action is irreversible.',
+      });
+    }
+
+    // Handle alarms via Prisma (stored in main DB, not TSDB)
+    if (dataType === 'alarms') {
+      const where: any = {
+        createdAt: { gte: new Date(from), lte: new Date(to) },
+      };
+      if (entityId) where.entityId = entityId;
+
+      const result = await prisma.alarm.deleteMany({ where });
+      return { deleted: result.count, dataType, from, to };
+    }
+
+    // Handle checklists: delete from both TSDB and PG checklist_reviews
+    if (dataType === 'checklists') {
+      const pool = getTsdbPool();
+      const conditions = ['time >= $1', 'time <= $2'];
+      const params: any[] = [new Date(from), new Date(to)];
+      if (entityId) {
+        conditions.push('entity_id = $3');
+        params.push(entityId);
+      }
+
+      // Get checklist_ids to also clean PG reviews
+      const idsResult = await pool.query(
+        `SELECT DISTINCT checklist_id FROM ts_checklist_responses WHERE ${conditions.join(' AND ')}`,
+        params
+      );
+      const checklistIds = idsResult.rows.map((r: any) => r.checklist_id);
+
+      // Delete from TSDB
+      const result = await pool.query(
+        `DELETE FROM ts_checklist_responses WHERE ${conditions.join(' AND ')}`,
+        params
+      );
+
+      // Delete corresponding reviews from PG
+      if (checklistIds.length > 0) {
+        await prisma.checklistReview.deleteMany({
+          where: { checklistId: { in: checklistIds } },
+        });
+      }
+
+      return { deleted: result.rowCount ?? 0, dataType, from, to };
+    }
+
+    // Handle time-series tables
+    const table = TSDB_TABLE_MAP[dataType];
+    if (!table) {
+      return reply.code(400).send({
+        error: 'INVALID_DATA_TYPE',
+        message: `Invalid data type: ${dataType}`,
+      });
+    }
+
+    const pool = getTsdbPool();
+    const conditions = ['time >= $1', 'time <= $2'];
+    const params: any[] = [new Date(from), new Date(to)];
+
+    if (entityId) {
+      conditions.push('entity_id = $3');
+      params.push(entityId);
+    }
+
+    const result = await pool.query(
+      `DELETE FROM ${table} WHERE ${conditions.join(' AND ')}`,
+      params
+    );
+
+    return {
+      deleted: result.rowCount ?? 0,
+      dataType,
+      from,
+      to,
     };
   });
 }

@@ -168,7 +168,6 @@ async function main() {
     {
       configKey: 'login-security',
       configValue: {
-        maxFailedAttempts: 5,
         lockoutType: 'TEMPORARY',
         lockoutDurationMinutes: 30,
       },

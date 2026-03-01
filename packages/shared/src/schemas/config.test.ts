@@ -85,14 +85,9 @@ describe('loginSecuritySchema', () => {
     const result = loginSecuritySchema.safeParse({});
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.maxFailedAttempts).toBe(5);
       expect(result.data.lockoutType).toBe('TEMPORARY');
       expect(result.data.lockoutDurationMinutes).toBe(30);
     }
-  });
-
-  it('rejects maxFailedAttempts below 3', () => {
-    expect(loginSecuritySchema.safeParse({ maxFailedAttempts: 1 }).success).toBe(false);
   });
 
   it('rejects invalid lockoutType', () => {

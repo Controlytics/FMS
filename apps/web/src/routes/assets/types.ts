@@ -23,6 +23,7 @@ export interface AssetTemplate {
   version: number;
   isActive: boolean;
   attributeSchema: AttributeDefinition[];
+  checklistSchema?: any;
   telemetrySchema?: TelemetryDefinition[];
   expectedIdentifiers: any[];
   maxConnections?: number;
@@ -104,7 +105,7 @@ export interface AuditRecord {
   signatureMeaning?: string;
   beforeValue?: any;
   afterValue?: any;
-  createdAt: string;
+  timestamp: string;
 }
 
 export interface PaginatedInstances {
