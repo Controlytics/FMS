@@ -14,7 +14,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "echo \"No tests yet\""
   },
   "dependencies": {
     "@prisma/client": "^6.3.0",

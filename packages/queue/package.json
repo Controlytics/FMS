@@ -14,7 +14,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "echo \"No tests yet\""
   },
   "dependencies": {
     "bullmq": "^5.0.0",

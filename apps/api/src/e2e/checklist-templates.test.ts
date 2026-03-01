@@ -26,7 +26,7 @@ describe('Checklist Template E2E', () => {
       const res = await authPost(app, '/api/assets/templates', adminToken, {
         name: `Checklist Template ${SUFFIX}`,
         description: 'Template with checklist questions',
-        category: 'Testing',
+        category: 'Equipment',
         attributeSchema: [
           { fieldName: 'serialNumber', dataType: 'TEXT' },
         ],

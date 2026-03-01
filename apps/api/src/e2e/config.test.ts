@@ -158,7 +158,7 @@ describe('Config endpoints', () => {
       const res = await authGet(app, '/api/config/login-security', adminToken);
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body);
-      expect(body.maxFailedAttempts).toBeDefined();
+      expect(body.lockoutType).toBeDefined();
     });
   });
 

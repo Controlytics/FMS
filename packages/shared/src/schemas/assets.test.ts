@@ -102,7 +102,7 @@ describe('createAssetTemplateSchema', () => {
     const result = createAssetTemplateSchema.safeParse({
       name: 'Temperature Sensor',
       description: 'Industrial temperature sensor',
-      category: 'Sensors',
+      category: 'Sensor',
       icon: 'thermometer',
       attributeSchema: [
         { fieldName: 'model', dataType: 'TEXT' },
@@ -214,7 +214,7 @@ describe('updateAssetTemplateSchema', () => {
   });
 
   it('accepts partial update', () => {
-    const result = updateAssetTemplateSchema.safeParse({ name: 'Updated Name', category: 'New Cat' });
+    const result = updateAssetTemplateSchema.safeParse({ name: 'Updated Name', category: 'Equipment' });
     expect(result.success).toBe(true);
   });
 });

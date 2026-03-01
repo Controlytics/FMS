@@ -5,6 +5,7 @@ const { mockVerifyToken, mockPrisma } = vi.hoisted(() => ({
   mockPrisma: {
     session: { findFirst: vi.fn(), update: vi.fn() },
     user: { findUnique: vi.fn(), update: vi.fn() },
+    systemConfig: { findUnique: vi.fn() },
   },
 }));
 
@@ -91,6 +92,7 @@ describe('authPlugin', () => {
       passwordExpiresAt: new Date(Date.now() + 86400000),
     });
     mockPrisma.session.update.mockResolvedValue({});
+    mockPrisma.systemConfig.findUnique.mockResolvedValue({ configValue: { sessionDurationHours: 8 } });
 
     const req = makeReq();
     const reply = makeReply();

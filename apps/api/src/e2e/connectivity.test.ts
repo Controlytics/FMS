@@ -72,7 +72,7 @@ describe('Connectivity endpoints', () => {
   // POST /:entityId/test — Test connectivity (no token yet)
   // =============================================
   it('POST /api/connectivity/:entityId/test returns NOT_CONFIGURED before token generation', async () => {
-    const res = await authPost(app, `/api/connectivity/${instanceId}/test`, adminToken);
+    const res = await authPost(app, `/api/connectivity/${instanceId}/test`, adminToken, {});
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.reachable).toBe(false);
@@ -85,7 +85,7 @@ describe('Connectivity endpoints', () => {
   // POST /:entityId/token — Generate device token
   // =============================================
   it('POST /api/connectivity/:entityId/token generates a device token', async () => {
-    const res = await authPost(app, `/api/connectivity/${instanceId}/token`, adminToken);
+    const res = await authPost(app, `/api/connectivity/${instanceId}/token`, adminToken, {});
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.token).toBeTruthy();
@@ -111,7 +111,7 @@ describe('Connectivity endpoints', () => {
   // POST /:entityId/test — Test connectivity (token exists, never used)
   // =============================================
   it('POST /api/connectivity/:entityId/test returns NEVER_USED for unused token', async () => {
-    const res = await authPost(app, `/api/connectivity/${instanceId}/test`, adminToken);
+    const res = await authPost(app, `/api/connectivity/${instanceId}/test`, adminToken, {});
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.reachable).toBe(false);
@@ -158,7 +158,7 @@ describe('Connectivity endpoints', () => {
   // POST /:entityId/test — Test connectivity (token revoked)
   // =============================================
   it('POST /api/connectivity/:entityId/test returns REVOKED after token revocation', async () => {
-    const res = await authPost(app, `/api/connectivity/${instanceId}/test`, adminToken);
+    const res = await authPost(app, `/api/connectivity/${instanceId}/test`, adminToken, {});
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.reachable).toBe(false);
@@ -205,7 +205,7 @@ describe('Connectivity endpoints', () => {
   // =============================================
   it('POST /api/connectivity/:entityId/token returns 404 for unknown entity', async () => {
     const fakeId = '00000000-0000-0000-0000-000000000000';
-    const res = await authPost(app, `/api/connectivity/${fakeId}/token`, adminToken);
+    const res = await authPost(app, `/api/connectivity/${fakeId}/token`, adminToken, {});
     expect(res.statusCode).toBe(404);
   });
 });

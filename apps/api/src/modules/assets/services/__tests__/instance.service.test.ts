@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const {
   mockInstanceRepo, mockRelRepo, mockIdentRepo, mockTemplateRepo,
   mockValidateAttributes, mockHasCycle, mockCollectDescendants, mockAuditLog,
+  mockPrisma,
 } = vi.hoisted(() => ({
   mockInstanceRepo: {
     findMany: vi.fn(), findTree: vi.fn(), findById: vi.fn(), findByIdSimple: vi.fn(),
@@ -19,6 +20,14 @@ const {
   mockHasCycle: vi.fn(),
   mockCollectDescendants: vi.fn(),
   mockAuditLog: vi.fn(),
+  mockPrisma: {
+    deviceCredential: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    connectivityStatus: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    unsMapping: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    qrCode: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    latestTelemetry: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    dataStream: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+  },
 }));
 
 vi.mock('../../repositories/instance.repository.js', () => ({ instanceRepository: mockInstanceRepo }));
@@ -29,6 +38,7 @@ vi.mock('../../helpers/attribute-validator.js', () => ({ validateAttributeValues
 vi.mock('../../helpers/cycle-detection.js', () => ({ hasContainsCycle: mockHasCycle }));
 vi.mock('../../helpers/descendant-collector.js', () => ({ collectDescendantIds: mockCollectDescendants }));
 vi.mock('../../../../lib/audit.js', () => ({ auditLog: mockAuditLog }));
+vi.mock('../../../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 
 import { instanceService } from '../instance.service.js';
 

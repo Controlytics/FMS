@@ -32,6 +32,7 @@ const {
     changePassword: vi.fn(),
     findPendingResetRequest: vi.fn(),
     createResetRequest: vi.fn(),
+    terminateOtherSessions: vi.fn(),
   },
   mockHashPassword: vi.fn(),
   mockVerifyPassword: vi.fn(),
@@ -71,6 +72,8 @@ describe('authService', () => {
     mockCreateNotification.mockResolvedValue(undefined);
     mockRepo.getLoginSecurityConfig.mockResolvedValue({});
     mockRepo.getSessionConfig.mockResolvedValue({ sessionDurationHours: 8 });
+    mockRepo.getPasswordPolicyConfig.mockResolvedValue({ maxFailedAttempts: 5 });
+    mockRepo.terminateOtherSessions.mockResolvedValue({ count: 0 });
   });
 
   // ── login ──
