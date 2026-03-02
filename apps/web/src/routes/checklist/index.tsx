@@ -85,7 +85,7 @@ function evaluateFormula(formula: string, answers: AnswerMap): string {
         expression = expression.replaceAll(qId, String(num));
       }
     });
-    // Simple safe eval — only allow numbers, operators, parens, whitespace
+    // Simple safe eval â€” only allow numbers, operators, parens, whitespace
     if (/^[\d\s+\-*/().]+$/.test(expression)) {
       // eslint-disable-next-line no-new-func
       const result = Function(`"use strict"; return (${expression})`)();
@@ -96,7 +96,7 @@ function evaluateFormula(formula: string, answers: AnswerMap): string {
   } catch {
     // fall through
   }
-  return '—';
+  return 'â€”';
 }
 
 function isQuestionVisible(
@@ -145,7 +145,7 @@ function ToggleGroup({ options, value, onChange, disabled }: ToggleGroupProps) {
   );
 }
 
-// MCQ — radio group
+// MCQ â€” radio group
 interface RadioGroupProps {
   options: string[];
   value: string | null;
@@ -157,6 +157,7 @@ function RadioGroup({ options, value, onChange }: RadioGroupProps) {
       {options.map((opt) => (
         <label
           key={opt}
+          onClick={() => onChange(opt)}
           className={[
             'flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all duration-150',
             value === opt
@@ -181,7 +182,7 @@ function RadioGroup({ options, value, onChange }: RadioGroupProps) {
   );
 }
 
-// MULTI_SELECT — checkbox group
+// MULTI_SELECT â€” checkbox group
 interface CheckboxGroupProps {
   options: string[];
   value: string[];
@@ -200,6 +201,7 @@ function CheckboxGroup({ options, value, onChange }: CheckboxGroupProps) {
       {options.map((opt) => (
         <label
           key={opt}
+          onClick={() => toggle(opt)}
           className={[
             'flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all duration-150',
             value.includes(opt)
@@ -238,7 +240,7 @@ function CheckboxGroup({ options, value, onChange }: CheckboxGroupProps) {
   );
 }
 
-// SIGNATURE — canvas pad
+// SIGNATURE â€” canvas pad
 interface SignatureInputProps {
   value: string | null;
   onChange: (dataUrl: string | null) => void;
@@ -375,7 +377,7 @@ function SignatureInput({ value, onChange }: SignatureInputProps) {
   );
 }
 
-// PHOTO — file input
+// PHOTO â€” file input
 interface PhotoInputProps {
   value: string | null;
   onChange: (dataUrl: string | null) => void;
@@ -818,7 +820,7 @@ function QuestionCard({
       case QTYPE.CALCULATED: {
         const computed = question.formula
           ? evaluateFormula(question.formula, answers)
-          : '—';
+          : 'â€”';
         // Store computed value so it's included in submission
         // We use useEffect in the parent; here we just render read-only
         return (
@@ -911,7 +913,7 @@ function QuestionCard({
                 {question.min !== undefined && `Min: ${question.min}`}
                 {question.min !== undefined &&
                   question.max !== undefined &&
-                  ' · '}
+                  ' Â· '}
                 {question.max !== undefined && `Max: ${question.max}`}
               </p>
             )}
@@ -1103,7 +1105,7 @@ export function ChecklistPage() {
     const questions = calcRaw.map((q: any, idx: number) => ({
       id: q.id || `q_${idx}`,
       type: q.type || q.questionType || 'TEXT',
-      formula: q.formula,
+      formula: q.formula || q.calculatedExpression,
     }));
     const calcQuestions = questions.filter(
       (q) => q.type === QTYPE.CALCULATED && q.formula,
@@ -1138,7 +1140,7 @@ export function ChecklistPage() {
     [],
   );
 
-  // Normalize checklist schema — DB may store as flat array or {questions:[...]} object
+  // Normalize checklist schema â€” DB may store as flat array or {questions:[...]} object
   const rawSchema = entity?.template?.checklistSchema;
   const rawQuestions: any[] = Array.isArray(rawSchema)
     ? rawSchema
@@ -1153,8 +1155,8 @@ export function ChecklistPage() {
     unit: q.unit || q.numericUnit,
     min: q.min ?? q.numericMin,
     max: q.max ?? q.numericMax,
-    formula: q.formula,
-    condition: q.condition,
+    formula: q.formula || q.calculatedExpression,
+    condition: q.condition || (q.conditionalField ? { questionId: q.conditionalField, value: q.conditionalValue } : undefined),
   }));
 
   const visibleQuestions = questions.filter((q) =>
@@ -1371,7 +1373,7 @@ export function ChecklistPage() {
             <div className="flex items-start gap-3">
               {/* Entity icon */}
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#1e3a5f] to-[#3b82f6] flex items-center justify-center text-xl shadow-md flex-shrink-0">
-                {entity.template?.icon ?? '📋'}
+                {entity.template?.icon ?? 'ðŸ“‹'}
               </div>
               <div className="flex-1 min-w-0">
                 <h1 className="text-lg font-bold text-slate-800 leading-tight truncate">
