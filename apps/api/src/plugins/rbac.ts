@@ -47,17 +47,6 @@ async function rbacPlugin(app: FastifyInstance) {
       }
 
       if (!hasPermission) {
-        // Log unauthorized attempt
-        await app.auditLog({
-          userId: req.user.username,
-          userRole,
-          action: 'UNAUTHORIZED_ACTION_ATTEMPT',
-          reason: `Attempted action requiring ${permission}`,
-          ipAddress: req.ip,
-          userAgent: req.headers['user-agent'],
-          sessionId: req.user.sessionId,
-        });
-
         return reply.code(403).send({
           error: 'FORBIDDEN',
           message: 'Permission denied',

@@ -10,6 +10,7 @@ import type { AttributeDefinition } from '../../types';
 
 export function AttributesTab({ entityId, template, attributes, formatDateTime, wsConnected, userRole }: { entityId: string; template: any; attributes: Record<string, any> | undefined; formatDateTime: (v: string | Date) => string; wsConnected?: boolean; userRole?: string }) {
   const attrSchema = (template?.attributeSchema as AttributeDefinition[]) ?? [];
+  const isAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ADMIN';
 
   // Time range state
   const [timePreset, setTimePreset] = useState('24h');
@@ -20,8 +21,13 @@ export function AttributesTab({ entityId, template, attributes, formatDateTime, 
 
   // Delete state
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [deleteOlderDays, setDeleteOlderDays] = useState(30);
   const [deleting, setDeleting] = useState(false);
+
+  // Key-based delete state
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [showKeyDeleteDialog, setShowKeyDeleteDialog] = useState(false);
+  const [keyDeleteTarget, setKeyDeleteTarget] = useState<string[]>([]);
+  const [deletingKeys, setDeletingKeys] = useState(false);
 
   // Calculate from/to
   const timeRange = useMemo(() => {
@@ -34,7 +40,7 @@ export function AttributesTab({ entityId, template, attributes, formatDateTime, 
   }, [timePreset, customFrom, customTo]);
 
   // Fetch live device-reported attributes
-  const { data: liveAttrs, isLoading } = useSWR<Array<{ key: string; value: any; updatedBy?: string; lastUpdated: string }>>(
+  const { data: liveAttrs, isLoading, mutate: mutateLive } = useSWR<Array<{ key: string; value: any; updatedBy?: string; lastUpdated: string }>>(
     `/api/attributes/${entityId}/all`,
     { refreshInterval: 10000 }
   );
@@ -61,6 +67,26 @@ export function AttributesTab({ entityId, template, attributes, formatDateTime, 
   const extraKeys = liveAttrs?.filter(a => !schemaKeys.has(a.key)) ?? [];
   const totalHistoryPages = historyData ? Math.max(1, Math.ceil(historyData.total / HPAGE_SIZE)) : 1;
 
+  // All live attribute keys for bulk selection
+  const allLiveKeys = useMemo(() => liveAttrs?.map(a => a.key) ?? [], [liveAttrs]);
+
+  const toggleKey = (key: string) => {
+    setSelectedKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleAllKeys = () => {
+    if (selectedKeys.size === allLiveKeys.length) {
+      setSelectedKeys(new Set());
+    } else {
+      setSelectedKeys(new Set(allLiveKeys));
+    }
+  };
+
+  // Bulk delete (time-range based)
   const handleDelete = async () => {
     setDeleting(true);
     try {
@@ -71,6 +97,32 @@ export function AttributesTab({ entityId, template, attributes, formatDateTime, 
       alert(e.message || 'Delete failed');
     } finally {
       setDeleting(false);
+    }
+  };
+
+  // Individual / bulk key delete
+  const handleDeleteKeys = async (keys: string[]) => {
+    setKeyDeleteTarget(keys);
+    setShowKeyDeleteDialog(true);
+  };
+
+  const confirmDeleteKeys = async () => {
+    setDeletingKeys(true);
+    try {
+      await apiClient.post('/api/retention/delete-keys', { dataType: 'attributes', entityId, keys: keyDeleteTarget, confirmed: true });
+      mutateLive();
+      mutateHistory();
+      setShowKeyDeleteDialog(false);
+      setKeyDeleteTarget([]);
+      setSelectedKeys(prev => {
+        const next = new Set(prev);
+        for (const k of keyDeleteTarget) next.delete(k);
+        return next;
+      });
+    } catch (e: any) {
+      alert(e.message || 'Delete failed');
+    } finally {
+      setDeletingKeys(false);
     }
   };
 
@@ -86,11 +138,18 @@ export function AttributesTab({ entityId, template, attributes, formatDateTime, 
             </span>
           )}
         </div>
-        {(userRole === 'SUPER_ADMIN' || userRole === 'ADMIN') && (
-          <button onClick={() => setShowDeleteDialog(true)} className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">
-            Delete Data
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {isAdmin && selectedKeys.size > 0 && (
+            <button onClick={() => handleDeleteKeys(Array.from(selectedKeys))} className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">
+              Delete Selected ({selectedKeys.size})
+            </button>
+          )}
+          {isAdmin && (
+            <button onClick={() => setShowDeleteDialog(true)} className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">
+              Delete Data
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Time Range Selector */}
@@ -113,7 +172,14 @@ export function AttributesTab({ entityId, template, attributes, formatDateTime, 
       {liveAttrs && liveAttrs.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-center justify-between mb-3">
-            <h4 className="font-semibold text-slate-800">Device-Reported Attributes</h4>
+            <div className="flex items-center gap-3">
+              <h4 className="font-semibold text-slate-800">Device-Reported Attributes</h4>
+              {isAdmin && allLiveKeys.length > 0 && (
+                <button onClick={toggleAllKeys} className="text-[10px] text-slate-500 hover:text-slate-700 underline">
+                  {selectedKeys.size === allLiveKeys.length ? 'Deselect All' : 'Select All'}
+                </button>
+              )}
+            </div>
             {isLoading && (
               <svg className="w-4 h-4 animate-spin text-cyan-500" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
             )}
@@ -128,8 +194,26 @@ export function AttributesTab({ entityId, template, attributes, formatDateTime, 
                 : typeof attr.value === 'boolean' ? (attr.value ? 'Yes' : 'No')
                 : typeof attr.value === 'object' ? JSON.stringify(attr.value)
                 : String(attr.value);
+              const isSelected = selectedKeys.has(attr.key);
               return (
-                <div key={attr.key} className="bg-gradient-to-br from-slate-50 to-white rounded-lg border border-slate-200 p-3">
+                <div key={attr.key} className={cn('bg-gradient-to-br from-slate-50 to-white rounded-lg border p-3 relative group', isSelected ? 'border-red-300 bg-red-50/30' : 'border-slate-200')}>
+                  {isAdmin && (
+                    <div className="absolute top-2 right-2 flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleKey(attr.key)}
+                        className="w-3.5 h-3.5 rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                      />
+                      <button
+                        onClick={() => handleDeleteKeys([attr.key])}
+                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 transition-all"
+                        title={`Delete "${attr.key}"`}
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                      </button>
+                    </div>
+                  )}
                   <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{attr.key}</p>
                   <p className="text-lg font-bold text-slate-800 mt-0.5">
                     {displayVal}
@@ -159,6 +243,7 @@ export function AttributesTab({ entityId, template, attributes, formatDateTime, 
                 <TableHead>Live Value</TableHead>
                 <TableHead>Unit</TableHead>
                 <TableHead>Last Updated</TableHead>
+                {isAdmin && <TableHead className="w-10"></TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -204,6 +289,19 @@ export function AttributesTab({ entityId, template, attributes, formatDateTime, 
                     <TableCell className="text-xs text-slate-400">
                       {live ? formatDateTime(live.lastUpdated) : '-'}
                     </TableCell>
+                    {isAdmin && (
+                      <TableCell>
+                        {live && (
+                          <button
+                            onClick={() => handleDeleteKeys([attr.fieldName])}
+                            className="p-1 text-slate-400 hover:text-red-500 transition-colors"
+                            title={`Delete "${attr.fieldName}" data`}
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        )}
+                      </TableCell>
+                    )}
                   </TableRow>
                 );
               })}
@@ -223,6 +321,7 @@ export function AttributesTab({ entityId, template, attributes, formatDateTime, 
                 <TableHead>Key</TableHead>
                 <TableHead>Value</TableHead>
                 <TableHead>Last Updated</TableHead>
+                {isAdmin && <TableHead className="w-10"></TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -231,6 +330,17 @@ export function AttributesTab({ entityId, template, attributes, formatDateTime, 
                   <TableCell className="font-medium font-mono text-sm">{attr.key}</TableCell>
                   <TableCell className="text-slate-800">{attr.value === null ? '-' : typeof attr.value === 'object' ? JSON.stringify(attr.value) : String(attr.value)}</TableCell>
                   <TableCell className="text-xs text-slate-400">{formatDateTime(attr.lastUpdated)}</TableCell>
+                  {isAdmin && (
+                    <TableCell>
+                      <button
+                        onClick={() => handleDeleteKeys([attr.key])}
+                        className="p-1 text-slate-400 hover:text-red-500 transition-colors"
+                        title={`Delete "${attr.key}" data`}
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                      </button>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
@@ -290,7 +400,7 @@ export function AttributesTab({ entityId, template, attributes, formatDateTime, 
         </div>
       )}
 
-      {/* Delete Confirmation Dialog */}
+      {/* Delete Time Range Confirmation Dialog */}
       {showDeleteDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowDeleteDialog(false)}>
           <div className="bg-white rounded-xl p-6 w-96 shadow-xl" onClick={e => e.stopPropagation()}>
@@ -303,6 +413,30 @@ export function AttributesTab({ entityId, template, attributes, formatDateTime, 
             <div className="flex justify-end gap-2">
               <button onClick={() => setShowDeleteDialog(false)} className="px-4 py-2 text-sm rounded-lg bg-slate-100 hover:bg-slate-200">Cancel</button>
               <button onClick={handleDelete} disabled={deleting} className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">{deleting ? 'Deleting...' : 'Delete'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Keys Confirmation Dialog */}
+      {showKeyDeleteDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowKeyDeleteDialog(false)}>
+          <div className="bg-white rounded-xl p-6 w-96 shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-slate-800 mb-2">Delete Attribute{keyDeleteTarget.length > 1 ? 's' : ''}</h3>
+            <p className="text-sm text-slate-600 mb-4">
+              This will permanently delete <span className="font-semibold">all data</span> for the selected attribute{keyDeleteTarget.length > 1 ? 's' : ''} from this entity. This action cannot be undone.
+            </p>
+            <div className="mb-4 bg-slate-50 rounded-lg p-3 max-h-40 overflow-y-auto">
+              {keyDeleteTarget.map(key => (
+                <div key={key} className="flex items-center gap-2 py-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
+                  <span className="text-sm font-mono text-slate-700">{key}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowKeyDeleteDialog(false)} className="px-4 py-2 text-sm rounded-lg bg-slate-100 hover:bg-slate-200">Cancel</button>
+              <button onClick={confirmDeleteKeys} disabled={deletingKeys} className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">{deletingKeys ? 'Deleting...' : 'Delete'}</button>
             </div>
           </div>
         </div>

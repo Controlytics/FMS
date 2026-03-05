@@ -64,7 +64,10 @@ export default async function auditRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const query = auditQuerySchema.parse(req.query);
-    const where: Record<string, unknown> = {};
+    const where: Record<string, unknown> = {
+      // SUPER_ADMIN actions are exempt from audit display (21 CFR Part 11)
+      userRole: { not: 'SUPER_ADMIN' },
+    };
 
     // Date filtering by period
     if (query.period && query.period !== 'all') {

@@ -191,34 +191,19 @@ export default async function telemetryRoutes(app: FastifyInstance) {
       baseParams.push(...keysRaw);
     }
 
-    let wasAutoAggregated = false;
     let effectiveAggregation = aggregation;
     let effectiveInterval: string | null = null;
-
-    if (aggregation === 'none') {
-      // Raw query — but first check count to potentially auto-aggregate
-      const countSql = `SELECT COUNT(*)::int AS cnt FROM ts_telemetry WHERE entity_id = $1 AND time >= $2 AND time <= $3${keyFilterClause}`;
-      const countResult = await pool.query(countSql, baseParams);
-      const rawCount: number = countResult.rows[0]?.cnt ?? 0;
-
-      if (rawCount > limit) {
-        // Auto-aggregate with avg
-        wasAutoAggregated = true;
-        effectiveAggregation = 'avg';
-        effectiveInterval = autoInterval(fromDate.getTime(), toDate.getTime());
-      }
-    }
 
     let data: unknown[];
 
     if (effectiveAggregation === 'none') {
-      // Raw query
-      const sql = `SELECT time, key, value_num, value_str, value_bool, value_json FROM ts_telemetry WHERE entity_id = $1 AND time >= $2 AND time <= $3${keyFilterClause} ORDER BY time ASC LIMIT $${paramIdx}`;
+      // Raw query — return actual values, no manipulation
+      const sql = `SELECT time, key, value_num, value_str, value_bool, value_json FROM ts_telemetry WHERE entity_id = $1 AND time >= $2 AND time <= $3${keyFilterClause} ORDER BY time DESC LIMIT $${paramIdx}`;
       const params = [...baseParams, limit];
       const result = await pool.query(sql, params);
       data = result.rows;
     } else {
-      // Aggregated query
+      // Aggregated query — only when explicitly requested
       const resolvedInterval = effectiveInterval
         ?? (interval === 'auto' ? autoInterval(fromDate.getTime(), toDate.getTime()) : INTERVAL_MAP[interval]);
       effectiveInterval = resolvedInterval;
@@ -228,10 +213,6 @@ export default async function telemetryRoutes(app: FastifyInstance) {
       const params = [...baseParams, resolvedInterval];
       const result = await pool.query(sql, params);
       data = result.rows;
-    }
-
-    if (wasAutoAggregated) {
-      reply.header('X-DigiLog-Aggregated', 'true');
     }
 
     return {

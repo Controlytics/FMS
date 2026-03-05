@@ -10,6 +10,7 @@ import type { TelemetryDefinition } from '../../types';
 
 export function TelemetryTab({ entityId, template, telemetryConfig, formatDateTime, wsConnected, userRole }: { entityId: string; template: any; telemetryConfig: Record<string, any>; formatDateTime: (v: string | Date) => string; wsConnected?: boolean; userRole?: string }) {
   const telSchema = template?.telemetrySchema as TelemetryDefinition[] | undefined;
+  const isAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ADMIN';
 
   // Time range state
   const [timePreset, setTimePreset] = useState('24h');
@@ -20,8 +21,19 @@ export function TelemetryTab({ entityId, template, telemetryConfig, formatDateTi
 
   // Delete state
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [deleteOlderDays, setDeleteOlderDays] = useState(30);
   const [deleting, setDeleting] = useState(false);
+
+  // Key-based delete state
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [showKeyDeleteDialog, setShowKeyDeleteDialog] = useState(false);
+  const [keyDeleteTarget, setKeyDeleteTarget] = useState<string[]>([]);
+  const [deletingKeys, setDeletingKeys] = useState(false);
+
+  // History row delete state
+  const [selectedHistoryRows, setSelectedHistoryRows] = useState<Set<string>>(new Set());
+  const [showHistoryDeleteDialog, setShowHistoryDeleteDialog] = useState(false);
+  const [historyDeleteTarget, setHistoryDeleteTarget] = useState<Array<{ time: string; key: string }>>([]);
+  const [deletingHistoryRows, setDeletingHistoryRows] = useState(false);
 
   // Calculate from/to based on preset
   const timeRange = useMemo(() => {
@@ -34,7 +46,7 @@ export function TelemetryTab({ entityId, template, telemetryConfig, formatDateTi
   }, [timePreset, customFrom, customTo]);
 
   // Fetch live telemetry data
-  const { data: liveData, isLoading: liveLoading } = useSWR<Array<{ key: string; valueNum: number | null; valueStr: string | null; valueBool: boolean | null; valueJson: any; lastUpdated: string }>>(
+  const { data: liveData, isLoading: liveLoading, mutate: mutateLive } = useSWR<Array<{ key: string; valueNum: number | null; valueStr: string | null; valueBool: boolean | null; valueJson: any; lastUpdated: string }>>(
     `/api/telemetry/${entityId}/latest`,
     { refreshInterval: 10000 }
   );
@@ -66,6 +78,26 @@ export function TelemetryTab({ entityId, template, telemetryConfig, formatDateTi
   const totalHistoryPages = Math.max(1, Math.ceil(historyRows.length / HPAGE_SIZE));
   const pagedHistory = historyRows.slice((historyPage - 1) * HPAGE_SIZE, historyPage * HPAGE_SIZE);
 
+  // All live telemetry keys for bulk selection
+  const allLiveKeys = useMemo(() => liveData?.map(d => d.key) ?? [], [liveData]);
+
+  const toggleKey = (key: string) => {
+    setSelectedKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleAllKeys = () => {
+    if (selectedKeys.size === allLiveKeys.length) {
+      setSelectedKeys(new Set());
+    } else {
+      setSelectedKeys(new Set(allLiveKeys));
+    }
+  };
+
+  // Bulk delete (time-range based)
   const handleDelete = async () => {
     setDeleting(true);
     try {
@@ -76,6 +108,73 @@ export function TelemetryTab({ entityId, template, telemetryConfig, formatDateTi
       alert(e.message || 'Delete failed');
     } finally {
       setDeleting(false);
+    }
+  };
+
+  // Individual / bulk key delete
+  const handleDeleteKeys = async (keys: string[]) => {
+    setKeyDeleteTarget(keys);
+    setShowKeyDeleteDialog(true);
+  };
+
+  const confirmDeleteKeys = async () => {
+    setDeletingKeys(true);
+    try {
+      await apiClient.post('/api/retention/delete-keys', { dataType: 'telemetry', entityId, keys: keyDeleteTarget, confirmed: true });
+      mutateLive();
+      mutateHistory();
+      setShowKeyDeleteDialog(false);
+      setKeyDeleteTarget([]);
+      setSelectedKeys(prev => {
+        const next = new Set(prev);
+        for (const k of keyDeleteTarget) next.delete(k);
+        return next;
+      });
+    } catch (e: any) {
+      alert(e.message || 'Delete failed');
+    } finally {
+      setDeletingKeys(false);
+    }
+  };
+
+  // History row helpers
+  const makeRowId = (row: any) => `${row.time || row.bucket}||${row.key}`;
+
+  const toggleHistoryRow = (row: any) => {
+    const id = makeRowId(row);
+    setSelectedHistoryRows(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllHistoryRows = () => {
+    if (selectedHistoryRows.size === pagedHistory.length) {
+      setSelectedHistoryRows(new Set());
+    } else {
+      setSelectedHistoryRows(new Set(pagedHistory.map(makeRowId)));
+    }
+  };
+
+  const handleDeleteHistoryRows = (rows: Array<{ time: string; key: string }>) => {
+    setHistoryDeleteTarget(rows);
+    setShowHistoryDeleteDialog(true);
+  };
+
+  const confirmDeleteHistoryRows = async () => {
+    setDeletingHistoryRows(true);
+    try {
+      await apiClient.post('/api/retention/delete-records', { dataType: 'telemetry', entityId, records: historyDeleteTarget, confirmed: true });
+      mutateHistory();
+      mutateLive();
+      setShowHistoryDeleteDialog(false);
+      setHistoryDeleteTarget([]);
+      setSelectedHistoryRows(new Set());
+    } catch (e: any) {
+      alert(e.message || 'Delete failed');
+    } finally {
+      setDeletingHistoryRows(false);
     }
   };
 
@@ -91,11 +190,18 @@ export function TelemetryTab({ entityId, template, telemetryConfig, formatDateTi
             </span>
           )}
         </div>
-        {(userRole === 'SUPER_ADMIN' || userRole === 'ADMIN') && (
-          <button onClick={() => setShowDeleteDialog(true)} className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">
-            Delete Data
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {isAdmin && selectedKeys.size > 0 && (
+            <button onClick={() => handleDeleteKeys(Array.from(selectedKeys))} className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">
+              Delete Selected ({selectedKeys.size})
+            </button>
+          )}
+          {isAdmin && (
+            <button onClick={() => setShowDeleteDialog(true)} className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">
+              Delete Data
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Time Range Selector */}
@@ -117,7 +223,14 @@ export function TelemetryTab({ entityId, template, telemetryConfig, formatDateTi
       {/* Live Telemetry Data */}
       <div className="bg-white rounded-xl border border-slate-200 p-5">
         <div className="flex items-center justify-between mb-3">
-          <h4 className="font-semibold text-slate-800">Live Telemetry Data</h4>
+          <div className="flex items-center gap-3">
+            <h4 className="font-semibold text-slate-800">Live Telemetry Data</h4>
+            {isAdmin && allLiveKeys.length > 0 && (
+              <button onClick={toggleAllKeys} className="text-[10px] text-slate-500 hover:text-slate-700 underline">
+                {selectedKeys.size === allLiveKeys.length ? 'Deselect All' : 'Select All'}
+              </button>
+            )}
+          </div>
           {liveLoading && (
             <svg className="w-4 h-4 animate-spin text-cyan-500" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
           )}
@@ -136,8 +249,26 @@ export function TelemetryTab({ entityId, template, telemetryConfig, formatDateTi
                 : row.valueJson !== null ? JSON.stringify(row.valueJson)
                 : '-';
               const schema = telSchema?.find(t => t.fieldName === row.key);
+              const isSelected = selectedKeys.has(row.key);
               return (
-                <div key={row.key} className="bg-gradient-to-br from-slate-50 to-white rounded-lg border border-slate-200 p-3">
+                <div key={row.key} className={cn('bg-gradient-to-br from-slate-50 to-white rounded-lg border p-3 relative group', isSelected ? 'border-red-300 bg-red-50/30' : 'border-slate-200')}>
+                  {isAdmin && (
+                    <div className="absolute top-2 right-2 flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleKey(row.key)}
+                        className="w-3.5 h-3.5 rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                      />
+                      <button
+                        onClick={() => handleDeleteKeys([row.key])}
+                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 transition-all"
+                        title={`Delete "${row.key}"`}
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                      </button>
+                    </div>
+                  )}
                   <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{row.key}</p>
                   <p className="text-lg font-bold text-slate-800 mt-0.5">
                     {typeof value === 'number' ? value.toLocaleString() : value}
@@ -153,7 +284,20 @@ export function TelemetryTab({ entityId, template, telemetryConfig, formatDateTi
 
       {/* Telemetry History Table */}
       <div className="bg-white rounded-xl border border-slate-200 p-5">
-        <h4 className="font-semibold text-slate-800 mb-3">Telemetry History</h4>
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="font-semibold text-slate-800">Telemetry History</h4>
+          {isAdmin && selectedHistoryRows.size > 0 && (
+            <button
+              onClick={() => {
+                const rows = pagedHistory.filter((r: any) => selectedHistoryRows.has(makeRowId(r))).map((r: any) => ({ time: r.time || r.bucket, key: r.key }));
+                handleDeleteHistoryRows(rows);
+              }}
+              className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+            >
+              Delete Selected ({selectedHistoryRows.size})
+            </button>
+          )}
+        </div>
         {histLoading ? (
           <div className="text-center py-4"><svg className="w-5 h-5 animate-spin mx-auto text-cyan-500" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg></div>
         ) : pagedHistory.length === 0 ? (
@@ -166,27 +310,63 @@ export function TelemetryTab({ entityId, template, telemetryConfig, formatDateTi
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50/80">
+                  {isAdmin && (
+                    <TableHead className="w-10">
+                      <input
+                        type="checkbox"
+                        checked={pagedHistory.length > 0 && selectedHistoryRows.size === pagedHistory.length}
+                        onChange={toggleAllHistoryRows}
+                        className="w-3.5 h-3.5 rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                      />
+                    </TableHead>
+                  )}
                   <TableHead className="font-semibold text-slate-600">Timestamp</TableHead>
                   <TableHead className="font-semibold text-slate-600">Key</TableHead>
                   <TableHead className="font-semibold text-slate-600">Value</TableHead>
+                  {isAdmin && <TableHead className="w-10"></TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {pagedHistory.map((row: any, idx: number) => (
-                  <TableRow key={idx}>
-                    <TableCell className="text-xs whitespace-nowrap">{formatDateTime(row.time || row.bucket)}</TableCell>
-                    <TableCell className="font-medium text-sm">{row.key}</TableCell>
-                    <TableCell className="text-sm">{row.value_num ?? row.value_str ?? row.value ?? String(row.value_bool ?? '-')}</TableCell>
-                  </TableRow>
-                ))}
+                {pagedHistory.map((row: any, idx: number) => {
+                  const rowId = makeRowId(row);
+                  const isRowSelected = selectedHistoryRows.has(rowId);
+                  return (
+                    <TableRow key={idx} className={isRowSelected ? 'bg-red-50/40' : undefined}>
+                      {isAdmin && (
+                        <TableCell>
+                          <input
+                            type="checkbox"
+                            checked={isRowSelected}
+                            onChange={() => toggleHistoryRow(row)}
+                            className="w-3.5 h-3.5 rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                          />
+                        </TableCell>
+                      )}
+                      <TableCell className="text-xs whitespace-nowrap">{formatDateTime(row.time || row.bucket)}</TableCell>
+                      <TableCell className="font-medium text-sm">{row.key}</TableCell>
+                      <TableCell className="text-sm">{row.value_num ?? row.value_str ?? row.value ?? String(row.value_bool ?? '-')}</TableCell>
+                      {isAdmin && (
+                        <TableCell>
+                          <button
+                            onClick={() => handleDeleteHistoryRows([{ time: row.time || row.bucket, key: row.key }])}
+                            className="p-1 text-slate-400 hover:text-red-500 transition-colors"
+                            title="Delete this record"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
             <div className="flex items-center justify-between mt-3">
               <p className="text-xs text-slate-500">{historyData?.meta?.totalPoints ?? historyRows.length} total points</p>
               <div className="flex items-center gap-2">
-                <button onClick={() => setHistoryPage(p => Math.max(1, p - 1))} disabled={historyPage <= 1} className="px-3 py-1 text-xs bg-slate-100 rounded hover:bg-slate-200 disabled:opacity-40">Prev</button>
+                <button onClick={() => { setHistoryPage(p => Math.max(1, p - 1)); setSelectedHistoryRows(new Set()); }} disabled={historyPage <= 1} className="px-3 py-1 text-xs bg-slate-100 rounded hover:bg-slate-200 disabled:opacity-40">Prev</button>
                 <span className="text-xs text-slate-500">Page {historyPage} of {totalHistoryPages}</span>
-                <button onClick={() => setHistoryPage(p => Math.min(totalHistoryPages, p + 1))} disabled={historyPage >= totalHistoryPages} className="px-3 py-1 text-xs bg-slate-100 rounded hover:bg-slate-200 disabled:opacity-40">Next</button>
+                <button onClick={() => { setHistoryPage(p => Math.min(totalHistoryPages, p + 1)); setSelectedHistoryRows(new Set()); }} disabled={historyPage >= totalHistoryPages} className="px-3 py-1 text-xs bg-slate-100 rounded hover:bg-slate-200 disabled:opacity-40">Next</button>
               </div>
             </div>
           </>
@@ -206,6 +386,7 @@ export function TelemetryTab({ entityId, template, telemetryConfig, formatDateTi
                 <TableHead className="font-semibold text-slate-600">Description</TableHead>
                 <TableHead className="font-semibold text-slate-600">Live Value</TableHead>
                 <TableHead className="font-semibold text-slate-600">Last Updated</TableHead>
+                {isAdmin && <TableHead className="w-10"></TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -225,6 +406,19 @@ export function TelemetryTab({ entityId, template, telemetryConfig, formatDateTi
                     <TableCell className="text-xs text-slate-400">
                       {live ? formatDateTime(live.lastUpdated) : '-'}
                     </TableCell>
+                    {isAdmin && (
+                      <TableCell>
+                        {live && (
+                          <button
+                            onClick={() => handleDeleteKeys([tel.fieldName])}
+                            className="p-1 text-slate-400 hover:text-red-500 transition-colors"
+                            title={`Delete "${tel.fieldName}" data`}
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        )}
+                      </TableCell>
+                    )}
                   </TableRow>
                 );
               })}
@@ -239,7 +433,7 @@ export function TelemetryTab({ entityId, template, telemetryConfig, formatDateTi
         </div>
       )}
 
-      {/* Delete Confirmation Dialog */}
+      {/* Delete Time Range Confirmation Dialog */}
       {showDeleteDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowDeleteDialog(false)}>
           <div className="bg-white rounded-xl p-6 w-96 shadow-xl" onClick={e => e.stopPropagation()}>
@@ -252,6 +446,59 @@ export function TelemetryTab({ entityId, template, telemetryConfig, formatDateTi
             <div className="flex justify-end gap-2">
               <button onClick={() => setShowDeleteDialog(false)} className="px-4 py-2 text-sm rounded-lg bg-slate-100 hover:bg-slate-200">Cancel</button>
               <button onClick={handleDelete} disabled={deleting} className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">{deleting ? 'Deleting...' : 'Delete'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete History Records Confirmation Dialog */}
+      {showHistoryDeleteDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowHistoryDeleteDialog(false)}>
+          <div className="bg-white rounded-xl p-6 w-[28rem] shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-slate-800 mb-2">Delete History Record{historyDeleteTarget.length > 1 ? 's' : ''}</h3>
+            <p className="text-sm text-slate-600 mb-4">
+              This will permanently delete <span className="font-semibold">{historyDeleteTarget.length}</span> telemetry history record{historyDeleteTarget.length > 1 ? 's' : ''} from this entity. This action cannot be undone.
+            </p>
+            <div className="mb-4 bg-slate-50 rounded-lg p-3 max-h-48 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="text-slate-500"><th className="text-left pb-1 font-medium">Timestamp</th><th className="text-left pb-1 font-medium">Key</th></tr></thead>
+                <tbody>
+                  {historyDeleteTarget.map((rec, i) => (
+                    <tr key={i} className="border-t border-slate-100">
+                      <td className="py-1 font-mono text-slate-600">{formatDateTime(rec.time)}</td>
+                      <td className="py-1 font-mono text-slate-700">{rec.key}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowHistoryDeleteDialog(false)} className="px-4 py-2 text-sm rounded-lg bg-slate-100 hover:bg-slate-200">Cancel</button>
+              <button onClick={confirmDeleteHistoryRows} disabled={deletingHistoryRows} className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">{deletingHistoryRows ? 'Deleting...' : 'Delete'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Keys Confirmation Dialog */}
+      {showKeyDeleteDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowKeyDeleteDialog(false)}>
+          <div className="bg-white rounded-xl p-6 w-96 shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-slate-800 mb-2">Delete Telemetry Key{keyDeleteTarget.length > 1 ? 's' : ''}</h3>
+            <p className="text-sm text-slate-600 mb-4">
+              This will permanently delete <span className="font-semibold">all data</span> (latest + history) for the selected telemetry key{keyDeleteTarget.length > 1 ? 's' : ''} from this entity. This action cannot be undone.
+            </p>
+            <div className="mb-4 bg-slate-50 rounded-lg p-3 max-h-40 overflow-y-auto">
+              {keyDeleteTarget.map(key => (
+                <div key={key} className="flex items-center gap-2 py-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
+                  <span className="text-sm font-mono text-slate-700">{key}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowKeyDeleteDialog(false)} className="px-4 py-2 text-sm rounded-lg bg-slate-100 hover:bg-slate-200">Cancel</button>
+              <button onClick={confirmDeleteKeys} disabled={deletingKeys} className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">{deletingKeys ? 'Deleting...' : 'Delete'}</button>
             </div>
           </div>
         </div>

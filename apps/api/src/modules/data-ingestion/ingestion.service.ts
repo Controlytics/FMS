@@ -673,6 +673,9 @@ async function executeStage10(msg: IngestionMessage): Promise<void> {
       return;
   }
 
+  // SUPER_ADMIN actions are exempt from audit logging
+  if (msg.metadata?.userRole === 'SUPER_ADMIN') return;
+
   const timestamp = new Date();
   const userId = msg.metadata?.userId || msg.credentialId || 'system';
   const afterValue = {

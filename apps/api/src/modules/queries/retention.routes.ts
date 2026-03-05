@@ -410,4 +410,164 @@ export default async function retentionRoutes(app: FastifyInstance) {
       to,
     };
   });
+
+  // 6. POST /retention/delete-keys — Delete specific keys for an entity
+  app.post('/retention/delete-keys', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    schema: {
+      tags: ['Retention'],
+      summary: 'Delete specific attribute/telemetry keys for an entity',
+      description: 'Delete all data for the specified keys from an entity. For telemetry, deletes from both latest cache and time-series history. For attributes, deletes from time-series history.',
+      body: {
+        type: 'object',
+        required: ['dataType', 'entityId', 'keys', 'confirmed'],
+        properties: {
+          dataType: { type: 'string', enum: ['telemetry', 'attributes'] },
+          entityId: { type: 'string', format: 'uuid' },
+          keys: { type: 'array', items: { type: 'string' }, minItems: 1 },
+          confirmed: { type: 'boolean' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            deleted: { type: 'integer' },
+            deletedLatest: { type: 'integer' },
+            dataType: { type: 'string' },
+            keys: { type: 'array', items: { type: 'string' } },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { dataType, entityId, keys, confirmed } = req.body as {
+      dataType: 'telemetry' | 'attributes';
+      entityId: string;
+      keys: string[];
+      confirmed: boolean;
+    };
+
+    if (confirmed !== true) {
+      return reply.code(400).send({
+        error: 'CONFIRMATION_REQUIRED',
+        message: 'You must set confirmed: true to execute data deletion. This action is irreversible.',
+      });
+    }
+
+    const pool = getTsdbPool();
+    const table = TSDB_TABLE_MAP[dataType];
+
+    // Build parameterized key list: $2, $3, $4, ...
+    const keyParams = keys.map((_, i) => `$${i + 2}`).join(', ');
+    const params: any[] = [entityId, ...keys];
+
+    // Delete from time-series table
+    const result = await pool.query(
+      `DELETE FROM ${table} WHERE entity_id = $1 AND key IN (${keyParams})`,
+      params
+    );
+
+    let deletedLatest = 0;
+
+    // For telemetry, also delete from the latest_telemetry cache table
+    if (dataType === 'telemetry') {
+      const latestResult = await prisma.latestTelemetry.deleteMany({
+        where: { entityId, key: { in: keys } },
+      });
+      deletedLatest = latestResult.count;
+    }
+
+    return {
+      deleted: result.rowCount ?? 0,
+      deletedLatest,
+      dataType,
+      keys,
+    };
+  });
+
+  // 7. POST /retention/delete-records — Delete specific history records by time+key
+  app.post('/retention/delete-records', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    schema: {
+      tags: ['Retention'],
+      summary: 'Delete specific telemetry/attribute history records',
+      description: 'Delete individual history records identified by their exact timestamp and key for a given entity.',
+      body: {
+        type: 'object',
+        required: ['dataType', 'entityId', 'records', 'confirmed'],
+        properties: {
+          dataType: { type: 'string', enum: ['telemetry', 'attributes'] },
+          entityId: { type: 'string', format: 'uuid' },
+          records: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['time', 'key'],
+              properties: {
+                time: { type: 'string', format: 'date-time' },
+                key: { type: 'string' },
+              },
+            },
+            minItems: 1,
+            maxItems: 500,
+          },
+          confirmed: { type: 'boolean' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            deleted: { type: 'integer' },
+            dataType: { type: 'string' },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { dataType, entityId, records, confirmed } = req.body as {
+      dataType: 'telemetry' | 'attributes';
+      entityId: string;
+      records: Array<{ time: string; key: string }>;
+      confirmed: boolean;
+    };
+
+    if (confirmed !== true) {
+      return reply.code(400).send({
+        error: 'CONFIRMATION_REQUIRED',
+        message: 'You must set confirmed: true to execute data deletion. This action is irreversible.',
+      });
+    }
+
+    const table = TSDB_TABLE_MAP[dataType];
+    if (!table) {
+      return reply.code(400).send({ error: 'INVALID_DATA_TYPE', message: `Invalid data type: ${dataType}` });
+    }
+
+    const pool = getTsdbPool();
+
+    // Build a single DELETE with (time, key) pairs: WHERE entity_id = $1 AND (time = $2 AND key = $3) OR (time = $4 AND key = $5) ...
+    const conditions: string[] = [];
+    const params: any[] = [entityId];
+    let paramIdx = 2;
+
+    for (const rec of records) {
+      conditions.push(`(time = $${paramIdx} AND key = $${paramIdx + 1})`);
+      params.push(new Date(rec.time), rec.key);
+      paramIdx += 2;
+    }
+
+    const result = await pool.query(
+      `DELETE FROM ${table} WHERE entity_id = $1 AND (${conditions.join(' OR ')})`,
+      params
+    );
+
+    return {
+      deleted: result.rowCount ?? 0,
+      dataType,
+    };
+  });
 }

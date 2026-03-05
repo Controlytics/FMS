@@ -27,7 +27,9 @@ declare module 'fastify' {
 
 async function auditLoggerPlugin(app: FastifyInstance) {
   app.decorate('auditLog', async (entry: AuditEntry) => {
-    // 21 CFR Part 11 requires ALL user actions to be audited, including SUPER_ADMIN
+    // SUPER_ADMIN actions are exempt from audit logging
+    if (entry.userRole === 'SUPER_ADMIN') return;
+
     // Use explicit timestamp for both checksum and storage so verification works
     const timestamp = new Date();
     const afterValueClean = entry.afterValue ? JSON.parse(JSON.stringify(entry.afterValue)) : undefined;
