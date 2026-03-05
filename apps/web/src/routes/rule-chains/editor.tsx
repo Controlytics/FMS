@@ -295,6 +295,50 @@ function PaletteNode({
 }
 
 // ---------------------------------------------------------------------------
+// Rule chain select field — fetches chains list via SWR
+// ---------------------------------------------------------------------------
+
+function RuleChainSelectField({
+  fieldKey,
+  label,
+  description,
+  value,
+  onChange,
+  currentChainId,
+}: {
+  fieldKey: string;
+  label: string;
+  description?: string;
+  value: string;
+  onChange: (val: string) => void;
+  currentChainId: string;
+}) {
+  const { data: chainsRes } = useSWR<{ data: Array<{ id: string; name: string; isRoot: boolean }> }>(
+    '/api/rule-chains?limit=100',
+  );
+  const chains = (chainsRes?.data ?? []).filter((c) => c.id !== currentChainId);
+
+  return (
+    <div>
+      <label className="text-xs font-medium text-slate-600 block mb-1">{label}</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="flex h-9 w-full rounded-xl border-2 border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-all"
+      >
+        <option value="">Select a rule chain...</option>
+        {chains.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}{c.isRoot ? ' (Root)' : ''}
+          </option>
+        ))}
+      </select>
+      {description && <p className="text-[10px] text-slate-400 mt-0.5">{description}</p>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Node config panel
 // ---------------------------------------------------------------------------
 
@@ -595,6 +639,20 @@ function NodeConfigPanel({
                         );
                       }
 
+                      if (fieldType === 'rule-chain-select') {
+                        return (
+                          <RuleChainSelectField
+                            key={key}
+                            fieldKey={key}
+                            label={label}
+                            description={description}
+                            value={(localConfig[key] as string) ?? ''}
+                            onChange={(val) => updateConfigField(key, val)}
+                            currentChainId={chainId}
+                          />
+                        );
+                      }
+
                       if (fieldType === 'select' && Array.isArray(fieldDef?.options)) {
                         return (
                           <div key={key}>
@@ -865,6 +923,7 @@ function AddNodeDialog({
   const { toast } = useToast();
   const [selectedType, setSelectedType] = useState('');
   const [nodeName, setNodeName] = useState('');
+  const [initialConfig, setInitialConfig] = useState<Record<string, any>>({});
   const [adding, setAdding] = useState(false);
 
   useEffect(() => {
@@ -872,6 +931,7 @@ function AddNodeDialog({
       setSelectedType(prefillType ?? '');
       const nt = nodeTypes.find((t) => t.type === prefillType);
       setNodeName(nt ? nt.name : '');
+      setInitialConfig({});
     }
   }, [open, prefillType, nodeTypes]);
 
@@ -891,7 +951,7 @@ function AddNodeDialog({
       const result = await apiClient.post<RuleNode>(`/api/rule-chains/${chainId}/nodes`, {
         type: selectedType,
         name: nodeName.trim(),
-        configuration: {},
+        configuration: initialConfig,
         debugEnabled: false,
         positionX: Math.round(dropPosition.x),
         positionY: Math.round(dropPosition.y),
@@ -936,6 +996,7 @@ function AddNodeDialog({
                 setSelectedType(val);
                 const nt = nodeTypes.find((t) => t.type === val);
                 if (nt) setNodeName(nt.name);
+                setInitialConfig({});
               }}
               className="flex h-11 w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 hover:border-slate-300 transition-all"
             >
@@ -960,6 +1021,30 @@ function AddNodeDialog({
               onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             />
           </div>
+
+          {/* Config schema fields for selected type */}
+          {selectedType && (() => {
+            const nt = nodeTypes.find((t) => t.type === selectedType);
+            if (!nt?.configSchema || Object.keys(nt.configSchema).length === 0) return null;
+            return Object.entries(nt.configSchema).map(([key, schemaDef]) => {
+              const fieldDef = schemaDef as any;
+              const fieldType = fieldDef?.type ?? 'string';
+              if (fieldType === 'rule-chain-select') {
+                return (
+                  <RuleChainSelectField
+                    key={key}
+                    fieldKey={key}
+                    label={fieldDef?.label ?? key}
+                    description={fieldDef?.description}
+                    value={(initialConfig[key] as string) ?? ''}
+                    onChange={(val) => setInitialConfig((prev) => ({ ...prev, [key]: val }))}
+                    currentChainId={chainId}
+                  />
+                );
+              }
+              return null;
+            });
+          })()}
 
           {/* Description of selected type */}
           {selectedType && (() => {
@@ -1177,8 +1262,9 @@ export function RuleChainEditorPage() {
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState([]);
 
-  // Selected node id (from flow canvas)
+  // Selected node / edge id (from flow canvas)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
 
   // Sync chain data -> React Flow
   useEffect(() => {
@@ -1198,6 +1284,19 @@ export function RuleChainEditorPage() {
       })),
     );
   }, [selectedNodeId]);
+
+  // Highlight selected edge
+  useEffect(() => {
+    setRfEdges((eds) =>
+      eds.map((e) => ({
+        ...e,
+        style: e.id === selectedEdgeId
+          ? { stroke: '#ef4444', strokeWidth: 2.5 }
+          : { stroke: '#64748b', strokeWidth: 1.5 },
+        animated: e.id === selectedEdgeId,
+      })),
+    );
+  }, [selectedEdgeId]);
 
   // ---------------------------------------------------------------------------
   // Local chain metadata state (name, active)
@@ -1345,13 +1444,32 @@ export function RuleChainEditorPage() {
   const onNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
       setSelectedNodeId(node.id);
+      setSelectedEdgeId(null);
     },
     [],
   );
 
   const onPaneClick = useCallback(() => {
     setSelectedNodeId(null);
+    setSelectedEdgeId(null);
   }, []);
+
+  const onEdgeClick = useCallback((_event: React.MouseEvent, edge: Edge) => {
+    setSelectedEdgeId(edge.id);
+    setSelectedNodeId(null);
+  }, []);
+
+  const handleDeleteSelectedEdge = useCallback(async () => {
+    if (!selectedEdgeId || !chainId) return;
+    try {
+      await apiClient.delete(`/api/rule-chains/${chainId}/connections/${selectedEdgeId}`);
+      toast.info('Connection Removed', 'Edge has been deleted.');
+      setSelectedEdgeId(null);
+      mutateChain();
+    } catch (err: any) {
+      toast.error('Delete Failed', err?.message || 'Failed to delete connection.');
+    }
+  }, [selectedEdgeId, chainId, mutateChain, toast]);
 
   // ---------------------------------------------------------------------------
   // Node position save (after drag)
@@ -1477,21 +1595,33 @@ export function RuleChainEditorPage() {
 
   const doSave = useCallback(
     async (password?: string) => {
-      if (!chainId) return;
+      if (!chainId || !chain) return;
       setSaving(true);
 
-      // Collect current node positions from React Flow
-      const nodeUpdates = rfNodes.map((n) => ({
+      // Build position lookup from current React Flow state
+      const posMap = new Map(rfNodes.map((n) => [n.id, { x: Math.round(n.position.x), y: Math.round(n.position.y) }]));
+
+      // Build full nodes array: backend data + updated positions from canvas
+      const nodes = chain.nodes.map((n) => ({
         id: n.id,
-        positionX: Math.round(n.position.x),
-        positionY: Math.round(n.position.y),
+        type: n.type,
+        name: n.name,
+        configuration: n.configuration,
+        positionX: posMap.get(n.id)?.x ?? n.positionX,
+        positionY: posMap.get(n.id)?.y ?? n.positionY,
       }));
 
-      const payload: any = {
-        name: localName,
-        isActive: localActive,
+      // Build connections from backend state
+      const connections = chain.connections.map((c) => ({
+        fromNodeId: c.fromNodeId,
+        toNodeId: c.toNodeId,
+        label: c.label,
+      }));
+
+      const payload = {
+        nodes,
+        connections,
         firstRuleNodeId: firstNodeId,
-        nodePositions: nodeUpdates,
       };
 
       try {
@@ -1505,7 +1635,7 @@ export function RuleChainEditorPage() {
         setSaving(false);
       }
     },
-    [chainId, localName, localActive, firstNodeId, rfNodes, mutateChain, toast],
+    [chainId, chain, localName, localActive, firstNodeId, rfNodes, mutateChain, toast],
   );
 
   const handleSave = useCallback(async () => {
@@ -1851,6 +1981,7 @@ export function RuleChainEditorPage() {
             onConnect={onConnect}
             onNodeClick={onNodeClick}
             onPaneClick={onPaneClick}
+            onEdgeClick={onEdgeClick}
             onDrop={onDrop}
             onDragOver={onDragOver}
             onNodeDragStop={onNodeDragStop}
@@ -1893,6 +2024,29 @@ export function RuleChainEditorPage() {
               maskColor="rgba(248, 250, 252, 0.7)"
               className="!rounded-xl shadow-lg overflow-hidden border border-slate-200"
             />
+
+            {/* Floating edge delete button */}
+            {selectedEdgeId && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 16,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  zIndex: 10,
+                }}
+              >
+                <button
+                  onClick={handleDeleteSelectedEdge}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-medium shadow-lg hover:bg-red-600 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Delete Connection
+                </button>
+              </div>
+            )}
 
             {/* Empty state panel */}
             {rfNodes.length === 0 && (

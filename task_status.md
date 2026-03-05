@@ -4,12 +4,14 @@
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| Turborepo Monorepo | Done | `apps/api`, `apps/web`, `packages/shared` |
-| Docker Compose | Done | PostgreSQL 16 with ltree + pgcrypto |
-| Prisma Schema | Done | 15 models, migrations applied |
-| Database Seed | Done | Default admin, system configs, field IDs |
-| EC2 Deployment | Done | API :3000, nginx frontend, PostgreSQL :5432 |
+| Turborepo Monorepo | Done | `apps/api`, `apps/web`, `packages/shared`, `packages/db`, `packages/queue` |
+| Docker Compose | Done | PostgreSQL 16 + TimescaleDB + Redis + EMQX |
+| Prisma Schema | Done | 30 models, migrations applied |
+| Database Seed | Done | Default admin, system configs, field IDs, 33 ingestion configs, 28 help articles |
+| EC2 Deployment | Done | API :3000, nginx frontend, PostgreSQL :5432, Redis :6379, EMQX :1883 |
 | PM2 Process Manager | Done | `digilog-api` cluster mode |
+| GitHub Actions CI/CD | Done | PostgreSQL 15, Redis 7, Node 20, 1344 tests |
+| TimescaleDB | Done | 5 hypertables (telemetry, alarms, events, connectivity, DLQ) |
 
 ## Backend (`apps/api`) — Fastify 5
 
@@ -40,7 +42,7 @@
 | **Rule Chains** (14) | CRUD + nodes + connections + versions + activate/deactivate + debug | Done | Monolithic routes |
 | **UNS** (6) | tree, entity mapping, move, search | Done | Monolithic routes |
 | **Telemetry Queries** (7) | latest, timeseries, keys, attributes, attribute history, checklists | Done | Monolithic routes |
-| **Alarms** (4) | list, entity alarms, acknowledge, clear | Done | Monolithic routes |
+| **Alarms** (5) | list, entity alarms, acknowledge, clear, manual clear (MANUALLY_CLEARED) | Done | Monolithic routes |
 | **Export** (5) | telemetry, checklists, alarms, attributes CSV/JSON + status | Done | Monolithic routes |
 | **Retention** (4) | config GET/PUT, archive, execute | Done | Monolithic routes |
 | **Connectivity** (6) | status, test, snippets, token generate/revoke, history | Done | Monolithic routes |
@@ -110,8 +112,12 @@
 | `/notifications` | Notifications list | Done |
 | `/audit` | Audit trail table with filters + detail dialog | Done |
 | `/rule-chains` | Rule Chain management (table, CRUD, pagination) | Done |
-| `/alarms` | Alarm Dashboard (summary cards, filterable table, acknowledge/clear) | Done |
+| `/rule-chains/:id` | Rule Chain Editor (React Flow canvas, 28 node types) | Done |
+| `/alarms` | Alarm Dashboard (role-based columns, MANUALLY_CLEARED status) | Done |
 | `/config/uns` | UNS Config (tree, wildcard search, detail panel, path override) | Done |
+| `/config/alarm-columns` | Alarm Column Visibility per role (11 columns) | Done |
+| `/debug` | Pipeline Debug Traces | Done |
+| `/checklist/:entityId` | Checklist Submission (14 question types) | Done |
 
 ### Key Frontend Features
 - Copy/paste/cut/drag disabled on password fields (21 CFR Part 11)
@@ -190,14 +196,14 @@
 | `lib/password.test.ts` | Password hashing | Passing |
 | **Total** | **274 tests** | **All passing** |
 
-### Phase K Summary
+### Test Suite Summary (Phase K + v3.0)
 | Metric | Value |
 |--------|-------|
-| Total tests | 425 |
-| Test files | 18 |
-| New test files (Phase K) | 13 |
+| Total tests | 1,344 |
+| Test files | 83+ |
 | Packages with tests | 3 (packages/shared, packages/db, apps/api) |
-| Status | COMPLETE |
+| CI/CD | GitHub Actions (PostgreSQL 15, Redis 7, Node 20) |
+| Status | COMPLETE — 0 failures |
 
 ### Test Infrastructure
 - Vitest with `globals: true`, `environment: 'node'`
@@ -276,12 +282,11 @@ Fix Fastify stripping `checklistSchema` from GET-by-ID responses due to missing 
 
 ## What's NOT Done (Future Phases)
 - API refactoring: Users, Roles, Backup, Notifications, Audit modules (pending Routes → Services → Repositories)
-- Frontend refactoring: Extract sub-components/hooks from large page files
 - Electronic signatures (e-sign with re-authentication)
 - Logbook entries / digital forms
 - HTTPS/TLS certificates
-- CI/CD pipeline
-- Phase K: Testing & Documentation — **COMPLETE**
+- Reports & Exports (PDF/Excel)
+- Frontend component tests (Vitest + React Testing Library)
 
 ---
 
@@ -359,13 +364,14 @@ Fix Fastify stripping `checklistSchema` from GET-by-ID responses due to missing 
 | Phase A: Infrastructure | Docker, TimescaleDB, 16 Prisma models, packages/db, packages/queue | Done |
 | Phase B: Transport | MQTT auth, MQTT client, WS handler, HTTP data ingestion, RPC | Done |
 | Phase C: Pipeline | BullMQ worker, 11 pipeline stages, telemetry batcher, DLQ, maintenance | Done |
-| Phase D: Rule Chain Engine | 26 node types, BFS execution, debug recorder, 14 API endpoints | Done |
+| Phase D: Rule Chain Engine | 28 node types, BFS execution, sandboxed VM, sub-chain delegation, 14 endpoints | Done |
 | Phase E: UNS | ISA-95 path builder, cascade moves, wildcard search, 6 endpoints | Done |
-| Phase F: Queries & Export | Telemetry, alarms, export, retention, 20 endpoints | Done |
+| Phase F: Queries & Export | Telemetry, alarms (5 endpoints), export, retention, 21 endpoints | Done |
 | Phase G-J: Integration | Connectivity, QR codes, help articles, 3 frontend pages | Done |
-| Phase K: Testing & Docs | 425 total tests, 18 test files, 3 packages (shared, db, api) | Done |
+| Phase K: Testing & Docs | 1,344 total tests, 83+ test files, 3 packages (shared, db, api) | Done |
+| v3.0: Security & Refactoring | 8 security fixes, CI/CD, TimescaleDB, component extraction, RBAC fixes | Done |
 
 ---
 
 ## Summary
-**Phase 1 is code-complete and deployed. Phases B through K are complete.** All User Management, Entity Management, Configuration, and Data Ingestion features are built end-to-end with ~138 API endpoints across 31 frontend pages. The app is running on EC2 at `43.205.32.23` via PM2 + nginx. Entity Management module (assets), Auth, and Config have been refactored to Routes → Services → Repositories. Test coverage includes 425 automated tests across 18 test files in 3 packages (packages/shared, packages/db, apps/api). Phase K added 13 new test files covering E2E API tests, data ingestion unit tests, and telemetry batcher tests. Checklist feature supports 14 question types on entity templates. Phases B-J added data ingestion (MQTT + HTTP + WebSocket), rule chain engine (26 node types), UNS (ISA-95 paths), telemetry queries, alarms, export (CSV/JSON), retention management, connectivity tracking, QR codes, and help articles. Documentation governance enforcement active as of v2.1.2 — all 7 core documents auto-synchronized. 12 bug Git issues created (#2-#13), 11 closed, 1 open.
+**All phases complete (Phase 1 through K + v3.0).** The platform has ~145+ API endpoints across 34+ frontend pages, 30 Prisma models, and 1,344 automated tests (0 failures) across 83+ test files. Running on EC2 at `3.108.185.106` via PM2 + nginx. v3.0 added 8 security fixes, GitHub Actions CI/CD, TimescaleDB (5 hypertables), component extraction (Entity Explorer 2081→386 lines), and expanded test suite. Features include: data ingestion (MQTT + HTTP + WebSocket), rule chain engine (28 node types, sandboxed VM, sub-chain delegation), UNS (ISA-95), alarm management (deduplication, role-based columns, MANUALLY_CLEARED), telemetry queries, export (CSV/JSON), retention management, connectivity tracking, QR codes, and help articles. Documentation governance enforcement active — all 7 core documents auto-synchronized.

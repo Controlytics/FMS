@@ -71,6 +71,16 @@ async function authPlugin(app: FastifyInstance) {
         return reply.code(401).send({ error: 'SESSION_EXPIRED', message: 'Session expired' });
       }
 
+      // Enforce absolute session timeout (max 24h regardless of activity)
+      const MAX_ABSOLUTE_SESSION_MS = 24 * 60 * 60 * 1000;
+      if (Date.now() - session.createdAt.getTime() > MAX_ABSOLUTE_SESSION_MS) {
+        await prisma.session.update({
+          where: { id: session.id },
+          data: { isActive: false, terminationReason: 'absolute_timeout' },
+        });
+        return reply.code(401).send({ error: 'SESSION_EXPIRED', message: 'Session exceeded maximum duration. Please log in again.' });
+      }
+
       // Check user status
       const user = await prisma.user.findUnique({ where: { id: payload.sub } });
       if (!user || user.status !== 'ENABLED') {

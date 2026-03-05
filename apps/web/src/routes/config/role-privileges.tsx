@@ -17,6 +17,10 @@ const CATEGORY_COLORS: Record<string, { bg: string; border: string; text: string
   'Entity Management': { bg: 'from-teal-500/10 to-emerald-500/10', border: 'border-teal-200', text: 'text-teal-700', icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10' },
 };
 
+// Fallback for any category not explicitly styled — prevents crash when new categories are added
+const DEFAULT_CATEGORY_COLOR = { bg: 'from-slate-500/10 to-gray-500/10', border: 'border-slate-200', text: 'text-slate-700', icon: 'M4 6h16M4 12h16M4 18h16' };
+const getCategoryColor = (category: string) => CATEGORY_COLORS[category] ?? DEFAULT_CATEGORY_COLOR;
+
 const DEFAULT_ROLE_ICON = 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z';
 
 export function RolePrivilegesPage() {
@@ -334,7 +338,7 @@ export function RolePrivilegesPage() {
           ) : (
             <div className="divide-y divide-slate-100">
               {Object.entries(FEATURE_PRIVILEGE_CATEGORIES).map(([category, features]) => {
-                const categoryConfig = CATEGORY_COLORS[category];
+                const categoryConfig = getCategoryColor(category);
                 const enabledInCategory = features.filter(f => permissions[f.id]).length;
 
                 return (

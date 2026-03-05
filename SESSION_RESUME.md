@@ -1,8 +1,8 @@
 # DigiLog — Session Resume Point
 
-**Last Updated:** 2026-02-26
-**Branch:** `feature/user-id-config`
-**Status:** ALL PHASES COMPLETE (A through K). Data Ingestion & Integration Layer fully built and tested. ~138 total API endpoints, 31 frontend pages, 425 unit tests across 18 files in 3 packages. All 5 packages build successfully.
+**Last Updated:** 2026-03-05
+**Branch:** `DataIngestion`
+**Status:** ALL PHASES COMPLETE (A through K) + v3.0 (Security, CI/CD, Refactoring, TimescaleDB). ~145+ API endpoints, 34+ frontend pages, 1344 tests (0 failures) across 83+ test files. GitHub Actions CI/CD. All 5 packages build successfully.
 
 ---
 
@@ -17,7 +17,8 @@
 | E | UNS (ISA-95 paths, wildcard, cascade moves) | 6 | modules/uns/*.ts (3 files) |
 | F | Queries & Export (telemetry, alarms, retention) | 20 | modules/queries/*.ts (5 files) |
 | G-J | Connectivity, QR, Help + Frontend pages | 16 | modules/connectivity, qr-code, help + 3 frontend pages |
-| K | Testing & Documentation (425 unit tests) | 0 | 18 test files across packages/shared, packages/db, apps/api |
+| K | Testing & Documentation (425→1344 tests) | 0 | 83+ test files across packages/shared, packages/db, apps/api |
+| v3.0 | Security fixes (8), CI/CD, TimescaleDB, refactoring | +7 | 8 security fixes, GitHub Actions, 5 hypertables, component extraction |
 
 ---
 
@@ -118,12 +119,16 @@
 | @digilog/api | OK | Fastify backend |
 | @digilog/web | OK | React frontend |
 
-### API Endpoints: ~138 (82 original + ~56 new)
+### API Endpoints: ~145+ (82 original + ~56 Phase B-J + ~7 recent)
 
-### Frontend Pages: 31 (28 original + 3 new)
-- `/rule-chains` — Rule Chains management (SUPER_ADMIN/ADMIN)
-- `/alarms` — Alarm Dashboard (all authenticated)
+### Frontend Pages: 34+ (28 original + 6 new)
+- `/rule-chains` — Rule Chains management (RULE_CHAIN_VIEW)
+- `/rule-chains/:id` — Rule Chain Editor (RULE_CHAIN_MANAGE)
+- `/alarms` — Alarm Dashboard (ALARM_VIEW, role-based column visibility)
 - `/config/uns` — UNS Configuration (SUPER_ADMIN/ADMIN)
+- `/config/alarm-columns` — Alarm Column Visibility (SUPER_ADMIN)
+- `/debug` — Debug Traces (READ_DEBUG_TRACE)
+- `/checklist/:entityId` — Checklist Submission (Protected)
 
 ---
 
@@ -158,21 +163,20 @@ npm run build                 # All 5 packages should compile
 - **Prisma mock:** `vi.mock('@digilog/db')` with `mockDeep<PrismaClient>`
 - **Run command:** `npx vitest run` (per-package) or `npm run test` (if configured)
 
-### What Was Tested (425 tests)
+### What Was Tested (1344 tests, 0 failures)
 - Message normalizer, entity resolver, connectivity tracker, ingestion config service
 - Pipeline tracer, DLQ manager, full ingestion pipeline stages (ingestion.service)
 - UNS path builder (ISA-95 path generation)
 - Node registry, debug recorder, default chain builder, rule engine (BFS execution)
 - Telemetry batcher (multi-row INSERT batching)
 - Shared Zod schemas (assets, auth, config, users) and audit template types
+- Checklist submission E2E, checklist answers (14 types), checklist normalizer
+- E2E tests: auth, users, roles, config, audit, notifications, health, entities, connectivity
 
-### Frontend Pages NOT Yet Built (from Phase specs, lower priority)
-- Rule Chain Visual Editor (React Flow canvas) — Phase G
-- Connectivity tab in Entity Explorer — Phase H
-- QR generator UI — Phase H
-- Checklist form / Mobile-first checklist — Phase I
-- Help panel sidebar — Phase J
-- Alarm badge component — Phase J
+### v3.0 Component Refactoring (Completed 2026-03-01)
+- Entity Explorer: 2081→386 lines (6 dialog components extracted to `components/dialogs/`)
+- Entity Detail Panel: 2187→763 lines (6 tab components extracted to `components/tabs/`)
+- New hooks: `use-asset-mutations.ts` (448 lines, 10 CRUD handlers), `use-asset-tree-logic.ts` (116 lines)
 
 ---
 
@@ -196,4 +200,5 @@ npm run build                 # All 5 packages should compile
 | Checklist | 2026-02-21 | 14 question types, audit descriptions, tests |
 | v2.1.2 | 2026-02-25 | Documentation governance, Git issue lifecycle |
 | Phases A–J | 2026-02-25 | Data Ingestion & Integration Layer (all backend + 3 frontend pages) |
-| **Phase K** | **2026-02-26** | **425 unit tests across 18 files in 3 packages — ALL PHASES COMPLETE** |
+| Phase K | 2026-02-26 | 425 unit tests across 18 files in 3 packages |
+| **v3.0** | **2026-03-01–02** | **Security (8 fixes), CI/CD, TimescaleDB hypertables, component refactoring, RBAC fixes, checklist fix, 1344 tests** |

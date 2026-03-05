@@ -3,7 +3,7 @@ import { auditLog } from '../../lib/audit.js';
 import { NotFoundError, ValidationError } from '../../lib/errors.js';
 import { configRepository } from './config.repository.js';
 import { getActionReauthConfig, invalidateReauthCache, isReauthRequired } from '../../lib/reauth-check.js';
-import { getDefaultTemplates, FEATURE_TO_PERMISSION_MAP, FEATURE_PRIVILEGES } from '@digilog/shared';
+import { getDefaultTemplates, FEATURE_TO_PERMISSION_MAP, FEATURE_PRIVILEGES, ALL_ALARM_COLUMN_IDS } from '@digilog/shared';
 import { validateUserId } from '../../lib/user-id-validator.js';
 import { prisma } from '../../lib/prisma.js';
 
@@ -270,5 +270,39 @@ export const configService = {
     if (!userId) throw new ValidationError('User ID is required');
     const result = await validateUserId(userId);
     return result.valid ? { valid: true } : { valid: false, errors: result.errors };
+  },
+
+  // Alarm Columns Configuration
+  async getAlarmColumns(): Promise<Record<string, string[]>> {
+    const config = await configRepository.getSystemConfig('alarm-columns');
+    return (config?.configValue as Record<string, string[]>) ?? {};
+  },
+
+  async updateAlarmColumns(data: Record<string, string[]>, ctx: RequestContext) {
+    const existing = await configRepository.getSystemConfig('alarm-columns');
+    const beforeValue = existing?.configValue;
+
+    await configRepository.upsertSystemConfig('alarm-columns', data, 'display', false, ctx.userId);
+
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'CONFIG_CHANGED',
+      targetType: 'config', targetId: 'alarm-columns',
+      beforeValue: beforeValue as any, afterValue: data,
+      signatureMeaning: 'Alarm column visibility configuration modified',
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+
+    return data;
+  },
+
+  async getMyAlarmColumns(username: string): Promise<{ columns: string[] }> {
+    const user = await configRepository.findUserByUsername(username);
+    if (!user) return { columns: ALL_ALARM_COLUMN_IDS };
+
+    const config = await configRepository.getSystemConfig('alarm-columns');
+    const columnMap = (config?.configValue as Record<string, string[]>) ?? {};
+    const roleColumns = columnMap[user.role];
+
+    return { columns: roleColumns ?? ALL_ALARM_COLUMN_IDS };
   },
 };

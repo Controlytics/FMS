@@ -1,6 +1,6 @@
 # DigiLog — Business Context
 
-**Last updated:** 2026-02-25
+**Last updated:** 2026-03-05
 
 ---
 
@@ -224,6 +224,51 @@ Custom roles can be created with granular permission combinations for specialize
 - Restore from backup with validation
 - Backup integrity verification before restore
 
+### 6.7 Data Ingestion & IoT Integration
+
+**Business need:** Capture real-time sensor data from equipment automatically, replacing manual readings and enabling continuous monitoring.
+
+**What it does:**
+- **MQTT transport** — devices publish telemetry via standard MQTT protocol (EMQX broker)
+- **HTTP transport** — REST API for telemetry data submission
+- **WebSocket** — Real-time bidirectional streaming for dashboards
+- **Processing pipeline** — 11-stage BullMQ pipeline: validation, enrichment, transformation, persistence, rule evaluation, alarm check, notification dispatch, aggregation, forwarding, DLQ, tracing
+- **TimescaleDB** — Time-series database with 5 hypertables for efficient telemetry storage and queries
+- **Dead Letter Queue** — Failed messages captured for analysis and replay
+
+### 6.8 Rule Chain Engine
+
+**Business need:** Automate decision-making based on incoming data — trigger alarms, transform values, route data, without custom code.
+
+**What it does:**
+- **28 node types** — filter, transform, switch, delay, aggregate, enrichment, action, external integration
+- **Visual editor** — React Flow-based drag-and-drop rule chain builder
+- **Sandboxed execution** — User scripts run in secure VM contexts (no access to system resources)
+- **Sub-chain delegation** — Rule chains can call other chains for modular automation
+- **Automatic alarm management** — Each alarm rule creates both create-alarm and clear-alarm paths
+
+### 6.9 Alarm Management
+
+**Business need:** Detect and alert when equipment parameters go out of range, with auditable acknowledgment and clearance workflows.
+
+**What it does:**
+- **4 alarm statuses** — ACTIVE, ACKNOWLEDGED, CLEARED, MANUALLY_CLEARED
+- **3 severity levels** — WARNING, ALARM, CRITICAL
+- **Role-based column visibility** — Admins control which alarm columns each role can see
+- **Reauth-protected actions** — Alarm acknowledgment and clearance require re-authentication
+- **Audit logged** — All alarm actions generate audit trail entries
+- **Enriched display** — Alarm list includes entity names, threshold values, and generated/cleared values
+
+### 6.10 Unified Namespace (UNS)
+
+**Business need:** Organize all data sources in a standardized ISA-95 hierarchy for consistent cross-system data access.
+
+**What it does:**
+- **ISA-95 paths** — Enterprise/Site/Area/Line/Cell path structure
+- **Auto-mapping** — Automatically generates UNS paths from entity hierarchy
+- **Wildcard search** — Path-based queries for namespace traversal
+- **Cascade moves** — Moving a node cascades to all descendants
+
 ---
 
 ## 7. Regulatory Compliance Map
@@ -271,23 +316,25 @@ Custom roles can be created with granular permission combinations for specialize
 ### Current Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    EC2 Instance                       │
-│                                                       │
-│  ┌─────────┐   ┌──────────┐   ┌──────────────────┐  │
-│  │  nginx   │──▶│ Fastify  │──▶│  PostgreSQL 16   │  │
-│  │ (port 80)│   │ API      │   │  (port 5432)     │  │
-│  │          │   │ (port    │   │                   │  │
-│  │ Serves   │   │  3000)   │   │  digilog_db      │  │
-│  │ React    │   │          │   │  15 tables        │  │
-│  │ SPA from │   │ PM2      │   │  pgcrypto ext     │  │
-│  │ /dist    │   │ managed  │   │                   │  │
-│  └─────────┘   └──────────┘   └──────────────────┘  │
-│                                                       │
-│  Browser ──▶ nginx ──▶ /api/* ──▶ Fastify ──▶ Prisma │
-│              │                                        │
-│              └──▶ /* ──▶ React SPA (static files)    │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                    EC2 Instance (t3.large)                     │
+│                                                                │
+│  ┌─────────┐   ┌──────────┐   ┌──────────────────────────┐  │
+│  │  nginx   │──▶│ Fastify  │──▶│  PostgreSQL 16            │  │
+│  │ (port 80)│   │ API      │   │  digilog_db (30 tables)   │  │
+│  │ React SPA│   │ (3000)   │   │  digilog_tsdb (TimescaleDB)│  │
+│  │ /dist    │   │ PM2      │   └──────────────────────────┘  │
+│  └─────────┘   └──────────┘                                   │
+│                                                                │
+│  ┌──────────┐  ┌──────────┐  ┌────────────────────────────┐  │
+│  │  EMQX    │  │ Redis 7  │  │  BullMQ Workers            │  │
+│  │  MQTT    │  │ (6379)   │  │  - Ingestion pipeline      │  │
+│  │  Broker  │  │          │  │  - Maintenance              │  │
+│  └──────────┘  └──────────┘  └────────────────────────────┘  │
+│                                                                │
+│  Devices ──▶ MQTT/HTTP ──▶ Pipeline ──▶ Rule Engine ──▶ Alarms│
+│  Browser ──▶ nginx ──▶ /api/* ──▶ Fastify ──▶ Prisma/TSDB    │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ### Scalability Considerations
@@ -378,46 +425,63 @@ DigiLog is positioned for **small-to-medium regulated manufacturers** (50-500 em
 
 ---
 
-## 11. Roadmap — Future Business Capabilities
+## 11. Roadmap — Business Capabilities
+
+### Completed Phases
+
+| Phase | Capability | Status |
+|-------|-----------|--------|
+| **Phase 1** | Core Application (User Management, Entity Management, Config, Audit) | Done (v1.0.0) |
+| **Phase 2** | Entity Enhancements (Connection limits, tree diagram, checklists, toast system) | Done |
+| **Phase A** | Data Ingestion Infrastructure (Docker, TimescaleDB, Prisma models, shared types, seed data) | Done |
+| **Phase B** | Transport Layer (MQTT auth, HTTP ingestion, WebSocket, entity resolver) | Done |
+| **Phase C** | Ingestion Pipeline (BullMQ worker, 11 pipeline stages, DLQ, connectivity tracker) | Done |
+| **Phase D** | Rule Chain Engine (28 node types, BFS execution, debug recorder, sandboxed scripts) | Done |
+| **Phase E** | Unified Namespace (ISA-95 paths, wildcard search, cascade moves) | Done |
+| **Phase F** | Queries & Export (telemetry, alarms, export, retention routes) | Done |
+| **Phase G-J** | Connectivity, QR Codes, Help Articles, Rule Chain Editor, Alarm Dashboard, UNS Config | Done |
+| **Phase K** | Testing & Documentation (1344 tests, 36-page docs, CI/CD pipeline) | Done |
+
+### Upcoming Phases
 
 | Phase | Capability | Business Value |
 |-------|-----------|----------------|
-| **Phase 3** | Electronic Signatures (e-sign with re-authentication) | Formal approval workflows for deviations, change controls, batch release |
-| **Phase 4** | Logbook Entries / Digital Forms | Replace paper logbooks with structured, timestamped digital entries tied to entities |
-| **Phase 5** | Data Point Ingestion (MQTT/OPC-UA) | Real-time telemetry from sensors and PLCs — automated data capture |
-| **Phase 6** | Reports & Exports | PDF/Excel audit reports, entity status reports, compliance dashboards |
-| **Phase 7** | HTTPS/TLS | Secure communications for multi-site deployments |
-| **Phase 8** | CI/CD Pipeline | Automated testing and deployment for validated environments |
-| **Phase 9** | Multi-tenant | Single deployment serving multiple facilities with data isolation |
+| **v3.1** | Electronic Signatures (e-sign with re-authentication) | Formal approval workflows for deviations, change controls, batch release |
+| **v3.2** | Reports & Dashboards | PDF/Excel audit reports, entity status reports, compliance dashboards |
+| **v4.0** | HTTPS/TLS + Multi-tenant | Secure communications + single deployment serving multiple facilities |
 
 ---
 
 ## 12. Key Metrics
 
-### System Capacity (Current)
+### System Capacity (Current — v3.0)
 
 | Metric | Value |
 |--------|-------|
-| API endpoints | 82 |
-| Database models | 15 |
-| Frontend pages | 28 |
+| API endpoints | ~145+ |
+| Database models | 30 (15 original + 15 Phase A) |
+| Frontend pages | 34+ |
 | Custom hooks | 9 |
-| Permission types | 21 |
+| Permission types | 39+ (across 10 categories) |
 | Entity relationship types | 12 |
 | Checklist question types | 14 |
 | Attribute data types | 9 |
 | Alarm rule types | 7 |
-| Configuration endpoints | 33 |
-| Automated tests | 477 (334 unit/E2E + 73 RBAC + 70 feature) |
+| Rule chain node types | 28 |
+| Configuration endpoints | 36+ |
+| Automated tests | 1344 (0 failures, 83+ test files) |
 | Default roles | 6 |
+| TimescaleDB hypertables | 5 |
+| Help articles | 28 |
+| Documentation pages | 36 |
 
 ### Documentation & Governance
 
 | Metric | Value |
 |--------|-------|
-| Documented bugs | 12 (11 resolved, 1 open low-priority) |
+| Documented bugs | 25 (24 resolved, 1 open low-priority) |
 | Test documentation files | 8 (centralized in `/documentation/testing/`) |
-| Governance documents | 10+ (plans, summaries, bug logs, compliance) |
+| Governance documents | 15+ (plans, summaries, bug logs, compliance, API reference) |
 
 ### Compliance Coverage
 
@@ -453,7 +517,7 @@ DigiLog is positioned for **small-to-medium regulated manufacturers** (50-500 em
 
 ## 14. Documentation Governance — Business Impact
 
-**Effective:** 2026-02-25 (v2.1.1)
+**Effective:** 2026-02-25 (v2.1.1) | **Updated:** 2026-03-05 (v3.0.0)
 
 ### Why This Matters for Regulated Industries
 

@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { Prisma } from '@prisma/client';
 import { errorResponses } from '../../lib/error-schemas.js';
+import { auditLog } from '../../lib/audit.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 
 export default async function helpRoutes(app: FastifyInstance) {
   // GET /api/help — List help articles (all authenticated users)
@@ -162,7 +164,10 @@ export default async function helpRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const user = (req as any).user as { id: string; username: string };
+    const { ok } = await enforceReauth('CREATE_HELP_ARTICLE', req, reply);
+    if (!ok) return;
+
+    const user = (req as any).user as { id: string; username: string; role: string };
     const { key, title, content, category, sortOrder } = req.body as {
       key: string;
       title: string;
@@ -200,6 +205,13 @@ export default async function helpRoutes(app: FastifyInstance) {
       });
 
       return created;
+    });
+
+    await auditLog({
+      userId: user.username, userRole: user.role, action: 'HELP_ARTICLE_CREATED',
+      targetType: 'help_article', targetId: article.id,
+      afterValue: { key, title, category },
+      ipAddress: req.ip, userAgent: req.headers['user-agent'],
     });
 
     return reply.code(201).send(article);
@@ -250,7 +262,10 @@ export default async function helpRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const user = (req as any).user as { id: string; username: string };
+    const { ok } = await enforceReauth('UPDATE_HELP_ARTICLE', req, reply);
+    if (!ok) return;
+
+    const user = (req as any).user as { id: string; username: string; role: string };
     const { id } = req.params as { id: string };
     const { title, content, category, sortOrder, isActive, changeNotes } = req.body as {
       title?: string;
@@ -294,6 +309,14 @@ export default async function helpRoutes(app: FastifyInstance) {
       });
 
       return article;
+    });
+
+    await auditLog({
+      userId: user.username, userRole: user.role, action: 'HELP_ARTICLE_UPDATED',
+      targetType: 'help_article', targetId: id,
+      beforeValue: { title: existing.title, category: existing.category },
+      afterValue: { title: updated.title, category: updated.category, version: updated.currentVersion },
+      ipAddress: req.ip, userAgent: req.headers['user-agent'],
     });
 
     return updated;
@@ -368,7 +391,11 @@ export default async function helpRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('DELETE_HELP_ARTICLE', req, reply);
+    if (!ok) return;
+
     const { id } = req.params as { id: string };
+    const user = (req as any).user as { username: string; role: string };
 
     const existing = await prisma.helpArticle.findUnique({ where: { id } });
     if (!existing) {
@@ -378,6 +405,13 @@ export default async function helpRoutes(app: FastifyInstance) {
     await prisma.helpArticle.update({
       where: { id },
       data: { isActive: false },
+    });
+
+    await auditLog({
+      userId: user.username, userRole: user.role, action: 'HELP_ARTICLE_DELETED',
+      targetType: 'help_article', targetId: id,
+      beforeValue: { key: existing.key, title: existing.title },
+      ipAddress: req.ip, userAgent: req.headers['user-agent'],
     });
 
     return { deleted: true };

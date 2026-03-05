@@ -1,6 +1,7 @@
 import { type FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { verifyAuditChecksum } from '../../lib/hash-chain.js';
+import { auditLog } from '../../lib/audit.js';
 import { auditQuerySchema } from '@digilog/shared';
 import { errorResponses } from '../../lib/error-schemas.js';
 
@@ -220,13 +221,24 @@ export default async function auditRoutes(app: FastifyInstance) {
     const record = await prisma.auditTrail.findUnique({ where: { id: numId } });
     if (!record) return reply.code(404).send({ error: 'Audit record not found' });
 
-    // Must disable the 21 CFR Part 11 delete trigger temporarily
-    await prisma.$executeRawUnsafe('ALTER TABLE "audit_trail" DISABLE TRIGGER audit_trail_no_delete');
-    try {
-      await prisma.auditTrail.delete({ where: { id: numId } });
-    } finally {
-      await prisma.$executeRawUnsafe('ALTER TABLE "audit_trail" ENABLE TRIGGER audit_trail_no_delete');
-    }
+    // Log the deletion BEFORE disabling trigger (so it goes through normal audit)
+    await auditLog({
+      userId: req.user.sub, userRole: req.user.role,
+      action: 'AUDIT_RECORD_DELETED',
+      targetType: 'audit_trail', targetId: String(numId),
+      beforeValue: { id: record.id, action: record.action, timestamp: record.timestamp, userId: record.userId, targetType: record.targetType, targetId: record.targetId },
+      reason: 'Audit record deleted by administrator',
+      signatureMeaning: `Audit record #${numId} permanently deleted`,
+      ipAddress: req.ip, sessionId: req.user.sessionId,
+    });
+
+    // Atomic: disable trigger + delete + re-enable trigger in one transaction
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('ALTER TABLE "audit_trail" DISABLE TRIGGER audit_trail_no_delete');
+      await tx.auditTrail.delete({ where: { id: numId } });
+      await tx.$executeRawUnsafe('ALTER TABLE "audit_trail" ENABLE TRIGGER audit_trail_no_delete');
+    });
+
     return { success: true };
   });
 
@@ -258,18 +270,33 @@ export default async function auditRoutes(app: FastifyInstance) {
   }, async (req) => {
     const { ids } = req.body as { ids: number[] };
 
-    // Must disable the 21 CFR Part 11 delete trigger temporarily
-    await prisma.$executeRawUnsafe('ALTER TABLE "audit_trail" DISABLE TRIGGER audit_trail_no_delete');
-    let count = 0;
-    try {
-      const result = await prisma.auditTrail.deleteMany({
+    // Fetch records being deleted for audit trail
+    const records = await prisma.auditTrail.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, action: true, timestamp: true, userId: true, targetType: true, targetId: true },
+    });
+
+    // Log the bulk deletion BEFORE disabling trigger
+    await auditLog({
+      userId: req.user.sub, userRole: req.user.role,
+      action: 'AUDIT_RECORDS_BULK_DELETED',
+      targetType: 'audit_trail', targetId: ids.join(','),
+      beforeValue: { recordCount: records.length, records },
+      reason: `${records.length} audit records deleted by administrator`,
+      signatureMeaning: `${records.length} audit records permanently deleted`,
+      ipAddress: req.ip, sessionId: req.user.sessionId,
+    });
+
+    // Atomic: disable trigger + delete + re-enable trigger in one transaction
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('ALTER TABLE "audit_trail" DISABLE TRIGGER audit_trail_no_delete');
+      const deleted = await tx.auditTrail.deleteMany({
         where: { id: { in: ids } },
       });
-      count = result.count;
-    } finally {
-      await prisma.$executeRawUnsafe('ALTER TABLE "audit_trail" ENABLE TRIGGER audit_trail_no_delete');
-    }
+      await tx.$executeRawUnsafe('ALTER TABLE "audit_trail" ENABLE TRIGGER audit_trail_no_delete');
+      return deleted;
+    });
 
-    return { success: true, count };
+    return { success: true, count: result.count };
   });
 }

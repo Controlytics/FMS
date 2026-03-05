@@ -23,6 +23,9 @@ export type { ReauthAction, ReauthActionCategory } from './types/reauth-actions.
 export { AUDIT_TEMPLATE_DEFAULTS, AUDIT_TEMPLATE_CATEGORIES, getDefaultTemplates } from './types/audit-templates.js';
 export type { AuditTemplateDefinition, AuditTemplateCategory } from './types/audit-templates.js';
 
+export { ALARM_COLUMN_DEFINITIONS, ALL_ALARM_COLUMN_IDS } from './types/alarm-columns.js';
+export type { AlarmColumnDefinition } from './types/alarm-columns.js';
+
 // Schemas
 export { loginSchema, passwordChangeSchema, reAuthSchema } from './schemas/auth.js';
 export type { LoginInput, PasswordChangeInput, ReAuthInput } from './schemas/auth.js';

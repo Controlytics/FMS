@@ -11,6 +11,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { getTsdbPool } from '@digilog/db';
 import { errorResponses } from '../../lib/error-schemas.js';
+import { auditLog } from '../../lib/audit.js';
 
 export default async function debugTraceRoutes(app: FastifyInstance) {
 
@@ -18,7 +19,7 @@ export default async function debugTraceRoutes(app: FastifyInstance) {
 
   // 1. GET / — Paginated list of traces
   app.get('/', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('READ_DEBUG_TRACE')],
     schema: {
       tags: ['Debug Traces'],
       summary: 'List pipeline traces',
@@ -128,7 +129,7 @@ export default async function debugTraceRoutes(app: FastifyInstance) {
 
   // 2. GET /stats — Summary statistics
   app.get('/stats', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('READ_DEBUG_TRACE')],
     schema: {
       tags: ['Debug Traces'],
       summary: 'Get pipeline trace statistics',
@@ -230,7 +231,7 @@ export default async function debugTraceRoutes(app: FastifyInstance) {
 
   // 3. GET /:id — Single trace detail
   app.get('/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('READ_DEBUG_TRACE')],
     schema: {
       tags: ['Debug Traces'],
       summary: 'Get trace detail',
@@ -273,7 +274,7 @@ export default async function debugTraceRoutes(app: FastifyInstance) {
 
   // 4. PUT /entity/:entityId/toggle — Toggle per-entity tracing
   app.put('/entity/:entityId/toggle', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('MANAGE_DEBUG_TRACE')],
     schema: {
       tags: ['Debug Traces'],
       summary: 'Toggle entity tracing',
@@ -298,6 +299,7 @@ export default async function debugTraceRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { entityId } = req.params as { entityId: string };
+    const user = (req as any).user as { username: string; role: string };
     const cfgKey = `pipeline.trace_entity.${entityId}`;
 
     const existing = await prisma.ingestionSystemConfig.findUnique({
@@ -318,6 +320,14 @@ export default async function debugTraceRoutes(app: FastifyInstance) {
         defaultValue: 'false',
       },
       update: { value: String(newValue) },
+    });
+
+    await auditLog({
+      userId: user.username, userRole: user.role, action: 'CONFIG_CHANGED',
+      targetType: 'debug_trace', targetId: entityId,
+      beforeValue: { traceEnabled: currentlyEnabled },
+      afterValue: { traceEnabled: newValue },
+      ipAddress: req.ip, userAgent: req.headers['user-agent'],
     });
 
     return { entityId, traceEnabled: newValue };

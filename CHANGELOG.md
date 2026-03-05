@@ -2,6 +2,116 @@
 
 All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are documented here.
 
+## [Unreleased] - 2026-03-05
+
+### Security
+- **Sandboxed rule chain scripts** — All user-defined scripts (script-filter, transform-msg, unit-converter nodes) now execute in Node.js VM contexts with 1-second timeout; no access to `process`, `require`, or `global`
+- **Absolute session timeout** — 24-hour hard limit on sessions regardless of activity (auth.ts)
+- **Reauth enforcement expanded** — Applied to alarm acknowledge/clear, help article CRUD, UNS path override/config update, rule chain CRUD, debug trace toggle
+- **Audit logging expanded** — All privileged operations (audit record deletion, alarm actions, help CRUD, UNS config, rule chain CRUD, debug trace toggle) now generate audit trail entries
+
+### Added
+- **Alarm column visibility configuration** — New SUPER_ADMIN config page (`/config/alarm-columns`) to control which alarm table columns are visible per role
+  - 3 new API endpoints: `GET/PUT /api/config/alarm-columns`, `GET /api/config/alarm-columns/current`
+  - 11 configurable columns: severity, alarmType, entity, highLimit, lowLimit, generatedValue, clearedValue, status, generatedAt, clearedAt, actions
+  - Role-based visibility with toggle checkboxes, Enable/Disable All buttons
+- **Alarm `MANUALLY_CLEARED` status** — New alarm status for manual clearance vs automatic, with `clearDetails` field storing telemetry values at clear time
+- **Sub-chain delegation in rule engine** — Rule chains can now call other rule chains via delegate-chain node with depth tracking to prevent infinite loops
+- **Rule chain select field** — New UI component in rule chain editor and template form editor for selecting target rule chain
+- **Edge selection/deletion in rule chain editor** — Visual feedback (red highlight + animation) and reauth-protected edge deletion
+- **Default rule chain on templates** — Entity templates can now specify a `defaultRuleChainId`
+- **Shared alarm column types** — New `packages/shared/src/types/alarm-columns.ts` with `AlarmColumnDefinition` interface and 11 column definitions
+
+### Changed
+- **Permission migration (role→permission-based)** — Rule chain routes, debug trace routes, and alarm routes migrated from `requireRole()` to `requirePermission()` for granular access control
+- **Permission constants in frontend** — All route permission checks in `main.tsx` migrated from string literals to `PERMISSIONS.*` constants
+- **7 new permission categories** — Audit & Approvals, Notifications, Data & Ingestion, Rule Chains, Alarms, Checklists, Advanced (with 20+ new permissions)
+- **6 new audit actions** — `FORCED_LOGOUT`, `PROFILE_UPDATED`, `PASSWORD_RESET_REQUEST_APPROVED/REJECTED`, `AUDIT_RECORD_DELETED`, `AUDIT_RECORDS_BULK_DELETED`
+- **2 new audit templates** — `ALARM_ACKNOWLEDGED`, `ALARM_CLEARED`
+- **Alarm enrichment** — Alarm list API now includes `entityName`, threshold extraction from `triggerDetails`, and generated/cleared value display
+- **Rule chain default builder** — Each alarm rule now creates both create-alarm (True path) and clear-alarm (False path) nodes; config field `scriptBody` renamed to `script`
+- **Rule chain node config schemas** — Node types now include `configSchema` for dynamic UI field generation
+- **Atomic ingestion operations** — Telemetry upsert converted to single atomic SQL (`INSERT ... ON CONFLICT ... DO UPDATE WHERE`), alarm deduplication prevents duplicates from rapid telemetry
+- **Device credential tracking** — Connectivity tracker now updates `lastConnectedAt`, `lastSourceIp`, and `firstConnectedAt` on DeviceCredential
+- **Entity instance atomic transactions** — Create, update, and delete operations wrapped in Prisma transactions for consistency
+- **Audit delete logging** — Single and bulk audit record deletions now logged before execution
+
+### Fixed
+- **Alarm date filter** — Changed from hardcoded `format: 'date-time'` to flexible string format for `from`/`to` parameters
+
+### Database
+- Added `clearDetails` (Json?) field to Alarm model for storing telemetry at clear time
+- Added `MANUALLY_CLEARED` to alarm status enum
+
+---
+
+## [3.0.0] - 2026-03-02
+
+### Fixed
+- **Checklist MCQ/MULTI_SELECT click handlers** (FIX-024) — RadioGroup and CheckboxGroup labels had missing `onClick` handlers, making MCQ and MULTI_SELECT options unselectable in QR checklist forms
+- **CALCULATED question formula evaluation** — Added fallback to handle undefined `calculatedExpression`
+- **CONDITIONAL question schema** — Added fallbacks for `conditionalField` and `conditionalValue`
+
+### Testing
+- Added `checklist-submission.test.ts` — 431-line E2E submission test
+- Added `checklist-answers.test.ts` — 516-line test covering all 14 question types
+- Added `checklist-normalizer.test.ts` — 299-line schema normalization test
+
+---
+
+## [2.9.0] - 2026-03-01
+
+### Refactored
+- **Entity Explorer massive reduction** — Extracted 6 dialog components from `assets/index.tsx` (2081→386 lines, 82% reduction)
+  - `add-entity-wizard.tsx` (224 lines) — 4-step entity creation wizard
+  - `edit-entity-dialog.tsx` (62 lines) — Entity property editing
+  - `delete-entity-dialog.tsx` (45 lines) — Confirmation + cascade info
+  - `link-entities-dialog.tsx` (138 lines) — Create bidirectional relationships
+  - `add-identifier-dialog.tsx` (55 lines) — QR/BARCODE/RFID/NFC/MANUAL identifiers
+  - `attach-existing-dialog.tsx` (83 lines) — Search & attach existing entity to tree
+- **Entity detail panel reduction** — Extracted 6 tab components from `entity-detail-panel.tsx` (2187→763 lines, 65% reduction)
+  - `attributes-tab.tsx` (312 lines), `telemetry-tab.tsx` (261 lines), `connectivity-tab.tsx` (325 lines)
+  - `alarms-tab.tsx` (170 lines), `checklist-history-tab.tsx` (298 lines), `qr-code-tab.tsx` (97 lines)
+- **New hooks extracted** — `use-asset-mutations.ts` (448 lines, 10 CRUD handlers), `use-asset-tree-logic.ts` (116 lines, tree filtering/traversal)
+
+### Added
+- **TimescaleDB hypertable migration** — Converted 5 PostgreSQL tables to TimescaleDB hypertables with optimized chunk intervals
+  - `ts_telemetry` (7-day chunks), `ts_attributes` (30-day chunks), `ts_device_events` (7-day chunks)
+  - `ts_checklist_responses` (90-day chunks, REVOKE UPDATE/DELETE for 21 CFR Part 11)
+  - `ts_pipeline_traces` (1-day chunks)
+  - Composite indexes for entity lookups and time-range queries
+  - Data migration with row count verification
+- **GitHub Actions CI workflow** — Automated testing with PostgreSQL 15, Redis 7, Node 20
+  - Triggers on push (main, DataIngestion) and pull requests
+  - Full pipeline: install → prisma generate → migrate → build shared → test
+- **36-page documentation suite** — ThingsBoard-style enterprise documentation
+  - 16 API reference pages, 8 user guide pages, 5 administration pages, 3 getting started pages, 1 compliance page, 1 index
+- **Manual testing skill** — `.claude/skills/manual-tester/` with HTTP/MQTT publish scripts
+
+### Fixed
+- **RBAC button guards** (FIX-014, FIX-015) — Entity Explorer action buttons (Add/Edit/Link/Delete) now hidden based on user permissions
+- **OPERATOR role sidebar visibility** (FIX-014) — Added OPERATOR to Entity Explorer default sidebar roles
+- **26 failing tests repaired** — Fixed mocks, assertions, enum values, and JSON body requirements across 7 test files
+- **CI pipeline fixes** — Corrected Prisma schema path, moved env vars to job level for Turborepo child process inheritance
+
+### Security
+- **8 production security fixes** (c415e50):
+  - `trustProxy: 1` — Prevents X-Forwarded-For spoofing (was `true`, now trusts exactly 1 hop)
+  - Orphaned record cleanup — Entity delete now cascades to 6 dependent tables (deviceCredential, connectivityStatus, unsMapping, qrCode, latestTelemetry, dataStream)
+  - User enumeration prevention — Login now returns `attemptsRemaining` for non-existent users
+  - Session sliding window — Extends `expiresAt` on each authenticated request
+  - Session termination on password change — Calls `terminateOtherSessions()` on password update
+  - RBAC guards on entity routes — Added `requireRole('ASSET_VIEW')` to entity pages
+  - Consistent UNS path utility — Single source of truth `getEntityUnsPath()` in `lib/uns-path.ts`
+  - Nginx security hardening — `server_tokens off` + 5 security headers
+
+### Testing
+- Test suite: **1344 tests, 0 failures** across 83 test files
+- Added Vitest workspace configuration for monorepo test discovery
+- Added `test` task to `turbo.json` with `dependsOn: [^build]`
+
+---
+
 ## [Security] - 2026-02-28
 ### Security
 - Added SUPER_ADMIN protection: exempt from account lockout (4 patches to auth.service.ts)

@@ -10,6 +10,7 @@ import { LoginPage } from './routes/auth/login';
 import { ForgotPasswordPage } from './routes/auth/forgot-password';
 import { ChangePasswordPage } from './routes/auth/change-password';
 import { DashboardPage } from './routes/dashboard';
+import { PERMISSIONS } from '@digilog/shared';
 import { UserListPage } from './routes/users/list';
 import { CreateUserPage } from './routes/users/create';
 import { EditUserPage } from './routes/users/edit';
@@ -27,6 +28,7 @@ import { BackupRestorePage } from './routes/config/backup';
 import { ActionReauthPage } from './routes/config/action-reauth';
 import { AuditTemplatesConfigPage } from './routes/config/audit-templates';
 import { PaginationConfigPage } from './routes/config/pagination';
+import { AlarmColumnsConfigPage } from './routes/config/alarm-columns';
 import { AuditTrailPage } from './routes/audit/index';
 import { NotificationsPage } from './routes/notifications/index';
 import { ProfilePage } from './routes/profile/index';
@@ -76,16 +78,16 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/profile" element={<ProfilePage />} />
 
             {/* User management — permission-based */}
-            <Route path="/users" element={<RequireRole permissions={['USER_READ']}><UserListPage /></RequireRole>} />
-            <Route path="/users/create" element={<RequireRole permissions={['USER_CREATE']}><CreateUserPage /></RequireRole>} />
-            <Route path="/users/reset-requests" element={<RequireRole permissions={['USER_RESET_PASSWORD']}><ResetRequestsPage /></RequireRole>} />
-            <Route path="/users/:id" element={<RequireRole permissions={['USER_READ']}><EditUserPage /></RequireRole>} />
+            <Route path="/users" element={<RequireRole permissions={[PERMISSIONS.USER_READ]}><UserListPage /></RequireRole>} />
+            <Route path="/users/create" element={<RequireRole permissions={[PERMISSIONS.USER_CREATE]}><CreateUserPage /></RequireRole>} />
+            <Route path="/users/reset-requests" element={<RequireRole permissions={[PERMISSIONS.USER_RESET_PASSWORD]}><ResetRequestsPage /></RequireRole>} />
+            <Route path="/users/:id" element={<RequireRole permissions={[PERMISSIONS.USER_READ]}><EditUserPage /></RequireRole>} />
 
             {/* Configuration — permission-based */}
-            <Route path="/config" element={<RequireRole permissions={['CONFIG_READ']}><ConfigIndexPage /></RequireRole>} />
-            <Route path="/config/password-policy" element={<RequireRole permissions={['CONFIG_READ']}><PasswordPolicyPage /></RequireRole>} />
-            <Route path="/config/datetime" element={<RequireRole permissions={['CONFIG_READ']}><DatetimeConfigPage /></RequireRole>} />
-            <Route path="/config/backup" element={<RequireRole permissions={['CONFIG_READ']}><BackupRestorePage /></RequireRole>} />
+            <Route path="/config" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><ConfigIndexPage /></RequireRole>} />
+            <Route path="/config/password-policy" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><PasswordPolicyPage /></RequireRole>} />
+            <Route path="/config/datetime" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><DatetimeConfigPage /></RequireRole>} />
+            <Route path="/config/backup" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><BackupRestorePage /></RequireRole>} />
 
             {/* Super Admin Settings — SUPER_ADMIN role only */}
             <Route path="/config/branding" element={<RequireRole roles={['SUPER_ADMIN']}><BrandingConfigPage /></RequireRole>} />
@@ -97,14 +99,15 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/action-reauth" element={<RequireRole roles={['SUPER_ADMIN']}><ActionReauthPage /></RequireRole>} />
             <Route path="/config/audit-templates" element={<RequireRole roles={['SUPER_ADMIN']}><AuditTemplatesConfigPage /></RequireRole>} />
             <Route path="/config/pagination" element={<RequireRole roles={['SUPER_ADMIN']}><PaginationConfigPage /></RequireRole>} />
+            <Route path="/config/alarm-columns" element={<RequireRole roles={['SUPER_ADMIN']}><AlarmColumnsConfigPage /></RequireRole>} />
 
             {/* Entity Management (lazy-loaded) — permission-based */}
-            <Route path="/assets" element={<RequireRole permissions={['ASSET_VIEW']}><Suspense fallback={<LazyFallback />}><AssetsPage /></Suspense></RequireRole>} />
-            <Route path="/assets/templates" element={<RequireRole permissions={['ASSET_VIEW']}><Suspense fallback={<LazyFallback />}><AssetTemplatesPage /></Suspense></RequireRole>} />
+            <Route path="/assets" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AssetsPage /></Suspense></RequireRole>} />
+            <Route path="/assets/templates" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AssetTemplatesPage /></Suspense></RequireRole>} />
 
             {/* Rule Chains — Admin only (lazy-loaded) */}
-            <Route path="/rule-chains" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><Suspense fallback={<LazyFallback />}><RuleChainsPage /></Suspense></RequireRole>} />
-            <Route path="/rule-chains/:id" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><RuleChainEditorPage /></Suspense></RequireRole>} />
+            <Route path="/rule-chains" element={<RequireRole permissions={[PERMISSIONS.RULE_CHAIN_VIEW]}><Suspense fallback={<LazyFallback />}><RuleChainsPage /></Suspense></RequireRole>} />
+            <Route path="/rule-chains/:id" element={<RequireRole permissions={[PERMISSIONS.RULE_CHAIN_MANAGE]}><Suspense fallback={<LazyFallback />}><RuleChainEditorPage /></Suspense></RequireRole>} />
 
             {/* Alarms (lazy-loaded) */}
             <Route path="/alarms" element={<Suspense fallback={<LazyFallback />}><AlarmDashboardPage /></Suspense>} />
@@ -113,10 +116,10 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/system-health" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><Suspense fallback={<LazyFallback />}><SystemHealthPage /></Suspense></RequireRole>} />
 
             {/* Pipeline Debug Traces — Admin only (lazy-loaded) */}
-            <Route path="/debug/traces" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><Suspense fallback={<LazyFallback />}><DebugTracesPage /></Suspense></RequireRole>} />
+            <Route path="/debug/traces" element={<RequireRole permissions={[PERMISSIONS.READ_DEBUG_TRACE]}><Suspense fallback={<LazyFallback />}><DebugTracesPage /></Suspense></RequireRole>} />
 
             {/* UNS Configuration (lazy-loaded) */}
-            <Route path="/config/uns" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><Suspense fallback={<LazyFallback />}><UnsConfigPage /></Suspense></RequireRole>} />
+            <Route path="/config/uns" element={<RequireRole permissions={[PERMISSIONS.UNS_VIEW]}><Suspense fallback={<LazyFallback />}><UnsConfigPage /></Suspense></RequireRole>} />
 
             {/* Help Article Manager (lazy-loaded) */}
             <Route path="/config/help" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><HelpArticlesPage /></Suspense></RequireRole>} />

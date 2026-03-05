@@ -6,8 +6,8 @@
 
 All endpoints require `Authorization: Bearer <token>` header unless noted otherwise.
 
-**170 Total API Endpoints -- 27 Tag Groups**
-**Last Updated:** 2026-02-26
+**~170+ Total API Endpoints -- 27 Tag Groups**
+**Last Updated:** 2026-03-05
 
 ---
 

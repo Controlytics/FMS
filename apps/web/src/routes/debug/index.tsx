@@ -578,8 +578,8 @@ export function DebugTracesPage() {
   if (transportFilter) params.set('transport', transportFilter);
   if (debouncedErrorCode) params.set('errorCode', debouncedErrorCode);
   if (debouncedEntitySearch) params.set('entityId', debouncedEntitySearch);
-  if (fromDate) params.set('from', fromDate);
-  if (toDate) params.set('to', toDate);
+  if (fromDate) params.set('from', new Date(fromDate).toISOString());
+  if (toDate) params.set('to', new Date(toDate).toISOString());
 
   const { data, isLoading, mutate } = useSWR<PaginatedTracesResponse>(
     `/api/debug/traces?${params}`,

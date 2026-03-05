@@ -75,33 +75,22 @@ export async function saveTelemetry(msg: IngestionMessage): Promise<{ keysWritte
       traceId: msg.traceId || null,
     });
 
-    // Conditional upsert LatestTelemetry (only if incoming timestamp > existing)
+    // Atomic upsert LatestTelemetry — single SQL statement, no race condition
     try {
-      const existing = await prisma.latestTelemetry.findUnique({
-        where: { entityId_key: { entityId: msg.entityId, key } },
-      });
-
-      if (!existing || time > existing.lastUpdated) {
-        await prisma.latestTelemetry.upsert({
-          where: { entityId_key: { entityId: msg.entityId, key } },
-          create: {
-            entityId: msg.entityId,
-            key,
-            valueNum: classified.valueNum,
-            valueStr: classified.valueStr,
-            valueBool: classified.valueBool,
-            valueJson: classified.valueJson as Prisma.InputJsonValue ?? Prisma.JsonNull,
-            lastUpdated: time,
-          },
-          update: {
-            valueNum: classified.valueNum,
-            valueStr: classified.valueStr,
-            valueBool: classified.valueBool,
-            valueJson: classified.valueJson as Prisma.InputJsonValue ?? Prisma.JsonNull,
-            lastUpdated: time,
-          },
-        });
-      }
+      const jsonVal = classified.valueJson ? JSON.stringify(classified.valueJson) : null;
+      await prisma.$executeRaw`
+        INSERT INTO "latest_telemetry" ("id", "entity_id", "key", "value_num", "value_str", "value_bool", "value_json", "last_updated")
+        VALUES (gen_random_uuid(), ${msg.entityId}, ${key}, ${classified.valueNum}, ${classified.valueStr}, ${classified.valueBool},
+          ${jsonVal}::jsonb, ${time})
+        ON CONFLICT ("entity_id", "key")
+        DO UPDATE SET
+          "value_num" = EXCLUDED."value_num",
+          "value_str" = EXCLUDED."value_str",
+          "value_bool" = EXCLUDED."value_bool",
+          "value_json" = EXCLUDED."value_json",
+          "last_updated" = EXCLUDED."last_updated"
+        WHERE EXCLUDED."last_updated" > "latest_telemetry"."last_updated"
+      `;
     } catch {
       // LatestTelemetry update failure is non-critical
     }

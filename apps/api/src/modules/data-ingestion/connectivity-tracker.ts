@@ -36,6 +36,26 @@ export async function markOnline(
     },
   });
 
+  // Update DeviceCredential timestamps (firstConnectedAt only on first connection)
+  try {
+    const credential = await prisma.deviceCredential.findUnique({
+      where: { entityId },
+      select: { firstConnectedAt: true },
+    });
+    if (credential) {
+      await prisma.deviceCredential.update({
+        where: { entityId },
+        data: {
+          lastConnectedAt: now,
+          lastSourceIp: sourceIp,
+          ...(credential.firstConnectedAt ? {} : { firstConnectedAt: now }),
+        },
+      });
+    }
+  } catch {
+    // Non-critical: connectivity status is the primary source of truth
+  }
+
   // Log activity event (batched)
   addDeviceEventRow({
     time: now,

@@ -2,7 +2,7 @@
  * Default Chain Builder — Auto-creates a default rule chain when an
  * AssetTemplate is created or updated with alarm rules.
  *
- * Generates: input -> (script-filter -> create-alarm) per rule -> save-timeseries
+ * Generates: input -> (script-filter -True-> create-alarm, -False-> clear-alarm) per rule -> save-timeseries
  */
 
 import { prisma } from '../../lib/prisma.js';
@@ -41,7 +41,7 @@ function buildFilterConfig(rule: AlarmRule): Record<string, unknown> {
   const threshold = rule.threshold ?? 0;
 
   return {
-    scriptBody: `return msg['${field}'] ${condition} ${threshold};`,
+    script: `return msg['${field}'] ${condition} ${threshold};`,
     sourceField: field,
     condition,
     threshold,
@@ -100,11 +100,12 @@ function buildGraph(alarmRules: AlarmRule[]): BuiltGraph {
     positionY: 0,
   });
 
-  // For each alarm rule: script-filter + create-alarm
-  let col = 1;
+  // For each alarm rule: script-filter + create-alarm (True) + clear-alarm (False)
+  // Layout: each rule occupies 2 rows (create on top, clear below)
+  const col = 1;
   for (let i = 0; i < alarmRules.length; i++) {
     const rule = alarmRules[i];
-    const yOffset = i * NODE_SPACING_Y;
+    const yBase = i * NODE_SPACING_Y * 2;
 
     // Filter node
     const filterIdx = nodes.length;
@@ -113,17 +114,27 @@ function buildGraph(alarmRules: AlarmRule[]): BuiltGraph {
       name: `Filter: ${rule.name}`,
       configuration: buildFilterConfig(rule) as Prisma.InputJsonValue,
       positionX: col * NODE_SPACING_X,
-      positionY: yOffset,
+      positionY: yBase,
     });
 
-    // Alarm action node
+    // Create-alarm node (True path — condition matched)
     const alarmIdx = nodes.length;
     nodes.push({
       type: 'create-alarm',
       name: `Alarm: ${rule.name}`,
       configuration: buildAlarmConfig(rule) as Prisma.InputJsonValue,
       positionX: (col + 1) * NODE_SPACING_X,
-      positionY: yOffset,
+      positionY: yBase,
+    });
+
+    // Clear-alarm node (False path — condition no longer met, auto-clear)
+    const clearIdx = nodes.length;
+    nodes.push({
+      type: 'clear-alarm',
+      name: `Clear: ${rule.name}`,
+      configuration: { alarmType: rule.name } as unknown as Prisma.InputJsonValue,
+      positionX: (col + 1) * NODE_SPACING_X,
+      positionY: yBase + NODE_SPACING_Y,
     });
 
     // Input -> Filter (Success)
@@ -131,26 +142,34 @@ function buildGraph(alarmRules: AlarmRule[]): BuiltGraph {
 
     // Filter -> Create Alarm (True — condition matched)
     connections.push([filterIdx, alarmIdx, 'True']);
+
+    // Filter -> Clear Alarm (False — condition no longer met)
+    connections.push([filterIdx, clearIdx, 'False']);
   }
 
   // Save-timeseries node at the end
   const saveIdx = nodes.length;
   const saveCol = alarmRules.length > 0 ? 3 : 1;
+  const totalHeight = alarmRules.length > 0
+    ? (alarmRules.length - 1) * NODE_SPACING_Y * 2 + NODE_SPACING_Y
+    : 0;
   nodes.push({
     type: 'save-timeseries',
     name: 'Save Timeseries',
     configuration: { defaultTTL: 0 } as unknown as Prisma.InputJsonValue,
     positionX: saveCol * NODE_SPACING_X,
-    positionY: Math.floor(((alarmRules.length - 1) * NODE_SPACING_Y) / 2),
+    positionY: Math.floor(totalHeight / 2),
   });
 
   // Input -> Save Timeseries (Success) — always save regardless of alarms
   connections.push([inputIdx, saveIdx, 'Success']);
 
-  // Each create-alarm -> Save Timeseries (Success) — continue pipeline
+  // Each create-alarm and clear-alarm -> Save Timeseries (Success)
   for (let i = 0; i < alarmRules.length; i++) {
-    const alarmIdx = 1 + i * 2 + 1; // filter is at 1+i*2, alarm at 1+i*2+1
+    const alarmIdx = 1 + i * 3 + 1; // filter at 1+i*3, alarm at 1+i*3+1, clear at 1+i*3+2
+    const clearIdx = 1 + i * 3 + 2;
     connections.push([alarmIdx, saveIdx, 'Success']);
+    connections.push([clearIdx, saveIdx, 'Success']);
   }
 
   return { nodes, connections, firstNodeIndex: inputIdx };

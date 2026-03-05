@@ -250,20 +250,30 @@ export async function processIngestionMessage(msg: IngestionMessage): Promise<Pi
     try {
       for (const alarm of ruleChainAlarms) {
         if (alarm.clear) {
-          // Clear existing alarm
+          // Clear existing alarm, storing the telemetry values at clear time
           await prisma.alarm.updateMany({
             where: { entityId: alarm.entityId, alarmType: alarm.alarmType, status: 'ACTIVE' },
-            data: { status: 'CLEARED', clearedAt: new Date() },
+            data: {
+              status: 'CLEARED',
+              clearedAt: new Date(),
+              clearDetails: alarm.details ? (alarm.details as any) : undefined,
+            },
           });
         } else {
-          await createAlarm({
-            entityId: alarm.entityId,
-            alarmType: alarm.alarmType,
-            severity: alarm.severity,
-            unsPath: msg.unsPath,
-            triggerDetails: alarm.details,
-            ruleChainId: msg.ruleChainId,
+          // Deduplicate: only create if no ACTIVE alarm of same type exists
+          const existing = await prisma.alarm.findFirst({
+            where: { entityId: alarm.entityId, alarmType: alarm.alarmType, status: 'ACTIVE' },
           });
+          if (!existing) {
+            await createAlarm({
+              entityId: alarm.entityId,
+              alarmType: alarm.alarmType,
+              severity: alarm.severity,
+              unsPath: msg.unsPath,
+              triggerDetails: alarm.details,
+              ruleChainId: msg.ruleChainId,
+            });
+          }
         }
       }
 

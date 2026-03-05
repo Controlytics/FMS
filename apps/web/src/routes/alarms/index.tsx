@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import useSWR from 'swr';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -9,13 +9,14 @@ import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
+import { ALL_ALARM_COLUMN_IDS } from '@digilog/shared';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 type AlarmSeverity = 'CRITICAL' | 'MAJOR' | 'MINOR' | 'WARNING' | 'INFO';
-type AlarmStatus = 'ACTIVE' | 'ACKNOWLEDGED' | 'CLEARED';
+type AlarmStatus = 'ACTIVE' | 'ACKNOWLEDGED' | 'CLEARED' | 'MANUALLY_CLEARED';
 
 interface Alarm {
   id: string;
@@ -30,6 +31,16 @@ interface Alarm {
   acknowledgedAt?: string;
   clearedBy?: string;
   clearedAt?: string;
+  triggerDetails?: {
+    _sourceField?: string;
+    _condition?: string;
+    _threshold?: number;
+    _ruleType?: string;
+    [key: string]: unknown;
+  };
+  clearDetails?: {
+    [key: string]: unknown;
+  };
 }
 
 interface PaginatedResponse {
@@ -71,7 +82,57 @@ const STATUS_COLORS: Record<AlarmStatus, string> = {
   ACTIVE: 'bg-red-100 text-red-700 border-red-200',
   ACKNOWLEDGED: 'bg-amber-100 text-amber-700 border-amber-200',
   CLEARED: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  MANUALLY_CLEARED: 'bg-blue-100 text-blue-700 border-blue-200',
 };
+
+const STATUS_LABELS: Record<AlarmStatus, string> = {
+  ACTIVE: 'Active',
+  ACKNOWLEDGED: 'Acknowledged',
+  CLEARED: 'Cleared',
+  MANUALLY_CLEARED: 'Manually Cleared',
+};
+
+/** Get the high limit threshold (for > or >= conditions) */
+function getHighLimit(alarm: Alarm): string | null {
+  const d = alarm.triggerDetails;
+  if (!d || d._threshold === undefined) return null;
+  if (d._condition === '>' || d._condition === '>=') return String(d._threshold);
+  return null;
+}
+
+/** Get the low limit threshold (for < or <= conditions) */
+function getLowLimit(alarm: Alarm): string | null {
+  const d = alarm.triggerDetails;
+  if (!d || d._threshold === undefined) return null;
+  if (d._condition === '<' || d._condition === '<=') return String(d._threshold);
+  return null;
+}
+
+/** Extract numeric value from details using sourceField or fallback to first numeric key */
+function extractValue(details: Record<string, unknown> | undefined, sourceField?: string): string | null {
+  if (!details) return null;
+  if (sourceField) {
+    const val = details[sourceField];
+    if (val !== undefined && val !== null) {
+      return typeof val === 'number' ? val.toFixed(2) : String(val);
+    }
+  }
+  for (const [key, val] of Object.entries(details)) {
+    if (key.startsWith('_')) continue;
+    if (typeof val === 'number') return val.toFixed(2);
+  }
+  return null;
+}
+
+/** Get the actual triggering value from trigger details */
+function getGeneratedValue(alarm: Alarm): string | null {
+  return extractValue(alarm.triggerDetails, alarm.triggerDetails?._sourceField);
+}
+
+/** Get the value at the time the alarm was cleared */
+function getClearedValue(alarm: Alarm): string | null {
+  return extractValue(alarm.clearDetails, alarm.triggerDetails?._sourceField);
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -110,8 +171,8 @@ export function AlarmDashboardPage() {
   if (statusFilter) params.set('status', statusFilter);
   if (severityFilter) params.set('severity', severityFilter);
   if (entityIdFilter) params.set('entityId', entityIdFilter);
-  if (fromDate) params.set('startDate', fromDate);
-  if (toDate) params.set('endDate', toDate);
+  if (fromDate) params.set('from', new Date(fromDate).toISOString());
+  if (toDate) params.set('to', new Date(toDate).toISOString());
 
   const { data, isLoading, mutate } = useSWR<PaginatedResponse>(
     `/api/alarms?${params}`,
@@ -122,6 +183,13 @@ export function AlarmDashboardPage() {
     dedupingInterval: 10000,
     revalidateOnFocus: false,
   });
+
+  // Alarm column visibility per role
+  const { data: colConfig } = useSWR<{ columns: string[] }>('/api/config/alarm-columns/current', {
+    dedupingInterval: 30000,
+    revalidateOnFocus: false,
+  });
+  const visibleCols = useMemo(() => new Set(colConfig?.columns ?? ALL_ALARM_COLUMN_IDS), [colConfig]);
 
   // Reset page when filters change
   useEffect(() => {
@@ -320,6 +388,7 @@ export function AlarmDashboardPage() {
               <option value="ACTIVE">Active</option>
               <option value="ACKNOWLEDGED">Acknowledged</option>
               <option value="CLEARED">Cleared</option>
+              <option value="MANUALLY_CLEARED">Manually Cleared</option>
             </Select>
           </div>
 
@@ -399,19 +468,23 @@ export function AlarmDashboardPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gradient-to-r from-slate-50 to-slate-100/80 border-b border-slate-200">
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Severity</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Alarm Type</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Entity</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Status</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Created At</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Acknowledged By</th>
-                <th className="text-right px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Actions</th>
+                {visibleCols.has('severity') && <th className="text-left px-4 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Severity</th>}
+                {visibleCols.has('alarmType') && <th className="text-left px-4 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Alarm Type</th>}
+                {visibleCols.has('entity') && <th className="text-left px-4 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Entity</th>}
+                {visibleCols.has('highLimit') && <th className="text-center px-3 py-4 font-semibold text-red-600 uppercase tracking-wider text-xs">High Limit</th>}
+                {visibleCols.has('lowLimit') && <th className="text-center px-3 py-4 font-semibold text-blue-600 uppercase tracking-wider text-xs">Low Limit</th>}
+                {visibleCols.has('generatedValue') && <th className="text-center px-3 py-4 font-semibold text-orange-600 uppercase tracking-wider text-xs">Generated Value</th>}
+                {visibleCols.has('clearedValue') && <th className="text-center px-3 py-4 font-semibold text-emerald-600 uppercase tracking-wider text-xs">Cleared Value</th>}
+                {visibleCols.has('status') && <th className="text-left px-4 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Status</th>}
+                {visibleCols.has('generatedAt') && <th className="text-left px-4 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Generated At</th>}
+                {visibleCols.has('clearedAt') && <th className="text-left px-4 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Cleared At</th>}
+                {visibleCols.has('actions') && <th className="text-right px-4 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {isLoading && (
                 <tr>
-                  <td colSpan={7} className="px-5 py-16 text-center">
+                  <td colSpan={visibleCols.size} className="px-5 py-16 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <div className="w-8 h-8 border-4 border-slate-200 border-t-red-500 rounded-full animate-spin" />
                       <p className="text-sm text-slate-500">Loading alarms...</p>
@@ -422,7 +495,7 @@ export function AlarmDashboardPage() {
 
               {!isLoading && alarms.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-5 py-16 text-center">
+                  <td colSpan={visibleCols.size} className="px-5 py-16 text-center">
                     <div className="flex flex-col items-center gap-4">
                       <div className="p-4 rounded-2xl bg-slate-100">
                         <svg className="w-10 h-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -446,50 +519,115 @@ export function AlarmDashboardPage() {
                   className="hover:bg-slate-50/80 transition-colors"
                 >
                   {/* Severity */}
+                  {visibleCols.has('severity') && (
                   <td className="px-5 py-4">
                     <Badge className={SEVERITY_COLORS[alarm.severity]}>
                       <span className={`w-2 h-2 rounded-full mr-1.5 ${SEVERITY_DOT[alarm.severity]}`} />
                       {alarm.severity}
                     </Badge>
                   </td>
+                  )}
 
                   {/* Alarm Type */}
+                  {visibleCols.has('alarmType') && (
                   <td className="px-5 py-4">
                     <span className="font-medium text-slate-700">{alarm.alarmType}</span>
                     {alarm.message && (
                       <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[200px]">{alarm.message}</p>
                     )}
                   </td>
+                  )}
 
                   {/* Entity */}
-                  <td className="px-5 py-4">
+                  {visibleCols.has('entity') && (
+                  <td className="px-4 py-4">
                     <span className="text-slate-700 font-mono text-xs bg-slate-100 px-2 py-1 rounded-lg">
                       {alarm.entityName ?? alarm.entityId}
                     </span>
                   </td>
+                  )}
 
-                  {/* Status */}
-                  <td className="px-5 py-4">
-                    <Badge className={STATUS_COLORS[alarm.status]}>
-                      {alarm.status}
-                    </Badge>
-                  </td>
-
-                  {/* Created At */}
-                  <td className="px-5 py-4 text-slate-600 text-xs">
-                    {formatDateTime(alarm.createdAt)}
-                  </td>
-
-                  {/* Acknowledged By */}
-                  <td className="px-5 py-4 text-slate-600 text-xs">
-                    {alarm.acknowledgedBy ? (
-                      <span className="font-medium">{alarm.acknowledgedBy}</span>
+                  {/* High Limit */}
+                  {visibleCols.has('highLimit') && (
+                  <td className="px-3 py-4 text-center">
+                    {getHighLimit(alarm) ? (
+                      <span className="text-xs font-bold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-md">
+                        {getHighLimit(alarm)}
+                      </span>
                     ) : (
                       <span className="text-slate-300">-</span>
                     )}
                   </td>
+                  )}
+
+                  {/* Low Limit */}
+                  {visibleCols.has('lowLimit') && (
+                  <td className="px-3 py-4 text-center">
+                    {getLowLimit(alarm) ? (
+                      <span className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md">
+                        {getLowLimit(alarm)}
+                      </span>
+                    ) : (
+                      <span className="text-slate-300">-</span>
+                    )}
+                  </td>
+                  )}
+
+                  {/* Generated Value */}
+                  {visibleCols.has('generatedValue') && (
+                  <td className="px-3 py-4 text-center">
+                    {getGeneratedValue(alarm) ? (
+                      <span className="text-xs font-bold text-orange-700 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-md">
+                        {getGeneratedValue(alarm)}
+                      </span>
+                    ) : (
+                      <span className="text-slate-300">-</span>
+                    )}
+                  </td>
+                  )}
+
+                  {/* Cleared Value */}
+                  {visibleCols.has('clearedValue') && (
+                  <td className="px-3 py-4 text-center">
+                    {getClearedValue(alarm) ? (
+                      <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                        {getClearedValue(alarm)}
+                      </span>
+                    ) : (
+                      <span className="text-slate-300">-</span>
+                    )}
+                  </td>
+                  )}
+
+                  {/* Status */}
+                  {visibleCols.has('status') && (
+                  <td className="px-4 py-4">
+                    <Badge className={STATUS_COLORS[alarm.status]}>
+                      {STATUS_LABELS[alarm.status] ?? alarm.status}
+                    </Badge>
+                  </td>
+                  )}
+
+                  {/* Generated At */}
+                  {visibleCols.has('generatedAt') && (
+                  <td className="px-4 py-4 text-slate-600 text-xs whitespace-nowrap">
+                    {formatDateTime(alarm.createdAt)}
+                  </td>
+                  )}
+
+                  {/* Cleared At */}
+                  {visibleCols.has('clearedAt') && (
+                  <td className="px-4 py-4 text-slate-600 text-xs whitespace-nowrap">
+                    {alarm.clearedAt ? (
+                      formatDateTime(alarm.clearedAt)
+                    ) : (
+                      <span className="text-slate-300">-</span>
+                    )}
+                  </td>
+                  )}
 
                   {/* Actions */}
+                  {visibleCols.has('actions') && (
                   <td className="px-5 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
                       {alarm.status === 'ACTIVE' && (
@@ -518,11 +656,12 @@ export function AlarmDashboardPage() {
                           Clear
                         </Button>
                       )}
-                      {alarm.status === 'CLEARED' && (
+                      {(alarm.status === 'CLEARED' || alarm.status === 'MANUALLY_CLEARED') && (
                         <span className="text-xs text-slate-400 italic">No actions</span>
                       )}
                     </div>
                   </td>
+                  )}
                 </tr>
               ))}
             </tbody>

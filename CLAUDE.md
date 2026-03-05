@@ -7,9 +7,11 @@ DigiLog is a regulatory-compliant digital logbook for pharma/biotech/food manufa
 - `apps/api` — Fastify backend (port 3000)
 - `apps/web` — React frontend (port 5173 dev, port 80 production via nginx)
 - `packages/shared` — Zod schemas + TypeScript types shared across apps
+- `packages/db` — Prisma singleton + TimescaleDB pg Pool
+- `packages/queue` — BullMQ queue definitions + Redis connection
 
 ## Tech Stack
-Turborepo, Fastify 5, React 19, Vite 6, Tailwind CSS 4, Prisma 6 ORM, PostgreSQL 16 (pgcrypto), bcrypt, jose (JWT), Zod, SWR, React Hook Form, Lucide React
+Turborepo, Fastify 5, React 19, Vite 6, Tailwind CSS 4, Prisma 6 ORM, PostgreSQL 16 (pgcrypto), TimescaleDB, bcrypt, jose (JWT), Zod, SWR, React Hook Form, Lucide React, BullMQ, Redis 7, EMQX (MQTT), React Flow, Recharts, Monaco Editor
 
 ## Production Deployment (EC2: DL_DI)
 - **EC2 Instance:** `i-0df88b77a8ac636df` (DL_DI), t3.large, Ubuntu 24.04.3 LTS
@@ -46,7 +48,7 @@ npm run dev                   # Start API + Web
 ## Roles
 Dynamic roles stored in DB. Default: SUPER_ADMIN (level 6), ADMIN (5), SUPERVISOR (4), MAINTENANCE (3), OPERATOR (2), VIEWER (1). Roles have name, displayName, color, hierarchyLevel, permissions (JSON array), isSystem, isActive fields. All roles (including system) can be deleted. Frontend fetches roles from `/api/roles/active` via SWR (sidebar.tsx, role-privileges.tsx).
 
-## API Endpoints (82 total)
+## API Endpoints (~145+ total)
 
 ### Auth (8 endpoints) — `/api/auth`
 POST /login (no auth, rate limited 10/min), POST /logout, POST /beacon-logout (no auth), GET /me, PUT /profile, POST /change-password, POST /verify, POST /forgot-password (no auth, rate limited 5/5min).
@@ -71,7 +73,7 @@ All use `requirePermission()` (checks role.permissions JSON array in DB).
 
 **Identifiers (4):** GET /identifiers (ASSET_VIEW), GET /identifiers/lookup/:value (ASSET_VIEW), POST /identifiers (ASSET_IDENTIFIER_MANAGE, reauth CREATE_ASSET_IDENTIFIER), DELETE /identifiers/:id (ASSET_IDENTIFIER_MANAGE, reauth DELETE_ASSET_IDENTIFIER).
 
-### Configuration (33 endpoints) — `/api/config`
+### Configuration (36+ endpoints) — `/api/config`
 - Security: GET/PUT password-policy, login-security, session (ADMIN+, PUT uses reauth)
 - DateTime: GET/PUT datetime (ADMIN+), GET datetime/current (any, public)
 - Pagination: GET/PUT pagination (ADMIN+), GET pagination/current (any)
@@ -82,6 +84,7 @@ All use `requirePermission()` (checks role.permissions JSON array in DB).
 - Field IDs: GET /field-ids (any), PUT /field-ids/:fieldId (SUPER_ADMIN)
 - Action Reauth: GET/PUT /action-reauth (SUPER_ADMIN), GET /action-reauth/check, GET /action-reauth/my-actions (any)
 - Audit Templates: GET/PUT /audit-templates (SUPER_ADMIN), GET /audit-templates/current (any)
+- Alarm Columns: GET /alarm-columns (SUPER_ADMIN), PUT /alarm-columns, GET /alarm-columns/current (role-based visibility)
 
 ### Audit Trail (4 endpoints) — `/api/audit`
 GET / (any, paginated, filterable), GET /:id (any, includes checksum verification), DELETE /:id (SUPER_ADMIN), POST /bulk-delete (SUPER_ADMIN).
@@ -98,6 +101,43 @@ GET /export (ADMIN+, reauth EXPORT_BACKUP), POST /restore (ADMIN+, reauth RESTOR
 ### Health
 GET /api/health (no auth).
 
+### Data Ingestion (8 endpoints) — `/api/data`
+POST / (HTTP telemetry), POST /batch (batch ingestion), GET/POST /streams, GET/POST/PUT/DELETE /credentials.
+
+### MQTT Auth (3 endpoints) — `/api/internal/mqtt`
+POST /auth, POST /acl, POST /superuser.
+
+### Rule Chains (14 endpoints) — `/api/rule-chains`
+All use `requirePermission('RULE_CHAIN_MANAGE')`. POST/PUT use reauth (CREATE/UPDATE_RULE_CHAIN) and audit logging.
+CRUD for chains, nodes, connections, versions, debug. 28 node types with sandboxed VM execution. Sub-chain delegation.
+
+### UNS (6 endpoints) — `/api/uns`
+GET /tree, GET /mappings, POST /mappings, DELETE /mappings/:id, POST /auto-map, GET /browse. Reauth on config changes.
+
+### Telemetry Queries (7 endpoints) — `/api/queries/telemetry`
+GET /latest, /history, /keys, /aggregated, /compare, /delta, /stats. Permission: DATA_VIEW.
+
+### Alarms (5 endpoints) — `/api/queries/alarms`
+GET /, GET /stats, GET /:id (ALARM_VIEW), POST /:id/acknowledge (ALARM_MANAGE, reauth), POST /:id/clear (ALARM_MANAGE, reauth). Statuses: ACTIVE, ACKNOWLEDGED, CLEARED, MANUALLY_CLEARED.
+
+### Export (5 endpoints) — `/api/queries/export`
+POST /telemetry, /alarms, /audit (DATA_EXPORT), GET /jobs, GET /jobs/:id/download.
+
+### Retention (4 endpoints) — `/api/queries`
+GET/POST/PUT/DELETE /retention (RETENTION_MANAGE).
+
+### Connectivity (6 endpoints) — `/api/connectivity`
+GET /, GET /:entityId, GET /:entityId/history, GET /:entityId/snippet, POST /check, GET /stats.
+
+### QR Codes (4 endpoints) — `/api/qr`
+POST /generate, GET /:entityId, DELETE /:entityId, GET /scan/:data.
+
+### Help Articles (6 endpoints) — `/api/help`
+GET / (any), GET /:key (any), POST / (HELP_MANAGE, reauth), PUT /:key (HELP_MANAGE, reauth), DELETE /:key (HELP_MANAGE, reauth), GET /:key/versions.
+
+### Debug Traces (4 endpoints) — `/api/debug/traces`
+GET /, GET /stats (READ_DEBUG_TRACE), GET /:id, PUT /entity/:entityId/toggle (MANAGE_DEBUG_TRACE).
+
 ## Entities
 Template-based entity management system with 5 Prisma models and 21 API endpoints.
 
@@ -113,7 +153,7 @@ Permissions: `ASSET_TEMPLATE_MANAGE`, `ASSET_CREATE`, `ASSET_UPDATE`, `ASSET_DEL
 
 Database models: `AssetTemplate`, `AssetTemplateVersion`, `AssetInstance`, `AssetRelationship`, `AssetIdentifier` (Prisma model names retained; these represent entity data).
 
-Frontend pages: `/assets` (Entity Explorer with dynamic tree diagram), `/assets/templates` (Entity Template Manager with 6-section editor), `/config/role-privileges` (Role Privileges config with 3 category color groups: User Management, System, Entity Management).
+Frontend pages: `/assets` (Entity Explorer with dynamic tree diagram, 386 lines after refactoring — 6 dialogs and 6 tabs extracted), `/assets/templates` (Entity Template Manager with 6-section editor + rule chain selector), `/config/role-privileges` (Role Privileges config with 10 permission category color groups).
 
 ### Dynamic Tree Diagram
 The Entity Explorer features an interactive tree diagram in the Relationships tab with:
@@ -135,14 +175,15 @@ Global toast system via React Context (`ToastProvider` + `useToast` hook). Appli
 ### Entity Template View Dialog
 Read-only view dialog accessible via eye icon in template table. Shows all template details: basic info, attributes, telemetry, identifiers, alarm rules. Has "Edit Template" button to transition to edit mode.
 
-## Database Schema (15 Prisma Models)
+## Database Schema (30 Prisma Models)
 
 **User & Auth:** User, Role, PasswordHistory, Session, PasswordResetRequest
-**Configuration:** SystemConfig (9 config keys), UserConfig, RoleConfig, FieldIdConfig
+**Configuration:** SystemConfig (10 config keys including alarm-columns), UserConfig, RoleConfig, FieldIdConfig
 **Audit & Notifications:** AuditTrail (SHA-256 checksums), Notification
-**Entity Management:** AssetTemplate, AssetTemplateVersion, AssetInstance, AssetRelationship, AssetIdentifier
+**Entity Management:** AssetTemplate (includes defaultRuleChainId), AssetTemplateVersion, AssetInstance, AssetRelationship, AssetIdentifier
+**Data Ingestion (15 models):** DeviceCredential, RuleChain, RuleChainVersion, RuleNode, RuleNodeConnection, Alarm (with clearDetails + MANUALLY_CLEARED), ChecklistReview, ElectronicSignature, LatestTelemetry, UnsMapping, ConnectivityStatus, QrCode, HelpArticle, HelpArticleVersion, DataStream, IngestionSystemConfig
 
-## Frontend (28 pages, 9 custom hooks)
+## Frontend (34+ pages, 9 custom hooks)
 
 ### Custom Hooks
 - `useAuth()` — login/logout, JWT in sessionStorage, SWR-based /api/auth/me
@@ -157,9 +198,10 @@ Read-only view dialog accessible via eye icon in template table. Shows all templ
 
 ### Frontend Routes
 **Public:** /login, /forgot-password, /change-password
-**Protected:** / (dashboard), /profile, /assets (Entity Explorer), /audit, /notifications
-**Admin (SUPER_ADMIN/ADMIN):** /users, /users/create, /users/:id, /users/reset-requests, /assets/templates, /config/*
-**SUPER_ADMIN only:** /config/action-reauth, /config/audit-templates, /config/pagination
+**Protected:** / (dashboard), /profile, /assets (Entity Explorer), /audit, /notifications, /checklist/:entityId
+**Permission-based:** /rule-chains (RULE_CHAIN_VIEW), /rule-chains/:id (RULE_CHAIN_MANAGE), /alarms (ALARM_VIEW), /debug (READ_DEBUG_TRACE)
+**Admin (SUPER_ADMIN/ADMIN):** /users, /users/create, /users/:id, /users/reset-requests, /assets/templates, /config/*, /config/uns
+**SUPER_ADMIN only:** /config/action-reauth, /config/audit-templates, /config/pagination, /config/alarm-columns
 
 ## Key Commands
 - `npm run dev` — start all apps in dev mode
@@ -187,8 +229,12 @@ rm -rf apps/api/dist && cd apps/api && npm run build
 - **Reauth integration**: `useReauth` hook fetches `/api/config/action-reauth/my-actions`, calls callback directly if action is not configured for reauth. All `reauth.execute` calls must be `await`-ed to prevent saving state race conditions.
 - **SWR paginated responses**: API returns `{ data: [], total, page, limit, totalPages }`. Use `useSWR<{ data: T[] }>()` then extract `.data`. Tree endpoints return plain arrays.
 - **Audit trail integrity**: SHA-256 checksum on {timestamp, userId, action, targetType, targetId, afterValue}. SUPER_ADMIN actions are NOT logged (21 CFR Part 11 exemption). Read-time verification returns `integrityValid: boolean`.
-- **Soft delete**: Templates and instances use `isActive: false`. Instance delete cascades to descendants. Relationships and identifiers are hard-deleted.
-- **Session management**: Single active session per user. New login terminates previous. Configurable duration (default 8h) and idle timeout (default 15min).
+- **Soft delete**: Templates and instances use `isActive: false`. Instance delete cascades to descendants (atomic transaction, cleans 6 dependent tables). Relationships and identifiers are hard-deleted.
+- **Session management**: Single active session per user. New login terminates previous. Configurable duration (default 8h) and idle timeout (default 15min). Absolute 24h timeout. Session sliding window extends on each request. terminateOtherSessions() on password change.
+- **Sandboxed scripts**: Rule chain user scripts run in Node.js VM contexts (1s timeout, no process/require/global).
+- **Sub-chain delegation**: Rule chains can call other chains via delegate-chain node with depth tracking.
+- **Atomic telemetry upsert**: INSERT ... ON CONFLICT ... DO UPDATE WHERE (single SQL, no race conditions).
+- **Permission migration**: Rule chain, alarm, and debug trace routes use `requirePermission()` (not `requireRole()`). Frontend uses `PERMISSIONS.*` constants.
 - **Single-tab enforcement**: localStorage heartbeat + cross-tab coordination via `useSingleTab()` hook.
 - **Vite cache busting**: Content-hashed filenames in production builds.
 - **Build order**: Turborepo builds shared -> api -> web.
@@ -196,8 +242,8 @@ rm -rf apps/api/dist && cd apps/api && npm run build
 ## Shared Package (`@digilog/shared`)
 Single source of truth for Zod schemas and TypeScript types consumed by both apps:
 - **Schemas:** auth (login, password, reauth), users (CRUD, query, bulk delete), config (branding, password policy, session, datetime, user-id, audit templates, pagination), audit (query), action-reauth, assets (templates, instances, relationships, identifiers, queries)
-- **Types:** roles (RoleData interface, DEFAULT_ROLES, USER_STATUS), permissions (21 constants), permission-categories, feature-privileges, sidebar-items, audit-actions (29+), reauth-actions (21+), audit-templates
-- **Constants:** ATTRIBUTE_DATA_TYPES (9), TELEMETRY_DATA_TYPES (5), RELATIONSHIP_TYPES (12), IDENTIFIER_TYPES (5), ASSET_STATUSES (5), INVERSE_RELATIONSHIP_MAP, ALARM_RULE_TYPES (7), ALARM_SEVERITIES (3)
+- **Types:** roles (RoleData interface, DEFAULT_ROLES, USER_STATUS), permissions (39+ constants, 10 categories), permission-categories, feature-privileges, sidebar-items, audit-actions (60+), reauth-actions (42+, 13 categories), audit-templates, alarm-columns (11 column definitions)
+- **Constants:** ATTRIBUTE_DATA_TYPES (9), TELEMETRY_DATA_TYPES (5), RELATIONSHIP_TYPES (12), IDENTIFIER_TYPES (5), ASSET_STATUSES (5), INVERSE_RELATIONSHIP_MAP, ALARM_RULE_TYPES (7), ALARM_SEVERITIES (3), ALARM_COLUMN_DEFINITIONS (11), ALL_ALARM_COLUMN_IDS
 
 ## Environment
 All env vars in root `.env` file. Key vars: DATABASE_URL, JWT_SECRET, VERIFICATION_TOKEN_SECRET, API_PORT, CORS_ORIGIN, ALLOWED_ORIGINS, UPLOAD_DIR, MAX_FILE_SIZE.

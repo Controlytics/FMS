@@ -51,6 +51,7 @@ export interface NodeDefinition {
   description: string;
   outputs: string[];
   defaultConfig: RuleNodeConfig;
+  configSchema?: Record<string, unknown>;
   execute: (
     message: Record<string, unknown>,
     config: RuleNodeConfig,

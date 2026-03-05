@@ -3,6 +3,8 @@ import { prisma } from '../../lib/prisma.js';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { errorResponses } from '../../lib/error-schemas.js';
+import { auditLog } from '../../lib/audit.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 
 export default async function alarmRoutes(app: FastifyInstance) {
 
@@ -16,10 +18,10 @@ export default async function alarmRoutes(app: FastifyInstance) {
       querystring: {
         type: 'object',
         properties: {
-          status: { type: 'string', enum: ['ACTIVE', 'ACKNOWLEDGED', 'CLEARED'], description: 'Filter by alarm status' },
+          status: { type: 'string', enum: ['ACTIVE', 'ACKNOWLEDGED', 'CLEARED', 'MANUALLY_CLEARED'], description: 'Filter by alarm status' },
           severity: { type: 'string', enum: ['CRITICAL', 'MAJOR', 'MINOR', 'WARNING', 'INFO'], description: 'Filter by severity' },
-          from: { type: 'string', format: 'date-time', description: 'Start date (ISO 8601)' },
-          to: { type: 'string', format: 'date-time', description: 'End date (ISO 8601)' },
+          from: { type: 'string', description: 'Start date' },
+          to: { type: 'string', description: 'End date' },
           entityId: { type: 'string', format: 'uuid', description: 'Filter by entity ID' },
           alarmType: { type: 'string', description: 'Filter by alarm type' },
           page: { type: 'integer', default: 1, minimum: 1 },
@@ -92,7 +94,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
     const orderBy: Record<string, 'asc' | 'desc'> = {};
     orderBy[sortBy] = sortDir;
 
-    const [data, total] = await Promise.all([
+    const [alarms, total] = await Promise.all([
       prisma.alarm.findMany({
         where,
         orderBy,
@@ -101,6 +103,21 @@ export default async function alarmRoutes(app: FastifyInstance) {
       }),
       prisma.alarm.count({ where }),
     ]);
+
+    // Enrich with entity names
+    const entityIds = [...new Set(alarms.map((a) => a.entityId))];
+    const entities = entityIds.length > 0
+      ? await prisma.assetInstance.findMany({
+          where: { id: { in: entityIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const entityNameMap = new Map(entities.map((e) => [e.id, e.name]));
+
+    const data = alarms.map((a) => ({
+      ...a,
+      entityName: entityNameMap.get(a.entityId) ?? null,
+    }));
 
     return {
       data,
@@ -136,8 +153,8 @@ export default async function alarmRoutes(app: FastifyInstance) {
     const [active, acknowledged, cleared, critical] = await Promise.all([
       prisma.alarm.count({ where: { status: 'ACTIVE' } }),
       prisma.alarm.count({ where: { status: 'ACKNOWLEDGED' } }),
-      prisma.alarm.count({ where: { status: 'CLEARED' } }),
-      prisma.alarm.count({ where: { severity: 'CRITICAL', status: { not: 'CLEARED' } } }),
+      prisma.alarm.count({ where: { status: { in: ['CLEARED', 'MANUALLY_CLEARED'] } } }),
+      prisma.alarm.count({ where: { severity: 'CRITICAL', status: { notIn: ['CLEARED', 'MANUALLY_CLEARED'] } } }),
     ]);
 
     return { active, acknowledged, cleared, critical };
@@ -160,7 +177,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
       querystring: {
         type: 'object',
         properties: {
-          status: { type: 'string', enum: ['ACTIVE', 'ACKNOWLEDGED', 'CLEARED'] },
+          status: { type: 'string', enum: ['ACTIVE', 'ACKNOWLEDGED', 'CLEARED', 'MANUALLY_CLEARED'] },
           severity: { type: 'string', enum: ['CRITICAL', 'MAJOR', 'MINOR', 'WARNING', 'INFO'] },
           page: { type: 'integer', default: 1, minimum: 1 },
           limit: { type: 'integer', default: 50, minimum: 1, maximum: 200 },
@@ -205,7 +222,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
       where.severity = query.severity;
     }
 
-    const [data, total] = await Promise.all([
+    const [alarms, total] = await Promise.all([
       prisma.alarm.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -214,6 +231,17 @@ export default async function alarmRoutes(app: FastifyInstance) {
       }),
       prisma.alarm.count({ where }),
     ]);
+
+    // Enrich with entity name
+    const entity = await prisma.assetInstance.findUnique({
+      where: { id: entityId },
+      select: { name: true },
+    });
+
+    const data = alarms.map((a) => ({
+      ...a,
+      entityName: entity?.name ?? null,
+    }));
 
     return {
       data,
@@ -226,7 +254,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
 
   // 3. POST /:id/acknowledge — Acknowledge alarm
   app.post('/:id/acknowledge', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'SUPERVISOR')],
+    preHandler: [app.requirePermission('ALARM_MANAGE')],
     schema: {
       tags: ['Alarms'],
       summary: 'Acknowledge an alarm',
@@ -259,6 +287,9 @@ export default async function alarmRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('ACKNOWLEDGE_ALARM', req, reply);
+    if (!ok) return;
+
     const { id } = req.params as { id: string };
     const body = req.body as { remarks?: string; signerFullName: string; meaning: string };
     const user = (req as any).user as { sub: string; username: string; role: string; fullName?: string };
@@ -311,12 +342,20 @@ export default async function alarmRoutes(app: FastifyInstance) {
       return { alarm: updatedAlarm, signature };
     });
 
+    await auditLog({
+      userId: user.username, userRole: user.role, action: 'ALARM_ACKNOWLEDGED',
+      targetType: 'alarm', targetId: id,
+      afterValue: { name: alarm.alarmType, alarmType: alarm.alarmType, severity: alarm.severity, entityId: alarm.entityId },
+      signatureMeaning: body.meaning,
+      ipAddress: req.ip, userAgent: req.headers['user-agent'],
+    });
+
     return result;
   });
 
   // 4. POST /:id/clear — Clear alarm
   app.post('/:id/clear', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'SUPERVISOR')],
+    preHandler: [app.requirePermission('ALARM_MANAGE')],
     schema: {
       tags: ['Alarms'],
       summary: 'Clear an alarm',
@@ -349,6 +388,9 @@ export default async function alarmRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('CLEAR_ALARM', req, reply);
+    if (!ok) return;
+
     const { id } = req.params as { id: string };
     const body = req.body as { remarks?: string; signerFullName: string; meaning: string };
     const user = (req as any).user as { sub: string; username: string; role: string; fullName?: string };
@@ -358,7 +400,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'NOT_FOUND', message: 'Alarm not found' });
     }
     if (alarm.status !== 'ACTIVE' && alarm.status !== 'ACKNOWLEDGED') {
-      return reply.code(400).send({ error: 'INVALID_STATUS', message: 'Alarm must be in ACTIVE or ACKNOWLEDGED status to clear' });
+      return reply.code(400).send({ error: 'INVALID_STATUS', message: 'Alarm must be in ACTIVE or ACKNOWLEDGED status to clear manually' });
     }
 
     const signedAt = new Date();
@@ -389,7 +431,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
       const updatedAlarm = await tx.alarm.update({
         where: { id },
         data: {
-          status: 'CLEARED',
+          status: 'MANUALLY_CLEARED',
           cleared: true,
           clearedAt: signedAt,
           clearedBy: user.username,
@@ -399,6 +441,14 @@ export default async function alarmRoutes(app: FastifyInstance) {
       });
 
       return { alarm: updatedAlarm, signature };
+    });
+
+    await auditLog({
+      userId: user.username, userRole: user.role, action: 'ALARM_CLEARED',
+      targetType: 'alarm', targetId: id,
+      afterValue: { name: alarm.alarmType, alarmType: alarm.alarmType, severity: alarm.severity, entityId: alarm.entityId },
+      signatureMeaning: body.meaning,
+      ipAddress: req.ip, userAgent: req.headers['user-agent'],
     });
 
     return result;

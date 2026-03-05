@@ -247,6 +247,7 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
 
   // POST /checklist — User JWT ONLY (never device token), normalize, enqueue
   app.post('/checklist', {
+    preHandler: [app.requirePermission('CHECKLIST_SUBMIT')],
     schema: {
       tags: ['Data Ingestion'],
       summary: 'Submit checklist response',

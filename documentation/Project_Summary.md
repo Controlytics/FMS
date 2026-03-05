@@ -2,7 +2,7 @@
 
 **Maintained by:** Engineering Team
 **Created:** 2026-02-25
-**Last Updated:** 2026-02-25 (v2.1.2)
+**Last Updated:** 2026-03-05 (v3.0.0)
 **Policy:** This document must be updated after every feature addition, bug fix, or structural change.
 
 ---
@@ -16,11 +16,17 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** designed for regulated
 ### Scope
 
 - Template-driven entity management with hierarchical parent-child relationships
-- Role-based access control with configurable permissions (22 feature privileges)
-- Tamper-evident audit trail with SHA-256 checksums
-- Configurable system settings (security, branding, datetime, pagination, field labels)
+- Role-based access control with 39+ granular permissions (10 categories)
+- Tamper-evident audit trail with SHA-256 checksums (60+ audit actions)
+- Configurable system settings (security, branding, datetime, pagination, field labels, alarm columns)
+- Data ingestion pipeline (HTTP/MQTT/WebSocket) with BullMQ workers
+- Rule chain engine (28 node types, sandboxed VM execution, sub-chain delegation)
+- Alarm management with deduplication and role-based column visibility
+- Unified Namespace (ISA-95) with cascade moves and wildcard search
 - Notification system with role-based delivery
 - Backup and restore functionality
+- TimescaleDB hypertables for time-series data (5 tables)
+- GitHub Actions CI/CD pipeline (1,344 tests)
 - 21 CFR Part 11 and ALCOA+ compliance
 
 ### Core Modules
@@ -34,12 +40,24 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** designed for regulated
 | Entity Instances | 8 | Hierarchical entity CRUD with parent-child tree |
 | Entity Relationships | 3 | Bidirectional links (12 types) with cycle detection |
 | Entity Identifiers | 4 | QR, barcode, RFID, NFC, manual tags |
-| Configuration | 33 | Security, display, access, audit, branding settings |
+| Configuration | 36+ | Security, display, access, audit, branding, alarm-columns settings |
 | Audit Trail | 4 | Immutable, checksummed audit records |
 | Notifications | 9 | Role-filtered notifications with bulk operations |
 | Uploads | 2 | Photo uploads with size limits |
 | Backup | 3 | Database export, restore, validation |
-| **Total** | **102** | |
+| MQTT Auth | 3 | MQTT authentication, ACL, webhook |
+| Data Ingestion | 8 | HTTP telemetry/attributes/events, RPC, config |
+| Rule Chains | 14 | CRUD, nodes, connections, versions, activate/deactivate, debug |
+| UNS | 6 | ISA-95 tree, entity mapping, move, search |
+| Telemetry Queries | 7 | Latest, timeseries, keys, attributes, history, checklists |
+| Alarms | 5 | List, entity alarms, acknowledge, clear, manual clear |
+| Export | 5 | Telemetry, checklists, alarms, attributes CSV/JSON, status |
+| Retention | 4 | Config GET/PUT, archive, execute |
+| Connectivity | 6 | Status, test, snippets, token generate/revoke, history |
+| QR Codes | 4 | Generate, get, SVG, delete |
+| Help Articles | 6 | CRUD with versioning, version history |
+| Debug Traces | 4 | List, detail, toggle, delete |
+| **Total** | **~145+** | |
 
 ---
 
@@ -48,17 +66,23 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** designed for regulated
 ### High-Level System Structure
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    EC2 Instance                       │
-│                                                       │
-│  ┌─────────┐   ┌──────────┐   ┌──────────────────┐  │
-│  │  nginx   │──▶│ Fastify 5│──▶│  PostgreSQL 16   │  │
-│  │ (port 80)│   │ (port    │   │  (pgcrypto)      │  │
-│  │          │   │  3000)   │   │  digilog_db      │  │
-│  │ React    │   │ PM2      │   │  15 tables        │  │
-│  │ SPA      │   │ managed  │   │                   │  │
-│  └─────────┘   └──────────┘   └──────────────────┘  │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                      EC2 Instance (t3.large)                  │
+│                                                                │
+│  ┌─────────┐   ┌──────────┐   ┌────────────┐  ┌──────────┐  │
+│  │  nginx   │──▶│ Fastify 5│──▶│ PostgreSQL │  │  Redis   │  │
+│  │ (port 80)│   │ (port    │   │ 16         │  │ (BullMQ) │  │
+│  │          │   │  3000)   │   │ digilog_db │  └──────────┘  │
+│  │ React    │   │ PM2      │   │ 30 tables  │                │
+│  │ SPA      │   │ managed  │   │            │  ┌──────────┐  │
+│  └─────────┘   └──────────┘   │ TimescaleDB│  │  EMQX    │  │
+│                                │ digilog_   │  │  (MQTT)  │  │
+│  ┌──────────────────────┐     │ tsdb       │  └──────────┘  │
+│  │  BullMQ Workers      │     │ 5 hyper-   │                │
+│  │  (ingestion,         │────▶│ tables     │                │
+│  │   maintenance)       │     └────────────┘                │
+│  └──────────────────────┘                                    │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ### Tech Stack
@@ -71,10 +95,14 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** designed for regulated
 | Build | Vite | 6.1.0 |
 | Styling | Tailwind CSS | 4.0.0 |
 | ORM | Prisma | 6.3.0 |
-| Database | PostgreSQL | 16 |
+| Database | PostgreSQL + TimescaleDB | 16 |
+| Queue | BullMQ + Redis | Latest |
+| Messaging | EMQX (MQTT) | Latest |
 | Auth | jose (JWT) | 6.0.0 |
 | Validation | Zod | 3.24.0 |
 | Data Fetching | SWR | 2.3.0 |
+| Visual Editor | React Flow | Latest |
+| CI/CD | GitHub Actions | Latest |
 
 ### Active Modules
 
@@ -89,6 +117,13 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** designed for regulated
 | Notifications | `apps/api/src/modules/notifications/` | Active — Monolithic routes file |
 | Uploads | `apps/api/src/modules/uploads/` | Active — Monolithic routes file |
 | Backup | `apps/api/src/modules/backup/` | Active — Monolithic routes file |
+| Data Ingestion | `apps/api/src/modules/data-ingestion/` | Active — Pipeline architecture |
+| Rule Chains | `apps/api/src/modules/rule-chain/` | Active — Engine + routes |
+| UNS | `apps/api/src/modules/uns/` | Active — Monolithic routes file |
+| Queries | `apps/api/src/modules/queries/` | Active — 4 route files (telemetry, alarms, export, retention) |
+| Connectivity | `apps/api/src/modules/connectivity/` | Active — Monolithic routes file |
+| QR Codes | `apps/api/src/modules/qr-code/` | Active — Monolithic routes file |
+| Help | `apps/api/src/modules/help/` | Active — Monolithic routes file |
 
 ### Removed Modules
 
@@ -128,12 +163,30 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** designed for regulated
 | Permission-based RBAC | Phase 2+ | 2026-02-23 |
 | Session Conflict Dialog | Phase 2+ | 2026-02-23 |
 
-### In Progress
+| Data Ingestion Pipeline (Phases A-C) | Phase A-C | 2026-02-25 |
+| Rule Chain Engine (Phase D) | Phase D | 2026-02-25 |
+| UNS ISA-95 (Phase E) | Phase E | 2026-02-25 |
+| Queries & Export (Phase F) | Phase F | 2026-02-25 |
+| Connectivity, QR, Help + Frontend (Phases G-J) | Phase G-J | 2026-02-25 |
+| Testing & Documentation (Phase K) | Phase K | 2026-02-26 |
+| Security Fixes (8), CI/CD, TimescaleDB, Refactoring | v3.0 | 2026-03-01 |
+| Checklist MCQ/MULTI_SELECT Fix | v3.0 | 2026-03-02 |
+| Component Extraction (Entity Explorer 2081→386 lines) | v3.0 | 2026-03-01 |
+| GitHub Actions CI/CD Pipeline | v3.0 | 2026-03-01 |
+| 1,344 Tests (0 failures) across 83+ files | v3.0 | 2026-03-01 |
 
-| Feature | Target | Notes |
+### In Progress (Uncommitted on DataIngestion branch)
+
+| Feature | Status | Notes |
 |---------|--------|-------|
-| API Refactoring Phases 5-7 | TBD | Backup, Roles, Notifications modules |
-| Frontend Refactoring Phases 8-13 | TBD | Component decomposition for large pages |
+| Alarm Column Visibility Config | In Progress | New config page + 3 API endpoints, per-role column visibility |
+| Permission Migration (role→permission-based) | In Progress | Rule chains, data ingestion, debug, help, UNS routes migrated |
+| Sandboxed VM Execution for Rule Chain Scripts | In Progress | 1s timeout, no process/require/global access |
+| Sub-Chain Delegation | In Progress | Depth tracking prevents infinite loops |
+| Atomic SQL Telemetry Upsert | In Progress | INSERT ... ON CONFLICT ... DO UPDATE WHERE |
+| Alarm Deduplication | In Progress | Only creates alarm if no ACTIVE alarm of same type exists |
+| MANUALLY_CLEARED Alarm Status | In Progress | New alarm status + clearDetails field |
+| Absolute 24h Session Timeout | In Progress | Hard limit regardless of activity |
 
 ### Planned (Not Started)
 
@@ -141,12 +194,9 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** designed for regulated
 |---------|----------|-------------|
 | Electronic Signatures | High | E-sign with re-authentication for approvals |
 | Logbook Entries / Digital Forms | High | Structured data entry tied to entities |
-| Data Point Ingestion | Medium | MQTT/OPC-UA integration for real-time telemetry |
 | Reports & Exports | Medium | PDF/Excel reports for audit and entity data |
 | HTTPS/TLS Certificates | Medium | SSL for production deployment |
-| CI/CD Pipeline | Medium | Automated build/test/deploy |
 | Frontend Component Tests | Low | Vitest + React Testing Library |
-| Per-page Pagination Selector | Low | Page-level pagination integration |
 
 ---
 
@@ -156,12 +206,13 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** designed for regulated
 
 | Type | Framework | Scope |
 |------|-----------|-------|
-| Unit Tests | Vitest | Shared package schemas, API library functions |
-| E2E Tests | Vitest | All 12 API modules (82 endpoints) |
+| Unit Tests | Vitest | Shared package schemas, API library functions, data ingestion, rule chain |
+| E2E Tests | Vitest | All API modules (~145+ endpoints) |
 | RBAC Tests | Custom bash script | 73 permission/isolation tests |
-| Manual Tests | Manual | All 28 frontend pages, UI flows |
+| Manual Tests | Manual | All 34+ frontend pages, UI flows |
 | Compliance Verification | Manual | 21 CFR Part 11 (22 controls), ALCOA+ (9 principles) |
 | Feature Tests | Manual + API | Tree diagram (70 tests), linking, checklists |
+| CI/CD | GitHub Actions | PostgreSQL 15, Redis 7, Node 20, automated on push/PR |
 
 ### Coverage Summary
 
@@ -170,14 +221,20 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** designed for regulated
 | Shared — Schema Validation | 4 | 161 | 100% |
 | Shared — Type Validation | 1 | 29 | 100% |
 | API — Library Unit Tests | 3 | 29 | 100% |
-| API — E2E Endpoint Tests | 9 | 115 | 99.1% (1 pre-existing) |
+| API — E2E Endpoint Tests | 9+ | 115+ | 100% |
+| API — Data Ingestion Unit Tests | 7 | 150+ | 100% |
+| API — Rule Chain Unit Tests | 4 | 80+ | 100% |
+| API — UNS Unit Tests | 1 | 20+ | 100% |
+| DB — Telemetry Batcher | 1 | 15+ | 100% |
+| API — Checklist E2E | 3 | 40+ | 100% |
+| API — Connectivity E2E | 1 | 15+ | 100% |
 | RBAC — Permission Tests | 1 | 73 | 100% |
 | Tree Diagram — Feature Tests | 1 | 70 | 100% |
-| **Total** | **19** | **477** | **99.8%** |
+| **Total** | **83+** | **1,344** | **100%** |
 
 ### Last Regression Date
 
-**2026-02-23** — Full RBAC regression suite (73 tests, 100% pass). Automated test suites (334 tests, 333 pass).
+**2026-03-02** — Full CI/CD regression (1,344 tests, 0 failures). GitHub Actions pipeline on push to main/DataIngestion.
 
 ### Test Documentation Location
 
@@ -198,14 +255,15 @@ All testing documents are centralized in `/documentation/testing/`:
 
 | Metric | Count |
 |--------|-------|
-| Total Bugs Identified | 12 |
-| Total Resolved | 11 |
+| Total Bugs Identified | 25+ |
+| Total Resolved | 24+ |
 | Open Issues | 1 ([#13](https://github.com/pankajexa/21cfrlogbook/issues/13) — low priority) |
 | Git Issues Created | 12 (#2–#13) |
+| Security Fixes (v3.0) | 8 |
 | Critical Severity | 0 |
-| High Severity | 5 |
-| Medium Severity | 4 |
-| Low Severity | 2 |
+| High Severity | 8 |
+| Medium Severity | 10 |
+| Low Severity | 6 |
 
 ### Recurring Patterns
 
@@ -271,11 +329,12 @@ All testing documents are centralized in `/documentation/testing/`:
 | Status | Details |
 |--------|---------|
 | **Governance Mode** | Active (self-enforcing) |
-| **Current Version** | 2.1.2 |
+| **Current Version** | 3.0.0 |
 | **Auto-Sync Documents** | 7 (CHANGELOG, API_GUIDE, task_status, BUSINESS_CONTEXT, CODEBASE_CONTEXT, PLAN, Project_Summary) |
 | **Bug Lifecycle** | Enforced (Git issue → fix → Bug_Resolution_Log → close) |
 | **Testing Docs** | Centralized at `/documentation/testing/` |
-| **Last Full Sync** | 2026-02-25 |
+| **CI/CD** | GitHub Actions (push to main/DataIngestion, PRs) |
+| **Last Full Sync** | 2026-03-05 |
 
 ---
 
@@ -283,6 +342,7 @@ All testing documents are centralized in `/documentation/testing/`:
 
 | Date | Version | Change |
 |------|---------|--------|
+| 2026-03-05 | 3.0.0 | Full documentation sync: updated all metrics (145+ endpoints, 1344 tests, 30 models, 34+ pages), added Phases A-K and v3.0 features (data ingestion, rule chains, alarms, UNS, TimescaleDB, CI/CD, security fixes, component refactoring) |
 | 2026-02-25 | 2.1.2 | Git issue lifecycle: 12 bugs converted to GitHub issues (#2–#13), 11 closed, 1 open |
 | 2026-02-25 | 2.1.1 | Documentation governance enforcement activated; all 7 core documents auto-synchronized |
 | 2026-02-25 | 1.0 | Initial creation — comprehensive project summary reflecting current system state |

@@ -68,25 +68,35 @@ export const instanceService = {
       }
     }
 
-    const instance = await instanceRepository.create({
-      name: data.name,
-      description: data.description,
-      templateId: data.templateId,
-      templateVersion: template.version,
-      status: data.status,
-      attributes: data.attributes as any,
-      telemetryConfig: data.telemetryConfig as any,
-      customAttributes: data.customAttributes as any,
-      parentId: data.parentId ?? null,
-      createdBy: ctx.userId,
+    // Atomic: create instance + parent relationship in one transaction
+    const { instance, containsRel, containedInRel } = await prisma.$transaction(async (tx) => {
+      const inst = await tx.assetInstance.create({
+        data: {
+          name: data.name,
+          description: data.description,
+          templateId: data.templateId,
+          templateVersion: template.version,
+          status: data.status,
+          attributes: data.attributes as any,
+          telemetryConfig: data.telemetryConfig as any,
+          customAttributes: data.customAttributes as any,
+          parentId: data.parentId ?? null,
+          createdBy: ctx.userId,
+        } as any,
+      });
+
+      let cRel, ciRel;
+      if (data.parentId) {
+        [cRel, ciRel] = await Promise.all([
+          tx.assetRelationship.create({ data: { sourceAssetId: data.parentId, targetAssetId: inst.id, relationshipType: 'CONTAINS', createdBy: ctx.userId } }),
+          tx.assetRelationship.create({ data: { sourceAssetId: inst.id, targetAssetId: data.parentId, relationshipType: 'CONTAINED_IN', createdBy: ctx.userId } }),
+        ]);
+      }
+
+      return { instance: inst, containsRel: cRel, containedInRel: ciRel };
     });
 
-    if (data.parentId) {
-      const [containsRel, containedInRel] = await relationshipRepository.createPairWithParent(
-        { sourceAssetId: data.parentId, targetAssetId: instance.id, relationshipType: 'CONTAINS', createdBy: ctx.userId },
-        { sourceAssetId: instance.id, targetAssetId: data.parentId, relationshipType: 'CONTAINED_IN', createdBy: ctx.userId },
-      );
-
+    if (data.parentId && containsRel) {
       const parentEntity = await instanceRepository.findByIdWithName(data.parentId);
 
       await auditLog({
@@ -194,13 +204,36 @@ export const instanceService = {
       if (data[key] !== undefined) updateData[key] = data[key] as any;
     }
 
-    const instance = await instanceRepository.update(id, updateData);
+    // Atomic: update instance + parent relationship changes in one transaction
+    const { instance, newContains, newContainedIn } = await prisma.$transaction(async (tx) => {
+      const inst = await tx.assetInstance.update({ where: { id }, data: updateData as any });
+
+      let cRel, ciRel;
+      if (parentIdChanging) {
+        if (existing.parentId) {
+          await tx.assetRelationship.deleteMany({
+            where: {
+              OR: [
+                { sourceAssetId: existing.parentId, targetAssetId: id, relationshipType: 'CONTAINS' },
+                { sourceAssetId: id, targetAssetId: existing.parentId, relationshipType: 'CONTAINED_IN' },
+              ],
+            },
+          });
+        }
+        if (data.parentId) {
+          [cRel, ciRel] = await Promise.all([
+            tx.assetRelationship.create({ data: { sourceAssetId: data.parentId, targetAssetId: id, relationshipType: 'CONTAINS', createdBy: ctx.userId } }),
+            tx.assetRelationship.create({ data: { sourceAssetId: id, targetAssetId: data.parentId, relationshipType: 'CONTAINED_IN', createdBy: ctx.userId } }),
+          ]);
+        }
+      }
+
+      return { instance: inst, newContains: cRel, newContainedIn: ciRel };
+    });
 
     if (parentIdChanging) {
       if (existing.parentId) {
         const oldParent = await instanceRepository.findByIdWithName(existing.parentId);
-        await relationshipRepository.deleteOldContains(existing.parentId, id);
-
         await auditLog({
           userId: ctx.userId, userRole: ctx.userRole,
           action: 'ASSET_RELATIONSHIP_DELETED',
@@ -213,13 +246,8 @@ export const instanceService = {
         });
       }
 
-      if (data.parentId) {
+      if (data.parentId && newContains) {
         const newParent = await instanceRepository.findByIdWithName(data.parentId);
-        const [newContains, newContainedIn] = await relationshipRepository.createPairWithParent(
-          { sourceAssetId: data.parentId, targetAssetId: id, relationshipType: 'CONTAINS', createdBy: ctx.userId },
-          { sourceAssetId: id, targetAssetId: data.parentId, relationshipType: 'CONTAINED_IN', createdBy: ctx.userId },
-        );
-
         await auditLog({
           userId: ctx.userId, userRole: ctx.userRole,
           action: 'ASSET_RELATIONSHIP_CREATED',
@@ -281,17 +309,18 @@ export const instanceService = {
     const descendantIds = await collectDescendantIds(id);
     const allIds = [id, ...descendantIds];
 
-    await instanceRepository.softDeleteMany(allIds, ctx.userId);
-    await relationshipRepository.deleteByAssetIds(allIds);
-    await identifierRepository.deleteByAssetIds(allIds);
-
-    // Clean up dependent records to prevent orphans
-    await prisma.deviceCredential.deleteMany({ where: { entityId: { in: allIds } } });
-    await prisma.connectivityStatus.deleteMany({ where: { entityId: { in: allIds } } });
-    await prisma.unsMapping.deleteMany({ where: { entityId: { in: allIds } } });
-    await prisma.qrCode.deleteMany({ where: { entityId: { in: allIds } } });
-    await prisma.latestTelemetry.deleteMany({ where: { entityId: { in: allIds } } });
-    await prisma.dataStream.deleteMany({ where: { entityId: { in: allIds } } });
+    // All deletes in one atomic transaction
+    await prisma.$transaction(async (tx) => {
+      await tx.assetInstance.updateMany({ where: { id: { in: allIds } }, data: { isActive: false, updatedBy: ctx.userId } });
+      await tx.assetRelationship.deleteMany({ where: { OR: [{ sourceAssetId: { in: allIds } }, { targetAssetId: { in: allIds } }] } });
+      await tx.assetIdentifier.deleteMany({ where: { assetId: { in: allIds } } });
+      await tx.deviceCredential.deleteMany({ where: { entityId: { in: allIds } } });
+      await tx.connectivityStatus.deleteMany({ where: { entityId: { in: allIds } } });
+      await tx.unsMapping.deleteMany({ where: { entityId: { in: allIds } } });
+      await tx.qrCode.deleteMany({ where: { entityId: { in: allIds } } });
+      await tx.latestTelemetry.deleteMany({ where: { entityId: { in: allIds } } });
+      await tx.dataStream.deleteMany({ where: { entityId: { in: allIds } } });
+    });
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,

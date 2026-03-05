@@ -73,8 +73,11 @@ export default async function uploadRoutes(app: FastifyInstance) {
         });
       }
 
-      // Generate unique filename
-      const ext = path.extname(data.filename) || '.jpg';
+      // Generate unique filename — derive extension from validated MIME type, not user-supplied filename
+      const MIME_TO_EXT: Record<string, string> = {
+        'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp',
+      };
+      const ext = MIME_TO_EXT[data.mimetype] || '.jpg';
       const filename = `${req.user.sub}-${randomUUID()}${ext}`;
       const filepath = path.join(profilePhotosDir, filename);
 

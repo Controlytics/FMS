@@ -315,6 +315,20 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Identifier ({identifierType}) removed from entity "{targetName}" by {actor}',
     placeholders: ['actor', 'targetName', 'identifierType'],
   },
+
+  // Alarm Management
+  ALARM_ACKNOWLEDGED: {
+    label: 'Alarm Acknowledged',
+    category: 'Entity Management',
+    template: 'Alarm "{targetName}" acknowledged by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  ALARM_CLEARED: {
+    label: 'Alarm Cleared',
+    category: 'Entity Management',
+    template: 'Alarm "{targetName}" cleared by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
 };
 
 /** Extract just the template strings as defaults for the config schema */

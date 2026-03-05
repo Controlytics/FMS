@@ -3,9 +3,17 @@
  * Auto-registered when imported.
  */
 
+import vm from 'node:vm';
 import { registerNode } from '../node-registry.js';
 import { prisma } from '../../../lib/prisma.js';
 import type { NodeDefinition, RuleNodeConfig, NodeContext, NodeResult } from '../types.js';
+
+/** Execute user-supplied script in a sandboxed vm context (no process/require/global access). */
+function safeExecuteScript(code: string, sandbox: Record<string, unknown>, timeout = 1000): unknown {
+  const ctx = vm.createContext(sandbox);
+  const script = new vm.Script(`(function(){ ${code} })()`, { filename: 'user-script.js' });
+  return script.runInContext(ctx, { timeout });
+}
 
 // ═══════════════════════════════════════════════════════
 // INPUT NODES
@@ -52,8 +60,7 @@ registerNode({
   async execute(message, config, ctx): Promise<NodeResult> {
     try {
       const script = (config.script as string) ?? 'return true;';
-      const fn = new Function('msg', 'metadata', 'msgType', script);
-      const result = fn(message, ctx.metadata, message._messageType ?? '');
+      const result = safeExecuteScript(script, { msg: message, metadata: ctx.metadata, msgType: message._messageType ?? '' });
       return { output: result ? 'True' : 'False', message };
     } catch (err) {
       return { output: 'Failure', message, log: `Script error: ${err instanceof Error ? err.message : String(err)}` };
@@ -249,8 +256,7 @@ registerNode({
   async execute(message, config, ctx): Promise<NodeResult> {
     try {
       const script = (config.script as string) ?? 'return msg;';
-      const fn = new Function('msg', 'metadata', 'msgType', script);
-      const result = fn({ ...message }, ctx.metadata, message._messageType ?? '');
+      const result = safeExecuteScript(script, { msg: { ...message }, metadata: ctx.metadata, msgType: message._messageType ?? '' });
       if (result && typeof result === 'object') {
         return { output: 'Success', message: result as Record<string, unknown> };
       }
@@ -343,8 +349,7 @@ registerNode({
       for (const conv of conversions) {
         const val = result[conv.key];
         if (typeof val === 'number') {
-          const fn = new Function('x', `return ${conv.formula};`);
-          result[conv.key] = fn(val);
+          result[conv.key] = safeExecuteScript(`return ${conv.formula};`, { x: val }) as number;
         }
       }
       return { output: 'Success', message: result };
@@ -391,11 +396,18 @@ registerNode({
   outputs: ['Success', 'Failure'],
   defaultConfig: { alarmType: 'THRESHOLD', severity: 'WARNING', detailsScript: '' },
   async execute(message, config, ctx): Promise<NodeResult> {
+    // Include threshold/condition info from config alongside telemetry values
+    const details: Record<string, unknown> = { ...message };
+    if (config.sourceField) details._sourceField = config.sourceField;
+    if (config.condition) details._condition = config.condition;
+    if (config.threshold !== undefined) details._threshold = config.threshold;
+    if (config.ruleType) details._ruleType = config.ruleType;
+
     const alarm = {
       entityId: ctx.entityId,
       alarmType: (config.alarmType as string) ?? 'THRESHOLD',
       severity: (config.severity as string) ?? 'WARNING',
-      details: message,
+      details,
       clear: false,
     };
     return { output: 'Success', message, alarms: [alarm] };
@@ -415,6 +427,7 @@ registerNode({
       alarmType: (config.alarmType as string) ?? 'THRESHOLD',
       severity: 'INFO',
       clear: true,
+      details: message,
     };
     return { output: 'Success', message, alarms: [alarm] };
   },
@@ -586,6 +599,13 @@ registerNode({
   description: 'Enter another rule chain (increments depth counter).',
   outputs: ['Success', 'Failure'],
   defaultConfig: { targetChainId: '' },
+  configSchema: {
+    targetChainId: {
+      type: 'rule-chain-select',
+      label: 'Target Rule Chain',
+      description: 'Select the rule chain to delegate execution to.',
+    },
+  },
   async execute(message, config, ctx): Promise<NodeResult> {
     const targetChainId = config.targetChainId as string;
     if (!targetChainId) {

@@ -54,12 +54,12 @@ export function AuditTrailPage() {
   const params = new URLSearchParams({ page: String(page), limit: String(perPage), sortBy, sortOrder });
   if (search) params.set('search', search);
 
-  // Use combined datetime values for API
+  // Use combined datetime values for API — convert local time to UTC ISO string
   if (fromDateTime) {
-    params.set('startDate', fromDateTime);
+    params.set('startDate', new Date(fromDateTime).toISOString());
   }
   if (toDateTime) {
-    params.set('endDate', toDateTime);
+    params.set('endDate', new Date(toDateTime).toISOString());
   }
 
   const { data, isLoading, mutate } = useSWR(`/api/audit?${params}`);

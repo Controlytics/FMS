@@ -1,7 +1,7 @@
 # DigiLog — Master Development Plan
 
-**Last updated:** 2026-02-26
-**Status:** Phase 1 complete, Phases A–K (Data Ingestion + Testing & Documentation) complete
+**Last updated:** 2026-03-05
+**Status:** Phase 1 complete, Phases A–K (Data Ingestion + Testing & Documentation) complete, v3.0 (Security + Refactoring + CI/CD) complete
 
 ---
 
@@ -30,6 +30,12 @@
 | TBD | API refactoring Phase 5-7 (backup, roles, notifications) | Pending |
 | TBD | Frontend refactoring Phase 8-13 | Pending |
 | 2026-02-26 | **Phase K** — Testing & Documentation — ~425 unit tests (18 files, 3 packages) | Done |
+| 2026-03-01 | **v3.0 Security** — 8 production security fixes (trustProxy, session sliding, orphan cleanup, RBAC guards, nginx hardening) | Done |
+| 2026-03-01 | **v3.0 CI/CD** — GitHub Actions workflow (PostgreSQL 15 + Redis 7), fix 26 failing tests, Vitest workspace | Done |
+| 2026-03-01 | **v3.0 Documentation** — 36-page ThingsBoard-style documentation suite (API reference, user guides, admin, compliance) | Done |
+| 2026-03-01 | **v3.0 Refactoring** — Entity Explorer (2081→386 lines), detail panel (2187→763 lines), extracted 6 dialogs + 6 tabs + 2 hooks | Done |
+| 2026-03-01 | **v3.0 TimescaleDB** — 5 PostgreSQL tables converted to hypertables with chunk intervals, composite indexes, compliance protections | Done |
+| 2026-03-02 | **v3.0 Checklist Fix** (FIX-024) — MCQ/MULTI_SELECT click handlers + 1262 lines of new tests | Done |
 
 ---
 
@@ -95,7 +101,10 @@ Full-stack 21 CFR Part 11 compliant digital logbook with:
 | `apps/api` | `rule-chain/__tests__/default-chain-builder.test.ts` | 19 (default chain builder) |
 | `apps/api` | `rule-chain/__tests__/rule-engine.test.ts` | 21 (rule engine) |
 | `apps/api` | `uns/__tests__/uns-path-builder.test.ts` | 17 (UNS path builder) |
-| **Total** | | **~692 tests (151 shared + 21 db + ~520 API)** |
+| `apps/api` | `e2e/checklist-submission.test.ts` | Checklist E2E submission |
+| `packages/shared` | `__tests__/checklist-answers.test.ts` | 14 question types |
+| `packages/shared` | `__tests__/checklist-normalizer.test.ts` | Schema normalization |
+| **Total** | **83+ test files** | **1344 tests, 0 failures** |
 
 ### Phase A — Data Ingestion Infrastructure (2026-02-25)
 
@@ -214,9 +223,9 @@ Backend services and frontend pages for connectivity, QR codes, help, and dashbo
 
 **Key files:** `apps/api/src/modules/connectivity/`, `apps/api/src/modules/qr-codes/`, `apps/api/src/modules/help/`, `apps/web/src/routes/rule-chains/`, `apps/web/src/routes/alarms/`, `apps/web/src/routes/config/uns.tsx`
 
-### Phase K — Testing & Documentation (2026-02-26)
+### Phase K — Testing & Documentation (2026-02-26, expanded 2026-03-01)
 
-~425 unit tests across 18 test files in 3 packages:
+~425 initial unit tests, expanded to 1344 tests (0 failures) across 83+ test files:
 
 **packages/shared (151 tests, 5 files):** Existing schema and type tests for auth, config, users, assets (checklist), audit templates.
 
@@ -245,29 +254,39 @@ UNS (17 tests, 1 file):
 
 ---
 
-## In Progress
+## In Progress — Uncommitted Changes (DataIngestion Branch)
 
-### Recent Changes (2026-02-21) — 5 Groups
+### Security & Auth Enhancements
+- **Absolute session timeout** — 24h hard limit regardless of activity
+- **Reauth enforcement expanded** — Alarm acknowledge/clear, help article CRUD, UNS config, rule chain CRUD, debug trace toggle
+- **Sandboxed VM execution** — Rule chain scripts run in isolated Node.js VM contexts (1s timeout)
+- **Audit logging expanded** — Audit record deletion, alarm actions, help CRUD, UNS config, rule chain CRUD, debug trace toggle
 
-**1. Checklist Feature — Entity Templates**
-- 14 question types: PASS_FAIL, YES_NO, YES_NO_NA, MCQ, MULTI_SELECT, TEXT, NUMERIC, DROPDOWN, PHOTO, DATE_TIME, SIGNATURE, YES_NO_COMMENT, CALCULATED, CONDITIONAL
-- Files: `packages/shared/src/schemas/assets.ts`, `apps/api/src/modules/assets/routes/template.routes.ts`, `apps/api/src/modules/assets/services/template.service.ts`, `apps/web/src/routes/assets/templates.tsx`
+### Alarm Column Visibility Configuration
+- New SUPER_ADMIN config page (`/config/alarm-columns`) with per-role column visibility
+- 3 new API endpoints: `GET/PUT /api/config/alarm-columns`, `GET /api/config/alarm-columns/current`
+- 11 configurable columns with toggle checkboxes per role
 
-**2. Audit Log Descriptions — Entity Management**
-- 12 entity actions with descriptive templates and placeholders
-- Files: `packages/shared/src/types/audit-templates.ts`, `apps/api/src/plugins/audit-logger.ts`
+### Permission Migration (Role → Permission-Based)
+- Rule chain routes, debug trace routes, alarm routes migrated from `requireRole()` to `requirePermission()`
+- Frontend routes migrated from string literals to `PERMISSIONS.*` constants
+- 7 new permission categories: Audit & Approvals, Notifications, Data & Ingestion, Rule Chains, Alarms, Checklists, Advanced
 
-**3. Privileges & Reauth Configuration**
-- 7 entity privileges + 8 entity reauth actions
-- Files: `packages/shared/src/types/feature-privileges.ts`, `packages/shared/src/types/reauth-actions.ts`, `apps/web/src/routes/audit/index.tsx`
+### Rule Chain Engine Improvements
+- Sub-chain delegation with depth tracking to prevent infinite loops
+- Dual create-alarm/clear-alarm paths per alarm rule
+- Config schema support for dynamic UI field generation
+- Rule chain select field in editor and template form
 
-**4. Unit & E2E Tests**
-- 51 new tests across 3 files
-- Files: `packages/shared/src/schemas/assets.test.ts`, `packages/shared/src/types/audit-templates.test.ts`, `apps/api/src/e2e/checklist-templates.test.ts`
+### Data Ingestion Optimizations
+- Atomic SQL telemetry upsert (no race conditions)
+- Alarm deduplication (prevents duplicates from rapid telemetry)
+- Device credential tracking (firstConnectedAt, lastConnectedAt, lastSourceIp)
+- Entity instance CRUD wrapped in Prisma transactions
 
-**5. Bug Fix — GET /templates/:id Response Schema**
-- Fixed Fastify stripping `checklistSchema` from responses
-- File: `apps/api/src/modules/assets/routes/template.routes.ts`
+### Database Schema Changes
+- Alarm model: `clearDetails` (Json?) field, `MANUALLY_CLEARED` status
+- New shared types: `alarm-columns.ts` (11 column definitions)
 
 ---
 
@@ -398,7 +417,7 @@ routes/config/
 | Data Point Ingestion | MQTT/HTTP/WS integration for real-time telemetry | Medium | **Done** (Phases B-C) |
 | Reports & Exports | CSV/JSON export for telemetry, alarms, audit data | Medium | **Done** (Phase F) |
 | HTTPS/TLS Certificates | SSL for production deployment | Medium | Pending |
-| CI/CD Pipeline | Automated build/test/deploy | Medium | Pending |
+| CI/CD Pipeline | Automated build/test/deploy | Medium | **Done** (GitHub Actions) |
 | Frontend Component Tests | Vitest + React Testing Library for UI components | Low | Pending |
 | Per-page Pagination Selector | Config page done, page-level integration pending | Low | Pending |
 
@@ -413,10 +432,8 @@ Run after every change:
 cd apps/api && npm run build
 cd apps/web && npm run build
 
-# 2. Tests
-cd packages/shared && npx vitest run     # 151 tests
-cd packages/db && npx vitest run         # 21 tests
-cd apps/api && npx vitest run            # ~520 tests
+# 2. Tests (1344 total, 0 failures)
+npx turbo run test                       # Run all tests via Turborepo
 
 # 3. Full Turborepo build (5 packages: shared, db, queue, api, web)
 npm run build
@@ -489,6 +506,9 @@ pm2 restart digilog-api
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-03-05 | Documentation sync: updated all .md files to reflect v3.0 changes (security, CI/CD, refactoring, TimescaleDB, tests) | Engineering Team |
+| 2026-03-02 | FIX-024: Checklist MCQ/MULTI_SELECT click handlers + 1262 lines of new tests | Engineering Team |
+| 2026-03-01 | v3.0: 8 security fixes, CI/CD pipeline, 36-page docs, component refactoring (Entity Explorer 82% reduction, detail panel 65% reduction), TimescaleDB hypertables, RBAC fixes, 26 test fixes (1344 tests, 0 failures) | Engineering Team |
 | 2026-02-26 | Phase K complete: ~425 unit tests across 18 files in 3 packages (shared 151, db 21, api 253). Covers data ingestion (7 files, 132 tests), rule chain engine (4 files, 104 tests), UNS (1 file, 17 tests), telemetry batcher (1 file, 21 tests). | Engineering Team |
 | 2026-02-26 | Phases B-J complete: Transport Layer (MQTT/HTTP/WS), Ingestion Pipeline (BullMQ, 11 stages, DLQ, tracer), Rule Chain Engine (26 node types, 14 endpoints), UNS (ISA-95 paths, 6 endpoints), Queries & Export (20 endpoints), Integration backend (16 endpoints) + frontend (3 pages). Total ~138 endpoints. | Engineering Team |
 | 2026-02-25 | Phase A Infrastructure: Docker Compose (4 services), TimescaleDB init, 15 new Prisma models, packages/queue + packages/db, shared type extensions, seed data (33 configs + 28 help articles), frontend fix | Engineering Team |

@@ -17,6 +17,7 @@
     "test:unit": "turbo run test --filter=@digilog/shared --filter=@digilog/api"
   },
   "devDependencies": {
+    "puppeteer": "^24.37.5",
     "turbo": "^2.4.0",
     "vitest": "^4.0.18"
   }

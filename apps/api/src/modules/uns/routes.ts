@@ -9,6 +9,8 @@ import {
   buildUnsTree,
 } from './uns.service.js';
 import { prisma } from '../../lib/prisma.js';
+import { auditLog } from '../../lib/audit.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 
 export default async function unsRoutes(app: FastifyInstance) {
   // GET /tree — Full UNS tree (hierarchical view)
@@ -127,8 +129,12 @@ export default async function unsRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('OVERRIDE_UNS_PATH', req, reply);
+    if (!ok) return;
+
     const { entityId } = req.params as { entityId: string };
     const { unsPath } = req.body as { unsPath: string };
+    const user = (req as any).user as { username: string; role: string };
 
     const existing = await prisma.unsMapping.findUnique({ where: { entityId } });
     if (!existing) {
@@ -148,6 +154,14 @@ export default async function unsRoutes(app: FastifyInstance) {
         data: { unsPath },
       }),
     ]);
+
+    await auditLog({
+      userId: user.username, userRole: user.role, action: 'UNS_PATH_OVERRIDDEN',
+      targetType: 'uns_mapping', targetId: entityId,
+      beforeValue: { unsPath: existing.unsPath },
+      afterValue: { unsPath },
+      ipAddress: req.ip, userAgent: req.headers['user-agent'],
+    });
 
     return updatedMapping;
   });
@@ -263,11 +277,23 @@ export default async function unsRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_UNS_CONFIG', req, reply);
+    if (!ok) return;
+
     const { entityId } = req.params as { entityId: string };
     const { newParentId } = req.body as { newParentId: string | null };
+    const user = (req as any).user as { username: string; role: string };
 
     try {
       const result = await confirmCascadeMove(entityId, newParentId);
+
+      await auditLog({
+        userId: user.username, userRole: user.role, action: 'UNS_CONFIG_UPDATED',
+        targetType: 'uns_mapping', targetId: entityId,
+        afterValue: { newParentId, updatedCount: result.updated },
+        ipAddress: req.ip, userAgent: req.headers['user-agent'],
+      });
+
       return { success: true, updated: result.updated };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to execute cascade move';

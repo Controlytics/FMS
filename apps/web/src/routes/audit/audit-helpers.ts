@@ -61,6 +61,10 @@ export const ACTION_COLORS: Record<string, string> = {
   // Entity Identifiers
   ASSET_IDENTIFIER_CREATED: 'bg-lime-100 text-lime-700 border-lime-200',
   ASSET_IDENTIFIER_DELETED: 'bg-red-100 text-red-700 border-red-200',
+
+  // Alarm Management
+  ALARM_ACKNOWLEDGED: 'bg-amber-100 text-amber-700 border-amber-200',
+  ALARM_CLEARED: 'bg-emerald-100 text-emerald-700 border-emerald-200',
 };
 
 // Actions that represent failures

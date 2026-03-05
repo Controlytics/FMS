@@ -7,9 +7,18 @@ import {
 } from '@/components/ui/table';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/hooks/use-auth';
+import { ALL_ALARM_COLUMN_IDS } from '@digilog/shared';
 
 export function AlarmsTab({ entityId, formatDateTime }: { entityId: string; formatDateTime: (v: string | Date) => string }) {
   const { user } = useAuth();
+
+  // Alarm column visibility per role
+  const { data: colConfig } = useSWR<{ columns: string[] }>('/api/config/alarm-columns/current', {
+    dedupingInterval: 30000,
+    revalidateOnFocus: false,
+  });
+  const visibleCols = useMemo(() => new Set(colConfig?.columns ?? ALL_ALARM_COLUMN_IDS), [colConfig]);
+
   const [statusFilter, setStatusFilter] = useState('');
 
   // Time range state
@@ -53,6 +62,13 @@ export function AlarmsTab({ entityId, formatDateTime }: { entityId: string; form
     ACTIVE: 'bg-red-100 text-red-700',
     ACKNOWLEDGED: 'bg-amber-100 text-amber-700',
     CLEARED: 'bg-emerald-100 text-emerald-700',
+    MANUALLY_CLEARED: 'bg-blue-100 text-blue-700',
+  };
+  const statusLabels: Record<string, string> = {
+    ACTIVE: 'Active',
+    ACKNOWLEDGED: 'Acknowledged',
+    CLEARED: 'Cleared',
+    MANUALLY_CLEARED: 'Manually Cleared',
   };
 
   const handleDeleteAlarms = async () => {
@@ -104,9 +120,9 @@ export function AlarmsTab({ entityId, formatDateTime }: { entityId: string; form
 
       {/* Status Filter */}
       <div className="flex items-center gap-2 mb-4">
-        {['', 'ACTIVE', 'ACKNOWLEDGED', 'CLEARED'].map(s => (
+        {['', 'ACTIVE', 'ACKNOWLEDGED', 'CLEARED', 'MANUALLY_CLEARED'].map(s => (
           <button key={s} onClick={() => { setStatusFilter(s); setAlarmPage(1); }} className={cn('px-3 py-1.5 rounded-lg text-xs font-medium transition-colors', statusFilter === s ? 'bg-cyan-100 text-cyan-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
-            {s || 'All'}
+            {s ? (statusLabels[s] ?? s) : 'All'}
           </button>
         ))}
       </div>
@@ -117,20 +133,20 @@ export function AlarmsTab({ entityId, formatDateTime }: { entityId: string; form
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Severity</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Created</TableHead>
+              {visibleCols.has('severity') && <TableHead>Severity</TableHead>}
+              {visibleCols.has('alarmType') && <TableHead>Type</TableHead>}
+              {visibleCols.has('status') && <TableHead>Status</TableHead>}
+              {visibleCols.has('generatedAt') && <TableHead>Created</TableHead>}
               <TableHead>Details</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {alarms.map((alarm: any) => (
               <TableRow key={alarm.id}>
-                <TableCell><Badge className={cn('text-xs border', severityColors[alarm.severity] ?? '')}>{alarm.severity}</Badge></TableCell>
-                <TableCell className="text-sm font-medium">{alarm.alarmType}</TableCell>
-                <TableCell><Badge className={cn('text-xs', statusBadgeColors[alarm.status] ?? '')}>{alarm.status}</Badge></TableCell>
-                <TableCell className="text-sm whitespace-nowrap">{formatDateTime(alarm.createdAt)}</TableCell>
+                {visibleCols.has('severity') && <TableCell><Badge className={cn('text-xs border', severityColors[alarm.severity] ?? '')}>{alarm.severity}</Badge></TableCell>}
+                {visibleCols.has('alarmType') && <TableCell className="text-sm font-medium">{alarm.alarmType}</TableCell>}
+                {visibleCols.has('status') && <TableCell><Badge className={cn('text-xs', statusBadgeColors[alarm.status] ?? '')}>{statusLabels[alarm.status] ?? alarm.status}</Badge></TableCell>}
+                {visibleCols.has('generatedAt') && <TableCell className="text-sm whitespace-nowrap">{formatDateTime(alarm.createdAt)}</TableCell>}
                 <TableCell className="text-xs text-slate-500 max-w-xs truncate">{alarm.triggerDetails ? JSON.stringify(alarm.triggerDetails).substring(0, 80) : '-'}</TableCell>
               </TableRow>
             ))}

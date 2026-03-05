@@ -47,7 +47,7 @@ export function useAuth() {
     sessionStorage.setItem('access_token', res.token);
 
     if (res.user.forcePasswordChange) {
-      navigate('/change-password');
+      navigate('/change-password', { replace: true });
     } else {
       await mutate();
       const params = new URLSearchParams(window.location.search);
@@ -73,7 +73,7 @@ export function useAuth() {
       localStorage.removeItem('digilog_active_user_id');
     }
     await mutate(undefined, false);
-    navigate('/login');
+    navigate('/login', { replace: true });
   };
 
   // Clean up single-tab localStorage keys on tab close

@@ -240,7 +240,11 @@ export default async function connectivityRoutes(app: FastifyInstance) {
       select: { accessToken: true, isActive: true },
     });
 
-    const token = credential?.accessToken ?? '<YOUR_DEVICE_TOKEN>';
+    // Mask token in snippets — show only last 8 chars as hint, user copies full token from Credentials tab
+    const rawToken = credential?.accessToken;
+    const token = rawToken
+      ? `<TOKEN_ENDING_...${rawToken.slice(-8)}>`
+      : '<YOUR_DEVICE_TOKEN>';
     const unsPath = getEntityUnsPath(entity);
     const apiUrl = process.env.CORS_ORIGIN || process.env.ALLOWED_ORIGINS?.split(',')[0] || 'http://localhost:3000';
 

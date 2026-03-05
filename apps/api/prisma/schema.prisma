@@ -466,13 +466,13 @@ model RuleNodeConnection {
   @@map("rule_node_connections")
 }
 
-// Alarm (single-row lifecycle: ACTIVE -> ACKNOWLEDGED -> CLEARED)
+// Alarm (single-row lifecycle: ACTIVE -> ACKNOWLEDGED -> CLEARED | MANUALLY_CLEARED)
 model Alarm {
   id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   entityId           String    @map("entity_id") @db.Uuid
   alarmType          String    @map("alarm_type") @db.VarChar(100)
   severity           String    @db.VarChar(20) // CRITICAL | MAJOR | MINOR | WARNING | INFO
-  status             String    @default("ACTIVE") @db.VarChar(20) // ACTIVE | ACKNOWLEDGED | CLEARED
+  status             String    @default("ACTIVE") @db.VarChar(20) // ACTIVE | ACKNOWLEDGED | CLEARED | MANUALLY_CLEARED
   unsPath            String    @map("uns_path")
 
   // Creation
@@ -493,6 +493,7 @@ model Alarm {
   clearedBy          String?   @map("cleared_by") @db.VarChar(50)
   clearRemarks       String?   @map("clear_remarks")
   clearSignatureId   String?   @map("clear_signature_id") @db.Uuid
+  clearDetails       Json?     @map("clear_details") @db.JsonB
 
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 

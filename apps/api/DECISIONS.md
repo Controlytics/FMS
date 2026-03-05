@@ -95,3 +95,47 @@
 ## 24. User-Facing "Entity" Terminology (Code Retains "Asset")
 **Decision:** All user-facing text (UI labels, API Swagger docs, error messages, audit descriptions) uses "Entity" terminology, while code identifiers (Prisma models, variable names, permission constants, file paths) retain "Asset" naming.
 **Rationale:** Renaming code identifiers would require a database migration (table/column renames), Prisma schema changes, and extensive refactoring across all files with no functional benefit. The user-facing rename from "Asset" to "Entity" better matches the domain vocabulary without the risk and effort of a full codebase rename. This is a common pattern in long-lived codebases where the domain language evolves.
+
+## 25. TimescaleDB for Time-Series Data (not plain PostgreSQL tables)
+**Decision:** Convert 5 high-volume tables (TelemetryData, AlarmRecord, IngestionEvent, DeviceCredential, DlqEntry) to TimescaleDB hypertables with automatic time partitioning.
+**Rationale:** Time-series data (telemetry readings, alarms, events) grows unboundedly. TimescaleDB provides automatic partitioning by time (7-day chunks), compression, and retention policies without application code changes. Queries filtering by time range benefit from chunk pruning. The `digilog_tsdb` database runs alongside `digilog_db` on the same PostgreSQL instance.
+
+## 26. BullMQ for Ingestion Queue (not in-process)
+**Decision:** Use BullMQ with Redis as the ingestion job queue rather than processing data inline in the HTTP handler.
+**Rationale:** Data ingestion from IoT devices can burst to high volumes. Queueing decouples HTTP acceptance (fast 202 response) from processing (pipeline stages). BullMQ provides job persistence, retry with backoff, dead letter queue, and rate limiting. Redis is already used for rule chain caching, so no additional infrastructure. Two workers: ingestion (processes payloads) and maintenance (DLQ cleanup, connectivity staleness checks).
+
+## 27. Sandboxed VM for Rule Chain Scripts (not eval/Function)
+**Decision:** Execute user-defined rule chain scripts in Node.js `vm.runInNewContext()` with a 1-second timeout and restricted global scope (no `process`, `require`, `global`, `Buffer`, `setTimeout`).
+**Rationale:** Rule chain "script" nodes allow users to write custom transformation/filtering logic. Running untrusted code requires isolation to prevent: infinite loops (1s timeout), file system access (no `require`/`process`), memory exhaustion (restricted scope), and global state pollution (new context per execution). The VM sandbox is lightweight compared to worker threads or child processes.
+
+## 28. Sub-Chain Delegation with Depth Tracking (not unlimited nesting)
+**Decision:** Rule chains can delegate to other chains via "delegate-chain" nodes. A `depth` counter tracks nesting level and prevents infinite recursion (max depth configurable).
+**Rationale:** Complex rule logic benefits from composition — a "temperature alarm" chain can delegate to a "notification" chain. Without depth tracking, circular delegation (chain A → chain B → chain A) would cause stack overflow. The depth counter increments on each delegation and rejects execution when the limit is reached.
+
+## 29. Atomic SQL for Telemetry Upsert (not Prisma upsert)
+**Decision:** Use raw SQL `INSERT ... ON CONFLICT (entityId, key) DO UPDATE SET value = EXCLUDED.value WHERE ...` for telemetry updates instead of Prisma's `upsert()`.
+**Rationale:** Prisma's upsert performs a SELECT then INSERT/UPDATE in two separate statements, creating a race condition window where concurrent updates to the same entity+key can conflict. The atomic SQL approach handles the conflict in a single statement, ensuring exactly one row exists per entity+key combination. This is critical for high-frequency telemetry data from multiple devices.
+
+## 30. Alarm Deduplication (not create-on-every-trigger)
+**Decision:** When the rule engine generates an alarm, the system first checks if an ACTIVE alarm of the same type already exists for the entity. Only creates a new alarm if none exists.
+**Rationale:** Without deduplication, a continuously-out-of-range sensor would create hundreds of alarm records per minute. Deduplication ensures one active alarm per type per entity. The alarm is only created when transitioning from "no alarm" to "alarm state". Clearing happens when the value returns to range or via manual acknowledgement/clear.
+
+## 31. Absolute Session Timeout (24h hard limit)
+**Decision:** Sessions have both a sliding window (configurable idle timeout) and an absolute 24-hour hard timeout. The absolute timeout cannot be extended by activity.
+**Rationale:** 21 CFR Part 11 requires that sessions cannot remain active indefinitely. The sliding window handles idle users (e.g., 15 minutes of inactivity). The absolute timeout ensures that even continuously active sessions expire after 24 hours, forcing re-authentication. This prevents "forever sessions" from shared workstations.
+
+## 32. Permission-Based Route Authorization (migrated from role-based)
+**Decision:** All routes (including rule chains, data ingestion, debug traces, help articles, UNS) use `requirePermission()` instead of `requireRole()`. Each route checks specific permission constants from the role's `permissions` JSON array.
+**Rationale:** Role-based checks (`requireRole('SUPER_ADMIN', 'ADMIN')`) are inflexible — adding a new role requires code changes to every route. Permission-based checks allow any role to have any permission combination. A custom "QA Engineer" role can have `RULE_CHAIN_MANAGE` permission without being listed in hardcoded role name arrays. This was migrated across all modules for consistency.
+
+## 33. MANUALLY_CLEARED Alarm Status (separate from CLEARED)
+**Decision:** Alarms have 4 statuses: ACTIVE, ACKNOWLEDGED, CLEARED, MANUALLY_CLEARED. MANUALLY_CLEARED is used when a user clears an alarm that hasn't auto-cleared.
+**Rationale:** Regulatory environments require distinguishing between alarms that cleared naturally (sensor returned to range → CLEARED) and alarms cleared by operator action (MANUALLY_CLEARED). The `clearDetails` JSON field stores the user, timestamp, and reason for manual clears. This distinction is important for root cause analysis and compliance audits.
+
+## 34. Connectivity Tracker with Atomic SQL Upsert
+**Decision:** Device connectivity tracking (firstConnectedAt, lastConnectedAt, lastSourceIp) uses atomic SQL `INSERT ... ON CONFLICT ... DO UPDATE` rather than Prisma upsert.
+**Rationale:** Same rationale as telemetry upsert (Decision 29). Multiple devices connecting concurrently could cause race conditions with Prisma's two-step upsert. The atomic SQL approach ensures consistent state for device credential records, especially important for `firstConnectedAt` which should never be overwritten once set.
+
+## 35. Default Chain Builder (auto-create from template alarm rules)
+**Decision:** When an entity template has alarm rules defined, the system auto-generates a default rule chain with dual create-alarm/clear-alarm paths per alarm rule.
+**Rationale:** Users shouldn't need to manually build rule chains for standard alarm scenarios. The default chain builder creates a chain with: input → filter (check key match) → threshold check → create-alarm node (if violated) / clear-alarm node (if normal). This covers 90% of use cases. Users can customize by editing the auto-generated chain in the visual editor.

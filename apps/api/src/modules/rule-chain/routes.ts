@@ -5,13 +5,15 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { invalidateChainCache } from './rule-engine.js';
 import { getDebugBuffer, clearDebugBuffer } from './debug-recorder.js';
 import { getAllNodes, getNodesByCategory } from './node-registry.js';
+import { auditLog } from '../../lib/audit.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 import './nodes/index.js'; // Auto-register all nodes
 
 export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 1. GET / — List rule chains (paginated) ──────────
   app.get('/', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'List rule chains',
@@ -72,8 +74,8 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
       limit?: number;
     };
 
-    const page = Number(rawPage) || 1;
-    const limit = Math.min(Number(rawLimit) || 20, 100);
+    const page = Math.max(1, Number(rawPage) || 1);
+    const limit = Math.max(1, Math.min(Number(rawLimit) || 20, 100));
     const skip = (page - 1) * limit;
 
     const where: Prisma.RuleChainWhereInput = {};
@@ -107,7 +109,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 2. GET /node-types — List available node type definitions ──
   app.get('/node-types', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'List available node types',
@@ -130,6 +132,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
               description: { type: 'string' },
               outputs: { type: 'array', items: { type: 'string' } },
               defaultConfig: { type: 'object', additionalProperties: true },
+              configSchema: { type: 'object', additionalProperties: true },
             },
           },
         },
@@ -148,12 +151,13 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
       description: n.description,
       outputs: n.outputs,
       defaultConfig: n.defaultConfig,
+      configSchema: n.configSchema,
     }));
   });
 
   // ─── 3. GET /:id — Get single rule chain with nodes + connections ──
   app.get('/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Get rule chain by ID',
@@ -251,7 +255,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 4. POST / — Create rule chain ────────────────────
   app.post('/', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Create rule chain',
@@ -278,6 +282,9 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('CREATE_RULE_CHAIN', req, reply);
+    if (!ok) return;
+
     const body = req.body as {
       name: string;
       description?: string;
@@ -294,12 +301,19 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
       },
     });
 
+    await auditLog({
+      userId: req.user?.username, userRole: req.user?.role, action: 'RULE_CHAIN_CREATED',
+      targetType: 'rule_chain', targetId: chain.id,
+      afterValue: { name: chain.name, description: chain.description },
+      ipAddress: req.ip, userAgent: req.headers['user-agent'],
+    });
+
     return reply.code(201).send({ success: true, data: chain });
   });
 
   // ─── 5. PUT /:id — Update rule chain metadata ─────────
   app.put('/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Update rule chain',
@@ -331,6 +345,9 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_RULE_CHAIN', req, reply);
+    if (!ok) return;
+
     const { id } = req.params as { id: string };
     const body = req.body as {
       name?: string;
@@ -359,12 +376,20 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
     invalidateChainCache(id);
 
+    await auditLog({
+      userId: req.user?.username, userRole: req.user?.role, action: 'RULE_CHAIN_UPDATED',
+      targetType: 'rule_chain', targetId: id,
+      beforeValue: { name: existing.name, isActive: existing.isActive },
+      afterValue: { name: chain.name, isActive: chain.isActive },
+      ipAddress: req.ip, userAgent: req.headers['user-agent'],
+    });
+
     return { success: true, data: chain };
   });
 
   // ─── 6. DELETE /:id — Delete rule chain ────────────────
   app.delete('/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Delete rule chain',
@@ -383,6 +408,9 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('DELETE_RULE_CHAIN', req, reply);
+    if (!ok) return;
+
     const { id } = req.params as { id: string };
 
     const chain = await prisma.ruleChain.findUnique({ where: { id } });
@@ -398,12 +426,19 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
     invalidateChainCache(id);
 
+    await auditLog({
+      userId: req.user?.username, userRole: req.user?.role, action: 'RULE_CHAIN_DELETED',
+      targetType: 'rule_chain', targetId: id,
+      beforeValue: { name: chain.name },
+      ipAddress: req.ip, userAgent: req.headers['user-agent'],
+    });
+
     return { success: true };
   });
 
   // ─── 7. POST /:id/nodes — Add node to chain ───────────
   app.post('/:id/nodes', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Add node to rule chain',
@@ -468,7 +503,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 8. PUT /:id/nodes/:nodeId — Update node ──────────
   app.put('/:id/nodes/:nodeId', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Update rule chain node',
@@ -538,7 +573,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 9. DELETE /:id/nodes/:nodeId — Delete node ───────
   app.delete('/:id/nodes/:nodeId', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Delete rule chain node',
@@ -578,7 +613,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 10. POST /:id/connections — Add connection ───────
   app.post('/:id/connections', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Add connection between nodes',
@@ -645,7 +680,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 11. DELETE /:id/connections/:connectionId — Delete connection ──
   app.delete('/:id/connections/:connectionId', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Delete connection',
@@ -685,7 +720,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 12. POST /:id/save — Save full chain state + create version ──
   app.post('/:id/save', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Save full chain state',
@@ -743,6 +778,9 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_RULE_CHAIN', req, reply);
+    if (!ok) return;
+
     const { id } = req.params as { id: string };
     const body = req.body as {
       nodes: Array<{
@@ -865,12 +903,19 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
     invalidateChainCache(id);
 
+    await auditLog({
+      userId: req.user?.username, userRole: req.user?.role, action: 'RULE_CHAIN_UPDATED',
+      targetType: 'rule_chain', targetId: id,
+      afterValue: { version: newVersion, nodeCount: body.nodes.length, connectionCount: body.connections.length },
+      ipAddress: req.ip, userAgent: req.headers['user-agent'],
+    });
+
     return { success: true, data: result, version: newVersion };
   });
 
   // ─── 13. GET /:id/debug — Get debug buffer for chain ──
   app.get('/:id/debug', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Get debug buffer',
@@ -917,7 +962,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 14. DELETE /:id/debug — Clear debug buffer ───────
   app.delete('/:id/debug', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Clear debug buffer',

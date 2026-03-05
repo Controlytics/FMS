@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
+import { Navigate } from 'react-router-dom';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { loginSchema, type LoginInput } from '@digilog/shared';
 import { useAuth } from '@/hooks/use-auth';
@@ -10,7 +11,12 @@ import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui
 import { checkExistingUserSession, type ActiveSessionInfo } from '@/hooks/use-single-tab';
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { login, isAuthenticated, isLoading } = useAuth();
+
+  // If already authenticated, redirect to home — prevents back-button to login
+  if (!isLoading && isAuthenticated) {
+    return <Navigate to="/" replace />;
+  }
   const { branding } = useBranding();
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);

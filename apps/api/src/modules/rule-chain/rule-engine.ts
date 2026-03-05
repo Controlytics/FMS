@@ -192,6 +192,31 @@ export async function executeRuleChain(
       if (result.alarms) alarms.push(...result.alarms);
       if (result.notifications) notifications.push(...result.notifications);
 
+      // Handle sub-chain delegation
+      if (currentMsg._delegateChain) {
+        const targetChainId = currentMsg._delegateChain as string;
+        const subDepth = (currentMsg._chainDepth as number) ?? chainDepth + 1;
+        // Clean delegation markers before passing to sub-chain
+        const { _delegateChain, _chainDepth, ...cleanMsg } = currentMsg;
+        currentMsg = cleanMsg;
+
+        const subResult = await executeRuleChain(
+          cleanMsg,
+          currentMeta,
+          targetChainId,
+          entityContext,
+          subDepth,
+        );
+        // Merge sub-chain results
+        currentMsg = subResult.message;
+        currentMeta = { ...currentMeta, ...subResult.metadata };
+        ctx.metadata = currentMeta;
+        alarms.push(...subResult.alarms);
+        notifications.push(...subResult.notifications);
+        errors.push(...subResult.errors);
+        nodesExecuted += subResult.nodesExecuted;
+      }
+
       // Debug recording
       if (nodeDef.debugEnabled) {
         recordDebug(ruleChainId, {

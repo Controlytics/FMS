@@ -91,3 +91,27 @@
 ## 23. Connection Status Cards with Progress Bars
 **Decision:** The entity Overview tab shows 4 connection status cards (Connections Allowed/Used, Parent Connections Allowed/Used) with visual progress bars.
 **Rationale:** Connection limits are template-level settings that users need to monitor per entity. Progress bars provide an instant visual indicator of capacity (green when under limit, red when at limit). Showing both total connections and parent connections separately reflects the dual limit system (maxConnections vs maxParentConnections). Cards are read-only since limits are set at the template level.
+
+## 24. React Flow for Rule Chain Visual Editor
+**Decision:** Use React Flow library for the rule chain visual editor canvas rather than building a custom canvas solution.
+**Rationale:** React Flow provides production-ready node-based graph editing with drag-and-drop, zooming, panning, edge routing, and selection out of the box. Building a custom canvas would take weeks and wouldn't match the quality. React Flow integrates naturally with React state management. The node palette sidebar uses a simple drag-to-canvas pattern. Edge selection uses red highlight with animation for visibility.
+
+## 25. Component Extraction Pattern (Entity Explorer refactoring)
+**Decision:** Extract the Entity Explorer from a 2,081-line monolith into: 6 dialog components (`components/dialogs/`), 6 tab components (`components/tabs/`), and 2 custom hooks (`hooks/`). Main file reduced to 386 lines.
+**Rationale:** Large monolithic components are hard to maintain, test, and review. The extraction follows a clear separation: dialogs handle modal CRUD operations, tabs handle detail panel content, hooks encapsulate mutation logic and tree filtering. Each extracted component is self-contained with its own props interface. The pattern can be applied to other large pages (templates.tsx at ~1,410 lines).
+
+## 26. Role-Based Alarm Column Visibility
+**Decision:** Alarm dashboard columns are configurable per role via the `/config/alarm-columns` page. Each role can have different visible columns from the 11 available (severity, alarmType, entity, highLimit, lowLimit, generatedValue, clearedValue, status, generatedAt, clearedAt, actions).
+**Rationale:** Different roles need different alarm information. Operators may only need severity and status, while maintenance engineers need threshold details. Column definitions are centralized in `@digilog/shared` (ALARM_COLUMN_DEFINITIONS), and the frontend fetches the current user's visible columns via SWR. This avoids hardcoding column visibility and supports custom roles.
+
+## 27. sessionStorage for JWT (not localStorage)
+**Decision:** Changed JWT storage from localStorage to sessionStorage.
+**Rationale:** sessionStorage is cleared when the browser tab closes, providing better security for shared workstations common in regulated environments. In 21 CFR Part 11 contexts, users should not remain authenticated after closing the browser. Combined with single-tab enforcement, this ensures each session is properly scoped.
+
+## 28. Permission Constants for Route Guards (not string literals)
+**Decision:** All frontend route permission checks use `PERMISSIONS.*` constants imported from `@digilog/shared`, never string literals like `'ASSET_CREATE'`.
+**Rationale:** String literals are error-prone (typos compile but fail at runtime) and make permission renames risky. Constants provide compile-time checking and IDE autocomplete. If a permission is renamed in the shared package, all references break at build time, ensuring nothing is missed.
+
+## 29. Debug Trace Page for Pipeline Visibility
+**Decision:** Added a `/debug` page showing pipeline debug traces with stage-by-stage execution details.
+**Rationale:** Data ingestion pipelines are opaque — when telemetry doesn't appear, users need to see where in the 11-stage pipeline the data was dropped. The debug trace page shows each message's journey through the pipeline with timestamps, stage results, and error details. This is a development/operations tool, not user-facing, so it requires the `READ_DEBUG_TRACE` permission.

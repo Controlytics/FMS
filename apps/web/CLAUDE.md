@@ -14,11 +14,18 @@ React 19, Vite, TypeScript, Tailwind CSS 4, SWR, React Router 7, React Hook Form
   - `auth/` — Login, forgot password, change password
   - `dashboard.tsx` — Main dashboard
   - `users/` — User list, create, edit, reset requests
-  - `config/` — All configuration pages (password-policy, datetime, branding, roles, role-privileges, sidebar, field-ids, user-id, backup, action-reauth, audit-templates, pagination)
-  - `assets/` — Entity Explorer (`index.tsx`), Entity Template Manager (`templates.tsx`)
-  - `audit/` — Audit trail
+  - `config/` — All configuration pages (password-policy, datetime, branding, roles, role-privileges, sidebar, field-ids, user-id, backup, action-reauth, audit-templates, pagination, alarm-columns)
+  - `assets/` — Entity Explorer (`index.tsx`, 386 lines), Entity Template Manager (`templates.tsx`)
+    - `components/dialogs/` — 6 extracted dialogs (add-entity-wizard, edit-entity, delete-entity, link-entities, add-identifier, attach-existing)
+    - `components/tabs/` — 6 extracted tabs (attributes, telemetry, connectivity, alarms, checklist-history, qr-code)
+    - `hooks/` — use-asset-mutations.ts (10 CRUD handlers), use-asset-tree-logic.ts (tree filtering)
+  - `audit/` — Audit trail (supports AUDIT_RECORD_DELETED/BULK_DELETED actions)
   - `notifications/` — Notifications
   - `profile/` — User profile
+  - `rule-chains/` — Rule chain management + visual editor (React Flow)
+  - `alarms/` — Alarm dashboard (role-based column visibility, MANUALLY_CLEARED status)
+  - `checklist/` — Checklist submission (14 question types)
+  - `debug/` — Pipeline debug traces
 
 ## Running
 ```bash
@@ -30,7 +37,7 @@ npm run build        # Production build
 Vite proxies `/api` and `/uploads` requests to `http://localhost:3000` in development.
 
 ## Auth
-JWT stored in localStorage. SWR fetches `/api/auth/me` to get current user. 401 responses redirect to `/login`.
+JWT stored in sessionStorage. SWR fetches `/api/auth/me` to get current user. 401 responses redirect to `/login`. All route permission checks use `PERMISSIONS.*` constants (not string literals).
 
 ## Password Fields
 All password inputs use `secureField` prop to disable copy/paste/cut/drag/context-menu per 21 CFR Part 11 requirements. The `reauth-dialog` component includes a show/hide toggle button for the password field.
@@ -43,7 +50,8 @@ All password inputs use `secureField` prop to disable copy/paste/cut/drag/contex
 ## Configuration Pages
 All config pages under `src/routes/config/` import their data definitions from `@digilog/shared`:
 - `roles.tsx` — imports `PERMISSION_CATEGORIES` (no hardcoded permission lists)
-- `role-privileges.tsx` — imports `FEATURE_PRIVILEGES`, `FEATURE_PRIVILEGE_CATEGORIES`. Has `CATEGORY_COLORS` map with entries for all 3 categories: User Management (blue), System (purple), Entity Management (teal). New categories added to `FEATURE_PRIVILEGES` must also be added to `CATEGORY_COLORS` or the page will crash.
+- `role-privileges.tsx` — imports `FEATURE_PRIVILEGES`, `FEATURE_PRIVILEGE_CATEGORIES`. Has `CATEGORY_COLORS` map with entries for 10 permission categories: User Management (blue), System (purple), Entity Management (teal), Audit & Approvals, Notifications, Data & Ingestion, Rule Chains, Alarms, Checklists, Advanced. New categories added to `PERMISSION_CATEGORIES` must also be added to `CATEGORY_COLORS` or the page will crash.
+- `alarm-columns.tsx` — Alarm column visibility per role. Fetches roles via SWR, toggles 11 alarm columns per role.
 - `sidebar.tsx` — imports `SIDEBAR_ITEMS`
 - `action-reauth.tsx` — imports `REAUTH_ACTIONS`, `REAUTH_ACTION_CATEGORIES`
 - `audit-templates.tsx` — imports `AUDIT_TEMPLATE_DEFAULTS`, `AUDIT_TEMPLATE_CATEGORIES`
@@ -51,7 +59,7 @@ All config pages under `src/routes/config/` import their data definitions from `
 To add new items to any config page, update the shared package — not the frontend component.
 
 ## Entity Pages
-- **Entity Explorer** (`/assets`, `src/routes/assets/index.tsx`): Split panel with fixed-width tree (320px) on left + detail panel on right. Tree/list view toggle. 4-step Add Entity wizard (select template -> basic info -> fill attributes -> review). Template selector fetches ALL templates (no `isActive` filter) so entity instances can be created from any template. Step 3 dynamically renders type-aware inputs based on template's attributeSchema (number inputs for INTEGER/FLOAT with constraints, date pickers for DATE/DATETIME, dropdowns for DROPDOWN, toggles for BOOLEAN). Link Entities dialog for relationships (bidirectional with auto-inverse, all relationship types freely available). Entity detail panel with 5 tabs (Overview, Attributes, Relationships, Identifiers, Audit History). Edit and delete dialogs with reauth. Cascade soft-delete for parent entities.
+- **Entity Explorer** (`/assets`, `src/routes/assets/index.tsx`, 386 lines after refactoring): Split panel with fixed-width tree (320px) on left + detail panel on right. Tree/list view toggle. 4-step Add Entity wizard (select template -> basic info -> fill attributes -> review). Template selector fetches ALL templates (no `isActive` filter). Link Entities dialog for relationships (bidirectional with auto-inverse). Entity detail panel with 7 tabs (Overview, Attributes, Telemetry, Connectivity, Alarms, Checklist History, QR Code). Edit and delete dialogs with reauth. Cascade soft-delete for parent entities. Action buttons (Add/Edit/Link/Delete) hidden based on user permissions (ASSET_CREATE/UPDATE/DELETE/RELATIONSHIP_MANAGE). 6 dialogs extracted to `components/dialogs/`, 6 tabs to `components/tabs/`, mutation logic to `hooks/use-asset-mutations.ts`.
 - **Entity Template Manager** (`/assets/templates`, `src/routes/assets/templates.tsx`, ~1410 lines): CRUD for entity templates. 6-section editor (Basic Info, Attributes, Telemetry, Identifiers, Relationships, Status Lifecycle). Numeric constraints panel for INTEGER/FLOAT with min/max/resolution and valid values preview. Attribute data types: TEXT, INTEGER, FLOAT, DATE, DATETIME, BOOLEAN, DROPDOWN, URL, FILE. Telemetry data types: INTEGER, FLOAT, BOOLEAN, STRING, ENUM. Alarm rules with types (HIGH, LOW, HIGH_HIGH, LOW_LOW, RATE_OF_CHANGE, BOOLEAN_STATE, CUSTOM) and severities (WARNING, ALARM, CRITICAL). Template versioning indicator shows current version.
 ### Dynamic Tree Diagram (Entity Explorer, Relationships Tab)
 Interactive hierarchical tree diagram showing CONTAINS relationship hierarchy:
@@ -91,6 +99,23 @@ Overview tab in Entity Explorer shows 4 connection cards:
 - Connections Allowed / Connections Used (from template's `maxConnections`)
 - Parent Connections Allowed / Parent Connections Used (from template's `maxParentConnections`)
 Cards include progress bars with green/red color coding.
+
+### Rule Chain Editor (`/rule-chains/:id`)
+Visual editor using React Flow canvas:
+- Node palette with 28 node types including dynamic config schemas
+- Edge selection (red highlight + animation) and deletion (reauth-protected)
+- Rule chain select field for delegate-chain node (selects target chain, excludes current)
+- Save sends full nodes + connections arrays (not just positions)
+
+### Alarm Dashboard (`/alarms`)
+- Role-based column visibility (fetches `/api/config/alarm-columns/current`)
+- 11 configurable columns: severity, alarmType, entity, highLimit, lowLimit, generatedValue, clearedValue, status, generatedAt, clearedAt, actions
+- Status support: ACTIVE, ACKNOWLEDGED, CLEARED, MANUALLY_CLEARED
+- Enriched display: entity names, threshold extraction from triggerDetails, generated/cleared values
+- Date filter uses `from`/`to` parameters
+
+### Template Form Editor
+- Rule chain selector: Fetches active rule chains via SWR, stores `defaultRuleChainId` in template form data (non-mandatory)
 
 ## API Response Handling
 Paginated API responses return `{ data: [], total, page, limit, totalPages }`. SWR types must match:
