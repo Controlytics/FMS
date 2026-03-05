@@ -7,8 +7,8 @@ interface AlarmBadgeProps {
 
 export function AlarmBadge({ className }: AlarmBadgeProps) {
   const { data } = useSWR<{ data: any[]; total: number }>('/api/alarms?status=ACTIVE&pageSize=1', {
-    refreshInterval: 30000,
-    dedupingInterval: 15000,
+    refreshInterval: 15000,
+    dedupingInterval: 10000,
   });
 
   const count = data?.total ?? 0;

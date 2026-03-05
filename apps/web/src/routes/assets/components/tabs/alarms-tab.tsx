@@ -47,7 +47,7 @@ export function AlarmsTab({ entityId, formatDateTime }: { entityId: string; form
   if (timeRange.from) params.set('from', timeRange.from);
   if (timeRange.to) params.set('to', timeRange.to);
 
-  const { data, isLoading, mutate: mutateAlarms } = useSWR<{ data: any[]; total: number; totalPages?: number }>(`/api/alarms?${params}`);
+  const { data, isLoading, mutate: mutateAlarms } = useSWR<{ data: any[]; total: number; totalPages?: number }>(`/api/alarms?${params}`, { refreshInterval: 10000 });
   const alarms = data?.data ?? [];
   const totalPages = data?.totalPages ?? Math.max(1, Math.ceil((data?.total ?? 0) / 20));
 

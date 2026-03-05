@@ -176,6 +176,7 @@ export function AlarmDashboardPage() {
 
   const { data, isLoading, mutate } = useSWR<PaginatedResponse>(
     `/api/alarms?${params}`,
+    { refreshInterval: 10000 },
   );
 
   // Summary counts

@@ -583,11 +583,12 @@ export function DebugTracesPage() {
 
   const { data, isLoading, mutate } = useSWR<PaginatedTracesResponse>(
     `/api/debug/traces?${params}`,
-    { refreshInterval: 0, revalidateOnFocus: false },
+    { refreshInterval: 10000, revalidateOnFocus: false },
   );
 
   const { data: stats } = useSWR<TraceStats>('/api/debug/traces/stats', {
-    dedupingInterval: 30000,
+    refreshInterval: 30000,
+    dedupingInterval: 15000,
     revalidateOnFocus: false,
   });
 

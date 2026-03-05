@@ -94,7 +94,7 @@ export function AssetExplorerPage() {
   // Data Fetching
   // =============================================
 
-  const { data: treeData, isLoading: treeLoading } = useSWR<TreeNode[]>('/api/assets/instances/tree');
+  const { data: treeData, isLoading: treeLoading } = useSWR<TreeNode[]>('/api/assets/instances/tree', { refreshInterval: 30000 });
   const { data: selectedAsset, isLoading: detailLoading } = useSWR<AssetInstance>(selectedAssetId ? `/api/assets/instances/${selectedAssetId}` : null);
   const { data: templatesData } = useSWR<{ data: AssetTemplate[] }>('/api/assets/templates?limit=100&isActive=true');
   const { data: listData, isLoading: listLoading } = useSWR<PaginatedInstances>(

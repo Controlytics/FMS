@@ -12,7 +12,7 @@ export function ConnectivityTab({ entityId, entityName, formatDateTime }: { enti
     credential: { token: string; isActive: boolean; createdAt: string; lastUsedAt?: string; allowedIps?: string[]; maxDataRatePerMin?: number; allowedTopics?: string[] } | null;
     unsPath?: string;
     topics?: string[];
-  }>(`/api/connectivity/${entityId}`);
+  }>(`/api/connectivity/${entityId}`, { refreshInterval: 15000 });
 
   const status = data?.connectivity;
   const credential = data?.credential;
@@ -20,7 +20,7 @@ export function ConnectivityTab({ entityId, entityName, formatDateTime }: { enti
   const unsPath = data?.unsPath;
 
   // Fetch all snippets at once
-  const { data: snippetsData, mutate: mutateSnippets } = useSWR<{ snippets: Record<string, string> }>(`/api/connectivity/${entityId}/snippets`);
+  const { data: snippetsData, mutate: mutateSnippets } = useSWR<{ snippets: Record<string, string> }>(`/api/connectivity/${entityId}/snippets`, { refreshInterval: 15000 });
   const [snippetProto, setSnippetProto] = useState('curl');
 
   // Test connection

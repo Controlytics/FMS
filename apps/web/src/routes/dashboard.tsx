@@ -69,7 +69,7 @@ export function DashboardPage() {
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const isAdmin = isSuperAdmin || (user?.permissions?.includes('USER_READ') ?? false);
 
-  const swrOpts = { revalidateOnMount: true, revalidateOnFocus: true, dedupingInterval: 2000 };
+  const swrOpts = { revalidateOnMount: true, revalidateOnFocus: true, dedupingInterval: 2000, refreshInterval: 30000 };
   const { data: userStats } = useSWR(isAdmin ? '/api/users/stats' : null, swrOpts);
   const { data: auditStats } = useSWR('/api/audit?limit=1', swrOpts);
   const { data: notifStats } = useSWR('/api/notifications?limit=1', swrOpts);

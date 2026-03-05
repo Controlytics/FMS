@@ -30,14 +30,16 @@ export function useEntityWebSocket(entityId: string | null) {
         } else if (msg.type === 'SUBSCRIBED') {
           setConnected(true);
         } else if (msg.type === 'DATA' && msg.entityId === entityIdRef.current) {
-          const eid = entityIdRef.current;
-          if (msg.dataType === 'telemetry') {
-            mutate(`/api/telemetry/${eid}/latest`);
-          } else if (msg.dataType === 'attributes') {
-            mutate(`/api/attributes/${eid}/all`);
-          }
+          const eid = entityIdRef.current!;
+          // Revalidate all SWR keys related to this entity
           mutate(
-            (key: unknown) => typeof key === 'string' && key.includes('/api/alarms') && key.includes(eid!),
+            (key: unknown) => typeof key === 'string' && (
+              key.includes(`/api/telemetry/${eid}`) ||
+              key.includes(`/api/attributes/${eid}`) ||
+              key.includes(`/api/connectivity/${eid}`) ||
+              key.includes(`/api/checklist/${eid}`) ||
+              key.includes('/api/alarms')
+            ),
             undefined,
             { revalidate: true },
           );
