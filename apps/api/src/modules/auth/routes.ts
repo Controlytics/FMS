@@ -3,6 +3,8 @@ import { loginSchema, passwordChangeSchema } from '@digilog/shared';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { AppError } from '../../lib/errors.js';
 import { authService } from './auth.service.js';
+import { prisma } from '../../lib/prisma.js';
+import { signToken } from '../../lib/jwt.js';
 
 export default async function authRoutes(app: FastifyInstance) {
   // POST /api/auth/login
@@ -87,6 +89,54 @@ export default async function authRoutes(app: FastifyInstance) {
   }, async (req) => {
     await authService.logout(req.user.sessionId, req.user.username, req.user.role, req.ip, req.headers['user-agent']);
     return { success: true };
+  });
+
+
+  // POST /api/auth/refresh — Refresh JWT token (extends session)
+  app.post('/refresh', {
+    schema: {
+      tags: ['Authentication'],
+      summary: 'Refresh JWT token',
+      description: 'Issue a new JWT token if the current session is still valid. Call this periodically to prevent token expiry.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            token: { type: 'string' },
+            expiresIn: { type: 'string' },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    // req.user is already set by auth plugin (token was valid when this request started)
+    const session = await prisma.session.findFirst({
+      where: { id: req.user.sessionId, isActive: true },
+    });
+    if (!session) {
+      return reply.code(401).send({ error: 'SESSION_INVALID', message: 'Session terminated' });
+    }
+
+    // Get session duration from config
+    const sessionCfg = await prisma.systemConfig.findUnique({ where: { configKey: 'session' } });
+    const durationHours = (sessionCfg?.configValue as any)?.sessionDurationHours ?? 8;
+
+    // Read current user from DB to get latest role (in case it was changed by an admin)
+    const currentUser = await prisma.user.findUnique({ where: { id: req.user.sub }, select: { role: true, username: true, status: true } });
+    if (!currentUser || currentUser.status !== 'ENABLED') {
+      return reply.code(401).send({ error: 'ACCOUNT_INACTIVE', message: 'Account is not active' });
+    }
+
+    // Issue a new token with fresh expiry and current role from DB
+    const newToken = await signToken({
+      sub: req.user.sub,
+      username: currentUser.username,
+      role: currentUser.role,
+      sessionId: req.user.sessionId,
+    }, durationHours);
+
+    return { token: newToken, expiresIn: `${durationHours}h` };
   });
 
   // POST /api/auth/beacon-logout — unauthenticated, accepts token in body

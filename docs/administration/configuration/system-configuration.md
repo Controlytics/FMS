@@ -35,6 +35,7 @@ Access configuration from the **Configuration** menu in the left sidebar.
 | **System (Pipeline)** | Ingestion pipeline settings (batch size, concurrency, timeouts) |
 | **Login Security** | Account lockout type and duration |
 | **Session** | Session duration, idle timeout, warning period |
+| **Alarm Columns** | Configure alarm table column visibility per role (11 column definitions) |
 
 ---
 
@@ -157,8 +158,118 @@ Access notifications via the bell icon in the top navigation bar.
 
 ---
 
+## Config Registry System
+
+DigiLog uses a **self-registering config module architecture** that auto-discovers configuration modules at startup. Instead of hardcoding routes and service methods for each config, modules register themselves with the central registry.
+
+### How It Works
+
+1. Each config module is defined in a single file with metadata (key, label, description, schema, defaults).
+2. On startup, the registry auto-discovers all config definition files.
+3. Routes, validation, and CRUD operations are generated automatically from the registry.
+4. The frontend fetches the registry manifest and renders config pages dynamically.
+
+### Benefits
+
+| Benefit | Description |
+|---------|-------------|
+| **Zero-Touch Addition** | Add a new config by creating one definition file — no route, service, or frontend changes needed |
+| **Consistent Validation** | All configs use Zod schemas from the shared package |
+| **Auto-Generated UI** | Modules without custom pages get a functional config UI automatically |
+| **23+ Modules** | Currently manages 23+ config modules via the registry |
+
+---
+
+## Field ID Names Configuration
+
+The Field ID Names page allows SUPER_ADMIN users to customize display labels for field identifiers across the application. Fields are organized by module with color-coded tabs for easy navigation.
+
+### Supported Modules (7 modules, 39 fields)
+
+| Module | Fields | Description |
+|--------|--------|-------------|
+| **User Management** | Username, Email, First Name, Last Name, Phone, Role, Status | User profile and account fields |
+| **Audit Trail** | Action, Actor, Target, Timestamp, Details, IP Address | Audit log display columns |
+| **Alarms** | Severity, Type, Entity, High Limit, Low Limit, Generated Value, Cleared Value, Status | Alarm table columns |
+| **Asset Management** | Name, Template, Parent, Status, Created, Updated | Entity list and detail fields |
+| **Notifications** | Title, Message, Type, Recipients, Channel, Status | Notification rule and log fields |
+| **Telemetry** | Key, Value, Timestamp, Source, Unit | Time-series data display |
+| **Attributes** | Key, Value, Type, Last Updated | Entity attribute fields |
+
+### Features
+
+- **Module Tabs** — Color-coded tabs for quick module switching
+- **Search** — Filter fields by name across all modules
+- **Inline Edit** — Click to edit display names directly in the table
+- **Reset to Default** — Restore original field names per module or globally
+
+---
+
+## Dynamic Config Pages
+
+Config modules that do not have a custom page component (`hasCustomPage: false`) receive an **auto-generated configuration UI** based on their registry metadata.
+
+### Dynamic Page Features
+
+- Form fields generated from the module's Zod schema
+- Appropriate input types inferred from schema (text, number, boolean toggle, select)
+- Save/reset functionality with validation
+- Audit trail integration (all changes logged)
+
+### Custom vs Dynamic Pages
+
+| Aspect | Custom Page | Dynamic Page |
+|--------|-------------|--------------|
+| **Definition** | `hasCustomPage: true` in registry | `hasCustomPage: false` (default) |
+| **UI Control** | Full layout control | Auto-generated from schema |
+| **Use Case** | Complex configs (e.g., Branding with image upload) | Simple key-value configs |
+| **Examples** | Branding, Password Policy, Alarm Columns | Pagination, Session, Login Security |
+
+---
+
 ## Next Steps
 
 - [Security Configuration](../security/security.md) — Password and session policies
-- [Backup & Restore](backup-restore.md) — Database backup procedures
-- [System Health](system-health.md) — Monitoring and diagnostics
+- [Backup & Restore API](../../api-reference/backup.md) — Database backup procedures
+- [Configuration API](../../api-reference/configuration.md) — Full API reference
+
+---
+
+## Email Notification Configuration
+
+Configure email delivery for notifications.
+
+| Setting | Description |
+|---------|-------------|
+| **Auth Type** | `oauth2` (recommended) or `basic` |
+| **SMTP Host** | SMTP server (e.g., `smtp.office365.com`) |
+| **Port** | 587 (STARTTLS) |
+| **Secure** | `false` for port 587 STARTTLS |
+| **From Email** | Sender email address |
+| **From Name** | Sender display name |
+| **OAuth2 Provider** | `microsoft` for Office365 |
+| **Client ID / Secret** | Azure AD app registration credentials |
+| **Tenant ID** | Azure AD tenant (providerTenantId) |
+
+Access via **Notifications** > **Email Settings** in the left sidebar.
+
+See [Email Integration Guide](../notifications/email-integration.md) for full setup.
+
+---
+
+## SMS Notification Configuration
+
+Configure SMS delivery via AWS SNS or other providers.
+
+| Setting | Description |
+|---------|-------------|
+| **Provider** | `aws-sns`, `twilio`, `vonage`, or `http-gateway` |
+| **AWS Access Key** | IAM access key with SNS permissions |
+| **AWS Secret Key** | Corresponding secret key |
+| **AWS Region** | e.g., `ap-south-1` |
+| **Sender ID** | SMS sender name (e.g., `DigiLog`) |
+| **Default Country Code** | e.g., `91` for India |
+
+Access via **Notifications** > **SMS Settings** in the left sidebar.
+
+See [SMS Integration Guide](../notifications/sms-integration.md) for full setup.

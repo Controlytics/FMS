@@ -6,7 +6,7 @@
 - **Frontend Pages**: /rule-chains (list), /rule-chains/:id (editor)
 - **Permissions**: RULE_CHAIN_MANAGE (all endpoints)
 - **Reauth Actions**: CREATE_RULE_CHAIN, UPDATE_RULE_CHAIN, DELETE_RULE_CHAIN
-- **Key Facts**: 28 node types, sandboxed VM execution (1s timeout, no process/require/global), sub-chain delegation with depth tracking. Categories: INPUT, FILTER, ENRICHMENT, TRANSFORM, ACTION, EXTERNAL, FLOW.
+- **Key Facts**: 31 node types, sandboxed VM execution (1s timeout, no process/require/global), sub-chain delegation with depth tracking. Categories: INPUT, FILTER, ENRICHMENT, TRANSFORM, ACTION, EXTERNAL, FLOW.
 
 ---
 
@@ -48,7 +48,7 @@
   1. Send GET /api/rule-chains/node-types.
   2. Verify response is an array of node type definitions.
   3. Verify each has type, category, name, description, outputs, defaultConfig, configSchema.
-- **Expected Result**: Array of 28 node type definitions.
+- **Expected Result**: Array of 31 node type definitions.
 
 ### TC-12-P05: Get Node Types by Category
 - **Priority**: Low

@@ -4,10 +4,12 @@ import { hashPassword } from '../../lib/password.js';
 import { validateUserId } from '../../lib/user-id-validator.js';
 import { NotFoundError, ValidationError, ConflictError, ForbiddenError } from '../../lib/errors.js';
 import { userRepository } from './user.repository.js';
+import { prisma } from '../../lib/prisma.js';
 import { createNotification } from '../notifications/notification.service.js';
+import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
 
 export const userService = {
-  async list(query: { page: number; limit: number; role?: string; status?: string; search?: string }) {
+  async list(query: { page: number; limit?: number; role?: string; status?: string; search?: string }) {
     const where: Record<string, unknown> = {};
     if (query.role) where.role = query.role;
     if (query.status) where.status = query.status;
@@ -19,7 +21,7 @@ export const userService = {
       ];
     }
     const { users, total } = await userRepository.findMany(where, query.page, query.limit);
-    return { data: users, total, page: query.page, limit: query.limit, totalPages: Math.ceil(total / query.limit) };
+    return { data: users, total, page: query.page, limit: query.limit ?? total, totalPages: query.limit ? Math.ceil(total / query.limit) : 1 };
   },
 
   async getStats(callerRole: string) {
@@ -96,6 +98,18 @@ export const userService = {
       createdBy: ctx.userId,
     });
 
+    // Dispatch USER_CREATED notification
+    dispatchNotification({
+      eventType: 'USER_CREATED',
+      context: {},
+      variables: {
+        username: data.username, fullName: data.fullName ?? data.username,
+        email: data.email ?? 'N/A', role: data.role,
+        createdBy: ctx.userId ?? 'system',
+        timestamp: new Date().toISOString(),
+      },
+    }).catch(err => console.error('[UserCreated] Notification dispatch failed:', err.message));
+
     return {
       id: user.id, username: user.username, fullName: user.fullName,
       email: user.email, department: user.department, role: user.role,
@@ -128,6 +142,22 @@ export const userService = {
       status: data.status as any,
       updatedBy: ctx.userId,
     });
+
+    // If role changed, invalidate all active sessions so user gets fresh JWT on re-login
+    if (data.role && data.role !== existing.role) {
+      await prisma.session.updateMany({
+        where: { userId: id, isActive: true },
+        data: { isActive: false, terminationReason: 'role_changed' },
+      });
+    }
+
+    // If status changed to non-ENABLED, also invalidate sessions
+    if (data.status && data.status !== 'ENABLED' && data.status !== existing.status) {
+      await prisma.session.updateMany({
+        where: { userId: id, isActive: true },
+        data: { isActive: false, terminationReason: 'account_disabled' },
+      });
+    }
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,

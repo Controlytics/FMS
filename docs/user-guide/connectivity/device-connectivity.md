@@ -162,7 +162,6 @@ Each entity is assigned MQTT topics based on its UNS path:
 
 ## Next Steps
 
-- [HTTP API](http-api.md) — Detailed HTTP endpoint documentation
 - [MQTT](mqtt.md) — MQTT broker configuration and usage
-- [WebSocket](websocket.md) — Real-time WebSocket communication
 - [Telemetry](../telemetry/telemetry.md) — Data ingestion pipeline details
+- [Telemetry API](../../api-reference/telemetry.md) — HTTP/MQTT/WebSocket data ingestion endpoints

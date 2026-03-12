@@ -15,7 +15,7 @@ An alarm is a notification record associated with an entity that indicates somet
 | **Originator** | The entity that triggered the alarm |
 | **Type** | Alarm classification (e.g., `HIGH_TEMPERATURE`, `DEVICE_OFFLINE`) |
 | **Severity** | Urgency level: Critical, Major, Minor, Warning, Indeterminate |
-| **Status** | Current state: Active or Cleared |
+| **Status** | Current state: Active, Acknowledged, Cleared, or Manually Cleared |
 | **Acknowledgment** | Whether an operator has acknowledged the alarm |
 | **Timestamp** | When the alarm was created |
 | **Details** | Additional context (threshold value, actual value, etc.) |
@@ -27,12 +27,15 @@ Triggered → Active/Unacknowledged → Active/Acknowledged → Cleared
                                                             │
                                                             ▼
                                                      Requires e-signature
+
+                    Manual Clear (operator) → Manually Cleared (with clearDetails)
 ```
 
-1. **Triggered** — A rule chain or system event creates the alarm.
-2. **Active/Unacknowledged** — Alarm is visible but no operator has responded.
-3. **Active/Acknowledged** — An operator has acknowledged the alarm with an electronic signature.
-4. **Cleared** — The condition has resolved; alarm is cleared with an electronic signature.
+1. **Triggered** -- A rule chain or system event creates the alarm.
+2. **Active/Unacknowledged** -- Alarm is visible but no operator has responded.
+3. **Active/Acknowledged** -- An operator has acknowledged the alarm with an electronic signature.
+4. **Cleared** -- The condition has resolved; alarm is cleared with an electronic signature.
+5. **Manually Cleared** -- An operator manually cleared the alarm with a reason (stored in `clearDetails`). Requires electronic signature.
 
 ---
 
@@ -41,10 +44,8 @@ Triggered → Active/Unacknowledged → Active/Acknowledged → Cleared
 | Level | Color | Use Case |
 |-------|-------|----------|
 | **CRITICAL** | Red | Immediate danger, safety hazard, production stoppage |
-| **MAJOR** | Orange | Significant issue requiring prompt attention |
-| **MINOR** | Yellow | Notable deviation, should be addressed soon |
-| **WARNING** | Blue | Early indication of potential issue |
-| **INDETERMINATE** | Gray | Unknown severity, requires investigation |
+| **ALARM** | Orange | Significant issue requiring prompt attention |
+| **WARNING** | Yellow | Early indication of potential issue, should be addressed |
 
 ---
 

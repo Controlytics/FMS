@@ -125,9 +125,7 @@ export default async function telemetryRoutes(app: FastifyInstance) {
           },
           limit: {
             type: 'integer',
-            default: 10000,
             minimum: 1,
-            maximum: 50000,
             description: 'Maximum number of data points to return',
           },
         },
@@ -174,7 +172,7 @@ export default async function telemetryRoutes(app: FastifyInstance) {
     const interval: Interval = (VALID_INTERVALS as readonly string[]).includes(query.interval ?? '')
       ? (query.interval as Interval)
       : 'auto';
-    const limit = Math.min(Math.max(query.limit ?? 10000, 1), 50000);
+    const limit = query.limit ? Math.max(query.limit, 1) : undefined;
 
     const pool = getTsdbPool();
     const fromDate = new Date(from);
@@ -198,8 +196,9 @@ export default async function telemetryRoutes(app: FastifyInstance) {
 
     if (effectiveAggregation === 'none') {
       // Raw query — return actual values, no manipulation
-      const sql = `SELECT time, key, value_num, value_str, value_bool, value_json FROM ts_telemetry WHERE entity_id = $1 AND time >= $2 AND time <= $3${keyFilterClause} ORDER BY time DESC LIMIT $${paramIdx}`;
-      const params = [...baseParams, limit];
+      const limitClause = limit ? ` LIMIT $${paramIdx}` : '';
+      const sql = `SELECT time, key, value_num, value_str, value_bool, value_json FROM ts_telemetry WHERE entity_id = $1 AND time >= $2 AND time <= $3${keyFilterClause} ORDER BY time DESC${limitClause}`;
+      const params = limit ? [...baseParams, limit] : [...baseParams];
       const result = await pool.query(sql, params);
       data = result.rows;
     } else {
@@ -380,7 +379,7 @@ export default async function telemetryRoutes(app: FastifyInstance) {
           to: { type: 'string', format: 'date-time', description: 'ISO 8601 end time' },
           key: { type: 'string', description: 'Optional attribute key to filter' },
           page: { type: 'integer', default: 1, minimum: 1 },
-          limit: { type: 'integer', default: 50, minimum: 1, maximum: 500 },
+          limit: { type: 'integer', minimum: 1 },
         },
       },
       response: {
@@ -422,8 +421,8 @@ export default async function telemetryRoutes(app: FastifyInstance) {
     };
 
     const page = Math.max(query.page ?? 1, 1);
-    const limit = Math.min(Math.max(query.limit ?? 50, 1), 500);
-    const offset = (page - 1) * limit;
+    const limit = query.limit ? Math.max(query.limit, 1) : undefined;
+    const offset = limit ? (page - 1) * limit : 0;
     const fromDate = new Date(query.from);
     const toDate = new Date(query.to);
 
@@ -444,8 +443,9 @@ export default async function telemetryRoutes(app: FastifyInstance) {
     const total: number = countResult.rows[0]?.cnt ?? 0;
 
     // Fetch the page
-    const dataSql = `SELECT time, key, scope, value_num, value_str, value_bool, value_json, updated_by FROM ts_attributes WHERE entity_id = $1 AND time >= $2 AND time <= $3${keyClause} ORDER BY time DESC LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`;
-    const dataParams = [...params, limit, offset];
+    const paginationClause = limit ? ` LIMIT $${paramIdx} OFFSET $${paramIdx + 1}` : '';
+    const dataSql = `SELECT time, key, scope, value_num, value_str, value_bool, value_json, updated_by FROM ts_attributes WHERE entity_id = $1 AND time >= $2 AND time <= $3${keyClause} ORDER BY time DESC${paginationClause}`;
+    const dataParams = limit ? [...params, limit, offset] : [...params];
     const dataResult = await pool.query(dataSql, dataParams);
 
     const data = dataResult.rows.map((row: Record<string, unknown>) => ({
@@ -463,7 +463,7 @@ export default async function telemetryRoutes(app: FastifyInstance) {
       data,
       total,
       page,
-      limit,
+      limit: limit ?? total,
     };
   });
 
@@ -487,7 +487,7 @@ export default async function telemetryRoutes(app: FastifyInstance) {
         type: 'object',
         properties: {
           page: { type: 'integer', default: 1, minimum: 1 },
-          limit: { type: 'integer', default: 50, minimum: 1, maximum: 500 },
+          limit: { type: 'integer', minimum: 1 },
         },
       },
       response: {
@@ -512,15 +512,14 @@ export default async function telemetryRoutes(app: FastifyInstance) {
     const query = req.query as { page?: number; limit?: number };
 
     const page = Math.max(query.page ?? 1, 1);
-    const limit = Math.min(Math.max(query.limit ?? 50, 1), 500);
-    const skip = (page - 1) * limit;
+    const limit = query.limit ? Math.max(query.limit, 1) : undefined;
+    const skip = limit ? (page - 1) * limit : 0;
 
     const [data, total] = await Promise.all([
       prisma.checklistReview.findMany({
         where: { entityId },
         orderBy: { performedAt: 'desc' },
-        skip,
-        take: limit,
+        ...(limit ? { skip, take: limit } : {}),
       }),
       prisma.checklistReview.count({
         where: { entityId },
@@ -531,8 +530,8 @@ export default async function telemetryRoutes(app: FastifyInstance) {
       data,
       total,
       page,
-      limit,
-      totalPages: Math.ceil(total / limit),
+      limit: limit ?? total,
+      totalPages: limit ? Math.ceil(total / limit) : 1,
     };
   });
 
@@ -558,7 +557,7 @@ export default async function telemetryRoutes(app: FastifyInstance) {
         properties: {
           from: { type: 'string', format: 'date-time' },
           to: { type: 'string', format: 'date-time' },
-          limit: { type: 'integer', default: 500, minimum: 1, maximum: 5000 },
+          limit: { type: 'integer', minimum: 1 },
         },
       },
       response: {
@@ -597,15 +596,18 @@ export default async function telemetryRoutes(app: FastifyInstance) {
   }, async (req) => {
     const { entityId } = req.params as { entityId: string };
     const query = req.query as { from: string; to: string; limit?: number };
-    const limit = Math.min(Math.max(query.limit ?? 500, 1), 5000);
+    const limit = query.limit ? Math.max(query.limit, 1) : undefined;
 
     const pool = getTsdbPool();
+    const limitClause = limit ? ' LIMIT $4' : '';
+    const params: any[] = [entityId, new Date(query.from), new Date(query.to)];
+    if (limit) params.push(limit);
     const result = await pool.query(
       `SELECT time, checklist_id, submitted_by, answers_hash, answers, source_ip
        FROM ts_checklist_responses
        WHERE entity_id = $1 AND time >= $2 AND time <= $3
-       ORDER BY time DESC LIMIT $4`,
-      [entityId, new Date(query.from), new Date(query.to), limit]
+       ORDER BY time DESC${limitClause}`,
+      params
     );
 
     // Fetch review statuses from PG for all checklist IDs

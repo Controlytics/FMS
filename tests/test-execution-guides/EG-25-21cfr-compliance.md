@@ -8,7 +8,7 @@ This execution guide validates DigiLog's compliance with the FDA's 21 CFR Part 1
 
 - **App URL**: http://3.108.185.106
 - **API Base**: http://3.108.185.106/api (remote) or http://localhost:3000/api (from server)
-- **SUPER_ADMIN Credentials**: admin / Test@12345
+- **SUPER_ADMIN Credentials**: admin / Admin@123
 - **Additional Users**: Create or use users at various role levels (ADMIN, SUPERVISOR, OPERATOR, VIEWER)
 - **Browser**: Chrome or Firefox with DevTools open (Network tab, Application tab for localStorage/sessionStorage)
 - **Tools**: curl, jq, psql (for DB verification), a second browser or incognito window for session tests
@@ -24,7 +24,7 @@ API="http://3.108.185.106/api"
 # Login as SUPER_ADMIN
 TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 echo "SUPER_ADMIN Token: $TOKEN"
 
 # Login as a non-SUPER_ADMIN user (e.g., ADMIN or OPERATOR) for audit-visible actions
@@ -45,9 +45,9 @@ curl -s -X POST "$API/users" \
     "username": "cfr_tester",
     "fullName": "CFR Test User",
     "email": "cfr_tester@test.com",
-    "password": "Test@12345",
+    "password": "Admin@123",
     "role": "OPERATOR",
-    "_currentPassword": "Test@12345"
+    "_currentPassword": "Admin@123"
   }' | jq .
 
 # Create a second test user for dual-session tests
@@ -58,9 +58,9 @@ curl -s -X POST "$API/users" \
     "username": "cfr_tester2",
     "fullName": "CFR Test User 2",
     "email": "cfr_tester2@test.com",
-    "password": "Test@12345",
+    "password": "Admin@123",
     "role": "VIEWER",
-    "_currentPassword": "Test@12345"
+    "_currentPassword": "Admin@123"
   }' | jq .
 ```
 
@@ -272,7 +272,7 @@ curl -s -X GET "$API/roles/permissions/all" \
 # Login as VIEWER
 VIEWER_TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"cfr_tester2","password":"Test@12345","force":true}' | jq -r '.token')
+  -d '{"username":"cfr_tester2","password":"Admin@123","force":true}' | jq -r '.token')
 
 # Attempt to create an entity template (requires ASSET_TEMPLATE_MANAGE)
 curl -s -X POST "$API/assets/templates" \
@@ -306,17 +306,17 @@ curl -s -X POST "$API/assets/templates" \
 # Login session 1
 SESSION1=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"cfr_tester","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"cfr_tester","password":"Admin@123"}' | jq -r '.token')
 
 # Attempt login session 2 (should get SESSION_CONFLICT)
 curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"cfr_tester","password":"Test@12345"}' | jq .
+  -d '{"username":"cfr_tester","password":"Admin@123"}' | jq .
 
 # Force login session 2 (terminates session 1)
 SESSION2=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"cfr_tester","password":"Test@12345","force":true}' | jq -r '.token')
+  -d '{"username":"cfr_tester","password":"Admin@123","force":true}' | jq -r '.token')
 
 # Verify session 1 is now invalid
 curl -s -X GET "$API/auth/me" \
@@ -358,7 +358,7 @@ ORDER BY created_at DESC LIMIT 3;
 # Login and check session
 curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"cfr_tester","password":"Test@12345","force":true}' | jq .
+  -d '{"username":"cfr_tester","password":"Admin@123","force":true}' | jq .
 ```
 
 **DB Verification:**
@@ -410,7 +410,7 @@ AND is_active = true;
 # Login
 TOKEN_SLIDE=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"cfr_tester","password":"Test@12345","force":true}' | jq -r '.token')
+  -d '{"username":"cfr_tester","password":"Admin@123","force":true}' | jq -r '.token')
 
 # Check current session state
 psql -d digilog_db -c "SELECT expires_at, last_active_at FROM sessions WHERE is_active = true ORDER BY created_at DESC LIMIT 1;"
@@ -508,13 +508,13 @@ curl -s -X GET "$API/config/password-policy" \
 # Login as cfr_tester
 CFR_TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"cfr_tester","password":"Test@12345","force":true}' | jq -r '.token')
+  -d '{"username":"cfr_tester","password":"Admin@123","force":true}' | jq -r '.token')
 
 # Change password to NewPass@123
 curl -s -X POST "$API/auth/change-password" \
   -H "Authorization: Bearer $CFR_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"currentPassword":"Test@12345","newPassword":"NewPass@123","confirmPassword":"NewPass@123"}' | jq .
+  -d '{"currentPassword":"Admin@123","newPassword":"NewPass@123","confirmPassword":"NewPass@123"}' | jq .
 
 # Login again with new password
 CFR_TOKEN=$(curl -s -X POST "$API/auth/login" \
@@ -673,7 +673,7 @@ USER_ID=$(curl -s -X GET "$API/users" \
 curl -s -X POST "$API/users/$USER_ID/unlock" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"_currentPassword":"Test@12345"}' | jq .
+  -d '{"_currentPassword":"Admin@123"}' | jq .
 
 # Verify user can login again
 curl -s -X POST "$API/auth/login" \
@@ -910,13 +910,13 @@ curl -s -X GET "$API/config/action-reauth/my-actions" \
 curl -s -X POST "$API/users" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"reauth_test","fullName":"Reauth Test","email":"reauth@test.com","password":"Test@12345","role":"VIEWER"}' | jq .
+  -d '{"username":"reauth_test","fullName":"Reauth Test","email":"reauth@test.com","password":"Admin@123","role":"VIEWER"}' | jq .
 
 # Attempt user creation WITH reauth password (should succeed)
 curl -s -X POST "$API/users" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"reauth_test","fullName":"Reauth Test","email":"reauth@test.com","password":"Test@12345","role":"VIEWER","_currentPassword":"AdminPassword123"}' | jq .
+  -d '{"username":"reauth_test","fullName":"Reauth Test","email":"reauth@test.com","password":"Admin@123","role":"VIEWER","_currentPassword":"AdminPassword123"}' | jq .
 ```
 
 **Expected Result:**
@@ -952,12 +952,12 @@ curl -s -X POST "$API/auth/login" \
 # Attempt login with only password (missing username)
 curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"password":"Test@12345"}' | jq .
+  -d '{"password":"Admin@123"}' | jq .
 
 # Successful login requires BOTH components
 curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq '{success}'
+  -d '{"username":"admin","password":"Admin@123"}' | jq '{success}'
 ```
 
 **Expected Result:**
@@ -1130,7 +1130,7 @@ curl -s -X POST "$API/config/user-id/validate" \
 curl -s -X POST "$API/users" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","fullName":"Duplicate Admin","email":"dup@test.com","password":"Test@12345","role":"VIEWER","_currentPassword":"Test@12345"}' | jq .
+  -d '{"username":"admin","fullName":"Duplicate Admin","email":"dup@test.com","password":"Admin@123","role":"VIEWER","_currentPassword":"Admin@123"}' | jq .
 ```
 
 **DB Verification:**
@@ -1173,7 +1173,7 @@ WHERE tablename = 'users' AND indexdef LIKE '%username%';
 curl -s -X POST "$API/users" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"firstlogin_test","fullName":"First Login Test","email":"firstlogin@test.com","password":"Temp@12345","role":"OPERATOR","_currentPassword":"Test@12345"}' | jq .
+  -d '{"username":"firstlogin_test","fullName":"First Login Test","email":"firstlogin@test.com","password":"Temp@12345","role":"OPERATOR","_currentPassword":"Admin@123"}' | jq .
 
 # Login as new user
 FIRST_TOKEN=$(curl -s -X POST "$API/auth/login" \
@@ -1217,7 +1217,7 @@ curl -s -X GET "$API/users" \
 # Export backup as JSON (includes checksum in metadata)
 curl -s -X GET "$API/backup/export?format=json" \
   -H "Authorization: Bearer $TOKEN" \
-  -H "X-Reauth-Password: Test@12345" \
+  -H "X-Reauth-Password: Admin@123" \
   -o /tmp/digilog_backup.json
 
 # Check backup metadata (first few lines)
@@ -1431,7 +1431,7 @@ curl -s -X POST "$API/auth/login" \
 # Login as VIEWER (lowest permissions)
 VIEWER_TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"cfr_tester2","password":"Test@12345","force":true}' | jq -r '.token')
+  -d '{"username":"cfr_tester2","password":"Admin@123","force":true}' | jq -r '.token')
 
 # Attempt to access SUPER_ADMIN-only endpoints
 echo "--- Attempt: List all users ---"
@@ -1477,7 +1477,7 @@ curl -s -X POST "$API/roles" \
 curl -s -X POST "$API/users" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"reauth_fail","fullName":"Reauth Fail","email":"fail@test.com","password":"Test@12345","role":"VIEWER","_currentPassword":"WrongPassword!"}' | jq .
+  -d '{"username":"reauth_fail","fullName":"Reauth Fail","email":"fail@test.com","password":"Admin@123","role":"VIEWER","_currentPassword":"WrongPassword!"}' | jq .
 ```
 
 **Expected Result:**
@@ -1501,7 +1501,7 @@ curl -s -X POST "$API/users" \
 curl -s -X POST "$API/users" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"reauth_missing","fullName":"Reauth Missing","email":"missing@test.com","password":"Test@12345","role":"VIEWER"}' | jq .
+  -d '{"username":"reauth_missing","fullName":"Reauth Missing","email":"missing@test.com","password":"Admin@123","role":"VIEWER"}' | jq .
 ```
 
 **Expected Result:**
@@ -1531,7 +1531,7 @@ USER_ID=$(curl -s -X GET "$API/users" \
 curl -s -X POST "$API/users/$USER_ID/disable" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"_currentPassword":"Test@12345"}' | jq .
+  -d '{"_currentPassword":"Admin@123"}' | jq .
 
 # Attempt login as disabled user (should fail)
 curl -s -X POST "$API/auth/login" \
@@ -1542,7 +1542,7 @@ curl -s -X POST "$API/auth/login" \
 curl -s -X POST "$API/users/$USER_ID/enable" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"_currentPassword":"Test@12345"}' | jq .
+  -d '{"_currentPassword":"Admin@123"}' | jq .
 ```
 
 **Expected Result:**
@@ -1673,7 +1673,7 @@ COMMIT;
 # Export backup
 curl -s -X GET "$API/backup/export?format=json" \
   -H "Authorization: Bearer $TOKEN" \
-  -H "X-Reauth-Password: Test@12345" \
+  -H "X-Reauth-Password: Admin@123" \
   -o /tmp/backup_tamper_test.json
 
 # Tamper with the backup file
@@ -1694,7 +1694,7 @@ curl -s -X POST "$API/backup/validate" \
 # Attempt to restore the tampered backup (should fail)
 curl -s -X POST "$API/backup/restore" \
   -H "Authorization: Bearer $TOKEN" \
-  -H "X-Reauth-Password: Test@12345" \
+  -H "X-Reauth-Password: Admin@123" \
   -F "file=@/tmp/backup_tampered.json" | jq .
 ```
 
@@ -1792,7 +1792,7 @@ USER_ID=$(curl -s -X GET "$API/users" \
 curl -s -X POST "$API/users/$USER_ID/disable" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"_currentPassword":"Test@12345"}' | jq .
+  -d '{"_currentPassword":"Admin@123"}' | jq .
 
 # Attempt to use cfr_tester's token (should fail)
 curl -s -X GET "$API/auth/me" -H "Authorization: Bearer $CFR_TOKEN" | jq .
@@ -1801,7 +1801,7 @@ curl -s -X GET "$API/auth/me" -H "Authorization: Bearer $CFR_TOKEN" | jq .
 curl -s -X POST "$API/users/$USER_ID/enable" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"_currentPassword":"Test@12345"}' | jq .
+  -d '{"_currentPassword":"Admin@123"}' | jq .
 ```
 
 **Expected Result:**
@@ -1825,7 +1825,7 @@ curl -s -X POST "$API/users/$USER_ID/enable" \
 curl -s -X POST "$API/users" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"force_change_test","fullName":"Force Change Test","email":"forcechange@test.com","password":"Temp@12345","role":"OPERATOR","_currentPassword":"Test@12345"}' | jq .
+  -d '{"username":"force_change_test","fullName":"Force Change Test","email":"forcechange@test.com","password":"Temp@12345","role":"OPERATOR","_currentPassword":"Admin@123"}' | jq .
 
 # Login (will have forcePasswordChange: true)
 FORCE_TOKEN=$(curl -s -X POST "$API/auth/login" \
@@ -2144,6 +2144,6 @@ LIMIT 50;
 
 4. **Test User Cleanup**: After testing, clean up any test users created (`cfr_tester`, `cfr_tester2`, `reauth_test`, `firstlogin_test`, `force_change_test`) to avoid leaving test data in the system.
 
-5. **Password State**: Several tests modify the `cfr_tester` password. Track the current password state throughout testing. The sequence in this guide is: `Test@12345` -> `NewPass@123` -> `NewPass@456` -> `Changed@789`.
+5. **Password State**: Several tests modify the `cfr_tester` password. Track the current password state throughout testing. The sequence in this guide is: `Admin@123` -> `NewPass@123` -> `NewPass@456` -> `Changed@789`.
 
 6. **Electronic Signatures**: Electronic signatures are created during checklist reviews and alarm acknowledgments. If no electronic signatures exist in the database, perform an alarm acknowledgment or checklist review to generate test data for TC-25-P17 and TC-25-P18.

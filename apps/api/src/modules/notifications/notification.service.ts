@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 const notificationQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(20),
+  limit: z.coerce.number().min(1).optional(),
   isRead: z.enum(['true', 'false']).optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
@@ -80,7 +80,7 @@ export const notificationService = {
     }
 
     const [data, total, unreadCount] = await Promise.all([
-      notificationRepository.findMany(where, (parsed.page - 1) * parsed.limit, parsed.limit),
+      notificationRepository.findMany(where, parsed.limit ? (parsed.page - 1) * parsed.limit : 0, parsed.limit),
       notificationRepository.count(where),
       notificationRepository.count({ ...where, isRead: false }),
     ]);
@@ -90,8 +90,8 @@ export const notificationService = {
       total,
       unreadCount,
       page: parsed.page,
-      limit: parsed.limit,
-      totalPages: Math.ceil(total / parsed.limit),
+      limit: parsed.limit ?? total,
+      totalPages: parsed.limit ? Math.ceil(total / parsed.limit) : 1,
     };
   },
 

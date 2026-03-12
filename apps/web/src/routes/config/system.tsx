@@ -432,7 +432,7 @@ export function SystemConfigPage() {
 
   const [activeCategory, setActiveCategory] = useState<ConfigCategory | 'all'>('all');
 
-  const { data: configs, isLoading, mutate } = useSWR<SystemConfigEntry[]>('/api/config/system');
+  const { data: configs, isLoading, mutate } = useSWR<SystemConfigEntry[]>('/api/config/system', { revalidateOnMount: true, dedupingInterval: 0 });
 
   // Filter by selected category
   const displayed = configs

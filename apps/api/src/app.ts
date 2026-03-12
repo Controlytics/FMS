@@ -15,6 +15,8 @@ import rbacPlugin from './plugins/rbac.js';
 import authRoutes from './modules/auth/routes.js';
 import userRoutes from './modules/users/routes.js';
 import configRoutes from './modules/config/routes.js';
+import { discoverAndRegisterConfigs } from './lib/config-discovery.js';
+import dynamicConfigRoutes from './modules/config/dynamic-routes.js';
 import auditRoutes from './modules/audit/routes.js';
 import uploadRoutes from './modules/uploads/routes.js';
 import notificationRoutes from './modules/notifications/routes.js';
@@ -39,10 +41,14 @@ import { closePipelineRedis } from './modules/data-ingestion/ingestion.service.j
 import { closeTracerRedis } from './modules/data-ingestion/pipeline-tracer.js';
 import { closeDebugRedis } from './modules/rule-chain/debug-recorder.js';
 import { initializeNodes } from './modules/rule-chain/nodes/index.js';
+import notificationDeliveryRoutes from './modules/notification-delivery/routes.js';
+import userGroupRoutes from './modules/user-groups/routes.js';
+import notificationRulesRoutes from './modules/notification-rules/routes.js';
 import { startIngestionWorker, stopIngestionWorker } from './workers/ingestion.worker.js';
 import { startMaintenanceWorker, stopMaintenanceWorker } from './workers/maintenance.worker.js';
 import { getTsdbPool, initTelemetryBatcher, closeTelemetryBatcher } from '@digilog/db';
 import { AppError } from './lib/errors.js';
+import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -131,6 +137,17 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
   }
   // Genuine internal errors
   app.log.error(err);
+  // Dispatch SYSTEM_ERROR notification (fire-and-forget, don't block error response)
+  dispatchNotification({
+    eventType: 'SYSTEM_ERROR',
+    context: {},
+    variables: {
+      errorType: err.constructor?.name ?? 'Error',
+      errorMessage: err.message ?? 'Unknown error',
+      url: _req.url ?? 'N/A',
+      timestamp: new Date().toISOString(),
+    },
+  }).catch(() => {}); // Silently ignore dispatch errors to avoid infinite loops
   return reply.code(err.statusCode ?? 500).send({
     error: 'INTERNAL_ERROR',
     message: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message,
@@ -162,10 +179,14 @@ app.get('/api/health', {
   },
 }, async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
 
+// Auto-discover config module definitions
+await discoverAndRegisterConfigs();
+
 // Routes
 await app.register(authRoutes, { prefix: '/api/auth' });
 await app.register(userRoutes, { prefix: '/api/users' });
 await app.register(configRoutes, { prefix: '/api/config' });
+await app.register(dynamicConfigRoutes, { prefix: '/api/config' });
 await app.register(auditRoutes, { prefix: '/api/audit' });
 await app.register(uploadRoutes, { prefix: '/api/uploads' });
 await app.register(notificationRoutes, { prefix: '/api/notifications' });
@@ -184,6 +205,9 @@ await app.register(qrCodeRoutes, { prefix: '/api/qr' });
 await app.register(helpRoutes, { prefix: '/api/help' });
 await app.register(systemHealthRoutes, { prefix: '/api/system-health' });
 await app.register(debugTraceRoutes, { prefix: '/api/debug/traces' });
+await app.register(notificationDeliveryRoutes, { prefix: '/api/notification-settings' });
+await app.register(userGroupRoutes, { prefix: '/api/user-groups' });
+await app.register(notificationRulesRoutes, { prefix: '/api/notification-rules' });
 await app.register(wsHandler);
 
 // Initialize rule chain node registry

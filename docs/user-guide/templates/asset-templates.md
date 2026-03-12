@@ -30,16 +30,19 @@ An Asset Template defines the blueprint for a category of entities. Templates sp
 
 The attribute schema defines typed fields that every entity created from this template will have. This provides structured, validated data for each entity.
 
-### Supported Attribute Types
+### Supported Attribute Types (9 total)
 
 | Type | Description | Example |
 |------|-------------|---------|
 | **TEXT** | Free-form string | Serial number, location, notes |
-| **NUMBER** | Numeric value (integer or decimal) | Threshold, capacity, max RPM |
+| **INTEGER** | Integer value | Count, quantity, max units |
+| **FLOAT** | Decimal number | Threshold, capacity, max RPM |
 | **BOOLEAN** | True/false toggle | Is calibrated, requires maintenance |
-| **ENUM** | Selection from predefined options | Status: [Active, Standby, Maintenance] |
-| **DATE** | Date/datetime value | Installation date, last calibration |
-| **JSON** | Arbitrary JSON object | Configuration blob, metadata |
+| **DROPDOWN** | Selection from predefined options | Status: [Active, Standby, Maintenance] |
+| **DATE** | Date value | Installation date |
+| **DATETIME** | Date and time value | Last calibration timestamp |
+| **URL** | Web URL | Documentation link, manufacturer page |
+| **FILE** | File attachment | Calibration certificate, specification sheet |
 
 ### Attribute Properties
 
@@ -87,11 +90,12 @@ Each attribute in the schema has:
 
 ### Telemetry Keys
 
-Define the telemetry keys that entities of this type will report:
+Define the telemetry keys that entities of this type will report. Telemetry supports 5 data types: INTEGER, FLOAT, BOOLEAN, STRING, ENUM.
 
 | Field | Description |
 |-------|-------------|
 | **Key** | Telemetry key name (e.g., `temperature`, `pressure`, `vibration`) |
+| **Data Type** | One of: INTEGER, FLOAT, BOOLEAN, STRING, ENUM |
 | **Unit** | Display unit (e.g., "°C", "PSI", "mm/s") |
 | **Description** | What this measurement represents |
 

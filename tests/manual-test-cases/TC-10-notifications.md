@@ -219,3 +219,82 @@
   1. Send PUT /api/notifications/bulk-unread with `{ "ids": [] }`.
   2. Verify 400 validation error (minItems: 1).
 - **Expected Result**: 400 validation error.
+
+---
+
+## Email & SMS Delivery Test Cases
+
+### TC-10-P15: Email Notification on User Login
+- **Priority**: High
+- **Preconditions**: Email configured (OAuth2), notification rule active with USER_LOGIN event type, email channel enabled.
+- **Steps**:
+  1. Login to application via browser.
+  2. Check notification_logs table for EMAIL entry with status SENT.
+  3. Verify email received at recipient inbox.
+- **Expected Result**: Email sent with User Login details (username, role, IP, timestamp).
+
+### TC-10-P16: SMS Notification on User Login
+- **Priority**: High
+- **Preconditions**: SMS configured (AWS SNS), notification rule active with USER_LOGIN, SMS enabled, recipient phone in system_config.
+- **Steps**:
+  1. Login to application.
+  2. Check notification_logs for SMS entry with status SENT.
+  3. Verify SMS received on phone.
+- **Expected Result**: SMS with "DigiLog User Login: {username}" and details.
+
+### TC-10-P17: Email Notification on Alarm Created
+- **Priority**: High
+- **Preconditions**: Email configured, notification rule with ALARM_CREATED.
+- **Steps**:
+  1. Trigger an alarm via telemetry ingestion or rule chain.
+  2. Check notification_logs for EMAIL entry.
+  3. Verify email with alarm details (type, severity, entity, trigger condition).
+- **Expected Result**: Email sent with alarm-specific details table.
+
+### TC-10-P18: SMS Notification on Alarm Created
+- **Priority**: High
+- **Preconditions**: SMS configured, notification rule with ALARM_CREATED, SMS enabled.
+- **Steps**:
+  1. Trigger an alarm.
+  2. Check notification_logs for SMS entry.
+- **Expected Result**: SMS with alarm details in plain text.
+
+### TC-10-P19: Dynamic Template Adapts per Event Type
+- **Priority**: High
+- **Preconditions**: "All Events (Combined)" template assigned to rule.
+- **Steps**:
+  1. Trigger USER_LOGIN - verify email shows user fields only.
+  2. Trigger ALARM_CREATED - verify email shows alarm fields only.
+  3. Trigger DEVICE_OFFLINE - verify email shows device fields only.
+- **Expected Result**: Same template, different details per event type.
+
+### TC-10-P20: Test Email Button
+- **Priority**: High
+- **Steps**:
+  1. Go to Notification Settings then Email.
+  2. Enter recipient email and click Send Test.
+  3. Verify email received.
+- **Expected Result**: Test email arrives within seconds.
+
+### TC-10-P21: Test SMS Button
+- **Priority**: High
+- **Steps**:
+  1. Go to Notification Settings then SMS.
+  2. Enter verified phone number and click Send Test.
+  3. Verify SMS received.
+- **Expected Result**: Test SMS arrives (number must be verified in sandbox).
+
+### TC-10-N08: Email with Wrong Credentials
+- **Priority**: Medium
+- **Steps**:
+  1. Set authType to basic with wrong password.
+  2. Trigger notification.
+  3. Check notification_logs.
+- **Expected Result**: Status FAILED with "Authentication unsuccessful" error.
+
+### TC-10-N09: SMS to Unverified Number (Sandbox)
+- **Priority**: Medium
+- **Steps**:
+  1. Set recipient phone to unverified number.
+  2. Trigger notification.
+- **Expected Result**: Status SENT (AWS accepts) but SMS not delivered.

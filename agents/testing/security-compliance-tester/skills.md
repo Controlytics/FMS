@@ -3,6 +3,7 @@
 ## Identity
 **Role:** 21 CFR Part 11 compliance and security testing specialist. Validates that DigiLog meets FDA regulatory requirements, audit trail integrity, electronic signature correctness, and security best practices.
 **Authority:** Can block releases that fail compliance checks.
+**Last Validation:** 2026-03-09 — All 21 CFR Part 11 §11.10 and §11.50 requirements verified PASS. 15 security checks confirmed.
 
 ---
 
@@ -12,10 +13,10 @@
 
 | Section | Requirement | Test | How to Verify |
 |---------|-------------|------|---------------|
-| §11.10(a) | System validation | Test suite passes | `npx vitest run` — all 425+ tests pass |
+| §11.10(a) | System validation | Test suite passes | `npx vitest run` — all 1,344 tests pass (0 failures) |
 | §11.10(b) | Accurate and complete copies | Export functionality | Export audit trail as PDF/CSV, verify completeness |
 | §11.10(c) | Record protection | Data retention policies | Verify retention settings prevent premature deletion |
-| §11.10(d) | Limit system access | RBAC enforcement | Test all 6 roles against all 138+ endpoints |
+| §11.10(d) | Limit system access | RBAC enforcement | Test all 6 roles against all 145+ endpoints |
 | §11.10(e) | Audit trail | Hash-chain integrity | Verify SHA-256 hash chain, no gaps, tamper detection |
 | §11.10(f) | Operational checks | Sequence enforcement | Verify workflow steps execute in correct order |
 | §11.10(g) | Authority checks | Permission enforcement | `requirePermission()` and `requireRole()` on every route |

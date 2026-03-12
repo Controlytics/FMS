@@ -55,7 +55,7 @@ function formatTimeValue(date: Date, timeFormat: string, timezone: string): stri
 export function useDatetimeFormat() {
   const { data } = useSWR<DatetimeConfig>('/api/config/datetime/current', {
     revalidateOnFocus: false,
-    dedupingInterval: 60000,
+    revalidateOnMount: true, dedupingInterval: 5000,
   });
 
   const config = data ?? defaultConfig;

@@ -1,7 +1,7 @@
 # EG-21: Debug Traces — Execution Guide
 
 ## Prerequisites
-- **Credentials**: SUPER_ADMIN (admin / Test@12345) who has READ_DEBUG_TRACE and MANAGE_DEBUG_TRACE permissions
+- **Credentials**: SUPER_ADMIN (admin / Admin@123) who has READ_DEBUG_TRACE and MANAGE_DEBUG_TRACE permissions
 - **Secondary Account**: User without debug trace permissions for negative tests
 - **Tools**: curl, jq, browser
 - **Setup**: Entity with device token. Must have sent at least some telemetry data.
@@ -11,7 +11,7 @@
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 # Get an entity with a device token
 ENTITY_ID=$(curl -s -X GET "http://localhost:3000/api/assets/instances?limit=1" \

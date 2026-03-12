@@ -83,7 +83,7 @@ export default async function userRoutes(app: FastifyInstance) {
       querystring: {
         type: 'object',
         properties: {
-          page: { type: 'integer', default: 1 }, limit: { type: 'integer', default: 20 },
+          page: { type: 'integer', default: 1 }, limit: { type: 'integer' },
           role: { type: 'string' },
           status: { type: 'string', enum: ['ENABLED', 'DISABLED', 'LOCKED', 'EXPIRED'] },
           search: { type: 'string', description: 'Search by username, name, or email' },

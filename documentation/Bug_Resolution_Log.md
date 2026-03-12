@@ -2,7 +2,7 @@
 
 **Maintained by:** Engineering Team
 **Created:** 2026-02-25
-**Last Updated:** 2026-03-01 (v2.2.0)
+**Last Updated:** 2026-03-12 (v3.2.0 — Config Registry + Bug Fixes)
 **Policy:** Every bug MUST be documented here before closing the associated Git issue.
 
 ---
@@ -11,12 +11,13 @@
 
 | Metric | Count |
 |--------|-------|
-| Total Bugs Identified | 25 |
-| Total Resolved | 24 |
-| Open Issues | 1 (BUG-012, low priority) |
+| Total Bugs Identified | 38 (28 original + 7 from system validation + 3 new) |
+| Total Resolved | 30 |
+| Open Issues | 8 (BUG-012 + 7 validation bugs BUG-V001–V007) |
 | Git Issues Created | 12 (#2–#13) |
 | Git Issues Closed | 11 |
-| Recurring Patterns | 3 (Fastify schema serialization, async race conditions, ReactFlow custom node handles) |
+| Recurring Patterns | 5 (Fastify schema serialization, async race conditions, ReactFlow custom node handles, UUID type casting, route ordering conflicts) |
+| **System Validation** | 2026-03-09: 87/100 health score, 7 new bugs (see `tasks/system-validation-report.md`) |
 
 ---
 
@@ -779,3 +780,121 @@ The Zod schema in `packages/shared/src/schemas/assets.ts` defined `category` as 
 **Fix:** Updated roles table: `UPDATE roles SET permissions = '["AUDIT_READ"]'::jsonb WHERE name = 'VIEWER'`. VIEWER should only have audit access.
 
 **Verification:** Logged in as VIEWER (RB0003), navigated to `/assets` — page shows "Access Denied". Sidebar correctly shows only Dashboard, Notifications, Audit Trail, Alarms.
+
+---
+
+## FIX-024: LatestTelemetry UUID Cast Error
+
+**Date:** 2026-03-07
+**Type:** Bug Fix
+**Severity:** P0 (Critical)
+**Component:** API — Telemetry Queries
+
+**Problem:** `$executeRaw` passed `entity_id` as text to PostgreSQL, but the `latest_telemetry` table column is typed as UUID. PostgreSQL raised a type mismatch error when querying latest telemetry for any entity.
+
+**Root Cause:** Prisma's `$executeRaw` interpolation passed string parameters without explicit UUID casting. PostgreSQL strict type checking rejected the implicit text-to-UUID conversion.
+
+**Fix:** Added explicit `::uuid` cast to the entity_id parameter in the raw SQL query used for latest telemetry lookups.
+
+**Verification:** Queried latest telemetry for entities with active telemetry data — all queries return correct results without type cast errors.
+
+---
+
+## FIX-025: Device Credential `createdAt` Not Updating on Token Regeneration
+
+**Date:** 2026-03-07
+**Type:** Bug Fix
+**Severity:** P2 (Medium)
+**Component:** API — Connectivity / Device Credentials
+
+**Problem:** When regenerating a device access token, the `createdAt` timestamp on the `DeviceCredential` record was not updated. This made it appear that the credential was still from the original creation date, despite having a new token.
+
+**Root Cause:** The token regeneration logic updated the `credentialsValue` (token) and `credentialsHash` fields but did not explicitly set `createdAt` to the current timestamp.
+
+**Fix:** Added `createdAt: new Date()` to the update payload when regenerating device credentials, so the timestamp reflects the most recent token generation.
+
+**Verification:** Regenerated token for a test entity, confirmed `createdAt` now shows the regeneration timestamp rather than the original creation date.
+
+---
+
+## FIX-026: Entity Resolver Cache Never Invalidated
+
+**Date:** 2026-03-07
+**Type:** Bug Fix
+**Severity:** P3 (Low)
+**Component:** API — Data Ingestion / Entity Resolution
+
+**Problem:** The entity resolver used by the data ingestion pipeline cached entity lookups by device credential token, but the cache was never invalidated when entities were updated or deleted. Stale cache entries could persist indefinitely.
+
+**Root Cause:** The in-memory cache had no TTL or invalidation mechanism — entries were stored on first lookup and never refreshed.
+
+**Fix:** Implemented a 30-second TTL on the entity resolver cache. Entries automatically expire after 30 seconds, ensuring that entity updates (renames, deletions, re-assignments) are reflected within a bounded time window.
+
+**Verification:** Confirmed cache entries expire after 30 seconds. Entity renames and deletions are reflected in subsequent data ingestion requests after the TTL window.
+
+---
+
+## FIX-027: SQL/CSV Backup Restore Fails with `Argument displayName is missing`
+
+**Date:** 2026-03-12
+**Type:** Bug Fix
+**Severity:** High
+**Component:** API â Backup & Restore
+
+**Problem:** Restoring SQL or CSV backup files failed with `Argument 'displayName' is missing` error. The restore process could not map raw PostgreSQL column names back to Prisma model fields.
+
+**Root Cause:** SQL and CSV export formats use raw PostgreSQL column names (snake_case), but Prisma expects camelCase field names. The existing `convertDbKeysToPrisma()` only converted table names, not column names within the data.
+
+**Fix:** Added `convertDbColumnsToPrisma()` function with comprehensive COLUMN_MAP (50+ mappings) and STRING_FIELDS type coercion set in `backup.service.ts`. This converts all snake_case database column names to their camelCase Prisma equivalents and coerces numeric strings back to string type where Prisma expects strings.
+
+**Files Changed:**
+- `apps/api/src/modules/backup/backup.service.ts`
+
+**Verification:** Successfully restored SQL and CSV backups containing all entity types (users, templates, instances, telemetry, alarms, notification rules). All 50+ column mappings verified.
+
+---
+
+## FIX-028: User Role Reverts to Old Value After Logout
+
+**Date:** 2026-03-12
+**Type:** Bug Fix
+**Severity:** P0 (Critical)
+**Component:** API â Authentication / User Management
+
+**Problem:** When an admin changed a user's role (e.g., OPERATOR â VIEWER), the change appeared to take effect, but after the user logged out and back in, their old role was restored.
+
+**Root Cause:** JWT refresh endpoint copied role from the existing JWT token (`req.user.role`) instead of reading the current role from the database. Admin role changes were never reflected in new tokens. The stale JWT propagated the old role indefinitely through refresh cycles.
+
+**Fix:** Three-pronged approach:
+1. **Refresh endpoint** reads role from DB via `prisma.user.findUnique()` instead of copying from stale JWT
+2. **Auth plugin** patches `req.user.role` with authoritative DB value on every authenticated request
+3. **Session invalidation** â `prisma.session.updateMany()` terminates all user sessions when admin changes role or disables account
+
+**Files Changed:**
+- `apps/api/src/modules/auth/routes.ts`
+- `apps/api/src/plugins/auth.ts`
+- `apps/api/src/modules/users/user.service.ts`
+
+**Verification:** Changed user RB0002 from OPERATOR to VIEWER. Confirmed: (1) immediate API calls use new role, (2) after logout/login new JWT contains VIEWER role, (3) old sessions invalidated with `role_changed` termination reason.
+
+---
+
+## FIX-029: SWR Cache Serving Stale Data Across Pages
+
+**Date:** 2026-03-12
+**Type:** Bug Fix
+**Severity:** P2 (Medium)
+**Component:** Frontend (Global) â SWR Data Fetching
+
+**Problem:** Configuration changes, user updates, and notification rule edits were not reflected in the UI until a full page refresh. Users reported seeing old branding, stale field labels, and outdated user lists after making changes.
+
+**Root Cause:** SWR hooks across 23 files had long `dedupingInterval` (5 minutes for branding, 1 minute for configs) or missing `revalidateOnMount`, causing the SWR cache to serve stale data instead of fetching fresh values when navigating between pages.
+
+**Fix:** Systematic audit of all 27 `useSWR` calls across the frontend. Added `revalidateOnMount: true, dedupingInterval: 0` to ensure fresh data on every page mount. Affected areas:
+- Global hooks: branding, field-labels, datetime format, pagination config, reauth config
+- All config pages (general, auth, email, MQTT, backup, etc.)
+- Notification rules, user management, audit trail
+
+**Files Changed:** 23 files across `apps/web/src/` (hooks, pages, components)
+
+**Verification:** Changed branding settings, navigated away and back â new branding visible immediately without refresh. Changed user role, confirmed user list updates instantly. Modified notification rule, confirmed rules page shows updated data.

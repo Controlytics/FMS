@@ -11,7 +11,7 @@ interface PaginationConfig {
 }
 
 export function PaginationConfigPage() {
-  const { data, mutate } = useSWR<PaginationConfig>('/api/config/pagination');
+  const { data, mutate } = useSWR<PaginationConfig>('/api/config/pagination', { revalidateOnMount: true, dedupingInterval: 0 });
   const [options, setOptions] = useState<[number, number, number]>([10, 25, 50]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);

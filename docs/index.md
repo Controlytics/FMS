@@ -63,7 +63,7 @@
 | [Templates](api-reference/templates.md) | Asset template management and versioning |
 | [Telemetry](api-reference/telemetry.md) | Data ingestion (HTTP/MQTT) and time-series querying |
 | [Alarms](api-reference/alarms.md) | Alarm query, acknowledge, clear with e-signatures |
-| [Rule Chains](api-reference/rule-chains.md) | Rule chain management, 28 node types, debug inspection |
+| [Rule Chains](api-reference/rule-chains.md) | Rule chain management, 31 node types, debug inspection |
 | [Users](api-reference/users.md) | User CRUD, enable/disable, lock/unlock, password resets |
 | [Configuration](api-reference/configuration.md) | Security, branding, roles, re-auth, audit templates |
 | [Notifications](api-reference/notifications.md) | In-app notification management |
@@ -83,4 +83,4 @@
 
 ---
 
-*DigiLog v2.x — Built for regulated industrial environments.*
+*DigiLog v2.x — Built for regulated industrial environments. Last updated: 2026-03-07.*

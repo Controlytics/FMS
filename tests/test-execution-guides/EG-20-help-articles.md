@@ -1,7 +1,7 @@
 # EG-20: Help Articles — Execution Guide
 
 ## Prerequisites
-- **Credentials**: SUPER_ADMIN (admin / Test@12345), secondary non-SUPER_ADMIN account
+- **Credentials**: SUPER_ADMIN (admin / Admin@123), secondary non-SUPER_ADMIN account
 - **Tools**: curl, jq, browser
 - **Setup**: Seed data includes 28 default help articles
 - **Base URL**: http://localhost:3000
@@ -10,7 +10,7 @@
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 echo "Token: $TOKEN"
 ```

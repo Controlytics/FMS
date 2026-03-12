@@ -19,13 +19,13 @@ All export endpoints share these parameters:
 - Maximum rows: Configurable via `export.max_rows` (default: 1,000,000)
 - If the result exceeds the row limit, the response includes an `X-DigiLog-Truncated: true` header
 
-**Permission:** `ASSET_VIEW` (all export endpoints)
+**Permission:** `DATA_EXPORT` (all export endpoints)
 
 ---
 
-## Endpoints
+## Endpoints (5 total)
 
-### GET /api/queries/export/telemetry/:entityId
+### POST /api/queries/export/telemetry
 
 Export telemetry time-series data for an entity.
 
@@ -63,7 +63,7 @@ from=2026-02-01T00:00:00Z&to=2026-03-01T00:00:00Z&key=firmware_version" \
 
 ---
 
-### GET /api/queries/export/alarms
+### POST /api/queries/export/alarms
 
 Export alarms across all entities.
 
@@ -76,9 +76,27 @@ from=2026-02-01T00:00:00Z&to=2026-03-01T00:00:00Z&status=CLEARED&format=json" \
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `status` | string | `ACTIVE`, `ACKNOWLEDGED`, or `CLEARED` |
-| `severity` | string | `CRITICAL`, `MAJOR`, `MINOR`, `WARNING`, or `INFO` |
+| `status` | string | `ACTIVE`, `ACKNOWLEDGED`, `CLEARED`, or `MANUALLY_CLEARED` |
+| `severity` | string | `WARNING`, `ALARM`, or `CRITICAL` |
 | `entityId` | UUID | Filter by entity |
+
+---
+
+### POST /api/queries/export/audit
+
+Export audit trail records.
+
+```bash
+curl -X POST "http://your-server/api/queries/export/audit" \
+  -H "Authorization: Bearer USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "from": "2026-02-01T00:00:00Z",
+    "to": "2026-03-01T00:00:00Z",
+    "format": "csv"
+  }' \
+  -o audit.csv
+```
 
 ---
 
@@ -97,11 +115,15 @@ from=2026-02-01T00:00:00Z&to=2026-03-01T00:00:00Z" \
 
 ---
 
-## Export Status (Future)
+## Export Jobs
 
-### GET /api/queries/export/status/:jobId
+### GET /api/queries/export/jobs
 
-Check the status of an async export job. Currently returns a stub response — async exports will be available in a future update.
+List export jobs for the current user.
+
+### GET /api/queries/export/jobs/:id/download
+
+Download a completed export job's output file.
 
 ---
 

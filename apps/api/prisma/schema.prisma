@@ -174,6 +174,19 @@ enum NotificationType {
   USER_CREATION_REQUEST_SUBMITTED
   USER_CREATION_REQUEST_APPROVED
   USER_CREATION_REQUEST_REJECTED
+  ALARM_CREATED
+  ALARM_ACKNOWLEDGED
+  ALARM_CLEARED
+  DEVICE_ONLINE
+  DEVICE_OFFLINE
+  DEVICE_INACTIVITY
+  USER_LOGIN
+  USER_LOCKED
+  RULE_CHAIN_TRIGGERED
+  CHECKLIST_SUBMITTED
+  CHECKLIST_APPROVED
+  CHECKLIST_REJECTED
+  SYSTEM_ERROR
 }
 
 model Notification {
@@ -715,3 +728,167 @@ model IngestionSystemConfig {
   @@map("ingestion_system_config")
 }
 
+
+// ====== Notification Delivery Logs (Email/SMS) ======
+enum NotificationChannel {
+  EMAIL
+  SMS
+  IN_APP
+  TELEGRAM
+  WHATSAPP
+  SLACK
+}
+
+enum NotificationDeliveryStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  RETRYING
+}
+
+model NotificationLog {
+  id            String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  channel       NotificationChannel
+  recipient     String                    @db.VarChar(500)
+  subject       String?                   @db.VarChar(500)
+  message       String
+  templateId    String?                   @map("template_id") @db.VarChar(100)
+  status        NotificationDeliveryStatus @default(PENDING)
+  retryCount    Int                       @default(0) @map("retry_count")
+  maxRetries    Int                       @default(3) @map("max_retries")
+  nextRetryAt   DateTime?                 @map("next_retry_at") @db.Timestamptz
+  errorMessage  String?                   @map("error_message")
+  metadata      Json?                     @db.JsonB
+  triggeredBy   String?                   @map("triggered_by") @db.VarChar(100)  // rule-chain, alarm, system, manual
+  ruleChainId   String?                   @map("rule_chain_id") @db.Uuid
+  alarmId       String?                   @map("alarm_id") @db.Uuid
+  createdAt     DateTime                  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime                  @updatedAt @map("updated_at") @db.Timestamptz
+  sentAt        DateTime?                 @map("sent_at") @db.Timestamptz
+
+  @@index([channel])
+  @@index([status])
+  @@index([recipient])
+  @@index([createdAt(sort: Desc)])
+  @@index([ruleChainId])
+  @@index([alarmId])
+  @@map("notification_logs")
+}
+
+model NotificationTemplate {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String   @unique @db.VarChar(100)
+  channel       NotificationChannel
+  subject       String?  @db.VarChar(500)
+  bodyTemplate  String   @map("body_template")
+  description   String?  @db.VarChar(500)
+  variables     Json?    @db.JsonB  // list of available variables
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy     String?  @map("created_by") @db.VarChar(50)
+
+  @@index([channel])
+  @@index([isActive])
+  @@map("notification_templates")
+}
+
+// ─── Notification Event Types ─────────────────────────────────────────
+enum NotificationEventType {
+  ALARM_CREATED
+  ALARM_ACKNOWLEDGED
+  ALARM_CLEARED
+  DEVICE_ONLINE
+  DEVICE_OFFLINE
+  DEVICE_INACTIVITY
+  USER_LOGIN
+  USER_CREATED
+  USER_LOCKED
+  RULE_CHAIN_TRIGGERED
+  CHECKLIST_SUBMITTED
+  CHECKLIST_APPROVED
+  CHECKLIST_REJECTED
+  SYSTEM_ERROR
+}
+
+// ─── User Groups ──────────────────────────────────────────────────────
+model UserGroup {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @unique @db.VarChar(100)
+  description String?  @db.VarChar(500)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy   String?  @map("created_by") @db.VarChar(50)
+
+  members     UserGroupMember[]
+  ruleRecipients NotificationRuleRecipient[]
+
+  @@map("user_groups")
+}
+
+model UserGroupMember {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  groupId   String   @map("group_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  group UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([groupId])
+  @@index([userId])
+  @@map("user_group_members")
+}
+
+// ─── Notification Rules ───────────────────────────────────────────────
+model NotificationRule {
+  id              String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String                @db.VarChar(200)
+  description     String?               @db.VarChar(500)
+  eventType       NotificationEventType @map("event_type")
+  eventTypes      NotificationEventType[] @default([]) @map("event_types")
+
+  // Filtering conditions (JSONB): e.g. {"severity": ["CRITICAL","MAJOR"]}
+  conditions      Json                  @default("{}") @db.JsonB
+
+  // Channels
+  emailEnabled    Boolean               @default(false) @map("email_enabled")
+  smsEnabled      Boolean               @default(false) @map("sms_enabled")
+  inAppEnabled    Boolean               @default(true) @map("in_app_enabled")
+
+  // Template references
+  emailTemplateId String?               @map("email_template_id") @db.Uuid
+  smsTemplateId   String?               @map("sms_template_id") @db.Uuid
+
+  // Throttling
+  cooldownMinutes Int                   @default(0) @map("cooldown_minutes")
+
+  isActive        Boolean               @default(true) @map("is_active")
+  priority        Int                   @default(0)
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy       String?               @map("created_by") @db.VarChar(50)
+
+  recipients      NotificationRuleRecipient[]
+
+  @@index([eventType])
+  @@index([isActive])
+  @@map("notification_rules")
+}
+
+model NotificationRuleRecipient {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ruleId          String   @map("rule_id") @db.Uuid
+  recipientType   String   @map("recipient_type") @db.VarChar(20)  // ROLE | GROUP | USER
+  roleValue       String?  @map("role_value") @db.VarChar(50)
+  groupId         String?  @map("group_id") @db.Uuid
+  userId          String?  @map("user_id") @db.Uuid
+
+  rule            NotificationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  group           UserGroup?       @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  @@index([ruleId])
+  @@map("notification_rule_recipients")
+}

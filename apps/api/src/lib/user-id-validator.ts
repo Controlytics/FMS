@@ -7,7 +7,27 @@ export async function validateUserId(userId: string): Promise<{ valid: boolean; 
   const cfg = settings.success ? settings.data : userIdConfigSchema.parse({});
 
   const errors: string[] = [];
-  const prefix = cfg.prefix ? `${cfg.prefix}${cfg.prefixSeparator}` : '';
+  const isPrefixFormat = cfg.format.startsWith('PREFIX_');
+  const isCustomPattern = cfg.format === 'CUSTOM_PATTERN';
+
+  // For CUSTOM_PATTERN, the regex is the sole validator — skip length/prefix/case checks
+  if (isCustomPattern) {
+    if (cfg.customPattern) {
+      try {
+        const regex = new RegExp(`^${cfg.customPattern}$`);
+        if (!regex.test(userId)) {
+          errors.push(cfg.customPatternDescription || 'User ID does not match required pattern');
+        }
+      } catch {
+        errors.push('Invalid custom pattern configured');
+      }
+    } else {
+      errors.push('No custom pattern has been configured');
+    }
+    return { valid: errors.length === 0, errors };
+  }
+
+  const prefix = isPrefixFormat && cfg.prefix ? `${cfg.prefix}${cfg.prefixSeparator}` : '';
   const expectedLength = cfg.length;
 
   // Check length
@@ -15,8 +35,8 @@ export async function validateUserId(userId: string): Promise<{ valid: boolean; 
     errors.push(`User ID must be exactly ${expectedLength} characters`);
   }
 
-  // Check prefix
-  if (prefix && !userId.startsWith(prefix)) {
+  // Check prefix (only for PREFIX_* formats)
+  if (isPrefixFormat && prefix && !userId.startsWith(prefix)) {
     errors.push(`User ID must start with "${prefix}"`);
   }
 
@@ -53,18 +73,6 @@ export async function validateUserId(userId: string): Promise<{ valid: boolean; 
     case 'PREFIX_LETTERS_NUMBERS':
       if (!/^[a-zA-Z0-9]+$/.test(mainPart)) {
         errors.push('User ID must have letters and numbers after prefix');
-      }
-      break;
-    case 'CUSTOM_PATTERN':
-      if (cfg.customPattern) {
-        try {
-          const regex = new RegExp(`^${cfg.customPattern}$`);
-          if (!regex.test(userId)) {
-            errors.push(cfg.customPatternDescription || 'User ID does not match required pattern');
-          }
-        } catch {
-          errors.push('Invalid custom pattern configured');
-        }
       }
       break;
   }

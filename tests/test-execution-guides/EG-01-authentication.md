@@ -3,7 +3,7 @@
 ## Prerequisites
 - **App URL**: http://3.108.185.106
 - **API Base**: http://localhost:3000/api (from server) or http://3.108.185.106/api (external)
-- **Default Credentials**: admin / Test@12345 (SUPER_ADMIN)
+- **Default Credentials**: admin / Admin@123 (SUPER_ADMIN)
 - **Tools**: curl, browser (Chrome/Firefox), second browser/incognito for session tests
 - **Test User**: Create `locktest` user for lockout testing (TC-01-N03)
 
@@ -15,7 +15,7 @@ API="http://localhost:3000/api"
 # Login and store token for subsequent tests
 TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 echo "Token: $TOKEN"
 ```
@@ -30,13 +30,13 @@ echo "Token: $TOKEN"
 ```bash
 curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq .
+  -d '{"username":"admin","password":"Admin@123"}' | jq .
 ```
 
 **Browser Steps:**
 1. Navigate to http://3.108.185.106/login
 2. Enter username: `admin`
-3. Enter password: `Test@12345`
+3. Enter password: `Admin@123`
 4. Click "Sign In"
 5. Observe redirect to dashboard
 
@@ -113,7 +113,7 @@ curl -s -X GET "$API/auth/me" \
 curl -s -X POST "$API/auth/change-password" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"currentPassword":"Test@12345","newPassword":"NewPass@123","confirmPassword":"NewPass@123"}' | jq .
+  -d '{"currentPassword":"Admin@123","newPassword":"NewPass@123","confirmPassword":"NewPass@123"}' | jq .
 ```
 
 **Expected Result:**
@@ -135,7 +135,7 @@ NEW_TOKEN=$(curl -s -X POST "$API/auth/login" \
 curl -s -X POST "$API/auth/change-password" \
   -H "Authorization: Bearer $NEW_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"currentPassword":"NewPass@123","newPassword":"Test@12345","confirmPassword":"Test@12345"}' | jq .
+  -d '{"currentPassword":"NewPass@123","newPassword":"Admin@123","confirmPassword":"Admin@123"}' | jq .
 ```
 
 **Pass/Fail:**
@@ -153,7 +153,7 @@ curl -s -X POST "$API/auth/change-password" \
 # Get a fresh token for this test
 LOGOUT_TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345","force":true}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
 
 # Logout
 curl -s -X POST "$API/auth/logout" \
@@ -181,7 +181,7 @@ curl -s -w "\nHTTP_CODE:%{http_code}\n" -X GET "$API/auth/me" \
 # Get a fresh token
 BEACON_TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345","force":true}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
 
 # Beacon logout (no auth header, token in body)
 curl -s -X POST "$API/auth/beacon-logout" \
@@ -209,12 +209,12 @@ curl -s -w "\nHTTP_CODE:%{http_code}\n" -X GET "$API/auth/me" \
 ```bash
 TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345","force":true}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
 
 curl -s -X POST "$API/auth/verify" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"password":"Test@12345"}' | jq .
+  -d '{"password":"Admin@123"}' | jq .
 ```
 
 **Expected Result:**
@@ -259,19 +259,19 @@ curl -s -X POST "$API/auth/forgot-password" \
 # Login from "Client A"
 TOKEN_A=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345","force":true}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
 echo "Token A: $TOKEN_A"
 
 # Attempt login from "Client B" without force
 curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq .
+  -d '{"username":"admin","password":"Admin@123"}' | jq .
 # Should get SESSION_CONFLICT
 
 # Force login from "Client B"
 TOKEN_B=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345","force":true}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
 echo "Token B: $TOKEN_B"
 
 # Verify Token A is invalid
@@ -315,7 +315,7 @@ curl -s -X POST "$API/auth/forgot-password" \
 ```bash
 curl -s -w "\nHTTP_CODE:%{http_code}\n" -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"invalid_user_xyz","password":"Test@12345"}'
+  -d '{"username":"invalid_user_xyz","password":"Admin@123"}'
 ```
 
 **Expected Result:**
@@ -351,12 +351,12 @@ curl -s -X POST "$API/auth/login" \
 ```bash
 TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345","force":true}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
 
 VTOKEN=$(curl -s -X POST "$API/auth/verify" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"password":"Test@12345"}' | jq -r '.verificationToken')
+  -d '{"password":"Admin@123"}' | jq -r '.verificationToken')
 
 curl -s -X POST "$API/users" \
   -H "Authorization: Bearer $TOKEN" \
@@ -490,7 +490,7 @@ curl -s -w "\nHTTP_CODE:%{http_code}\n" -X POST "$API/auth/login" \
 ```bash
 TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345","force":true}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
 
 curl -s -X PUT "$API/auth/profile" \
   -H "Authorization: Bearer $TOKEN" \
@@ -514,12 +514,12 @@ curl -s -X PUT "$API/auth/profile" \
 # Ensure session exists
 TOKEN_A=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345","force":true}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
 
 # Attempt second login without force
 curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq .
+  -d '{"username":"admin","password":"Admin@123"}' | jq .
 ```
 
 **Expected Result:**
@@ -539,7 +539,7 @@ curl -s -X POST "$API/auth/login" \
 curl -s -X POST "$API/auth/change-password" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"currentPassword":"Test@12345","newPassword":"NewPass@123","confirmPassword":"DifferentPass@456"}' | jq .
+  -d '{"currentPassword":"Admin@123","newPassword":"NewPass@123","confirmPassword":"DifferentPass@456"}' | jq .
 ```
 
 **Expected Result:**
@@ -558,7 +558,7 @@ curl -s -X POST "$API/auth/change-password" \
 curl -s -X POST "$API/auth/change-password" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"currentPassword":"Test@12345","newPassword":"weak","confirmPassword":"weak"}' | jq .
+  -d '{"currentPassword":"Admin@123","newPassword":"weak","confirmPassword":"weak"}' | jq .
 ```
 
 **Expected Result:**
@@ -616,7 +616,7 @@ done
 # Restore admin profile if modified
 TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345","force":true}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
 
 curl -s -X PUT "$API/auth/profile" \
   -H "Authorization: Bearer $TOKEN" \

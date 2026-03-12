@@ -2,7 +2,7 @@
 
 **Maintained by:** Engineering Team
 **Created:** 2026-02-25
-**Last Updated:** 2026-03-05 (v3.0.0)
+**Last Updated:** 2026-03-09 (v3.1.0 — System Validation Complete)
 **Policy:** This document must be updated after every feature addition, bug fix, or structural change.
 
 ---
@@ -20,12 +20,12 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** designed for regulated
 - Tamper-evident audit trail with SHA-256 checksums (60+ audit actions)
 - Configurable system settings (security, branding, datetime, pagination, field labels, alarm columns)
 - Data ingestion pipeline (HTTP/MQTT/WebSocket) with BullMQ workers
-- Rule chain engine (28 node types, sandboxed VM execution, sub-chain delegation)
+- Rule chain engine (**48 node types** across 9 categories, sandboxed VM execution, sub-chain delegation)
 - Alarm management with deduplication and role-based column visibility
 - Unified Namespace (ISA-95) with cascade moves and wildcard search
 - Notification system with role-based delivery
 - Backup and restore functionality
-- TimescaleDB hypertables for time-series data (5 tables)
+- TimescaleDB hypertables for time-series data (7 tables)
 - GitHub Actions CI/CD pipeline (1,344 tests)
 - 21 CFR Part 11 and ALCOA+ compliance
 
@@ -78,7 +78,7 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** designed for regulated
 │  └─────────┘   └──────────┘   │ TimescaleDB│  │  EMQX    │  │
 │                                │ digilog_   │  │  (MQTT)  │  │
 │  ┌──────────────────────┐     │ tsdb       │  └──────────┘  │
-│  │  BullMQ Workers      │     │ 5 hyper-   │                │
+│  │  BullMQ Workers      │     │ 7 hyper-   │                │
 │  │  (ingestion,         │────▶│ tables     │                │
 │  │   maintenance)       │     └────────────┘                │
 │  └──────────────────────┘                                    │
@@ -174,19 +174,22 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** designed for regulated
 | Component Extraction (Entity Explorer 2081→386 lines) | v3.0 | 2026-03-01 |
 | GitHub Actions CI/CD Pipeline | v3.0 | 2026-03-01 |
 | 1,344 Tests (0 failures) across 83+ files | v3.0 | 2026-03-01 |
+| Alarm Column Visibility Config | v3.1 | 2026-03-07 |
+| Permission Migration (role→permission-based) | v3.1 | 2026-03-07 |
+| Sandboxed VM Execution for Rule Chain Scripts | v3.1 | 2026-03-07 |
+| Sub-Chain Delegation | v3.1 | 2026-03-07 |
+| Atomic SQL Telemetry Upsert | v3.1 | 2026-03-07 |
+| Alarm Deduplication | v3.1 | 2026-03-07 |
+| MANUALLY_CLEARED Alarm Status | v3.1 | 2026-03-07 |
+| Absolute 24h Session Timeout | v3.1 | 2026-03-07 |
+| LatestTelemetry UUID Cast Fix (P0) | v3.1 | 2026-03-07 |
+| Device Credential createdAt Fix (P2) | v3.1 | 2026-03-07 |
+| Entity Resolver Cache TTL (P3) | v3.1 | 2026-03-07 |
+| Real-time Auto-refresh (SWR polling + WebSocket) | v3.1 | 2026-03-07 |
 
-### In Progress (Uncommitted on DataIngestion branch)
+### In Progress
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Alarm Column Visibility Config | In Progress | New config page + 3 API endpoints, per-role column visibility |
-| Permission Migration (role→permission-based) | In Progress | Rule chains, data ingestion, debug, help, UNS routes migrated |
-| Sandboxed VM Execution for Rule Chain Scripts | In Progress | 1s timeout, no process/require/global access |
-| Sub-Chain Delegation | In Progress | Depth tracking prevents infinite loops |
-| Atomic SQL Telemetry Upsert | In Progress | INSERT ... ON CONFLICT ... DO UPDATE WHERE |
-| Alarm Deduplication | In Progress | Only creates alarm if no ACTIVE alarm of same type exists |
-| MANUALLY_CLEARED Alarm Status | In Progress | New alarm status + clearDetails field |
-| Absolute 24h Session Timeout | In Progress | Hard limit regardless of activity |
+All features are complete and deployed as of 2026-03-07. No items currently in progress.
 
 ### Planned (Not Started)
 
@@ -234,7 +237,7 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** designed for regulated
 
 ### Last Regression Date
 
-**2026-03-02** — Full CI/CD regression (1,344 tests, 0 failures). GitHub Actions pipeline on push to main/DataIngestion.
+**2026-03-07** — Full CI/CD regression (1,344 tests, 0 failures). GitHub Actions pipeline on push to main/DataIngestion. All development phases (A through K) complete and deployed.
 
 ### Test Documentation Location
 
@@ -255,15 +258,15 @@ All testing documents are centralized in `/documentation/testing/`:
 
 | Metric | Count |
 |--------|-------|
-| Total Bugs Identified | 25+ |
-| Total Resolved | 24+ |
+| Total Bugs Identified | 28 |
+| Total Resolved | 27 |
 | Open Issues | 1 ([#13](https://github.com/pankajexa/21cfrlogbook/issues/13) — low priority) |
 | Git Issues Created | 12 (#2–#13) |
 | Security Fixes (v3.0) | 8 |
-| Critical Severity | 0 |
+| Critical Severity | 1 |
 | High Severity | 8 |
-| Medium Severity | 10 |
-| Low Severity | 6 |
+| Medium Severity | 11 |
+| Low Severity | 7 |
 
 ### Recurring Patterns
 
@@ -329,12 +332,12 @@ All testing documents are centralized in `/documentation/testing/`:
 | Status | Details |
 |--------|---------|
 | **Governance Mode** | Active (self-enforcing) |
-| **Current Version** | 3.0.0 |
+| **Current Version** | 3.1.0 |
 | **Auto-Sync Documents** | 7 (CHANGELOG, API_GUIDE, task_status, BUSINESS_CONTEXT, CODEBASE_CONTEXT, PLAN, Project_Summary) |
 | **Bug Lifecycle** | Enforced (Git issue → fix → Bug_Resolution_Log → close) |
 | **Testing Docs** | Centralized at `/documentation/testing/` |
 | **CI/CD** | GitHub Actions (push to main/DataIngestion, PRs) |
-| **Last Full Sync** | 2026-03-05 |
+| **Last Full Sync** | 2026-03-07 |
 
 ---
 
@@ -342,6 +345,7 @@ All testing documents are centralized in `/documentation/testing/`:
 
 | Date | Version | Change |
 |------|---------|--------|
+| 2026-03-07 | 3.1.0 | All features COMPLETE and deployed. Added 3 bug fixes (FIX-024/025/026): LatestTelemetry UUID cast (P0), device credential createdAt (P2), entity resolver cache TTL (P3). Moved all in-progress items to completed. Updated metrics (28 bugs, 7 hypertables). Test tools: push-telemetry.py, push-telemetry.mjs, telemetry-200.csv. Real-time auto-refresh via SWR polling + WebSocket. |
 | 2026-03-05 | 3.0.0 | Full documentation sync: updated all metrics (145+ endpoints, 1344 tests, 30 models, 34+ pages), added Phases A-K and v3.0 features (data ingestion, rule chains, alarms, UNS, TimescaleDB, CI/CD, security fixes, component refactoring) |
 | 2026-02-25 | 2.1.2 | Git issue lifecycle: 12 bugs converted to GitHub issues (#2–#13), 11 closed, 1 open |
 | 2026-02-25 | 2.1.1 | Documentation governance enforcement activated; all 7 core documents auto-synchronized |

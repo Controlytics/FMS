@@ -14,7 +14,7 @@ export function DatetimeConfigPage() {
   const navigate = useNavigate();
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const { data } = useSWR('/api/config/datetime');
+  const { data } = useSWR('/api/config/datetime', { revalidateOnMount: true, dedupingInterval: 0 });
   const reauth = useReauth();
 
   const { register, handleSubmit, watch, reset, formState: { isSubmitting, isDirty } } = useForm<DatetimeConfig>({

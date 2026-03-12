@@ -255,10 +255,24 @@ export function AssetDetailPanel({
           </Card>
           <Card>
             <CardContent className="p-4">
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Children</p>
-              <p className="text-sm font-medium text-slate-800">
-                {(asset as any)._count?.children ?? '-'}
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                Children {(asset as any)._count?.children > 0 && <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold px-1">{(asset as any)._count.children}</span>}
               </p>
+              {(() => {
+                const childNodes = treeNodes.filter((n: any) => n.parentId === asset.id);
+                if (childNodes.length === 0) return <p className="text-sm text-slate-400">No children</p>;
+                return (
+                  <div className="space-y-1 mt-1">
+                    {childNodes.slice(0, 10).map((child: any) => (
+                      <button key={child.id} onClick={() => onSelectAsset(child.id)} className="flex items-center gap-2 w-full text-left text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded px-1.5 py-0.5 transition-colors">
+                        <span className="text-xs">{getIcon(child.template?.icon)}</span>
+                        <span className="truncate">{child.name}</span>
+                      </button>
+                    ))}
+                    {childNodes.length > 10 && <p className="text-xs text-slate-400 pl-1">+{childNodes.length - 10} more</p>}
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
           <Card>

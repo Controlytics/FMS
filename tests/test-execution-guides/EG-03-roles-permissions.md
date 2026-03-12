@@ -2,7 +2,7 @@
 
 ## Prerequisites
 - **API Base**: `http://localhost:3000/api`
-- **Credentials**: admin / Test@12345 (SUPER_ADMIN)
+- **Credentials**: admin / Admin@123 (SUPER_ADMIN)
 - **OPERATOR user**: For negative permission tests (create one if needed)
 - **Tools**: curl, jq
 
@@ -12,13 +12,13 @@ API="http://localhost:3000/api"
 
 TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345","force":true}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
 
 get_vtoken() {
   curl -s -X POST "$API/auth/verify" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"password":"Test@12345"}' | jq -r '.verificationToken'
+    -d '{"password":"Admin@123"}' | jq -r '.verificationToken'
 }
 ```
 

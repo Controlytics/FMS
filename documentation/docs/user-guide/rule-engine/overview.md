@@ -1,6 +1,6 @@
 # Rule Engine Overview
 
-The Rule Engine is DigiLog's data processing framework. It enables you to build automated workflows that filter, transform, enrich, and route incoming messages — without writing code. Rule chains are configured visually using a drag-and-drop editor.
+The Rule Engine is DigiLog's data processing framework. It enables you to build automated workflows that filter, transform, enrich, and route incoming messages -- without writing code. Rule chains are configured visually using a drag-and-drop editor. The engine supports 28 node types with sandboxed VM execution (1s timeout, no access to process/require/global) and sub-chain delegation with depth tracking to prevent infinite loops.
 
 ---
 

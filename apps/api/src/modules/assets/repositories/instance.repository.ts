@@ -1,14 +1,13 @@
 import { prisma } from '../../../lib/prisma.js';
 
 export const instanceRepository = {
-  async findMany(where: Record<string, unknown>, page: number, limit: number) {
+  async findMany(where: Record<string, unknown>, page: number, limit?: number) {
     const [instances, total] = await Promise.all([
       prisma.assetInstance.findMany({
         where: where as any,
-        include: { template: { select: { name: true, icon: true } } },
+        include: { template: { select: { name: true, icon: true } }, _count: { select: { children: true } } },
         orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
+        ...(limit ? { skip: (page - 1) * limit, take: limit } : {}),
       }),
       prisma.assetInstance.count({ where: where as any }),
     ]);
@@ -51,7 +50,7 @@ export const instanceRepository = {
           include: { sourceAsset: { select: { id: true, name: true } } },
         },
         identifiers: true,
-        _count: { select: { sourceRelations: true } },
+        _count: { select: { children: true, sourceRelations: true } },
       },
     });
   },

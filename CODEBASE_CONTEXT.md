@@ -1,7 +1,7 @@
 # DigiLog Codebase Context & Reference
 
 > Comprehensive reference for working on the DigiLog 21 CFR Part 11 Compliant Digital Logbook.
-> Updated: 2026-03-05 (Phases B–K Complete + v3.0 Security & Refactoring)
+> Updated: 2026-03-09 (All Phases A–K Complete + v3.0 + v3.1 System Validation — 87/100 health score, 48 rule chain nodes, 7 open bugs)
 
 ---
 
@@ -35,8 +35,8 @@ DigiLog is a regulatory-compliant digital logbook for pharma/biotech/food manufa
 - **Audit Trail** with SHA-256 checksum integrity verification (21 CFR Part 11)
 - **System Configuration** for branding, security, datetime, pagination, field labels
 - **Notification System** with role-based delivery
-- **Backup/Restore** functionality
-- **Data Ingestion & Integration** with MQTT transport, WebSocket real-time streaming, rule chain engine (28 node types, sandboxed VM execution, sub-chain delegation), telemetry queries, alarm management (with MANUALLY_CLEARED status), Unified Namespace (ISA-95), entity connectivity tracking, QR code generation, and alarm column visibility configuration
+- **Backup/Restore** with 4 export formats (JSON, BAK, SQL, CSV) — all restorable via UI
+- **Data Ingestion & Integration** with MQTT transport, WebSocket real-time streaming, rule chain engine (31 node types, sandboxed VM execution, sub-chain delegation), telemetry queries, alarm management (with MANUALLY_CLEARED status), Unified Namespace (ISA-95), entity connectivity tracking, QR code generation, and alarm column visibility configuration
 
 **Default Login:** `admin` / `Admin@123` (forces password change)
 
@@ -54,10 +54,13 @@ DigiLog is a regulatory-compliant digital logbook for pharma/biotech/food manufa
 │   │   │   ├── plugins/        # Fastify plugins (auth, rbac, audit-logger)
 │   │   │   ├── modules/        # Feature modules (auth, users, roles, config, assets, audit, notifications, uploads, backup)
 │   │   │   │   ├── data-ingestion/   # HTTP ingestion, entity resolver, normalizer, pipeline, DLQ, connectivity tracker
-│   │   │   │   ├── rule-chain/       # Rule chain engine, 28 node types, sandboxed VM execution, sub-chain delegation, debug recorder
+│   │   │   │   ├── rule-chain/       # Rule chain engine, 31 node types, sandboxed VM execution, sub-chain delegation, debug recorder
 │   │   │   │   ├── uns/              # Unified Namespace (ISA-95)
 │   │   │   │   ├── queries/          # Telemetry, alarms, export, retention
 │   │   │   │   ├── connectivity/     # Entity connectivity status & code snippets
+│   │   │   │   ├── notification-rules/  # Notification rules CRUD, multi-select event types
+│   │   │   │   ├── notification-delivery/ # Email (OAuth2 Office365) + SMS (AWS SNS) dispatch, dynamic templates, retry logic
+│   │   │   │   ├── user-groups/          # User group management for notifications
 │   │   │   │   ├── qr-code/          # QR code generation
 │   │   │   │   └── help/             # Help articles with versioning
 │   │   │   ├── transport/      # MQTT auth, MQTT client, WebSocket handler
@@ -103,7 +106,7 @@ DigiLog is a regulatory-compliant digital logbook for pharma/biotech/food manufa
 │
 ├── turbo.json                  # Turborepo pipeline: shared -> api -> web
 ├── package.json                # Root scripts
-├── init-tsdb.sql               # TimescaleDB initialization (6 hypertables)
+├── init-tsdb.sql               # TimescaleDB initialization (7 hypertables)
 ├── docker-compose.yml          # PostgreSQL 16 + TimescaleDB + EMQX + Redis
 ├── .env                        # Environment variables
 └── CLAUDE.md                   # Project instructions
@@ -630,12 +633,12 @@ Advanced: UNS_VIEW, UNS_MANAGE, QR_CODE_GENERATE, HELP_MANAGE, READ_DEBUG_TRACE,
 ### UNS (`/api/uns`) — 6 endpoints
 | Method | Path | Permission | Purpose |
 |--------|------|-----------|---------|
-| GET | /tree | UNS_VIEW | Get UNS hierarchy tree |
-| GET | /mappings | UNS_VIEW | List entity-to-path mappings |
-| POST | /mappings | UNS_MANAGE | Create/update UNS mapping |
-| DELETE | /mappings/:id | UNS_MANAGE | Delete UNS mapping |
-| POST | /auto-map | UNS_MANAGE | Auto-generate UNS paths |
-| GET | /browse | UNS_VIEW | Browse UNS path |
+| GET | /tree | SUPER_ADMIN/ADMIN/SUPERVISOR | Get UNS hierarchy tree |
+| GET | /entity/:entityId | ASSET_VIEW | Get entity UNS mapping |
+| PUT | /entity/:entityId | SUPER_ADMIN (reauth OVERRIDE_UNS_PATH) | Override entity UNS path |
+| POST | /entity/:entityId/move | SUPER_ADMIN/ADMIN | Generate move impact report |
+| POST | /entity/:entityId/move/confirm | SUPER_ADMIN/ADMIN (reauth UPDATE_UNS_CONFIG) | Execute cascade move |
+| GET | /search?path=<pattern> | ASSET_VIEW | Wildcard search |
 
 ### Telemetry Queries (`/api/queries/telemetry`) — 7 endpoints
 | Method | Path | Permission | Purpose |
@@ -911,7 +914,7 @@ AssetTemplate (blueprint) → defines attribute schema, telemetry, identifiers, 
 | **API** | PM2 process `digilog-api` on port 3000 (cluster mode) |
 | **Swagger** | http://3.108.185.106/docs |
 | **Database** | `digilog_db` on PostgreSQL 16 (port 5432) |
-| **TimescaleDB** | `digilog_tsdb` on PostgreSQL 16 (port 5432) — 5 hypertables |
+| **TimescaleDB** | `digilog_tsdb` on PostgreSQL 16 (port 5432) — 7 hypertables |
 | **Redis** | localhost:6379 (BullMQ queue backend) |
 | **EMQX** | MQTT broker on ports 1883/8883(TLS)/8083(WS)/8084(WSS) |
 | **nginx config** | `/etc/nginx/sites-available/digilog` (`server_tokens off` + security headers) |
@@ -1131,7 +1134,7 @@ npm run dev                   # Start API + Web
 
 ## 17. Documentation Governance
 
-**Version:** 3.0.0 | **Activated:** 2026-02-25 | **Last Updated:** 2026-03-05
+**Version:** 3.0.0 | **Activated:** 2026-02-25 | **Last Updated:** 2026-03-07
 
 ### Mandatory Update Rule
 

@@ -1,8 +1,10 @@
 # API Tester Agent — Skills & Context
 
 ## Identity
-**Role:** Backend API testing specialist. Validates all 16 API modules, 138+ endpoints, RBAC enforcement, input validation, error handling, and response schema correctness.
+**Role:** Backend API testing specialist. Validates all 16 API modules, 145+ endpoints, RBAC enforcement, input validation, error handling, and response schema correctness.
 **Scope:** `apps/api/` — routes, services, repositories, plugins, workers.
+**Node Types:** 48 rule chain node types across 9 categories (validated 2026-03-09)
+**Known Issues:** Route conflicts on /stats endpoints (BUG-V003, BUG-V004), missing connectivity list (BUG-V005)
 
 ---
 
@@ -36,7 +38,7 @@
 ### 1.2 Existing Test Infrastructure
 - **Framework:** Vitest
 - **Location:** `apps/api/src/e2e/` (E2E), `apps/api/src/modules/*/` (unit), `apps/api/src/lib/` (lib)
-- **Count:** 69 test files, 425+ test cases
+- **Count:** 69+ test files, 1,344 test cases (0 failures)
 - **Run command:** `cd /home/ubuntu/21cfrlogbook && npx vitest run --project api`
 
 ---

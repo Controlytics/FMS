@@ -33,7 +33,7 @@ const defaultLabels: Record<string, string> = {
 export function useFieldLabels() {
   const { data, error, isLoading, mutate } = useSWR<FieldConfig[]>('/api/config/field-ids', {
     revalidateOnFocus: false,
-    dedupingInterval: 300000, // Cache for 5 minutes
+    revalidateOnMount: true, dedupingInterval: 5000, // Cache for 5 minutes
   });
 
   // Build a lookup map from fieldId to displayName

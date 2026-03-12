@@ -51,8 +51,8 @@ const actionsByCategory = REAUTH_ACTION_CATEGORIES.map((category) => ({
 }));
 
 export function ActionReauthPage() {
-  const { data: config, isLoading: configLoading } = useSWR<ActionReauthConfig>('/api/config/action-reauth');
-  const { data: rolesData, isLoading: rolesLoading } = useSWR<RoleData[]>('/api/roles/active');
+  const { data: config, isLoading: configLoading } = useSWR<ActionReauthConfig>('/api/config/action-reauth', { revalidateOnMount: true, dedupingInterval: 0 });
+  const { data: rolesData, isLoading: rolesLoading } = useSWR<RoleData[]>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
 
   const [localConfig, setLocalConfig] = useState<ActionReauthConfig | null>(null);
   const [saving, setSaving] = useState(false);

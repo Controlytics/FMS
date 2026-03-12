@@ -29,6 +29,7 @@ Access configuration from the **Configuration** menu in the left sidebar.
 | **Action Re-authentication** | Which actions require password re-entry |
 | **Audit Templates** | Customize audit logging detail levels |
 | **Pagination** | Default page sizes for list views |
+| **Alarm Columns** | Per-role column visibility for alarm dashboard (11 column definitions) |
 | **UNS Configuration** | Unified Namespace settings and ISA-95 level mapping |
 | **Help Articles** | In-app help content management |
 | **Data Retention** | Telemetry, attribute, and event retention periods |

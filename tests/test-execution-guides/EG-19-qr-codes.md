@@ -1,7 +1,7 @@
 # EG-19: QR Codes — Execution Guide
 
 ## Prerequisites
-- **Credentials**: SUPER_ADMIN (admin / Test@12345), OPERATOR account for negative tests
+- **Credentials**: SUPER_ADMIN (admin / Admin@123), OPERATOR account for negative tests
 - **Tools**: curl, jq, browser
 - **Setup**: At least one entity instance created
 - **Base URL**: http://localhost:3000
@@ -10,7 +10,7 @@
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 ENTITY_ID=$(curl -s -X GET "http://localhost:3000/api/assets/instances?limit=1" \
   -H "Authorization: Bearer $TOKEN" | jq -r '.data[0].id')

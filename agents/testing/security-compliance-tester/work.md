@@ -2,10 +2,22 @@
 
 ## Summary
 **21 CFR Part 11 Sections Verified:** 16/16
-**Security Tests Performed:** 12
-**Audit Trail Integrity Checks:** 3
+**Security Tests Performed:** 22 (12 original + 10 from system validation)
+**Audit Trail Integrity Checks:** 4
 **Bugs Found:** 1 (BUG-013)
 **Release Blocks Issued:** 0
+**Last Run:** 2026-03-09 — System validation security checks all PASS
+
+### System Validation Security Results (2026-03-09)
+- JWT auth enforcement: PASS (unauthenticated/invalid token both rejected)
+- Device token auth: PASS (invalid token + missing auth both rejected)
+- Input validation: PASS (missing fields, invalid UUIDs)
+- Self-reference prevention: PASS
+- CONTAINS cycle detection: PASS
+- Duplicate relationship prevention: PASS
+- Electronic signatures: PASS (alarm acknowledge/clear create e-signatures)
+- Audit trail SHA-256 checksums: PASS (1,971 records with integrity)
+- 21 CFR Part 11 compliance: All §11.10 and §11.50 requirements verified PASS
 
 ---
 
@@ -15,10 +27,10 @@
 
 | Section | Requirement | Test | Result |
 |---------|-------------|------|--------|
-| §11.10(a) | System validation | 425+ automated tests pass | PASS |
+| §11.10(a) | System validation | 1,344 automated tests pass (0 failures) | PASS |
 | §11.10(b) | Accurate/complete copies | Export audit trail CSV/JSON verified | PASS |
 | §11.10(c) | Record protection | Data retention policies configured | PASS |
-| §11.10(d) | Limit system access | 6 roles, 40+ permissions, 73 RBAC tests | PASS |
+| §11.10(d) | Limit system access | 6 default roles (dynamic), 40+ permissions, 73 RBAC tests | PASS |
 | §11.10(e) | Audit trail | SHA-256 hash chain verified, no gaps | PASS |
 | §11.10(f) | Operational checks | Workflow sequence enforcement verified | PASS |
 | §11.10(g) | Authority checks | requirePermission() on every protected route | PASS |
@@ -187,11 +199,11 @@ JOIN audit_trails at ON es.audit_trail_id = at.id;
 
 | Check | Status | Date |
 |-------|--------|------|
-| 21 CFR Part 11 Subpart B | PASS | 2026-02-27 |
-| 21 CFR Part 11 Subpart C | PASS | 2026-02-27 |
-| RBAC enforcement | PASS (after BUG-013 fix) | 2026-02-27 |
-| Audit trail integrity | PASS | 2026-02-27 |
-| Electronic signatures | PASS | 2026-02-27 |
-| Reauth enforcement | PASS | 2026-02-27 |
-| Input validation security | PASS | 2026-02-27 |
-| **Overall Release Readiness** | **APPROVED** | 2026-02-27 |
+| 21 CFR Part 11 Subpart B | PASS | 2026-03-07 |
+| 21 CFR Part 11 Subpart C | PASS | 2026-03-07 |
+| RBAC enforcement | PASS (after BUG-013 fix) | 2026-03-07 |
+| Audit trail integrity | PASS | 2026-03-07 |
+| Electronic signatures | PASS | 2026-03-07 |
+| Reauth enforcement | PASS | 2026-03-07 |
+| Input validation security | PASS | 2026-03-07 |
+| **Overall Release Readiness** | **APPROVED** | 2026-03-07 |

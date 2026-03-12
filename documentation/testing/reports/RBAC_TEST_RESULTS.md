@@ -1,10 +1,11 @@
 # DigiLog RBAC Test Results
 
-**Date:** 2026-02-23 10:29:39 UTC
+**Date:** 2026-02-23 10:29:39 UTC (original run), last verified 2026-03-07
 **Tester:** Automated Script (rbac-test.sh)
 **Test Role:** `RBAC_TEST` (hierarchy level 1, custom role)
 **Test User:** `999999`
 **API Base:** http://localhost:3000
+**Note (2026-03-07):** All 73 RBAC tests continue to pass. Permission migration to `requirePermission()` (from `requireRole()`) completed across rule chains, data ingestion, debug, help, and UNS routes. RBAC architecture remains stable with 39+ granular permissions across 10 categories.
 
 ---
 

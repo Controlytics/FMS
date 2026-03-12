@@ -55,6 +55,8 @@ export async function registerSwagger(app: FastifyInstance) {
         { name: 'Config', description: 'System configuration — password policy, login security, session, datetime, branding, user ID, field IDs, action re-authentication, alarm columns, audit templates, pagination' },
         { name: 'Audit', description: 'Audit trail — immutable SHA-256 checksummed logs with filtering and integrity verification' },
         { name: 'Notifications', description: 'Notifications — role-based user alerts and badges' },
+        { name: 'Notification Settings', description: 'Notification delivery settings — email (SMTP/OAuth2), SMS (AWS SNS/Twilio/Vonage), templates, delivery logs' },
+        { name: 'Notification Rules', description: 'Notification rules — event-based routing with multi-channel delivery (email, SMS, in-app), recipient targeting, cooldown' },
         { name: 'Uploads', description: 'File uploads — profile photos (JPEG, PNG, GIF, WebP, max 5MB)' },
         { name: 'Backup', description: 'Database backup & restore — export (JSON, SQL, CSV, BAK), validate, and restore with SHA-256 checksum integrity' },
         { name: 'Entity Templates', description: 'Entity template management — reusable blueprints for entity types with alarm rules and checklist schemas' },

@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 
 export const userRepository = {
-  async findMany(where: Record<string, unknown>, page: number, limit: number) {
+  async findMany(where: Record<string, unknown>, page: number, limit?: number) {
     const [users, total] = await Promise.all([
       prisma.user.findMany({
         where: where as any,
@@ -10,8 +10,7 @@ export const userRepository = {
           role: true, status: true, lastLogin: true, createdAt: true, createdBy: true,
         },
         orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
+        ...(limit ? { skip: (page - 1) * limit, take: limit } : {}),
       }),
       prisma.user.count({ where: where as any }),
     ]);

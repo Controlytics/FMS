@@ -6,12 +6,12 @@ The Debug Traces API provides endpoints for inspecting data ingestion pipeline e
 
 ## List Traces
 
-### GET /api/data/debug-traces
+### GET /api/debug/traces
 
 Paginated list of pipeline execution traces with optional filters.
 
 ```bash
-curl "http://your-server/api/data/debug-traces?\
+curl "http://your-server/api/debug/traces?\
 status=FAILED&transport=MQTT&page=1&pageSize=20" \
   -H "Authorization: Bearer USER_TOKEN"
 ```
@@ -58,18 +58,18 @@ status=FAILED&transport=MQTT&page=1&pageSize=20" \
 }
 ```
 
-**Role Required:** `SUPER_ADMIN` or `ADMIN`
+**Permission:** `READ_DEBUG_TRACE`
 
 ---
 
 ## Trace Detail
 
-### GET /api/data/debug-traces/:id
+### GET /api/debug/traces/:id
 
 Get full detail for a single trace including all stage information, warnings, and error details.
 
 ```bash
-GET /api/data/debug-traces/TRACE_UUID
+GET /api/debug/traces/TRACE_UUID
 ```
 
 **Failed trace example:**
@@ -93,12 +93,12 @@ GET /api/data/debug-traces/TRACE_UUID
 
 ## Statistics
 
-### GET /api/data/debug-traces/stats
+### GET /api/debug/traces/stats
 
 Get pipeline performance statistics.
 
 ```bash
-GET /api/data/debug-traces/stats
+GET /api/debug/traces/stats
 ```
 
 **Response (200):**
@@ -122,14 +122,16 @@ GET /api/data/debug-traces/stats
 
 ## Toggle Entity Tracing
 
-### PUT /api/data/debug-traces/entity/:entityId/toggle
+### PUT /api/debug/traces/entity/:entityId/toggle
 
 Enable or disable detailed pipeline tracing for a specific entity. Useful for debugging data flow issues without enabling traces for all entities.
 
 ```bash
-curl -X PUT "http://your-server/api/data/debug-traces/entity/ENTITY_UUID/toggle" \
+curl -X PUT "http://your-server/api/debug/traces/entity/ENTITY_UUID/toggle" \
   -H "Authorization: Bearer USER_TOKEN"
 ```
+
+**Permission:** `MANAGE_DEBUG_TRACE`
 
 **Response (200):**
 ```json

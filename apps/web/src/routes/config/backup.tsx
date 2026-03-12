@@ -305,7 +305,7 @@ export function BackupRestorePage() {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".json,.bak"
+              accept=".json,.bak,.sql,.zip"
               onChange={handleFileSelect}
               className="hidden"
             />
@@ -322,7 +322,7 @@ export function BackupRestorePage() {
                 <p className="text-xs text-slate-500 mt-1">
                   {restoreFile
                     ? `${(restoreFile.size / 1024).toFixed(1)} KB`
-                    : 'Supported formats: .json, .bak'
+                    : 'Supported formats: .json, .bak, .sql, .zip (CSV)'
                   }
                 </p>
               </div>

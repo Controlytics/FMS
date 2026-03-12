@@ -25,6 +25,7 @@ import { SidebarConfigPage } from './routes/config/sidebar';
 import { FieldIdsPage } from './routes/config/field-ids';
 import { UserIdConfigPage } from './routes/config/user-id';
 import { BackupRestorePage } from './routes/config/backup';
+import { DynamicConfigPage } from './routes/config/dynamic-config';
 import { ActionReauthPage } from './routes/config/action-reauth';
 import { AuditTemplatesConfigPage } from './routes/config/audit-templates';
 import { PaginationConfigPage } from './routes/config/pagination';
@@ -48,6 +49,10 @@ const SystemConfigPage = lazy(() => import('./routes/config/system').then(m => (
 const SystemHealthPage = lazy(() => import('./routes/system-health/index').then(m => ({ default: m.SystemHealthPage })));
 const DebugTracesPage = lazy(() => import('./routes/debug/index').then(m => ({ default: m.DebugTracesPage })));
 const ChecklistPage = lazy(() => import('./routes/checklist/index').then(m => ({ default: m.ChecklistPage })));
+const EmailSettingsPage = lazy(() => import('./routes/config/notification-settings/email-settings').then(m => ({ default: m.EmailSettingsPage })));
+const SmsSettingsPage = lazy(() => import('./routes/config/notification-settings/sms-settings').then(m => ({ default: m.SmsSettingsPage })));
+const NotificationRulesPage = lazy(() => import('./routes/config/notification-rules/index').then(m => ({ default: m.NotificationRulesPage })));
+const NotificationLogsPage = lazy(() => import('./routes/config/notification-settings/notification-logs').then(m => ({ default: m.NotificationLogsPage })));
 
 function LazyFallback() {
   return (
@@ -100,6 +105,11 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/audit-templates" element={<RequireRole roles={['SUPER_ADMIN']}><AuditTemplatesConfigPage /></RequireRole>} />
             <Route path="/config/pagination" element={<RequireRole roles={['SUPER_ADMIN']}><PaginationConfigPage /></RequireRole>} />
             <Route path="/config/alarm-columns" element={<RequireRole roles={['SUPER_ADMIN']}><AlarmColumnsConfigPage /></RequireRole>} />
+            <Route path="/config/email-settings" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><EmailSettingsPage /></Suspense></RequireRole>} />
+            <Route path="/config/sms-settings" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><SmsSettingsPage /></Suspense></RequireRole>} />
+            <Route path="/config/notification-rules" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><NotificationRulesPage /></Suspense></RequireRole>} />
+                <Route path="/config/notification-logs" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><NotificationLogsPage /></Suspense></RequireRole>} />
+            <Route path="/config/dynamic/:moduleKey" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><DynamicConfigPage /></RequireRole>} />
 
             {/* Entity Management (lazy-loaded) — permission-based */}
             <Route path="/assets" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AssetsPage /></Suspense></RequireRole>} />

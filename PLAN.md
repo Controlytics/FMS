@@ -1,7 +1,7 @@
 # DigiLog — Master Development Plan
 
-**Last updated:** 2026-03-05
-**Status:** Phase 1 complete, Phases A–K (Data Ingestion + Testing & Documentation) complete, v3.0 (Security + Refactoring + CI/CD) complete
+**Last updated:** 2026-03-09
+**Status:** ALL PHASES COMPLETE (A through K) + v3.0 + v3.1 System Validation. System health score 87/100. 7 bugs found from comprehensive validation (see `tasks/system-validation-report.md`).
 
 ---
 
@@ -36,6 +36,10 @@
 | 2026-03-01 | **v3.0 Refactoring** — Entity Explorer (2081→386 lines), detail panel (2187→763 lines), extracted 6 dialogs + 6 tabs + 2 hooks | Done |
 | 2026-03-01 | **v3.0 TimescaleDB** — 5 PostgreSQL tables converted to hypertables with chunk intervals, composite indexes, compliance protections | Done |
 | 2026-03-02 | **v3.0 Checklist Fix** (FIX-024) — MCQ/MULTI_SELECT click handlers + 1262 lines of new tests | Done |
+| 2026-03-05 | **v3.0 Uncommitted** — Security enhancements, alarm columns, permission migration, rule chain improvements, data ingestion optimizations | Done |
+| 2026-03-07 | **Bug fixes** — LatestTelemetry UUID cast (P0), device credential createdAt (P2), continuous telemetry test tools, real-time auto-refresh | Done |
+| 2026-03-09 | **v3.1 System Validation** — Comprehensive QA: 48 node types cataloged, 4 test rule chains, 30+ APIs live-tested, E2E workflow verified, performance testing (50 msg/2.7s), 7 bugs found, system health 87/100 | Done |
+| TBD | **v3.2 Bug Fixes** — Fix BUG-V002 (TimescaleDB write), BUG-V003/V004 (route conflicts), BUG-V007 (export params) | Pending |
 
 ---
 
@@ -114,7 +118,7 @@ Infrastructure foundation for the Data Ingestion & Integration Layer:
 - PostgreSQL 16 (lifecycle data), TimescaleDB (time-series), EMQX MQTT Broker, Redis 7 (BullMQ)
 
 **TimescaleDB Init (init-tsdb.sql):**
-- 6 hypertables: ts_telemetry, ts_attributes, ts_checklist_responses, ts_device_events, ts_binary_data, ts_pipeline_traces
+- 7 hypertables: ts_telemetry, ts_attributes, ts_checklist_responses, ts_device_events, ts_binary_data, ts_pipeline_traces, ts_alarm_history
 - 2 continuous aggregates: telemetry_hourly, telemetry_daily
 - Compression policies, retention (48h for traces), REVOKE UPDATE/DELETE on compliance tables
 
@@ -177,7 +181,7 @@ BullMQ-based processing pipeline for ingested data:
 
 Visual rule chain engine with 26 node types and BFS execution:
 
-- **26 Node Types**: Filter, transform, switch, delay, aggregate, enrichment, action, external integration, etc.
+- **31 Node Types**: Filter, transform, switch, delay, aggregate, enrichment, action, external integration, etc.
 - **BFS Execution**: Breadth-first traversal of rule chain graph with connection-based routing
 - **Debug Recorder**: Step-by-step execution trace for rule chain debugging
 - **14 API Endpoints**: CRUD for rule chains, rule nodes, connections, versions, and execution
@@ -254,7 +258,7 @@ UNS (17 tests, 1 file):
 
 ---
 
-## In Progress — Uncommitted Changes (DataIngestion Branch)
+## Completed — Uncommitted Changes (DataIngestion Branch, as of 2026-03-07)
 
 ### Security & Auth Enhancements
 - **Absolute session timeout** — 24h hard limit regardless of activity
@@ -506,6 +510,7 @@ pm2 restart digilog-api
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-03-07 | Bug fixes: LatestTelemetry UUID cast (P0), device credential createdAt (P2), continuous telemetry test tools, real-time auto-refresh | Engineering Team |
 | 2026-03-05 | Documentation sync: updated all .md files to reflect v3.0 changes (security, CI/CD, refactoring, TimescaleDB, tests) | Engineering Team |
 | 2026-03-02 | FIX-024: Checklist MCQ/MULTI_SELECT click handlers + 1262 lines of new tests | Engineering Team |
 | 2026-03-01 | v3.0: 8 security fixes, CI/CD pipeline, 36-page docs, component refactoring (Entity Explorer 82% reduction, detail panel 65% reduction), TimescaleDB hypertables, RBAC fixes, 26 test fixes (1344 tests, 0 failures) | Engineering Team |

@@ -26,7 +26,7 @@ interface ReauthState {
 export function useReauth() {
   const { data: myActions } = useSWR<{ actions: string[] }>(
     '/api/config/action-reauth/my-actions',
-    { revalidateOnFocus: false, dedupingInterval: 30000 },
+    { revalidateOnMount: true, revalidateOnFocus: false, dedupingInterval: 5000 },
   );
 
   const [state, setState] = useState<ReauthState>({

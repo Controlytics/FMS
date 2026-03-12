@@ -5,6 +5,7 @@ import { signToken, signVerificationToken, verifyToken } from '../../lib/jwt.js'
 import { AppError, NotFoundError, ValidationError, ConflictError } from '../../lib/errors.js';
 import { authRepository } from './auth.repository.js';
 import { createNotification } from '../notifications/notification.service.js';
+import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
 
 const DUMMY_HASH = '$2b$12$7fXFzVUc/0SLHtxesM41PODN09mcQBJ0QB/uy7BQHDWzsklxK9yh6';
 
@@ -29,7 +30,7 @@ export const authService = {
       } else if (user.lockoutUntil && user.lockoutUntil < new Date()) {
         await authRepository.updateUser(user.id, { status: 'ENABLED', failedLoginAttempts: 0, lockoutUntil: null, lockedAt: null });
       } else {
-        throw new AppError(403, 'ACCOUNT_LOCKED', 'Account locked due to multiple failed login attempts. Contact administrator.');
+        throw new AppError(403, "ACCOUNT_LOCKED", "Account locked due to multiple failed login attempts. Contact administrator.");
       }
     }
 
@@ -44,6 +45,7 @@ export const authService = {
       } else if (user.isTemporaryPassword && user.forcePasswordChange) {
         await authRepository.updateUser(user.id, { status: 'ENABLED' });
       } else {
+        throw new AppError(403, "ACCOUNT_LOCKED", "Account locked due to multiple failed login attempts. Contact administrator.");
         throw new AppError(403, 'PASSWORD_EXPIRED', 'Your password has expired. Contact an administrator to reset your password.');
       }
     }
@@ -95,6 +97,16 @@ export const authService = {
           targetUserId: user.username, forUserId: user.username,
         });
 
+       // Dispatch USER_LOCKED notification
+        dispatchNotification({
+          eventType: "USER_LOCKED",
+          context: {},
+          variables: {
+            username: user.username, fullName: user.fullName ?? user.username,
+            reason: "Multiple failed login attempts", failedAttempts: String(newAttempts),
+            ipAddress: ip ?? "N/A", timestamp: new Date().toISOString(),
+          },
+        }).catch(err => console.error("[UserLocked] Notification dispatch failed:", err.message));
         throw new AppError(403, 'ACCOUNT_LOCKED', 'Account locked due to multiple failed login attempts. Contact administrator.');
       }
 
@@ -170,6 +182,17 @@ export const authService = {
       signatureMeaning: 'User authenticated with username and password',
       ipAddress: ip, userAgent, sessionId: session.id,
     });
+
+    // Dispatch USER_LOGIN notification
+    dispatchNotification({
+      eventType: 'USER_LOGIN',
+      context: {},
+      variables: {
+        username: user.username, fullName: user.fullName ?? user.username,
+        role: user.role, ipAddress: ip ?? 'N/A',
+        timestamp: new Date().toISOString(),
+      },
+    }).catch(err => console.error('[UserLogin] Notification dispatch failed:', err.message));
 
     return {
       success: true, token,

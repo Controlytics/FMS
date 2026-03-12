@@ -45,9 +45,10 @@ Filter nodes route messages based on conditions without modifying them.
 | Node | Description |
 |------|-------------|
 | **Message Type Filter** | Route by message type (telemetry, attributes, events) |
-| **Script Filter** | Custom JavaScript condition that returns true/false |
+| **Script Filter** | Custom JavaScript condition that returns true/false (sandboxed VM) |
 | **Check Relation** | Check if the originator has a specific relation to another entity |
-| **Originator Attributes** | Filter based on the originator entity's attributes |
+| **Originator Type Filter** | Filter based on the originator entity's template name |
+| **Check Alarm Status** | Check the status of an existing alarm |
 
 ### Enrichment Nodes
 
@@ -65,10 +66,11 @@ Transformation nodes modify the message payload or metadata.
 
 | Node | Description |
 |------|-------------|
-| **Script Transform** | Run custom JavaScript to transform the payload |
+| **Script Transform** | Run custom JavaScript to transform the payload (sandboxed VM) |
 | **Rename Keys** | Rename telemetry keys |
+| **Change Originator** | Switch to parent or related entity |
 | **To Email** | Transform message into an email format |
-| **Calculate Delta** | Compute difference between consecutive values |
+| **Unit Conversion** | Apply formula-based conversions |
 
 ### Action Nodes
 
@@ -80,8 +82,9 @@ Action nodes perform side effects.
 | **Save Attributes** | Persist attributes to the database |
 | **Create Alarm** | Create or update an alarm on the originator entity |
 | **Clear Alarm** | Clear an existing alarm |
+| **Send Notification** | Enqueue a notification |
 | **Log** | Write a log message for debugging |
-| **Assign to Customer** | Assign the originator entity to a customer/owner |
+| **Assign to User** | Set alarm assignee |
 | **RPC Call Reply** | Send a response to an RPC request |
 
 ### External Nodes
@@ -93,7 +96,7 @@ External nodes integrate with external systems.
 | **REST API Call** | Make HTTP requests to external services |
 | **Send Email** | Send email notifications via SMTP |
 | **MQTT Publish** | Publish messages to external MQTT brokers |
-| **Kafka Publish** | Send messages to Apache Kafka topics |
+| **Push to UNS** | Publish data to UNS path |
 
 ### Flow Nodes
 
@@ -102,9 +105,12 @@ Flow nodes control message routing logic.
 | Node | Description |
 |------|-------------|
 | **Rule Chain Input** | Entry point for the rule chain |
-| **Rule Chain Output** | Forward message to another rule chain |
+| **Delegate Chain** | Sub-chain delegation with depth tracking |
 | **Acknowledge** | Mark message as successfully processed |
 | **Checkpoint** | Save processing state for retry on failure |
+| **Delay** | Wait N milliseconds before continuing |
+
+DigiLog supports **31 node types** across 6 categories. All user scripts (Script Filter, Script Transform) run in sandboxed Node.js VM contexts with a 1-second timeout, no access to `process`, `require`, or `global`.
 
 ---
 
@@ -207,7 +213,7 @@ For troubleshooting, DigiLog records pipeline traces that show how each message 
 
 ## Next Steps
 
-- [Rule Chain Editor](rule-chain-editor.md) — Detailed editor usage guide
-- [Rule Nodes](rule-nodes.md) — Complete node reference
+- [Rule Chain API](../../api-reference/rule-chains.md) — Full API reference with 31 node types
 - [Alarms](../alarms/alarms.md) — Alarm creation from rule chains
 - [Telemetry](../telemetry/telemetry.md) — Data ingestion pipeline
+- [Debug Traces](../../api-reference/debug-traces.md) — Pipeline execution traces

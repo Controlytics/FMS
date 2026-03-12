@@ -86,7 +86,7 @@ export function RetentionConfigPage() {
   const { toast } = useToast();
 
   // Remote config
-  const { data: configData, isLoading, mutate } = useSWR<RetentionConfig>('/api/config/retention');
+  const { data: configData, isLoading, mutate } = useSWR<RetentionConfig>('/api/config/retention', { revalidateOnMount: true, dedupingInterval: 0 });
 
   // Form
   const {

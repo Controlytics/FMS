@@ -200,7 +200,9 @@ curl -X POST "http://your-server/api/assets/relationships" \
   }'
 ```
 
-The inverse relationship (CONTAINED_IN) is created automatically.
+The inverse relationship is created automatically. Supported relationship types: CONTAINS/CONTAINED_IN, FEEDS/FED_BY, DEPENDS_ON/DEPENDED_ON_BY, BACKS_UP/BACKED_UP_BY, MONITORS/MONITORED_BY, CONNECTED_TO (symmetric), CUSTOM. CONTAINS relationships include cycle detection via iterative ancestor walk. The server enforces `maxConnections` limits.
+
+Success responses include `connectionInfo` with used/allowed/remaining counts.
 
 **Permission:** `ASSET_RELATIONSHIP_MANAGE`
 
@@ -225,11 +227,13 @@ curl -X POST "http://your-server/api/assets/identifiers" \
 
 | Identifier Type | Description |
 |-----------------|-------------|
-| `QR_CODE` | QR code scan value |
+| `QR` | QR code scan value |
 | `BARCODE` | Barcode scan value |
 | `RFID` | RFID tag ID |
 | `NFC` | NFC tag ID |
 | `MANUAL` | Manually entered identifier |
+
+All identifier values are globally unique across the system. Each identifier can optionally be marked as `isPrimary`.
 
 ### GET /api/assets/identifiers/lookup/:value
 

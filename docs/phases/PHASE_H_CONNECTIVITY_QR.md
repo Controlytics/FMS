@@ -1,5 +1,8 @@
 # Phase H: Connectivity & QR Code (3-4 days)
 
+> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07.
+> Connectivity indicators, connectivity tab (status, tokens, code snippets, connection test, live message log, history graph), connectivity API (6 endpoints), QR code system (4 endpoints) all operational.
+
 ## Prompt for Claude Code
 
 ```

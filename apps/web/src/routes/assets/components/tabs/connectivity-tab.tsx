@@ -35,6 +35,7 @@ export function ConnectivityTab({ entityId, entityName, formatDateTime }: { enti
   const [copied, setCopied] = useState(false);
   const [editingToken, setEditingToken] = useState(false);
   const [editTokenValue, setEditTokenValue] = useState('');
+  const [tokenError, setTokenError] = useState<string | null>(null);
 
   const handleTest = async () => {
     setTesting(true);
@@ -57,13 +58,14 @@ export function ConnectivityTab({ entityId, entityName, formatDateTime }: { enti
   const handleGenerateToken = async () => {
     setGeneratingToken(true);
     setNewToken(null);
+    setTokenError(null);
     try {
       const res = await apiClient.post<{ token: string; createdAt: string }>(`/api/connectivity/${entityId}/token`, {});
       setNewToken(res.token);
       setShowFullToken(true);
       mutate(); mutateSnippets();
-    } catch {
-      setTestResult({ success: false, message: 'Failed to generate token. Ensure you have ADMIN permissions.' });
+    } catch (err: any) {
+      setTokenError(err?.message || 'Failed to generate token. Ensure you have ADMIN permissions.');
     } finally {
       setGeneratingToken(false);
     }
@@ -72,13 +74,14 @@ export function ConnectivityTab({ entityId, entityName, formatDateTime }: { enti
   const handleRevokeToken = async () => {
     if (!confirm('Are you sure you want to revoke the device token? The device will no longer be able to connect.')) return;
     setRevoking(true);
+    setTokenError(null);
     try {
       await apiClient.delete(`/api/connectivity/${entityId}/token`);
       setNewToken(null);
       setShowFullToken(false);
       mutate(); mutateSnippets();
-    } catch {
-      setTestResult({ success: false, message: 'Failed to revoke token.' });
+    } catch (err: any) {
+      setTokenError(err?.message || 'Failed to revoke token.');
     } finally {
       setRevoking(false);
     }
@@ -93,6 +96,7 @@ export function ConnectivityTab({ entityId, entityName, formatDateTime }: { enti
   const handleSaveToken = async () => {
     if (!editTokenValue.trim() || editTokenValue.trim().length < 8) return;
     setGeneratingToken(true);
+    setTokenError(null);
     try {
       const res = await apiClient.post<{ token: string; createdAt: string }>(`/api/connectivity/${entityId}/token`, { customToken: editTokenValue.trim() });
       setNewToken(res.token);
@@ -100,8 +104,8 @@ export function ConnectivityTab({ entityId, entityName, formatDateTime }: { enti
       setEditingToken(false);
       setEditTokenValue('');
       mutate(); mutateSnippets();
-    } catch {
-      setTestResult({ success: false, message: 'Failed to save custom token.' });
+    } catch (err: any) {
+      setTokenError(err?.message || 'Failed to save custom token.');
     } finally {
       setGeneratingToken(false);
     }
@@ -222,6 +226,11 @@ export function ConnectivityTab({ entityId, entityName, formatDateTime }: { enti
                 <strong>New token generated.</strong> Copy it now — it won't be shown in full again.
               </div>
             )}
+            {tokenError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+                {tokenError}
+              </div>
+            )}
             <div className="flex gap-2 pt-1">
               <Button onClick={handleGenerateToken} disabled={generatingToken} size="sm" variant="outline">
                 {generatingToken ? 'Generating...' : 'Regenerate Token'}
@@ -239,6 +248,11 @@ export function ConnectivityTab({ entityId, entityName, formatDateTime }: { enti
             <Button onClick={handleGenerateToken} disabled={generatingToken} size="sm" className="bg-gradient-to-r from-cyan-500 to-blue-600 text-white">
               {generatingToken ? 'Generating...' : 'Generate Token'}
             </Button>
+            {tokenError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+                {tokenError}
+              </div>
+            )}
             {newToken && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
                 <strong>Token generated!</strong> Copy it now — it won't be shown in full again.
@@ -306,9 +320,9 @@ export function ConnectivityTab({ entityId, entityName, formatDateTime }: { enti
       <div className="bg-white rounded-xl border border-slate-200 p-5">
         <h4 className="font-semibold text-slate-800 mb-3">Code Snippets</h4>
         <div className="flex gap-2 mb-3">
-          {['curl', 'python', 'nodejs', 'arduino'].map(p => (
-            <button key={p} onClick={() => setSnippetProto(p)} className={cn('px-3 py-1.5 rounded-lg text-xs font-medium transition-colors', snippetProto === p ? 'bg-cyan-100 text-cyan-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
-              {p}
+          {[{ key: 'curl', label: 'cURL' }, { key: 'python', label: 'Python' }, { key: 'nodejs', label: 'Node.js' }, { key: 'c', label: 'C' }].map(p => (
+            <button key={p.key} onClick={() => setSnippetProto(p.key)} className={cn('px-3 py-1.5 rounded-lg text-xs font-medium transition-colors', snippetProto === p.key ? 'bg-cyan-100 text-cyan-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
+              {p.label}
             </button>
           ))}
         </div>

@@ -3,7 +3,7 @@
 ## Prerequisites
 - **App URL**: http://3.108.185.106
 - **API Base**: http://localhost:3000/api (from server) or http://3.108.185.106/api (remote)
-- **SUPER_ADMIN Credentials**: admin / Test@12345
+- **SUPER_ADMIN Credentials**: admin / Admin@123
 - **Additional User**: Create or use an ADMIN-level user for non-SUPER_ADMIN audit generation
 - **Browser**: Chrome or Firefox with DevTools open (Network tab)
 - **Tools**: curl, psql (for DB verification)
@@ -14,7 +14,7 @@
 # Login as SUPER_ADMIN
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 echo "Token: $TOKEN"
 ```

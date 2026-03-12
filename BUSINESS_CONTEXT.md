@@ -1,6 +1,7 @@
 # DigiLog — Business Context
 
-**Last updated:** 2026-03-05
+**Last updated:** 2026-03-09
+**System Health Score:** 87/100 (validated 2026-03-09 via comprehensive QA)
 
 ---
 
@@ -233,7 +234,7 @@ Custom roles can be created with granular permission combinations for specialize
 - **HTTP transport** — REST API for telemetry data submission
 - **WebSocket** — Real-time bidirectional streaming for dashboards
 - **Processing pipeline** — 11-stage BullMQ pipeline: validation, enrichment, transformation, persistence, rule evaluation, alarm check, notification dispatch, aggregation, forwarding, DLQ, tracing
-- **TimescaleDB** — Time-series database with 5 hypertables for efficient telemetry storage and queries
+- **TimescaleDB** — Time-series database with 7 hypertables for efficient telemetry storage and queries
 - **Dead Letter Queue** — Failed messages captured for analysis and replay
 
 ### 6.8 Rule Chain Engine
@@ -241,7 +242,7 @@ Custom roles can be created with granular permission combinations for specialize
 **Business need:** Automate decision-making based on incoming data — trigger alarms, transform values, route data, without custom code.
 
 **What it does:**
-- **28 node types** — filter, transform, switch, delay, aggregate, enrichment, action, external integration
+- **31 node types** — filter, transform, switch, delay, aggregate, enrichment, action, external integration
 - **Visual editor** — React Flow-based drag-and-drop rule chain builder
 - **Sandboxed execution** — User scripts run in secure VM contexts (no access to system resources)
 - **Sub-chain delegation** — Rule chains can call other chains for modular automation
@@ -436,7 +437,7 @@ DigiLog is positioned for **small-to-medium regulated manufacturers** (50-500 em
 | **Phase A** | Data Ingestion Infrastructure (Docker, TimescaleDB, Prisma models, shared types, seed data) | Done |
 | **Phase B** | Transport Layer (MQTT auth, HTTP ingestion, WebSocket, entity resolver) | Done |
 | **Phase C** | Ingestion Pipeline (BullMQ worker, 11 pipeline stages, DLQ, connectivity tracker) | Done |
-| **Phase D** | Rule Chain Engine (28 node types, BFS execution, debug recorder, sandboxed scripts) | Done |
+| **Phase D** | Rule Chain Engine (31 node types, BFS execution, debug recorder, sandboxed scripts) | Done |
 | **Phase E** | Unified Namespace (ISA-95 paths, wildcard search, cascade moves) | Done |
 | **Phase F** | Queries & Export (telemetry, alarms, export, retention routes) | Done |
 | **Phase G-J** | Connectivity, QR Codes, Help Articles, Rule Chain Editor, Alarm Dashboard, UNS Config | Done |
@@ -467,11 +468,11 @@ DigiLog is positioned for **small-to-medium regulated manufacturers** (50-500 em
 | Checklist question types | 14 |
 | Attribute data types | 9 |
 | Alarm rule types | 7 |
-| Rule chain node types | 28 |
+| Rule chain node types | 31 |
 | Configuration endpoints | 36+ |
-| Automated tests | 1344 (0 failures, 83+ test files) |
+| Automated tests | 1,344 (0 failures, 83 test files) |
 | Default roles | 6 |
-| TimescaleDB hypertables | 5 |
+| TimescaleDB hypertables | 7 |
 | Help articles | 28 |
 | Documentation pages | 36 |
 
@@ -517,7 +518,7 @@ DigiLog is positioned for **small-to-medium regulated manufacturers** (50-500 em
 
 ## 14. Documentation Governance — Business Impact
 
-**Effective:** 2026-02-25 (v2.1.1) | **Updated:** 2026-03-05 (v3.0.0)
+**Effective:** 2026-02-25 (v2.1.1) | **Updated:** 2026-03-07 (v3.0.0)
 
 ### Why This Matters for Regulated Industries
 

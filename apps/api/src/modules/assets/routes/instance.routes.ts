@@ -23,7 +23,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
           parentId: { type: 'string' },
           isActive: { type: 'string', description: '"true" or "false"' },
           page: { type: 'integer', default: 1 },
-          limit: { type: 'integer', default: 50 },
+          limit: { type: 'integer' },
         },
       },
       response: {

@@ -3,6 +3,7 @@
 ## Identity
 **Role:** End-to-end integration testing specialist. Validates complete user workflows that span multiple modules, from frontend actions through API calls to database state changes.
 **Scope:** Cross-module user journeys, regression testing, workflow validation.
+**Last E2E Run:** 2026-03-09 — 20-step workflow (Login→Template→Entity→RuleChain→Telemetry→Alarm lifecycle) all PASS.
 
 ---
 

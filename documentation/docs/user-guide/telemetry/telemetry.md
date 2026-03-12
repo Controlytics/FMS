@@ -184,14 +184,17 @@ See [Data Retention](../../administration/configuration/system-configuration.md#
 
 ## Time-Series Tables
 
-DigiLog stores telemetry in dedicated time-series tables:
+DigiLog stores telemetry in dedicated TimescaleDB hypertables and supporting tables:
 
 | Table | Purpose |
 |-------|---------|
-| `ts_telemetry` | Historical time-series telemetry data |
-| `ts_attributes` | Device-reported attributes |
-| `ts_device_events` | Connection/disconnection events |
-| `ts_pipeline_traces` | Ingestion pipeline debug traces |
+| `ts_telemetry` | Historical time-series telemetry data (hypertable) |
+| `ts_attributes` | Device-reported attributes (hypertable) |
+| `ts_device_events` | Connection/disconnection events (hypertable) |
+| `ts_pipeline_traces` | Ingestion pipeline debug traces (hypertable) |
+| `ts_checklist_responses` | Checklist submission data (hypertable) |
+| `ts_alarms` | Alarm event history (hypertable) |
+| `ts_audit_archive` | Archived audit records (hypertable) |
 | `latest_telemetry` | Latest value per entity per key (fast lookup) |
 | `data_streams` | Active data stream definitions per entity |
 

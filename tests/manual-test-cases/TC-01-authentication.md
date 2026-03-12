@@ -13,8 +13,8 @@
 
 ### TC-01-P01: Login with Valid Credentials
 - **Priority**: High
-- **Preconditions**: User `admin` exists with password `Test@12345`, account is ENABLED
-- **Test Data**: `{ "username": "admin", "password": "Test@12345" }`
+- **Preconditions**: User `admin` exists with password `Admin@123`, account is ENABLED
+- **Test Data**: `{ "username": "admin", "password": "Admin@123" }`
 - **Steps**:
   1. Send POST /api/auth/login with valid username and password
   2. Verify response status is 200
@@ -47,7 +47,7 @@
 ### TC-01-P04: Change Password Successfully
 - **Priority**: High
 - **Preconditions**: Valid JWT token, know current password
-- **Test Data**: `{ "currentPassword": "Test@12345", "newPassword": "NewPass@123", "confirmPassword": "NewPass@123" }`
+- **Test Data**: `{ "currentPassword": "Admin@123", "newPassword": "NewPass@123", "confirmPassword": "NewPass@123" }`
 - **Steps**:
   1. Send POST /api/auth/change-password with current and new passwords
   2. Verify response status is 200 with `{ success: true, message: "Password changed successfully" }`
@@ -80,7 +80,7 @@
 ### TC-01-P07: Re-authenticate for Sensitive Operations
 - **Priority**: High
 - **Preconditions**: Valid JWT token
-- **Test Data**: `{ "password": "Test@12345" }`
+- **Test Data**: `{ "password": "Admin@123" }`
 - **Steps**:
   1. Send POST /api/auth/verify with current password
   2. Verify response status is 200
@@ -101,7 +101,7 @@
 ### TC-01-P09: Force Login (Terminate Existing Session)
 - **Priority**: Medium
 - **Preconditions**: User already logged in from another client
-- **Test Data**: `{ "username": "admin", "password": "Test@12345", "force": true }`
+- **Test Data**: `{ "username": "admin", "password": "Admin@123", "force": true }`
 - **Steps**:
   1. Login from Client A, get token_A
   2. Attempt login from Client B without force flag
@@ -128,7 +128,7 @@
 ### TC-01-N01: Login with Invalid Username
 - **Priority**: High
 - **Preconditions**: None
-- **Test Data**: `{ "username": "invalid_user_xyz", "password": "Test@12345" }`
+- **Test Data**: `{ "username": "invalid_user_xyz", "password": "Admin@123" }`
 - **Steps**:
   1. Send POST /api/auth/login with non-existent username
   2. Verify response status is 401
@@ -217,7 +217,7 @@
 ### TC-01-N10: Session Conflict Detection (Login from Second Location)
 - **Priority**: High
 - **Preconditions**: User already logged in
-- **Test Data**: `{ "username": "admin", "password": "Test@12345" }`
+- **Test Data**: `{ "username": "admin", "password": "Admin@123" }`
 - **Steps**:
   1. Login from Client A, receive token
   2. Attempt login from Client B with same credentials (no force flag)
@@ -228,7 +228,7 @@
 ### TC-01-N11: Change Password with Mismatched Confirmation
 - **Priority**: Medium
 - **Preconditions**: Valid JWT token
-- **Test Data**: `{ "currentPassword": "Test@12345", "newPassword": "NewPass@123", "confirmPassword": "DifferentPass@456" }`
+- **Test Data**: `{ "currentPassword": "Admin@123", "newPassword": "NewPass@123", "confirmPassword": "DifferentPass@456" }`
 - **Steps**:
   1. Send POST /api/auth/change-password with mismatched new/confirm
   2. Verify response status is 400
@@ -237,7 +237,7 @@
 ### TC-01-N12: Change Password with Weak New Password
 - **Priority**: Medium
 - **Preconditions**: Valid JWT token
-- **Test Data**: `{ "currentPassword": "Test@12345", "newPassword": "weak", "confirmPassword": "weak" }`
+- **Test Data**: `{ "currentPassword": "Admin@123", "newPassword": "weak", "confirmPassword": "weak" }`
 - **Steps**:
   1. Send POST /api/auth/change-password with weak password
   2. Verify response status is 400

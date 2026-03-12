@@ -27,11 +27,20 @@ A checklist is a structured form linked to an entity. It is defined by the entit
 
 | Type | Description | Example |
 |------|-------------|---------|
-| **TEXT** | Free-text answer | "Describe any visible damage" |
-| **NUMBER** | Numeric value input | "Current reading (PSI)" |
+| **PASS_FAIL** | Pass/fail toggle | "Calibration check result" |
 | **YES_NO** | Boolean yes/no toggle | "Is the safety guard in place?" |
+| **YES_NO_NA** | Yes/no/not-applicable | "Is backup power connected?" |
+| **MCQ** | Multiple choice (single select) | "Maintenance type: [Routine, Emergency, Scheduled]" |
+| **MULTI_SELECT** | Multiple choice (multi-select) | "Issues found: [Rust, Leak, Noise, Vibration]" |
+| **TEXT** | Free-text answer | "Describe any visible damage" |
+| **NUMERIC** | Numeric value input | "Current reading (PSI)" |
 | **DROPDOWN** | Select from predefined options | "Condition: [Good, Fair, Poor, Failed]" |
 | **PHOTO** | Camera capture or image upload | "Photo of equipment nameplate" |
+| **DATE_TIME** | Date/time picker | "Last maintenance date" |
+| **SIGNATURE** | Electronic signature capture | "Operator signature" |
+| **YES_NO_COMMENT** | Yes/no with comment field | "Equipment functioning? (explain if No)" |
+| **CALCULATED** | Auto-calculated from expression | "Total runtime (hours)" |
+| **CONDITIONAL** | Shown based on another field's value | "If failed, describe corrective action" |
 
 ---
 

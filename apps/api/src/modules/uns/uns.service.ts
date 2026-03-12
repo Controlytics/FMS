@@ -209,8 +209,10 @@ export async function confirmCascadeMove(
  */
 export async function searchByWildcard(
   pattern: string,
-): Promise<Array<{ entityId: string; unsPath: string; entityName: string }>> {
+): Promise<UnsTreeNode[]> {
   const hasWildcard = pattern.includes('+') || pattern.includes('#');
+
+  let matches: Array<{ entityId: string; unsPath: string; entityName: string }> = [];
 
   if (hasWildcard) {
     // Fetch all mappings and filter in-memory with matchWildcard
@@ -236,33 +238,71 @@ export async function searchByWildcard(
       select: { id: true, name: true },
     });
 
-    return entities.map((e) => ({
+    matches = entities.map((e) => ({
+      entityId: e.id,
+      unsPath: pathMap.get(e.id) ?? '',
+      entityName: e.name,
+    }));
+  } else {
+    // Exact match or partial text search
+    const allMappings = await prisma.unsMapping.findMany({
+      select: { entityId: true, unsPath: true },
+    });
+
+    const lowerPattern = pattern.toLowerCase();
+    const matchingEntityIds: string[] = [];
+    const pathMap = new Map<string, string>();
+
+    for (const mapping of allMappings) {
+      if (mapping.unsPath === pattern || mapping.unsPath.toLowerCase().includes(lowerPattern)) {
+        matchingEntityIds.push(mapping.entityId);
+        pathMap.set(mapping.entityId, mapping.unsPath);
+      }
+    }
+
+    if (matchingEntityIds.length === 0) return [];
+
+    const entities = await prisma.assetInstance.findMany({
+      where: { id: { in: matchingEntityIds } },
+      select: { id: true, name: true },
+    });
+
+    // Also match by entity name
+    const nameMatches = await prisma.assetInstance.findMany({
+      where: {
+        name: { contains: pattern, mode: 'insensitive' },
+        isActive: true,
+      },
+      select: { id: true, name: true, unsPath: true },
+    });
+
+    for (const nm of nameMatches) {
+      if (!pathMap.has(nm.id) && nm.unsPath) {
+        matchingEntityIds.push(nm.id);
+        pathMap.set(nm.id, nm.unsPath);
+        entities.push({ id: nm.id, name: nm.name });
+      }
+    }
+
+    matches = entities.map((e) => ({
       entityId: e.id,
       unsPath: pathMap.get(e.id) ?? '',
       entityName: e.name,
     }));
   }
 
-  // Exact match
-  const mapping = await prisma.unsMapping.findUnique({
-    where: { unsPath: pattern },
-    select: { entityId: true, unsPath: true },
-  });
+  // Convert to UnsTreeNode[] format so frontend tree component can render results
+  const segments = pattern.split('/');
+  const level = inferLevel(segments.length - 1, segments.length);
 
-  if (!mapping) return [];
-
-  const entity = await prisma.assetInstance.findUnique({
-    where: { id: mapping.entityId },
-    select: { name: true },
-  });
-
-  return [
-    {
-      entityId: mapping.entityId,
-      unsPath: mapping.unsPath,
-      entityName: entity?.name ?? '',
-    },
-  ];
+  return matches.map((m) => ({
+    name: m.entityName,
+    level: 'Entity',
+    path: m.unsPath,
+    entityId: m.entityId,
+    childCount: 0,
+    children: [],
+  }));
 }
 
 // ─── Tree Builder ──────────────────────────────────────────────────
@@ -276,6 +316,16 @@ export async function buildUnsTree(): Promise<UnsTreeNode[]> {
     select: { entityId: true, unsPath: true, pathSegments: true },
   });
 
+  // Fetch all entity names so leaf nodes show actual names, not sanitized path segments
+  const entityIds = allMappings.map((m) => m.entityId);
+  const entities = entityIds.length > 0
+    ? await prisma.assetInstance.findMany({
+        where: { id: { in: entityIds } },
+        select: { id: true, name: true },
+      })
+    : [];
+  const entityNameMap = new Map(entities.map((e) => [e.id, e.name]));
+
   const root: UnsTreeNode[] = [];
 
   for (const mapping of allMappings) {
@@ -287,12 +337,17 @@ export async function buildUnsTree(): Promise<UnsTreeNode[]> {
       const partialPath = segments.slice(0, i + 1).join('/');
       const isLeaf = i === segments.length - 1;
 
-      let existing = currentLevel.find((n) => n.name === segmentName && n.path === partialPath);
+      // For leaf nodes, use the actual entity name instead of sanitized path segment
+      const displayName = isLeaf
+        ? (entityNameMap.get(mapping.entityId) ?? segmentName)
+        : segmentName;
+
+      let existing = currentLevel.find((n) => n.path === partialPath);
 
       if (!existing) {
         const level = inferLevel(i, segments.length);
         existing = {
-          name: segmentName,
+          name: displayName,
           level,
           path: partialPath,
           entityId: isLeaf ? mapping.entityId : undefined,
@@ -301,8 +356,9 @@ export async function buildUnsTree(): Promise<UnsTreeNode[]> {
         };
         currentLevel.push(existing);
       } else if (isLeaf && !existing.entityId) {
-        // Assign entityId if this node was created as an intermediate node earlier
+        // Assign entityId and update name if this node was created as an intermediate node earlier
         existing.entityId = mapping.entityId;
+        existing.name = displayName;
       }
 
       currentLevel = existing.children;

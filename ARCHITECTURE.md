@@ -1,7 +1,7 @@
 # DigiLog — System Architecture Document
 
-> **Generated:** 2026-03-05 | **Branch:** DataIngestion | **Version:** Phase C (Data Ingestion)
-> Based on actual codebase analysis, not theoretical assumptions.
+> **Generated:** 2026-03-07 | **Updated:** 2026-03-09 | **Branch:** DataIngestion | **Version:** All Phases Complete (A through K) + v3.1 Validation
+> Based on actual codebase analysis and live system validation. System Health: 87/100.
 
 ---
 
@@ -35,7 +35,7 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** for pharmaceutical, bi
 **Key Capabilities:**
 - Template-driven entity management with hierarchical relationships and identifiers
 - Multi-protocol data ingestion (MQTT, HTTP, WebSocket) with ISA-95 UNS topic structure
-- Visual rule chain engine with 28 node types and sandboxed script execution
+- Visual rule chain engine with 31 node types and sandboxed script execution
 - Alarm lifecycle management (ACTIVE → ACKNOWLEDGED → CLEARED)
 - Immutable, checksummed audit trail with electronic signature support
 - Role-based access control with 40+ granular permissions and re-authentication enforcement
@@ -68,7 +68,7 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** for pharmaceutical, bi
 │ BUSINESS  │ │  RULE      │ │ DATA     │ │ QUEUE  │ │ TRANSPORT   │
 │ LOGIC     │ │  ENGINE    │ │ LAYER    │ │ LAYER  │ │ LAYER       │
 │           │ │            │ │          │ │        │ │             │
-│ 18 modules│ │ 28 node    │ │ Prisma 6 │ │BullMQ │ │ MQTT Client │
+│ 18 modules│ │ 31 node    │ │ Prisma 6 │ │BullMQ │ │ MQTT Client │
 │ Service → │ │ types      │ │ ORM +    │ │5 queues│ │ EMQX broker │
 │ Repository│ │ Sandboxed  │ │ pg Pool  │ │Redis 7 │ │ WebSocket   │
 │ → Prisma  │ │ VM (1s)    │ │ Batcher  │ │Workers │ │ HTTP ingest │
@@ -80,7 +80,7 @@ DigiLog is a **21 CFR Part 11 compliant digital logbook** for pharmaceutical, bi
         │   PostgreSQL 16      │   │   TimescaleDB          │
         │   (digilog_db)       │   │   (digilog_tsdb)       │
         │                      │   │                        │
-        │   30 Prisma models   │   │   6 hypertables        │
+        │   30 Prisma models   │   │   7 hypertables        │
         │   JSONB, pgcrypto    │   │   Continuous aggregates│
         │   Audit trail        │   │   Compression policies │
         │   Entity management  │   │   Retention policies   │
@@ -266,7 +266,7 @@ apps/api/src/
 │   ├── uploads/                     # 2 endpoints (photo upload, file serve)
 │   ├── backup/                      # 3 endpoints (export, restore, validate)
 │   ├── data-ingestion/              # 8 endpoints + 11 internal files
-│   ├── rule-chain/                  # 14 endpoints + 28 node types
+│   ├── rule-chain/                  # 14 endpoints + 31 node types
 │   ├── queries/                     # 21 endpoints (telemetry, alarms, export, retention)
 │   ├── connectivity/               # 6 endpoints
 │   ├── qr-code/                    # 4 endpoints
@@ -282,6 +282,18 @@ apps/api/src/
     ├── ingestion.worker.ts          # BullMQ ingestion queue processor
     └── maintenance.worker.ts        # Periodic cleanup + connectivity checks
 ```
+
+
+### Config Registry System (Added 2026-03-12)
+
+Self-registering modular configuration architecture:
+
+- **Registry Singleton** (`lib/config-registry.ts`): Central registry with `register()`, `getManifest()`, `seedDefaults()` methods
+- **Auto-Discovery** (`lib/config-discovery.ts`): Imports all 23 definition files from `modules/config/defs/` at startup
+- **Definition Files** (`modules/config/defs/*.def.ts`): Each module declares its settings schema, defaults, validation rules, categories, and permissions
+- **Dynamic Routes** (`modules/config/dynamic-routes.ts`): Auto-generated GET/PUT endpoints for configs without custom pages
+- **Manifest API**: Role-filtered endpoint returns all config modules for sidebar/dashboard rendering
+- **Field ID System**: 39 configurable field display names across 7 modules (User Management, Audit Trail, Alarms, Asset Management, Notifications, Telemetry, Attributes)
 
 ### Service-Repository-Route Pattern
 
@@ -973,7 +985,7 @@ SHA-256(sorted JSON of { timestamp, userId, action, targetType, targetId, afterV
 │  ┌───────────────────────────────────────────────────┐  │
 │  │  PostgreSQL 16 (localhost:5432)                     │  │
 │  │  ├── digilog_db — 30 Prisma models                 │  │
-│  │  └── digilog_tsdb — 6 TimescaleDB hypertables      │  │
+│  │  └── digilog_tsdb — 7 TimescaleDB hypertables      │  │
 │  └───────────────────────────────────────────────────┘  │
 │                                                          │
 │  ┌───────────────────────────────────────────────────┐  │
@@ -1008,7 +1020,7 @@ SHA-256(sorted JSON of { timestamp, userId, action, targetType, targetId, afterV
 ```yaml
 services:
   db:        PostgreSQL 16 (port 5432, extensions: pgcrypto, ltree)
-  tsdb:      TimescaleDB (port 5433, 6 hypertables, aggregates, compression)
+  tsdb:      TimescaleDB (port 5433, 7 hypertables, aggregates, compression)
   redis:     Redis 7 (port 6379, AOF persistence)
   emqx:      EMQX 5 (ports 1883/8883/8083/8084/18083)
 ```
@@ -1128,7 +1140,7 @@ npm run build
 - Dead letter queue for failed message retry
 
 ### 5. Flexible Rule Chain Engine
-- 28 node types covering filters, transforms, actions, and external integrations
+- 31 node types covering filters, transforms, actions, and external integrations
 - Sandboxed user script execution (VM context, 1s timeout)
 - Sub-chain delegation with depth tracking
 - Auto-generated default chains from template alarm rules

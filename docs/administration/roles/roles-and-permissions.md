@@ -1,6 +1,6 @@
 # Roles & Permissions
 
-DigiLog implements a Role-Based Access Control (RBAC) system with six hierarchical roles. Each role is assigned a set of permissions that determine what actions a user can perform.
+DigiLog implements a Role-Based Access Control (RBAC) system with dynamic roles stored in the database. Default roles include six hierarchical levels, but additional roles can be created. Each role is assigned a set of permissions (39+ constants across 10 categories) that determine what actions a user can perform.
 
 ---
 
@@ -63,10 +63,42 @@ Permissions are organized into functional categories. The `_MANAGE` permission i
 
 | Permission | Description | SUPER_ADMIN | ADMIN | SUPERVISOR | MAINTENANCE | OPERATOR | VIEWER |
 |------------|-------------|:-----------:|:-----:|:----------:|:-----------:|:--------:|:------:|
-| `TEMPLATE_CREATE` | Create asset templates | Yes | Yes | — | — | — | — |
-| `TEMPLATE_VIEW` | View templates | Yes | Yes | Yes | Yes | Yes | — |
-| `TEMPLATE_UPDATE` | Edit templates | Yes | Yes | — | — | — | — |
-| `TEMPLATE_DELETE` | Delete templates | Yes | Yes | — | — | — | — |
+| `ASSET_TEMPLATE_MANAGE` | Full template management | Yes | Yes | — | — | — | — |
+
+### Rule Chain Permissions
+
+| Permission | Description | SUPER_ADMIN | ADMIN | SUPERVISOR | MAINTENANCE | OPERATOR | VIEWER |
+|------------|-------------|:-----------:|:-----:|:----------:|:-----------:|:--------:|:------:|
+| `RULE_CHAIN_MANAGE` | Create/edit/delete rule chains | Yes | Yes | — | — | — | — |
+| `RULE_CHAIN_VIEW` | View rule chains | Yes | Yes | Yes | — | — | — |
+
+### Alarm Permissions
+
+| Permission | Description | SUPER_ADMIN | ADMIN | SUPERVISOR | MAINTENANCE | OPERATOR | VIEWER |
+|------------|-------------|:-----------:|:-----:|:----------:|:-----------:|:--------:|:------:|
+| `ALARM_VIEW` | View alarms | Yes | Yes | Yes | Yes | Yes | — |
+| `ALARM_MANAGE` | Acknowledge/clear alarms | Yes | Yes | Yes | — | — | — |
+
+### Data Permissions
+
+| Permission | Description | SUPER_ADMIN | ADMIN | SUPERVISOR | MAINTENANCE | OPERATOR | VIEWER |
+|------------|-------------|:-----------:|:-----:|:----------:|:-----------:|:--------:|:------:|
+| `DATA_VIEW` | View telemetry data | Yes | Yes | Yes | Yes | Yes | — |
+| `DATA_EXPORT` | Export data (CSV/JSON) | Yes | Yes | Yes | — | — | — |
+| `RETENTION_MANAGE` | Manage retention policies | Yes | — | — | — | — | — |
+
+### Debug Trace Permissions
+
+| Permission | Description | SUPER_ADMIN | ADMIN | SUPERVISOR | MAINTENANCE | OPERATOR | VIEWER |
+|------------|-------------|:-----------:|:-----:|:----------:|:-----------:|:--------:|:------:|
+| `READ_DEBUG_TRACE` | View pipeline traces | Yes | Yes | — | — | — | — |
+| `MANAGE_DEBUG_TRACE` | Toggle entity tracing | Yes | Yes | — | — | — | — |
+
+### Help Article Permissions
+
+| Permission | Description | SUPER_ADMIN | ADMIN | SUPERVISOR | MAINTENANCE | OPERATOR | VIEWER |
+|------------|-------------|:-----------:|:-----:|:----------:|:-----------:|:--------:|:------:|
+| `HELP_MANAGE` | Create/edit/delete help articles | Yes | — | — | — | — | — |
 
 ---
 

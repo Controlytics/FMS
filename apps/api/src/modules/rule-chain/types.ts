@@ -46,7 +46,7 @@ export interface NotificationAction {
 
 export interface NodeDefinition {
   type: string;
-  category: 'INPUT' | 'FILTER' | 'ENRICHMENT' | 'TRANSFORM' | 'ACTION' | 'EXTERNAL' | 'FLOW';
+  category: 'INPUT' | 'FILTER' | 'ENRICHMENT' | 'TRANSFORM' | 'ACTION' | 'EXTERNAL' | 'FLOW' | 'ANALYTICS';
   name: string;
   description: string;
   outputs: string[];

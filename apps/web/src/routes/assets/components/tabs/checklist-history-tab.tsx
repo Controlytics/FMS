@@ -48,7 +48,7 @@ export function ChecklistHistoryTab({ entityId, formatDateTime, userRole, checkl
   }, [timePreset, customFrom, customTo]);
 
   const { data: historyData, isLoading, mutate } = useSWR<{ data: any[]; meta: any }>(
-    `/api/checklist/${entityId}/history?from=${encodeURIComponent(timeRange.from)}&to=${encodeURIComponent(timeRange.to)}&limit=500`,
+    `/api/checklist/${entityId}/history?from=${encodeURIComponent(timeRange.from)}&to=${encodeURIComponent(timeRange.to)}`,
     { refreshInterval: 30000 }
   );
 

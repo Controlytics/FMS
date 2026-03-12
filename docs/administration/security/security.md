@@ -107,9 +107,13 @@ Navigate to **Configuration** → **Session**.
 | **Idle Timeout (minutes)** | 30 | Time before idle logout |
 | **Warning (minutes)** | 5 | Countdown warning before idle logout |
 
+### Single-Tab Enforcement
+
+DigiLog enforces single active browser tab per user via the `useSingleTab()` hook, which uses localStorage heartbeat and cross-tab coordination. Opening DigiLog in a second tab will prompt the user to close one.
+
 ### Sliding Window
 
-Sessions use a **sliding window** — the session expiry extends with each authenticated request. Active users are never logged out mid-session.
+Sessions use a **sliding window** — the session expiry extends with each authenticated request. Active users are never logged out mid-session. There is also an absolute 24-hour timeout regardless of activity.
 
 - Each API request resets the `expiresAt` timestamp to `now + sessionDurationHours`.
 - The session configuration is cached (1-minute TTL) to avoid database overhead.

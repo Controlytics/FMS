@@ -422,7 +422,7 @@ export function TemplateFormEditor({
 
 function RuleChainSelector({ value, onChange }: { value: string; onChange: (id: string) => void }) {
   const { data } = useSWR<{ data: Array<{ id: string; name: string; description?: string; isActive: boolean }> }>(
-    '/api/rule-chains?limit=100&page=1',
+    '/api/rule-chains',
     { revalidateOnFocus: false, dedupingInterval: 30000 },
   );
   const chains = data?.data?.filter((c) => c.isActive) ?? [];

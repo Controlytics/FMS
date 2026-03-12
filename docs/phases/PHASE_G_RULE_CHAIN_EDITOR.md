@@ -1,5 +1,8 @@
 # Phase G: Rule Chain Visual Editor (5-7 days)
 
+> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07.
+> React Flow canvas, node palette, node config panel, Monaco script editor, debug panel, version history, save/test/export/import flows all operational.
+
 ## Prompt for Claude Code
 
 ```

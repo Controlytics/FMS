@@ -194,7 +194,7 @@
 ### TC-02-N02: Create User with Duplicate Email
 - **Priority**: High
 - **Preconditions**: User with email exists
-- **Test Data**: `{ "username": "newuser", "fullName": "New User", "email": "<existing_email>", "role": "OPERATOR", "password": "Test@12345", "confirmPassword": "Test@12345" }`
+- **Test Data**: `{ "username": "newuser", "fullName": "New User", "email": "<existing_email>", "role": "OPERATOR", "password": "Admin@123", "confirmPassword": "Admin@123" }`
 - **Steps**:
   1. Attempt to create user with existing email
   2. Verify response is 409
@@ -250,7 +250,7 @@
 ### TC-02-N08: Invalid Email Format
 - **Priority**: Medium
 - **Preconditions**: Verification token obtained
-- **Test Data**: `{ "username": "bademail", "fullName": "Bad Email", "email": "not-an-email", "role": "OPERATOR", "password": "Test@12345", "confirmPassword": "Test@12345" }`
+- **Test Data**: `{ "username": "bademail", "fullName": "Bad Email", "email": "not-an-email", "role": "OPERATOR", "password": "Admin@123", "confirmPassword": "Admin@123" }`
 - **Steps**:
   1. Attempt to create user with invalid email format
   2. Verify response is 400
@@ -259,7 +259,7 @@
 ### TC-02-N09: Invalid Role Name
 - **Priority**: Medium
 - **Preconditions**: Verification token obtained
-- **Test Data**: `{ "username": "badrole", "fullName": "Bad Role", "email": "badrole@test.com", "role": "NONEXISTENT_ROLE", "password": "Test@12345", "confirmPassword": "Test@12345" }`
+- **Test Data**: `{ "username": "badrole", "fullName": "Bad Role", "email": "badrole@test.com", "role": "NONEXISTENT_ROLE", "password": "Admin@123", "confirmPassword": "Admin@123" }`
 - **Steps**:
   1. Attempt to create user with non-existent role
   2. Verify response is 400 or 404

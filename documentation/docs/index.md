@@ -83,4 +83,4 @@
 
 ---
 
-*DigiLog v2.x — Built for regulated industrial environments.*
+*DigiLog v3.1 — Built for regulated industrial environments. All features complete and deployed as of 2026-03-07.*

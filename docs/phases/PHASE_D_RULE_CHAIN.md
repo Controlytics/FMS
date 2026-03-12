@@ -1,5 +1,8 @@
 # Phase D: Rule Chain Engine (5-7 days)
 
+> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07.
+> Rule engine core, script sandbox (Node.js VM), 28 node types, debug recorder, default chain builder, 14 CRUD API endpoints, and pipeline integration all operational.
+
 ## Prompt for Claude Code
 
 ```

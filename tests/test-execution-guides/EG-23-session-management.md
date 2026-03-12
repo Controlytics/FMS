@@ -1,7 +1,7 @@
 # EG-23: Session Management — Execution Guide
 
 ## Prerequisites
-- **Credentials**: SUPER_ADMIN (admin / Test@12345), secondary test user account
+- **Credentials**: SUPER_ADMIN (admin / Admin@123), secondary test user account
 - **Tools**: curl, jq, two browser tabs/windows, database access (psql)
 - **Setup**: Default session config (8h duration, 15min idle timeout)
 - **Base URL**: http://localhost:3000
@@ -11,7 +11,7 @@
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 echo "Token: $TOKEN"
 ```
@@ -27,7 +27,7 @@ echo "Token: $TOKEN"
 # Login
 RESPONSE=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}')
+  -d '{"username":"admin","password":"Admin@123"}')
 
 echo "$RESPONSE" | jq '{token: .token[0:20], expiresIn: .expiresIn}'
 
@@ -146,14 +146,14 @@ curl -s -X PUT http://localhost:3000/api/config/session \
 # Login from "Client A"
 TOKEN_A=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 echo "Token A: ${TOKEN_A:0:20}..."
 
 # Login from "Client B" (same user)
 TOKEN_B=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 echo "Token B: ${TOKEN_B:0:20}..."
 
@@ -187,16 +187,16 @@ curl -s -X GET http://localhost:3000/api/auth/me \
 # Login to get active session
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 # Change password (terminates other sessions)
 curl -s -X POST http://localhost:3000/api/auth/change-password \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "currentPassword": "Test@12345",
-    "newPassword": "NewTest@12345",
-    "confirmPassword": "NewTest@12345"
+    "currentPassword": "Admin@123",
+    "newPassword": "NewAdmin@123",
+    "confirmPassword": "NewAdmin@123"
   }' | jq .
 
 # Current session should still work
@@ -207,16 +207,16 @@ curl -s -o /dev/null -w "Current session: %{http_code}\n" \
 # Login with new password
 NEW_TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"NewTest@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"NewAdmin@123"}' | jq -r '.token')
 
 # Restore original password
 curl -s -X POST http://localhost:3000/api/auth/change-password \
   -H "Authorization: Bearer $NEW_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "currentPassword": "NewTest@12345",
-    "newPassword": "Test@12345",
-    "confirmPassword": "Test@12345"
+    "currentPassword": "NewAdmin@123",
+    "newPassword": "Admin@123",
+    "confirmPassword": "Admin@123"
   }' | jq .
 ```
 
@@ -349,7 +349,7 @@ curl -s -X GET http://localhost:3000/api/auth/me \
 # Login
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 # Logout
 curl -s -X POST http://localhost:3000/api/auth/logout \
@@ -414,7 +414,7 @@ localStorage.removeItem('digilog_tab_heartbeat');
 # Login and immediately logout
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 curl -s -X POST http://localhost:3000/api/auth/logout \
   -H "Authorization: Bearer $TOKEN" > /dev/null
@@ -441,7 +441,7 @@ wait
 # Restore default session config
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 curl -s -X PUT http://localhost:3000/api/config/session \
   -H "Authorization: Bearer $TOKEN" \

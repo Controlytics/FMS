@@ -3,7 +3,7 @@
 ## Prerequisites
 - **App URL**: http://3.108.185.106
 - **API Base**: http://localhost:3000/api
-- **SUPER_ADMIN Credentials**: admin / Test@12345
+- **SUPER_ADMIN Credentials**: admin / Admin@123
 - **Additional User**: An OPERATOR or ADMIN user for role-filtering tests
 - **Browser**: Chrome or Firefox with DevTools open
 
@@ -12,7 +12,7 @@
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 ```
 
 ---
@@ -331,3 +331,55 @@ curl -s -X PUT http://localhost:3000/api/notifications/bulk-read \
 **Pass/Fail:**
 - [ ] Response status 400
 - [ ] Error indicates minItems violation
+
+---
+
+## Email & SMS Delivery Tests
+
+### Test: TC-10-P15 -- Email on User Login
+
+```bash
+# Login and check logs
+curl -s -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"superadmin","password":"Admin@123","force":true}' > /dev/null
+
+sleep 5
+
+PGPASSWORD=digilog123 psql -h localhost -U digilog -d digilog_db \
+  -c "SELECT status, channel, recipient, created_at FROM notification_logs ORDER BY created_at DESC LIMIT 5"
+```
+
+**Pass/Fail:**
+- [ ] EMAIL entry with status SENT
+- [ ] Email received in inbox
+
+### Test: TC-10-P20 -- Test Email Button
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"superadmin","password":"Admin@123","force":true}' | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+curl -s -X POST http://localhost:3000/api/notification-settings/email/test \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"recipient":"your-email@example.com"}'
+```
+
+### Test: TC-10-P21 -- Test SMS Button
+
+```bash
+curl -s -X POST http://localhost:3000/api/notification-settings/sms/test \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"recipient":"+917288820570"}'
+```
+
+### Checking Notification Delivery Logs
+
+```bash
+PGPASSWORD=digilog123 psql -h localhost -U digilog -d digilog_db \
+  -c "SELECT id, channel, status, recipient, error_message, retry_count, created_at
+      FROM notification_logs ORDER BY created_at DESC LIMIT 20"
+```

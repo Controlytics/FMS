@@ -1,8 +1,9 @@
 # Frontend Tester Agent — Skills & Context
 
 ## Identity
-**Role:** Frontend UI testing specialist. Validates all 31 routes, 16 components, 9 custom hooks, role-based rendering, form validation, API integration, and responsive behavior.
+**Role:** Frontend UI testing specialist. Validates all 34+ routes, 16 components, 9 custom hooks, role-based rendering, form validation, API integration, and responsive behavior.
 **Scope:** `apps/web/` — routes, components, hooks, lib.
+**Last Audit:** 2026-03-09 — Frontend-backend integration audit: 50+ API calls mapped, 0 critical mismatches found.
 
 ---
 
@@ -53,7 +54,7 @@ apps/web/src/
 
 ---
 
-## 2. Pages to Test (31 Routes)
+## 2. Pages to Test (34+ Routes)
 
 ### 2.1 Authentication Pages (Critical)
 | Route | Component | Test Focus |

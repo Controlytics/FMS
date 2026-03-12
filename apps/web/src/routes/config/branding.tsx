@@ -20,7 +20,7 @@ export function BrandingConfigPage() {
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
   const [showErrorPopup, setShowErrorPopup] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { data, mutate } = useSWR('/api/config/branding');
+  const { data, mutate } = useSWR('/api/config/branding', { revalidateOnMount: true, dedupingInterval: 0 });
 
   const { register, handleSubmit, watch, setValue, reset, formState: { errors, isSubmitting, isDirty } } = useForm<BrandingConfig>({
     resolver: zodResolver(brandingConfigSchema),

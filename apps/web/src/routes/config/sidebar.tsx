@@ -39,7 +39,7 @@ export function SidebarConfigPage() {
   }, [allRoles, selectedRole]);
 
   // Fetch users list
-  const { data: usersData, isLoading: loadingUsers } = useSWR('/api/users?limit=100');
+  const { data: usersData, isLoading: loadingUsers } = useSWR('/api/users');
 
   // Fetch role config - use revalidateOnMount to force fresh data
   const { data: roleConfig, isLoading: loadingRoleConfig, isValidating: validatingRoleConfig } = useSWR(

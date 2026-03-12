@@ -98,6 +98,7 @@ const CATEGORY_COLORS: Record<string, { bg: string; border: string; text: string
   ACTION:      { bg: 'bg-red-600',    border: 'border-red-400',    text: 'text-red-100',    dot: 'bg-red-400',    light: 'bg-red-50 border-red-200' },
   EXTERNAL:    { bg: 'bg-cyan-600',   border: 'border-cyan-400',   text: 'text-cyan-100',   dot: 'bg-cyan-400',   light: 'bg-cyan-50 border-cyan-200' },
   FLOW:        { bg: 'bg-slate-600',  border: 'border-slate-400',  text: 'text-slate-100',  dot: 'bg-slate-400',  light: 'bg-slate-50 border-slate-200' },
+  ANALYTICS:   { bg: 'bg-rose-600',   border: 'border-rose-400',   text: 'text-rose-100',   dot: 'bg-rose-400',   light: 'bg-rose-50 border-rose-200' },
 };
 
 const getCategoryColor = (category: string) =>
@@ -115,6 +116,7 @@ const CATEGORY_ICONS: Record<string, string> = {
   ACTION:     'M13 10V3L4 14h7v7l9-11h-7z',
   EXTERNAL:   'M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14',
   FLOW:       'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
+  ANALYTICS:  'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
 };
 
 const getCategoryIcon = (category: string) =>
@@ -131,6 +133,8 @@ const SCRIPT_NODE_TYPES = new Set([
   'js-filter',
   'js-transform',
   'custom-script',
+  'switch',
+  'generator',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -314,7 +318,7 @@ function RuleChainSelectField({
   currentChainId: string;
 }) {
   const { data: chainsRes } = useSWR<{ data: Array<{ id: string; name: string; isRoot: boolean }> }>(
-    '/api/rule-chains?limit=100',
+    '/api/rule-chains',
   );
   const chains = (chainsRes?.data ?? []).filter((c) => c.id !== currentChainId);
 

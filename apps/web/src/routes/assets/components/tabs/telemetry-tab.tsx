@@ -53,7 +53,7 @@ export function TelemetryTab({ entityId, template, telemetryConfig, formatDateTi
 
   // Fetch historical telemetry (client-side pagination)
   const { data: historyData, isLoading: histLoading, mutate: mutateHistory } = useSWR<{ data: any[]; meta: any }>(
-    `/api/telemetry/${entityId}/timeseries?from=${encodeURIComponent(timeRange.from)}&to=${encodeURIComponent(timeRange.to)}&limit=500`,
+    `/api/telemetry/${entityId}/timeseries?from=${encodeURIComponent(timeRange.from)}&to=${encodeURIComponent(timeRange.to)}`,
     { refreshInterval: 30000 }
   );
 

@@ -3,6 +3,7 @@
 ## Identity
 **Role:** Advisory lead and cross-agent coordinator for the DigiLog project.
 **Authority:** Architectural decisions, feature prioritization, compliance guidance, agent task delegation.
+**Current Status (2026-03-09):** All phases complete. System health 87/100. 7 open validation bugs. Next priority: fix BUG-V002 (TimescaleDB), BUG-V003/V004 (route conflicts).
 
 ---
 
@@ -16,10 +17,10 @@ The PM agent must enforce these regulatory pillars in every decision:
 
 | CFR Section | Requirement | DigiLog Implementation |
 |-------------|-------------|----------------------|
-| §11.10(a) | System validation | Comprehensive test suite (425+ tests, 69 test files) |
+| §11.10(a) | System validation | Comprehensive test suite (1,344 tests, 69+ test files, 0 failures) |
 | §11.10(b) | Readable copies of records | Export module (PDF, CSV, Excel) |
 | §11.10(c) | Record protection and retention | Data retention policies, TimescaleDB hypertables |
-| §11.10(d) | System access controls | RBAC with 6 roles, 40+ granular permissions |
+| §11.10(d) | System access controls | RBAC with 6 default roles (dynamic), 40+ granular permissions |
 | §11.10(e) | Audit trail | SHA-256 hash-chained, tamper-evident audit log |
 | §11.10(g) | Authority checks | `requirePermission()`, `requireRole()`, reauth enforcement |
 | §11.10(k) | Device checks | Device fingerprinting, session tracking |
@@ -50,10 +51,10 @@ The PM agent must enforce these regulatory pillars in every decision:
 │   │   │   ├── lib/          shared utilities
 │   │   │   ├── transport/    MQTT client, WS handler
 │   │   │   └── workers/      ingestion, maintenance
-│   │   └── prisma/           schema.prisma (31 models, 716 lines)
+│   │   └── prisma/           schema.prisma (30 models)
 │   └── web/          React 19 + Vite 6 + Tailwind 4
 │       └── src/
-│           ├── routes/       31 page components
+│           ├── routes/       34+ page components
 │           ├── components/   16 UI components
 │           ├── hooks/        9 custom hooks
 │           └── lib/          API client, auth, utils
@@ -78,20 +79,20 @@ The PM agent must enforce these regulatory pillars in every decision:
 | assets (relationships) | Bidirectional entity relationships | AssetRelationship |
 | assets (identifiers) | QR/Barcode/RFID/NFC identifiers | AssetIdentifier |
 | data-ingestion | MQTT/HTTP/WebSocket data pipeline | DeviceCredential, DeadLetterQueue |
-| rule-chain | Visual rule engine (26 node types) | RuleChain, RuleNode, RuleNodeConnection |
+| rule-chain | Visual rule engine (31 node types) | RuleChain, RuleNode, RuleNodeConnection |
 | uns | ISA-95 Unified Namespace | UnsMapping |
 | queries | Telemetry, alarms, export, retention | LatestTelemetry, Alarm, DataStream |
 | connectivity | Entity online/offline tracking | ConnectivityStatus |
 | qr-code | QR code generation | QrCode |
 
-### 2.3 Database Architecture (31 Prisma Models)
+### 2.3 Database Architecture (30 Prisma Models)
 - **User & Auth:** Role, User, PasswordHistory, Session, PasswordResetRequest
 - **Configuration:** SystemConfig, FieldIdConfig, UserConfig, RoleConfig
 - **Audit:** AuditTrail (hash-chained, SHA-256)
 - **Notifications:** Notification
 - **Entity Management:** AssetTemplate, AssetTemplateVersion, AssetInstance, AssetRelationship, AssetIdentifier
 - **Data Ingestion:** DeviceCredential, RuleChain, RuleChainVersion, RuleNode, RuleNodeConnection, Alarm, ChecklistReview, ElectronicSignature, LatestTelemetry, UnsMapping
-- **Infrastructure:** ConnectivityStatus, QrCode, HelpArticle, HelpArticleVersion, DataStream, DeadLetterQueue, IngestionSystemConfig
+- **Infrastructure:** ConnectivityStatus, QrCode, HelpArticle, HelpArticleVersion, DataStream, IngestionSystemConfig
 
 ### 2.4 RBAC System
 - **6 Roles:** SUPER_ADMIN, ADMIN, SUPERVISOR, OPERATOR, MAINTENANCE, VIEWER
@@ -103,7 +104,7 @@ The PM agent must enforce these regulatory pillars in every decision:
 ### 2.5 Data Ingestion Pipeline
 ```
 Sensor/Device → MQTT/HTTP/WebSocket → Message Normalizer → Entity Resolver
-  → Pipeline Tracer → Rule Engine (26 node types) → Output Actions
+  → Pipeline Tracer → Rule Engine (31 node types) → Output Actions
     → Telemetry Storage (TimescaleDB)
     → Alarm Generation
     → UNS Publication
@@ -122,12 +123,13 @@ Sensor/Device → MQTT/HTTP/WebSocket → Message Normalizer → Entity Resolver
 | Phase 2+ | Checklists, refactoring, extended tests | Complete |
 | Phase A | Data ingestion, MQTT, rule chains, UNS, connectivity | Complete |
 
-### 3.2 Git History (14 commits)
-Latest: `e8706bb` — feat: add data ingestion pipeline with UNS, MQTT, rule chains, and connectivity
+### 3.2 Git History (30+ commits)
+Latest: `2bcc0d7` — chore: add test screenshots and update local Claude settings
+Branch: DataIngestion
 
 ### 3.3 Bug History
-- **13 bugs documented** in `documentation/Bug_Resolution_Log.md`
-- **12 resolved**, 1 open (BUG-012, low priority)
+- **18 bugs documented** in `documentation/Bug_Resolution_Log.md`
+- **All resolved** (0 open)
 - **Recurring patterns:** (1) Fastify response schema stripping undeclared fields, (2) RBAC permission name mismatches, (3) Error handler masking validation errors
 
 ---
@@ -151,8 +153,8 @@ Latest: `e8706bb` — feat: add data ingestion pipeline with UNS, MQTT, rule cha
 
 ### 4.4 Testing Strategy Decisions
 Based on project analysis, **4 testing agents** are needed:
-1. **API Tester** — 16 modules, 138+ endpoints, heavy RBAC/validation logic
-2. **Frontend Tester** — 31 routes, complex forms (templates, rule chains), role-based UI
+1. **API Tester** — 16 modules, 145+ endpoints, heavy RBAC/validation logic
+2. **Frontend Tester** — 34+ routes, complex forms (templates, rule chains), role-based UI
 3. **E2E Tester** — Cross-module workflows (create template → create entity → ingest data → trigger alarm)
 4. **Security & Compliance Tester** — 21 CFR Part 11 specific (audit trail integrity, signature validation, password policy enforcement)
 
@@ -165,7 +167,7 @@ Based on project analysis, **4 testing agents** are needed:
 | `CLAUDE.md` | Master project context — keep updated |
 | `task_status.md` | Development progress tracker |
 | `documentation/Bug_Resolution_Log.md` | Bug tracking |
-| `apps/api/prisma/schema.prisma` | Database truth source (31 models) |
+| `apps/api/prisma/schema.prisma` | Database truth source (30 models) |
 | `packages/shared/src/types/permissions.ts` | Permission constants (40+) |
 | `apps/api/src/plugins/rbac.ts` | RBAC enforcement logic |
 | `apps/api/src/app.ts` | Route registration, error handler, middleware |

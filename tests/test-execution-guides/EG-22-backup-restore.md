@@ -1,7 +1,7 @@
 # EG-22: Backup & Restore — Execution Guide
 
 ## Prerequisites
-- **Credentials**: SUPER_ADMIN (admin / Test@12345), VIEWER account for negative tests
+- **Credentials**: SUPER_ADMIN (admin / Admin@123), VIEWER account for negative tests
 - **Tools**: curl, jq, browser, gunzip (for BAK files), unzip (for CSV exports)
 - **Setup**: Database has data (users, entities, configs) for meaningful backup
 - **Base URL**: http://localhost:3000
@@ -11,7 +11,7 @@
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 echo "Token: $TOKEN"
 ```
@@ -192,7 +192,7 @@ curl -s -X POST http://localhost:3000/api/backup/restore \
 # Re-login (session may have been invalidated)
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 # Verify users
 curl -s -X GET "http://localhost:3000/api/users?limit=5" \
@@ -233,7 +233,7 @@ curl -s -X POST http://localhost:3000/api/backup/restore \
 # Re-login
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 # Check users
 curl -s -X GET http://localhost:3000/api/users \

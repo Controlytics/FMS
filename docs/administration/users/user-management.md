@@ -50,7 +50,7 @@ Creating users requires the `USER_CREATE` permission (ADMIN role or higher).
 
 ## User Roles
 
-DigiLog includes six hierarchical roles. Users can only create accounts with a role lower than their own.
+DigiLog includes six default hierarchical roles stored in the database. Additional roles can be created dynamically. Roles have name, displayName, color, hierarchyLevel, permissions (JSON array), isSystem, and isActive fields. Users can only create accounts with a role lower than their own.
 
 | Role | Level | Can Create |
 |------|-------|-----------|

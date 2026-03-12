@@ -76,7 +76,7 @@ export function UserListPage() {
   const { data: rawData, mutate } = useSWR(`/api/users?${params}`);
   const { data: pendingData } = useSWR<PendingCount>('/api/users/reset-requests/pending');
   const { data: userStatsData, mutate: mutateStats } = useSWR<{ total: number; enabled: number; disabled: number; locked: number; expired: number }>('/api/users/stats');
-  const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy');
+  const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy', { revalidateOnMount: true, dedupingInterval: 5000 });
   const policy = { ...DEFAULT_PASSWORD_POLICY, ...policyData };
 
   // Filter out SUPER_ADMIN users from the list for Admin users (only affects display, not server query)

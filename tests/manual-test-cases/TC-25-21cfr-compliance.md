@@ -187,9 +187,9 @@
 - **Priority**: High
 - **Regulation**: SS11.200(a) — Two-component electronic signature
 - **Preconditions**: Valid user account exists.
-- **Test Data**: username: admin, password: Test@12345 (or current password).
+- **Test Data**: username: admin, password: Admin@123 (or current password).
 - **Steps**:
-  1. Send POST /api/auth/login with `{ "username": "admin", "password": "Test@12345" }`.
+  1. Send POST /api/auth/login with `{ "username": "admin", "password": "Admin@123" }`.
   2. Verify response contains `token` (JWT) and `user` object.
   3. Verify the JWT contains claims: `sub` (userId), `username`, `role`, `sessionId`.
   4. Verify the session is created in the DB with `isActive: true`.

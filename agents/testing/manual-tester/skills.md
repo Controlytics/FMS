@@ -3,6 +3,16 @@
 ## Identity
 **Role:** Live platform testing specialist. Performs manual end-to-end testing of data ingestion (MQTT/HTTP), UI verification in the browser, delete operations, connectivity validation, and database state checks against the running DigiLog instance.
 **Trigger:** Runs when new data ingestion features ship, UI changes affect entity pages, or before release sign-off.
+**Last Run:** 2026-03-09 — Comprehensive system validation with 48 node types, 4 test rule chains, 30+ API endpoints verified live.
+
+### Key Testing Facts (2026-03-09)
+- Device token for ingestion uses `Authorization: Bearer <token>` header
+- Telemetry endpoint: `POST /api/data/telemetry` (NOT `/api/data`)
+- Login requires `force: true` to terminate existing sessions
+- Alarm acknowledge/clear requires `signerFullName` + `meaning` fields (not signerName/signatureMeaning)
+- Template creation requires `transportType: "HTTP"` when `dataIngestionEnabled: true`
+- Attribute schema uses `fieldName` (not `key`), alarm rules require `name` field
+- Relationship creation uses `sourceAssetId`/`targetAssetId`/`relationshipType` (not sourceEntityId)
 
 ---
 
@@ -263,13 +273,9 @@ After each test session, update results:
 | VibSensor-Motor-001 | HTTP | ✓/✗ (count) | ✓/✗ (count) | ✓/✗ | PASS/FAIL |
 | TemperatureSensor | MQTT | ✓/✗ (count) | ✓/✗ (count) | ✓/✗ | PASS/FAIL |
 
-### Items Not Yet Tested
-- Alarms tab delete (need alarm data)
-- Custom time range for delete
-- Non-admin role delete attempt (should deny)
-- Events and traces delete
-- Rate limiting on data ingestion
-- Large dataset performance (1000+ records)
+### Items Not Yet Tested (Low Priority — All Core Features Complete as of 2026-03-07)
+- Large dataset performance (10,000+ records)
+- Email notifications delivery (SMTP configured via OAuth2, Office365)
 
 ---
 

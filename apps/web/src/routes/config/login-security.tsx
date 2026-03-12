@@ -17,7 +17,7 @@ export function LoginSecurityPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const reauth = useReauth();
-  const { data } = useSWR('/api/config/login-security');
+  const { data } = useSWR('/api/config/login-security', { revalidateOnMount: true, dedupingInterval: 0 });
 
   const { register, handleSubmit, watch, reset, formState: { isSubmitting, isDirty } } = useForm<LoginSecurityConfig>({
     resolver: zodResolver(loginSecuritySchema),

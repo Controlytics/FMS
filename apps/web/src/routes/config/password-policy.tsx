@@ -15,7 +15,7 @@ export function PasswordPolicyPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const reauth = useReauth();
-  const { data } = useSWR('/api/config/password-policy');
+  const { data } = useSWR('/api/config/password-policy', { revalidateOnMount: true, dedupingInterval: 0 });
 
   const { register, handleSubmit, watch, reset, formState: { errors, isSubmitting, isDirty } } = useForm<PasswordPolicyConfig>({
     resolver: zodResolver(passwordPolicySchema),

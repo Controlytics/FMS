@@ -13,7 +13,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
         type: 'object',
         properties: {
           page: { type: 'integer', minimum: 1, default: 1, description: 'Page number' },
-          limit: { type: 'integer', minimum: 1, maximum: 100, default: 20, description: 'Records per page' },
+          limit: { type: 'integer', minimum: 1, description: 'Records per page' },
           isRead: { type: 'string', enum: ['true', 'false'], description: 'Filter by read status' },
           startDate: { type: 'string', description: 'Start date for custom range (ISO 8601)' },
           endDate: { type: 'string', description: 'End date for custom range (ISO 8601)' },

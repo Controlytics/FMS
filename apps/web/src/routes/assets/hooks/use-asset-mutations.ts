@@ -349,13 +349,14 @@ export function useAssetMutations(callbacks: MutationCallbacks) {
     allRels: any[],
   ) => {
     const rel = allRels.find(
-      (r: any) => r.sourceAssetId === parentId && r.targetAssetId === childId && r.relationshipType === 'CONTAINS',
+      (r: any) => r.sourceAssetId === parentId && r.targetAssetId === childId,
     );
     if (!rel) {
-      callbacks.setError('Could not find the CONTAINS relationship to remove.');
+      callbacks.setError('Could not find the relationship to remove.');
       return;
     }
-    if (!confirm('Remove this entity from the tree? This will delete the CONTAINS relationship but will not delete the entity itself.')) return;
+    const relType = rel.relationshipType;
+    if (!confirm(`Remove this ${relType} relationship? This will delete the relationship but not the entity itself.`)) return;
     try {
       await reauth.execute(
         'DELETE_ASSET_RELATIONSHIP',
@@ -369,7 +370,7 @@ export function useAssetMutations(callbacks: MutationCallbacks) {
         {
           onSuccess: () => {
             mutateAssets();
-            toast.success('Removed from Tree');
+            toast.success('Relationship Removed');
           },
           onError: (err: any) => {
             const msg = err?.message || 'Failed to remove from tree';

@@ -20,6 +20,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { getTsdbPool, addTelemetryRow } from '@digilog/db';
 import type { IngestionMessage } from './message-normalizer.js';
+import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -80,7 +81,7 @@ export async function saveTelemetry(msg: IngestionMessage): Promise<{ keysWritte
       const jsonVal = classified.valueJson ? JSON.stringify(classified.valueJson) : null;
       await prisma.$executeRaw`
         INSERT INTO "latest_telemetry" ("id", "entity_id", "key", "value_num", "value_str", "value_bool", "value_json", "last_updated")
-        VALUES (gen_random_uuid(), ${msg.entityId}, ${key}, ${classified.valueNum}, ${classified.valueStr}, ${classified.valueBool},
+        VALUES (gen_random_uuid(), ${msg.entityId}::uuid, ${key}, ${classified.valueNum}, ${classified.valueStr}, ${classified.valueBool},
           ${jsonVal}::jsonb, ${time})
         ON CONFLICT ("entity_id", "key")
         DO UPDATE SET
@@ -217,6 +218,38 @@ export async function createAlarm(params: {
       createdByRuleChain: params.ruleChainId ?? null,
     },
   });
+
+  console.log("[createAlarm] Alarm created:", alarm.id, "- dispatching notification");
+  // Dispatch notification for ALARM_CREATED event
+  const entity = await prisma.assetInstance.findUnique({ where: { id: params.entityId }, select: { name: true } });
+  const entityName = entity?.name ?? params.unsPath;
+  const triggerJson = params.triggerDetails ?? {};
+  // Build trigger details string for email
+  const triggerEntries = Object.entries(triggerJson)
+    .filter(([k]) => !k.startsWith('_'))
+    .map(([k, v]) => `${k}: ${v}`)
+    .join(', ');
+  const conditionInfo = triggerJson._sourceField
+    ? `${triggerJson._sourceField} ${triggerJson._condition ?? ''} ${triggerJson._threshold ?? ''}`
+    : '';
+  dispatchNotification({
+    eventType: 'ALARM_CREATED',
+    context: { severity: params.severity, alarmType: params.alarmType },
+    variables: {
+      alarmId: alarm.id,
+      alarmType: params.alarmType,
+      severity: params.severity,
+      status: 'ACTIVE',
+      entityName,
+      entityId: params.entityId,
+      unsPath: params.unsPath,
+      triggerDetails: triggerEntries || 'N/A',
+      triggerCondition: conditionInfo || 'N/A',
+      ruleChainId: params.ruleChainId ?? 'N/A',
+      message: `${params.alarmType} alarm on ${entityName}`,
+      timestamp: new Date().toISOString(),
+    },
+  }).catch(err => console.error('[createAlarm] Notification dispatch failed:', err.message));
 
   return { alarmId: alarm.id };
 }

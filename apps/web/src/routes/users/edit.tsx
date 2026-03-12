@@ -39,12 +39,13 @@ export function EditUserPage() {
   const reauth = useReauth();
 
   // Fetch password policy
-  const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy');
+  const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy', { revalidateOnMount: true, dedupingInterval: 5000 });
   const policy = { ...DEFAULT_PASSWORD_POLICY, ...policyData };
 
   // Fetch roles that current user can create
   const { data: creatableRolesData } = useSWR<RoleData[]>(
-    currentUser?.role ? `/api/roles/${currentUser.role}/creatable` : null
+    currentUser?.role ? `/api/roles/${currentUser.role}/creatable` : null,
+    { revalidateOnMount: true, dedupingInterval: 0 }
   );
   const creatableRoles = creatableRolesData || [];
 

@@ -1,14 +1,13 @@
 import { prisma } from '../../../lib/prisma.js';
 
 export const templateRepository = {
-  async findMany(where: Record<string, unknown>, page: number, limit: number) {
+  async findMany(where: Record<string, unknown>, page: number, limit?: number) {
     const [templates, total] = await Promise.all([
       prisma.assetTemplate.findMany({
         where: where as any,
         include: { _count: { select: { instances: true } } },
         orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
+        ...(limit ? { skip: (page - 1) * limit, take: limit } : {}),
       }),
       prisma.assetTemplate.count({ where: where as any }),
     ]);

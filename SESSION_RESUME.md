@@ -1,8 +1,38 @@
 # DigiLog — Session Resume Point
 
-**Last Updated:** 2026-03-05
+**Last Updated:** 2026-03-12
 **Branch:** `DataIngestion`
-**Status:** ALL PHASES COMPLETE (A through K) + v3.0 (Security, CI/CD, Refactoring, TimescaleDB). ~145+ API endpoints, 34+ frontend pages, 1344 tests (0 failures) across 83+ test files. GitHub Actions CI/CD. All 5 packages build successfully.
+**Status:** ALL PHASES COMPLETE (A through K) + v3.0 + v3.1 System Validation. ~145+ API endpoints across 22 modules, 34+ frontend pages, 48 rule chain node types, 39+ permissions. 145/150 automated tests passing (5 shared schema test failures — query limit defaults). GitHub Actions CI/CD. All 5 packages build successfully.
+
+### Last Session (2026-03-12): Multi-Select Event Types & Email Fix
+- **Notification Rules multi-select**: Changed event type from single-select to multi-select checkbox dropdown
+  - Added `event_types` (NotificationEventType[]) column to `notification_rules` table
+  - Updated Prisma schema, backend routes (POST/PUT), and dispatcher query
+  - Frontend: new `MultiSelectEventTypes` component with grouped checkboxes by module
+  - Backend: strips computed fields before Prisma update, converts empty UUID strings to null
+- **Email IPv4 fix**: Added `family: 4` to nodemailer createTransport to fix ENETUNREACH on IPv6
+- **Files changed**: notification-rules/routes.ts, notification-dispatcher.ts, email-channel.ts, notification-rules/index.tsx, prisma/schema.prisma
+
+### Last Session (2026-03-09): Comprehensive System Validation
+- Performed full functional, integration, and workflow validation of entire application
+- **48 rule chain node types** cataloged across 9 categories (INPUT, FILTER, ENRICHMENT, TRANSFORM, ACTION, EXTERNAL, FLOW, ANALYTICS)
+- Created 4 test rule chains exercising different node combinations
+- E2E workflow tested: Login → Template → Entity → Rule Chain → Telemetry → Alarm → Acknowledge → Clear
+- 30+ API endpoints live-tested with real HTTP requests
+- Performance: 50 telemetry messages in 2.7s (zero failures), all APIs <100ms
+- **7 bugs found** (0 Critical, 2 High, 3 Medium, 2 Low) — documented in `tasks/system-validation-report.md`
+- **System Health Score: 87/100**
+
+### Open Bugs from Validation (2026-03-09)
+| Bug ID | Severity | Description |
+|--------|----------|-------------|
+| BUG-V001 | Low | 5 shared package tests out of sync with schema changes (limit defaults) |
+| BUG-V002 | **High** | TimescaleDB timeseries not written when rule chain lacks save-timeseries node |
+| BUG-V003 | Medium | /api/connectivity/stats route conflict with /:entityId |
+| BUG-V004 | Medium | /api/alarms/stats route conflict with /:id |
+| BUG-V005 | Medium | /api/connectivity list endpoint missing (404) |
+| BUG-V006 | Low | /api/connectivity/:entityId/snippet returns 404 |
+| BUG-V007 | **High** | Export endpoint requires undocumented parameters |
 
 ---
 
@@ -18,7 +48,7 @@
 | F | Queries & Export (telemetry, alarms, retention) | 20 | modules/queries/*.ts (5 files) |
 | G-J | Connectivity, QR, Help + Frontend pages | 16 | modules/connectivity, qr-code, help + 3 frontend pages |
 | K | Testing & Documentation (425→1344 tests) | 0 | 83+ test files across packages/shared, packages/db, apps/api |
-| v3.0 | Security fixes (8), CI/CD, TimescaleDB, refactoring | +7 | 8 security fixes, GitHub Actions, 5 hypertables, component extraction |
+| v3.0 | Security fixes (8), CI/CD, TimescaleDB, refactoring | +7 | 8 security fixes, GitHub Actions, 7 hypertables, component extraction |
 
 ---
 
@@ -201,4 +231,13 @@ npm run build                 # All 5 packages should compile
 | v2.1.2 | 2026-02-25 | Documentation governance, Git issue lifecycle |
 | Phases A–J | 2026-02-25 | Data Ingestion & Integration Layer (all backend + 3 frontend pages) |
 | Phase K | 2026-02-26 | 425 unit tests across 18 files in 3 packages |
-| **v3.0** | **2026-03-01–02** | **Security (8 fixes), CI/CD, TimescaleDB hypertables, component refactoring, RBAC fixes, checklist fix, 1344 tests** |
+| v3.0 | 2026-03-01–02 | Security (8 fixes), CI/CD, TimescaleDB hypertables, component refactoring, RBAC fixes, checklist fix, 1344 tests |
+| Fixes | 2026-03-07 | LatestTelemetry UUID cast (P0), device credential createdAt (P2), continuous telemetry test tools, real-time auto-refresh |
+| **v3.1 Validation** | **2026-03-09** | **Comprehensive system validation: 48 node types cataloged, 4 test rule chains, 30+ APIs live-tested, E2E workflow verified, 7 bugs found, system health score 87/100** |
+
+## What To Do Next (Resume Priority)
+1. **Fix BUG-V002 (High)** — Ensure TimescaleDB timeseries persistence regardless of rule chain config
+2. **Fix BUG-V003/V004 (Medium)** — Route conflicts: register static routes before parameterized
+3. **Fix BUG-V001 (Low)** — Update 5 shared package test assertions to match current schemas
+4. **Fix BUG-V007 (High)** — Add default time range for export endpoint or make params optional
+5. Review full report at `tasks/system-validation-report.md`

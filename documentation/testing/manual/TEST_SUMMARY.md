@@ -1,8 +1,9 @@
 # DigiLog Test Summary
 
-**Date:** 2026-02-20
+**Date:** 2026-02-20 (original), last updated 2026-03-09
 **Application:** DigiLog — 21 CFR Part 11 Compliant Digital Logbook
-**Deployment:** EC2 at 43.205.32.23 (port 3000 API, nginx frontend)
+**Deployment:** EC2 at 3.108.185.106 (port 3000 API, nginx frontend)
+**Status (2026-03-09):** All features COMPLETE and deployed. All development phases (A through K) complete. 1,344 tests (0 failures) across 83 test files. System validation: 87/100 health score, 48 node types validated, 7 open bugs (see tasks/system-validation-report.md).
 
 ---
 
@@ -98,4 +99,6 @@
 
 ## Summary
 
-All core features are functional and tested. Asset template telemetry schemas are fully supported end-to-end (create, edit, version, display). Link Assets dialog upgraded to multi-select targets with search and bulk creation. Link Assets dropdown bug fixed — root cause was Fastify JSON schema coercing `null` parentId to empty string, causing frontend tree walk to find no root nodes. Instruments feature was added then removed per user request. Template Linking Rules feature was added then completely removed — any asset can now link to any other asset with any of the 12 relationship types, no restrictions. Full API verification passed.
+All core features are functional and tested. Asset template telemetry schemas are fully supported end-to-end (create, edit, version, display). Link Assets dialog upgraded to multi-select targets with search and bulk creation. Link Assets dropdown bug fixed -- root cause was Fastify JSON schema coercing `null` parentId to empty string, causing frontend tree walk to find no root nodes. Instruments feature was added then removed per user request. Template Linking Rules feature was added then completely removed -- any asset can now link to any other asset with any of the 12 relationship types, no restrictions. Full API verification passed.
+
+**Update (2026-03-07):** All development phases (A through K) are COMPLETE and deployed to production at 3.108.185.106. System includes 145+ API endpoints, 34+ frontend pages, 30 Prisma models, 7 TimescaleDB hypertables, and 1,344 automated tests with 0 failures. Three additional bugs were found and fixed on 2026-03-07: LatestTelemetry UUID cast (P0), device credential createdAt on token regeneration (P2), and entity resolver cache TTL (P3). Test tools created: push-telemetry.py, push-telemetry.mjs, telemetry-200.csv.

@@ -3,7 +3,7 @@
 ## Prerequisites
 - **App URL**: http://3.108.185.106
 - **API Base**: http://localhost:3000/api
-- **SUPER_ADMIN Credentials**: admin / Test@12345
+- **SUPER_ADMIN Credentials**: admin / Admin@123
 - **Entity with Data**: An entity that has received telemetry data (temperature, humidity, etc.)
 - **TimescaleDB**: Running with ts_telemetry, ts_attributes, ts_checklist_responses tables populated
 
@@ -12,7 +12,7 @@
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 # Find an entity with telemetry data
 ENTITY_ID=$(sudo -u postgres psql -t -A digilog_db -c "SELECT entity_id FROM latest_telemetry LIMIT 1;")

@@ -103,6 +103,7 @@ Navigate to **Configuration** → **Session**.
 | Setting | Default | Description |
 |---------|---------|-------------|
 | **Session Duration (hours)** | 8 | Maximum session lifetime |
+| **Absolute Timeout (hours)** | 24 | Hard session limit regardless of activity |
 | **Auto-Logout Enabled** | Yes | Enable idle timeout |
 | **Idle Timeout (minutes)** | 30 | Time before idle logout |
 | **Warning (minutes)** | 5 | Countdown warning before idle logout |

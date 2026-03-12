@@ -13,7 +13,7 @@ export function AppLayout() {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const location = useLocation();
   const { branding } = useBranding();
-  const { data: passwordPolicy } = useSWR(isAuthenticated ? '/api/config/password-policy' : null);
+  const { data: passwordPolicy } = useSWR(isAuthenticated ? '/api/config/password-policy' : null, { revalidateOnMount: true, dedupingInterval: 5000 });
   // Extract session settings from consolidated password policy config
   const sessionConfig = passwordPolicy ? {
     autoLogoutEnabled: passwordPolicy.autoLogoutEnabled ?? true,

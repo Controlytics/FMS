@@ -56,8 +56,13 @@ export default async function unsRoutes(app: FastifyInstance) {
             id: { type: 'string' },
             entityId: { type: 'string' },
             unsPath: { type: 'string' },
+            pathOverride: { type: ['string', 'null'] },
             isOverridden: { type: 'boolean' },
-            entityName: { type: 'string' },
+            entityName: { type: ['string', 'null'] },
+            templateName: { type: ['string', 'null'] },
+            level: { type: 'string' },
+            status: { type: ['string', 'null'] },
+            attributes: { type: ['object', 'null'], additionalProperties: true },
             createdAt: { type: 'string', format: 'date-time' },
             updatedAt: { type: 'string', format: 'date-time' },
           },
@@ -78,15 +83,31 @@ export default async function unsRoutes(app: FastifyInstance) {
 
     const entity = await prisma.assetInstance.findUnique({
       where: { id: entityId },
-      select: { name: true },
+      select: {
+        name: true,
+        status: true,
+        attributes: true,
+        unsPath: true,
+        template: { select: { name: true, category: true } },
+      },
     });
+
+    // Infer ISA-95 level from path depth
+    const segments = mapping.unsPath.split('/');
+    const levelMap: Record<number, string> = { 2: 'Enterprise', 3: 'Site', 4: 'Area', 5: 'Line', 6: 'Cell' };
+    const level = levelMap[segments.length - 1] ?? 'Entity';
 
     return {
       id: mapping.id,
       entityId: mapping.entityId,
       unsPath: mapping.unsPath,
+      pathOverride: mapping.isOverridden ? mapping.unsPath : null,
       isOverridden: mapping.isOverridden,
       entityName: entity?.name ?? null,
+      templateName: entity?.template?.name ?? null,
+      level,
+      status: entity?.status ?? null,
+      attributes: entity?.attributes ?? null,
       createdAt: mapping.createdAt,
       updatedAt: mapping.updatedAt,
     };
@@ -108,9 +129,9 @@ export default async function unsRoutes(app: FastifyInstance) {
       },
       body: {
         type: 'object',
-        required: ['unsPath'],
         properties: {
           unsPath: { type: 'string', description: 'New UNS path to set' },
+          pathOverride: { type: 'string', description: 'New UNS path to set (alias for unsPath)' },
         },
       },
       response: {
@@ -133,8 +154,13 @@ export default async function unsRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     const { entityId } = req.params as { entityId: string };
-    const { unsPath } = req.body as { unsPath: string };
+    const body = req.body as { unsPath?: string; pathOverride?: string };
+    const newPath = body.unsPath || body.pathOverride;
     const user = (req as any).user as { username: string; role: string };
+
+    if (!newPath?.trim()) {
+      return reply.code(400).send({ error: 'unsPath or pathOverride is required' });
+    }
 
     const existing = await prisma.unsMapping.findUnique({ where: { entityId } });
     if (!existing) {
@@ -145,13 +171,13 @@ export default async function unsRoutes(app: FastifyInstance) {
       prisma.unsMapping.update({
         where: { entityId },
         data: {
-          unsPath,
+          unsPath: newPath.trim(),
           isOverridden: true,
         },
       }),
       prisma.assetInstance.update({
         where: { id: entityId },
-        data: { unsPath },
+        data: { unsPath: newPath.trim() },
       }),
     ]);
 
@@ -159,7 +185,7 @@ export default async function unsRoutes(app: FastifyInstance) {
       userId: user.username, userRole: user.role, action: 'UNS_PATH_OVERRIDDEN',
       targetType: 'uns_mapping', targetId: entityId,
       beforeValue: { unsPath: existing.unsPath },
-      afterValue: { unsPath },
+      afterValue: { unsPath: newPath.trim() },
       ipAddress: req.ip, userAgent: req.headers['user-agent'],
     });
 
@@ -320,13 +346,7 @@ export default async function unsRoutes(app: FastifyInstance) {
           type: 'array',
           items: {
             type: 'object',
-            properties: {
-              id: { type: 'string' },
-              entityId: { type: 'string' },
-              unsPath: { type: 'string' },
-              isOverridden: { type: 'boolean' },
-              entityName: { type: 'string' },
-            },
+            additionalProperties: true,
           },
         },
         ...errorResponses,

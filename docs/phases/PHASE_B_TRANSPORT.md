@@ -1,5 +1,8 @@
 # Phase B: Transport & Protocol Layer (3-4 days)
 
+> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07.
+> EMQX MQTT auth/ACL callbacks, HTTP data endpoints, WebSocket handler, message normalizer, and entity resolver all operational.
+
 ## Prompt for Claude Code
 
 ```

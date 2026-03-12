@@ -6,12 +6,12 @@ The Data Retention API provides endpoints for configuring retention policies and
 
 ## Retention Configuration
 
-### GET /api/queries/config/retention
+### GET /api/queries/retention
 
 Get the current data retention policies.
 
 ```bash
-GET /api/queries/config/retention
+GET /api/queries/retention
 ```
 
 **Response (200):**
@@ -27,16 +27,16 @@ GET /api/queries/config/retention
 }
 ```
 
-**Role Required:** `SUPER_ADMIN`
+**Permission:** `RETENTION_MANAGE`
 
 ---
 
-### PUT /api/queries/config/retention
+### POST /api/queries/retention
 
-Update data retention policies.
+Create or update data retention policies.
 
 ```bash
-curl -X PUT "http://your-server/api/queries/config/retention" \
+curl -X POST "http://your-server/api/queries/retention" \
   -H "Authorization: Bearer USER_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -113,22 +113,15 @@ curl -X POST "http://your-server/api/queries/retention/execute-range" \
 
 ---
 
-## Archive (Future)
+## Additional Endpoints
 
-### POST /api/queries/retention/archive
+### PUT /api/queries/retention
 
-Archive data before deletion. Currently returns a stub response — archive destinations (S3, Azure Blob) will be configurable in a future update.
+Update an existing retention policy.
 
-```bash
-curl -X POST "http://your-server/api/queries/retention/archive" \
-  -H "Authorization: Bearer USER_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "dataType": "telemetry",
-    "from": "2025-01-01T00:00:00Z",
-    "to": "2025-12-31T23:59:59Z"
-  }'
-```
+### DELETE /api/queries/retention
+
+Delete a retention policy and revert to defaults.
 
 ---
 

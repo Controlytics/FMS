@@ -496,8 +496,14 @@ export default async function configRoutes(app: FastifyInstance) {
           items: {
             type: 'object',
             properties: {
+              id: { type: 'string' },
               fieldId: { type: 'string' },
+              defaultName: { type: 'string' },
               displayName: { type: 'string' },
+              module: { type: 'string' },
+              description: { type: 'string', nullable: true },
+              updatedAt: { type: 'string' },
+              updatedBy: { type: 'string', nullable: true },
             },
           },
         },

@@ -215,7 +215,7 @@ export default async function connectivityRoutes(app: FastifyInstance) {
                 python: { type: 'string' },
                 nodejs: { type: 'string' },
                 curl: { type: 'string' },
-                arduino: { type: 'string' },
+                c: { type: 'string' },
               },
             },
           },
@@ -228,7 +228,7 @@ export default async function connectivityRoutes(app: FastifyInstance) {
 
     const entity = await prisma.assetInstance.findUnique({
       where: { id: entityId },
-      include: { template: { select: { id: true, name: true } } },
+      include: { template: { select: { id: true, name: true, transportType: true } } },
     });
 
     if (!entity) {
@@ -240,15 +240,158 @@ export default async function connectivityRoutes(app: FastifyInstance) {
       select: { accessToken: true, isActive: true },
     });
 
-    // Mask token in snippets — show only last 8 chars as hint, user copies full token from Credentials tab
     const rawToken = credential?.accessToken;
-    const token = rawToken
-      ? `<TOKEN_ENDING_...${rawToken.slice(-8)}>`
-      : '<YOUR_DEVICE_TOKEN>';
+    const token = rawToken ?? '<YOUR_DEVICE_TOKEN>';
     const unsPath = getEntityUnsPath(entity);
     const apiUrl = process.env.CORS_ORIGIN || process.env.ALLOWED_ORIGINS?.split(',')[0] || 'http://localhost:3000';
 
-    const python = `import requests
+    const transportType = entity.template?.transportType ?? 'HTTP';
+    const isMqtt = transportType === 'MQTT';
+
+    // ── MQTT snippets ──────────────────────────────────────────
+    const mqttBroker = apiUrl.replace(/^https?:\/\//, '');
+    const mqttHost = mqttBroker.split(':')[0];
+    const telemetryTopic = `${unsPath}/telemetry`;
+    const attributesTopic = `${unsPath}/attributes`;
+
+    const pythonMqtt = `import paho.mqtt.client as mqtt
+import json, time
+
+# Entity: ${entity.name}
+# UNS Path: ${unsPath}
+
+BROKER = "${mqttHost}"
+PORT = 1883
+TOKEN = "${token}"
+TELEMETRY_TOPIC = "${telemetryTopic}"
+ATTRIBUTES_TOPIC = "${attributesTopic}"
+
+client = mqtt.Client()
+client.username_pw_set(TOKEN)
+
+def on_connect(client, userdata, flags, rc):
+    print("Connected" if rc == 0 else f"Failed: {rc}")
+
+client.on_connect = on_connect
+client.connect(BROKER, PORT)
+client.loop_start()
+
+# Send telemetry data
+data = {"temperature": 25.5, "humidity": 60}
+client.publish(TELEMETRY_TOPIC, json.dumps(data))
+print("Telemetry sent")
+
+# Send attributes
+attributes = {"firmware_version": "1.2.3", "model": "SensorX"}
+client.publish(ATTRIBUTES_TOPIC, json.dumps(attributes))
+print("Attributes sent")
+
+time.sleep(1)
+client.disconnect()`;
+
+    const nodejsMqtt = `const mqtt = require('mqtt');
+
+// Entity: ${entity.name}
+// UNS Path: ${unsPath}
+
+const BROKER = 'mqtt://${mqttHost}:1883';
+const TOKEN = '${token}';
+const TELEMETRY_TOPIC = '${telemetryTopic}';
+const ATTRIBUTES_TOPIC = '${attributesTopic}';
+
+const client = mqtt.connect(BROKER, { username: TOKEN });
+
+client.on('connect', () => {
+  console.log('Connected to MQTT broker');
+
+  // Send telemetry data
+  const data = { temperature: 25.5, humidity: 60 };
+  client.publish(TELEMETRY_TOPIC, JSON.stringify(data));
+  console.log('Telemetry sent');
+
+  // Send attributes
+  const attributes = { firmware_version: '1.2.3', model: 'SensorX' };
+  client.publish(ATTRIBUTES_TOPIC, JSON.stringify(attributes));
+  console.log('Attributes sent');
+
+  client.end();
+});
+
+client.on('error', (err) => console.error('MQTT error:', err));`;
+
+    const curlMqtt = `# Entity: ${entity.name}
+# UNS Path: ${unsPath}
+# Requires: mosquitto-clients (apt install mosquitto-clients)
+
+# Send telemetry data
+mosquitto_pub -h ${mqttHost} -p 1883 \\
+  -u "${token}" \\
+  -t "${telemetryTopic}" \\
+  -m '{"temperature": 25.5, "humidity": 60}'
+
+# Send attributes
+mosquitto_pub -h ${mqttHost} -p 1883 \\
+  -u "${token}" \\
+  -t "${attributesTopic}" \\
+  -m '{"firmware_version": "1.2.3", "model": "SensorX"}'`;
+
+    const cMqtt = `#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "MQTTClient.h"
+
+// Entity: ${entity.name}
+// UNS Path: ${unsPath}
+
+#define BROKER  "tcp://${mqttHost}:1883"
+#define TOKEN   "${token}"
+#define TEL_TOPIC "${telemetryTopic}"
+#define ATTR_TOPIC "${attributesTopic}"
+#define CLIENTID  "digilog_device"
+#define QOS 1
+
+int main() {
+    MQTTClient client;
+    MQTTClient_connectOptions opts = MQTTClient_connectOptions_initializer;
+    MQTTClient_message msg = MQTTClient_message_initializer;
+    MQTTClient_deliveryToken dt;
+
+    MQTTClient_create(&client, BROKER, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL);
+    opts.username = TOKEN;
+    opts.keepAliveInterval = 20;
+    opts.cleansession = 1;
+
+    if (MQTTClient_connect(client, &opts) != MQTTCLIENT_SUCCESS) {
+        printf("Connection failed\\n");
+        return 1;
+    }
+    printf("Connected to MQTT broker\\n");
+
+    // Send telemetry
+    const char *telemetry = "{\\"temperature\\": 25.5, \\"humidity\\": 60}";
+    msg.payload = (void *)telemetry;
+    msg.payloadlen = strlen(telemetry);
+    msg.qos = QOS;
+    MQTTClient_publishMessage(client, TEL_TOPIC, &msg, &dt);
+    MQTTClient_waitForCompletion(client, dt, 5000);
+    printf("Telemetry sent\\n");
+
+    // Send attributes
+    const char *attrs = "{\\"firmware_version\\": \\"1.2.3\\", \\"model\\": \\"SensorX\\"}";
+    msg.payload = (void *)attrs;
+    msg.payloadlen = strlen(attrs);
+    MQTTClient_publishMessage(client, ATTR_TOPIC, &msg, &dt);
+    MQTTClient_waitForCompletion(client, dt, 5000);
+    printf("Attributes sent\\n");
+
+    MQTTClient_disconnect(client, 1000);
+    MQTTClient_destroy(&client);
+    return 0;
+}
+// Compile: gcc -o device device.c -lpaho-mqtt3c`;
+
+    // ── HTTP snippets ──────────────────────────────────────────
+    const pythonHttp = `import requests
 
 # Entity: ${entity.name}
 # UNS Path: ${unsPath}
@@ -270,7 +413,7 @@ attributes = {"firmware_version": "1.2.3", "model": "SensorX"}
 response = requests.post(attr_url, json=attributes, headers=headers)
 print(response.status_code, response.json())`;
 
-    const nodejs = `const fetch = require('node-fetch');
+    const nodejsHttp = `const fetch = require('node-fetch');
 
 // Entity: ${entity.name}
 // UNS Path: ${unsPath}
@@ -307,7 +450,7 @@ async function sendAttributes() {
 
 sendTelemetry();`;
 
-    const curl = `# Entity: ${entity.name}
+    const curlHttp = `# Entity: ${entity.name}
 # UNS Path: ${unsPath}
 
 # Send telemetry data
@@ -322,61 +465,62 @@ curl -X POST "${apiUrl}/api/data/attributes" \\
   -H "Content-Type: application/json" \\
   -d '{"firmware_version": "1.2.3", "model": "SensorX"}'`;
 
-    const arduino = `#include <WiFi.h>
-#include <HTTPClient.h>
-#include <ArduinoJson.h>
+    const cHttp = `#include <stdio.h>
+#include <string.h>
+#include <curl/curl.h>
 
 // Entity: ${entity.name}
 // UNS Path: ${unsPath}
 
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
-const char* apiUrl = "${apiUrl}/api/data/telemetry";
-const char* token = "${token}";
+#define API_URL "${apiUrl}/api/data/telemetry"
+#define ATTR_URL "${apiUrl}/api/data/attributes"
+#define TOKEN   "${token}"
 
-void setup() {
-  Serial.begin(115200);
-  WiFi.begin(ssid, password);
+int send_post(const char *url, const char *json) {
+    CURL *curl = curl_easy_init();
+    if (!curl) return 1;
 
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    Serial.println("Connecting to WiFi...");
-  }
-  Serial.println("Connected to WiFi");
+    struct curl_slist *headers = NULL;
+    char auth[256];
+    snprintf(auth, sizeof(auth), "Authorization: Bearer %s", TOKEN);
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+    headers = curl_slist_append(headers, auth);
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json);
+
+    CURLcode res = curl_easy_perform(curl);
+    if (res != CURLE_OK)
+        fprintf(stderr, "Request failed: %s\\n", curl_easy_strerror(res));
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    return (int)res;
 }
 
-void loop() {
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-    http.begin(apiUrl);
-    http.addHeader("Content-Type", "application/json");
-    http.addHeader("Authorization", String("Bearer ") + token);
+int main() {
+    curl_global_init(CURL_GLOBAL_ALL);
 
-    StaticJsonDocument<200> doc;
-    doc["temperature"] = 25.5;
-    doc["humidity"] = 60;
+    // Send telemetry
+    send_post(API_URL, "{\\"temperature\\": 25.5, \\"humidity\\": 60}");
+    printf("Telemetry sent\\n");
 
-    String payload;
-    serializeJson(doc, payload);
+    // Send attributes
+    send_post(ATTR_URL, "{\\"firmware_version\\": \\"1.2.3\\", \\"model\\": \\"SensorX\\"}");
+    printf("Attributes sent\\n");
 
-    int httpCode = http.POST(payload);
-    Serial.printf("HTTP Response: %d\\n", httpCode);
-
-    if (httpCode > 0) {
-      Serial.println(http.getString());
-    }
-
-    http.end();
-  }
-  delay(5000); // Send every 5 seconds
-}`;
+    curl_global_cleanup();
+    return 0;
+}
+// Compile: gcc -o device device.c -lcurl`;
 
     return {
       snippets: {
-        python,
-        nodejs,
-        curl,
-        arduino,
+        python: isMqtt ? pythonMqtt : pythonHttp,
+        nodejs: isMqtt ? nodejsMqtt : nodejsHttp,
+        curl: isMqtt ? curlMqtt : curlHttp,
+        c: isMqtt ? cMqtt : cHttp,
       },
     };
   });
@@ -451,6 +595,20 @@ void loop() {
       `${unsPath}/rpc/response`,
     ];
 
+    // Check if custom token is already in use by another entity
+    if (customToken) {
+      const existing = await prisma.deviceCredential.findUnique({
+        where: { accessToken: customToken },
+        select: { entityId: true },
+      });
+      if (existing && existing.entityId !== entityId) {
+        return reply.code(409).send({
+          error: 'TOKEN_CONFLICT',
+          message: 'This token is already in use by another entity. Please choose a different token.',
+        });
+      }
+    }
+
     const credential = await prisma.deviceCredential.upsert({
       where: { entityId },
       create: {
@@ -465,6 +623,7 @@ void loop() {
         status: 'ACTIVE',
         isActive: true,
         credentialData: { allowedTopics },
+        createdAt: new Date(),
       },
     });
 

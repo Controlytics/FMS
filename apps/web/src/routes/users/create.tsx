@@ -25,12 +25,13 @@ export function CreateUserPage() {
   const [copied, setCopied] = useState(false);
 
   // Fetch password policy
-  const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy');
+  const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy', { revalidateOnMount: true, dedupingInterval: 5000 });
   const policy = { ...DEFAULT_PASSWORD_POLICY, ...policyData };
 
   // Fetch roles that current user can create
   const { data: creatableRolesData } = useSWR<RoleData[]>(
-    user?.role ? `/api/roles/${user.role}/creatable` : null
+    user?.role ? `/api/roles/${user.role}/creatable` : null,
+    { revalidateOnMount: true, dedupingInterval: 0 }
   );
   const creatableRoles = creatableRolesData || [];
 

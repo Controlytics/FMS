@@ -34,7 +34,7 @@ export function RolesManagementPage() {
     permissions: [],
   });
 
-  const { data: roles, isLoading } = useSWR<RoleData[]>('/api/roles');
+  const { data: roles, isLoading } = useSWR<RoleData[]>('/api/roles', { revalidateOnMount: true, dedupingInterval: 0 });
 
   const resetForm = () => {
     setFormData({

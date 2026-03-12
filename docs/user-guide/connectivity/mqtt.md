@@ -14,7 +14,7 @@ Device ──MQTT──► EMQX Broker ──► DigiLog MQTT Client ──► B
 2. **EMQX Broker** receives the message and routes to subscribed clients
 3. **DigiLog MQTT Client** subscribes to `digilog/v1/#` wildcard
 4. **BullMQ** queues the message for reliable processing
-5. **Pipeline Worker** processes through the 9-stage pipeline
+5. **Pipeline Worker** processes through the multi-stage pipeline (auth, validate, enrich, ruleChain, save, latestCache, connectivity)
 
 ---
 

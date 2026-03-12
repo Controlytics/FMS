@@ -87,11 +87,12 @@ Clicking an entity opens the detail panel on the right with these tabs:
 | Tab | Description |
 |-----|-------------|
 | **Details** | Name, template, status, description, custom attributes |
-| **Attributes** | Template-defined typed attributes (text, number, boolean, enum, date, JSON) |
-| **Telemetry** | Real-time and historical time-series data charts |
-| **Connectivity** | Device access token, connection status, code snippets |
-| **Checklists** | Inspection forms and submission history |
-| **QR Code** | Generated QR code linking to the entity's checklist form |
+| **Attributes** | Template-defined typed attributes (9 types: TEXT, INTEGER, FLOAT, BOOLEAN, DROPDOWN, DATE, DATETIME, URL, FILE) |
+| **Telemetry** | Real-time and historical time-series data charts with auto-refresh via SWR polling and WebSocket |
+| **Connectivity** | Device access token, connection status, code snippets, connection history |
+| **Checklists** | Inspection forms (14 question types) and submission history |
+| **Checklist History** | Review workflow and historical checklist submissions |
+| **Relationships** | Dynamic tree diagram with create child, attach existing, and remove actions |
 
 ### Entity Actions
 
@@ -109,9 +110,9 @@ Clicking an entity opens the detail panel on the right with these tabs:
 
 ## Relationships
 
-DigiLog maintains two types of relationships between entities:
+DigiLog supports 12 bidirectional relationship types between entities. The primary types are:
 
-### CONTAINS / CONTAINED_IN
+### CONTAINS / CONTAINED_IN (and 11 others)
 
 When entity A is the parent of entity B:
 - A **CONTAINS** B (A is the parent)
@@ -119,9 +120,11 @@ When entity A is the parent of entity B:
 
 These relationship pairs are automatically created when you set a parent during entity creation or editing, and automatically cleaned up on delete.
 
+All 12 relationship types: CONTAINS/CONTAINED_IN, FEEDS/FED_BY, DEPENDS_ON/DEPENDED_ON_BY, BACKS_UP/BACKED_UP_BY, MONITORS/MONITORED_BY, CONNECTED_TO (symmetric), CUSTOM. Creating a relationship automatically creates its inverse. Deleting either side deletes both.
+
 ### Relationship Management
 
-Relationships are managed through the entity's parent field:
+Relationships are managed through the entity's parent field or the Relationships tab in the Entity Detail Panel:
 1. Set a parent during entity creation.
 2. Change the parent by editing the entity.
 3. Remove the parent by setting it to "None".

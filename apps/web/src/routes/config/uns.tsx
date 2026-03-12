@@ -142,7 +142,7 @@ export function UnsConfigPage() {
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
 
   // Tree data
-  const { data: treeData, isLoading: treeLoading } = useSWR<UnsTreeNode[]>('/api/uns/tree');
+  const { data: treeData, isLoading: treeLoading } = useSWR<UnsTreeNode[]>('/api/uns/tree', { revalidateOnMount: true, dedupingInterval: 0 });
 
   // Search
   const [searchQuery, setSearchQuery] = useState('');

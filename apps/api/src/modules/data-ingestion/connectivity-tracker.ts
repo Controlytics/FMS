@@ -6,6 +6,7 @@
  */
 
 import { prisma } from '../../lib/prisma.js';
+import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
 import { addDeviceEventRow } from '@digilog/db';
 
 /** Update entity connectivity to ONLINE on data received. */
@@ -16,6 +17,9 @@ export async function markOnline(
   unsPath: string,
 ): Promise<void> {
   const now = new Date();
+
+  // Check previous status for DEVICE_ONLINE notification (before upsert changes it)
+  const prevStatus = await prisma.connectivityStatus.findUnique({ where: { entityId }, select: { status: true } });
 
   await prisma.connectivityStatus.upsert({
     where: { entityId },
@@ -65,11 +69,27 @@ export async function markOnline(
     sourceIp,
     unsPath,
   });
+
+  // Dispatch DEVICE_ONLINE notification (only on status change from OFFLINE to ONLINE)
+  if (!prevStatus || prevStatus.status === 'OFFLINE') {
+    const entity = await prisma.assetInstance.findUnique({ where: { id: entityId }, select: { name: true } });
+    dispatchNotification({
+      eventType: 'DEVICE_ONLINE',
+      context: {},
+      variables: {
+        deviceName: entity?.name ?? entityId, entityId, unsPath,
+        protocol, sourceIp, timestamp: now.toISOString(),
+      },
+    }).catch(err => console.error('[DeviceOnline] Notification dispatch failed:', err.message));
+  }
 }
 
 /** Mark entity as OFFLINE. */
 export async function markOffline(entityId: string, unsPath: string): Promise<void> {
   const now = new Date();
+
+  // Check previous status for DEVICE_ONLINE notification (before upsert changes it)
+  const prevStatus = await prisma.connectivityStatus.findUnique({ where: { entityId }, select: { status: true } });
 
   await prisma.connectivityStatus.upsert({
     where: { entityId },
@@ -92,6 +112,17 @@ export async function markOffline(entityId: string, unsPath: string): Promise<vo
     sourceIp: null,
     unsPath,
   });
+
+  // Dispatch DEVICE_OFFLINE notification
+  const offEntity = await prisma.assetInstance.findUnique({ where: { id: entityId }, select: { name: true } });
+  dispatchNotification({
+    eventType: 'DEVICE_OFFLINE',
+    context: {},
+    variables: {
+      deviceName: offEntity?.name ?? entityId, entityId, unsPath,
+      timestamp: now.toISOString(),
+    },
+  }).catch(err => console.error('[DeviceOffline] Notification dispatch failed:', err.message));
 }
 
 /**
@@ -139,6 +170,18 @@ export async function checkInactivityTimeouts(): Promise<number> {
       });
 
       offlineCount++;
+
+      // Dispatch DEVICE_INACTIVITY notification
+      const inactEntity = await prisma.assetInstance.findUnique({ where: { id: entity.entityId }, select: { name: true } });
+      dispatchNotification({
+        eventType: 'DEVICE_INACTIVITY',
+        context: {},
+        variables: {
+          deviceName: inactEntity?.name ?? entity.entityId, entityId: entity.entityId,
+          unsPath: instance?.unsPath ?? '', inactiveSince: entity.lastActivityAt?.toISOString() ?? 'N/A',
+          timeoutSeconds: String(timeoutSeconds), timestamp: new Date().toISOString(),
+        },
+      }).catch(err => console.error('[DeviceInactivity] Notification dispatch failed:', err.message));
     }
   }
 

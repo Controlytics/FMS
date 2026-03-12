@@ -1,6 +1,6 @@
 # Checklists
 
-Checklists are template-based inspection forms that allow operators to perform structured data collection on entities. DigiLog supports text, numeric, yes/no, dropdown, and photo question types, with full submission history and QR code access for field operations.
+Checklists are template-based inspection forms that allow operators to perform structured data collection on entities. DigiLog supports 14 question types with full submission history and QR code access for field operations.
 
 ---
 
@@ -23,15 +23,24 @@ A checklist is a structured form linked to an entity. It is defined by the entit
 
 ---
 
-## Question Types
+## Question Types (14 total)
 
 | Type | Description | Example |
 |------|-------------|---------|
 | **TEXT** | Free-text answer | "Describe any visible damage" |
 | **NUMBER** | Numeric value input | "Current reading (PSI)" |
 | **YES_NO** | Boolean yes/no toggle | "Is the safety guard in place?" |
-| **DROPDOWN** | Select from predefined options | "Condition: [Good, Fair, Poor, Failed]" |
+| **MULTIPLE_CHOICE** | Select from predefined options | "Condition: [Good, Fair, Poor, Failed]" |
 | **PHOTO** | Camera capture or image upload | "Photo of equipment nameplate" |
+| **MULTI_SELECT** | Select multiple options | "Issues found: [Leak, Noise, Vibration, Heat]" |
+| **DATE** | Date picker | "Last calibration date" |
+| **TIME** | Time picker | "Shift start time" |
+| **DATETIME** | Date and time picker | "Maintenance scheduled at" |
+| **RATING** | Numeric rating scale | "Equipment condition (1-5)" |
+| **SIGNATURE** | Digital signature capture | "Operator sign-off" |
+| **FILE_UPLOAD** | Attach a file | "Upload calibration certificate" |
+| **RANGE** | Numeric range slider | "Temperature setting (20-80)" |
+| **CALCULATED** | Auto-computed from other answers | "Total score" |
 
 ---
 
@@ -43,7 +52,7 @@ Checklist questions are defined in the Asset Template's checklist configuration:
 2. Open or create a template.
 3. In the **Checklist** section, add questions:
    - **Question text** — What to ask the operator
-   - **Question type** — TEXT, NUMBER, YES_NO, DROPDOWN, or PHOTO
+   - **Question type** — One of 14 types (TEXT, NUMBER, YES_NO, MULTIPLE_CHOICE, PHOTO, etc.)
    - **Required** — Whether the question must be answered
    - **Options** — For DROPDOWN type: the list of choices
 
@@ -192,6 +201,6 @@ Operator scans QR code on equipment
 
 ## Next Steps
 
-- [QR Codes](qr-codes.md) — Detailed QR code generation and usage
 - [Asset Templates](../templates/asset-templates.md) — Define checklist questions in templates
 - [Audit Trail](../../administration/audit/audit-trail.md) — Track checklist submissions
+- [Entities & Hierarchy](../entities/entities-and-hierarchy.md) — Entity management

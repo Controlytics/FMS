@@ -98,7 +98,7 @@ This provides a complete audit trail of checklist submissions and their review s
 
 ## Permission
 
-All export endpoints require `ASSET_VIEW` permission.
+All export endpoints require `DATA_EXPORT` permission. Export formats include CSV and JSON for telemetry, alarms, and audit data.
 
 ---
 

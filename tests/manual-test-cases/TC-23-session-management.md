@@ -20,7 +20,7 @@
 ### TC-23-P01: Login Creates Session
 - **Priority**: High
 - **Preconditions**: User account exists and is enabled
-- **Test Data**: admin / Test@12345
+- **Test Data**: admin / Admin@123
 - **Steps**:
   1. Send POST /api/auth/login with valid credentials
   2. Verify response contains `token` and `expiresIn`

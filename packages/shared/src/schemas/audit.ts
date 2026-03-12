@@ -9,7 +9,7 @@ export const auditQuerySchema = z.object({
   action: z.string().optional(),
   targetType: z.string().optional(),
   page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(20),
+  limit: z.coerce.number().min(1).optional(),
 });
 
 export type AuditQueryInput = z.infer<typeof auditQuerySchema>;

@@ -3,7 +3,7 @@
 ## Prerequisites
 - **App URL**: http://3.108.185.106
 - **API Base**: http://localhost:3000/api
-- **SUPER_ADMIN Credentials**: admin / Test@12345
+- **SUPER_ADMIN Credentials**: admin / Admin@123
 - **Entities**: At least 2-3 entities in a parent-child hierarchy with UNS mappings
 - **Browser**: Chrome or Firefox
 
@@ -12,7 +12,7 @@
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 # Find entities with UNS mappings
 sudo -u postgres psql digilog_db -c "SELECT entity_id, uns_path, is_overridden FROM uns_mappings ORDER BY uns_path LIMIT 10;"

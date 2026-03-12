@@ -248,6 +248,120 @@ curl -X PUT "http://your-server/api/config/field-ids/userId" \
 
 ---
 
+## Alarm Columns
+
+Configure which alarm table columns are visible and which roles can see them.
+
+### GET /api/config/alarm-columns
+
+Get alarm column configuration (SUPER_ADMIN only).
+
+### PUT /api/config/alarm-columns
+
+Update alarm column visibility and role-based access.
+
+### GET /api/config/alarm-columns/current
+
+Get the effective alarm columns for the current user's role.
+
+There are 11 configurable alarm column definitions that control the alarm table display on a per-role basis.
+
+---
+
+
+---
+
+## Config Registry System
+
+The Config Registry provides auto-discovery and dynamic management of all configuration modules.
+
+### GET /api/config/registry/manifest
+
+Returns a filtered list of all registered config modules based on the current user's role and permissions.
+
+**Auth:** Bearer token required
+**Permission:** Filtered by user role (SUPER_ADMIN sees all)
+
+**Response:**
+```json
+[
+  {
+    "moduleKey": "password-policy",
+    "label": "Password Policy",
+    "description": "Password complexity and expiry requirements",
+    "category": "security",
+    "hasCustomPage": true,
+    "routePath": "/config/password-policy",
+    "settingsCount": 9
+  }
+]
+```
+
+### GET /api/config/dynamic/:moduleKey
+
+Retrieve settings for a config module that doesn't have a custom page. Secrets are masked in the response.
+
+**Auth:** Bearer token + CONFIG_READ permission
+
+### PUT /api/config/dynamic/:moduleKey
+
+Update settings for a dynamic config module. Supports Zod validation, re-authentication for sensitive settings, secret field preservation, and audit logging.
+
+**Auth:** Bearer token + CONFIG_UPDATE permission
+
+**Body:**
+```json
+{
+  "settingKey": "newValue",
+  "anotherSetting": "value"
+}
+```
+
+---
+
+## Field ID Configuration
+
+Configurable display names for system field identifiers across all modules.
+
+### GET /api/config/field-ids
+
+List all field ID configurations across all modules.
+
+**Auth:** Bearer token (all authenticated users)
+
+**Response:**
+```json
+[
+  {
+    "id": "uuid",
+    "fieldId": "FLD_ALARM_001",
+    "defaultName": "Severity",
+    "displayName": "Severity",
+    "module": "Alarms",
+    "description": "Alarm severity level",
+    "updatedAt": "2026-03-12T00:00:00Z",
+    "updatedBy": null
+  }
+]
+```
+
+**Modules covered:** User Management (6), Audit Trail (5), Alarms (11), Asset Management (5), Notifications (6), Telemetry (3), Attributes (3) - 39 total fields
+
+### PUT /api/config/field-ids/:fieldId
+
+Update the display name for a specific field ID.
+
+**Auth:** Bearer token + CONFIG_UPDATE permission (SUPER_ADMIN only)
+
+**Body:**
+```json
+{
+  "displayName": "Custom Label"
+}
+```
+
+---
+
 ## Next Steps
 
 - [Security Configuration Guide](../administration/security/security.md) — Password, lockout, and session policies

@@ -24,7 +24,7 @@ export function AuditTrailPage() {
 
   // Fetch configurable audit text templates (cached for 5 min)
   const { data: templatesData } = useSWR<Record<string, string>>('/api/config/audit-templates/current', {
-    dedupingInterval: 300000,
+    revalidateOnMount: true, dedupingInterval: 5000,
     revalidateOnFocus: false,
   });
   const templates = useMemo(() => templatesData ?? getDefaultTemplates(), [templatesData]);

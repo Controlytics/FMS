@@ -1,7 +1,7 @@
 # EG-24: File Uploads — Execution Guide
 
 ## Prerequisites
-- **Credentials**: SUPER_ADMIN (admin / Test@12345)
+- **Credentials**: SUPER_ADMIN (admin / Admin@123)
 - **Tools**: curl, jq, browser, test image files (JPEG, PNG, GIF, WebP)
 - **Setup**: Prepare test images of various sizes and types
 - **Base URL**: http://localhost:3000
@@ -35,7 +35,7 @@ echo "%PDF-1.4 fake pdf content" > /tmp/test-file.pdf
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 echo "Token: $TOKEN"
 ```

@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import useSWR from 'swr';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/hooks/use-auth';
 import { Badge } from '@/components/ui/badge';
@@ -215,10 +216,69 @@ const superAdminCards = [
     gradient: 'from-cyan-500 to-blue-600',
     shadowColor: 'shadow-cyan-500/25',
   },
+  {
+    title: "Notification Rules",
+    description: "Configure event-based alerts & recipients",
+    href: "/config/notification-rules",
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+      </svg>
+    ),
+    gradient: "from-amber-500 to-orange-600",
+    shadowColor: "shadow-amber-500/25",
+  },
+  {
+    title: "Email Settings",
+    description: "Configure SMTP for email notifications",
+    href: "/config/email-settings",
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+      </svg>
+    ),
+    gradient: "from-blue-500 to-indigo-600",
+    shadowColor: "shadow-blue-500/25",
+  },
+  {
+    title: "SMS Settings",
+    description: "Configure SMS provider for notifications",
+    href: "/config/sms-settings",
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+      </svg>
+    ),
+    gradient: "from-green-500 to-emerald-600",
+    shadowColor: "shadow-green-500/25",
+  },
+  {
+    title: "Notification Logs",
+    description: "View email & SMS delivery history",
+    href: "/config/notification-logs",
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+      </svg>
+    ),
+    gradient: "from-amber-500 to-orange-600",
+    shadowColor: "shadow-amber-500/25",
+  },
 ];
 
 export function ConfigIndexPage() {
   const { user } = useAuth();
+
+  // Auto-discovered config modules from registry
+  const { data: manifest } = useSWR<Array<{
+    moduleKey: string; moduleName: string; description: string;
+    icon: string; category: string; sortOrder: number;
+    requiredRole: string | null; hasCustomPage: boolean;
+    customPagePath: string | null; settings: any[];
+  }>>('/api/config/registry/manifest', { revalidateOnMount: true, dedupingInterval: 5000 });
+
+  // Group manifest entries by category
+  const dynamicModules = (manifest ?? []).filter(m => !m.hasCustomPage);
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -373,6 +433,41 @@ export function ConfigIndexPage() {
           </div>
         </div>
       </div>
+      {/* Dynamic Config Modules (auto-discovered) */}
+      {dynamicModules && dynamicModules.length > 0 && (
+        <section>
+          <div className="mb-6">
+            <h2 className="text-lg font-semibold text-slate-800">Additional Modules</h2>
+            <p className="text-sm text-slate-500 mt-1">Auto-discovered configuration modules</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {dynamicModules.map((mod) => (
+              <Link key={mod.moduleKey} to={`/config/dynamic/${mod.moduleKey}`} className="group">
+                <Card className="relative overflow-hidden border border-slate-200 transition-all duration-200 hover:shadow-lg hover:border-slate-300 hover:-translate-y-0.5">
+                  <CardContent className="pt-6 pb-4 px-6">
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg flex items-center justify-center text-white flex-shrink-0">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-slate-800 group-hover:text-blue-600 transition-colors">{mod.moduleName}</h3>
+                        <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{mod.description}</p>
+                      </div>
+                    </div>
+                    <div className="mt-4 flex items-center justify-between">
+                      <span className="text-xs text-slate-400">{mod.settings.length} settings</span>
+                      <span className="text-xs text-blue-600 font-medium group-hover:translate-x-0.5 transition-transform">Configure →</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

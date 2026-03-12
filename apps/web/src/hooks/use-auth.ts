@@ -101,6 +101,34 @@ export function useAuth() {
     };
   }, [user]);
 
+  // Periodically refresh JWT token to prevent expiry (every 30 minutes)
+  useEffect(() => {
+    const REFRESH_INTERVAL = 30 * 60 * 1000; // 30 minutes
+    const refreshToken = async () => {
+      const token = sessionStorage.getItem('access_token');
+      if (!token) return;
+      try {
+        const res = await fetch('/api/auth/refresh', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.token) {
+            sessionStorage.setItem('access_token', data.token);
+          }
+        }
+      } catch {
+        // Silent fail — next request will trigger 401 logout if token truly expired
+      }
+    };
+
+    const interval = setInterval(refreshToken, REFRESH_INTERVAL);
+    // Also refresh once shortly after mount to extend token on page load
+    const initialRefresh = setTimeout(refreshToken, 5000);
+    return () => { clearInterval(interval); clearTimeout(initialRefresh); };
+  }, [user]);
+
   return {
     user,
     isLoading,

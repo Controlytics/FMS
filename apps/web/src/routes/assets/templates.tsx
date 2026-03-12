@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { useReauth } from '@/hooks/use-reauth';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
@@ -32,10 +32,6 @@ export function AssetTemplatesPage() {
   const reauth = useReauth();
   const { formatDateTime } = useDatetimeFormat();
 
-  // Data
-  const { data: templatesRes, isLoading } = useSWR<{ data: TemplateData[] }>('/api/assets/templates?isActive=true');
-  const templates = templatesRes?.data;
-
   // Dialog states
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -45,15 +41,6 @@ export function AssetTemplatesPage() {
   const [viewTemplate, setViewTemplate] = useState<TemplateData | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TemplateData | null>(null);
 
-  // Audit history for viewed template
-  const [viewAuditTab, setViewAuditTab] = useState(false);
-  const { data: templateAuditData } = useSWR<{ data: AuditRecord[] }>(
-    viewTemplate && viewAuditTab
-      ? `/api/audit?targetType=asset_template&targetId=${viewTemplate.id}&limit=50`
-      : null,
-  );
-  const templateAuditRecords = templateAuditData?.data ?? [];
-
   // Form state
   const [formData, setFormData] = useState<FormData>(emptyForm());
   const [saving, setSaving] = useState(false);
@@ -61,30 +48,40 @@ export function AssetTemplatesPage() {
   const [deleteError, setDeleteError] = useState('');
   const [deleting, setDeleting] = useState(false);
 
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(10);
+  const paginationOptions = [10, 20, 50];
+
   // Search
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Debounce search
+  // Data
+  const { data: templatesRes, isLoading } = useSWR<{ data: TemplateData[]; total: number; page: number; totalPages: number }>(
+    `/api/assets/templates?isActive=true&page=${page}&limit=${perPage}${debouncedSearch ? `&search=${encodeURIComponent(debouncedSearch)}` : ''}`
+  );
+  const templates = templatesRes?.data;
+  const displayedTemplates = templates ?? [];
+
+  // Audit history for viewed template
+  const [viewAuditTab, setViewAuditTab] = useState(false);
+  const { data: templateAuditData } = useSWR<{ data: AuditRecord[] }>(
+    viewTemplate && viewAuditTab
+      ? `/api/audit?targetType=asset_template&targetId=${viewTemplate.id}`
+      : null,
+  );
+  const templateAuditRecords = templateAuditData?.data ?? [];
+
+  // Debounce search and reset page
   useEffect(() => {
     debounceRef.current = setTimeout(() => {
       setDebouncedSearch(searchTerm);
+      setPage(1);
     }, 300);
     return () => clearTimeout(debounceRef.current);
   }, [searchTerm]);
-
-  // Filtered templates
-  const filteredTemplates = useMemo(() => {
-    if (!templates) return [];
-    return templates.filter((t) => {
-      const matchesSearch =
-        !debouncedSearch ||
-        t.name.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-        t.description?.toLowerCase().includes(debouncedSearch.toLowerCase());
-      return matchesSearch;
-    });
-  }, [templates, debouncedSearch]);
 
   // -----------------------------------------------------------------------
   // Form helpers
@@ -719,7 +716,7 @@ export function AssetTemplatesPage() {
               </svg>
               <p className="text-slate-500">Loading templates...</p>
             </div>
-          ) : filteredTemplates.length === 0 ? (
+          ) : displayedTemplates.length === 0 ? (
             <div className="p-16 text-center">
               <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-slate-100 flex items-center justify-center">
                 <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -752,7 +749,7 @@ export function AssetTemplatesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredTemplates.map((template) => (
+                {displayedTemplates.map((template) => (
                   <TableRow key={template.id} className="hover:bg-slate-50/50 transition-colors">
                     <TableCell>
                       <div className="flex items-center gap-3">
@@ -824,6 +821,107 @@ export function AssetTemplatesPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Pagination */}
+      {templatesRes && (templatesRes.totalPages ?? 0) > 0 && (
+        <div className="flex items-center justify-between bg-white rounded-xl border border-slate-200 p-4">
+          <div className="flex items-center gap-3 text-sm text-slate-600">
+            <span className="text-slate-500">Rows per page:</span>
+            <div className="flex items-center gap-1">
+              {paginationOptions.map((opt) => (
+                <button
+                  key={opt}
+                  onClick={() => { setPerPage(opt); setPage(1); }}
+                  className={`px-2.5 py-1 rounded-md text-sm font-medium transition-all ${
+                    perPage === opt
+                      ? 'bg-purple-500 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+            <span className="text-slate-300">|</span>
+            <span>
+              Page <span className="font-semibold text-slate-800">{templatesRes.page}</span> of{' '}
+              <span className="font-semibold text-slate-800">{templatesRes.totalPages}</span>
+              <span className="text-slate-400 ml-2">({templatesRes.total} total)</span>
+            </span>
+          </div>
+          {templatesRes.totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page <= 1}
+                onClick={() => setPage(1)}
+                className="px-3"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                </svg>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => p - 1)}
+                className="px-4"
+              >
+                Previous
+              </Button>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, templatesRes.totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (templatesRes.totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (page <= 3) {
+                    pageNum = i + 1;
+                  } else if (page >= templatesRes.totalPages - 2) {
+                    pageNum = templatesRes.totalPages - 4 + i;
+                  } else {
+                    pageNum = page - 2 + i;
+                  }
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setPage(pageNum)}
+                      className={`w-8 h-8 rounded-lg text-sm font-medium transition-all ${
+                        pageNum === page
+                          ? 'bg-purple-500 text-white shadow-md'
+                          : 'text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page >= templatesRes.totalPages}
+                onClick={() => setPage((p) => p + 1)}
+                className="px-4"
+              >
+                Next
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page >= templatesRes.totalPages}
+                onClick={() => setPage(templatesRes.totalPages)}
+                className="px-3"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                </svg>
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Info Banner */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50 border border-purple-100/50 p-5">

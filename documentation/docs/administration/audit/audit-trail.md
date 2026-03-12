@@ -103,10 +103,11 @@ For alarm acknowledgment and clearing, users must re-enter their password to pro
 
 ### Immutability
 
-Audit records are write-only. They cannot be modified or deleted through the application:
-- No UPDATE or DELETE endpoints exist for audit records
+Audit records are protected by SHA-256 checksums computed on {timestamp, userId, action, targetType, targetId, afterValue}. Each record's integrity is verified on read (`integrityValid: boolean`). Additionally:
+- SUPER_ADMIN can delete audit records (21 CFR Part 11 exemption by design)
 - The `audit_trail` table has no update triggers
 - Records are retained per the configured retention policy
+- Any tampering is detectable via checksum mismatch
 
 ### Data Integrity
 

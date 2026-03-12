@@ -4,7 +4,7 @@ import { NotFoundError, ConflictError } from '../../../lib/errors.js';
 import { templateRepository } from '../repositories/template.repository.js';
 
 export const templateService = {
-  async list(query: { search?: string; isActive?: string; page: number; limit: number }) {
+  async list(query: { search?: string; isActive?: string; page: number; limit?: number }) {
     const where: Record<string, unknown> = {};
     if (query.search) {
       where.name = { contains: query.search, mode: 'insensitive' };
@@ -18,8 +18,8 @@ export const templateService = {
       data: templates,
       total,
       page: query.page,
-      limit: query.limit,
-      totalPages: Math.ceil(total / query.limit),
+      limit: query.limit ?? total,
+      totalPages: query.limit ? Math.ceil(total / query.limit) : 1,
     };
   },
 

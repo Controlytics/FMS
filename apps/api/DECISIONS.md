@@ -97,7 +97,7 @@
 **Rationale:** Renaming code identifiers would require a database migration (table/column renames), Prisma schema changes, and extensive refactoring across all files with no functional benefit. The user-facing rename from "Asset" to "Entity" better matches the domain vocabulary without the risk and effort of a full codebase rename. This is a common pattern in long-lived codebases where the domain language evolves.
 
 ## 25. TimescaleDB for Time-Series Data (not plain PostgreSQL tables)
-**Decision:** Convert 5 high-volume tables (TelemetryData, AlarmRecord, IngestionEvent, DeviceCredential, DlqEntry) to TimescaleDB hypertables with automatic time partitioning.
+**Decision:** Convert high-volume tables to TimescaleDB hypertables (7 hypertables total) with automatic time partitioning.
 **Rationale:** Time-series data (telemetry readings, alarms, events) grows unboundedly. TimescaleDB provides automatic partitioning by time (7-day chunks), compression, and retention policies without application code changes. Queries filtering by time range benefit from chunk pruning. The `digilog_tsdb` database runs alongside `digilog_db` on the same PostgreSQL instance.
 
 ## 26. BullMQ for Ingestion Queue (not in-process)
@@ -105,7 +105,7 @@
 **Rationale:** Data ingestion from IoT devices can burst to high volumes. Queueing decouples HTTP acceptance (fast 202 response) from processing (pipeline stages). BullMQ provides job persistence, retry with backoff, dead letter queue, and rate limiting. Redis is already used for rule chain caching, so no additional infrastructure. Two workers: ingestion (processes payloads) and maintenance (DLQ cleanup, connectivity staleness checks).
 
 ## 27. Sandboxed VM for Rule Chain Scripts (not eval/Function)
-**Decision:** Execute user-defined rule chain scripts in Node.js `vm.runInNewContext()` with a 1-second timeout and restricted global scope (no `process`, `require`, `global`, `Buffer`, `setTimeout`).
+**Decision:** Execute user-defined rule chain scripts (48 node types total across 9 categories) in Node.js `vm.runInNewContext()` with a 1-second timeout and restricted global scope (no `process`, `require`, `global`, `Buffer`, `setTimeout`).
 **Rationale:** Rule chain "script" nodes allow users to write custom transformation/filtering logic. Running untrusted code requires isolation to prevent: infinite loops (1s timeout), file system access (no `require`/`process`), memory exhaustion (restricted scope), and global state pollution (new context per execution). The VM sandbox is lightweight compared to worker threads or child processes.
 
 ## 28. Sub-Chain Delegation with Depth Tracking (not unlimited nesting)
@@ -139,3 +139,28 @@
 ## 35. Default Chain Builder (auto-create from template alarm rules)
 **Decision:** When an entity template has alarm rules defined, the system auto-generates a default rule chain with dual create-alarm/clear-alarm paths per alarm rule.
 **Rationale:** Users shouldn't need to manually build rule chains for standard alarm scenarios. The default chain builder creates a chain with: input → filter (check key match) → threshold check → create-alarm node (if violated) / clear-alarm node (if normal). This covers 90% of use cases. Users can customize by editing the auto-generated chain in the visual editor.
+
+## 36. Static Routes Before Parameterized Routes (Fastify route ordering)
+**Decision:** All static path routes (e.g., `/stats`, `/tree`, `/search`) must be registered before parameterized routes (e.g., `/:id`, `/:entityId`) in the same route prefix.
+**Rationale:** Fastify matches routes in registration order. A parameterized route like `/:id` will capture any string, including "stats", causing validation errors when "stats" is parsed as a UUID. Discovered during system validation (BUG-V003, BUG-V004): `/api/connectivity/stats` was captured by `/:entityId` and `/api/alarms/stats` was captured by `/:id`. Fix: Reorder route registrations so static paths come first.
+
+## 37. Rule Chain Save with Temp ID Remapping
+**Decision:** The rule chain save endpoint (POST /:id/save) accepts temporary node IDs in the payload (e.g., "t1", "t2") and remaps them to real UUIDs via a `nodeIdMap` during atomic creation.
+**Rationale:** The frontend rule chain editor doesn't know the server-assigned UUIDs before saving. Using temp IDs in the save payload allows the backend to create nodes first, build a mapping, then use it to resolve connection references and `firstRuleNodeId`. This avoids requiring a two-step create-then-connect flow.
+
+## 38. Multi-Select Event Types for Notification Rules
+**Decision:** Changed notification rules from single `eventType` (enum) to `eventTypes` (enum array). Both fields are maintained: `eventType` = first element (backward compat), `eventTypes` = full array.
+**Rationale:** Users need a single rule to trigger on multiple event types (e.g., all alarm events). Storing as PostgreSQL enum array with Prisma `NotificationEventType[]` allows efficient `has` queries. The dispatcher uses `eventTypes: { has: eventType }` to match. Frontend uses a grouped checkbox dropdown component (`MultiSelectEventTypes`).
+
+## 39. Force IPv4 for SMTP Connections
+**Decision:** Added `family: 4` to all nodemailer `createTransport()` options (both OAuth2 and basic auth) via `as any` type cast.
+**Rationale:** EC2 instances in ap-south-1 cannot reach IPv6 addresses. When `smtp.office365.com` resolves to IPv6 first (e.g., `2603:1036:30d:401::2:587`), connections fail with `ENETUNREACH`. Forcing IPv4 ensures reliable SMTP delivery. The `as any` cast is needed because nodemailer's TypeScript types don't expose the `family` option from Node.js `net.connect`.
+
+## 40. Strip Computed Fields on Notification Rule Update
+**Decision:** The PUT handler for notification rules destructures and removes `eventTypeMeta`, `eventTypesMeta`, `createdAt`, `updatedAt`, `createdBy`, and `id` before passing data to Prisma `update()`. Empty string values for UUID fields (`emailTemplateId`, `smsTemplateId`) are converted to `null`.
+**Rationale:** The frontend sends the full rule object (including server-computed fields from the list endpoint) back when updating. Prisma rejects unknown fields. Empty strings for optional UUID columns cause PostgreSQL UUID parse errors.
+
+## 41. Config Registry Pattern (2026-03-12)
+**Decision:** Implemented self-registering config module architecture instead of hardcoded routes per config.
+**Rationale:** With 23+ config modules, adding new ones required touching multiple files (routes, service, frontend routing). The registry pattern allows adding a new config by creating a single definition file.
+**Trade-offs:** Slightly more complex startup (auto-discovery), but zero-touch addition of new config modules.

@@ -182,9 +182,9 @@ See [Data Retention](../../administration/configuration/system-configuration.md#
 
 ---
 
-## Time-Series Tables
+## Time-Series Tables (7 Hypertables)
 
-DigiLog stores telemetry in dedicated time-series tables:
+DigiLog stores telemetry and related data in TimescaleDB hypertables for optimized time-range queries:
 
 | Table | Purpose |
 |-------|---------|
@@ -192,14 +192,17 @@ DigiLog stores telemetry in dedicated time-series tables:
 | `ts_attributes` | Device-reported attributes |
 | `ts_device_events` | Connection/disconnection events |
 | `ts_pipeline_traces` | Ingestion pipeline debug traces |
-| `latest_telemetry` | Latest value per entity per key (fast lookup) |
-| `data_streams` | Active data stream definitions per entity |
+| `ts_checklist_responses` | Checklist submission data |
+| `ts_alarms` | Alarm event history |
+| `ts_connectivity` | Connectivity status changes |
+| `latest_telemetry` | Latest value per entity per key (fast lookup, not a hypertable) |
+| `data_streams` | Active data stream definitions per entity (not a hypertable) |
 
 ---
 
 ## Next Steps
 
-- [Attributes](attributes.md) — Static key-value properties
 - [Device Connectivity](../connectivity/device-connectivity.md) — Connect devices to send telemetry
 - [Rule Engine](../rule-engine/overview.md) — Process telemetry through automation rules
 - [Alarms](../alarms/alarms.md) — Trigger alerts based on telemetry values
+- [Telemetry API](../../api-reference/telemetry.md) — Full API reference

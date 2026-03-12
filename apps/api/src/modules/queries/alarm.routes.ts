@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma.js';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { errorResponses } from '../../lib/error-schemas.js';
+import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
 import { auditLog } from '../../lib/audit.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 
@@ -25,7 +26,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
           entityId: { type: 'string', format: 'uuid', description: 'Filter by entity ID' },
           alarmType: { type: 'string', description: 'Filter by alarm type' },
           page: { type: 'integer', default: 1, minimum: 1 },
-          limit: { type: 'integer', default: 50, minimum: 1, maximum: 200 },
+          limit: { type: 'integer', minimum: 1 },
           sortBy: { type: 'string', enum: ['createdAt', 'severity', 'status'], default: 'createdAt' },
           sortDir: { type: 'string', enum: ['asc', 'desc'], default: 'desc' },
         },
@@ -62,8 +63,8 @@ export default async function alarmRoutes(app: FastifyInstance) {
     };
 
     const page = query.page ?? 1;
-    const limit = Math.min(query.limit ?? 50, 200);
-    const skip = (page - 1) * limit;
+    const limit = query.limit ? Math.max(query.limit, 1) : undefined;
+    const skip = limit ? (page - 1) * limit : 0;
     const sortBy = query.sortBy ?? 'createdAt';
     const sortDir = (query.sortDir ?? 'desc') as 'asc' | 'desc';
 
@@ -98,8 +99,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
       prisma.alarm.findMany({
         where,
         orderBy,
-        skip,
-        take: limit,
+        ...(limit ? { skip, take: limit } : {}),
       }),
       prisma.alarm.count({ where }),
     ]);
@@ -123,8 +123,8 @@ export default async function alarmRoutes(app: FastifyInstance) {
       data,
       total,
       page,
-      limit,
-      totalPages: Math.ceil(total / limit),
+      limit: limit ?? total,
+      totalPages: limit ? Math.ceil(total / limit) : 1,
     };
   });
 
@@ -180,7 +180,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
           status: { type: 'string', enum: ['ACTIVE', 'ACKNOWLEDGED', 'CLEARED', 'MANUALLY_CLEARED'] },
           severity: { type: 'string', enum: ['CRITICAL', 'MAJOR', 'MINOR', 'WARNING', 'INFO'] },
           page: { type: 'integer', default: 1, minimum: 1 },
-          limit: { type: 'integer', default: 50, minimum: 1, maximum: 200 },
+          limit: { type: 'integer', minimum: 1 },
         },
       },
       response: {
@@ -210,8 +210,8 @@ export default async function alarmRoutes(app: FastifyInstance) {
     };
 
     const page = query.page ?? 1;
-    const limit = Math.min(query.limit ?? 50, 200);
-    const skip = (page - 1) * limit;
+    const limit = query.limit ? Math.max(query.limit, 1) : undefined;
+    const skip = limit ? (page - 1) * limit : 0;
 
     const where: Prisma.AlarmWhereInput = { entityId };
 
@@ -226,8 +226,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
       prisma.alarm.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
+        ...(limit ? { skip, take: limit } : {}),
       }),
       prisma.alarm.count({ where }),
     ]);
@@ -247,8 +246,8 @@ export default async function alarmRoutes(app: FastifyInstance) {
       data,
       total,
       page,
-      limit,
-      totalPages: Math.ceil(total / limit),
+      limit: limit ?? total,
+      totalPages: limit ? Math.ceil(total / limit) : 1,
     };
   });
 
@@ -350,6 +349,19 @@ export default async function alarmRoutes(app: FastifyInstance) {
       ipAddress: req.ip, userAgent: req.headers['user-agent'],
     });
 
+    // Dispatch ALARM_ACKNOWLEDGED notification
+    const ackEntity = await prisma.assetInstance.findUnique({ where: { id: alarm.entityId }, select: { name: true, unsPath: true } });
+    dispatchNotification({
+      eventType: 'ALARM_ACKNOWLEDGED',
+      context: { severity: alarm.severity, alarmType: alarm.alarmType },
+      variables: {
+        alarmId: alarm.id, alarmType: alarm.alarmType, severity: alarm.severity,
+        entityName: ackEntity?.name ?? alarm.entityId, entityId: alarm.entityId,
+        acknowledgedBy: user.username, remarks: body.remarks ?? 'N/A',
+        timestamp: new Date().toISOString(),
+      },
+    }).catch(err => console.error('[AlarmAck] Notification dispatch failed:', err.message));
+
     return result;
   });
 
@@ -450,6 +462,19 @@ export default async function alarmRoutes(app: FastifyInstance) {
       signatureMeaning: body.meaning,
       ipAddress: req.ip, userAgent: req.headers['user-agent'],
     });
+
+    // Dispatch ALARM_CLEARED notification
+    const clearEntity = await prisma.assetInstance.findUnique({ where: { id: alarm.entityId }, select: { name: true, unsPath: true } });
+    dispatchNotification({
+      eventType: 'ALARM_CLEARED',
+      context: { severity: alarm.severity, alarmType: alarm.alarmType },
+      variables: {
+        alarmId: alarm.id, alarmType: alarm.alarmType, severity: alarm.severity,
+        entityName: clearEntity?.name ?? alarm.entityId, entityId: alarm.entityId,
+        clearedBy: user.username, remarks: body.remarks ?? 'N/A',
+        timestamp: new Date().toISOString(),
+      },
+    }).catch(err => console.error('[AlarmClear] Notification dispatch failed:', err.message));
 
     return result;
   });

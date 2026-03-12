@@ -1,0 +1,568 @@
+/**
+ * Notification Delivery Routes — API endpoints for email/SMS configuration,
+ * sending test notifications, and querying delivery logs.
+ */
+
+import { type FastifyInstance } from 'fastify';
+import { errorResponses } from '../../lib/error-schemas.js';
+import { buildContext } from '../../lib/build-context.js';
+import { prisma } from '../../lib/prisma.js';
+import { invalidateNotificationConfigCache } from './config-loader.js';
+import { sendNotification, sendTestNotification, testChannel } from './delivery.service.js';
+import { auditLog } from '../../lib/audit.js';
+
+const MASK = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
+
+export default async function notificationDeliveryRoutes(app: FastifyInstance) {
+
+  // ====== Email Configuration ======
+
+  app.get('/email', {
+    preHandler: [app.requirePermission('CONFIG_READ')],
+    schema: {
+      tags: ['Notification Settings'],
+      summary: 'Get email (SMTP) configuration',
+      description: 'Retrieve the current SMTP email configuration. Password is masked.',
+      response: { 200: { type: 'object', additionalProperties: true } },
+    },
+  }, async () => {
+    const config = await prisma.systemConfig.findUnique({ where: { configKey: 'notification-email' } });
+    const value = (config?.configValue ?? {}) as Record<string, unknown>;
+    if (value.password) value.password = MASK;
+    if (value.clientSecret) value.clientSecret = MASK;
+    // Don't leak OAuth2 tokens to frontend
+    delete value.accessToken;
+    delete value.tokenExpiresAt;
+    if (value.refreshToken) value.refreshToken = MASK;
+    return value;
+  });
+
+  app.put('/email', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Notification Settings'],
+      summary: 'Update email (SMTP) configuration',
+      description: 'Configure SMTP settings for sending email notifications.',
+      body: {
+        type: 'object',
+        properties: {
+          host: { type: 'string', description: 'SMTP host (e.g. smtp.gmail.com)' },
+          port: { type: 'integer', description: 'SMTP port (587 for TLS, 465 for SSL)' },
+          secure: { type: 'boolean', description: 'Use SSL/TLS (true for port 465)' },
+          username: { type: 'string', description: 'SMTP username / email' },
+          password: { type: 'string', description: 'SMTP password or app-specific password' },
+          fromEmail: { type: 'string', description: 'Sender email address' },
+          fromName: { type: 'string', description: 'Sender display name' },
+          enabled: { type: 'boolean', description: 'Enable/disable email notifications' },
+        },
+      },
+      response: {
+        200: { type: 'object', properties: { success: { type: 'boolean' } } },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const body = req.body as Record<string, unknown>;
+    const ctx = buildContext(req);
+
+    // Preserve masked secrets — don't overwrite with bullet characters
+    const secretFields = ['password', 'clientSecret', 'refreshToken'];
+    const hasMaskedSecret = secretFields.some(f => body[f] === MASK);
+    if (hasMaskedSecret) {
+      const existing = await prisma.systemConfig.findUnique({ where: { configKey: 'notification-email' } });
+      const existingValue = (existing?.configValue ?? {}) as Record<string, unknown>;
+      for (const field of secretFields) {
+        if (body[field] === MASK) {
+          body[field] = existingValue[field];
+        }
+      }
+      // Also preserve OAuth2 tokens that frontend doesn't send
+      for (const tokenField of ['accessToken', 'refreshToken', 'tokenExpiresAt', 'oauth2Configured']) {
+        if (existingValue[tokenField] !== undefined && body[tokenField] === undefined) {
+          body[tokenField] = existingValue[tokenField];
+        }
+      }
+    }
+
+    await prisma.systemConfig.upsert({
+      where: { configKey: 'notification-email' },
+      update: { configValue: body as any, updatedBy: ctx.userId },
+      create: { configKey: 'notification-email', configValue: body as any, configType: 'notification', requiresReauth: false, updatedBy: ctx.userId },
+    });
+
+    invalidateNotificationConfigCache();
+    await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'UPDATE_EMAIL_CONFIG', targetType: 'system_config', targetId: 'notification-email', afterValue: { ...body, password: '***' } });
+    return { success: true };
+  });
+
+  app.post('/email/test', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Notification Settings'],
+      summary: 'Test email configuration',
+      description: 'Verify SMTP connection and optionally send a test email.',
+      body: {
+        type: 'object',
+        properties: { recipient: { type: 'string', description: 'Email to send test to (optional)' } },
+      },
+      response: {
+        200: { type: 'object', properties: { success: { type: 'boolean' }, message: { type: 'string' }, error: { type: 'string' } } },
+      },
+    },
+  }, async (req) => {
+    const { recipient } = (req.body ?? {}) as { recipient?: string };
+    if (recipient) {
+      const result = await sendTestNotification('EMAIL', recipient);
+      return { success: result.success, message: result.success ? `Test email sent to ${recipient}` : undefined, error: result.error };
+    }
+    const result = await testChannel('EMAIL');
+    return { success: result.success, message: result.success ? 'SMTP connection verified successfully' : undefined, error: result.error };
+  });
+
+
+  // ====== OAuth2 Authorization Code Flow ======
+
+  // GET /api/notification-settings/email/oauth2/redirect-uri
+  app.get('/email/oauth2/redirect-uri', {
+    preHandler: [app.requirePermission('CONFIG_READ')],
+    schema: {
+      tags: ['Notification Settings'],
+      summary: 'Get OAuth2 redirect URI',
+      description: 'Returns the redirect URI to configure in Azure AD / Google app registration.',
+      response: { 200: { type: 'object', properties: { redirectUri: { type: 'string' } } } },
+    },
+  }, async (req) => {
+    const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
+    const proto = req.headers['x-forwarded-proto'] || 'http';
+    const redirectUri = `${proto}://${host}/api/notification-settings/email/oauth2/code`;
+    return { redirectUri };
+  });
+
+  // GET /api/notification-settings/email/oauth2/authorize
+  app.get('/email/oauth2/authorize', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Notification Settings'],
+      summary: 'Get OAuth2 authorization URL',
+      description: 'Returns the URL to redirect the user to for OAuth2 authorization.',
+      response: { 200: { type: 'object', properties: { authUrl: { type: 'string' } } } },
+    },
+  }, async (req) => {
+    const config = await prisma.systemConfig.findUnique({ where: { configKey: 'notification-email' } });
+    const value = (config?.configValue ?? {}) as Record<string, unknown>;
+
+    const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
+    const proto = req.headers['x-forwarded-proto'] || 'http';
+    const redirectUri = `${proto}://${host}/api/notification-settings/email/oauth2/code`;
+
+    const provider = String(value.oauth2Provider ?? 'microsoft');
+    const clientId = String(value.clientId ?? '');
+    const tenantId = String(value.providerTenantId ?? 'common');
+
+    if (!clientId) {
+      return { authUrl: '' };
+    }
+
+    let authUrl = '';
+    if (provider === 'microsoft' || provider === 'office365') {
+      const params = new URLSearchParams({
+        client_id: clientId,
+        response_type: 'code',
+        redirect_uri: redirectUri,
+        scope: 'offline_access https://outlook.office365.com/SMTP.Send',
+        response_mode: 'query',
+        prompt: 'consent',
+      });
+      authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${params.toString()}`;
+    } else if (provider === 'google') {
+      const params = new URLSearchParams({
+        client_id: clientId,
+        response_type: 'code',
+        redirect_uri: redirectUri,
+        scope: 'https://mail.google.com/',
+        access_type: 'offline',
+        prompt: 'consent',
+      });
+      authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+    }
+
+    return { authUrl };
+  });
+
+  // GET /api/notification-settings/email/oauth2/code — OAuth2 callback (receives auth code)
+  app.get('/email/oauth2/code', {
+    schema: {
+      tags: ['Notification Settings'],
+      summary: 'OAuth2 callback endpoint',
+      description: 'Handles the OAuth2 authorization code callback. Exchanges code for tokens.',
+      querystring: {
+        type: 'object',
+        properties: {
+          code: { type: 'string' },
+          error: { type: 'string' },
+          error_description: { type: 'string' },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const query = req.query as { code?: string; error?: string; error_description?: string };
+
+    if (query.error) {
+      return reply.type('text/html').send(`<html><body><h2>OAuth2 Error</h2><p>${query.error}: ${query.error_description ?? ''}</p><script>window.close();</script></body></html>`);
+    }
+
+    if (!query.code) {
+      return reply.type('text/html').send('<html><body><h2>Error</h2><p>No authorization code received.</p><script>window.close();</script></body></html>');
+    }
+
+    try {
+      const config = await prisma.systemConfig.findUnique({ where: { configKey: 'notification-email' } });
+      const value = (config?.configValue ?? {}) as Record<string, unknown>;
+
+      const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
+      const proto = req.headers['x-forwarded-proto'] || 'http';
+      const redirectUri = `${proto}://${host}/api/notification-settings/email/oauth2/code`;
+
+      const provider = String(value.oauth2Provider ?? 'microsoft');
+      const clientId = String(value.clientId ?? '');
+      const clientSecret = String(value.clientSecret ?? '');
+      const tenantId = String(value.providerTenantId ?? 'common');
+
+      let tokenUrl = '';
+      let body: URLSearchParams;
+
+      if (provider === 'microsoft' || provider === 'office365') {
+        tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
+        body = new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          code: query.code,
+          redirect_uri: redirectUri,
+          grant_type: 'authorization_code',
+          scope: 'offline_access https://outlook.office365.com/SMTP.Send',
+        });
+      } else {
+        // Google
+        tokenUrl = 'https://oauth2.googleapis.com/token';
+        body = new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          code: query.code,
+          redirect_uri: redirectUri,
+          grant_type: 'authorization_code',
+        });
+      }
+
+      const tokenRes = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString().replace(/%7E/gi, '~'),
+      });
+
+      const tokenData = await tokenRes.json() as Record<string, unknown>;
+      console.log('[OAuth2] Token exchange result:', tokenRes.status, JSON.stringify(tokenData).slice(0, 500));
+      console.log('[OAuth2] Redirect URI used:', redirectUri);
+      console.log('[OAuth2] ClientId used:', clientId);
+      console.log('[OAuth2] ClientSecret used:', clientSecret.slice(0,4) + '...' + clientSecret.slice(-4), 'len:', clientSecret.length);
+
+      if (!tokenRes.ok) {
+        const errMsg = String(tokenData.error_description ?? tokenData.error ?? 'Token exchange failed');
+        return reply.type('text/html').send(`<html><body><h2>Token Error</h2><p>${errMsg}</p><script>window.close();</script></body></html>`);
+      }
+
+      // Save tokens to config
+      const updatedConfig = {
+        ...value,
+        accessToken: tokenData.access_token,
+        refreshToken: tokenData.refresh_token ?? value.refreshToken,
+        tokenExpiresAt: Date.now() + (Number(tokenData.expires_in ?? 3600) * 1000),
+        oauth2Configured: true,
+      };
+
+      await prisma.systemConfig.update({
+        where: { configKey: 'notification-email' },
+        data: { configValue: updatedConfig as any },
+      });
+
+      invalidateNotificationConfigCache();
+      console.log('[OAuth2] Tokens saved successfully. oauth2Configured:', updatedConfig.oauth2Configured);
+
+      return reply.type('text/html').send(`<html><body>
+        <h2 style="color:green">OAuth2 Authorization Successful!</h2>
+        <p>Tokens have been saved. You can close this window.</p>
+        <script>
+          if (window.opener) { window.opener.postMessage({ type: 'oauth2-success' }, '*'); }
+          setTimeout(function() { window.close(); }, 2000);
+        </script>
+      </body></html>`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return reply.type('text/html').send(`<html><body><h2>Error</h2><p>${msg}</p><script>window.close();</script></body></html>`);
+    }
+  });
+
+  // GET /api/notification-settings/email/oauth2/status
+  app.get('/email/oauth2/status', {
+    preHandler: [app.requirePermission('CONFIG_READ')],
+    schema: {
+      tags: ['Notification Settings'],
+      summary: 'Check OAuth2 token status',
+      response: { 200: { type: 'object', properties: { configured: { type: 'boolean' }, hasRefreshToken: { type: 'boolean' }, tokenExpiresAt: { type: 'string' } } } },
+    },
+  }, async () => {
+    const config = await prisma.systemConfig.findUnique({ where: { configKey: 'notification-email' } });
+    const value = (config?.configValue ?? {}) as Record<string, unknown>;
+    return {
+      configured: !!value.oauth2Configured,
+      hasRefreshToken: !!value.refreshToken,
+      tokenExpiresAt: value.tokenExpiresAt ? new Date(Number(value.tokenExpiresAt)).toISOString() : null,
+    };
+  });
+
+  // ====== SMS Configuration ======
+
+  app.get('/sms', {
+    preHandler: [app.requirePermission('CONFIG_READ')],
+    schema: {
+      tags: ['Notification Settings'],
+      summary: 'Get SMS configuration',
+      description: 'Retrieve the current SMS provider configuration. Secrets are masked.',
+      response: { 200: { type: 'object', additionalProperties: true } },
+    },
+  }, async () => {
+    const config = await prisma.systemConfig.findUnique({ where: { configKey: 'notification-sms' } });
+    const value = (config?.configValue ?? {}) as Record<string, unknown>;
+    const sensitiveKeys = ['twilioAuthToken', 'awsSecretAccessKey', 'vonageApiSecret'];
+    for (const key of sensitiveKeys) { if (value[key]) value[key] = MASK; }
+    return value;
+  });
+
+  app.put('/sms', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Notification Settings'],
+      summary: 'Update SMS configuration',
+      description: 'Configure SMS provider settings (Twilio, AWS SNS, Vonage, or HTTP Gateway).',
+      body: {
+        type: 'object',
+        properties: {
+          provider: { type: 'string', enum: ['twilio', 'aws-sns', 'vonage', 'http-gateway'] },
+          enabled: { type: 'boolean' },
+          defaultCountryCode: { type: 'string' },
+          senderId: { type: 'string' },
+          twilioAccountSid: { type: 'string' },
+          twilioAuthToken: { type: 'string' },
+          twilioFromNumber: { type: 'string' },
+          awsAccessKeyId: { type: 'string' },
+          awsSecretAccessKey: { type: 'string' },
+          awsRegion: { type: 'string' },
+          vonageApiKey: { type: 'string' },
+          vonageApiSecret: { type: 'string' },
+          vonageFromNumber: { type: 'string' },
+          httpGatewayUrl: { type: 'string' },
+          httpGatewayMethod: { type: 'string', enum: ['GET', 'POST'] },
+          httpGatewayHeaders: { type: 'object', additionalProperties: { type: 'string' } },
+          httpGatewayBodyTemplate: { type: 'string' },
+        },
+      },
+      response: {
+        200: { type: 'object', properties: { success: { type: 'boolean' } } },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const body = req.body as Record<string, unknown>;
+    const ctx = buildContext(req);
+
+    const sensitiveKeys = ['twilioAuthToken', 'awsSecretAccessKey', 'vonageApiSecret'];
+    const existing = await prisma.systemConfig.findUnique({ where: { configKey: 'notification-sms' } });
+    const existingValue = (existing?.configValue ?? {}) as Record<string, unknown>;
+    for (const key of sensitiveKeys) { if (body[key] === MASK) body[key] = existingValue[key]; }
+
+    await prisma.systemConfig.upsert({
+      where: { configKey: 'notification-sms' },
+      update: { configValue: body as any, updatedBy: ctx.userId },
+      create: { configKey: 'notification-sms', configValue: body as any, configType: 'notification', requiresReauth: false, updatedBy: ctx.userId },
+    });
+
+    invalidateNotificationConfigCache();
+    await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'UPDATE_SMS_CONFIG', targetType: 'system_config', targetId: 'notification-sms', afterValue: { ...body, twilioAuthToken: '***', awsSecretAccessKey: '***', vonageApiSecret: '***' } });
+    return { success: true };
+  });
+
+  app.post('/sms/test', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Notification Settings'],
+      summary: 'Test SMS configuration',
+      description: 'Send a test SMS to verify provider configuration.',
+      body: { type: 'object', required: ['recipient'], properties: { recipient: { type: 'string' } } },
+      response: { 200: { type: 'object', properties: { success: { type: 'boolean' }, message: { type: 'string' }, error: { type: 'string' } } } },
+    },
+  }, async (req) => {
+    const { recipient } = req.body as { recipient: string };
+    const result = await sendTestNotification('SMS', recipient);
+    return { success: result.success, message: result.success ? `Test SMS sent to ${recipient}` : undefined, error: result.error };
+  });
+
+  // ====== Send Notification (Manual) ======
+
+  app.post('/send', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Notification Settings'],
+      summary: 'Send a notification',
+      description: 'Manually send an email or SMS notification.',
+      body: {
+        type: 'object',
+        required: ['channel', 'recipient', 'message'],
+        properties: {
+          channel: { type: 'string', enum: ['EMAIL', 'SMS'] },
+          recipient: { type: 'string' },
+          subject: { type: 'string' },
+          message: { type: 'string' },
+          variables: { type: 'object', additionalProperties: { type: 'string' } },
+        },
+      },
+      response: { 200: { type: 'object', properties: { success: { type: 'boolean' }, messageId: { type: 'string' }, error: { type: 'string' } } } },
+    },
+  }, async (req) => {
+    const body = req.body as { channel: 'EMAIL' | 'SMS'; recipient: string; subject?: string; message: string; variables?: Record<string, string> };
+    return sendNotification({ ...body, triggeredBy: 'manual' });
+  });
+
+  // ====== Notification Logs ======
+
+  app.get('/logs', {
+    preHandler: [app.requirePermission('CONFIG_READ')],
+    schema: {
+      tags: ['Notification Settings'],
+      summary: 'Get notification delivery logs',
+      description: 'Retrieve paginated notification delivery logs with optional filters.',
+      querystring: {
+        type: 'object',
+        properties: {
+          page: { type: 'integer', minimum: 1, default: 1 },
+          limit: { type: 'integer', minimum: 1, default: 25 },
+          channel: { type: 'string', enum: ['EMAIL', 'SMS'] },
+          status: { type: 'string', enum: ['PENDING', 'SENT', 'DELIVERED', 'FAILED', 'RETRYING'] },
+          startDate: { type: 'string' },
+          endDate: { type: 'string' },
+          search: { type: 'string' },
+        },
+      },
+      response: {
+        200: { type: 'object', properties: { data: { type: 'array', items: { type: 'object', additionalProperties: true } }, total: { type: 'integer' }, page: { type: 'integer' }, limit: { type: 'integer' }, totalPages: { type: 'integer' } } },
+      },
+    },
+  }, async (req) => {
+    const query = req.query as { page?: number; limit?: number; channel?: string; status?: string; startDate?: string; endDate?: string; search?: string };
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 25;
+    const where: Record<string, unknown> = {};
+    if (query.channel) where.channel = query.channel;
+    if (query.status) where.status = query.status;
+    if (query.startDate || query.endDate) {
+      where.createdAt = {};
+      if (query.startDate) (where.createdAt as any).gte = new Date(query.startDate);
+      if (query.endDate) (where.createdAt as any).lte = new Date(query.endDate);
+    }
+    if (query.search) {
+      where.OR = [
+        { recipient: { contains: query.search, mode: 'insensitive' } },
+        { subject: { contains: query.search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [data, total] = await Promise.all([
+      prisma.notificationLog.findMany({ where: where as any, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+      prisma.notificationLog.count({ where: where as any }),
+    ]);
+
+    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+  });
+
+  app.get('/logs/stats', {
+    preHandler: [app.requirePermission('CONFIG_READ')],
+    schema: {
+      tags: ['Notification Settings'],
+      summary: 'Get notification delivery statistics',
+      response: { 200: { type: 'object', properties: { email: { type: 'object', additionalProperties: { type: 'integer' } }, sms: { type: 'object', additionalProperties: { type: 'integer' } }, total: { type: 'integer' } } } },
+    },
+  }, async () => {
+    const [emailSent, emailFailed, smsSent, smsFailed, total] = await Promise.all([
+      prisma.notificationLog.count({ where: { channel: 'EMAIL', status: 'SENT' } }),
+      prisma.notificationLog.count({ where: { channel: 'EMAIL', status: 'FAILED' } }),
+      prisma.notificationLog.count({ where: { channel: 'SMS', status: 'SENT' } }),
+      prisma.notificationLog.count({ where: { channel: 'SMS', status: 'FAILED' } }),
+      prisma.notificationLog.count(),
+    ]);
+    return { email: { sent: emailSent, failed: emailFailed }, sms: { sent: smsSent, failed: smsFailed }, total };
+  });
+
+  app.delete('/logs/:id', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Notification Settings'],
+      summary: 'Delete a notification log entry',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+      response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } } },
+    },
+  }, async (req) => {
+    const { id } = req.params as { id: string };
+    await prisma.notificationLog.delete({ where: { id } });
+    return { success: true };
+  });
+
+  // ====== Notification Templates ======
+
+  app.get('/templates', {
+    preHandler: [app.requirePermission('CONFIG_READ')],
+    schema: { tags: ['Notification Settings'], summary: 'List notification templates', response: { 200: { type: 'array', items: { type: 'object', additionalProperties: true } } } },
+  }, async () => prisma.notificationTemplate.findMany({ orderBy: { name: 'asc' } }));
+
+  app.post('/templates', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Notification Settings'],
+      summary: 'Create notification template',
+      body: {
+        type: 'object',
+        required: ['name', 'channel', 'bodyTemplate'],
+        properties: { name: { type: 'string' }, channel: { type: 'string', enum: ['EMAIL', 'SMS'] }, subject: { type: 'string' }, bodyTemplate: { type: 'string' }, description: { type: 'string' }, variables: { type: 'array', items: { type: 'string' } } },
+      },
+      response: { 200: { type: 'object', additionalProperties: true } },
+    },
+  }, async (req) => {
+    const body = req.body as any;
+    return prisma.notificationTemplate.create({ data: { name: body.name, channel: body.channel, subject: body.subject, bodyTemplate: body.bodyTemplate, description: body.description, variables: body.variables, createdBy: req.user.username } });
+  });
+
+  app.put('/templates/:id', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Notification Settings'],
+      summary: 'Update notification template',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+      body: { type: 'object', properties: { name: { type: 'string' }, subject: { type: 'string' }, bodyTemplate: { type: 'string' }, description: { type: 'string' }, variables: { type: 'array', items: { type: 'string' } }, isActive: { type: 'boolean' } } },
+      response: { 200: { type: 'object', additionalProperties: true } },
+    },
+  }, async (req) => {
+    const { id } = req.params as { id: string };
+    return prisma.notificationTemplate.update({ where: { id }, data: req.body as any });
+  });
+
+  app.delete('/templates/:id', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Notification Settings'],
+      summary: 'Delete notification template',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+      response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } } },
+    },
+  }, async (req) => {
+    const { id } = req.params as { id: string };
+    await prisma.notificationTemplate.delete({ where: { id } });
+    return { success: true };
+  });
+}

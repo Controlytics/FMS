@@ -29,6 +29,7 @@ const PUBLIC_PATHS = [
   '/api/health', '/docs', '/docs/',
   '/api/internal/mqtt',  // EMQX auth callbacks (no JWT)
   '/api/ws',             // WebSocket (authenticates via message flow)
+  '/api/notification-settings/email/oauth2/code', // OAuth2 callback (no JWT - redirect from Microsoft/Google)
   '/api/data/telemetry', // Device token auth (handled by route preHandler)
   '/api/data/attributes',// Device token auth (handled by route preHandler)
   '/api/data/binary',    // Device token auth (handled by route preHandler)
@@ -81,10 +82,15 @@ async function authPlugin(app: FastifyInstance) {
         return reply.code(401).send({ error: 'SESSION_EXPIRED', message: 'Session exceeded maximum duration. Please log in again.' });
       }
 
-      // Check user status
+      // Check user status and sync role from DB (role may have been changed by admin)
       const user = await prisma.user.findUnique({ where: { id: payload.sub } });
       if (!user || user.status !== 'ENABLED') {
         return reply.code(401).send({ error: 'ACCOUNT_INACTIVE', message: 'Account is not active' });
+      }
+
+      // Patch req.user.role with the authoritative DB value so RBAC uses the current role
+      if (user.role !== payload.role) {
+        req.user = { ...req.user, role: user.role, username: user.username };
       }
 
       // Paths allowed when forcePasswordChange is true

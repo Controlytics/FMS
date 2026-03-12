@@ -235,7 +235,7 @@ Supported types: `string`, `number`, `boolean`, `date`, `select`
 ]
 ```
 
-Question types: `YES_NO`, `TEXT`, `NUMBER`, `MULTIPLE_CHOICE`, `PHOTO`
+DigiLog supports 14 question types: `YES_NO`, `TEXT`, `NUMBER`, `MULTIPLE_CHOICE`, `PHOTO`, `MULTI_SELECT`, `DATE`, `TIME`, `DATETIME`, `RATING`, `SIGNATURE`, `FILE_UPLOAD`, `RANGE`, `CALCULATED`
 
 ---
 

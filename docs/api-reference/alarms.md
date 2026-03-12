@@ -18,8 +18,8 @@ status=ACTIVE&severity=CRITICAL&page=1&limit=50" \
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `status` | string | `ACTIVE`, `ACKNOWLEDGED`, or `CLEARED` |
-| `severity` | string | `CRITICAL`, `MAJOR`, `MINOR`, `WARNING`, or `INFO` |
+| `status` | string | `ACTIVE`, `ACKNOWLEDGED`, `CLEARED`, or `MANUALLY_CLEARED` |
+| `severity` | string | `WARNING`, `ALARM`, or `CRITICAL` |
 | `entityId` | UUID | Filter by entity |
 | `alarmType` | string | Filter by alarm type (e.g., `HIGH_TEMP`) |
 | `from` | ISO 8601 | Start date |
@@ -52,16 +52,16 @@ status=ACTIVE&severity=CRITICAL&page=1&limit=50" \
 }
 ```
 
-**Permission:** `ASSET_VIEW`
+**Permission:** `ALARM_VIEW`
 
 ---
 
-### GET /api/queries/alarms/summary
+### GET /api/queries/alarms/stats
 
-Get alarm count summary for dashboard display.
+Get alarm count statistics for dashboard display.
 
 ```bash
-GET /api/queries/alarms/summary
+GET /api/queries/alarms/stats
 ```
 
 **Response (200):**
@@ -74,19 +74,19 @@ GET /api/queries/alarms/summary
 }
 ```
 
-**Permission:** `ASSET_VIEW`
+**Permission:** `ALARM_VIEW`
 
 ---
 
-### GET /api/queries/alarms/:entityId
+### GET /api/queries/alarms/:id
 
-List alarms for a specific entity.
+Get a single alarm by ID with full details.
 
 ```bash
-GET /api/queries/alarms/ENTITY_UUID?status=ACTIVE&severity=CRITICAL
+GET /api/queries/alarms/ALARM_UUID
 ```
 
-**Permission:** `ASSET_VIEW`
+**Permission:** `ALARM_VIEW`
 
 ---
 
@@ -141,13 +141,13 @@ curl -X POST "http://your-server/api/queries/alarms/ALARM_UUID/acknowledge" \
 
 > **Electronic Signature:** The signature includes a SHA-256 hash chain linking the signer identity, timestamp, and alarm record. This meets §11.50 (signature manifestations) and §11.70 (signature/record linking).
 
-**Role Required:** `SUPER_ADMIN`, `ADMIN`, or `SUPERVISOR`
+**Permission:** `ALARM_MANAGE` (requires re-authentication)
 
 ---
 
 ### POST /api/queries/alarms/:id/clear
 
-Clear an active or acknowledged alarm with an electronic signature.
+Clear an active or acknowledged alarm with an electronic signature. Sets status to `MANUALLY_CLEARED` with `clearDetails` recording the signer and remarks.
 
 **Request:**
 ```bash
@@ -163,7 +163,7 @@ curl -X POST "http://your-server/api/queries/alarms/ALARM_UUID/clear" \
 
 Same parameters as acknowledge. The alarm must be in `ACTIVE` or `ACKNOWLEDGED` status.
 
-**Role Required:** `SUPER_ADMIN`, `ADMIN`, or `SUPERVISOR`
+**Permission:** `ALARM_MANAGE` (requires re-authentication)
 
 ---
 
@@ -173,18 +173,21 @@ Same parameters as acknowledge. The alarm must be in `ACTIVE` or `ACKNOWLEDGED` 
 [Rule Engine triggers alarm]
         │
         ▼
-     ACTIVE ──────► ACKNOWLEDGED ──────► CLEARED
+     ACTIVE ──────► ACKNOWLEDGED ──────► MANUALLY_CLEARED
         │                                    ▲
         └────────────────────────────────────┘
               (direct clear without ack)
+
+     ACTIVE/ACKNOWLEDGED ──► CLEARED (auto-clear by rule engine)
 ```
 
 | Transition | Who | Requires |
 |------------|-----|----------|
 | → ACTIVE | System | Rule engine `create-alarm` node |
-| ACTIVE → ACKNOWLEDGED | SUPERVISOR+ | Electronic signature |
-| ACTIVE → CLEARED | SUPERVISOR+ | Electronic signature |
-| ACKNOWLEDGED → CLEARED | SUPERVISOR+ | Electronic signature |
+| ACTIVE → ACKNOWLEDGED | ALARM_MANAGE | Electronic signature (reauth) |
+| ACTIVE → MANUALLY_CLEARED | ALARM_MANAGE | Electronic signature (reauth) |
+| ACKNOWLEDGED → MANUALLY_CLEARED | ALARM_MANAGE | Electronic signature (reauth) |
+| ACTIVE/ACKNOWLEDGED → CLEARED | System | Rule engine `clear-alarm` node |
 
 ---
 
@@ -193,10 +196,22 @@ Same parameters as acknowledge. The alarm must be in `ACTIVE` or `ACKNOWLEDGED` 
 | Severity | Priority | Description |
 |----------|----------|-------------|
 | `CRITICAL` | 1 (highest) | Immediate action required |
-| `MAJOR` | 2 | Significant issue requiring attention |
-| `MINOR` | 3 | Minor issue to be tracked |
-| `WARNING` | 4 | Potential issue to monitor |
-| `INFO` | 5 (lowest) | Informational, no action needed |
+| `ALARM` | 2 | Significant issue requiring attention |
+| `WARNING` | 3 (lowest) | Potential issue to monitor |
+
+## Alarm Rule Types
+
+Alarm rules are defined in entity templates and evaluated by the rule engine:
+
+| Rule Type | Description |
+|-----------|-------------|
+| `HIGH` | Triggers when value exceeds upper threshold |
+| `LOW` | Triggers when value falls below lower threshold |
+| `HIGH_HIGH` | Triggers at critical upper threshold |
+| `LOW_LOW` | Triggers at critical lower threshold |
+| `RATE_OF_CHANGE` | Triggers when value changes faster than threshold rate |
+| `BOOLEAN_STATE` | Triggers on boolean state change |
+| `CUSTOM` | Custom condition evaluated via script |
 
 ---
 

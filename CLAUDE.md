@@ -41,9 +41,9 @@ npm run dev                   # Start API + Web
 ```
 
 ## Default Login
-- Username: `admin`
+- Username: `superadmin`
 - Password: `Admin@123`
-- Will force password change on first login
+- Password is permanent (no forced change on first login)
 
 ## Roles
 Dynamic roles stored in DB. Default: SUPER_ADMIN (level 6), ADMIN (5), SUPERVISOR (4), MAINTENANCE (3), OPERATOR (2), VIEWER (1). Roles have name, displayName, color, hierarchyLevel, permissions (JSON array), isSystem, isActive fields. All roles (including system) can be deleted. Frontend fetches roles from `/api/roles/active` via SWR (sidebar.tsx, role-privileges.tsx).
@@ -90,6 +90,16 @@ All use `requirePermission()` (checks role.permissions JSON array in DB).
 GET / (any, paginated, filterable), GET /:id (any, includes checksum verification), DELETE /:id (SUPER_ADMIN), POST /bulk-delete (SUPER_ADMIN).
 
 ### Notifications (9 endpoints) — `/api/notifications`
+
+### Notification Rules (8 endpoints) — `/api/notification-rules`
+GET /event-types (14 types with metadata), GET / (list with recipients enriched), GET /:id, POST / (create, requires `eventTypes` array), PUT /:id (update), DELETE /:id, PUT /:id/toggle (enable/disable), POST /:id/test (test-fire).
+**Note:** `eventTypes` is an array field supporting multi-select. `eventType` (single) is kept for backward compat = first element.
+
+### User Groups (5 endpoints) — `/api/user-groups`
+GET / (list), POST / (create), DELETE /:id, GET /:id/members, POST /:id/members, DELETE /:id/members/:userId.
+
+### Notification Settings (templates + email/sms config)
+GET/POST/PUT/DELETE /api/notification-settings/templates, GET/PUT /api/notification-settings/email, GET/PUT /api/notification-settings/sms.
 GET / (role-filtered), GET /unread-count, PUT /:id/read, PUT /:id/unread, PUT /mark-all-read, PUT /bulk-read, PUT /bulk-unread, DELETE /:id, POST /bulk-delete (SUPER_ADMIN).
 
 ### Uploads (2 endpoints)
@@ -112,7 +122,7 @@ All use `requirePermission('RULE_CHAIN_MANAGE')`. POST/PUT use reauth (CREATE/UP
 CRUD for chains, nodes, connections, versions, debug. 28 node types with sandboxed VM execution. Sub-chain delegation.
 
 ### UNS (6 endpoints) — `/api/uns`
-GET /tree, GET /mappings, POST /mappings, DELETE /mappings/:id, POST /auto-map, GET /browse. Reauth on config changes.
+GET /tree, GET /entity/:entityId, PUT /entity/:entityId (reauth OVERRIDE_UNS_PATH), POST /entity/:entityId/move, POST /entity/:entityId/move/confirm (reauth UPDATE_UNS_CONFIG), GET /search.
 
 ### Telemetry Queries (7 endpoints) — `/api/queries/telemetry`
 GET /latest, /history, /keys, /aggregated, /compare, /delta, /stats. Permission: DATA_VIEW.

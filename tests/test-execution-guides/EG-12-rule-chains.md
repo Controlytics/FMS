@@ -3,7 +3,7 @@
 ## Prerequisites
 - **App URL**: http://3.108.185.106
 - **API Base**: http://localhost:3000/api
-- **SUPER_ADMIN Credentials**: admin / Test@12345
+- **SUPER_ADMIN Credentials**: admin / Admin@123
 - **Permissions Required**: RULE_CHAIN_MANAGE
 - **Browser**: Chrome or Firefox for /rule-chains UI
 
@@ -12,7 +12,7 @@
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 ```
 
 ---
@@ -69,7 +69,7 @@ curl -s -X GET http://localhost:3000/api/rule-chains/node-types \
 ```
 
 **Expected Result:**
-- Array of 28 node types including: filter, transform, create-alarm, clear-alarm, send-notification, script, delegate-chain, etc.
+- Array of 31 node types including: filter, transform, create-alarm, clear-alarm, send-notification, script, delegate-chain, etc.
 
 **Pass/Fail:**
 - [ ] Response is array

@@ -2,7 +2,7 @@
 
 ## Prerequisites
 - **API Base**: `http://localhost:3000/api`
-- **Credentials**: admin / Test@12345 (SUPER_ADMIN)
+- **Credentials**: admin / Admin@123 (SUPER_ADMIN)
 - **Tools**: curl, jq
 - **Note**: Some config changes (password policy, session) can affect active sessions. Document original values before changing.
 
@@ -12,13 +12,13 @@ API="http://localhost:3000/api"
 
 TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345","force":true}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
 
 get_vtoken() {
   curl -s -X POST "$API/auth/verify" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"password":"Test@12345"}' | jq -r '.verificationToken'
+    -d '{"password":"Admin@123"}' | jq -r '.verificationToken'
 }
 ```
 
@@ -60,7 +60,7 @@ echo "Original: $ORIG_POLICY"
 curl -s -X PUT "$API/config/password-policy" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"minLength":10,"requireUppercase":true,"requireNumbers":true,"requireSpecial":true,"_currentPassword":"Test@12345"}' | jq .
+  -d '{"minLength":10,"requireUppercase":true,"requireNumbers":true,"requireSpecial":true,"_currentPassword":"Admin@123"}' | jq .
 
 # Verify
 curl -s -X GET "$API/config/password-policy" \
@@ -70,7 +70,7 @@ curl -s -X GET "$API/config/password-policy" \
 curl -s -X PUT "$API/config/password-policy" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"minLength":8,"requireUppercase":true,"requireNumbers":true,"requireSpecial":true,"_currentPassword":"Test@12345"}' | jq .
+  -d '{"minLength":8,"requireUppercase":true,"requireNumbers":true,"requireSpecial":true,"_currentPassword":"Admin@123"}' | jq .
 ```
 
 **Pass/Fail:**
@@ -90,7 +90,7 @@ curl -s -X GET "$API/config/login-security" \
 curl -s -X PUT "$API/config/login-security" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"maxFailedAttempts":5,"lockoutDuration":15,"_currentPassword":"Test@12345"}' | jq .
+  -d '{"maxFailedAttempts":5,"lockoutDuration":15,"_currentPassword":"Admin@123"}' | jq .
 ```
 
 **Pass/Fail:**
@@ -109,7 +109,7 @@ curl -s -X GET "$API/config/session" \
 curl -s -X PUT "$API/config/session" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"sessionDuration":480,"idleTimeout":15,"absoluteTimeout":1440,"_currentPassword":"Test@12345"}' | jq .
+  -d '{"sessionDuration":480,"idleTimeout":15,"absoluteTimeout":1440,"_currentPassword":"Admin@123"}' | jq .
 ```
 
 **Pass/Fail:**

@@ -246,14 +246,14 @@ export const assetQuerySchema = z.object({
   parentId: z.string().uuid().nullable().optional(),
   isActive: z.string().optional(),
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
+  limit: z.coerce.number().int().min(1).optional(),
 });
 
 export const templateQuerySchema = z.object({
   search: z.string().optional(),
   isActive: z.string().optional(),
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
+  limit: z.coerce.number().int().min(1).optional(),
 });
 
 export type AssetQueryInput = z.infer<typeof assetQuerySchema>;

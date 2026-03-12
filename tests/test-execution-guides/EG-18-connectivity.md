@@ -1,7 +1,7 @@
 # EG-18: Connectivity — Execution Guide
 
 ## Prerequisites
-- **Credentials**: SUPER_ADMIN (admin / Test@12345), OPERATOR account for negative tests
+- **Credentials**: SUPER_ADMIN (admin / Admin@123), OPERATOR account for negative tests
 - **Tools**: curl, jq, browser
 - **Setup**: At least one entity instance created. Know its UUID.
 - **Base URL**: http://localhost:3000
@@ -11,7 +11,7 @@
 # SUPER_ADMIN token
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 # Get first entity ID
 ENTITY_ID=$(curl -s -X GET "http://localhost:3000/api/assets/instances?limit=1" \

@@ -43,7 +43,7 @@ GET /api/rule-chains?search=telemetry&isActive=true&page=1&limit=20
 }
 ```
 
-**Role Required:** `SUPER_ADMIN` or `ADMIN`
+**Permission:** `RULE_CHAIN_MANAGE`
 
 ---
 
@@ -237,7 +237,7 @@ GET /api/rule-chains/node-types?category=FILTER
 
 ---
 
-## Available Node Types
+## Available Node Types (31 total)
 
 ### INPUT
 | Type | Name | Description | Outputs |
@@ -248,7 +248,7 @@ GET /api/rule-chains/node-types?category=FILTER
 | Type | Name | Description | Outputs |
 |------|------|-------------|---------|
 | `msg-type-filter` | Message Type Filter | Route by message type | True, False, Failure |
-| `script-filter` | Script Filter | Custom JavaScript filter | True, False, Failure |
+| `script-filter` | Script Filter | Custom JavaScript filter (sandboxed VM, 1s timeout) | True, False, Failure |
 | `check-relation` | Check Relation | Check entity relationships | True, False, Failure |
 | `originator-type-filter` | Originator Type Filter | Filter by template name | True, False, Failure |
 | `check-alarm-status` | Check Alarm Status | Check existing alarm status | True, False, Failure |
@@ -264,7 +264,7 @@ GET /api/rule-chains/node-types?category=FILTER
 ### TRANSFORM
 | Type | Name | Description | Outputs |
 |------|------|-------------|---------|
-| `script-transform` | Script Transform | Custom JavaScript transformation | Success, Failure |
+| `script-transform` | Script Transform | Custom JavaScript transformation (sandboxed VM) | Success, Failure |
 | `rename-keys` | Rename Keys | Map telemetry key names | Success, Failure |
 | `change-originator` | Change Originator | Switch to parent/related entity | Success, Failure |
 | `to-email` | To Email | Transform to email notification format | Success, Failure |
@@ -294,9 +294,12 @@ GET /api/rule-chains/node-types?category=FILTER
 | Type | Name | Description | Outputs |
 |------|------|-------------|---------|
 | `rule-chain-input` | Rule Chain Input | Enter another rule chain | Success, Failure |
+| `delegate-chain` | Delegate Chain | Sub-chain delegation with depth tracking | Success, Failure |
 | `checkpoint` | Checkpoint | Force-save current state | Success, Failure |
 | `delay` | Delay | Wait N milliseconds | Success |
 | `acknowledge` | Acknowledge | Stop further processing | (none) |
+
+> **Note:** User scripts in Script Filter and Script Transform nodes run in sandboxed Node.js VM contexts with a 1-second timeout and no access to `process`, `require`, or `global`.
 
 ---
 

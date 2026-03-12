@@ -23,7 +23,7 @@
 ### TC-08-P02: Update Password Policy
 - **Priority**: High
 - **Preconditions**: Logged in as SUPER_ADMIN
-- **Test Data**: `{ "minLength": 10, "requireUppercase": true, "requireNumbers": true, "requireSpecial": true, "_currentPassword": "Test@12345" }`
+- **Test Data**: `{ "minLength": 10, "requireUppercase": true, "requireNumbers": true, "requireSpecial": true, "_currentPassword": "Admin@123" }`
 - **Steps**:
   1. Send PUT /api/config/password-policy with updated values
   2. Verify response `{ success: true, data: {...} }`
@@ -33,7 +33,7 @@
 ### TC-08-P03: Get/Update Login Security
 - **Priority**: High
 - **Preconditions**: Logged in as SUPER_ADMIN
-- **Test Data**: `{ "maxFailedAttempts": 3, "lockoutDuration": 30, "_currentPassword": "Test@12345" }`
+- **Test Data**: `{ "maxFailedAttempts": 3, "lockoutDuration": 30, "_currentPassword": "Admin@123" }`
 - **Steps**:
   1. GET /api/config/login-security
   2. PUT with updated values
@@ -43,7 +43,7 @@
 ### TC-08-P04: Get/Update Session Configuration
 - **Priority**: High
 - **Preconditions**: Logged in as SUPER_ADMIN
-- **Test Data**: `{ "sessionDuration": 480, "idleTimeout": 15, "absoluteTimeout": 1440, "_currentPassword": "Test@12345" }`
+- **Test Data**: `{ "sessionDuration": 480, "idleTimeout": 15, "absoluteTimeout": 1440, "_currentPassword": "Admin@123" }`
 - **Steps**:
   1. GET /api/config/session
   2. PUT with updated session values
@@ -225,7 +225,7 @@
 ### TC-08-N04: Update Session with Invalid Values
 - **Priority**: Medium
 - **Preconditions**: Logged in as SUPER_ADMIN
-- **Test Data**: `{ "sessionDuration": -1, "idleTimeout": 0, "_currentPassword": "Test@12345" }`
+- **Test Data**: `{ "sessionDuration": -1, "idleTimeout": 0, "_currentPassword": "Admin@123" }`
 - **Steps**:
   1. Attempt to set negative/zero timeout values
   2. Verify 400

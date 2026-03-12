@@ -14,7 +14,7 @@ import { provisionUnsMapping } from '../../uns/uns.service.js';
 import { getEntityUnsPath } from '../../../lib/uns-path.js';
 
 export const instanceService = {
-  async list(query: { search?: string; templateId?: string; status?: string; parentId?: string | null; isActive?: string; page: number; limit: number }) {
+  async list(query: { search?: string; templateId?: string; status?: string; parentId?: string | null; isActive?: string; page: number; limit?: number }) {
     const where: Record<string, unknown> = {};
     if (query.search) where.name = { contains: query.search, mode: 'insensitive' };
     if (query.templateId) where.templateId = query.templateId;
@@ -24,8 +24,8 @@ export const instanceService = {
 
     const { instances, total } = await instanceRepository.findMany(where, query.page, query.limit);
     return {
-      data: instances, total, page: query.page, limit: query.limit,
-      totalPages: Math.ceil(total / query.limit),
+      data: instances, total, page: query.page, limit: query.limit ?? total,
+      totalPages: query.limit ? Math.ceil(total / query.limit) : 1,
     };
   },
 
@@ -42,6 +42,12 @@ export const instanceService = {
   async create(data: Record<string, any>, ctx: RequestContext) {
     const template = await templateRepository.findById(data.templateId);
     if (!template) throw new ValidationError('Template not found');
+
+    // Check for duplicate entity name (case-insensitive)
+    const existingByName = await prisma.assetInstance.findFirst({
+      where: { name: { equals: data.name.trim(), mode: 'insensitive' }, isActive: true },
+    });
+    if (existingByName) throw new ValidationError(`An entity with the name "${data.name.trim()}" already exists`);
 
     const attrSchema = (template as any).attributeSchema as any[] | undefined;
     if (attrSchema && attrSchema.length > 0 && data.attributes) {
@@ -194,6 +200,14 @@ export const instanceService = {
 
       const wouldCycle = await hasContainsCycle(data.parentId, id);
       if (wouldCycle) throw new ValidationError('Cannot set parent: would create a cycle in the hierarchy');
+    }
+
+    // Check for duplicate entity name on rename (case-insensitive)
+    if (data.name !== undefined && data.name.trim().toLowerCase() !== existing.name.toLowerCase()) {
+      const existingByName = await prisma.assetInstance.findFirst({
+        where: { name: { equals: data.name.trim(), mode: 'insensitive' }, isActive: true, id: { not: id } },
+      });
+      if (existingByName) throw new ValidationError(`An entity with the name "${data.name.trim()}" already exists`);
     }
 
     const updateData: Record<string, unknown> = { updatedBy: ctx.userId };

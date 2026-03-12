@@ -96,11 +96,11 @@ export function AssetExplorerPage() {
 
   const { data: treeData, isLoading: treeLoading } = useSWR<TreeNode[]>('/api/assets/instances/tree', { refreshInterval: 30000 });
   const { data: selectedAsset, isLoading: detailLoading } = useSWR<AssetInstance>(selectedAssetId ? `/api/assets/instances/${selectedAssetId}` : null);
-  const { data: templatesData } = useSWR<{ data: AssetTemplate[] }>('/api/assets/templates?limit=100&isActive=true');
+  const { data: templatesData } = useSWR<{ data: AssetTemplate[] }>('/api/assets/templates?isActive=true');
   const { data: listData, isLoading: listLoading } = useSWR<PaginatedInstances>(
-    viewMode === 'list' ? `/api/assets/instances?page=${listPage}&limit=20${debouncedListSearch ? `&search=${encodeURIComponent(debouncedListSearch)}` : ''}${treeTemplateFilter ? `&templateId=${encodeURIComponent(treeTemplateFilter)}` : ''}&isActive=true` : null,
+    viewMode === 'list' ? `/api/assets/instances?page=${listPage}${debouncedListSearch ? `&search=${encodeURIComponent(debouncedListSearch)}` : ''}${treeTemplateFilter ? `&templateId=${encodeURIComponent(treeTemplateFilter)}` : ''}&isActive=true` : null,
   );
-  const { data: auditData } = useSWR<{ data: AuditRecord[] }>(selectedAssetId && activeTab === 'audit' ? `/api/audit?targetType=ASSET_INSTANCE&targetId=${selectedAssetId}&limit=50` : null);
+  const { data: auditData } = useSWR<{ data: AuditRecord[] }>(selectedAssetId && activeTab === 'audit' ? `/api/audit?targetType=ASSET_INSTANCE&targetId=${selectedAssetId}` : null);
   const { data: allRelationshipsData } = useSWR<AssetRelation[]>(selectedAssetId && activeTab === 'relationships' ? '/api/assets/relationships' : null);
 
   const templates = templatesData?.data ?? [];
@@ -184,6 +184,7 @@ export function AssetExplorerPage() {
             ) : <span className="w-5 flex-shrink-0" />}
             <span className="text-base flex-shrink-0">{getIcon(node.template.icon)}</span>
             <span className={cn('truncate flex-1 font-medium', isSelected ? 'text-blue-700' : 'text-slate-700')}>{node.name}</span>
+            {hasChildren && <span className="flex-shrink-0 min-w-[20px] h-5 flex items-center justify-center rounded-full bg-slate-100 text-[10px] font-semibold text-slate-500">{node._count.children}</span>}
             <span className="flex-shrink-0 flex items-center gap-0.5 opacity-0 group-hover/treenode:opacity-100 transition-opacity">
               {canCreate && <span className="w-5 h-5 flex items-center justify-center text-emerald-500 hover:text-emerald-700 rounded hover:bg-emerald-100 transition-colors" title="Create new child entity" onClick={(e) => { e.stopPropagation(); openAddDialog(node.id); }}>
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
@@ -325,16 +326,17 @@ export function AssetExplorerPage() {
             <>
               <Table>
                 <TableHeader><TableRow>
-                  <TableHead>Name</TableHead><TableHead>Template</TableHead><TableHead>Parent</TableHead><TableHead>Created</TableHead><TableHead className="w-20">Actions</TableHead>
+                  <TableHead>Name</TableHead><TableHead>Template</TableHead><TableHead>Parent</TableHead><TableHead>Children</TableHead><TableHead>Created</TableHead><TableHead className="w-20">Actions</TableHead>
                 </TableRow></TableHeader>
                 <TableBody>
                   {(listData?.data ?? []).length === 0 ? (
-                    <TableRow><TableCell colSpan={5} className="text-center py-8 text-slate-400">No entities found</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={6} className="text-center py-8 text-slate-400">No entities found</TableCell></TableRow>
                   ) : (listData?.data ?? []).map((item) => (
                     <TableRow key={item.id}>
                       <TableCell><button className="flex items-center gap-2 font-medium text-blue-600 hover:text-blue-800" onClick={() => { setSelectedAssetId(item.id); setViewMode('tree'); setActiveTab('overview'); }}><span>{getIcon(item.template.icon)}</span>{item.name}</button></TableCell>
                       <TableCell><Badge variant="secondary" className="text-xs">{item.template.name}</Badge></TableCell>
                       <TableCell className="text-slate-500 text-sm">{treeData?.find((n) => n.id === item.parentId)?.name ?? '-'}</TableCell>
+                      <TableCell className="text-sm">{(item as any)._count?.children > 0 ? <Badge variant="secondary" className="text-xs">{(item as any)._count.children}</Badge> : <span className="text-slate-400">0</span>}</TableCell>
                       <TableCell className="text-slate-500 text-sm">{formatDateTime(item.createdAt)}</TableCell>
                       <TableCell><button className="text-slate-400 hover:text-blue-600 transition-colors p-1" title="View details" onClick={() => { setSelectedAssetId(item.id); setViewMode('tree'); setActiveTab('overview'); }}>
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>

@@ -25,7 +25,7 @@ export function useBranding() {
     fetcher: (url: string) => fetch(url).then(res => res.json()),
     // Cache for 5 minutes, revalidate in background
     revalidateOnFocus: false,
-    dedupingInterval: 300000,
+    revalidateOnMount: true, dedupingInterval: 5000,
   });
 
   // Merge data with defaults, but use default logoUrl if database has empty string

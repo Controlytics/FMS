@@ -126,7 +126,7 @@ Search the UNS using MQTT-style wildcard patterns:
 ### Search API
 
 ```bash
-GET /api/uns/search?pattern=digilog/v1/acme/+/packaging/#
+GET /api/uns/search?path=digilog/v1/acme/+/packaging/#
 ```
 
 **Response:**
@@ -149,11 +149,48 @@ GET /api/uns/search?pattern=digilog/v1/acme/+/packaging/#
 
 ## Manual Overrides
 
-UNS paths are normally computed from the entity hierarchy. However, administrators can manually set a custom path:
+UNS paths are normally computed from the entity hierarchy. However, SUPER_ADMIN users can manually set a custom path via the UNS Configuration page:
 
-1. The `isOverridden` flag is set on the `uns_mappings` record
-2. Cascade moves will skip entities with overridden paths
-3. This is useful for legacy equipment or non-standard naming conventions
+1. Select an entity in the UNS tree
+2. In the Path Override card (right panel), enter the custom path
+3. Click "Save Override" (requires re-authentication via `OVERRIDE_UNS_PATH`)
+4. The `isOverridden` flag is set on the UNS mapping record
+5. Cascade moves will skip entities with overridden paths
+6. Click "Reset" to revert to the auto-generated path
+
+This is useful for legacy equipment or non-standard naming conventions.
+
+### Override API
+
+```bash
+PUT /api/uns/entity/:entityId
+Body: { "unsPath": "digilog/v1/custom/legacy/equipment/tp-42" }
+```
+
+**Role Required:** SUPER_ADMIN | **Reauth:** OVERRIDE_UNS_PATH
+
+---
+
+## UNS Configuration UI
+
+Navigate to **Configuration → UNS Configuration** (`/config/uns`):
+
+- **Left panel (2/3 width):** Hierarchical tree with ISA-95 level badges (Enterprise, Site, Area, Line, Cell, Entity), expandable nodes, and a search bar supporting MQTT wildcards (`+` and `#`)
+- **Right panel (1/3 width):** Selected entity details — name, template, status, UNS path (monospace), override indicator (violet highlight if overridden), timestamps, and attributes preview
+- **Path Override card:** SUPER_ADMIN-only section with text input, Save Override button (reauth-protected), and Reset button
+
+---
+
+## API Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/uns/tree` | SUPER_ADMIN/ADMIN/SUPERVISOR | Full UNS tree |
+| GET | `/api/uns/entity/:entityId` | ASSET_VIEW | Get entity UNS mapping |
+| PUT | `/api/uns/entity/:entityId` | SUPER_ADMIN + reauth | Override UNS path |
+| POST | `/api/uns/entity/:entityId/move` | SUPER_ADMIN/ADMIN | Move impact preview |
+| POST | `/api/uns/entity/:entityId/move/confirm` | SUPER_ADMIN/ADMIN + reauth | Execute cascade move |
+| GET | `/api/uns/search?path=<pattern>` | ASSET_VIEW | Wildcard search |
 
 ---
 

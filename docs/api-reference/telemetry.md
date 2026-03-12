@@ -87,7 +87,7 @@ These endpoints use **user JWT tokens** for authentication.
 
 ### GET /api/queries/telemetry/latest
 
-Get the latest telemetry values for an entity.
+Get the latest telemetry values for an entity. Permission: `DATA_VIEW`.
 
 ```bash
 curl "http://your-server/api/queries/telemetry/latest?entityId=ENTITY_ID" \
@@ -117,7 +117,7 @@ curl "http://your-server/api/queries/telemetry/latest?entityId=ENTITY_ID" \
 ]
 ```
 
-### GET /api/queries/telemetry/timeseries
+### GET /api/queries/telemetry/history
 
 Query historical time-series data.
 
@@ -159,6 +159,26 @@ limit=1000" \
   ]
 }
 ```
+
+### GET /api/queries/telemetry/keys
+
+List available telemetry keys for an entity.
+
+### GET /api/queries/telemetry/aggregated
+
+Query aggregated telemetry data with configurable intervals.
+
+### GET /api/queries/telemetry/compare
+
+Compare telemetry between two entities or time ranges.
+
+### GET /api/queries/telemetry/delta
+
+Get delta (change) values between consecutive data points.
+
+### GET /api/queries/telemetry/stats
+
+Get statistical summary (min, max, avg, count) for telemetry keys.
 
 ---
 

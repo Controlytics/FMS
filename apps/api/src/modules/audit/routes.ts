@@ -16,7 +16,7 @@ export default async function auditRoutes(app: FastifyInstance) {
         type: 'object',
         properties: {
           page: { type: 'integer', minimum: 1, default: 1, description: 'Page number' },
-          limit: { type: 'integer', minimum: 1, maximum: 100, default: 20, description: 'Records per page' },
+          limit: { type: 'integer', minimum: 1, description: 'Records per page' },
           period: { type: 'string', enum: ['today', 'week', 'month', 'quarter', 'year', 'all'], description: 'Predefined date period filter' },
           startDate: { type: 'string', description: 'Start date for custom range (ISO 8601)' },
           endDate: { type: 'string', description: 'End date for custom range (ISO 8601)' },
@@ -124,8 +124,7 @@ export default async function auditRoutes(app: FastifyInstance) {
       prisma.auditTrail.findMany({
         where: where as any,
         orderBy: { [orderByField]: orderByDir },
-        skip: (query.page - 1) * query.limit,
-        take: query.limit,
+        ...(query.limit ? { skip: (query.page - 1) * query.limit, take: query.limit } : {}),
       }),
       prisma.auditTrail.count({ where: where as any }),
     ]);
@@ -140,8 +139,8 @@ export default async function auditRoutes(app: FastifyInstance) {
       data,
       total,
       page: query.page,
-      limit: query.limit,
-      totalPages: Math.ceil(total / query.limit),
+      limit: query.limit ?? total,
+      totalPages: query.limit ? Math.ceil(total / query.limit) : 1,
     };
   });
 

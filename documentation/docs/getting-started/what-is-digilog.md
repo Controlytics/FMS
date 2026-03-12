@@ -63,7 +63,7 @@ DigiLog uses a modern monorepo architecture:
 | **Frontend** | React 19, Vite, Tailwind CSS | Single-page application |
 | **API** | Fastify 5, TypeScript | REST API, WebSocket, authentication |
 | **Database** | PostgreSQL + Prisma ORM | Entity data, configs, audit trail |
-| **Time-Series** | PostgreSQL (hypertable-compatible) | Telemetry, attributes, device events |
+| **Time-Series** | PostgreSQL + TimescaleDB (7 hypertables) | Telemetry, attributes, device events |
 | **Message Queue** | Redis + BullMQ | Async data ingestion pipeline |
 | **MQTT Broker** | EMQX | Device-to-platform MQTT communication |
 | **Process Manager** | PM2 | Production process management |

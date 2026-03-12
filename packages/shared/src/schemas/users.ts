@@ -31,7 +31,7 @@ export const userQuerySchema = z.object({
   status: z.enum(['ENABLED', 'DISABLED', 'LOCKED', 'EXPIRED']).optional(),
   search: z.string().optional(),
   page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(20),
+  limit: z.coerce.number().min(1).optional(),
 });
 
 export const bulkDeleteUsersSchema = z.object({

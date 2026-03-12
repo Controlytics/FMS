@@ -29,7 +29,7 @@ This page lists the hardware, software, and network requirements for running Dig
 | Component | Version | Purpose |
 |-----------|---------|---------|
 | **Node.js** | 20.x or later | API server runtime |
-| **PostgreSQL** | 15.x or later | Primary database |
+| **PostgreSQL** | 16.x or later | Primary database (with TimescaleDB extension for hypertables) |
 | **Redis** | 7.x or later | Message queue (BullMQ) and caching |
 | **EMQX** | 5.x | MQTT broker (optional, required for MQTT devices) |
 | **Nginx** | 1.18+ | Reverse proxy and static file serving |
@@ -56,6 +56,8 @@ This page lists the hardware, software, and network requirements for running Dig
 | 5432 | TCP | PostgreSQL | Internal only |
 | 6379 | TCP | Redis | Internal only |
 | 1883 | TCP | EMQX (MQTT) | Device connections |
+| 8083 | TCP | EMQX (WebSocket) | MQTT over WebSocket |
+| 8084 | TCP | EMQX (WSS) | MQTT over Secure WebSocket |
 | 8883 | TCP | EMQX (MQTTS) | Secure device connections (optional) |
 | 18083 | TCP | EMQX Dashboard | Admin UI for MQTT broker |
 

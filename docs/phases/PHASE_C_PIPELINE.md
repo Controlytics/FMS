@@ -1,5 +1,8 @@
 # Phase C: Data Ingestion Pipeline (2-3 days)
 
+> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07.
+> BullMQ ingestion worker, pipeline stages 1-11, telemetry batcher, DLQ, pipeline tracer, connectivity tracker, and ConfigService all operational.
+
 ## Prompt for Claude Code
 
 ```

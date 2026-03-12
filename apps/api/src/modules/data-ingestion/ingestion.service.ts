@@ -39,6 +39,7 @@ import {
 } from './pipeline-tracer.js';
 import { addToDLQ } from './dlq-manager.js';
 import { addDeviceEventRow } from '@digilog/db';
+import { dispatchNotification } from "../notification-delivery/notification-dispatcher.js";
 
 // ─── Redis publisher for Stage 11 ──────────────────────
 
@@ -212,6 +213,17 @@ export async function processIngestionMessage(msg: IngestionMessage): Promise<Pi
           }
         }
 
+        // Dispatch RULE_CHAIN_TRIGGERED notification
+        dispatchNotification({
+          eventType: 'RULE_CHAIN_TRIGGERED',
+          context: {},
+          variables: {
+            ruleChainName: msg.ruleChainId, entityName: msg.entityName ?? msg.entityId ?? 'N/A',
+            nodesExecuted: String(engineResult.nodesExecuted), durationMs: String(engineResult.durationMs),
+            timestamp: new Date().toISOString(),
+          },
+        }).catch(err => console.error('[RuleChainTriggered] Notification dispatch failed:', err.message));
+
         if (trace) {
           recordStage(trace, {
             stage: 7,
@@ -259,12 +271,27 @@ export async function processIngestionMessage(msg: IngestionMessage): Promise<Pi
               clearDetails: alarm.details ? (alarm.details as any) : undefined,
             },
           });
+
+          // Dispatch ALARM_CLEARED notification
+          const clearEntity = await prisma.assetInstance.findUnique({ where: { id: alarm.entityId }, select: { name: true } });
+          dispatchNotification({
+            eventType: 'ALARM_CLEARED',
+            context: { severity: alarm.severity, alarmType: alarm.alarmType },
+            variables: {
+              alarmType: alarm.alarmType, severity: alarm.severity ?? 'INFO',
+              entityName: clearEntity?.name ?? alarm.entityId, entityId: alarm.entityId,
+              clearedBy: 'Rule Chain (Auto)', remarks: 'Automatically cleared by rule chain',
+              timestamp: new Date().toISOString(),
+            },
+          }).catch(err => console.error('[AlarmAutoClear] Notification dispatch failed:', err.message));
         } else {
           // Deduplicate: only create if no ACTIVE alarm of same type exists
+          console.log("[Stage8] Checking dedup for", alarm.entityId, alarm.alarmType);
           const existing = await prisma.alarm.findFirst({
             where: { entityId: alarm.entityId, alarmType: alarm.alarmType, status: 'ACTIVE' },
           });
           if (!existing) {
+            console.log("[Stage8] No existing alarm, creating new one");
             await createAlarm({
               entityId: alarm.entityId,
               alarmType: alarm.alarmType,

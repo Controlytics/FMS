@@ -1,0 +1,294 @@
+import { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import useSWR from 'swr';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
+import { apiClient } from '@/lib/api-client';
+
+interface SettingDef {
+  key: string;
+  type: string;
+  label: string;
+  description?: string;
+  required?: boolean;
+  default?: any;
+  placeholder?: string;
+  group?: string;
+  options?: { value: string | number; label: string }[];
+  min?: number;
+  max?: number;
+  maskedInApi?: boolean;
+  visibleWhen?: { field: string; value: any; operator?: string };
+  helpText?: string;
+  width?: 'full' | 'half';
+}
+
+interface ManifestEntry {
+  moduleKey: string;
+  moduleName: string;
+  description: string;
+  icon: string;
+  category: string;
+  requiresReauth: boolean;
+  hasCustomPage: boolean;
+  settings: SettingDef[];
+}
+
+function isVisible(setting: SettingDef, values: Record<string, any>): boolean {
+  if (!setting.visibleWhen) return true;
+  const { field, value, operator = 'eq' } = setting.visibleWhen;
+  const actual = values[field];
+  if (operator === 'eq') return actual === value;
+  if (operator === 'neq') return actual !== value;
+  if (operator === 'in') return Array.isArray(value) && value.includes(actual);
+  return true;
+}
+
+function groupSettings(settings: SettingDef[]) {
+  const map = new Map<string, SettingDef[]>();
+  for (const s of settings) {
+    const group = s.group ?? 'General';
+    if (!map.has(group)) map.set(group, []);
+    map.get(group)!.push(s);
+  }
+  return [...map.entries()].map(([name, items]) => ({ name, items }));
+}
+
+export function DynamicConfigPage() {
+  const { moduleKey } = useParams<{ moduleKey: string }>();
+  const navigate = useNavigate();
+  const reauth = useReauth();
+
+  const { data: manifest } = useSWR<ManifestEntry[]>(
+    '/api/config/registry/manifest',
+    { revalidateOnMount: true, dedupingInterval: 5000 }
+  );
+  const moduleDef = manifest?.find(m => m.moduleKey === moduleKey);
+
+  const { data: savedValues, mutate } = useSWR(
+    moduleKey ? `/api/config/dynamic/${moduleKey}` : null,
+    { revalidateOnMount: true, dedupingInterval: 0 }
+  );
+
+  const [values, setValues] = useState<Record<string, any>>({});
+  const [saving, setSaving] = useState(false);
+  const [success, setSuccess] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (savedValues) {
+      setValues(savedValues);
+    } else if (moduleDef) {
+      const defaults: Record<string, any> = {};
+      for (const s of moduleDef.settings) {
+        if (s.default !== undefined) defaults[s.key] = s.default;
+      }
+      setValues(defaults);
+    }
+  }, [savedValues, moduleDef]);
+
+  if (!moduleDef) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="text-center space-y-3">
+          <h2 className="text-lg font-semibold text-slate-800">Configuration Not Found</h2>
+          <p className="text-sm text-slate-500">Module "{moduleKey}" is not registered.</p>
+          <Button variant="outline" onClick={() => navigate('/config')}>Back to Settings</Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (moduleDef.settings.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="text-center space-y-3">
+          <h2 className="text-lg font-semibold text-slate-800">{moduleDef.moduleName}</h2>
+          <p className="text-sm text-slate-500">This module uses a custom configuration page.</p>
+          <Button variant="outline" onClick={() => navigate('/config')}>Back to Settings</Button>
+        </div>
+      </div>
+    );
+  }
+
+  const handleChange = (key: string, value: any) => {
+    setValues(prev => ({ ...prev, [key]: value }));
+    setSuccess('');
+    setError('');
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const action = `UPDATE_${moduleKey!.toUpperCase().replace(/-/g, '_')}`;
+      await reauth.execute(action, async (password?) => {
+        const body = { ...values };
+        if (password) (body as any)._currentPassword = password;
+        await apiClient.put(`/api/config/dynamic/${moduleKey}`, body);
+        mutate();
+      }, {
+        onSuccess: () => {
+          setSuccess('Settings saved successfully');
+          setSaving(false);
+        },
+        onError: (err: any) => {
+          setError(err?.message || 'Failed to save');
+          setSaving(false);
+        },
+      });
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save');
+      setSaving(false);
+    }
+  };
+
+  const groups = groupSettings(moduleDef.settings);
+
+  return (
+    <div className="max-w-4xl mx-auto p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">{moduleDef.moduleName}</h1>
+          <p className="text-sm text-slate-500 mt-1">{moduleDef.description}</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => navigate('/config')}>
+          Back to Settings
+        </Button>
+      </div>
+
+      {success && (
+        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">
+          {success}
+        </div>
+      )}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+          {error}
+        </div>
+      )}
+
+      {groups.map(group => (
+        <Card key={group.name}>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">{group.name}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {group.items
+              .filter(s => isVisible(s, values))
+              .map(setting => (
+                <div key={setting.key} className={setting.width === 'half' ? 'w-1/2' : 'w-full'}>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    {setting.label}
+                    {setting.required && <span className="text-red-500 ml-1">*</span>}
+                  </label>
+
+                  {setting.type === 'boolean' ? (
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={values[setting.key] ?? false}
+                        onChange={e => handleChange(setting.key, e.target.checked)}
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-slate-600">{setting.description || `Enable ${setting.label.toLowerCase()}`}</span>
+                    </label>
+                  ) : setting.type === 'select' ? (
+                    <select
+                      value={values[setting.key] ?? ''}
+                      onChange={e => handleChange(setting.key, e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">Select...</option>
+                      {setting.options?.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  ) : setting.type === 'number' ? (
+                    <input
+                      type="number"
+                      value={values[setting.key] ?? ''}
+                      min={setting.min}
+                      max={setting.max}
+                      onChange={e => handleChange(setting.key, e.target.value ? Number(e.target.value) : '')}
+                      placeholder={setting.placeholder}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  ) : setting.type === 'secret' ? (
+                    <input
+                      type="password"
+                      value={values[setting.key] ?? ''}
+                      onChange={e => handleChange(setting.key, e.target.value)}
+                      placeholder={setting.placeholder || '••••••••'}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  ) : setting.type === 'textarea' || setting.type === 'json' ? (
+                    <textarea
+                      value={typeof values[setting.key] === 'object' ? JSON.stringify(values[setting.key], null, 2) : (values[setting.key] ?? '')}
+                      onChange={e => {
+                        try { handleChange(setting.key, JSON.parse(e.target.value)); }
+                        catch { handleChange(setting.key, e.target.value); }
+                      }}
+                      rows={4}
+                      placeholder={setting.placeholder}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  ) : setting.type === 'color' ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={values[setting.key] ?? '#000000'}
+                        onChange={e => handleChange(setting.key, e.target.value)}
+                        className="w-10 h-10 rounded border border-slate-300 cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        value={values[setting.key] ?? ''}
+                        onChange={e => handleChange(setting.key, e.target.value)}
+                        className="w-32 px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                      />
+                    </div>
+                  ) : (
+                    <input
+                      type={setting.type === 'email' ? 'email' : setting.type === 'url' ? 'url' : 'text'}
+                      value={values[setting.key] ?? ''}
+                      onChange={e => handleChange(setting.key, e.target.value)}
+                      placeholder={setting.placeholder}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  )}
+
+                  {setting.helpText && (
+                    <p className="text-xs text-slate-400 mt-1">{setting.helpText}</p>
+                  )}
+                </div>
+              ))}
+          </CardContent>
+        </Card>
+      ))}
+
+      <div className="flex justify-end gap-3">
+        <Button variant="outline" onClick={() => navigate('/config')}>Cancel</Button>
+        <Button onClick={handleSave} disabled={saving}>
+          {saving ? 'Saving...' : 'Save Changes'}
+        </Button>
+      </div>
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Save Configuration"
+      />
+    </div>
+  );
+}

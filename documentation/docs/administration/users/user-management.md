@@ -11,7 +11,7 @@ DigiLog provides comprehensive user management with role-based access control, p
 | **Username** | Yes | Unique login identifier (auto-generated or custom format) |
 | **Full Name** | Yes | Display name (2-100 characters) |
 | **Email** | No | Contact email address |
-| **Role** | Yes | One of the six built-in roles |
+| **Role** | Yes | One of the built-in roles or a custom dynamic role |
 | **Department** | No | Organizational department |
 | **Status** | Auto | ENABLED, LOCKED, DISABLED, or EXPIRED |
 | **Temporary Password** | Auto | Set on creation, user must change on first login |

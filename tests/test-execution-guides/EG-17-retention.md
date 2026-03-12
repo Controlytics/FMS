@@ -1,7 +1,7 @@
 # EG-17: Data Retention — Execution Guide
 
 ## Prerequisites
-- **Credentials**: SUPER_ADMIN account (admin / Test@12345)
+- **Credentials**: SUPER_ADMIN account (admin / Admin@123)
 - **Secondary Account**: An ADMIN or OPERATOR account for negative permission tests
 - **Tools**: curl, jq (optional), browser
 - **Setup**: At least one entity with telemetry data in TimescaleDB. Generate device token and send some telemetry first if needed.
@@ -12,7 +12,7 @@
 # Get JWT token for SUPER_ADMIN
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 echo "Token: $TOKEN"
 

@@ -93,7 +93,7 @@
 **Rationale:** Connection limits are template-level settings that users need to monitor per entity. Progress bars provide an instant visual indicator of capacity (green when under limit, red when at limit). Showing both total connections and parent connections separately reflects the dual limit system (maxConnections vs maxParentConnections). Cards are read-only since limits are set at the template level.
 
 ## 24. React Flow for Rule Chain Visual Editor
-**Decision:** Use React Flow library for the rule chain visual editor canvas rather than building a custom canvas solution.
+**Decision:** Use React Flow library for the rule chain visual editor canvas (48 node types across 9 categories) rather than building a custom canvas solution.
 **Rationale:** React Flow provides production-ready node-based graph editing with drag-and-drop, zooming, panning, edge routing, and selection out of the box. Building a custom canvas would take weeks and wouldn't match the quality. React Flow integrates naturally with React state management. The node palette sidebar uses a simple drag-to-canvas pattern. Edge selection uses red highlight with animation for visibility.
 
 ## 25. Component Extraction Pattern (Entity Explorer refactoring)
@@ -115,3 +115,12 @@
 ## 29. Debug Trace Page for Pipeline Visibility
 **Decision:** Added a `/debug` page showing pipeline debug traces with stage-by-stage execution details.
 **Rationale:** Data ingestion pipelines are opaque — when telemetry doesn't appear, users need to see where in the 11-stage pipeline the data was dropped. The debug trace page shows each message's journey through the pipeline with timestamps, stage results, and error details. This is a development/operations tool, not user-facing, so it requires the `READ_DEBUG_TRACE` permission.
+
+## 30. Dynamic Config Pages (2026-03-12)
+**Decision:** Auto-generate config UI from registry manifest for modules without custom pages.
+**Rationale:** Reduces boilerplate — each new config module gets a functional UI without writing a custom page component.
+**Trade-offs:** Less control over layout for dynamic pages, but custom pages can still be used when needed (hasCustomPage: true).
+
+## 31. Field ID Grouping by Module (2026-03-12)
+**Decision:** Restructured Field ID Names page to group fields by module with color-coded tabs.
+**Rationale:** With expansion from 6 to 39 fields across 7 modules, a flat list was unusable. Module grouping with search and filter makes management practical.

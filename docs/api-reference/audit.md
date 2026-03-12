@@ -92,7 +92,7 @@ The `integrityValid` field indicates whether the checksum matches the expected v
 
 Delete a single audit record. Temporarily disables the 21 CFR Part 11 delete trigger.
 
-**Permission:** `CONFIG_UPDATE`
+**Permission:** SUPER_ADMIN only
 
 ### POST /api/audit/bulk-delete
 
@@ -105,7 +105,7 @@ curl -X POST "http://your-server/api/audit/bulk-delete" \
   -d '{ "ids": [1, 2, 3] }'
 ```
 
-**Permission:** `CONFIG_UPDATE`
+**Permission:** SUPER_ADMIN only
 
 ---
 

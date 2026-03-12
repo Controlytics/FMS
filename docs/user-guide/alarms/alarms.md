@@ -14,8 +14,8 @@ An alarm is a notification record associated with an entity that indicates somet
 |----------|-------------|
 | **Originator** | The entity that triggered the alarm |
 | **Type** | Alarm classification (e.g., `HIGH_TEMPERATURE`, `DEVICE_OFFLINE`) |
-| **Severity** | Urgency level: Critical, Major, Minor, Warning, Indeterminate |
-| **Status** | Current state: Active or Cleared |
+| **Severity** | Urgency level: WARNING, ALARM, or CRITICAL |
+| **Status** | Current state: ACTIVE, ACKNOWLEDGED, CLEARED, or MANUALLY_CLEARED |
 | **Acknowledgment** | Whether an operator has acknowledged the alarm |
 | **Timestamp** | When the alarm was created |
 | **Details** | Additional context (threshold value, actual value, etc.) |
@@ -23,16 +23,18 @@ An alarm is a notification record associated with an entity that indicates somet
 ### Alarm Lifecycle
 
 ```
-Triggered → Active/Unacknowledged → Active/Acknowledged → Cleared
-                                                            │
-                                                            ▼
-                                                     Requires e-signature
+Triggered → ACTIVE → ACKNOWLEDGED → MANUALLY_CLEARED (via e-signature)
+                                      ↗
+              ACTIVE → MANUALLY_CLEARED (direct clear via e-signature)
+
+              ACTIVE/ACKNOWLEDGED → CLEARED (auto-clear by rule engine)
 ```
 
 1. **Triggered** — A rule chain or system event creates the alarm.
-2. **Active/Unacknowledged** — Alarm is visible but no operator has responded.
-3. **Active/Acknowledged** — An operator has acknowledged the alarm with an electronic signature.
-4. **Cleared** — The condition has resolved; alarm is cleared with an electronic signature.
+2. **ACTIVE** — Alarm is visible but no operator has responded.
+3. **ACKNOWLEDGED** — An operator has acknowledged the alarm with an electronic signature.
+4. **MANUALLY_CLEARED** — An operator has cleared the alarm with an electronic signature and clear details.
+5. **CLEARED** — The rule engine's `clear-alarm` node has automatically cleared the alarm.
 
 ---
 
@@ -41,10 +43,22 @@ Triggered → Active/Unacknowledged → Active/Acknowledged → Cleared
 | Level | Color | Use Case |
 |-------|-------|----------|
 | **CRITICAL** | Red | Immediate danger, safety hazard, production stoppage |
-| **MAJOR** | Orange | Significant issue requiring prompt attention |
-| **MINOR** | Yellow | Notable deviation, should be addressed soon |
-| **WARNING** | Blue | Early indication of potential issue |
-| **INDETERMINATE** | Gray | Unknown severity, requires investigation |
+| **ALARM** | Orange | Significant issue requiring prompt attention |
+| **WARNING** | Yellow | Early indication of potential issue |
+
+## Alarm Rule Types
+
+DigiLog supports 7 alarm rule types that can be defined in entity templates:
+
+| Rule Type | Description |
+|-----------|-------------|
+| **HIGH** | Triggers when a value exceeds an upper threshold |
+| **LOW** | Triggers when a value drops below a lower threshold |
+| **HIGH_HIGH** | Critical upper threshold (more severe than HIGH) |
+| **LOW_LOW** | Critical lower threshold (more severe than LOW) |
+| **RATE_OF_CHANGE** | Triggers when value changes faster than a defined rate |
+| **BOOLEAN_STATE** | Triggers on a boolean state transition |
+| **CUSTOM** | Custom condition evaluated via script expression |
 
 ---
 

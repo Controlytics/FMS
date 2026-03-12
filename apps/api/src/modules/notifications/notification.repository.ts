@@ -1,12 +1,11 @@
 import { prisma } from '../../lib/prisma.js';
 
 export const notificationRepository = {
-  async findMany(where: Record<string, unknown>, skip: number, take: number) {
+  async findMany(where: Record<string, unknown>, skip: number, take?: number) {
     return prisma.notification.findMany({
       where: where as any,
       orderBy: { createdAt: 'desc' },
-      skip,
-      take,
+      ...(take ? { skip, take } : {}),
     });
   },
 

@@ -1,6 +1,6 @@
 # Roles & Permissions
 
-DigiLog implements a Role-Based Access Control (RBAC) system with six hierarchical roles. Each role is assigned a set of permissions that determine what actions a user can perform.
+DigiLog implements a Role-Based Access Control (RBAC) system with six default hierarchical roles and support for dynamic custom roles stored in the database. Each role is assigned a set of 39+ granular permissions (across 10 categories) that determine what actions a user can perform. All roles (including system roles) can be created, edited, and deleted. Custom roles support configurable name, displayName, color, hierarchyLevel, and permissions.
 
 ---
 

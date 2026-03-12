@@ -110,7 +110,7 @@
 
 ### TC-09-P11: Delete Single Audit Record (SUPER_ADMIN)
 - **Priority**: High
-- **Preconditions**: Authenticated as SUPER_ADMIN (admin/Test@12345). At least one non-SUPER_ADMIN audit record exists.
+- **Preconditions**: Authenticated as SUPER_ADMIN (admin/Admin@123). At least one non-SUPER_ADMIN audit record exists.
 - **Test Data**: Valid audit record ID to delete.
 - **Steps**:
   1. Send GET /api/audit to list records and note the ID and total count.

@@ -2,7 +2,7 @@
 
 ## Prerequisites
 - **API Base**: `http://localhost:3000/api`
-- **Credentials**: admin / Test@12345 (SUPER_ADMIN)
+- **Credentials**: admin / Admin@123 (SUPER_ADMIN)
 - **Required Role**: SUPER_ADMIN or ADMIN for all user management operations
 - **Tools**: curl, jq
 
@@ -13,14 +13,14 @@ API="http://localhost:3000/api"
 # Login and get token
 TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345","force":true}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
 
 # Helper: Get verification token
 get_vtoken() {
   curl -s -X POST "$API/auth/verify" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"password":"Test@12345"}' | jq -r '.verificationToken'
+    -d '{"password":"Admin@123"}' | jq -r '.verificationToken'
 }
 ```
 
@@ -496,7 +496,7 @@ curl -s -X POST "$API/users" \
   -H "Authorization: Bearer $TOKEN" \
   -H "X-Verification-Token: $VTOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"bademail","fullName":"Bad Email","email":"not-an-email","role":"OPERATOR","password":"Test@12345","confirmPassword":"Test@12345"}' | jq .
+  -d '{"username":"bademail","fullName":"Bad Email","email":"not-an-email","role":"OPERATOR","password":"Admin@123","confirmPassword":"Admin@123"}' | jq .
 ```
 
 **Expected Result:**

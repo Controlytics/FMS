@@ -53,9 +53,13 @@ export async function fetchAllTablesPrisma(): Promise<Record<string, any[]>> {
 
 export async function restoreFromBackup(backup: BackupData): Promise<void> {
   await prisma.$transaction(async (tx: any) => {
-    // Temporarily disable audit_trail immutability triggers for restore
-    await tx.$executeRawUnsafe('ALTER TABLE "audit_trail" DISABLE TRIGGER audit_trail_no_update');
-    await tx.$executeRawUnsafe('ALTER TABLE "audit_trail" DISABLE TRIGGER audit_trail_no_delete');
+    // Temporarily disable audit_trail immutability triggers for restore (if they exist)
+    const triggers: any[] = await tx.$queryRawUnsafe(
+      `SELECT tgname FROM pg_trigger WHERE tgrelid = '"audit_trail"'::regclass AND tgname IN ('audit_trail_no_update', 'audit_trail_no_delete')`
+    );
+    for (const t of triggers) {
+      await tx.$executeRawUnsafe(`ALTER TABLE "audit_trail" DISABLE TRIGGER "${t.tgname}"`);
+    }
 
     // Delete in reverse dependency order
     await tx.notification.deleteMany();
@@ -94,9 +98,10 @@ export async function restoreFromBackup(backup: BackupData): Promise<void> {
     if (backup.data.auditTrail?.length)
       await tx.auditTrail.createMany({ data: backup.data.auditTrail });
 
-    // Re-enable audit_trail immutability triggers
-    await tx.$executeRawUnsafe('ALTER TABLE "audit_trail" ENABLE TRIGGER audit_trail_no_update');
-    await tx.$executeRawUnsafe('ALTER TABLE "audit_trail" ENABLE TRIGGER audit_trail_no_delete');
+    // Re-enable audit_trail immutability triggers (if they exist)
+    for (const t of triggers) {
+      await tx.$executeRawUnsafe(`ALTER TABLE "audit_trail" ENABLE TRIGGER "${t.tgname}"`);
+    }
   });
 }
 

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -26,8 +28,9 @@ interface ResetRequest {
 
 export function ResetRequestsPage() {
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
+  const reauth = useReauth();
   const { data, mutate } = useSWR<{ data: ResetRequest[] }>('/api/users/reset-requests');
-  const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy');
+  const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy', { revalidateOnMount: true, dedupingInterval: 5000 });
   const policy = { ...DEFAULT_PASSWORD_POLICY, ...policyData };
 
   const [selectedRequest, setSelectedRequest] = useState<ResetRequest | null>(null);
@@ -98,24 +101,41 @@ export function ResetRequestsPage() {
     setError('');
     setIsProcessing(true);
 
+    const body = {
+      action: actionDialog,
+      newPassword: actionDialog === 'approve' ? newPassword : undefined,
+      notes: notes || undefined,
+    };
+
     try {
-      await apiClient.post(`/api/users/reset-requests/${selectedRequest.id}/process`, {
-        action: actionDialog,
-        newPassword: actionDialog === 'approve' ? newPassword : undefined,
-        notes: notes || undefined,
-      });
-
-      setSuccessMessage(
-        actionDialog === 'approve'
-          ? `Password reset approved for ${selectedRequest.userId}. Make sure to share the temporary password securely.`
-          : `Password reset request rejected for ${selectedRequest.userId}.`
+      await reauth.execute(
+        'PROCESS_RESET_REQUEST',
+        async (password?: string) => {
+          if (password) {
+            await apiClient.postWithReauth(`/api/users/reset-requests/${selectedRequest.id}/process`, body, password);
+          } else {
+            await apiClient.post(`/api/users/reset-requests/${selectedRequest.id}/process`, body);
+          }
+        },
+        {
+          onSuccess: () => {
+            setSuccessMessage(
+              actionDialog === 'approve'
+                ? `Password reset approved for ${selectedRequest.userId}. Make sure to share the temporary password securely.`
+                : `Password reset request rejected for ${selectedRequest.userId}.`
+            );
+            closeDialog();
+            mutate();
+            setIsProcessing(false);
+          },
+          onError: (err: any) => {
+            setError(err.message || 'Failed to process request');
+            setIsProcessing(false);
+          },
+        },
       );
-
-      closeDialog();
-      mutate();
     } catch (err: any) {
       setError(err.message || 'Failed to process request');
-    } finally {
       setIsProcessing(false);
     }
   };
@@ -558,6 +578,18 @@ export function ResetRequestsPage() {
           </Button>
         </DialogFooter>
       </Dialog>
+
+      {/* Reauth Dialog */}
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Process Reset Request"
+      />
     </div>
   );
 }

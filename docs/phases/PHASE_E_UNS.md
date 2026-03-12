@@ -1,5 +1,8 @@
 # Phase E: Unified Namespace (UNS) (2-3 days)
 
+> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07.
+> UNS path builder, auto-provisioning, cascade move, wildcard matching, UNS config API (6 endpoints), and tree view data all operational.
+
 ## Prompt for Claude Code
 
 ```

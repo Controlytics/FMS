@@ -20,7 +20,7 @@ export default async function templateRoutes(app: FastifyInstance) {
           search: { type: 'string', description: 'Search by name' },
           isActive: { type: 'string', description: '"true" or "false"' },
           page: { type: 'integer', default: 1 },
-          limit: { type: 'integer', default: 50 },
+          limit: { type: 'integer' },
         },
       },
       response: {

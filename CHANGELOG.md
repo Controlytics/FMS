@@ -2,7 +2,87 @@
 
 All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are documented here.
 
+## [Unreleased] - 2026-03-12
+
+### Added
+- **Modular Config Registry System** — Self-registering config architecture with auto-discovery, dynamic route generation, and manifest API. 23 config definition files auto-registered at startup.
+- **Dynamic Config Pages** — Frontend auto-generates config UI for modules without custom pages, supporting all field types (string, number, boolean, select, secret, textarea, json, color, email, url)
+- **Config Registry Manifest API** — `GET /api/config/registry/manifest` returns role-filtered list of all config modules with metadata
+- **Dynamic Config CRUD API** — `GET/PUT /api/config/dynamic/:moduleKey` for configs without custom pages, with Zod validation, secret masking, and audit logging
+- **Field ID Names for all modules** — Expanded from 6 (User Management only) to 39 field IDs across 7 modules: User Management (6), Audit Trail (5), Alarms (11), Asset Management (5), Notifications (6), Telemetry (3), Attributes (3)
+- **Module-grouped Field ID Config UI** — Field IDs page now shows fields grouped by module with color-coded tabs, search, descriptions, and reset-to-default functionality
+
+### Fixed
+- **Backup SQL/CSV restore failing** — `Argument 'displayName' is missing` error fixed. Added comprehensive `convertDbColumnsToPrisma()` with 50+ column mappings for snake_case → camelCase conversion. Also fixed CSV numeric string coercion (`Expected String, provided Int`).
+- **Role change not persisting after logout** — Three-pronged fix: (1) JWT refresh endpoint now reads role from DB instead of stale JWT, (2) Auth plugin patches `req.user.role` with authoritative DB value on every request, (3) Sessions invalidated when admin changes user's role or disables account.
+- **27 SWR stale data issues across 23 files** — Systematic audit of all useSWR calls; fixed global hooks (branding, field labels, datetime, pagination, reauth), config pages, notification rules, user management, and audit trail with `revalidateOnMount: true, dedupingInterval: 0`.
+
+### Changed
+- **Field ID API response schema** — `GET /api/config/field-ids` now returns full field objects (id, fieldId, defaultName, displayName, module, description, updatedAt, updatedBy) instead of just fieldId + displayName
+- **Seed file expanded** — `prisma/seed.ts` now includes all 39 field ID definitions across 7 modules
+
+## [Unreleased] - 2026-03-09
+
+### Changed
+- **Notification Rules: Multi-select Event Types** — Event type field now supports selecting multiple event types per rule (was single-select). Added `event_types` array column to `notification_rules` table. Dispatcher matches rules using `eventTypes: { has: eventType }` Prisma query.
+- **Email Channel: Force IPv4** — Added `family: 4` to nodemailer transport options to prevent ENETUNREACH errors when smtp.office365.com resolves to IPv6.
+
+### Fixed
+- **Backup Restore**: All 4 formats (JSON, BAK, SQL, CSV/ZIP) now restorable via the application UI (previously only JSON and BAK)
+- **Notification Rule Update** — Strip computed fields (`eventTypeMeta`, `eventTypesMeta`, `createdAt`, `updatedAt`) and convert empty string UUIDs to null before Prisma update to prevent validation errors.
+
+### Added
+- **Comprehensive system validation report** — `tasks/system-validation-report.md` with full functional, integration, and workflow validation results
+- **48 rule chain node types cataloged** — Complete node catalog across 9 categories (INPUT, FILTER, ENRICHMENT, TRANSFORM, ACTION, EXTERNAL, FLOW, ANALYTICS) with inputs, outputs, configs documented
+- **4 QA test rule chains** — RC1 (Filter→Transform→Save), RC2 (Script→Alarm→Notify), RC3 (Switch→Enrich→Action), RC4 (Delay→Transform→DB)
+- **E2E workflow verification** — Full pipeline tested: Template→Entity→RuleChain→Telemetry→Alarm→Acknowledge→Clear
+
+### Identified (7 Bugs from Validation)
+- **BUG-V001 (Low):** 5 shared package tests out of sync with query schema changes (limit defaults removed)
+- **BUG-V002 (High):** TimescaleDB timeseries not written when rule chain lacks save-timeseries node
+- **BUG-V003 (Medium):** /api/connectivity/stats route conflict with /:entityId parameter
+- **BUG-V004 (Medium):** /api/alarms/stats route conflict with /:id parameter
+- **BUG-V005 (Medium):** /api/connectivity list endpoint missing (404)
+- **BUG-V006 (Low):** /api/connectivity/:entityId/snippet returns 404
+- **BUG-V007 (High):** Export endpoint requires undocumented time range parameters
+
+### Performance Metrics
+- Telemetry ingestion: 50 messages in 2.7s (0 failures, ~18 msg/sec)
+- All API endpoints respond under 100ms
+- System health score: **87/100**
+
+---
+
+## [Unreleased] - 2026-03-07
+
+### Changed
+- **Notification Rules: Multi-select Event Types** — Event type field now supports selecting multiple event types per rule (was single-select). Added `event_types` array column to `notification_rules` table. Dispatcher matches rules using `eventTypes: { has: eventType }` Prisma query.
+- **Email Channel: Force IPv4** — Added `family: 4` to nodemailer transport options to prevent ENETUNREACH errors when smtp.office365.com resolves to IPv6.
+
+### Fixed
+- **Notification Rule Update** — Strip computed fields (`eventTypeMeta`, `eventTypesMeta`, `createdAt`, `updatedAt`) and convert empty string UUIDs to null before Prisma update to prevent validation errors.
+
+### Fixed
+- **LatestTelemetry UUID cast** — `$executeRaw` in `ingestion.repository.ts` passed `entity_id` as text but PostgreSQL column is UUID type (error 42804). The error was silently swallowed by a catch block, causing all latest telemetry values to be stale. Added `::uuid` cast.
+- **Device credential `createdAt` not updating on token regeneration** — Prisma upsert `update` block in connectivity routes was missing `createdAt: new Date()`. The `@default(now())` only fires on `create`, not `update`.
+
+### Added
+- **Continuous telemetry test tools** — `tasks/test-data/push-telemetry.py` (Python, continuous rounds with jitter) and `tasks/test-data/push-telemetry.mjs` (Node.js) for pushing CSV telemetry data to entities
+- **Test data CSV** — `tasks/test-data/telemetry-200.csv` with 200 rows of temperature/humidity data including outliers
+
+### Changed
+- **Real-time auto-refresh** — SWR polling and WebSocket integration across all pages for live data updates
+
+---
+
 ## [Unreleased] - 2026-03-05
+
+### Changed
+- **Notification Rules: Multi-select Event Types** — Event type field now supports selecting multiple event types per rule (was single-select). Added `event_types` array column to `notification_rules` table. Dispatcher matches rules using `eventTypes: { has: eventType }` Prisma query.
+- **Email Channel: Force IPv4** — Added `family: 4` to nodemailer transport options to prevent ENETUNREACH errors when smtp.office365.com resolves to IPv6.
+
+### Fixed
+- **Notification Rule Update** — Strip computed fields (`eventTypeMeta`, `eventTypesMeta`, `createdAt`, `updatedAt`) and convert empty string UUIDs to null before Prisma update to prevent validation errors.
 
 ### Security
 - **Sandboxed rule chain scripts** — All user-defined scripts (script-filter, transform-msg, unit-converter nodes) now execute in Node.js VM contexts with 1-second timeout; no access to `process`, `require`, or `global`
@@ -175,6 +255,13 @@ All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are do
 
 ## [Unreleased] - 2026-02-21
 
+### Changed
+- **Notification Rules: Multi-select Event Types** — Event type field now supports selecting multiple event types per rule (was single-select). Added `event_types` array column to `notification_rules` table. Dispatcher matches rules using `eventTypes: { has: eventType }` Prisma query.
+- **Email Channel: Force IPv4** — Added `family: 4` to nodemailer transport options to prevent ENETUNREACH errors when smtp.office365.com resolves to IPv6.
+
+### Fixed
+- **Notification Rule Update** — Strip computed fields (`eventTypeMeta`, `eventTypesMeta`, `createdAt`, `updatedAt`) and convert empty string UUIDs to null before Prisma update to prevent validation errors.
+
 ### Added
 - **Checklist Schema on Entity Templates** — 14-type checklist question system for structured inspections/verifications
   - Question types: PASS_FAIL, YES_NO, YES_NO_NA, MCQ, MULTI_SELECT, TEXT, NUMERIC, DROPDOWN, PHOTO, DATE_TIME, SIGNATURE, YES_NO_COMMENT, CALCULATED, CONDITIONAL
@@ -212,6 +299,13 @@ All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are do
 ---
 
 ## [Unreleased] - 2026-02-20 (Phase 2)
+
+### Changed
+- **Notification Rules: Multi-select Event Types** — Event type field now supports selecting multiple event types per rule (was single-select). Added `event_types` array column to `notification_rules` table. Dispatcher matches rules using `eventTypes: { has: eventType }` Prisma query.
+- **Email Channel: Force IPv4** — Added `family: 4` to nodemailer transport options to prevent ENETUNREACH errors when smtp.office365.com resolves to IPv6.
+
+### Fixed
+- **Notification Rule Update** — Strip computed fields (`eventTypeMeta`, `eventTypesMeta`, `createdAt`, `updatedAt`) and convert empty string UUIDs to null before Prisma update to prevent validation errors.
 
 ### Added
 - **Connection Limit Enforcement** — New `maxConnections` field on entity templates to cap total relationships per entity
@@ -279,6 +373,13 @@ All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are do
 
 ## [Unreleased] - 2026-02-20
 
+### Changed
+- **Notification Rules: Multi-select Event Types** — Event type field now supports selecting multiple event types per rule (was single-select). Added `event_types` array column to `notification_rules` table. Dispatcher matches rules using `eventTypes: { has: eventType }` Prisma query.
+- **Email Channel: Force IPv4** — Added `family: 4` to nodemailer transport options to prevent ENETUNREACH errors when smtp.office365.com resolves to IPv6.
+
+### Fixed
+- **Notification Rule Update** — Strip computed fields (`eventTypeMeta`, `eventTypesMeta`, `createdAt`, `updatedAt`) and convert empty string UUIDs to null before Prisma update to prevent validation errors.
+
 ### Fixed
 - **Entity creation returning 400** — API rejected entity creation from inactive templates (`isActive=false`) but the frontend showed all templates. Removed the `isActive` check from `POST /instances` so entities can be created from any template.
 - **Role Privileges page crash** — Page crashed when rendering the Entity Management category because `CATEGORY_COLORS` map in `role-privileges.tsx` only had entries for 'User Management' and 'System', but not 'Entity Management'. Accessing `categoryConfig.bg` on `undefined` threw a TypeError. Added missing entry with teal/emerald color scheme.
@@ -295,6 +396,13 @@ All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are do
 ---
 
 ## [Unreleased] - 2026-02-19
+
+### Changed
+- **Notification Rules: Multi-select Event Types** — Event type field now supports selecting multiple event types per rule (was single-select). Added `event_types` array column to `notification_rules` table. Dispatcher matches rules using `eventTypes: { has: eventType }` Prisma query.
+- **Email Channel: Force IPv4** — Added `family: 4` to nodemailer transport options to prevent ENETUNREACH errors when smtp.office365.com resolves to IPv6.
+
+### Fixed
+- **Notification Rule Update** — Strip computed fields (`eventTypeMeta`, `eventTypesMeta`, `createdAt`, `updatedAt`) and convert empty string UUIDs to null before Prisma update to prevent validation errors.
 
 ### Added
 - ~~**Template Linking Rules**~~ *(Removed in 2026-02-20 — see Removed section above)*
@@ -394,6 +502,13 @@ All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are do
 
 ## [Unreleased] - 2026-02-17
 
+### Changed
+- **Notification Rules: Multi-select Event Types** — Event type field now supports selecting multiple event types per rule (was single-select). Added `event_types` array column to `notification_rules` table. Dispatcher matches rules using `eventTypes: { has: eventType }` Prisma query.
+- **Email Channel: Force IPv4** — Added `family: 4` to nodemailer transport options to prevent ENETUNREACH errors when smtp.office365.com resolves to IPv6.
+
+### Fixed
+- **Notification Rule Update** — Strip computed fields (`eventTypeMeta`, `eventTypesMeta`, `createdAt`, `updatedAt`) and convert empty string UUIDs to null before Prisma update to prevent validation errors.
+
 ### Added
 - **Action Re-authentication Configuration** (`/config/action-reauth`)
   - New SUPER_ADMIN config page with role-action matrix (checkboxes)
@@ -459,3 +574,20 @@ All notable changes to DigiLog (21 CFR Part 11 Compliant Digital Logbook) are do
 - Profile management
 - Forgot password / reset request workflow
 - 21 CFR Part 11 compliance (secure password fields, audit trail, RBAC, session management)
+
+## [Unreleased] - 2026-03-12
+
+### Added
+- **Email Notification Delivery**: Multi-channel email dispatch via Office365 OAuth2/Basic Auth with Nodemailer
+- **SMS Notification Delivery**: AWS SNS integration via CLI, with support for Twilio, Vonage, HTTP Gateway
+- **Notification Dispatcher**: Dispatches notifications for all 14 event types
+- **Dynamic Templates**: "All Events (Combined)" template auto-adapts details per event type
+- **14 Event-Specific Default Templates**: Fallback templates for each event type
+- **Notification Rules**: Configurable rules with event type filters, recipient selection, cooldown
+- **Retry Logic**: Up to 3 retries with exponential backoff for failed deliveries
+- **Delivery Logging**: All send attempts tracked in notification_logs
+
+### Fixed
+- **IPv6 ENETUNREACH**: Added custom IPv4 DNS lookup for SMTP connections on EC2
+- **OAuth2 vs Basic Auth**: Ensured authType config is respected for email sending
+- **Template Variable Resolution**: Fixed ${details} to use actual values

@@ -1,5 +1,8 @@
 # Phase J: Help System, UNS UI, Alarm Dashboard (2-3 days)
 
+> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07.
+> Help system (6 endpoints), UNS configuration page with tree view, alarm dashboard with real-time badge counts (5 endpoints), system config UI all operational.
+
 ## Prompt for Claude Code
 
 ```

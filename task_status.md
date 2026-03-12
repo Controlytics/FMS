@@ -11,7 +11,7 @@
 | EC2 Deployment | Done | API :3000, nginx frontend, PostgreSQL :5432, Redis :6379, EMQX :1883 |
 | PM2 Process Manager | Done | `digilog-api` cluster mode |
 | GitHub Actions CI/CD | Done | PostgreSQL 15, Redis 7, Node 20, 1344 tests |
-| TimescaleDB | Done | 5 hypertables (telemetry, alarms, events, connectivity, DLQ) |
+| TimescaleDB | Done | 7 hypertables (ts_telemetry, ts_attributes, ts_device_events, ts_checklist_responses, ts_pipeline_traces, ts_binary_data, ts_alarm_history) |
 
 ## Backend (`apps/api`) — Fastify 5
 
@@ -112,7 +112,7 @@
 | `/notifications` | Notifications list | Done |
 | `/audit` | Audit trail table with filters + detail dialog | Done |
 | `/rule-chains` | Rule Chain management (table, CRUD, pagination) | Done |
-| `/rule-chains/:id` | Rule Chain Editor (React Flow canvas, 28 node types) | Done |
+| `/rule-chains/:id` | Rule Chain Editor (React Flow canvas, 31 node types) | Done |
 | `/alarms` | Alarm Dashboard (role-based columns, MANUALLY_CLEARED status) | Done |
 | `/config/uns` | UNS Config (tree, wildcard search, detail panel, path override) | Done |
 | `/config/alarm-columns` | Alarm Column Visibility per role (11 columns) | Done |
@@ -364,7 +364,7 @@ Fix Fastify stripping `checklistSchema` from GET-by-ID responses due to missing 
 | Phase A: Infrastructure | Docker, TimescaleDB, 16 Prisma models, packages/db, packages/queue | Done |
 | Phase B: Transport | MQTT auth, MQTT client, WS handler, HTTP data ingestion, RPC | Done |
 | Phase C: Pipeline | BullMQ worker, 11 pipeline stages, telemetry batcher, DLQ, maintenance | Done |
-| Phase D: Rule Chain Engine | 28 node types, BFS execution, sandboxed VM, sub-chain delegation, 14 endpoints | Done |
+| Phase D: Rule Chain Engine | 31 node types, BFS execution, sandboxed VM, sub-chain delegation, 14 endpoints | Done |
 | Phase E: UNS | ISA-95 path builder, cascade moves, wildcard search, 6 endpoints | Done |
 | Phase F: Queries & Export | Telemetry, alarms (5 endpoints), export, retention, 21 endpoints | Done |
 | Phase G-J: Integration | Connectivity, QR codes, help articles, 3 frontend pages | Done |
@@ -374,4 +374,18 @@ Fix Fastify stripping `checklistSchema` from GET-by-ID responses due to missing 
 ---
 
 ## Summary
-**All phases complete (Phase 1 through K + v3.0).** The platform has ~145+ API endpoints across 34+ frontend pages, 30 Prisma models, and 1,344 automated tests (0 failures) across 83+ test files. Running on EC2 at `3.108.185.106` via PM2 + nginx. v3.0 added 8 security fixes, GitHub Actions CI/CD, TimescaleDB (5 hypertables), component extraction (Entity Explorer 2081→386 lines), and expanded test suite. Features include: data ingestion (MQTT + HTTP + WebSocket), rule chain engine (28 node types, sandboxed VM, sub-chain delegation), UNS (ISA-95), alarm management (deduplication, role-based columns, MANUALLY_CLEARED), telemetry queries, export (CSV/JSON), retention management, connectivity tracking, QR codes, and help articles. Documentation governance enforcement active — all 7 core documents auto-synchronized.
+**All phases complete (Phase 1 through K + v3.0 + v3.1 System Validation).** As of 2026-03-09, the platform has ~145+ API endpoints across 22 modules, 34+ frontend pages, 30 Prisma models (39 DB tables), 7 TimescaleDB hypertables, **48 rule chain node types** across 9 categories, 39+ permissions, and 145/150 automated tests passing (5 shared schema tests out of sync). Running on EC2 at `3.108.185.106` via PM2 + nginx.
+
+### System Validation (2026-03-09)
+- **System Health Score: 87/100**
+- 48 rule chain nodes cataloged, 4 test chains created, 30+ APIs live-tested
+- E2E workflow verified: Login → Template → Entity → Rule Chain → Telemetry → Alarm lifecycle
+- Performance: 50 msg in 2.7s (0 failures), all APIs <100ms
+- **7 bugs found** — see `tasks/system-validation-report.md`
+- **Open bugs**: BUG-V002 (TimescaleDB write gap), BUG-V003/V004 (route conflicts), BUG-V005 (missing connectivity list), BUG-V007 (export params)
+
+### Next Priority
+1. Fix BUG-V002 (High) — TimescaleDB timeseries persistence
+2. Fix BUG-V003/V004 (Medium) — Route ordering for /stats endpoints
+3. Fix BUG-V001 (Low) — Sync 5 shared package test assertions
+4. Fix BUG-V007 (High) — Export endpoint parameter defaults

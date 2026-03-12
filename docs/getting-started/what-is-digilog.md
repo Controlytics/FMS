@@ -16,10 +16,10 @@ Ingest time-series telemetry data from devices via **HTTP**, **MQTT**, or **WebS
 Build automated data processing pipelines using a visual drag-and-drop **Rule Chain Editor**. Filter, transform, enrich, and route telemetry data through configurable processing nodes. Trigger alarms, send notifications, or forward data to external systems.
 
 ### Alarms & Notifications
-Define alarm rules that trigger based on telemetry thresholds or device events. Alarms support multiple severity levels (Critical, Major, Minor, Warning, Indeterminate) and require **electronic signatures** for acknowledgment and clearing — meeting FDA 21 CFR Part 11 requirements.
+Define alarm rules (7 rule types: HIGH, LOW, HIGH_HIGH, LOW_LOW, RATE_OF_CHANGE, BOOLEAN_STATE, CUSTOM) that trigger based on telemetry thresholds or device events. Alarms support three severity levels (WARNING, ALARM, CRITICAL) and four statuses (ACTIVE, ACKNOWLEDGED, CLEARED, MANUALLY_CLEARED). Acknowledgment and clearing require **electronic signatures** — meeting FDA 21 CFR Part 11 requirements. Role-based column visibility controls which alarm columns each role can see.
 
 ### Checklists & QR Codes
-Create template-based inspection checklists with text, numeric, yes/no, dropdown, and **photo capture** question types. Generate QR codes for entities so field operators can scan and fill checklists from any device.
+Create template-based inspection checklists with 14 question types including text, numeric, yes/no, dropdown, multi-select, date, time, rating, signature, and **photo capture**. Generate QR codes for entities so field operators can scan and fill checklists from any device.
 
 ### Unified Namespace (UNS)
 Automatically generate ISA-95 compliant MQTT topic paths based on your entity hierarchy. The UNS provides a single source of truth for data routing across your organization.
@@ -63,7 +63,7 @@ DigiLog uses a modern monorepo architecture:
 | **Frontend** | React 19, Vite, Tailwind CSS | Single-page application |
 | **API** | Fastify 5, TypeScript | REST API, WebSocket, authentication |
 | **Database** | PostgreSQL + Prisma ORM | Entity data, configs, audit trail |
-| **Time-Series** | PostgreSQL (hypertable-compatible) | Telemetry, attributes, device events |
+| **Time-Series** | TimescaleDB (7 hypertables) | Telemetry, attributes, device events, pipeline traces, checklists, alarms, connectivity |
 | **Message Queue** | Redis + BullMQ | Async data ingestion pipeline |
 | **MQTT Broker** | EMQX | Device-to-platform MQTT communication |
 | **Process Manager** | PM2 | Production process management |

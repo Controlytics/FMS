@@ -6,8 +6,8 @@
 
 All endpoints require `Authorization: Bearer <token>` header unless noted otherwise.
 
-**~170+ Total API Endpoints -- 27 Tag Groups**
-**Last Updated:** 2026-03-05
+**~200+ Total API Endpoints -- 29 Tag Groups**
+**Last Updated:** 2026-03-12
 
 ---
 
@@ -31,15 +31,17 @@ All endpoints require `Authorization: Bearer <token>` header unless noted otherw
 16. [Help (6)](#help)
 17. [Internal MQTT (3)](#internal-mqtt)
 18. [Notifications (9)](#notifications)
-19. [QR Codes (4)](#qr-codes)
+19. [Notification Settings (18)](#notification-settings)
+22. [Notification Rules (8)](#notification-rules)
+23. [QR Codes (4)](#qr-codes)
 20. [Retention (4)](#retention)
 21. [Roles (8)](#roles)
-22. [Rule Chains (14)](#rule-chains)
-23. [System Health (1)](#system-health)
-24. [Telemetry (3)](#telemetry)
-25. [UNS (6)](#uns)
-26. [Uploads (1)](#uploads)
-27. [Users (14)](#users)
+24. [Rule Chains (14)](#rule-chains)
+25. [System Health (1)](#system-health)
+26. [Telemetry (3)](#telemetry)
+27. [UNS (6)](#uns)
+28. [Uploads (1)](#uploads)
+29. [Users (14)](#users)
 
 ---
 
@@ -103,9 +105,18 @@ All endpoints require `Authorization: Bearer <token>` header unless noted otherw
 
 | Method | Endpoint | Reauth | Description |
 |--------|----------|--------|-------------|
-| GET | `/api/backup/export` | EXPORT_BACKUP | Export database backup (ZIP) |
-| POST | `/api/backup/restore` | RESTORE_BACKUP | Restore from backup |
-| POST | `/api/backup/validate` | -- | Validate backup file |
+| GET | `/api/backup/export?format=json\|bak\|sql\|csv` | EXPORT_BACKUP | Export database backup |
+| POST | `/api/backup/restore` | RESTORE_BACKUP | Restore from backup (all 4 formats) |
+| POST | `/api/backup/validate` | -- | Validate backup file (all 4 formats) |
+
+**Export Formats:**
+
+| Format | Extension | Size | Restorable | Description |
+|--------|-----------|------|------------|-------------|
+| JSON | .json | Large | Yes | Full backup with SHA-256 checksum |
+| BAK | .bak | Small (~7x) | Yes | Gzip-compressed JSON |
+| SQL | .sql | Large | Yes | PostgreSQL INSERT statements |
+| CSV | .zip | Medium | Yes | ZIP of per-table CSV files |
 
 ---
 
@@ -366,6 +377,102 @@ All endpoints require `Authorization: Bearer <token>` header unless noted otherw
 | PUT | `/api/notifications/bulk-unread` | Any | Bulk mark as unread |
 | DELETE | `/api/notifications/{id}` | Any | Delete notification |
 | POST | `/api/notifications/bulk-delete` | SUPER_ADMIN | Bulk delete notifications |
+
+---
+
+## Notification Settings
+
+18 endpoints. JWT auth required. SUPER_ADMIN only.
+
+### Email Configuration
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/notification-settings/email` | Get email (SMTP) configuration |
+| PUT | `/api/notification-settings/email` | Update email (SMTP) configuration |
+| POST | `/api/notification-settings/email/test` | Send test email to verify configuration |
+| GET | `/api/notification-settings/email/oauth2/redirect-uri` | Get OAuth2 redirect URI |
+| GET | `/api/notification-settings/email/oauth2/authorize` | Get OAuth2 authorization URL |
+| GET | `/api/notification-settings/email/oauth2/code` | OAuth2 callback — exchange code for tokens |
+| GET | `/api/notification-settings/email/oauth2/status` | Check OAuth2 token status |
+
+### SMS Configuration
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/notification-settings/sms` | Get SMS configuration |
+| PUT | `/api/notification-settings/sms` | Update SMS configuration |
+| POST | `/api/notification-settings/sms/test` | Send test SMS to verify configuration |
+
+**Supported SMS Providers:** AWS SNS, Twilio, Vonage, HTTP Gateway
+
+### Notification Templates
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/notification-settings/templates` | List all notification templates |
+| POST | `/api/notification-settings/templates` | Create a notification template |
+| PUT | `/api/notification-settings/templates/{id}` | Update a notification template |
+| DELETE | `/api/notification-settings/templates/{id}` | Delete a notification template |
+
+**Template Variables:** `${eventLabel}`, `${summary}`, `${details}` (email HTML), `${smsDetails}` (SMS text), plus event-specific variables.
+
+### Delivery & Logs
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/notification-settings/send` | Send a notification manually |
+| GET | `/api/notification-settings/logs` | Get notification delivery logs (paginated) |
+| GET | `/api/notification-settings/logs/stats` | Get delivery statistics (sent/failed/pending counts) |
+| DELETE | `/api/notification-settings/logs/{id}` | Delete a delivery log entry |
+
+---
+
+## Notification Rules
+
+8 endpoints. JWT auth required. SUPER_ADMIN only.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/notification-rules/event-types` | List available event types (14 types) |
+| GET | `/api/notification-rules/` | List all notification rules |
+| GET | `/api/notification-rules/{id}` | Get a specific rule |
+| POST | `/api/notification-rules/` | Create a notification rule |
+| PUT | `/api/notification-rules/{id}` | Update a notification rule |
+| DELETE | `/api/notification-rules/{id}` | Delete a notification rule |
+| PUT | `/api/notification-rules/{id}/toggle` | Enable/disable a rule |
+| POST | `/api/notification-rules/{id}/test` | Test fire a rule (sends real notifications) |
+
+### Event Types
+
+Rules can trigger on any combination of these 14 event types:
+
+| Event Type | Description |
+|------------|-------------|
+| `ALARM_CREATED` | New alarm triggered |
+| `ALARM_ACKNOWLEDGED` | Alarm acknowledged by user |
+| `ALARM_CLEARED` | Alarm cleared |
+| `DEVICE_ONLINE` | Device connected |
+| `DEVICE_OFFLINE` | Device disconnected |
+| `DEVICE_INACTIVITY` | Device inactive timeout |
+| `USER_LOGIN` | User logged in |
+| `USER_CREATED` | New user account created |
+| `USER_LOCKED` | Account locked (failed logins) |
+| `RULE_CHAIN_TRIGGERED` | Rule chain executed |
+| `CHECKLIST_SUBMITTED` | Checklist submitted |
+| `CHECKLIST_APPROVED` | Checklist approved |
+| `CHECKLIST_REJECTED` | Checklist rejected |
+| `SYSTEM_ERROR` | Server 500 error |
+
+### Rule Configuration
+
+Each rule includes:
+- **Event types**: One or more event types to match
+- **Channels**: Email, SMS, In-App (independently toggleable)
+- **Recipients**: Users, roles, or user groups
+- **Templates**: Separate email and SMS templates (optional, defaults used if not set)
+- **Cooldown**: Minimum minutes between repeated notifications
+- **Priority**: Higher priority rules evaluated first
 
 ---
 

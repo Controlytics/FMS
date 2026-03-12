@@ -24,7 +24,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
           search: { type: 'string', description: 'Search by name' },
           isActive: { type: 'string', description: '"true" or "false"' },
           page: { type: 'integer', default: 1 },
-          limit: { type: 'integer', default: 20 },
+          limit: { type: 'integer' },
         },
       },
       response: {
@@ -75,8 +75,8 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
     };
 
     const page = Math.max(1, Number(rawPage) || 1);
-    const limit = Math.max(1, Math.min(Number(rawLimit) || 20, 100));
-    const skip = (page - 1) * limit;
+    const limit = rawLimit ? Math.max(1, Number(rawLimit)) : undefined;
+    const skip = limit ? (page - 1) * limit : 0;
 
     const where: Prisma.RuleChainWhereInput = {};
     if (search) {
@@ -88,8 +88,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
     const [data, total] = await Promise.all([
       prisma.ruleChain.findMany({
         where,
-        skip,
-        take: limit,
+        ...(limit ? { skip, take: limit } : {}),
         orderBy: { createdAt: 'desc' },
         include: {
           _count: { select: { nodes: true, connections: true } },
@@ -102,8 +101,8 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
       data,
       total,
       page,
-      limit,
-      totalPages: Math.ceil(total / limit),
+      limit: limit ?? total,
+      totalPages: limit ? Math.ceil(total / limit) : 1,
     };
   });
 
@@ -117,7 +116,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
       querystring: {
         type: 'object',
         properties: {
-          category: { type: 'string', description: 'Filter by category (INPUT, FILTER, ENRICHMENT, TRANSFORM, ACTION, EXTERNAL, FLOW)' },
+          category: { type: 'string', description: 'Filter by category (INPUT, FILTER, ENRICHMENT, TRANSFORM, ACTION, EXTERNAL, FLOW, ANALYTICS)' },
         },
       },
       response: {
@@ -928,7 +927,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
       querystring: {
         type: 'object',
         properties: {
-          limit: { type: 'integer', default: 50, description: 'Max number of debug records to return' },
+          limit: { type: 'integer', description: 'Max number of debug records to return' },
         },
       },
       response: {

@@ -117,23 +117,23 @@ async function main() {
   const passwordHash = await bcrypt.hash('Admin@123', 12);
 
   await prisma.user.upsert({
-    where: { username: 'admin' },
+    where: { username: 'superadmin' },
     update: {},
     create: {
-      username: 'admin',
+      username: 'superadmin',
       fullName: 'System Administrator',
       email: 'admin@digilog.local',
       passwordHash,
       role: 'SUPER_ADMIN',
       status: 'ENABLED',
-      forcePasswordChange: true,
-      isTemporaryPassword: true,
+      forcePasswordChange: false,
+      isTemporaryPassword: false,
       createdBy: 'system',
     },
   });
 
   // Add to password history
-  const admin = await prisma.user.findUnique({ where: { username: 'admin' } });
+  const admin = await prisma.user.findUnique({ where: { username: 'superadmin' } });
   if (admin) {
     const existingHistory = await prisma.passwordHistory.findFirst({ where: { userId: admin.id } });
     if (!existingHistory) {
@@ -143,7 +143,7 @@ async function main() {
     }
   }
 
-  console.log('  Created default admin user (admin / Admin@123)');
+  console.log('  Created default admin user (superadmin / Admin@123)');
 
   // 3. System configurations
   const configs = [
@@ -207,12 +207,52 @@ async function main() {
 
   // 4. Field ID configurations
   const fieldIds = [
-    { fieldId: 'FLD_USER_001', defaultName: 'User ID', displayName: 'User ID', module: 'User Management' },
-    { fieldId: 'FLD_USER_002', defaultName: 'Full Name', displayName: 'Full Name', module: 'User Management' },
-    { fieldId: 'FLD_USER_003', defaultName: 'Email', displayName: 'Email', module: 'User Management' },
-    { fieldId: 'FLD_USER_004', defaultName: 'Department', displayName: 'Department', module: 'User Management' },
-    { fieldId: 'FLD_USER_005', defaultName: 'Role', displayName: 'Role', module: 'User Management' },
-    { fieldId: 'FLD_USER_006', defaultName: 'Status', displayName: 'Status', module: 'User Management' },
+    // User Management
+    { fieldId: 'FLD_USER_001', defaultName: 'User ID', displayName: 'User ID', module: 'User Management', description: 'Unique user identifier' },
+    { fieldId: 'FLD_USER_002', defaultName: 'Full Name', displayName: 'Full Name', module: 'User Management', description: 'User full name' },
+    { fieldId: 'FLD_USER_003', defaultName: 'Email', displayName: 'Email', module: 'User Management', description: 'User email address' },
+    { fieldId: 'FLD_USER_004', defaultName: 'Department', displayName: 'Department', module: 'User Management', description: 'User department' },
+    { fieldId: 'FLD_USER_005', defaultName: 'Role', displayName: 'Role', module: 'User Management', description: 'User role assignment' },
+    { fieldId: 'FLD_USER_006', defaultName: 'Status', displayName: 'Status', module: 'User Management', description: 'User account status' },
+    // Audit Trail
+    { fieldId: 'FLD_AUDIT_001', defaultName: 'Timestamp', displayName: 'Timestamp', module: 'Audit Trail', description: 'When the action occurred' },
+    { fieldId: 'FLD_AUDIT_002', defaultName: 'Description', displayName: 'Description', module: 'Audit Trail', description: 'Summary of the audit event' },
+    { fieldId: 'FLD_AUDIT_003', defaultName: 'Action', displayName: 'Action', module: 'Audit Trail', description: 'Type of action performed' },
+    { fieldId: 'FLD_AUDIT_004', defaultName: 'Performed By', displayName: 'Performed By', module: 'Audit Trail', description: 'User who performed the action' },
+    { fieldId: 'FLD_AUDIT_005', defaultName: 'Status', displayName: 'Status', module: 'Audit Trail', description: 'Integrity verification status' },
+    // Alarms
+    { fieldId: 'FLD_ALARM_001', defaultName: 'Severity', displayName: 'Severity', module: 'Alarms', description: 'Alarm severity level' },
+    { fieldId: 'FLD_ALARM_002', defaultName: 'Alarm Type', displayName: 'Alarm Type', module: 'Alarms', description: 'Type of alarm triggered' },
+    { fieldId: 'FLD_ALARM_003', defaultName: 'Entity', displayName: 'Entity', module: 'Alarms', description: 'Associated entity name' },
+    { fieldId: 'FLD_ALARM_004', defaultName: 'High Limit', displayName: 'High Limit', module: 'Alarms', description: 'Upper threshold value' },
+    { fieldId: 'FLD_ALARM_005', defaultName: 'Low Limit', displayName: 'Low Limit', module: 'Alarms', description: 'Lower threshold value' },
+    { fieldId: 'FLD_ALARM_006', defaultName: 'Generated Value', displayName: 'Generated Value', module: 'Alarms', description: 'Value when alarm was generated' },
+    { fieldId: 'FLD_ALARM_007', defaultName: 'Cleared Value', displayName: 'Cleared Value', module: 'Alarms', description: 'Value when alarm was cleared' },
+    { fieldId: 'FLD_ALARM_008', defaultName: 'Status', displayName: 'Status', module: 'Alarms', description: 'Current alarm status' },
+    { fieldId: 'FLD_ALARM_009', defaultName: 'Generated At', displayName: 'Generated At', module: 'Alarms', description: 'Alarm generation timestamp' },
+    { fieldId: 'FLD_ALARM_010', defaultName: 'Cleared At', displayName: 'Cleared At', module: 'Alarms', description: 'Alarm cleared timestamp' },
+    { fieldId: 'FLD_ALARM_011', defaultName: 'Actions', displayName: 'Actions', module: 'Alarms', description: 'Acknowledge and clear buttons' },
+    // Asset Management
+    { fieldId: 'FLD_ASSET_001', defaultName: 'Name', displayName: 'Name', module: 'Asset Management', description: 'Asset instance name' },
+    { fieldId: 'FLD_ASSET_002', defaultName: 'Template', displayName: 'Template', module: 'Asset Management', description: 'Associated template' },
+    { fieldId: 'FLD_ASSET_003', defaultName: 'Parent', displayName: 'Parent', module: 'Asset Management', description: 'Parent asset in hierarchy' },
+    { fieldId: 'FLD_ASSET_004', defaultName: 'Children', displayName: 'Children', module: 'Asset Management', description: 'Number of child assets' },
+    { fieldId: 'FLD_ASSET_005', defaultName: 'Created', displayName: 'Created', module: 'Asset Management', description: 'Creation timestamp' },
+    // Notifications
+    { fieldId: 'FLD_NOTIF_001', defaultName: 'Rule Name', displayName: 'Rule Name', module: 'Notifications', description: 'Notification rule name' },
+    { fieldId: 'FLD_NOTIF_002', defaultName: 'Event Type', displayName: 'Event Type', module: 'Notifications', description: 'Triggering event type' },
+    { fieldId: 'FLD_NOTIF_003', defaultName: 'Channels', displayName: 'Channels', module: 'Notifications', description: 'Delivery channels (email, SMS, in-app)' },
+    { fieldId: 'FLD_NOTIF_004', defaultName: 'Priority', displayName: 'Priority', module: 'Notifications', description: 'Rule priority order' },
+    { fieldId: 'FLD_NOTIF_005', defaultName: 'Status', displayName: 'Status', module: 'Notifications', description: 'Active or inactive' },
+    { fieldId: 'FLD_NOTIF_006', defaultName: 'Cooldown', displayName: 'Cooldown', module: 'Notifications', description: 'Cooldown period in minutes' },
+    // Telemetry
+    { fieldId: 'FLD_TELEM_001', defaultName: 'Key', displayName: 'Key', module: 'Telemetry', description: 'Telemetry data key' },
+    { fieldId: 'FLD_TELEM_002', defaultName: 'Value', displayName: 'Value', module: 'Telemetry', description: 'Telemetry data value' },
+    { fieldId: 'FLD_TELEM_003', defaultName: 'Timestamp', displayName: 'Timestamp', module: 'Telemetry', description: 'Data collection timestamp' },
+    // Attributes
+    { fieldId: 'FLD_ATTR_001', defaultName: 'Key', displayName: 'Key', module: 'Attributes', description: 'Attribute key name' },
+    { fieldId: 'FLD_ATTR_002', defaultName: 'Value', displayName: 'Value', module: 'Attributes', description: 'Attribute value' },
+    { fieldId: 'FLD_ATTR_003', defaultName: 'Last Updated', displayName: 'Last Updated', module: 'Attributes', description: 'Last update timestamp' },
   ];
 
   for (const field of fieldIds) {

@@ -66,6 +66,7 @@ export function UserIdConfigPage() {
   });
 
   const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [testUserId, setTestUserId] = useState('');
   const [validationResult, setValidationResult] = useState<{ valid: boolean; errors?: string[] } | null>(null);
 
@@ -77,11 +78,18 @@ export function UserIdConfigPage() {
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveMessage(null);
     try {
-      await apiClient.put('/api/config/user-id', form);
+      const saveData = { ...form };
+      if (!saveData.format.startsWith('PREFIX_')) { saveData.prefix = ''; }
+      await apiClient.put('/api/config/user-id', saveData);
       mutate();
-    } catch (err) {
+      setSaveMessage({ type: 'success', text: 'Configuration saved successfully!' });
+      setTimeout(() => setSaveMessage(null), 4000);
+    } catch (err: any) {
       console.error('Failed to save:', err);
+      setSaveMessage({ type: 'error', text: err?.message || 'Failed to save configuration' });
+      setTimeout(() => setSaveMessage(null), 5000);
     } finally {
       setSaving(false);
     }
@@ -184,7 +192,7 @@ export function UserIdConfigPage() {
                 <label className="text-sm font-semibold text-slate-700 mb-2 block">Format Type</label>
                 <Select
                   value={form.format}
-                  onChange={(e) => setForm({ ...form, format: e.target.value })}
+                  onChange={(e) => { const fmt = e.target.value; setForm({ ...form, format: fmt, ...(fmt.startsWith('PREFIX_') ? {} : { prefix: '', prefixSeparator: '-' }) }); }}
                   disabled={!isSuperAdmin}
                   className="w-full"
                 >
@@ -362,6 +370,19 @@ export function UserIdConfigPage() {
               )}
             </div>
           </Card>
+
+          {/* Save Message */}
+          {saveMessage && (
+            <div className={"flex items-center gap-2 px-4 py-3 rounded-lg text-sm font-medium " + (saveMessage.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200')}>
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                {saveMessage.type === 'success'
+                  ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                }
+              </svg>
+              {saveMessage.text}
+            </div>
+          )}
 
           {/* Save Button */}
           {isSuperAdmin && (

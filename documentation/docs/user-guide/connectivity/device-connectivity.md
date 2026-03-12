@@ -27,7 +27,7 @@ When an entity is created from a template with **Data Ingestion Enabled**, DigiL
 
 #### Generate New Token
 
-Navigate to the entity's **Connectivity** tab and click **Generate Token**. This creates a new token and revokes the previous one.
+Navigate to the entity's **Connectivity** tab and click **Generate Token**. This creates a new token and revokes the previous one. The `createdAt` timestamp is updated to reflect the regeneration time.
 
 You can also provide a custom token (8-128 characters) for integration with existing device provisioning systems.
 

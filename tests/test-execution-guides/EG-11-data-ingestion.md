@@ -3,7 +3,7 @@
 ## Prerequisites
 - **App URL**: http://3.108.185.106
 - **API Base**: http://localhost:3000/api
-- **SUPER_ADMIN Credentials**: admin / Test@12345
+- **SUPER_ADMIN Credentials**: admin / Admin@123
 - **Device Credential**: A DeviceCredential record with an active access token. You need the `accessToken` value.
 - **Entity**: At least one entity instance linked to the device credential.
 - **Redis**: Running on localhost:6379 (BullMQ worker must be active)
@@ -15,7 +15,7 @@
 # User JWT token
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Test@12345"}' | jq -r '.token')
+  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
 
 # Device token (get from DeviceCredential table or create one via API)
 # Replace with actual device token

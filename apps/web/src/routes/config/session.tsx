@@ -16,7 +16,7 @@ export function SessionConfigPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const reauth = useReauth();
-  const { data } = useSWR('/api/config/session');
+  const { data } = useSWR('/api/config/session', { revalidateOnMount: true, dedupingInterval: 0 });
 
   const { register, handleSubmit, watch, reset, formState: { isSubmitting, isDirty } } = useForm<SessionConfig>({
     resolver: zodResolver(sessionConfigSchema),

@@ -1,5 +1,8 @@
 # Phase F: Queries & Export (3-4 days)
 
+> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07.
+> Telemetry query endpoints (7), alarm endpoints (5), export endpoints (5), retention management (4), all with TimescaleDB continuous aggregates and configurable limits.
+
 ## Prompt for Claude Code
 
 ```

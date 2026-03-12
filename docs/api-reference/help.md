@@ -1,6 +1,6 @@
 # Help Articles API
 
-The Help Articles API provides endpoints for managing context-sensitive help content. Articles support versioning and are organized by category.
+The Help Articles API provides endpoints for managing context-sensitive help content. Articles support versioning and are organized by category. DigiLog ships with 28 default help articles covering all major features.
 
 ---
 
@@ -88,16 +88,16 @@ curl -X POST "http://your-server/api/help" \
 | `category` | string | Yes | Category name (max 50 chars) |
 | `sortOrder` | integer | No | Sort order within category (default: 0) |
 
-**Role Required:** `SUPER_ADMIN`
+**Permission:** `HELP_MANAGE` (requires re-authentication)
 
 ---
 
-### PUT /api/help/:id
+### PUT /api/help/:key
 
 Update a help article. Creates a new version snapshot.
 
 ```bash
-curl -X PUT "http://your-server/api/help/ARTICLE_UUID" \
+curl -X PUT "http://your-server/api/help/entity-templates" \
   -H "Authorization: Bearer USER_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -115,21 +115,21 @@ curl -X PUT "http://your-server/api/help/ARTICLE_UUID" \
 | `isActive` | boolean | Enable/disable the article |
 | `changeNotes` | string | Description of the change (max 200 chars) |
 
-**Role Required:** `SUPER_ADMIN`
+**Permission:** `HELP_MANAGE` (requires re-authentication)
 
 ---
 
-### DELETE /api/help/:id
+### DELETE /api/help/:key
 
 Soft-delete a help article (sets `isActive=false`).
 
-**Role Required:** `SUPER_ADMIN`
+**Permission:** `HELP_MANAGE` (requires re-authentication)
 
 ---
 
 ## Version History
 
-### GET /api/help/:id/versions
+### GET /api/help/:key/versions
 
 Get all version snapshots for an article, ordered by version descending.
 
