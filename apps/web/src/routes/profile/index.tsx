@@ -226,7 +226,10 @@ export function ProfilePage() {
                 <Input
                   name="fullName"
                   value={formData.fullName}
-                  onChange={handleChange}
+                  onChange={(e) => {
+                    const clean = e.target.value.replace(/<[^>]*>/g, '');
+                    setFormData(prev => ({ ...prev, fullName: clean }));
+                  }}
                   required
                   minLength={2}
                   maxLength={100}
@@ -249,7 +252,11 @@ export function ProfilePage() {
               <Input
                 name="department"
                 value={formData.department}
-                onChange={handleChange}
+                onChange={(e) => {
+                  // Strip HTML tags on input
+                  const clean = e.target.value.replace(/<[^>]*>/g, '');
+                  setFormData(prev => ({ ...prev, department: clean }));
+                }}
                 placeholder="e.g., Engineering, Quality Assurance"
               />
             </div>

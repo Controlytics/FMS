@@ -13,7 +13,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 1. GET / — List rule chains (paginated) ──────────
   app.get('/', {
-    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
+    preHandler: [app.requirePermission('RULE_CHAIN_VIEW')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'List rule chains',
@@ -108,7 +108,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 2. GET /node-types — List available node type definitions ──
   app.get('/node-types', {
-    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
+    preHandler: [app.requirePermission('RULE_CHAIN_VIEW')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'List available node types',
@@ -156,7 +156,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 3. GET /:id — Get single rule chain with nodes + connections ──
   app.get('/:id', {
-    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
+    preHandler: [app.requirePermission('RULE_CHAIN_VIEW')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Get rule chain by ID',
@@ -254,7 +254,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 4. POST / — Create rule chain ────────────────────
   app.post('/', {
-    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
+    preHandler: [app.requirePermission('RULE_CHAIN_CREATE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Create rule chain',
@@ -312,7 +312,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 5. PUT /:id — Update rule chain metadata ─────────
   app.put('/:id', {
-    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
+    preHandler: [app.requirePermission('RULE_CHAIN_UPDATE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Update rule chain',
@@ -388,7 +388,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 6. DELETE /:id — Delete rule chain ────────────────
   app.delete('/:id', {
-    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
+    preHandler: [app.requirePermission('RULE_CHAIN_DELETE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Delete rule chain',
@@ -437,7 +437,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 7. POST /:id/nodes — Add node to chain ───────────
   app.post('/:id/nodes', {
-    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
+    preHandler: [app.requirePermission('RULE_CHAIN_CREATE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Add node to rule chain',
@@ -502,7 +502,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 8. PUT /:id/nodes/:nodeId — Update node ──────────
   app.put('/:id/nodes/:nodeId', {
-    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
+    preHandler: [app.requirePermission('RULE_CHAIN_UPDATE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Update rule chain node',
@@ -572,7 +572,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 9. DELETE /:id/nodes/:nodeId — Delete node ───────
   app.delete('/:id/nodes/:nodeId', {
-    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
+    preHandler: [app.requirePermission('RULE_CHAIN_DELETE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Delete rule chain node',
@@ -612,7 +612,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 10. POST /:id/connections — Add connection ───────
   app.post('/:id/connections', {
-    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
+    preHandler: [app.requirePermission('RULE_CHAIN_CREATE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Add connection between nodes',
@@ -679,7 +679,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 11. DELETE /:id/connections/:connectionId — Delete connection ──
   app.delete('/:id/connections/:connectionId', {
-    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
+    preHandler: [app.requirePermission('RULE_CHAIN_DELETE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Delete connection',
@@ -719,7 +719,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 12. POST /:id/save — Save full chain state + create version ──
   app.post('/:id/save', {
-    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
+    preHandler: [app.requirePermission('RULE_CHAIN_CREATE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Save full chain state',
@@ -914,7 +914,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 13. GET /:id/debug — Get debug buffer for chain ──
   app.get('/:id/debug', {
-    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
+    preHandler: [app.requirePermission('RULE_CHAIN_VIEW')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Get debug buffer',
@@ -961,7 +961,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
   // ─── 14. DELETE /:id/debug — Clear debug buffer ───────
   app.delete('/:id/debug', {
-    preHandler: [app.requirePermission('RULE_CHAIN_MANAGE')],
+    preHandler: [app.requirePermission('RULE_CHAIN_DELETE')],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Clear debug buffer',

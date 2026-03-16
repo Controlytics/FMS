@@ -47,8 +47,6 @@ const ALL_PERMISSIONS = [
   // Audit
   { key: 'AUDIT_READ', label: 'View Audit Trail', category: 'Audit' },
   // Approvals
-  { key: 'APPROVAL_REVIEW', label: 'Review Approvals', category: 'Approvals' },
-  { key: 'APPROVAL_REQUEST', label: 'Request Approvals', category: 'Approvals' },
 ];
 
 // ---------------------------------------------------------------------------

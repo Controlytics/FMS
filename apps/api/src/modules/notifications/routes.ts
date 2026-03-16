@@ -204,11 +204,11 @@ export default async function notificationRoutes(app: FastifyInstance) {
 
   // POST /api/notifications/bulk-delete — delete multiple (SUPER_ADMIN only)
   app.post('/bulk-delete', {
-    preHandler: [app.requirePermission('NOTIFICATION_MANAGE')],
+    preHandler: [app.requirePermission('NOTIFICATION_DELETE')],
     schema: {
       tags: ['Notifications'],
       summary: 'Delete selected notifications',
-      description: 'Permanently delete multiple notifications by their IDs. Requires NOTIFICATION_MANAGE permission.',
+      description: 'Permanently delete multiple notifications by their IDs. Requires NOTIFICATION_DELETE permission.',
       body: {
         type: 'object',
         required: ['ids'],

@@ -64,7 +64,7 @@ export async function registerSwagger(app: FastifyInstance) {
         { name: 'Entity Relationships', description: 'Entity relationships — bidirectional connections between entities (12 types with auto-inverse)' },
         { name: 'Entity Identifiers', description: 'Entity identifiers — QR, RFID, NFC, Barcode, Manual identifiers' },
         { name: 'Data Ingestion', description: 'Data ingestion — HTTP telemetry, batch ingestion, data streams, device credentials' },
-        { name: 'Rule Chains', description: 'Rule chain engine — visual DAG-based data processing with 28 node types, sandboxed execution, sub-chain delegation' },
+        { name: 'Rule Chains', description: 'Rule chain engine — visual DAG-based data processing with 77 node types, sandboxed execution, sub-chain delegation' },
         { name: 'UNS', description: 'Unified Namespace — ISA-95 hierarchical namespace mappings and auto-mapping' },
         { name: 'Telemetry', description: 'Telemetry queries — latest values, history, aggregated, compare, delta, stats' },
         { name: 'Alarms', description: 'Alarm management — lifecycle tracking (ACTIVE → ACKNOWLEDGED → CLEARED), acknowledge, clear with electronic signatures' },

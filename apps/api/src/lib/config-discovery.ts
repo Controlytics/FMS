@@ -32,7 +32,6 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/field-ids.def.js'),
     import('../modules/config/defs/retention.def.js'),
     import('../modules/config/defs/help.def.js'),
-    import('../modules/config/defs/system.def.js'),
     import('../modules/config/defs/uns.def.js'),
     // ─── Add new module configs below this line ───
   ]);

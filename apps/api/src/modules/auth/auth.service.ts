@@ -1,3 +1,4 @@
+import { sanitizeStrings } from "../../lib/sanitize.js";
 import type { RequestContext } from '../../types/context.js';
 import { auditLog } from '../../lib/audit.js';
 import { hashPassword, verifyPassword } from '../../lib/password.js';
@@ -239,6 +240,9 @@ export const authService = {
   },
 
   async updateProfile(userId: string, data: { fullName?: string; email?: string; department?: string; photoUrl?: string }, ip: string, userAgent: string | undefined, sessionId: string) {
+    // Sanitize text inputs to prevent XSS
+    data = sanitizeStrings(data, ['photoUrl']);
+
     const user = await authRepository.findUserById(userId);
     if (!user) throw new NotFoundError('User not found');
 

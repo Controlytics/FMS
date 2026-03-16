@@ -83,7 +83,7 @@ export default async function retentionRoutes(app: FastifyInstance) {
       return DEFAULT_RETENTION_CONFIG;
     }
 
-    return config.configValue as Record<string, unknown>;
+    return { ...DEFAULT_RETENTION_CONFIG, ...(config.configValue as Record<string, unknown>) };
   });
 
   // 2. PUT /config/retention — Update retention config
@@ -191,41 +191,6 @@ export default async function retentionRoutes(app: FastifyInstance) {
     return body;
   });
 
-  // 3. POST /retention/archive — Archive data (stub)
-  app.post('/retention/archive', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
-    schema: {
-      tags: ['Retention'],
-      summary: 'Archive data',
-      description: 'Archive data of the specified type within the given date range. Currently returns a stub response until archive destination is configured.',
-      body: {
-        type: 'object',
-        required: ['dataType', 'from', 'to'],
-        properties: {
-          dataType: { type: 'string', enum: [...VALID_ARCHIVE_DATA_TYPES] },
-          from: { type: 'string', format: 'date-time', description: 'Start date (ISO 8601)' },
-          to: { type: 'string', format: 'date-time', description: 'End date (ISO 8601)' },
-        },
-      },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            status: { type: 'string' },
-            rowsArchived: { type: 'integer' },
-            message: { type: 'string' },
-          },
-        },
-        ...errorResponses,
-      },
-    },
-  }, async () => {
-    return {
-      status: 'archived',
-      rowsArchived: 0,
-      message: 'Archive destination not configured. Configure S3/Azure Blob in system settings.',
-    };
-  });
 
   // 4. POST /retention/execute — Execute retention (delete old data)
   app.post('/retention/execute', {

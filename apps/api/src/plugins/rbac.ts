@@ -32,7 +32,7 @@ async function rbacPlugin(app: FastifyInstance) {
       let hasPermission = perms.includes(permission);
 
       // If not found, check if user has the *_MANAGE parent permission
-      // e.g., ASSET_TEMPLATE_CREATE is granted by ASSET_TEMPLATE_MANAGE
+      // Fallback: check if user has the *_MANAGE parent permission (backward compatibility)
       if (!hasPermission) {
         const manageVariants = ['_CREATE', '_UPDATE', '_DELETE', '_VIEW', '_READ', '_EXPORT'];
         for (const suffix of manageVariants) {

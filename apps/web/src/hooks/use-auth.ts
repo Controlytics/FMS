@@ -50,9 +50,8 @@ export function useAuth() {
       navigate('/change-password', { replace: true });
     } else {
       await mutate();
-      const params = new URLSearchParams(window.location.search);
-      const returnUrl = params.get('returnUrl') || '/';
-      navigate(returnUrl, { replace: true });
+      // Always navigate to home page after login
+      navigate('/', { replace: true });
     }
 
     return res;
@@ -138,3 +137,4 @@ export function useAuth() {
     mutate,
   };
 }
+

@@ -41,7 +41,7 @@ export function AssetExplorerPage() {
   const canCreate = user?.role === 'SUPER_ADMIN' || (user?.permissions?.includes('ASSET_CREATE') ?? false);
   const canUpdate = user?.role === 'SUPER_ADMIN' || (user?.permissions?.includes('ASSET_UPDATE') ?? false);
   const canDelete = user?.role === 'SUPER_ADMIN' || (user?.permissions?.includes('ASSET_DELETE') ?? false);
-  const canManageRelationships = user?.role === 'SUPER_ADMIN' || (user?.permissions?.includes('ASSET_RELATIONSHIP_MANAGE') ?? false);
+  const canManageRelationships = user?.role === 'SUPER_ADMIN' || (user?.permissions?.includes('ASSET_RELATIONSHIP_CREATE') ?? false);
   const { formatDateTime } = useDatetimeFormat();
 
   // ---- View state ----

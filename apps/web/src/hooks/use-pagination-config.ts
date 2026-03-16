@@ -1,7 +1,13 @@
 import useSWR from 'swr';
 
-export function usePaginationConfig(): [number, number, number] {
-  const { data } = useSWR<{ options: [number, number, number] }>(
+interface PaginationConfigData {
+  limit: number;
+  count: number;
+  options: number[];
+}
+
+export function usePaginationConfig(): number[] {
+  const { data } = useSWR<PaginationConfigData>(
     '/api/config/pagination/current',
     { revalidateOnMount: true, dedupingInterval: 5000, revalidateOnFocus: false }
   );

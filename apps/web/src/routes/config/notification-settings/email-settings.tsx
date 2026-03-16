@@ -6,6 +6,7 @@ import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
+// ─── Email Types & Constants ──────────────────────────────────────────
 interface EmailConfig {
   host: string;
   port: number;
@@ -42,7 +43,100 @@ const SMTP_PRESETS: Record<string, Partial<EmailConfig>> = {
   custom: { smtpProvider: 'custom' },
 };
 
+// ─── SMS Types & Constants ────────────────────────────────────────────
+interface SmsConfig {
+  provider: string;
+  enabled: boolean;
+  defaultCountryCode: string;
+  senderId: string;
+  twilioAccountSid: string;
+  twilioAuthToken: string;
+  twilioFromNumber: string;
+  awsAccessKeyId: string;
+  awsSecretAccessKey: string;
+  awsRegion: string;
+  vonageApiKey: string;
+  vonageApiSecret: string;
+  vonageFromNumber: string;
+  httpGatewayUrl: string;
+  httpGatewayMethod: string;
+  httpGatewayHeaders: Record<string, string>;
+  httpGatewayBodyTemplate: string;
+}
+
+const SMS_PROVIDERS = [
+  { value: 'twilio', label: 'Twilio', description: 'Popular cloud communication platform' },
+  { value: 'aws-sns', label: 'AWS SNS', description: 'Amazon Simple Notification Service' },
+  { value: 'vonage', label: 'Vonage (Nexmo)', description: 'Communication APIs' },
+  { value: 'http-gateway', label: 'HTTP Gateway', description: 'Custom HTTP-based SMS gateway' },
+];
+
+// ─── Main Page ────────────────────────────────────────────────────────
 export function EmailSettingsPage() {
+  return <ChannelSettingsPage />;
+}
+
+export function SmsSettingsPage() {
+  return <ChannelSettingsPage defaultTab="sms" />;
+}
+
+function ChannelSettingsPage({ defaultTab = 'email' }: { defaultTab?: 'email' | 'sms' }) {
+  const [tab, setTab] = useState<'email' | 'sms'>(defaultTab);
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <Link to="/config" className="p-2 rounded-xl hover:bg-slate-100 transition-colors">
+          <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </Link>
+        <div className="p-3 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25">
+          <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          </svg>
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Notification Channels</h1>
+          <p className="text-sm text-slate-500">Configure email SMTP and SMS provider settings</p>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
+        <button
+          onClick={() => setTab('email')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${
+            tab === 'email' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          </svg>
+          Email (SMTP)
+        </button>
+        <button
+          onClick={() => setTab('sms')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all ${
+            tab === 'sms' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+          </svg>
+          SMS
+        </button>
+      </div>
+
+      {tab === 'email' && <EmailTab />}
+      {tab === 'sms' && <SmsTab />}
+    </div>
+  );
+}
+
+// ─── Email Tab ────────────────────────────────────────────────────────
+function EmailTab() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [testing, setTesting] = useState(false);
@@ -70,7 +164,6 @@ export function EmailSettingsPage() {
   const authType = watch('authType');
   const oauth2Provider = watch('oauth2Provider');
 
-  // Listen for OAuth2 success message from popup
   const handleOAuth2Message = useCallback((event: MessageEvent) => {
     if (event.data?.type === 'oauth2-success') {
       mutateOAuth2Status();
@@ -127,7 +220,6 @@ export function EmailSettingsPage() {
 
   const copyRedirectUri = () => {
     if (redirectData?.redirectUri) {
-      // Fallback for non-secure contexts where navigator.clipboard is unavailable
       if (navigator.clipboard && window.isSecureContext) {
         navigator.clipboard.writeText(redirectData.redirectUri);
       } else {
@@ -159,27 +251,7 @@ export function EmailSettingsPage() {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link to="/config" className="p-2 rounded-xl hover:bg-slate-100 transition-colors">
-            <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </Link>
-          <div className="p-3 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25">
-            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800">Mail Server</h1>
-            <p className="text-sm text-slate-500">Outgoing mail server configuration</p>
-          </div>
-        </div>
-      </div>
-
+    <div className="space-y-6">
       {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>}
       {success && <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm">{success}</div>}
 
@@ -331,7 +403,6 @@ export function EmailSettingsPage() {
           {/* OAuth2 Fields */}
           {authType === 'oauth2' && (
             <div className="space-y-4 pt-2">
-              {/* OAuth2 Provider */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">OAuth2 Provider</label>
                 <div className="flex gap-2">
@@ -373,7 +444,6 @@ export function EmailSettingsPage() {
                 </div>
               </div>
 
-              {/* Microsoft-specific fields */}
               {(oauth2Provider === 'microsoft' || oauth2Provider === 'office365') && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Directory (Tenant) ID</label>
@@ -382,7 +452,6 @@ export function EmailSettingsPage() {
                 </div>
               )}
 
-              {/* Google-specific fields */}
               {oauth2Provider === 'google' && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Refresh Token</label>
@@ -391,7 +460,6 @@ export function EmailSettingsPage() {
                 </div>
               )}
 
-              {/* Custom OAuth2 fields */}
               {oauth2Provider === 'custom' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="md:col-span-2">
@@ -405,12 +473,10 @@ export function EmailSettingsPage() {
                 </div>
               )}
 
-              {/* Redirect URI & OAuth2 Token Flow */}
               {(oauth2Provider === 'microsoft' || oauth2Provider === 'office365' || oauth2Provider === 'google') && (
                 <div className="mt-4 p-5 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-xl border border-indigo-200 space-y-4">
                   <h4 className="font-semibold text-indigo-800 text-sm">OAuth2 Authorization Code Flow</h4>
 
-                  {/* Redirect URI */}
                   <div>
                     <label className="block text-xs font-medium text-indigo-700 mb-1">
                       Redirect URI <span className="text-indigo-400">(copy this to your {oauth2Provider === 'google' ? 'Google Cloud Console' : 'Azure AD App Registration'})</span>
@@ -442,7 +508,6 @@ export function EmailSettingsPage() {
                     </div>
                   </div>
 
-                  {/* OAuth2 Status */}
                   {oauth2Status && (
                     <div className={`flex items-center gap-3 p-3 rounded-lg ${oauth2Status.configured ? 'bg-green-50 border border-green-200' : 'bg-amber-50 border border-amber-200'}`}>
                       <div className={`w-3 h-3 rounded-full ${oauth2Status.configured ? 'bg-green-500' : 'bg-amber-500'}`} />
@@ -466,7 +531,6 @@ export function EmailSettingsPage() {
                     </div>
                   )}
 
-                  {/* Get Token Button */}
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
@@ -569,6 +633,237 @@ export function EmailSettingsPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── SMS Tab ──────────────────────────────────────────────────────────
+function SmsTab() {
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [testing, setTesting] = useState(false);
+  const [testPhone, setTestPhone] = useState('');
+  const [testResult, setTestResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null);
+
+  const { data, mutate } = useSWR('/api/notification-settings/sms', { revalidateOnMount: true, dedupingInterval: 0 });
+
+  const defaultValues: SmsConfig = {
+    provider: 'twilio', enabled: false, defaultCountryCode: '+91', senderId: 'DigiLog',
+    twilioAccountSid: '', twilioAuthToken: '', twilioFromNumber: '',
+    awsAccessKeyId: '', awsSecretAccessKey: '', awsRegion: 'ap-south-1',
+    vonageApiKey: '', vonageApiSecret: '', vonageFromNumber: '',
+    httpGatewayUrl: '', httpGatewayMethod: 'POST', httpGatewayHeaders: {}, httpGatewayBodyTemplate: '',
+  };
+
+  const { register, handleSubmit, watch, reset, formState: { isSubmitting, isDirty } } = useForm<SmsConfig>({
+    values: data ? { ...defaultValues, ...data } : defaultValues,
+  });
+
+  const provider = watch('provider');
+  const enabled = watch('enabled');
+
+  const onSubmit = async (formData: SmsConfig) => {
+    setError('');
+    setSuccess('');
+    try {
+      await apiClient.put('/api/notification-settings/sms', formData);
+      setSuccess('SMS settings saved successfully');
+      mutate();
+      reset(formData);
+    } catch (err: any) {
+      setError(err.message || 'Failed to save');
+    }
+  };
+
+  const onTest = async () => {
+    if (!testPhone) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const result = await apiClient.post<{ success: boolean; message?: string; error?: string }>(
+        '/api/notification-settings/sms/test',
+        { recipient: testPhone },
+      );
+      setTestResult(result);
+    } catch (err: any) {
+      setTestResult({ success: false, error: err.message || 'Test failed' });
+    }
+    setTesting(false);
+  };
+
+  return (
+    <div className="space-y-6">
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>}
+      {success && <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm">{success}</div>}
+
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        {/* Enable toggle */}
+        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-semibold text-slate-800">SMS Notifications</h3>
+              <p className="text-sm text-slate-500 mt-1">Enable or disable SMS notification delivery</p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" {...register('enabled')} className="sr-only peer" />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+            </label>
+          </div>
+        </div>
+
+        {/* Provider Selection */}
+        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+          <h3 className="font-semibold text-slate-800">SMS Provider</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {SMS_PROVIDERS.map((p) => (
+              <label
+                key={p.value}
+                className={`flex items-start gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${provider === p.value ? 'border-green-500 bg-green-50' : 'border-slate-200 hover:border-slate-300'}`}
+              >
+                <input type="radio" value={p.value} {...register('provider')} className="mt-1" />
+                <div>
+                  <div className="font-medium text-slate-800">{p.label}</div>
+                  <div className="text-xs text-slate-500">{p.description}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Common Settings */}
+        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+          <h3 className="font-semibold text-slate-800">Common Settings</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Default Country Code</label>
+              <Input {...register('defaultCountryCode')} placeholder="+91" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Sender ID</label>
+              <Input {...register('senderId')} placeholder="DigiLog" />
+            </div>
+          </div>
+        </div>
+
+        {/* Provider-specific settings */}
+        {provider === 'twilio' && (
+          <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+            <h3 className="font-semibold text-slate-800">Twilio Settings</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Account SID</label>
+                <Input {...register('twilioAccountSid')} placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Auth Token</label>
+                <Input {...register('twilioAuthToken')} type="password" placeholder="Auth token" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-slate-700 mb-1">From Number</label>
+                <Input {...register('twilioFromNumber')} placeholder="+1234567890" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {provider === 'aws-sns' && (
+          <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+            <h3 className="font-semibold text-slate-800">AWS SNS Settings</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Access Key ID</label>
+                <Input {...register('awsAccessKeyId')} placeholder="AKIA..." />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Secret Access Key</label>
+                <Input {...register('awsSecretAccessKey')} type="password" placeholder="Secret key" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Region</label>
+                <Input {...register('awsRegion')} placeholder="ap-south-1" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {provider === 'vonage' && (
+          <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+            <h3 className="font-semibold text-slate-800">Vonage (Nexmo) Settings</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">API Key</label>
+                <Input {...register('vonageApiKey')} placeholder="API key" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">API Secret</label>
+                <Input {...register('vonageApiSecret')} type="password" placeholder="API secret" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">From Number</label>
+                <Input {...register('vonageFromNumber')} placeholder="+1234567890 or sender name" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {provider === 'http-gateway' && (
+          <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+            <h3 className="font-semibold text-slate-800">HTTP Gateway Settings</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Gateway URL</label>
+                <Input {...register('httpGatewayUrl')} placeholder="https://api.sms-provider.com/send?to={phone}&msg={message}" />
+                <p className="text-xs text-slate-500 mt-1">Use {'{phone}'} and {'{message}'} as placeholders</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">HTTP Method</label>
+                <select {...register('httpGatewayMethod')} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                  <option value="POST">POST</option>
+                  <option value="GET">GET</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Body Template (for POST)</label>
+                <textarea
+                  {...register('httpGatewayBodyTemplate')}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono h-24"
+                  placeholder={'{"to": "{phone}", "message": "{message}"}'}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-3">
+          <Button type="submit" disabled={isSubmitting || !isDirty}>
+            {isSubmitting ? 'Saving...' : 'Save Configuration'}
+          </Button>
+        </div>
+      </form>
+
+      {/* Test Section */}
+      <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+        <h3 className="font-semibold text-slate-800">Test SMS Configuration</h3>
+        <p className="text-sm text-slate-500">Send a test SMS to verify your settings.</p>
+        <div className="flex gap-3 items-end">
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-slate-700 mb-1">Phone Number</label>
+            <Input
+              value={testPhone}
+              onChange={(e) => setTestPhone(e.target.value)}
+              placeholder="+919876543210"
+            />
+          </div>
+          <Button type="button" onClick={onTest} disabled={testing || !enabled || !testPhone} variant="outline">
+            {testing ? 'Sending...' : 'Send Test SMS'}
+          </Button>
+        </div>
+        {testResult && (
+          <div className={`px-4 py-3 rounded-xl text-sm ${testResult.success ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-red-50 border border-red-200 text-red-700'}`}>
+            {testResult.success ? testResult.message : testResult.error}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

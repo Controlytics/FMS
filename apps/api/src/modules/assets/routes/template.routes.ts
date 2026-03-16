@@ -136,7 +136,7 @@ export default async function templateRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Entity Templates'],
       summary: 'Create entity template',
-      description: 'Create a new entity template. Auto-creates version 1 snapshot. Requires ASSET_TEMPLATE_MANAGE permission.',
+      description: 'Create a new entity template. Auto-creates version 1 snapshot. Requires ASSET_TEMPLATE_CREATE permission.',
       body: {
         type: 'object',
         required: ['name'],
@@ -192,7 +192,7 @@ export default async function templateRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Entity Templates'],
       summary: 'Update entity template',
-      description: 'Update an entity template. Increments version and creates a new version snapshot. Requires ASSET_TEMPLATE_MANAGE permission.',
+      description: 'Update an entity template. Increments version and creates a new version snapshot. Requires ASSET_TEMPLATE_UPDATE permission.',
       params: {
         type: 'object',
         required: ['id'],
@@ -253,7 +253,7 @@ export default async function templateRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Entity Templates'],
       summary: 'Soft-delete entity template',
-      description: 'Set isActive=false on an entity template. Requires ASSET_TEMPLATE_MANAGE permission.',
+      description: 'Set isActive=false on an entity template. Requires ASSET_TEMPLATE_DELETE permission.',
       params: {
         type: 'object',
         required: ['id'],

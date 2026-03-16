@@ -49,7 +49,7 @@ export default async function relationshipRoutes(app: FastifyInstance) {
 
   // 16. POST /relationships — Create relationship + auto-create inverse
   app.post('/relationships', {
-    preHandler: [app.requirePermission('ASSET_RELATIONSHIP_MANAGE')],
+    preHandler: [app.requirePermission('ASSET_RELATIONSHIP_CREATE')],
     schema: {
       tags: ['Entity Relationships'],
       summary: 'Create entity relationship',
@@ -97,7 +97,7 @@ export default async function relationshipRoutes(app: FastifyInstance) {
 
   // 17. DELETE /relationships/:id — Delete relationship + its inverse
   app.delete('/relationships/:id', {
-    preHandler: [app.requirePermission('ASSET_RELATIONSHIP_MANAGE')],
+    preHandler: [app.requirePermission('ASSET_RELATIONSHIP_DELETE')],
     schema: {
       tags: ['Entity Relationships'],
       summary: 'Delete entity relationship and its inverse',

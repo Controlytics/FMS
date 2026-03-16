@@ -3,6 +3,7 @@ import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -528,6 +529,7 @@ export function DebugTracesPage() {
   // Filters
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const paginationOptions = usePaginationConfig();
   const [statusFilter, setStatusFilter] = useState('');
   const [transportFilter, setTransportFilter] = useState('');
   const [errorCodeFilter, setErrorCodeFilter] = useState('');
@@ -1001,7 +1003,7 @@ export function DebugTracesPage() {
             <div className="flex items-center gap-3 text-sm text-slate-600 flex-wrap">
               <span className="text-slate-500">Rows per page:</span>
               <div className="flex items-center gap-1">
-                {[10, 20, 50, 100].map((opt) => (
+                {paginationOptions.map((opt) => (
                   <button
                     key={opt}
                     onClick={() => { setPageSize(opt); setPage(1); }}

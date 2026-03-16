@@ -1,3 +1,4 @@
+import { sanitizeStrings } from "../../lib/sanitize.js";
 import type { RequestContext } from '../../types/context.js';
 import { auditLog } from '../../lib/audit.js';
 import { hashPassword } from '../../lib/password.js';
@@ -39,6 +40,9 @@ export const userService = {
     username: string; fullName: string; email: string; department?: string;
     role: string; password: string; status?: string;
   }, ctx: RequestContext) {
+    // Sanitize text inputs to prevent XSS
+    data = sanitizeStrings(data, ['password', 'email']);
+
     // Validate User ID against configuration
     const userIdValidation = await validateUserId(data.username);
     if (!userIdValidation.valid) {
@@ -118,6 +122,9 @@ export const userService = {
   },
 
   async update(id: string, data: Record<string, any>, ctx: RequestContext) {
+    // Sanitize text inputs to prevent XSS
+    data = sanitizeStrings(data, ['password', 'passwordHash', 'email']);
+
     const existing = await userRepository.findByIdFull(id);
     if (!existing) throw new NotFoundError('User not found');
 

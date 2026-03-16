@@ -1,5 +1,5 @@
-import type { FeaturePrivilege } from './feature-privileges.js';
-import { FEATURE_PRIVILEGES } from './feature-privileges.js';
+import type { FeaturePrivilege } from "./feature-privileges.js";
+import { FEATURE_PRIVILEGES } from "./feature-privileges.js";
 
 export interface SidebarSection {
   sidebarId: string;
@@ -16,59 +16,88 @@ export interface SidebarSection {
  */
 export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
   {
-    sidebarId: 'dashboard',
-    label: 'Dashboard',
-    icon: '\u{1F3E0}',
-    description: 'Main dashboard view',
+    sidebarId: "dashboard",
+    label: "Dashboard",
+    icon: "\u{1F3E0}",
+    description: "Main dashboard view",
     privilegeIds: [],
   },
   {
-    sidebarId: 'users',
-    label: 'Users',
-    icon: '\u{1F465}',
-    description: 'User management',
+    sidebarId: "users",
+    label: "Users",
+    icon: "\u{1F465}",
+    description: "User management",
     privilegeIds: [
-      'users.view', 'users.create', 'users.edit', 'users.delete',
-      'users.reset_password', 'users.unlock', 'users.enable_disable',
+      "users.view", "users.create", "users.edit", "users.delete",
+      "users.reset_password", "users.unlock", "users.enable_disable",
     ],
   },
   {
-    sidebarId: 'assets',
-    label: 'Entities',
-    icon: '\u{1F3ED}',
-    description: 'Entity management and explorer',
+    sidebarId: "assets",
+    label: "Entities",
+    icon: "\u{1F3ED}",
+    description: "Entity management and explorer",
     privilegeIds: [
-      'assets.view', 'assets.create', 'assets.edit', 'assets.delete',
-      'assets.relationships', 'assets.identifiers',
+      "assets.view", "assets.create", "assets.edit", "assets.delete",
+      "assets.relationships.create", "assets.relationships.delete",
+      "assets.identifiers.create", "assets.identifiers.delete",
     ],
   },
   {
-    sidebarId: 'asset-templates',
-    label: 'Entity Templates',
-    icon: '\u{1F4CB}',
-    description: 'Entity template blueprints',
-    privilegeIds: ['assets.templates_view', 'assets.templates_create', 'assets.templates_edit', 'assets.templates_delete'],
+    sidebarId: "asset-templates",
+    label: "Entity Templates",
+    icon: "\u{1F4CB}",
+    description: "Entity template blueprints",
+    privilegeIds: ["assets.templates.create", "assets.templates.edit", "assets.templates.delete"],
   },
   {
-    sidebarId: 'configuration',
-    label: 'Configuration',
-    icon: '\u2699\uFE0F',
-    description: 'System settings',
-    privilegeIds: ['config.view', 'config.edit'],
+    sidebarId: "configuration",
+    label: "Configuration",
+    icon: "\u2699\uFE0F",
+    description: "System settings",
+    privilegeIds: ["config.view", "config.edit"],
   },
   {
-    sidebarId: 'notifications',
-    label: 'Notifications',
-    icon: '\u{1F514}',
-    description: 'Notification center',
-    privilegeIds: ['notifications.manage'],
+    sidebarId: "notifications",
+    label: "Notifications",
+    icon: "\u{1F514}",
+    description: "Notification center",
+    privilegeIds: ["notifications.delete"],
   },
   {
-    sidebarId: 'audit',
-    label: 'Audit Trail',
-    icon: '\u{1F4DD}',
-    description: 'Activity logs',
-    privilegeIds: ['audit.view', 'audit.export'],
+    sidebarId: "audit",
+    label: "Audit Trail",
+    icon: "\u{1F4DD}",
+    description: "Activity logs",
+    privilegeIds: [],
+  },
+  {
+    sidebarId: "rule-chains",
+    label: "Rule Chains",
+    icon: "\u{1F517}",
+    description: "Rule chain automation",
+    privilegeIds: ["rulechains.view", "rulechains.create", "rulechains.edit", "rulechains.delete"],
+  },
+  {
+    sidebarId: "alarms",
+    label: "Alarms",
+    icon: "\u{1F6A8}",
+    description: "Alarm management",
+    privilegeIds: ["alarms.view", "alarms.acknowledge", "alarms.clear"],
+  },
+  {
+    sidebarId: "system-health",
+    label: "System Health",
+    icon: "\u{1F4CA}",
+    description: "System health monitoring",
+    privilegeIds: [],
+  },
+  {
+    sidebarId: "debug-traces",
+    label: "Debug Traces",
+    icon: "\u{1F41B}",
+    description: "Pipeline debug traces",
+    privilegeIds: ["debug.view", "debug.manage"],
   },
 ];
 

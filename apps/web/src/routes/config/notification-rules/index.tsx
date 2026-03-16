@@ -20,6 +20,19 @@ interface GroupMember { id: string; userId: string; user?: { id: string; usernam
 interface UserOption { id: string; username: string; fullName: string; email: string; role: string }
 interface Template { id: string; name: string; channel: string; subject?: string; bodyTemplate: string; isActive: boolean }
 
+interface LogEntry {
+  id: string;
+  channel: string;
+  recipient: string;
+  subject: string | null;
+  message: string;
+  status: string;
+  retryCount: number;
+  errorMessage: string | null;
+  triggeredBy: string | null;
+  createdAt: string;
+  sentAt: string | null;
+}
 
 // ─── Multi-Select Event Types ─────────────────────────────────────────
 function MultiSelectEventTypes({ eventTypes, selected, onChange }: {
@@ -101,9 +114,23 @@ function MultiSelectEventTypes({ eventTypes, selected, onChange }: {
   );
 }
 
+// ─── Constants for Logs ───────────────────────────────────────────────
+const STATUS_COLORS: Record<string, string> = {
+  SENT: 'bg-green-100 text-green-700',
+  DELIVERED: 'bg-green-100 text-green-700',
+  PENDING: 'bg-yellow-100 text-yellow-700',
+  RETRYING: 'bg-orange-100 text-orange-700',
+  FAILED: 'bg-red-100 text-red-700',
+};
+
+const CHANNEL_COLORS: Record<string, string> = {
+  EMAIL: 'bg-blue-100 text-blue-700',
+  SMS: 'bg-purple-100 text-purple-700',
+};
+
 // ─── Main Page ────────────────────────────────────────────────────────
 export function NotificationRulesPage() {
-  const [tab, setTab] = useState<'rules' | 'groups' | 'templates'>('rules');
+  const [tab, setTab] = useState<'rules' | 'groups' | 'templates' | 'logs'>('rules');
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -121,7 +148,7 @@ export function NotificationRulesPage() {
         </div>
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Notification Rules</h1>
-          <p className="text-sm text-slate-500">Configure event-based alerts, recipients, and templates</p>
+          <p className="text-sm text-slate-500">Configure event-based alerts, recipients, templates, and delivery logs</p>
         </div>
       </div>
 
@@ -131,6 +158,7 @@ export function NotificationRulesPage() {
           { key: 'rules' as const, label: 'Rules', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
           { key: 'groups' as const, label: 'User Groups', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z' },
           { key: 'templates' as const, label: 'Templates', icon: 'M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6z' },
+          { key: 'logs' as const, label: 'Delivery Logs', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01' },
         ].map(t => (
           <button
             key={t.key}
@@ -150,6 +178,7 @@ export function NotificationRulesPage() {
       {tab === 'rules' && <RulesTab />}
       {tab === 'groups' && <GroupsTab />}
       {tab === 'templates' && <TemplatesTab />}
+      {tab === 'logs' && <LogsTab />}
     </div>
   );
 }
@@ -750,6 +779,185 @@ function TemplatesTab() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Logs Tab ─────────────────────────────────────────────────────────
+function LogsTab() {
+  const [page, setPage] = useState(1);
+  const [channel, setChannel] = useState('');
+  const [status, setStatus] = useState('');
+  const [search, setSearch] = useState('');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const queryParams = new URLSearchParams({ page: String(page), limit: '25' });
+  if (channel) queryParams.set('channel', channel);
+  if (status) queryParams.set('status', status);
+  if (search) queryParams.set('search', search);
+
+  const { data, mutate } = useSWR(`/api/notification-settings/logs?${queryParams}`, { revalidateOnMount: true, dedupingInterval: 0 });
+  const { data: stats } = useSWR('/api/notification-settings/logs/stats', { revalidateOnMount: true, dedupingInterval: 0 });
+
+  const logs: LogEntry[] = data?.data ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = data?.totalPages ?? 1;
+
+  const handleDelete = async (id: string) => {
+    try {
+      await apiClient.delete(`/api/notification-settings/logs/${id}`);
+      mutate();
+    } catch { /* ignore */ }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Stats */}
+      {stats && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="bg-white rounded-xl border border-slate-200 p-4 text-center">
+            <div className="text-2xl font-bold text-slate-800">{stats.total}</div>
+            <div className="text-xs text-slate-500">Total</div>
+          </div>
+          <div className="bg-white rounded-xl border border-green-200 p-4 text-center">
+            <div className="text-2xl font-bold text-green-600">{stats.email?.sent ?? 0}</div>
+            <div className="text-xs text-slate-500">Emails Sent</div>
+          </div>
+          <div className="bg-white rounded-xl border border-red-200 p-4 text-center">
+            <div className="text-2xl font-bold text-red-600">{stats.email?.failed ?? 0}</div>
+            <div className="text-xs text-slate-500">Emails Failed</div>
+          </div>
+          <div className="bg-white rounded-xl border border-green-200 p-4 text-center">
+            <div className="text-2xl font-bold text-green-600">{stats.sms?.sent ?? 0}</div>
+            <div className="text-xs text-slate-500">SMS Sent</div>
+          </div>
+          <div className="bg-white rounded-xl border border-red-200 p-4 text-center">
+            <div className="text-2xl font-bold text-red-600">{stats.sms?.failed ?? 0}</div>
+            <div className="text-xs text-slate-500">SMS Failed</div>
+          </div>
+        </div>
+      )}
+
+      {/* Filters */}
+      <div className="bg-white rounded-2xl border-2 border-slate-200 p-4 shadow-sm">
+        <div className="flex flex-wrap gap-3 items-end">
+          <div className="flex-1 min-w-[200px]">
+            <label className="block text-xs font-medium text-slate-600 mb-1">Search</label>
+            <Input
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              placeholder="Search by recipient or subject..."
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Channel</label>
+            <select
+              value={channel}
+              onChange={(e) => { setChannel(e.target.value); setPage(1); }}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="">All</option>
+              <option value="EMAIL">Email</option>
+              <option value="SMS">SMS</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Status</label>
+            <select
+              value={status}
+              onChange={(e) => { setStatus(e.target.value); setPage(1); }}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="">All</option>
+              <option value="SENT">Sent</option>
+              <option value="FAILED">Failed</option>
+              <option value="PENDING">Pending</option>
+              <option value="RETRYING">Retrying</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white rounded-2xl border-2 border-slate-200 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr>
+                <th className="text-left px-4 py-3 font-medium text-slate-600">Channel</th>
+                <th className="text-left px-4 py-3 font-medium text-slate-600">Recipient</th>
+                <th className="text-left px-4 py-3 font-medium text-slate-600">Subject</th>
+                <th className="text-left px-4 py-3 font-medium text-slate-600">Status</th>
+                <th className="text-left px-4 py-3 font-medium text-slate-600">Triggered By</th>
+                <th className="text-left px-4 py-3 font-medium text-slate-600">Time</th>
+                <th className="text-left px-4 py-3 font-medium text-slate-600">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.length === 0 && (
+                <tr><td colSpan={7} className="text-center py-12 text-slate-400">No notification logs found</td></tr>
+              )}
+              {logs.map((log) => (
+                <tr key={log.id} className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}>
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${CHANNEL_COLORS[log.channel] ?? 'bg-slate-100 text-slate-600'}`}>{log.channel}</span>
+                  </td>
+                  <td className="px-4 py-3 text-slate-700 max-w-[200px] truncate">{log.recipient}</td>
+                  <td className="px-4 py-3 text-slate-600 max-w-[200px] truncate">{log.subject ?? '-'}</td>
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[log.status] ?? 'bg-slate-100'}`}>{log.status}</span>
+                    {log.retryCount > 0 && <span className="ml-1 text-xs text-slate-400">(retry {log.retryCount})</span>}
+                  </td>
+                  <td className="px-4 py-3 text-slate-500 text-xs">{log.triggeredBy ?? '-'}</td>
+                  <td className="px-4 py-3 text-slate-500 text-xs">{new Date(log.createdAt).toLocaleString()}</td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDelete(log.id); }}
+                      className="text-red-500 hover:text-red-700 text-xs"
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {logs.map((log) => expandedId === log.id && (
+                <tr key={`${log.id}-detail`} className="bg-slate-50">
+                  <td colSpan={7} className="px-6 py-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <strong className="text-slate-600">Message:</strong>
+                        <div className="mt-1 p-3 bg-white rounded-lg border text-slate-700 max-h-40 overflow-y-auto text-xs" dangerouslySetInnerHTML={{ __html: log.message }} />
+                      </div>
+                      {log.errorMessage && (
+                        <div>
+                          <strong className="text-red-600">Error:</strong>
+                          <div className="mt-1 p-3 bg-red-50 rounded-lg border border-red-200 text-red-700 text-xs">{log.errorMessage}</div>
+                        </div>
+                      )}
+                      {log.sentAt && (
+                        <div><strong className="text-slate-600">Sent At:</strong> <span className="text-slate-700">{new Date(log.sentAt).toLocaleString()}</span></div>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200">
+            <div className="text-sm text-slate-500">
+              Showing {(page - 1) * 25 + 1}-{Math.min(page * 25, total)} of {total}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</Button>
+              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Next</Button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

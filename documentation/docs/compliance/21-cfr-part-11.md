@@ -25,7 +25,7 @@ DigiLog is designed to meet the requirements of **FDA 21 CFR Part 11**, the regu
 | **(a)** Validation of systems | System is configurable and testable; audit trail validates all operations |
 | **(b)** Ability to generate accurate and complete copies of records | Audit trail exports with full before/after values; database backup/restore |
 | **(c)** Protection of records for retention period | Configurable data retention policies; immutable audit records |
-| **(d)** Limiting system access to authorized individuals | RBAC with 6 default roles (+ dynamic custom roles), 39+ permission types across 10 categories, route-level and API-level enforcement |
+| **(d)** Limiting system access to authorized individuals | RBAC with dynamic roles (6 default levels), 39+ permission types across 10 categories, route-level and API-level enforcement |
 | **(e)** Use of secure, computer-generated, time-stamped audit trails | Automatic server-side timestamps on all audit records; before/after values captured |
 | **(f)** Use of operational system checks to enforce sequencing | Forced password change on first login; session conflict resolution; password expiry enforcement |
 | **(g)** Use of authority checks | Role-based permissions checked on every API request and frontend route |

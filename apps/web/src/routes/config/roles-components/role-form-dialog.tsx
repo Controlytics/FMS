@@ -1,9 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { PERMISSION_CATEGORIES } from '@digilog/shared';
 import { RoleColorPicker } from './role-color-picker';
-import { RolePermissionsGrid } from './role-permissions-grid';
 
 export interface RoleFormData {
   name: string;
@@ -39,33 +37,8 @@ export function RoleFormDialog({
   isEdit,
   isSystem,
 }: RoleFormDialogProps) {
-  const togglePermission = (permission: string) => {
-    setFormData(prev => ({
-      ...prev,
-      permissions: prev.permissions.includes(permission)
-        ? prev.permissions.filter(p => p !== permission)
-        : [...prev.permissions, permission],
-    }));
-  };
-
-  const toggleCategory = (category: string, enable: boolean) => {
-    const categoryPerms = PERMISSION_CATEGORIES[category as keyof typeof PERMISSION_CATEGORIES];
-    if (enable) {
-      setFormData(prev => ({
-        ...prev,
-        permissions: [...new Set([...prev.permissions, ...categoryPerms.map(p => p.key)])],
-      }));
-    } else {
-      const keysToRemove = categoryPerms.map(p => p.key);
-      setFormData(prev => ({
-        ...prev,
-        permissions: prev.permissions.filter(p => !keysToRemove.includes(p)),
-      }));
-    }
-  };
-
   return (
-    <Dialog open={open} onClose={onClose} className="max-w-3xl">
+    <Dialog open={open} onClose={onClose} className="max-w-lg">
       <DialogHeader>
         <DialogTitle className="flex items-center gap-3">
           <div className="p-2 rounded-xl bg-purple-100 text-purple-600">
@@ -82,7 +55,7 @@ export function RoleFormDialog({
           {title}
         </DialogTitle>
       </DialogHeader>
-      <div className="space-y-6 max-h-[70vh] overflow-y-auto">
+      <div className="space-y-5">
         {error && (
           <div className="flex items-center gap-3 rounded-xl bg-red-50 border border-red-200 p-4">
             <div className="p-2 rounded-lg bg-red-100">
@@ -102,7 +75,7 @@ export function RoleFormDialog({
               </svg>
             </div>
             <p className="text-sm text-amber-700">
-              This is a system role. You can modify its display name, description, color, and permissions, but the role name and cannot be changed.
+              This is a system role. You can modify its display name, description, and color, but the role name cannot be changed.
             </p>
           </div>
         )}
@@ -177,13 +150,17 @@ export function RoleFormDialog({
           </div>
         </div>
 
-        {/* Permissions */}
-        <RolePermissionsGrid
-          permissions={formData.permissions}
-          onTogglePermission={togglePermission}
-          onToggleCategory={toggleCategory}
-        />
-
+        {/* Info note about permissions */}
+        <div className="flex items-center gap-3 rounded-xl bg-blue-50 border border-blue-200 p-4">
+          <div className="p-2 rounded-lg bg-blue-100">
+            <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <p className="text-sm text-blue-700">
+            To configure permissions for this role, switch to the <strong>Permissions</strong> tab above.
+          </p>
+        </div>
 
         {/* Actions */}
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">

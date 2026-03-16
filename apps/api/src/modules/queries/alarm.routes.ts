@@ -253,7 +253,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
 
   // 3. POST /:id/acknowledge — Acknowledge alarm
   app.post('/:id/acknowledge', {
-    preHandler: [app.requirePermission('ALARM_MANAGE')],
+    preHandler: [app.requirePermission('ALARM_ACKNOWLEDGE')],
     schema: {
       tags: ['Alarms'],
       summary: 'Acknowledge an alarm',
@@ -367,7 +367,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
 
   // 4. POST /:id/clear — Clear alarm
   app.post('/:id/clear', {
-    preHandler: [app.requirePermission('ALARM_MANAGE')],
+    preHandler: [app.requirePermission('ALARM_CLEAR')],
     schema: {
       tags: ['Alarms'],
       summary: 'Clear an alarm',

@@ -19,9 +19,9 @@ import { ConfigIndexPage } from './routes/config/index';
 import { PasswordPolicyPage } from './routes/config/password-policy';
 import { DatetimeConfigPage } from './routes/config/datetime';
 import { BrandingConfigPage } from './routes/config/branding';
-import { RolePrivilegesPage } from './routes/config/role-privileges';
-import { RolesManagementPage } from './routes/config/roles';
-import { SidebarConfigPage } from './routes/config/sidebar';
+// removed: RolePrivilegesPage
+import { RoleAccessPage } from './routes/config/role-access';
+// removed: SidebarConfigPage
 import { FieldIdsPage } from './routes/config/field-ids';
 import { UserIdConfigPage } from './routes/config/user-id';
 import { BackupRestorePage } from './routes/config/backup';
@@ -45,7 +45,6 @@ const AlarmDashboardPage = lazy(() => import('./routes/alarms/index').then(m => 
 const UnsConfigPage = lazy(() => import('./routes/config/uns').then(m => ({ default: m.UnsConfigPage })));
 const HelpArticlesPage = lazy(() => import('./routes/config/help').then(m => ({ default: m.HelpArticlesPage })));
 const RetentionConfigPage = lazy(() => import('./routes/config/retention').then(m => ({ default: m.RetentionConfigPage })));
-const SystemConfigPage = lazy(() => import('./routes/config/system').then(m => ({ default: m.SystemConfigPage })));
 const SystemHealthPage = lazy(() => import('./routes/system-health/index').then(m => ({ default: m.SystemHealthPage })));
 const DebugTracesPage = lazy(() => import('./routes/debug/index').then(m => ({ default: m.DebugTracesPage })));
 const ChecklistPage = lazy(() => import('./routes/checklist/index').then(m => ({ default: m.ChecklistPage })));
@@ -96,9 +95,7 @@ createRoot(document.getElementById('root')!).render(
 
             {/* Super Admin Settings — SUPER_ADMIN role only */}
             <Route path="/config/branding" element={<RequireRole roles={['SUPER_ADMIN']}><BrandingConfigPage /></RequireRole>} />
-            <Route path="/config/role-privileges" element={<RequireRole roles={['SUPER_ADMIN']}><RolePrivilegesPage /></RequireRole>} />
-            <Route path="/config/roles" element={<RequireRole roles={['SUPER_ADMIN']}><RolesManagementPage /></RequireRole>} />
-            <Route path="/config/sidebar" element={<RequireRole roles={['SUPER_ADMIN']}><SidebarConfigPage /></RequireRole>} />
+            <Route path="/config/roles" element={<RequireRole roles={['SUPER_ADMIN']}><RoleAccessPage /></RequireRole>} />
             <Route path="/config/field-ids" element={<RequireRole roles={['SUPER_ADMIN']}><FieldIdsPage /></RequireRole>} />
             <Route path="/config/user-id" element={<RequireRole roles={['SUPER_ADMIN']}><UserIdConfigPage /></RequireRole>} />
             <Route path="/config/action-reauth" element={<RequireRole roles={['SUPER_ADMIN']}><ActionReauthPage /></RequireRole>} />
@@ -117,7 +114,7 @@ createRoot(document.getElementById('root')!).render(
 
             {/* Rule Chains — Admin only (lazy-loaded) */}
             <Route path="/rule-chains" element={<RequireRole permissions={[PERMISSIONS.RULE_CHAIN_VIEW]}><Suspense fallback={<LazyFallback />}><RuleChainsPage /></Suspense></RequireRole>} />
-            <Route path="/rule-chains/:id" element={<RequireRole permissions={[PERMISSIONS.RULE_CHAIN_MANAGE]}><Suspense fallback={<LazyFallback />}><RuleChainEditorPage /></Suspense></RequireRole>} />
+            <Route path="/rule-chains/:id" element={<RequireRole permissions={[PERMISSIONS.RULE_CHAIN_UPDATE]}><Suspense fallback={<LazyFallback />}><RuleChainEditorPage /></Suspense></RequireRole>} />
 
             {/* Alarms (lazy-loaded) */}
             <Route path="/alarms" element={<Suspense fallback={<LazyFallback />}><AlarmDashboardPage /></Suspense>} />
@@ -137,8 +134,6 @@ createRoot(document.getElementById('root')!).render(
             {/* Retention Management (lazy-loaded) */}
             <Route path="/config/retention" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><RetentionConfigPage /></Suspense></RequireRole>} />
 
-            {/* System (Ingestion Pipeline) Configuration (lazy-loaded) */}
-            <Route path="/config/system" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><SystemConfigPage /></Suspense></RequireRole>} />
 
             {/* Notifications */}
             <Route path="/notifications" element={<NotificationsPage />} />

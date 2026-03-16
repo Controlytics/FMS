@@ -111,13 +111,13 @@ export const auditTemplatesSchema = z.record(z.string(), z.string());
 
 // Pagination Configuration Schema
 export const paginationConfigSchema = z.object({
-  options: z.tuple([
-    z.number().min(5).max(100),
-    z.number().min(5).max(100),
-    z.number().min(5).max(100),
-  ]).default([10, 25, 50]),
+  limit: z.number().min(5).max(1000).default(100),
+  count: z.number().min(2).max(10).default(3),
+  options: z.array(z.number().min(5)).min(2).max(10).default([10, 25, 50]),
+}).refine(data => data.options.every(opt => opt <= data.limit), {
+  message: 'All option values must be less than or equal to the limit',
+  path: ['options'],
 });
-
 export type BrandingConfig = z.infer<typeof brandingConfigSchema>;
 export type PasswordPolicyConfig = z.infer<typeof passwordPolicySchema>;
 export type LoginSecurityConfig = z.infer<typeof loginSecuritySchema>;

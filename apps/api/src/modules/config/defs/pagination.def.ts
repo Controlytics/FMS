@@ -13,6 +13,8 @@ export const paginationDef: ModuleConfigDefinition = {
   hasCustomPage: true,
   customPagePath: '/config/pagination',
   settings: [
+    { key: 'limit', type: 'number', label: 'Maximum Page Size', default: 100, group: 'Options' },
+    { key: 'count', type: 'number', label: 'Number of Options', default: 3, group: 'Options' },
     { key: 'options', type: 'json', label: 'Page Size Options', default: [10, 25, 50], group: 'Options' },
   ],
 };

@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { useReauth } from '@/hooks/use-reauth';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -51,7 +52,7 @@ export function AssetTemplatesPage() {
   // Pagination
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
-  const paginationOptions = [10, 20, 50];
+  const paginationOptions = usePaginationConfig();
 
   // Search
   const [searchTerm, setSearchTerm] = useState('');
