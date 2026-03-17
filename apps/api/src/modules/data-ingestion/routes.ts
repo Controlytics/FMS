@@ -406,6 +406,7 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
                   filePath: { type: 'string' },
                   fileHash: { type: 'string' },
                   fileSize: { type: 'number' },
+                  fileName: { type: "string" },
                   mimeType: { type: 'string' },
                   metadata: { type: 'object', additionalProperties: true },
                 },
@@ -438,6 +439,7 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
       fileHash: r.file_hash,
       fileSize: Number(r.file_size),
       mimeType: r.mime_type,
+      fileName: (r.file_path || "").split("/").pop()?.replace(/^\d+-/, "") || "unknown",
       metadata: r.metadata,
     }));
     return { data, total: data.length };
