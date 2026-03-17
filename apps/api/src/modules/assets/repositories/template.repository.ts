@@ -5,7 +5,7 @@ export const templateRepository = {
     const [templates, total] = await Promise.all([
       prisma.assetTemplate.findMany({
         where: where as any,
-        include: { _count: { select: { instances: true } } },
+        include: { _count: { select: { instances: { where: { isActive: true } } } } },
         orderBy: { createdAt: 'desc' },
         ...(limit ? { skip: (page - 1) * limit, take: limit } : {}),
       }),
@@ -17,7 +17,7 @@ export const templateRepository = {
   async findById(id: string) {
     return prisma.assetTemplate.findUnique({
       where: { id },
-      include: { _count: { select: { instances: true } } },
+      include: { _count: { select: { instances: { where: { isActive: true } } } } },
     });
   },
 
