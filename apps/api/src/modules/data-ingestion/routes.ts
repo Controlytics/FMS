@@ -379,6 +379,108 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
     return { success: true, messageId: result.messageId };
   });
 
+
+  // GET /binary/:entityId — List binary files for an entity
+  app.get('/binaries/:entityId', {
+    
+    schema: {
+      tags: ['Data Ingestion'],
+      summary: 'List binary files for entity',
+      description: 'Returns list of binary files uploaded to an entity.',
+      params: {
+        type: 'object',
+        required: ['entityId'],
+        properties: { entityId: { type: 'string', format: 'uuid' } },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            data: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  time: { type: 'string' },
+                  dataType: { type: 'string' },
+                  filePath: { type: 'string' },
+                  fileHash: { type: 'string' },
+                  fileSize: { type: 'number' },
+                  mimeType: { type: 'string' },
+                  metadata: { type: 'object', additionalProperties: true },
+                },
+              },
+            },
+            total: { type: 'number' },
+          },
+        },
+      },
+    },
+  }, async (req) => {
+    const { entityId } = req.params as { entityId: string };
+    const { Pool } = await import('pg');
+    const pool = new Pool({
+      host: process.env.TSDB_HOST ?? 'localhost',
+      port: parseInt(process.env.TSDB_PORT ?? '5432', 10),
+      database: process.env.TSDB_DATABASE ?? 'digilog_tsdb',
+      user: process.env.TSDB_USER ?? process.env.DB_USER ?? 'digilog',
+      password: process.env.TSDB_PASSWORD ?? process.env.DB_PASSWORD ?? 'digilog123',
+    });
+    const result = await pool.query(
+      'SELECT time, data_type, file_path, file_hash, file_size, mime_type, metadata FROM ts_binary_data WHERE entity_id = $1 ORDER BY time DESC LIMIT 100',
+      [entityId]
+    );
+    await pool.end();
+    const data = result.rows.map((r: any) => ({
+      time: r.time,
+      dataType: r.data_type,
+      filePath: r.file_path,
+      fileHash: r.file_hash,
+      fileSize: Number(r.file_size),
+      mimeType: r.mime_type,
+      metadata: r.metadata,
+    }));
+    return { data, total: data.length };
+  });
+
+  // GET /binary/:entityId/file — Serve a binary file
+  app.get('/binaries/:entityId/file', {
+    
+    schema: {
+      tags: ['Data Ingestion'],
+      summary: 'Serve binary file',
+      description: 'Serves a binary file by path.',
+      params: {
+        type: 'object',
+        required: ['entityId'],
+        properties: { entityId: { type: 'string', format: 'uuid' } },
+      },
+      querystring: {
+        type: 'object',
+        properties: { path: { type: 'string' } },
+      },
+    },
+  }, async (req, reply) => {
+    const { entityId } = req.params as { entityId: string };
+    const filePath = (req.query as any).path as string;
+    if (!filePath || !filePath.includes(entityId)) {
+      return reply.code(400).send({ error: 'Invalid file path' });
+    }
+    const { existsSync, createReadStream } = await import('fs');
+    if (!existsSync(filePath)) {
+      return reply.code(404).send({ error: 'File not found' });
+    }
+    const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
+    const mimeMap: Record<string, string> = {
+      jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+      gif: 'image/gif', bmp: 'image/bmp', webp: 'image/webp',
+      mp4: 'video/mp4', pdf: 'application/pdf',
+    };
+    const mime = mimeMap[ext] || 'application/octet-stream';
+    reply.type(mime);
+    return reply.send(createReadStream(filePath));
+  });
+
   // POST /event — Device Token auth, normalize, enqueue
   app.post('/event', {
     preHandler: [authenticateDeviceToken],
