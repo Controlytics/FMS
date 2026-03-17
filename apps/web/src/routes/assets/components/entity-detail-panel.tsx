@@ -823,7 +823,8 @@ function ImagesTab({ entityId }: { entityId: string }) {
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {files.map((file, idx) => {
           const isImage = file.mimeType?.startsWith('image/');
-          const imageUrl = `/api/data/binaries/${entityId}/file?path=${encodeURIComponent(file.filePath)}`;
+          const uploadsIdx = file.filePath?.indexOf('/uploads/') ?? -1;
+          const imageUrl = uploadsIdx >= 0 ? file.filePath.substring(uploadsIdx) : `/api/data/binaries/${entityId}/file?path=${encodeURIComponent(file.filePath)}`;
           return (
             <div key={idx} className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow">
               {isImage ? (
