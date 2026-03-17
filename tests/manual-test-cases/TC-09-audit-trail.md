@@ -99,7 +99,7 @@
 ### TC-09-P10: Get Single Audit Record with Checksum Verification
 - **Priority**: High
 - **Preconditions**: At least one audit record exists. Obtain a valid record ID from the list endpoint.
-- **Test Data**: Valid audit record ID (integer).
+- **Test Data**: Valid audit record ID (UUID).
 - **Steps**:
   1. Send GET /api/audit to get a record list.
   2. Pick the first record's `id`.
