@@ -466,7 +466,7 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
     const { entityId } = req.params as { entityId: string };
     const filePath = (req.query as any).path as string;
     if (!filePath || !filePath.includes(entityId)) {
-      return reply.code(400).send({ error: 'Invalid file path' });
+      throw Object.assign(new Error('Invalid file path'), { statusCode: 400 });
     }
     const { existsSync, createReadStream } = await import('fs');
     if (!existsSync(filePath)) {
@@ -481,6 +481,58 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
     const mime = mimeMap[ext] || 'application/octet-stream';
     reply.type(mime);
     return reply.send(createReadStream(filePath));
+  });
+
+
+  // DELETE /binaries/:entityId — Delete a binary file
+  app.delete('/binaries/:entityId', {
+    schema: {
+      tags: ['Data Ingestion'],
+      summary: 'Delete a binary file',
+      description: 'Deletes a binary file from disk and TSDB by entity ID and file path.',
+      params: {
+        type: 'object',
+        required: ['entityId'],
+        properties: { entityId: { type: 'string', format: 'uuid' } },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: { success: { type: 'boolean' } },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const { entityId } = req.params as { entityId: string };
+    const { filePath } = req.query as { filePath: string };
+
+    // Security: ensure filePath belongs to this entity
+    if (!filePath || !filePath.includes(entityId)) {
+      throw Object.assign(new Error('Invalid file path'), { statusCode: 400 });
+    }
+
+    // Delete from disk
+    const { unlinkSync, existsSync } = await import('fs');
+    if (existsSync(filePath)) {
+      unlinkSync(filePath);
+    }
+
+    // Delete from TSDB
+    const { Pool } = await import('pg');
+    const pool = new Pool({
+      host: process.env.TSDB_HOST ?? 'localhost',
+      port: parseInt(process.env.TSDB_PORT ?? '5432', 10),
+      database: process.env.TSDB_DATABASE ?? 'digilog_tsdb',
+      user: process.env.TSDB_USER ?? process.env.DB_USER ?? 'digilog',
+      password: process.env.TSDB_PASSWORD ?? process.env.DB_PASSWORD ?? 'digilog123',
+    });
+    await pool.query(
+      'DELETE FROM ts_binary_data WHERE entity_id = $1 AND file_path = $2',
+      [entityId, filePath]
+    );
+    await pool.end();
+
+    return { success: true };
   });
 
   // POST /event — Device Token auth, normalize, enqueue

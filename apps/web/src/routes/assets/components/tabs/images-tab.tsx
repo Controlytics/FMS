@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import useSWR from 'swr';
+import { apiClient } from '@/lib/api-client';
 
 interface BinaryFile {
   time: string;
@@ -11,12 +13,26 @@ interface BinaryFile {
 }
 
 export function ImagesTab({ entityId }: { entityId: string }) {
-  const { data, isLoading } = useSWR<{ data: BinaryFile[]; total: number }>(
+  const { data, isLoading, mutate } = useSWR<{ data: BinaryFile[]; total: number }>(
     `/api/data/binaries/${entityId}`,
     { revalidateOnMount: true, dedupingInterval: 0 }
   );
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   const files = data?.data ?? [];
+
+  const handleDelete = async (file: BinaryFile) => {
+    if (!confirm(`Delete "${file.fileName}"?`)) return;
+    setDeleting(file.filePath);
+    try {
+      await apiClient.delete(`/api/data/binaries/${entityId}?filePath=${encodeURIComponent(file.filePath)}`);
+      mutate();
+    } catch (err) {
+      console.error('Delete failed:', err);
+    } finally {
+      setDeleting(null);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -50,8 +66,9 @@ export function ImagesTab({ entityId }: { entityId: string }) {
           const isImage = file.mimeType?.startsWith('image/');
           const uploadsIdx = file.filePath?.indexOf('/uploads/') ?? -1;
           const imageUrl = uploadsIdx >= 0 ? file.filePath.substring(uploadsIdx) : file.filePath;
+          const isDeleting = deleting === file.filePath;
           return (
-            <div key={idx} className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow">
+            <div key={idx} className="relative border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow group">
               {isImage ? (
                 <a href={imageUrl} target="_blank" rel="noopener noreferrer">
                   <img src={imageUrl} alt={file.fileName} className="w-full h-32 object-cover bg-slate-50" />
@@ -63,6 +80,20 @@ export function ImagesTab({ entityId }: { entityId: string }) {
                   </svg>
                 </div>
               )}
+              <button
+                onClick={() => handleDelete(file)}
+                disabled={isDeleting}
+                className="absolute top-2 right-2 w-7 h-7 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-lg"
+                title="Delete image"
+              >
+                {isDeleting ? (
+                  <div className="animate-spin w-3 h-3 border-2 border-white border-t-transparent rounded-full" />
+                ) : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                )}
+              </button>
               <div className="p-2">
                 <p className="text-xs font-medium text-slate-700 truncate">{file.fileName}</p>
                 <p className="text-[10px] text-slate-400">{new Date(file.time).toLocaleString()} · {(file.fileSize / 1024).toFixed(1)} KB</p>
