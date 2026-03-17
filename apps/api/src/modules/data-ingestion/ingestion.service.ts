@@ -173,6 +173,31 @@ export async function processIngestionMessage(msg: IngestionMessage): Promise<Pi
       throw err;
     }
 
+    // ── Stage 6.5: Template Alarm Rules Evaluation ──
+    const stage6_5Start = Date.now();
+    try {
+      await evaluateTemplateAlarmRules(msg, warnings);
+      if (trace) {
+        recordStage(trace, {
+          stage: 6,
+          name: 'Template Alarm Rules',
+          status: 'SUCCESS',
+          durationMs: Date.now() - stage6_5Start,
+        });
+      }
+    } catch (err) {
+      warnings.push(`WARN_TEMPLATE_ALARM:${err instanceof Error ? err.message : String(err)}`);
+      if (trace) {
+        recordStage(trace, {
+          stage: 6,
+          name: 'Template Alarm Rules',
+          status: 'FAILED',
+          durationMs: Date.now() - stage6_5Start,
+          errorCode: 'ERR_TEMPLATE_ALARM',
+        });
+      }
+    }
+
     // ── Stages 7-8: Rule Chain Resolution & Execution ──
     let ruleChainAlarms: AlarmAction[] = [];
     let ruleChainNotifications: NotificationAction[] = [];
@@ -772,6 +797,125 @@ async function executeStage11(msg: IngestionMessage, warnings: string[]): Promis
       });
     } catch {
       warnings.push('WARN_EMIT_NOTIFICATION_FAILED');
+    }
+  }
+}
+
+
+// ─── Template Alarm Rule Evaluator ──────────────────────
+
+interface TemplateAlarmRule {
+  name: string;
+  type: string;        // HIGH, LOW, etc.
+  enabled: boolean;
+  severity: string;    // CRITICAL, WARNING, etc.
+  sourceField: string; // telemetry key to check
+  condition: string;   // ">", "<", ">=", "<=", "==", "!="
+  threshold: number;
+  notifyRoles?: string[];
+}
+
+function evaluateCondition(value: number, condition: string, threshold: number): boolean {
+  switch (condition) {
+    case '>':  return value > threshold;
+    case '<':  return value < threshold;
+    case '>=': return value >= threshold;
+    case '<=': return value <= threshold;
+    case '==': return value === threshold;
+    case '!=': return value !== threshold;
+    default:   return false;
+  }
+}
+
+/**
+ * Evaluate template-level alarm rules against incoming telemetry data.
+ * Creates alarms when conditions are met; clears them when resolved.
+ */
+async function evaluateTemplateAlarmRules(
+  msg: IngestionMessage,
+  warnings: string[],
+): Promise<void> {
+  // Only evaluate for telemetry messages
+  if (msg.messageType !== 'POST_TELEMETRY' || !msg.templateId) return;
+
+  const template = await prisma.assetTemplate.findUnique({
+    where: { id: msg.templateId },
+    select: { alarmRules: true },
+  });
+
+  if (!template?.alarmRules || !Array.isArray(template.alarmRules)) return;
+
+  const rules = template.alarmRules as unknown as TemplateAlarmRule[];
+  if (rules.length === 0) return;
+
+  for (const rule of rules) {
+    if (!rule.enabled || !rule.sourceField || rule.threshold === undefined) continue;
+
+    const value = msg.data[rule.sourceField];
+    if (value === undefined || value === null || typeof value !== 'number') continue;
+
+    const alarmType = `${rule.type}_${rule.sourceField}`.toUpperCase();
+    const triggered = evaluateCondition(value, rule.condition, rule.threshold);
+
+    if (triggered) {
+      // Check for existing active alarm to avoid duplicates
+      const existing = await prisma.alarm.findFirst({
+        where: { entityId: msg.entityId, alarmType, status: 'ACTIVE' },
+      });
+
+      if (!existing) {
+        console.log(`[TemplateAlarm] ${rule.name}: ${rule.sourceField}=${value} ${rule.condition} ${rule.threshold} → TRIGGERED`);
+        await createAlarm({
+          entityId: msg.entityId,
+          alarmType,
+          severity: rule.severity || 'WARNING',
+          unsPath: msg.unsPath,
+          triggerDetails: {
+            ruleName: rule.name,
+            _sourceField: rule.sourceField,
+            _condition: rule.condition,
+            _threshold: rule.threshold,
+            actualValue: value,
+            templateId: msg.templateId,
+          },
+        });
+      }
+    } else {
+      // Auto-clear: if value is back to normal, clear the alarm
+      const activeAlarm = await prisma.alarm.findFirst({
+        where: { entityId: msg.entityId, alarmType, status: 'ACTIVE' },
+      });
+
+      if (activeAlarm) {
+        console.log(`[TemplateAlarm] ${rule.name}: ${rule.sourceField}=${value} back to normal → CLEARED`);
+        await prisma.alarm.updateMany({
+          where: { entityId: msg.entityId, alarmType, status: 'ACTIVE' },
+          data: {
+            status: 'CLEARED',
+            clearedAt: new Date(),
+            clearDetails: {
+              reason: 'Auto-cleared: value returned to normal range',
+              sourceField: rule.sourceField,
+              clearedValue: value,
+              threshold: rule.threshold,
+              condition: rule.condition,
+            } as any,
+          },
+        });
+
+        // Dispatch ALARM_CLEARED notification
+        const entity = await prisma.assetInstance.findUnique({ where: { id: msg.entityId }, select: { name: true } });
+        dispatchNotification({
+          eventType: 'ALARM_CLEARED',
+          context: { severity: rule.severity, alarmType },
+          variables: {
+            alarmType, severity: rule.severity || 'WARNING',
+            entityName: entity?.name ?? msg.entityId, entityId: msg.entityId,
+            clearedBy: 'System (Auto)', remarks: `Value ${rule.sourceField}=${value} returned to normal`,
+            timestamp: new Date().toISOString(),
+          },
+        }).catch(err => console.error('[TemplateAlarmClear] Notification dispatch failed:', err.message));
+      }
     }
   }
 }
