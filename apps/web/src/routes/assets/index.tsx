@@ -100,7 +100,7 @@ export function AssetExplorerPage() {
   const { data: listData, isLoading: listLoading } = useSWR<PaginatedInstances>(
     viewMode === 'list' ? `/api/assets/instances?page=${listPage}${debouncedListSearch ? `&search=${encodeURIComponent(debouncedListSearch)}` : ''}${treeTemplateFilter ? `&templateId=${encodeURIComponent(treeTemplateFilter)}` : ''}&isActive=true` : null,
   );
-  const { data: auditData } = useSWR<{ data: AuditRecord[] }>(selectedAssetId && activeTab === 'audit' ? `/api/audit?targetType=ASSET_INSTANCE&targetId=${selectedAssetId}` : null);
+  const { data: auditData } = useSWR<{ data: AuditRecord[] }>(selectedAssetId && activeTab === 'audit' ? `/api/audit?targetType=asset_instance&targetId=${selectedAssetId}` : null, { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: allRelationshipsData } = useSWR<AssetRelation[]>(selectedAssetId && activeTab === 'relationships' ? '/api/assets/relationships' : null);
 
   const templates = templatesData?.data ?? [];
