@@ -732,6 +732,10 @@ export function AssetDetailPanel({
       )}
 
       {/* Audit History Tab */}
+      {activeTab === 'images' && (
+        <ImagesTab entityId={asset.id} />
+      )}
+
       {activeTab === 'audit' && (
         <div>
           {auditRecords.length === 0 ? (
