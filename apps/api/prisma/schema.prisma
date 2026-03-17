@@ -135,7 +135,7 @@ model PasswordResetRequest {
 }
 
 model AuditTrail {
-  id            Int       @id @default(autoincrement())
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   timestamp     DateTime  @default(now()) @db.Timestamptz
   userId        String?   @map("user_id") @db.VarChar(100)
   userName      String?   @map("user_name") @db.VarChar(100)

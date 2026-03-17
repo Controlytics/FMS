@@ -8,8 +8,8 @@ interface AuditTableProps {
   data: any;
   isLoading: boolean;
   isSuperAdmin: boolean;
-  selectedIds: Set<number>;
-  toggleSelect: (id: number) => void;
+  selectedIds: Set<string>;
+  toggleSelect: (id: string) => void;
   toggleSelectAll: () => void;
   isAllSelected: boolean;
   sortBy: SortField;
@@ -22,7 +22,7 @@ interface AuditTableProps {
   templates: Record<string, string>;
   ACTION_COLORS: Record<string, string>;
   onViewRecord: (record: any) => void;
-  onDeleteRecord: (id: number) => void;
+  onDeleteRecord: (id: string) => void;
 }
 
 export function AuditTable({

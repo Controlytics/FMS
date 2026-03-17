@@ -30,7 +30,7 @@ export async function fetchAllTablesPrisma(): Promise<Record<string, any[]>> {
     prisma.user.findMany(),
     prisma.role.findMany(),
     prisma.systemConfig.findMany(),
-    prisma.auditTrail.findMany({ orderBy: { id: 'asc' } }),
+    prisma.auditTrail.findMany({ orderBy: { timestamp: 'asc' } }),
     prisma.notification.findMany(),
     prisma.passwordHistory.findMany(),
     prisma.session.findMany(),
@@ -106,9 +106,6 @@ export async function restoreFromBackup(backup: BackupData): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Reset auto-increment sequence for audit_trail after restore
-// ---------------------------------------------------------------------------
-
 export async function resetAuditSequence(): Promise<void> {
   await prisma.$executeRawUnsafe(
     `SELECT setval(pg_get_serial_sequence('audit_trail', 'id'), COALESCE((SELECT MAX(id) FROM audit_trail), 0) + 1, false)`,

@@ -35,7 +35,7 @@ export function AuditTrailPage() {
   const [fromDateTime, setFromDateTime] = useState('');
   const [toDateTime, setToDateTime] = useState('');
   const [selectedRecord, setSelectedRecord] = useState<any>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [sortBy, setSortBy] = useState<'timestamp' | 'action' | 'userId' | 'userRole'>('timestamp');
@@ -69,7 +69,7 @@ export function AuditTrailPage() {
     setSelectedIds(new Set());
   }, [page, search, fromDateTime, toDateTime]);
 
-  const toggleSelect = (id: number) => {
+  const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -80,8 +80,8 @@ export function AuditTrailPage() {
 
   const toggleSelectAll = () => {
     if (!data?.data) return;
-    const allIds = data.data.map((r: any) => r.id as number);
-    const allSelected = allIds.every((id: number) => selectedIds.has(id));
+    const allIds = data.data.map((r: any) => r.id as string);
+    const allSelected = allIds.every((id: string) => selectedIds.has(id));
     if (allSelected) {
       setSelectedIds(new Set());
     } else {
@@ -92,7 +92,7 @@ export function AuditTrailPage() {
   const isAllSelected = data?.data?.length > 0 && data.data.every((r: any) => selectedIds.has(r.id));
   const isSomeSelected = selectedIds.size > 0;
 
-  const deleteSingleAudit = async (id: number) => {
+  const deleteSingleAudit = async (id: string) => {
     try {
       await apiClient.delete(`/api/audit/${id}`);
       setSelectedIds(prev => {

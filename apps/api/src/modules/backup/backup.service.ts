@@ -7,7 +7,6 @@ import {
   fetchAllTablesRaw,
   fetchAllTablesPrisma,
   restoreFromBackup,
-  resetAuditSequence,
 } from './backup.repository.js';
 import {
   computeBackupChecksum,
@@ -532,12 +531,6 @@ export async function exportSql(
     sqlParts.push('');
   }
 
-  // Reset audit_trail sequence
-  sqlParts.push(`-- Reset auto-increment sequence`);
-  sqlParts.push(
-    `SELECT setval(pg_get_serial_sequence('audit_trail', 'id'), COALESCE((SELECT MAX(id) FROM audit_trail), 0) + 1, false);`,
-  );
-  sqlParts.push('');
   sqlParts.push('COMMIT;');
 
   await auditLog({
@@ -645,7 +638,6 @@ export async function restore(
   }
 
   await restoreFromBackup(backup);
-  await resetAuditSequence();
 
   // Audit log the restore
   await auditLog({

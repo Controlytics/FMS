@@ -37,7 +37,7 @@ export default async function auditRoutes(app: FastifyInstance) {
               items: {
                 type: 'object',
                 properties: {
-                  id: { type: 'integer' },
+                  id: { type: 'string' },
                   userId: { type: 'string', nullable: true },
                   userRole: { type: 'string', nullable: true },
                   action: { type: 'string' },
@@ -161,7 +161,7 @@ export default async function auditRoutes(app: FastifyInstance) {
         200: {
           type: 'object',
           properties: {
-            id: { type: 'integer' },
+            id: { type: 'string' },
             userId: { type: 'string' },
             userRole: { type: 'string' },
             action: { type: 'string' },
@@ -185,7 +185,7 @@ export default async function auditRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const record = await prisma.auditTrail.findUnique({ where: { id: parseInt(id, 10) } });
+    const record = await prisma.auditTrail.findUnique({ where: { id } });
     if (!record) return reply.code(404).send({ error: 'Audit record not found' });
     return {
       ...record,
@@ -219,25 +219,25 @@ export default async function auditRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const numId = parseInt(id, 10);
-    const record = await prisma.auditTrail.findUnique({ where: { id: numId } });
+    
+    const record = await prisma.auditTrail.findUnique({ where: { id } });
     if (!record) return reply.code(404).send({ error: 'Audit record not found' });
 
     // Log the deletion BEFORE disabling trigger (so it goes through normal audit)
     await auditLog({
       userId: req.user.sub, userRole: req.user.role,
       action: 'AUDIT_RECORD_DELETED',
-      targetType: 'audit_trail', targetId: String(numId),
+      targetType: 'audit_trail', targetId: id,
       beforeValue: { id: record.id, action: record.action, timestamp: record.timestamp, userId: record.userId, targetType: record.targetType, targetId: record.targetId },
       reason: 'Audit record deleted by administrator',
-      signatureMeaning: `Audit record #${numId} permanently deleted`,
+      signatureMeaning: `Audit record ${id} permanently deleted`,
       ipAddress: req.ip, sessionId: req.user.sessionId,
     });
 
     // Atomic: disable trigger + delete + re-enable trigger in one transaction
     await prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe('ALTER TABLE "audit_trail" DISABLE TRIGGER audit_trail_no_delete');
-      await tx.auditTrail.delete({ where: { id: numId } });
+      await tx.auditTrail.delete({ where: { id } });
       await tx.$executeRawUnsafe('ALTER TABLE "audit_trail" ENABLE TRIGGER audit_trail_no_delete');
     });
 
@@ -255,7 +255,7 @@ export default async function auditRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['ids'],
         properties: {
-          ids: { type: 'array', items: { type: 'integer' }, minItems: 1 },
+          ids: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
         },
       },
       response: {
@@ -270,7 +270,7 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     },
   }, async (req) => {
-    const { ids } = req.body as { ids: number[] };
+    const { ids } = req.body as { ids: string[] };
 
     // Fetch records being deleted for audit trail
     const records = await prisma.auditTrail.findMany({
