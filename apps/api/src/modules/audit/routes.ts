@@ -24,6 +24,7 @@ export default async function auditRoutes(app: FastifyInstance) {
           userId: { type: 'string', description: 'Filter by user ID' },
           action: { type: 'string', description: 'Filter by audit action type' },
           targetType: { type: 'string', description: 'Filter by target entity type' },
+          targetId: { type: 'string', description: 'Filter by target entity ID' },
           sortBy: { type: 'string', enum: ['timestamp', 'action', 'userId', 'userRole'], default: 'timestamp', description: 'Field to sort by' },
           sortOrder: { type: 'string', enum: ['asc', 'desc'], default: 'desc', description: 'Sort direction' },
         },
@@ -66,7 +67,10 @@ export default async function auditRoutes(app: FastifyInstance) {
     const query = auditQuerySchema.parse(req.query);
     const where: Record<string, unknown> = {
       // SUPER_ADMIN actions are exempt from audit display (21 CFR Part 11)
-      userRole: { not: 'SUPER_ADMIN' },
+      // Use AND+OR to exclude SUPER_ADMIN while including NULL userRole
+      AND: [
+        { OR: [{ userRole: { not: 'SUPER_ADMIN' } }, { userRole: null }] },
+      ],
     };
 
     // Date filtering by period
@@ -113,6 +117,7 @@ export default async function auditRoutes(app: FastifyInstance) {
     if (query.userId) where.userId = query.userId;
     if (query.action) where.action = query.action;
     if (query.targetType) where.targetType = query.targetType;
+    if (query.targetId) where.targetId = query.targetId;
 
     const sortField = (req.query as any).sortBy || 'timestamp';
     const sortDir = (req.query as any).sortOrder || 'desc';

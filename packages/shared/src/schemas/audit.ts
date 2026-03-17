@@ -8,6 +8,7 @@ export const auditQuerySchema = z.object({
   userId: z.string().optional(),
   action: z.string().optional(),
   targetType: z.string().optional(),
+  targetId: z.string().optional(),
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).optional(),
 });
