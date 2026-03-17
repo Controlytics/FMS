@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { loginSchema, type LoginInput } from '@digilog/shared';
 import { useAuth } from '@/hooks/use-auth';
@@ -12,10 +12,12 @@ import { checkExistingUserSession, type ActiveSessionInfo } from '@/hooks/use-si
 
 export function LoginPage() {
   const { login, isAuthenticated, isLoading } = useAuth();
+  const [searchParams] = useSearchParams();
 
   // If already authenticated, redirect to home — prevents back-button to login
   if (!isLoading && isAuthenticated) {
-    return <Navigate to="/" replace />;
+    const returnUrl = searchParams.get("returnUrl") || "/";
+    return <Navigate to={returnUrl} replace />;
   }
   const { branding } = useBranding();
   const [error, setError] = useState('');

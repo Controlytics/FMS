@@ -50,8 +50,11 @@ export function useAuth() {
       navigate('/change-password', { replace: true });
     } else {
       await mutate();
-      // Always navigate to home page after login
-      navigate('/', { replace: true });
+      // Navigate to returnUrl if present (e.g., from QR code scan), otherwise home
+      const params = new URLSearchParams(window.location.search);
+      const returnUrl = params.get("returnUrl");
+      navigate(returnUrl || "/", { replace: true });
+
     }
 
     return res;
