@@ -100,6 +100,24 @@ model TenantConfig {
 }
 
 // Entity Assignment — controls which users/orgs can access which entities
+// Template Assignment - maps templates to orgs/users for visibility
+model TemplateAssignment {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String       @map("tenant_id") @db.Uuid
+  templateId     String       @map("template_id") @db.Uuid
+  assigneeType   AssigneeType @map("assignee_type")
+  userId         String?      @map("user_id") @db.Uuid
+  organizationId String?      @map("organization_id") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  createdBy      String?      @map("created_by") @db.VarChar(50)
+
+  @@index([tenantId])
+  @@index([templateId])
+  @@index([organizationId])
+  @@index([userId])
+  @@map("template_assignments")
+}
+
 model EntityAssignment {
   id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId       String       @map("tenant_id") @db.Uuid

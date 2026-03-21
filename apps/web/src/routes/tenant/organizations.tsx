@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
 import { api } from '../../lib/api-client';
 import { useAuth } from '../../hooks/use-auth';
@@ -15,6 +16,7 @@ export default function OrganizationsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: '', slug: '', description: '' });
 
+  const navigate = useNavigate();
   const { data, mutate } = useSWR<{ data: Org[]; total: number }>(
     `/api/tenant/organizations?page=1&limit=50${search ? `&search=${search}` : ''}`
   );
@@ -77,7 +79,7 @@ export default function OrganizationsPage() {
           </thead>
           <tbody className="divide-y">
             {data?.data.map(o => (
-              <tr key={o.id} className="hover:bg-gray-50">
+              <tr key={o.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/tenant/organizations/${o.id}`)}>
                 <td className="px-4 py-3">
                   <div className="font-medium">{o.name}</div>
                   <div className="text-xs text-gray-400">{o.slug}{o.description ? ` — ${o.description}` : ''}</div>

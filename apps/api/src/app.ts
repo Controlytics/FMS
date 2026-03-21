@@ -15,6 +15,7 @@ import rbacPlugin from './plugins/rbac.js';
 import tenantPlugin from './plugins/tenant.js';
 import superAdminRoutes from "./modules/super-admin/routes.js";
 import tenantAdminRoutes from "./modules/tenant-admin/routes.js";
+import orgDetailRoutes from "./modules/tenant-admin/org-detail-routes.js";
 import orgAdminRoutes from "./modules/org-admin/routes.js";
 import entityAssignmentRoutes from "./modules/entity-assignments/routes.js";
 import dashboardRoutes from "./modules/dashboards/routes.js";
@@ -219,6 +220,7 @@ await app.register(notificationRulesRoutes, { prefix: '/api/notification-rules' 
 // Multi-tenant management routes
 await app.register(superAdminRoutes, { prefix: "/api/super-admin" });
 await app.register(tenantAdminRoutes, { prefix: "/api/tenant" });
+await app.register(orgDetailRoutes, { prefix: "/api/tenant/organizations" });
 await app.register(orgAdminRoutes, { prefix: "/api/org" });
 await app.register(entityAssignmentRoutes, { prefix: "/api/entity-assignments" });
 await app.register(dashboardRoutes, { prefix: "/api/dashboards" });
