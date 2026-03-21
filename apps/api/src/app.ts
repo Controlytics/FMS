@@ -13,6 +13,9 @@ import authPlugin from './plugins/auth.js';
 import auditLoggerPlugin from './plugins/audit-logger.js';
 import rbacPlugin from './plugins/rbac.js';
 import tenantPlugin from './plugins/tenant.js';
+import superAdminRoutes from "./modules/super-admin/routes.js";
+import tenantAdminRoutes from "./modules/tenant-admin/routes.js";
+import orgAdminRoutes from "./modules/org-admin/routes.js";
 import authRoutes from './modules/auth/routes.js';
 import userRoutes from './modules/users/routes.js';
 import configRoutes from './modules/config/routes.js';
@@ -210,6 +213,11 @@ await app.register(debugTraceRoutes, { prefix: '/api/debug/traces' });
 await app.register(notificationDeliveryRoutes, { prefix: '/api/notification-settings' });
 await app.register(userGroupRoutes, { prefix: '/api/user-groups' });
 await app.register(notificationRulesRoutes, { prefix: '/api/notification-rules' });
+
+// Multi-tenant management routes
+await app.register(superAdminRoutes, { prefix: "/api/super-admin" });
+await app.register(tenantAdminRoutes, { prefix: "/api/tenant" });
+await app.register(orgAdminRoutes, { prefix: "/api/org" });
 await app.register(wsHandler);
 
 // Initialize rule chain node registry
