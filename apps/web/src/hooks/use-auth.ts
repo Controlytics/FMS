@@ -17,6 +17,9 @@ interface User {
   lastLogin: string | null;
   createdAt?: string;
   permissions?: string[];
+  tenantId?: string | null;
+  organizationId?: string | null;
+  scope?: string | null;
 }
 
 interface LoginResponse {

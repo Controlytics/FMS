@@ -14,6 +14,7 @@ export interface ResolvedEntity {
   unsPath: string;
   ruleChainId: string | null;
   isActive: boolean;
+  tenantId: string;
 }
 
 interface CacheEntry {
@@ -72,6 +73,7 @@ export async function resolveEntityByToken(accessToken: string): Promise<Resolve
     templateName: entity.template.name,
     unsPath: unsMapping?.unsPath ?? entity.unsPath ?? '',
     ruleChainId: entity.template.defaultRuleChainId,
+    tenantId: entity.tenantId || "",
     isActive: entity.isActive,
   };
 

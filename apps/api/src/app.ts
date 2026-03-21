@@ -16,6 +16,8 @@ import tenantPlugin from './plugins/tenant.js';
 import superAdminRoutes from "./modules/super-admin/routes.js";
 import tenantAdminRoutes from "./modules/tenant-admin/routes.js";
 import orgAdminRoutes from "./modules/org-admin/routes.js";
+import entityAssignmentRoutes from "./modules/entity-assignments/routes.js";
+import dashboardRoutes from "./modules/dashboards/routes.js";
 import authRoutes from './modules/auth/routes.js';
 import userRoutes from './modules/users/routes.js';
 import configRoutes from './modules/config/routes.js';
@@ -218,6 +220,8 @@ await app.register(notificationRulesRoutes, { prefix: '/api/notification-rules' 
 await app.register(superAdminRoutes, { prefix: "/api/super-admin" });
 await app.register(tenantAdminRoutes, { prefix: "/api/tenant" });
 await app.register(orgAdminRoutes, { prefix: "/api/org" });
+await app.register(entityAssignmentRoutes, { prefix: "/api/entity-assignments" });
+await app.register(dashboardRoutes, { prefix: "/api/dashboards" });
 await app.register(wsHandler);
 
 // Initialize rule chain node registry

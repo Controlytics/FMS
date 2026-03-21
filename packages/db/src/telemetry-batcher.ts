@@ -12,6 +12,7 @@ interface TelemetryRow {
   source: string;
   sourceIp: string | null;
   traceId: string | null;
+  tenantId?: string | null;
 }
 
 interface DeviceEventRow {
@@ -21,6 +22,7 @@ interface DeviceEventRow {
   details: unknown | null;
   sourceIp: string | null;
   unsPath: string;
+  tenantId?: string | null;
 }
 
 let pool: pg.Pool | null = null;
@@ -87,18 +89,18 @@ export async function flushTelemetry(): Promise<void> {
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
-    const offset = i * 11;
+    const offset = i * 12;
     placeholders.push(
-      `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11})`
+      `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12})`
     );
     values.push(
       r.time, r.entityId, r.key, r.valueNum, r.valueStr,
       r.valueBool, r.valueJson ? JSON.stringify(r.valueJson) : null,
-      r.unsPath, r.source, r.sourceIp, r.traceId,
+      r.unsPath, r.source, r.sourceIp, r.traceId, r.tenantId,
     );
   }
 
-  const sql = `INSERT INTO ts_telemetry (time, entity_id, key, value_num, value_str, value_bool, value_json, uns_path, source, source_ip, trace_id) VALUES ${placeholders.join(', ')}`;
+  const sql = `INSERT INTO ts_telemetry (time, entity_id, key, value_num, value_str, value_bool, value_json, uns_path, source, source_ip, trace_id, tenant_id) VALUES ${placeholders.join(', ')}`;
 
   try {
     await pool.query(sql, values);
@@ -127,18 +129,18 @@ export async function flushDeviceEvents(): Promise<void> {
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
-    const offset = i * 6;
+    const offset = i * 7;
     placeholders.push(
       `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6})`
     );
     values.push(
       r.time, r.entityId, r.eventType,
       r.details ? JSON.stringify(r.details) : null,
-      r.sourceIp, r.unsPath,
+      r.sourceIp, r.unsPath, r.tenantId,
     );
   }
 
-  const sql = `INSERT INTO ts_device_events (time, entity_id, event_type, details, source_ip, uns_path) VALUES ${placeholders.join(', ')}`;
+  const sql = `INSERT INTO ts_device_events (time, entity_id, event_type, details, source_ip, uns_path, tenant_id) VALUES ${placeholders.join(', ')}`;
 
   try {
     await pool.query(sql, values);

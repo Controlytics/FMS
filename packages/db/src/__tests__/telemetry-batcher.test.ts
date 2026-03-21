@@ -22,7 +22,7 @@ interface TelemetryRow {
   unsPath: string;
   source: string;
   sourceIp: string | null;
-  traceId: string | null;
+  traceId: string | null; tenantId: string | null;
 }
 
 interface DeviceEventRow {
@@ -46,7 +46,7 @@ function makeTelemetryRow(overrides?: Partial<TelemetryRow>): TelemetryRow {
     unsPath: '/site/area/line/sensor',
     source: 'mqtt',
     sourceIp: '192.168.1.10',
-    traceId: 'trace-abc-123',
+    traceId: 'trace-abc-123', tenantId: null,
     ...overrides,
   };
 }

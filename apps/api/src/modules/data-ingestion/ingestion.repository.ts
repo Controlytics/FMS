@@ -121,7 +121,7 @@ export async function saveAttributes(msg: IngestionMessage): Promise<{ keysWritt
 
     // Immediate INSERT to ts_attributes (compliance — NOT batched)
     await pool.query(
-      `INSERT INTO ts_attributes (time, entity_id, scope, key, value_num, value_str, value_bool, value_json, updated_by, uns_path, source_ip)
+      `INSERT INTO ts_attributes (time, entity_id, scope, key, value_num, value_str, value_bool, value_json, updated_by, uns_path, source_ip, tenant_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [time, msg.entityId, scope, key, classified.valueNum, classified.valueStr,
        classified.valueBool, classified.valueJson ? JSON.stringify(classified.valueJson) : null,
@@ -174,7 +174,7 @@ export async function saveChecklist(msg: IngestionMessage): Promise<{ checklistI
 
   // Immediate INSERT to ts_checklist_responses (compliance — NOT batched)
   await pool.query(
-    `INSERT INTO ts_checklist_responses (time, entity_id, template_id, checklist_id, submitted_by, answers, answers_hash, uns_path, source_ip)
+    `INSERT INTO ts_checklist_responses (time, entity_id, template_id, checklist_id, submitted_by, answers, answers_hash, uns_path, source_ip, tenant_id)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
     [time, msg.entityId, msg.templateId, checklistId, submittedBy,
      JSON.stringify(answers), answersHash, msg.unsPath, msg.sourceIp || null],
@@ -288,7 +288,7 @@ export async function saveBinary(msg: IngestionMessage): Promise<{ filePath: str
 
   // Immediate INSERT to ts_binary_data
   await pool.query(
-    `INSERT INTO ts_binary_data (time, entity_id, data_type, file_path, file_hash, file_size, mime_type, metadata, uploaded_by, uns_path)
+    `INSERT INTO ts_binary_data (time, entity_id, data_type, file_path, file_hash, file_size, mime_type, metadata, uploaded_by, uns_path, tenant_id)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [time, msg.entityId, dataType, filePath, fileHash, buffer.length,
      data.mimetype ?? 'application/octet-stream', null,
