@@ -8,7 +8,9 @@ export const createUserSchema = z.object({
   role: z.string().min(1, 'Role is required'),
   password: z.string().min(8, 'Minimum 8 characters'),
   confirmPassword: z.string(),
-  status: z.enum(['ENABLED', 'DISABLED']).default('ENABLED'),
+  status: z.enum(["ENABLED", "DISABLED"]).default("ENABLED"),
+  tenantId: z.string().uuid().optional(),
+  organizationId: z.string().uuid().optional(),
 }).refine((d) => d.password === d.confirmPassword, {
   message: 'Passwords must match',
   path: ['confirmPassword'],

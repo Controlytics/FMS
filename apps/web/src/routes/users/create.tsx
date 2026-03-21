@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import useSWR from 'swr';
+function TenantSelector({ register }: { register: any }) {  const { data } = useSWR<{ data: Array<{ id: string; name: string }> }>("/api/super-admin/tenants?limit=100");  return (    <div>      <label className="block text-sm font-medium text-gray-700 mb-1">Tenant</label>      <select {...register("tenantId")} className="w-full px-3 py-2 border rounded-lg">        <option value="">Select tenant</option>        {data?.data?.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}      </select>    </div>  );}function OrgSelector({ register, tenantId, isSuperAdmin }: { register: any; tenantId?: string | null; isSuperAdmin: boolean }) {  const url = isSuperAdmin ? null : "/api/tenant/organizations?limit=100";  const { data } = useSWR<{ data: Array<{ id: string; name: string }> }>(url);  return (    <div>      <label className="block text-sm font-medium text-gray-700 mb-1">Organization</label>      <select {...register("organizationId")} className="w-full px-3 py-2 border rounded-lg">        <option value="">Select organization</option>        {data?.data?.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}      </select>    </div>  );}
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
 
 export function CreateUserPage() {
@@ -232,6 +233,7 @@ export function CreateUserPage() {
               )}
             </div>
           </div>
+{/* Tenant & Organization Assignment */}          {(user?.role === "SUPER_ADMIN" || user?.role === "TENANT_ADMIN" || user?.role === "ADMIN") && (          <div className="p-6 bg-gradient-to-r from-blue-50 to-white">            <div className="flex items-center gap-3 mb-4">              <div className="p-2 rounded-lg bg-blue-100">                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5" /></svg>              </div>              <h3 className="text-lg font-semibold text-gray-800">Tenant & Organization</h3>            </div>            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">              {user?.role === "SUPER_ADMIN" && (                <TenantSelector register={register} />              )}              <OrgSelector register={register} tenantId={user?.tenantId} isSuperAdmin={user?.role === "SUPER_ADMIN"} />            </div>          </div>          )}
 
           {/* Temporary Password Section */}
           <div className="p-6 bg-gradient-to-r from-slate-50 to-white">

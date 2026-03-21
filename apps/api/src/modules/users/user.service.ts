@@ -37,7 +37,7 @@ export const userService = {
   },
 
   async create(data: {
-    username: string; fullName: string; email: string; department?: string;
+    username: string; fullName: string; email: string; department?: string; tenantId?: string; organizationId?: string;
     role: string; password: string; status?: string;
   }, ctx: RequestContext) {
     // Sanitize text inputs to prevent XSS
@@ -78,6 +78,8 @@ export const userService = {
       isTemporaryPassword: true,
       passwordExpiresAt,
       createdBy: ctx.userId,
+      tenantId: data.tenantId || ctx.tenantId || undefined,
+      organizationId: data.organizationId || ctx.organizationId || undefined,
     });
 
     await userRepository.addPasswordHistory(user.id, passwordHash);
