@@ -18,7 +18,7 @@ async function getSessionDurationHours(): Promise<number> {
   if (sessionConfigCache && (now - sessionConfigCache.cachedAt) < SESSION_CONFIG_CACHE_TTL) {
     return sessionConfigCache.sessionDurationHours;
   }
-  const config = await prisma.systemConfig.findUnique({ where: { configKey: 'session' } });
+  const config = await prisma.systemConfig.findFirst({ where: { configKey: 'session' } });
   const hours = (config?.configValue as any)?.sessionDurationHours ?? 8;
   sessionConfigCache = { sessionDurationHours: hours, cachedAt: now };
   return hours;
@@ -82,16 +82,28 @@ async function authPlugin(app: FastifyInstance) {
         return reply.code(401).send({ error: 'SESSION_EXPIRED', message: 'Session exceeded maximum duration. Please log in again.' });
       }
 
-      // Check user status and sync role from DB (role may have been changed by admin)
-      const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+      // Check user status and sync role + tenant from DB
+      const user = await prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { role: true, username: true, status: true, tenantId: true, organizationId: true, forcePasswordChange: true, passwordExpiresAt: true },
+      });
       if (!user || user.status !== 'ENABLED') {
         return reply.code(401).send({ error: 'ACCOUNT_INACTIVE', message: 'Account is not active' });
       }
 
-      // Patch req.user.role with the authoritative DB value so RBAC uses the current role
-      if (user.role !== payload.role) {
-        req.user = { ...req.user, role: user.role, username: user.username };
-      }
+      // Lookup role scope from DB
+      const roleRecord = await prisma.role.findFirst({ where: { name: user.role }, select: { scope: true } });
+      const scope = roleRecord?.scope || (user.role === 'SUPER_ADMIN' ? 'GLOBAL' : 'TENANT');
+
+      // Patch req.user with authoritative DB values
+      req.user = {
+        ...req.user,
+        role: user.role,
+        username: user.username,
+        tenantId: user.tenantId || undefined,
+        organizationId: user.organizationId || undefined,
+        scope,
+      };
 
       // Paths allowed when forcePasswordChange is true
       const PASSWORD_CHANGE_ALLOWED = [
@@ -104,7 +116,7 @@ async function authPlugin(app: FastifyInstance) {
       // Check password expiry (server-side enforcement)
       if (user.passwordExpiresAt && user.passwordExpiresAt < new Date() && !user.forcePasswordChange) {
         await prisma.user.update({
-          where: { id: user.id },
+          where: { id: payload.sub },
           data: { forcePasswordChange: true },
         });
         user.forcePasswordChange = true;

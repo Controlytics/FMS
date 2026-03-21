@@ -16,7 +16,7 @@ export const authRepository = {
       select: {
         id: true, username: true, fullName: true, email: true, department: true,
         photoUrl: true, role: true, status: true, forcePasswordChange: true,
-        isTemporaryPassword: true, lastLogin: true, createdAt: true,
+        isTemporaryPassword: true, lastLogin: true, createdAt: true, tenantId: true, organizationId: true,
       },
     });
   },

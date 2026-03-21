@@ -12,6 +12,7 @@ import { registerSwagger } from './lib/swagger.js';
 import authPlugin from './plugins/auth.js';
 import auditLoggerPlugin from './plugins/audit-logger.js';
 import rbacPlugin from './plugins/rbac.js';
+import tenantPlugin from './plugins/tenant.js';
 import authRoutes from './modules/auth/routes.js';
 import userRoutes from './modules/users/routes.js';
 import configRoutes from './modules/config/routes.js';
@@ -103,6 +104,7 @@ await app.register(fastifyStatic, {
 await app.register(auditLoggerPlugin);
 await app.register(authPlugin);
 await app.register(rbacPlugin);
+await app.register(tenantPlugin);
 
 // Global error handler — maps AppError to HTTP responses
 app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {

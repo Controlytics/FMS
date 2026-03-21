@@ -7,7 +7,6 @@ function getSecret(envVar: string, name: string): Uint8Array {
     if (process.env.NODE_ENV === 'production') {
       throw new Error(`FATAL: ${envVar} must be set to a string of at least 32 characters in production.`);
     }
-    // Dev-only: generate random secret per process start and warn
     const generated = randomBytes(32).toString('hex');
     console.warn(`WARNING: ${envVar} not set or too short. Using random secret for this session. Set ${envVar} in .env for persistent sessions.`);
     return new TextEncoder().encode(generated);
@@ -23,6 +22,9 @@ export interface JwtPayload {
   username: string;
   role: string;
   sessionId: string;
+  tenantId?: string;
+  organizationId?: string;
+  scope?: string; // GLOBAL | TENANT | ORGANIZATION
 }
 
 export async function signToken(payload: JwtPayload, expirationHours = 8): Promise<string> {
