@@ -23,7 +23,8 @@ import { UserPagination } from './components/user-pagination';
 
 type PendingCount = { count: number };
 
-export function UserListPage() {
+export function UserListPage({ orgId }: { orgId?: string } = {}) {
+  const apiBase = orgId ? `/api/tenant/organizations/${orgId}` : `/api`;
   const { user: currentUser } = useAuth();
   const reauth = useReauth();
   const { userLabels } = useFieldLabels();
@@ -73,9 +74,9 @@ export function UserListPage() {
   if (roleFilter) params.set('role', roleFilter);
   if (statusFilter) params.set('status', statusFilter);
 
-  const { data: rawData, mutate } = useSWR(`/api/users?${params}`);
-  const { data: pendingData } = useSWR<PendingCount>('/api/users/reset-requests/pending');
-  const { data: userStatsData, mutate: mutateStats } = useSWR<{ total: number; enabled: number; disabled: number; locked: number; expired: number }>('/api/users/stats');
+  const { data: rawData, mutate } = useSWR(`${apiBase}/users?${params}`);
+  const { data: pendingData } = useSWR<PendingCount>(orgId ? null : '/api/users/reset-requests/pending');
+  const { data: userStatsData, mutate: mutateStats } = useSWR<{ total: number; enabled: number; disabled: number; locked: number; expired: number }>(orgId ? null : '/api/users/stats');
   const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy', { revalidateOnMount: true, dedupingInterval: 5000 });
   const policy = { ...DEFAULT_PASSWORD_POLICY, ...policyData };
 
@@ -107,11 +108,11 @@ export function UserListPage() {
 
     await reauth.execute(reauthAction, async (password?) => {
       if (type === 'delete') {
-        if (password) await apiClient.deleteWithReauth(`/api/users/${userId}`, password);
-        else await apiClient.delete(`/api/users/${userId}`);
+        if (password) await apiClient.deleteWithReauth(`${apiBase}/users/${userId}`, password);
+        else await apiClient.delete(`${apiBase}/users/${userId}`);
       } else {
-        if (password) await apiClient.postWithReauth(`/api/users/${userId}/${type}`, {}, password);
-        else await apiClient.post(`/api/users/${userId}/${type}`, {});
+        if (password) await apiClient.postWithReauth(`${apiBase}/users/${userId}/${type}`, {}, password);
+        else await apiClient.post(`${apiBase}/users/${userId}/${type}`, {});
       }
       mutate();
       mutateStats();
@@ -168,8 +169,8 @@ export function UserListPage() {
     setActionMessage(null);
 
     await reauth.execute('BULK_DELETE_USERS', async (password?) => {
-      if (password) await apiClient.postWithReauth('/api/users/bulk-delete', { userIds: ids }, password);
-      else await apiClient.post('/api/users/bulk-delete', { userIds: ids });
+      if (password) await apiClient.postWithReauth(`${apiBase}/users/bulk-delete`, { userIds: ids }, password);
+      else await apiClient.post(`${apiBase}/users/bulk-delete`, { userIds: ids });
       setSelectedIds(new Set());
       mutate();
       mutateStats();

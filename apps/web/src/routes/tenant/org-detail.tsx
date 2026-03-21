@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { api } from '../../lib/api-client';
 import { useAuth } from '../../hooks/use-auth';
+import { UserListPage } from '../users/list';
 
 interface OrgInfo { id: string; name: string; slug: string; description?: string; userCount: number; entityCount: number; }
 interface User { id: string; username: string; fullName: string; email: string; department?: string; role: string; status: string; lastLogin?: string; }
@@ -10,82 +11,8 @@ interface Entity { id: string; name: string; status: string; templateId: string;
 interface Template { id: string; name: string; category: string; instanceCount: number; assignmentId?: string; }
 
 function UsersTab({ orgId }: { orgId: string }) {
-  const [search, setSearch] = useState('');
-  const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ username: '', fullName: '', email: '', password: '', role: 'OPERATOR', department: '' });
-  const { data, mutate } = useSWR<{ data: User[]; total: number }>(`/api/tenant/organizations/${orgId}/users?limit=50${search ? `&search=${search}` : ''}`);
-
-  const addUser = async () => {
-    try {
-      await api.post(`/api/tenant/organizations/${orgId}/users`, form);
-      setShowAdd(false);
-      setForm({ username: '', fullName: '', email: '', password: '', role: 'OPERATOR', department: '' });
-      mutate();
-    } catch (e: any) { alert(e.message || 'Failed to create user'); }
-  };
-
-  const toggleStatus = async (userId: string, current: string) => {
-    await api.put(`/api/tenant/organizations/${orgId}/users/${userId}`, { status: current === 'ENABLED' ? 'DISABLED' : 'ENABLED' });
-    mutate();
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <input type="text" placeholder="Search users..." value={search} onChange={e => setSearch(e.target.value)} className="px-3 py-2 border rounded-lg w-64" />
-        <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm">Add User</button>
-      </div>
-
-      {showAdd && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
-          <h3 className="font-semibold">Add User to Organization</h3>
-          <div className="grid grid-cols-3 gap-3">
-            <input placeholder="Username (min 6 chars)" value={form.username} onChange={e => setForm({...form, username: e.target.value.toUpperCase()})} className="px-3 py-2 border rounded text-sm" />
-            <input placeholder="Full Name" value={form.fullName} onChange={e => setForm({...form, fullName: e.target.value})} className="px-3 py-2 border rounded text-sm" />
-            <input placeholder="Email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} className="px-3 py-2 border rounded text-sm" />
-            <input placeholder="Password (min 8 chars)" type="password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} className="px-3 py-2 border rounded text-sm" />
-            <select value={form.role} onChange={e => setForm({...form, role: e.target.value})} className="px-3 py-2 border rounded text-sm">
-              <option value="ORG_ADMIN">Org Admin</option>
-              <option value="SUPERVISOR">Supervisor</option>
-              <option value="MAINTENANCE">Maintenance</option>
-              <option value="OPERATOR">Operator</option>
-              <option value="VIEWER">Viewer</option>
-            </select>
-            <input placeholder="Department" value={form.department} onChange={e => setForm({...form, department: e.target.value})} className="px-3 py-2 border rounded text-sm" />
-          </div>
-          <div className="flex gap-2">
-            <button onClick={addUser} className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">Create</button>
-            <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 border rounded text-sm hover:bg-gray-50">Cancel</button>
-          </div>
-        </div>
-      )}
-
-      <table className="w-full text-sm">
-        <thead className="bg-gray-50"><tr>
-          <th className="px-4 py-2 text-left">User</th><th className="px-4 py-2 text-left">Role</th>
-          <th className="px-4 py-2 text-left">Status</th><th className="px-4 py-2 text-left">Last Login</th>
-          <th className="px-4 py-2 text-center">Actions</th>
-        </tr></thead>
-        <tbody className="divide-y">
-          {data?.data.map(u => (
-            <tr key={u.id} className="hover:bg-gray-50">
-              <td className="px-4 py-2"><div className="font-medium">{u.fullName}</div><div className="text-xs text-gray-400">{u.username} &middot; {u.email}</div></td>
-              <td className="px-4 py-2"><span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs">{u.role}</span></td>
-              <td className="px-4 py-2"><span className={`px-2 py-0.5 rounded text-xs ${u.status === 'ENABLED' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{u.status}</span></td>
-              <td className="px-4 py-2 text-xs text-gray-500">{u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : 'Never'}</td>
-              <td className="px-4 py-2 text-center">
-                <button onClick={() => toggleStatus(u.id, u.status)} className="px-2 py-1 text-xs border rounded hover:bg-gray-100">
-                  {u.status === 'ENABLED' ? 'Disable' : 'Enable'}
-                </button>
-              </td>
-            </tr>
-          ))}
-          {data?.data.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">No users in this organization</td></tr>}
-        </tbody>
-      </table>
-      {data && <div className="text-sm text-gray-500">Total: {data.total} users</div>}
-    </div>
-  );
+  // Use the full UserListPage component with org scope
+  return <UserListPage orgId={orgId} />;
 }
 
 function EntitiesTab({ orgId }: { orgId: string }) {

@@ -4,8 +4,8 @@ import { NotFoundError, ConflictError } from '../../../lib/errors.js';
 import { templateRepository } from '../repositories/template.repository.js';
 
 export const templateService = {
-  async list(query: { search?: string; isActive?: string; page: number; limit?: number }) {
-    const where: Record<string, unknown> = {};
+  async list(query: { search?: string; isActive?: string; page: number; limit?: number }, visibilityFilter?: Record<string, unknown>) {
+    const where: Record<string, unknown> = { ...visibilityFilter };
     if (query.search) {
       where.name = { contains: query.search, mode: 'insensitive' };
     }
