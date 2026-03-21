@@ -65,7 +65,67 @@ export default async function instanceRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const query = assetQuerySchema.parse(req.query);
-    return instanceService.list(query);
+
+    // Inject tenant/assignment visibility filter
+    const role = req.user?.role;
+    const tenantId = req.user?.tenantId;
+    const orgId = req.user?.organizationId;
+    const userId = req.user?.sub;
+
+    let visibilityFilter: Record<string, unknown> | undefined;
+
+    if (role === "SUPER_ADMIN") {
+      // No filter — sees all
+    } else if (role === "TENANT_ADMIN" || role === "ADMIN") {
+      visibilityFilter = { tenantId };
+    } else {
+      // Org-scoped users: only see assigned entities
+      const { prisma } = await import("../../../lib/prisma.js");
+
+      // Get entity IDs from entity assignments (org + user + role)
+      const entityAssignments = await prisma.entityAssignment.findMany({
+        where: {
+          ...(tenantId ? { tenantId } : {}),
+          OR: [
+            { assigneeType: "ORGANIZATION", organizationId: orgId },
+            { assigneeType: "USER", userId },
+            { assigneeType: "ROLE", roleValue: role },
+          ],
+        },
+        select: { entityId: true },
+      });
+
+      // Get template IDs from template assignments (org + user)
+      const templateAssignments = await prisma.templateAssignment.findMany({
+        where: {
+          ...(tenantId ? { tenantId } : {}),
+          OR: [
+            { assigneeType: "ORGANIZATION", organizationId: orgId },
+            { assigneeType: "USER", userId },
+          ],
+        },
+        select: { templateId: true },
+      });
+
+      const assignedEntityIds = entityAssignments.map((a: any) => a.entityId);
+      const assignedTemplateIds = templateAssignments.map((a: any) => a.templateId);
+
+      visibilityFilter = {
+        ...(tenantId ? { tenantId } : {}),
+        OR: [
+          ...(orgId ? [{ organizationId: orgId }] : []),
+          ...(assignedEntityIds.length > 0 ? [{ id: { in: assignedEntityIds } }] : []),
+          ...(assignedTemplateIds.length > 0 ? [{ templateId: { in: assignedTemplateIds } }] : []),
+        ],
+      };
+
+      // If no assignments at all, return empty
+      if (!orgId && assignedEntityIds.length === 0 && assignedTemplateIds.length === 0) {
+        return { data: [], total: 0, page: query.page, limit: query.limit ?? 0, totalPages: 0 };
+      }
+    }
+
+    return instanceService.list(query, visibilityFilter);
   });
 
   // 8. GET /instances/tree — Get full asset tree
@@ -97,8 +157,43 @@ export default async function instanceRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async () => {
-    return instanceService.getTree();
+  }, async (req) => {
+    // Inject same visibility filter for tree
+    const role = req.user?.role;
+    const tenantId = req.user?.tenantId;
+    const orgId = req.user?.organizationId;
+    const userId = req.user?.sub;
+
+    if (role === "SUPER_ADMIN") {
+      return instanceService.getTree();
+    } else if (role === "TENANT_ADMIN" || role === "ADMIN") {
+      return instanceService.getTree({ tenantId });
+    } else {
+      const { prisma } = await import("../../../lib/prisma.js");
+      const entityAssignments = await prisma.entityAssignment.findMany({
+        where: { ...(tenantId ? { tenantId } : {}), OR: [
+          { assigneeType: "ORGANIZATION", organizationId: orgId },
+          { assigneeType: "USER", userId },
+          { assigneeType: "ROLE", roleValue: role },
+        ]},
+        select: { entityId: true },
+      });
+      const templateAssignments = await prisma.templateAssignment.findMany({
+        where: { ...(tenantId ? { tenantId } : {}), OR: [
+          { assigneeType: "ORGANIZATION", organizationId: orgId },
+          { assigneeType: "USER", userId },
+        ]},
+        select: { templateId: true },
+      });
+      const eIds = entityAssignments.map((a: any) => a.entityId);
+      const tIds = templateAssignments.map((a: any) => a.templateId);
+      const orConditions: any[] = [];
+      if (orgId) orConditions.push({ organizationId: orgId });
+      if (eIds.length) orConditions.push({ id: { in: eIds } });
+      if (tIds.length) orConditions.push({ templateId: { in: tIds } });
+      if (orConditions.length === 0) return [];
+      return instanceService.getTree({ ...(tenantId ? { tenantId } : {}), OR: orConditions });
+    }
   });
 
   // 9. GET /instances/:id — Get single instance

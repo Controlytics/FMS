@@ -14,8 +14,8 @@ import { provisionUnsMapping } from '../../uns/uns.service.js';
 import { getEntityUnsPath } from '../../../lib/uns-path.js';
 
 export const instanceService = {
-  async list(query: { search?: string; templateId?: string; status?: string; parentId?: string | null; isActive?: string; page: number; limit?: number }) {
-    const where: Record<string, unknown> = {};
+  async list(query: { search?: string; templateId?: string; status?: string; parentId?: string | null; isActive?: string; page: number; limit?: number }, visibilityFilter?: Record<string, unknown>) {
+    const where: Record<string, unknown> = { ...visibilityFilter };
     if (query.search) where.name = { contains: query.search, mode: 'insensitive' };
     if (query.templateId) where.templateId = query.templateId;
     if (query.status) where.status = query.status;
@@ -29,8 +29,8 @@ export const instanceService = {
     };
   },
 
-  async getTree() {
-    return instanceRepository.findTree();
+  async getTree(filter?: Record<string, unknown>) {
+    return instanceRepository.findTree(filter);
   },
 
   async getById(id: string) {

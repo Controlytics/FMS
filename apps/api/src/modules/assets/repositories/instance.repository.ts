@@ -14,9 +14,9 @@ export const instanceRepository = {
     return { instances, total };
   },
 
-  async findTree() {
+  async findTree(filter?: Record<string, unknown>) {
     return prisma.assetInstance.findMany({
-      where: { isActive: true },
+      where: { isActive: true, ...filter },
       select: {
         id: true,
         name: true,
