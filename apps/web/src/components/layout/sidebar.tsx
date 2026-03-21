@@ -32,7 +32,7 @@ const allNavItems: NavItem[] = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
       </svg>
     ),
-    defaultRoles: ['SUPER_ADMIN', 'ADMIN'],
+    defaultRoles: ['SUPER_ADMIN', 'TENANT_ADMIN', 'ADMIN'],
   },
   {
     id: 'assets',
@@ -43,7 +43,7 @@ const allNavItems: NavItem[] = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
       </svg>
     ),
-    defaultRoles: ['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'MAINTENANCE', 'OPERATOR'],
+    defaultRoles: ['SUPER_ADMIN', 'TENANT_ADMIN', 'ADMIN', 'SUPERVISOR', 'MAINTENANCE', 'OPERATOR'],
   },
   {
     id: 'asset-templates',
@@ -54,7 +54,7 @@ const allNavItems: NavItem[] = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
       </svg>
     ),
-    defaultRoles: ['SUPER_ADMIN', 'ADMIN'],
+    defaultRoles: ['SUPER_ADMIN', 'TENANT_ADMIN', 'ADMIN'],
   },
   {
     id: 'configuration',
@@ -66,7 +66,7 @@ const allNavItems: NavItem[] = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
       </svg>
     ),
-    defaultRoles: ['SUPER_ADMIN', 'ADMIN'],
+    defaultRoles: ['SUPER_ADMIN', 'TENANT_ADMIN', 'ADMIN'],
   },
   {
     id: 'notifications',
@@ -97,7 +97,7 @@ const allNavItems: NavItem[] = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
       </svg>
     ),
-    defaultRoles: ['SUPER_ADMIN', 'ADMIN'],
+    defaultRoles: ['SUPER_ADMIN', 'TENANT_ADMIN', 'ADMIN'],
   },
   {
     id: 'rule-chains',
@@ -108,7 +108,7 @@ const allNavItems: NavItem[] = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
       </svg>
     ),
-    defaultRoles: ['SUPER_ADMIN', 'ADMIN'],
+    defaultRoles: ['SUPER_ADMIN', 'TENANT_ADMIN', 'ADMIN'],
   },
   {
     id: 'alarms',
@@ -129,7 +129,7 @@ const allNavItems: NavItem[] = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
       </svg>
     ),
-    defaultRoles: ['SUPER_ADMIN', 'ADMIN'],
+    defaultRoles: ['SUPER_ADMIN', 'TENANT_ADMIN', 'ADMIN'],
   },
 ];
 

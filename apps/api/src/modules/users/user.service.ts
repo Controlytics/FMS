@@ -97,7 +97,7 @@ export const userService = {
       title: 'New User Created',
       message: `User ${data.fullName} (${data.username}) has been created with role ${data.role}.`,
       targetUserId: data.username,
-      forRole: 'ADMIN',
+      forRole: 'TENANT_ADMIN',
       metadata: { userId: user.id, role: data.role },
       createdBy: ctx.userId,
     });
@@ -245,7 +245,7 @@ export const userService = {
     await createNotification({
       type: 'ACCOUNT_ENABLED', title: 'Account Enabled',
       message: `User ${user.fullName} (${user.username}) has been enabled.`,
-      targetUserId: user.username, forRole: 'ADMIN', createdBy: ctx.userId,
+      targetUserId: user.username, forRole: 'TENANT_ADMIN', createdBy: ctx.userId,
     });
     await createNotification({
       type: 'ACCOUNT_ENABLED', title: 'Your Account Has Been Enabled',
@@ -272,7 +272,7 @@ export const userService = {
     await createNotification({
       type: 'ACCOUNT_DISABLED', title: 'Account Disabled',
       message: `User ${user.fullName} (${user.username}) has been disabled.`,
-      targetUserId: user.username, forRole: 'ADMIN', createdBy: ctx.userId,
+      targetUserId: user.username, forRole: 'TENANT_ADMIN', createdBy: ctx.userId,
     });
     await createNotification({
       type: 'ACCOUNT_DISABLED', title: 'Your Account Has Been Disabled',
@@ -368,7 +368,7 @@ export const userService = {
       await createNotification({
         type: 'PASSWORD_RESET_APPROVED', title: 'Password Reset Approved',
         message: `Password reset request for ${resetRequest.userId} has been approved.`,
-        targetUserId: resetRequest.userId, forRole: 'ADMIN', createdBy: ctx.userId,
+        targetUserId: resetRequest.userId, forRole: 'TENANT_ADMIN', createdBy: ctx.userId,
       });
       await createNotification({
         type: 'PASSWORD_RESET_APPROVED', title: 'Password Reset Approved',

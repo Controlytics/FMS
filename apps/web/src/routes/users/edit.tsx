@@ -136,7 +136,7 @@ export function EditUserPage() {
   const status = statusConfig[userData.status] || statusConfig.ENABLED;
 
   // Admin can only edit role and email, not fullName and department
-  const isAdmin = currentUser?.role === 'ADMIN';
+  const isAdmin = currentUser?.role === 'TENANT_ADMIN' || currentUser?.role === 'ADMIN';
 
   return (
     <div className="space-y-8 animate-fade-in">

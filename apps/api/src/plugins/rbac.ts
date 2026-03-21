@@ -6,6 +6,8 @@ declare module 'fastify' {
   interface FastifyInstance {
     requirePermission: (permission: string) => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     requireRole: (...roles: string[]) => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requireTenantAdmin: () => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requireSuperAdmin: () => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
 
@@ -21,7 +23,7 @@ async function rbacPlugin(app: FastifyInstance) {
       if (userRole === 'SUPER_ADMIN') return;
 
       // Fetch role permissions from database
-      const role = await prisma.role.findUnique({
+      const role = await prisma.role.findFirst({
         where: { name: userRole },
         select: { permissions: true },
       });
@@ -31,8 +33,7 @@ async function rbacPlugin(app: FastifyInstance) {
       // Check direct permission match first
       let hasPermission = perms.includes(permission);
 
-      // If not found, check if user has the *_MANAGE parent permission
-      // Fallback: check if user has the *_MANAGE parent permission (backward compatibility)
+      // Fallback: check if user has the *_MANAGE parent permission
       if (!hasPermission) {
         const manageVariants = ['_CREATE', '_UPDATE', '_DELETE', '_VIEW', '_READ', '_EXPORT'];
         for (const suffix of manageVariants) {
@@ -60,12 +61,54 @@ async function rbacPlugin(app: FastifyInstance) {
   app.decorate('requireRole', (...roles: string[]) => {
     return async (req: FastifyRequest, reply: FastifyReply) => {
       const userRole = req.user?.role;
+      // SUPER_ADMIN can always pass role checks
+      if (userRole === 'SUPER_ADMIN') return;
+      // TENANT_ADMIN passes if ADMIN is in the list (backward compat)
+      if (userRole === 'TENANT_ADMIN' && roles.includes('ADMIN')) return;
+
       if (!userRole || !roles.includes(userRole)) {
         return reply.code(403).send({
           error: 'FORBIDDEN',
           message: 'Permission denied',
           requiredRoles: roles,
           yourRole: userRole,
+        });
+      }
+    };
+  });
+
+  // Convenience: requires SUPER_ADMIN role
+  app.decorate('requireSuperAdmin', () => {
+    return async (req: FastifyRequest, reply: FastifyReply) => {
+      if (req.user?.role !== 'SUPER_ADMIN') {
+        return reply.code(403).send({
+          error: 'FORBIDDEN',
+          message: 'Super Admin access required',
+          yourRole: req.user?.role,
+        });
+      }
+    };
+  });
+
+  // Convenience: requires TENANT_ADMIN or higher within the tenant
+  app.decorate('requireTenantAdmin', () => {
+    return async (req: FastifyRequest, reply: FastifyReply) => {
+      const userRole = req.user?.role;
+      if (userRole === 'SUPER_ADMIN') return; // SUPER_ADMIN passes all
+
+      if (!userRole || !['TENANT_ADMIN', 'ADMIN'].includes(userRole)) {
+        return reply.code(403).send({
+          error: 'FORBIDDEN',
+          message: 'Tenant Admin access required',
+          yourRole: userRole,
+        });
+      }
+
+      // Ensure user belongs to a tenant
+      if (!req.user?.tenantId) {
+        return reply.code(403).send({
+          error: 'FORBIDDEN',
+          message: 'No tenant context',
         });
       }
     };

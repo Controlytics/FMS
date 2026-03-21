@@ -16,11 +16,11 @@ function buildVisibilityFilter(userRole: string, username: string): Record<strin
 
   if (userRole === 'SUPER_ADMIN') {
     // Super admin sees everything
-  } else if (userRole === 'ADMIN') {
+  } else if (userRole === 'TENANT_ADMIN' || userRole === 'ADMIN') {
     // Admin sees: notifications for ADMIN role, or for the specific user, or general (no forUserId/forRole)
     where.OR = [
       { forUserId: username },
-      { forRole: 'ADMIN' },
+      { forRole: 'TENANT_ADMIN' },
       { forRole: null, forUserId: null },
     ];
     // But not notifications specifically for SUPER_ADMIN
@@ -152,7 +152,7 @@ export async function createNotification(data: {
   message: string;
   targetUserId?: string;
   forUserId?: string;
-  forRole?: 'SUPER_ADMIN' | 'ADMIN' | 'SUPERVISOR' | 'MAINTENANCE' | 'OPERATOR' | 'VIEWER';
+  forRole?: string;
   metadata?: Record<string, unknown>;
   createdBy?: string;
 }) {

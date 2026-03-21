@@ -91,7 +91,7 @@ export const authService = {
         await createNotification({
           type: 'ACCOUNT_LOCKED', title: 'Account Locked',
           message: `User ${user.fullName} (${user.username}) has been locked due to multiple failed login attempts.`,
-          targetUserId: user.username, forRole: 'ADMIN',
+          targetUserId: user.username, forRole: 'TENANT_ADMIN',
         });
         await createNotification({
           type: 'ACCOUNT_LOCKED', title: 'Your Account Has Been Locked',
@@ -366,7 +366,7 @@ export const authService = {
     await createNotification({
       type: 'PASSWORD_RESET_REQUEST', title: 'Password Reset Request',
       message: `User ${user.fullName} (${user.username}) has requested a password reset.`,
-      targetUserId: user.username, forRole: 'ADMIN',
+      targetUserId: user.username, forRole: 'TENANT_ADMIN',
     });
   },
 };
