@@ -2,6 +2,7 @@ import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fa
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { getTsdbPool } from '@digilog/db';
+import { getTenantId } from "../../lib/tenant-utils.js";
 
 /**
  * Dashboard routes — widget-based dashboards with assignment
@@ -9,13 +10,6 @@ import { getTsdbPool } from '@digilog/db';
  */
 export default async function dashboardRoutes(app: FastifyInstance) {
 
-  // Helper: get tenantId from request
-  function getTenantId(req: FastifyRequest): string | null {
-    if (req.user.role === 'SUPER_ADMIN') {
-      return (req.headers['x-tenant-id'] as string) || req.user.tenantId || null;
-    }
-    return req.user.tenantId || null;
-  }
 
   // Helper: check if user can see a dashboard
   async function canAccessDashboard(req: FastifyRequest, dashboardId: string): Promise<boolean> {

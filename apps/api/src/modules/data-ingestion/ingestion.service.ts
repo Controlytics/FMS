@@ -311,12 +311,12 @@ export async function processIngestionMessage(msg: IngestionMessage): Promise<Pi
           }).catch(err => console.error('[AlarmAutoClear] Notification dispatch failed:', err.message));
         } else {
           // Deduplicate: only create if no ACTIVE alarm of same type exists
-          console.log("[Stage8] Checking dedup for", alarm.entityId, alarm.alarmType);
+          // Alarm dedup check
           const existing = await prisma.alarm.findFirst({
             where: { entityId: alarm.entityId, alarmType: alarm.alarmType, status: 'ACTIVE' },
           });
           if (!existing) {
-            console.log("[Stage8] No existing alarm, creating new one");
+            // Creating new alarm
             await createAlarm({
               entityId: alarm.entityId,
               alarmType: alarm.alarmType,

@@ -302,17 +302,17 @@ const ATTRIBUTES_TOPIC = '${attributesTopic}';
 const client = mqtt.connect(BROKER, { username: TOKEN });
 
 client.on('connect', () => {
-  console.log('Connected to MQTT broker');
+  // MQTT broker connected
 
   // Send telemetry data
   const data = { temperature: 25.5, humidity: 60 };
   client.publish(TELEMETRY_TOPIC, JSON.stringify(data));
-  console.log('Telemetry sent');
+  // Telemetry sent
 
   // Send attributes
   const attributes = { firmware_version: '1.2.3', model: 'SensorX' };
   client.publish(ATTRIBUTES_TOPIC, JSON.stringify(attributes));
-  console.log('Attributes sent');
+  // Attributes sent
 
   client.end();
 });
@@ -434,7 +434,7 @@ async function sendTelemetry() {
     headers,
     body: JSON.stringify(data),
   });
-  console.log(await res.json());
+  // Response logged
 }
 
 // Send attributes
@@ -445,7 +445,7 @@ async function sendAttributes() {
     headers,
     body: JSON.stringify(attributes),
   });
-  console.log(await res.json());
+  // Response logged
 }
 
 sendTelemetry();`;

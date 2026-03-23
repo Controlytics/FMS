@@ -20,7 +20,7 @@ const cooldownMap = new Map<string, number>();
  * Main dispatcher: find matching rules, resolve recipients, send notifications.
  */
 export async function dispatchNotification(event: DispatchEvent): Promise<void> {
-  console.log("[Dispatcher] Called with event:", JSON.stringify(event));
+  // [Dispatcher] event received
   const { eventType, context, variables, forceRuleId } = event;
 
   // Build eventLabel, summary, and dynamic details HTML based on event type
@@ -74,13 +74,13 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
     delete where.eventTypes; // Allow testing regardless of event type
   }
 
-  console.log("[Dispatcher] Query where:", JSON.stringify(where));
+  // [Dispatcher] querying rules
   const rules = await prisma.notificationRule.findMany({
     where,
     include: { recipients: true },
     orderBy: { priority: "desc" },
   });
-  console.log("[Dispatcher] Found", rules.length, "matching rules");
+  // [Dispatcher] rules matched
 
   for (const rule of rules) {
     // Check cooldown
@@ -97,7 +97,7 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
 
     // Resolve recipients to user list
     const users = await resolveRecipients(rule.recipients);
-    console.log("[Dispatcher] Resolved", users.length, "recipients:", users.map(u => u.email));
+    // [Dispatcher] recipients resolved
     if (users.length === 0) continue;
 
     // Update cooldown
@@ -132,7 +132,7 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
       if (rule.emailEnabled && emailTemplate && user.email) {
         const subject = resolveTemplate(emailTemplate.subject, userVars);
         const body = resolveTemplate(emailTemplate.bodyTemplate, userVars);
-        console.log("[Dispatcher] Sending email to", user.email);
+        // [Dispatcher] sending email
         sendNotification({
           channel: 'EMAIL',
           recipient: user.email,
@@ -149,10 +149,10 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
         // Try to get phone from user config or metadata
         const userConfig = await prisma.systemConfig.findUnique({ where: { configKey: `user-phone-${user.id}` } });
         const phone = (userConfig?.configValue as any)?.phone;
-        console.log(`[Dispatcher] SMS check for ${user.email}: userId=${user.id}, configKey=user-phone-${user.id}, phone=${phone}`);
+        // [Dispatcher] checking SMS for user
         if (phone) {
           const body = resolveTemplate(smsTemplate.bodyTemplate, userVars);
-          console.log(`[Dispatcher] Sending SMS to ${phone}, body: ${body.substring(0, 100)}`);
+          // [Dispatcher] sending SMS
           sendNotification({
             channel: 'SMS',
             recipient: phone,

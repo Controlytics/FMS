@@ -2,6 +2,7 @@ import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fa
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { hashPassword } from '../../lib/password.js';
+import { getTenantId } from "../../lib/tenant-utils.js";
 
 /**
  * Organization Detail routes — manage users, entities, templates within an org
@@ -22,10 +23,6 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
     return reply.code(403).send({ error: 'FORBIDDEN', message: 'Organization access required' });
   });
 
-  function getTenantId(req: FastifyRequest): string | null {
-    if (req.user.role === 'SUPER_ADMIN') return (req.headers['x-tenant-id'] as string) || null;
-    return req.user.tenantId || null;
-  }
 
   // ═══════════════════════════════════════════════════════
   // USERS IN ORG

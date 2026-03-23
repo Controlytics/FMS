@@ -1,6 +1,7 @@
 import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
+import { getTenantId } from "../../lib/tenant-utils.js";
 
 /**
  * Tenant Admin routes — TENANT_ADMIN+ within their tenant
@@ -21,12 +22,6 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
   });
 
   // Helper: get effective tenantId (from JWT or X-Tenant-Id header for SUPER_ADMIN)
-  function getTenantId(req: FastifyRequest): string | null {
-    if (req.user.role === 'SUPER_ADMIN') {
-      return (req.headers['x-tenant-id'] as string) || null;
-    }
-    return req.user.tenantId || null;
-  }
 
   // ═══════════════════════════════════════════════════════
   // ORGANIZATION MANAGEMENT

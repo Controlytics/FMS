@@ -23,7 +23,7 @@ export const authService = {
           const ldapResult = await ldapService.authenticateUser(username, password);
           if (ldapResult) {
             user = await ldapService.provisionUser(username, ldapResult, ldapConfig) as any;
-            console.log(`[LDAP] Auto-provisioned user: ${username}`);
+            // LDAP user auto-provisioned
             // Skip to session creation (user is already authenticated via LDAP bind)
           }
         }

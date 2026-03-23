@@ -219,7 +219,7 @@ export async function createAlarm(params: {
     },
   });
 
-  console.log("[createAlarm] Alarm created:", alarm.id, "- dispatching notification");
+  // Alarm created, dispatching notification
   // Dispatch notification for ALARM_CREATED event
   const entity = await prisma.assetInstance.findUnique({ where: { id: params.entityId }, select: { name: true } });
   const entityName = entity?.name ?? params.unsPath;

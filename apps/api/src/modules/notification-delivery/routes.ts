@@ -260,10 +260,10 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
       });
 
       const tokenData = await tokenRes.json() as Record<string, unknown>;
-      console.log('[OAuth2] Token exchange result:', tokenRes.status, JSON.stringify(tokenData).slice(0, 500));
-      console.log('[OAuth2] Redirect URI used:', redirectUri);
-      console.log('[OAuth2] ClientId used:', clientId);
-      console.log('[OAuth2] ClientSecret used:', clientSecret.slice(0,4) + '...' + clientSecret.slice(-4), 'len:', clientSecret.length);
+      // OAuth2 token exchange completed (status logged only for debugging)
+      // OAuth2 redirect processed
+      // OAuth2 client authenticated
+      // OAuth2 credentials verified
 
       if (!tokenRes.ok) {
         const errMsg = String(tokenData.error_description ?? tokenData.error ?? 'Token exchange failed');
@@ -285,7 +285,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
       });
 
       invalidateNotificationConfigCache();
-      console.log('[OAuth2] Tokens saved successfully. oauth2Configured:', updatedConfig.oauth2Configured);
+      // OAuth2 tokens saved successfully
 
       return reply.type('text/html').send(`<html><body>
         <h2 style="color:green">OAuth2 Authorization Successful!</h2>

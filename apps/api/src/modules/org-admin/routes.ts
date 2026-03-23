@@ -1,5 +1,6 @@
 import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
+import { getTenantId } from "../../lib/tenant-utils.js";
 
 /**
  * Organization Admin routes — ORG_ADMIN+ within their organization
@@ -24,12 +25,6 @@ export default async function orgAdminRoutes(app: FastifyInstance) {
     return req.user.organizationId || null;
   }
 
-  function getTenantId(req: FastifyRequest): string | null {
-    if (req.user.role === 'SUPER_ADMIN') {
-      return (req.headers['x-tenant-id'] as string) || null;
-    }
-    return req.user.tenantId || null;
-  }
 
   // ─── LIST ORG MEMBERS ──────────────────────────────────
   app.get('/users', {
