@@ -250,6 +250,8 @@ model User {
   passwordExpiresAt   DateTime?  @map("password_expires_at") @db.Timestamptz
   forcePasswordChange Boolean    @default(true) @map("force_password_change")
   isTemporaryPassword Boolean    @default(true) @map("is_temporary_password")
+  authSource          String     @default("local") @map("auth_source") @db.VarChar(10)
+  ldapDn              String?    @map("ldap_dn")
   lastLogin           DateTime?  @map("last_login") @db.Timestamptz
   createdAt           DateTime   @default(now()) @map("created_at") @db.Timestamptz
   updatedAt           DateTime   @updatedAt @map("updated_at") @db.Timestamptz

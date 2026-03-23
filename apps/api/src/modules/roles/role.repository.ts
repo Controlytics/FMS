@@ -75,7 +75,7 @@ export const roleRepository = {
     return prisma.role.findMany({
       where: {
         isActive: true,
-        hierarchyLevel: { lte: hierarchyLevel },
+        hierarchyLevel: { lt: hierarchyLevel },
       },
       orderBy: { hierarchyLevel: 'desc' },
       select: {

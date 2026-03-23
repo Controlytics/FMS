@@ -49,6 +49,11 @@ export function EditUserPage() {
   );
   const creatableRoles = creatableRolesData || [];
 
+  // Fetch organizations
+  const { data: orgsData } = useSWR<{ data: Array<{ id: string; name: string }> }>(
+    "/api/tenant/organizations?limit=100"
+  );
+
   const { data: userData, mutate } = useSWR(id ? `/api/users/${id}` : null);
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<UpdateUserInput>({
@@ -267,7 +272,27 @@ export function EditUserPage() {
             </div>
           </div>
 
-          {/* Account Activity Section */}
+          {/* Organization Assignment */}
+          <div className="p-6 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-white">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 rounded-lg bg-blue-100">
+                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5" /></svg>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-800">Organization</h3>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Assign to Organization</label>
+              <select {...register("organizationId" as any)} defaultValue={userData.organizationId || ""} className="w-full px-3 py-3 border border-slate-200 rounded-xl text-sm font-medium bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400">
+                <option value="">-- Select an organization --</option>
+                {orgsData?.data?.map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+              {userData.organizationId && (
+                <p className="text-xs text-slate-500 mt-2">Currently assigned to: <span className="font-medium">{orgsData?.data?.find((o: any) => o.id === userData.organizationId)?.name || userData.organizationId}</span></p>
+              )}
+            </div>
+          </div>
+
+                    {/* Account Activity Section */}
           <div className="p-6 bg-gradient-to-r from-slate-50 to-white border-b border-slate-100">
             <div className="flex items-center gap-3 mb-6">
               <div className="p-2 rounded-lg bg-blue-100">

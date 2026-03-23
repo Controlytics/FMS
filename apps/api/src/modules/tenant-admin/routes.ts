@@ -47,11 +47,8 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
       },
     },
   }, async (req) => {
-    const tenantId = getTenantId(req);
-    if (!tenantId) return { data: [], total: 0, page: 1, limit: 10, totalPages: 0 };
-
     const { page = 1, limit = 10, search } = req.query as any;
-    const where: any = { tenantId };
+    const where: any = {};
     if (search) {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
@@ -64,7 +61,8 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
         where,
         skip: (page - 1) * limit,
         take: limit,
-        orderBy: { name: 'asc' },
+        orderBy: { name: "asc" },
+        include: { tenant: { select: { name: true } } },
       }),
       prisma.organization.count({ where }),
     ]);
@@ -87,9 +85,8 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
     },
   }, async (req, reply) => {
-    const tenantId = getTenantId(req);
     const { id } = req.params as { id: string };
-    const org = await prisma.organization.findFirst({ where: { id, tenantId: tenantId! } });
+    const org = await prisma.organization.findUnique({ where: { id } });
     if (!org) return reply.code(404).send({ error: 'Organization not found' });
 
     const userCount = await prisma.user.count({ where: { organizationId: id } });
@@ -164,11 +161,10 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const tenantId = getTenantId(req);
     const { id } = req.params as { id: string };
     const body = req.body as any;
 
-    const existing = await prisma.organization.findFirst({ where: { id, tenantId: tenantId! } });
+    const existing = await prisma.organization.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'Organization not found' });
 
     const org = await prisma.organization.update({ where: { id }, data: body });
@@ -189,18 +185,63 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
   app.delete('/organizations/:id', {
     schema: {
       tags: ['Tenant Admin'],
-      summary: 'Deactivate organization',
+      summary: 'Deactivate or delete organization',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
+      querystring: { type: 'object', properties: { permanent: { type: 'string' } } },
     },
   }, async (req, reply) => {
-    const tenantId = getTenantId(req);
     const { id } = req.params as { id: string };
+    const { permanent } = req.query as { permanent?: string };
 
-    const existing = await prisma.organization.findFirst({ where: { id, tenantId: tenantId! } });
+    const existing = await prisma.organization.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'Organization not found' });
 
-    await prisma.organization.update({ where: { id }, data: { isActive: false } });
+    if (permanent === 'true') {
+      // Unassign all users from this organization
+      const unassignedUsers = await prisma.user.updateMany({ where: { organizationId: id }, data: { organizationId: null } });
 
+      // Unassign all entity instances from this organization
+      const unassignedEntities = await prisma.assetInstance.updateMany({ where: { organizationId: id }, data: { organizationId: null } });
+
+      // Unassign all entity templates from this organization
+      const unassignedTemplates = await prisma.assetTemplate.updateMany({ where: { organizationId: id }, data: { organizationId: null } });
+
+      // Delete entity assignments for this organization
+      await prisma.entityAssignment.deleteMany({ where: { organizationId: id } });
+
+      // Delete template assignments for this organization
+      await prisma.templateAssignment.deleteMany({ where: { organizationId: id } });
+
+      // Delete dashboard assignments for this organization
+      await prisma.dashboardAssignment.deleteMany({ where: { organizationId: id } });
+
+      // Delete the organization
+      await prisma.organization.delete({ where: { id } });
+
+      await auditLog({
+        userId: req.user.username, userRole: req.user.role,
+        action: 'ORGANIZATION_DELETED', targetType: 'organization', targetId: id,
+        afterValue: {
+          name: existing.name, slug: existing.slug, permanent: true,
+          unassignedUsers: unassignedUsers.count,
+          unassignedEntities: unassignedEntities.count,
+          unassignedTemplates: unassignedTemplates.count,
+        },
+        ipAddress: req.ip, userAgent: req.headers['user-agent'],
+        sessionId: req.user.sessionId,
+      });
+      return {
+        success: true,
+        message: 'Organization permanently deleted',
+        unassigned: {
+          users: unassignedUsers.count,
+          entities: unassignedEntities.count,
+          templates: unassignedTemplates.count,
+        },
+      };
+    }
+
+    await prisma.organization.update({ where: { id }, data: { isActive: false } });
     await auditLog({
       userId: req.user.username, userRole: req.user.role,
       action: 'ORGANIZATION_DEACTIVATED', targetType: 'organization', targetId: id,
@@ -208,7 +249,6 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
       ipAddress: req.ip, userAgent: req.headers['user-agent'],
       sessionId: req.user.sessionId,
     });
-
     return { success: true, message: 'Organization deactivated' };
   });
 

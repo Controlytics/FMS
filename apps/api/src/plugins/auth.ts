@@ -91,6 +91,14 @@ async function authPlugin(app: FastifyInstance) {
         return reply.code(401).send({ error: 'ACCOUNT_INACTIVE', message: 'Account is not active' });
       }
 
+      // Check if user's organization is active
+      if (user.organizationId) {
+        const org = await prisma.organization.findUnique({ where: { id: user.organizationId }, select: { isActive: true } });
+        if (org && !org.isActive) {
+          return reply.code(403).send({ error: 'ORG_INACTIVE', message: 'Your organization has been deactivated. Contact administrator.' });
+        }
+      }
+
       // Lookup role scope from DB
       const roleRecord = await prisma.role.findFirst({ where: { name: user.role }, select: { scope: true } });
       const scope = roleRecord?.scope || (user.role === 'SUPER_ADMIN' ? 'GLOBAL' : 'TENANT');

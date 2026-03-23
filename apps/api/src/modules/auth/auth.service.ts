@@ -3,6 +3,7 @@ import { prisma } from "../../lib/prisma.js";
 import type { RequestContext } from '../../types/context.js';
 import { auditLog } from '../../lib/audit.js';
 import { hashPassword, verifyPassword } from '../../lib/password.js';
+import { ldapService } from '../ldap/ldap.service.js';
 import { signToken, signVerificationToken, verifyToken } from '../../lib/jwt.js';
 import { AppError, NotFoundError, ValidationError, ConflictError } from '../../lib/errors.js';
 import { authRepository } from './auth.repository.js';
@@ -13,15 +14,31 @@ const DUMMY_HASH = '$2b$12$7fXFzVUc/0SLHtxesM41PODN09mcQBJ0QB/uy7BQHDWzsklxK9yh6
 
 export const authService = {
   async login(username: string, password: string, ip: string, userAgent: string | undefined, force?: boolean) {
-    const user = await authRepository.findUserByUsername(username);
+    let user = await authRepository.findUserByUsername(username);
     if (!user) {
-      await verifyPassword(password, DUMMY_HASH);
-      // Return attemptsRemaining to match existing-user response (prevents user enumeration)
-      const policy = await authRepository.getPasswordPolicyConfig();
-      const maxAttempts = (policy.maxFailedAttempts as number) ?? 5;
-      const err = new AppError(401, 'INVALID_CREDENTIALS', 'Invalid user ID or password.');
-      (err as any).attemptsRemaining = maxAttempts - 1;
-      throw err;
+      // Try LDAP auto-provisioning if enabled
+      try {
+        const ldapConfig = await ldapService.getConfig();
+        if (ldapConfig.enabled) {
+          const ldapResult = await ldapService.authenticateUser(username, password);
+          if (ldapResult) {
+            user = await ldapService.provisionUser(username, ldapResult, ldapConfig) as any;
+            console.log(`[LDAP] Auto-provisioned user: ${username}`);
+            // Skip to session creation (user is already authenticated via LDAP bind)
+          }
+        }
+      } catch (ldapErr: any) {
+        console.error('[LDAP] Auto-provision error:', ldapErr.message);
+      }
+
+      if (!user) {
+        await verifyPassword(password, DUMMY_HASH);
+        const policy = await authRepository.getPasswordPolicyConfig();
+        const maxAttempts = (policy.maxFailedAttempts as number) ?? 5;
+        const err = new AppError(401, 'INVALID_CREDENTIALS', 'Invalid user ID or password.');
+        (err as any).attemptsRemaining = maxAttempts - 1;
+        throw err;
+      }
     }
 
     // Check account status (SUPER_ADMIN auto-unlocks)
@@ -40,6 +57,14 @@ export const authService = {
       throw new AppError(403, 'ACCOUNT_DISABLED', 'Your account has been disabled. Contact administrator.');
     }
 
+    // Check if user.s organization is active
+    if (user.organizationId) {
+      const org = await prisma.organization.findUnique({ where: { id: user.organizationId }, select: { isActive: true } });
+      if (org && !org.isActive) {
+        throw new AppError(403, "ORG_INACTIVE", "Your organization has been deactivated. Contact administrator.");
+      }
+    }
+
     if (user.status === 'EXPIRED') {
       if (user.role === 'SUPER_ADMIN') {
         // Auto-recover SUPER_ADMIN from EXPIRED status
@@ -52,7 +77,34 @@ export const authService = {
       }
     }
 
-    const valid = await verifyPassword(password, user.passwordHash);
+    // LDAP authentication for LDAP-sourced users
+    let skipPasswordCheck = false;
+    if ((user as any).authSource === 'ldap' && user.role !== 'SUPER_ADMIN') {
+      try {
+        const ldapConfig = await ldapService.getConfig();
+        if (ldapConfig.enabled) {
+          const ldapResult = await ldapService.authenticateUser(username, password);
+          if (ldapResult) {
+            skipPasswordCheck = true;
+            // Sync attributes from LDAP
+            await ldapService.syncUserAttributes(user.id, ldapResult, ldapConfig);
+          } else {
+            throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid user ID or password.');
+          }
+        }
+      } catch (err: any) {
+        if (err instanceof AppError) throw err;
+        console.error('[LDAP] Auth error:', err.message);
+        throw new AppError(401, 'LDAP_ERROR', 'LDAP authentication failed. Contact administrator.');
+      }
+    }
+
+    // Also skip if user was just auto-provisioned via LDAP (passwordHash is sentinel)
+    if (user.passwordHash === 'LDAP_EXTERNAL_AUTH') {
+      skipPasswordCheck = true;
+    }
+
+    const valid = skipPasswordCheck || await verifyPassword(password, user.passwordHash);
     if (!valid) {
       // SUPER_ADMIN accounts are exempt from lockout — they can always retry
       if (user.role === 'SUPER_ADMIN') {

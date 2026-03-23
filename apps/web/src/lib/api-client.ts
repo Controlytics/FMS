@@ -57,8 +57,8 @@ class ApiClient {
   }
 
   get<T>(url: string) { return this.request<T>(url); }
-  post<T>(url: string, body: unknown) { return this.request<T>(url, { method: 'POST', body: JSON.stringify(body) }); }
-  put<T>(url: string, body: unknown) { return this.request<T>(url, { method: 'PUT', body: JSON.stringify(body) }); }
+  post<T>(url: string, body: unknown, headers?: Record<string, string>) { return this.request<T>(url, { method: 'POST', body: JSON.stringify(body), ...(headers && { headers }) }); }
+  put<T>(url: string, body: unknown, headers?: Record<string, string>) { return this.request<T>(url, { method: 'PUT', body: JSON.stringify(body), ...(headers && { headers }) }); }
   patch<T>(url: string, body: unknown) { return this.request<T>(url, { method: 'PATCH', body: JSON.stringify(body) }); }
   delete<T>(url: string) { return this.request<T>(url, { method: 'DELETE' }); }
 

@@ -12,7 +12,41 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import useSWR from 'swr';
-function TenantSelector({ register }: { register: any }) {  const { data } = useSWR<{ data: Array<{ id: string; name: string }> }>("/api/super-admin/tenants?limit=100");  return (    <div>      <label className="block text-sm font-medium text-gray-700 mb-1">Tenant</label>      <select {...register("tenantId")} className="w-full px-3 py-2 border rounded-lg">        <option value="">Select tenant</option>        {data?.data?.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}      </select>    </div>  );}function OrgSelector({ register, tenantId, isSuperAdmin }: { register: any; tenantId?: string | null; isSuperAdmin: boolean }) {  const url = isSuperAdmin ? null : "/api/tenant/organizations?limit=100";  const { data } = useSWR<{ data: Array<{ id: string; name: string }> }>(url);  return (    <div>      <label className="block text-sm font-medium text-gray-700 mb-1">Organization</label>      <select {...register("organizationId")} className="w-full px-3 py-2 border rounded-lg">        <option value="">Select organization</option>        {data?.data?.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}      </select>    </div>  );}
+function TenantSelector({ register, onChange }: { register: any; onChange?: (id: string) => void }) {
+  const { data } = useSWR<{ data: Array<{ id: string; name: string }> }>("/api/super-admin/tenants?limit=100");
+  const regProps = register("tenantId", { required: "Tenant is required" });
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">Tenant <span className="text-red-500">*</span></label>
+      <select {...regProps} onChange={(e: any) => { regProps.onChange(e); if (onChange) onChange(e.target.value); }} className="w-full px-3 py-2 border rounded-lg">
+        <option value="">Select tenant</option>
+        {data?.data?.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+      </select>
+    </div>
+  );
+}
+function OrgSelector({ register, selectedTenantId, isSuperAdmin }: { register: any; selectedTenantId?: string; isSuperAdmin: boolean }) {
+  const { data } = useSWR<{ data: Array<{ id: string; name: string }> }>(
+    isSuperAdmin
+      ? (selectedTenantId ? ["/api/tenant/organizations?limit=100", selectedTenantId] : null)
+      : "/api/tenant/organizations?limit=100",
+    (keyOrArr: string | [string, string]) => {
+      const url = Array.isArray(keyOrArr) ? keyOrArr[0] : keyOrArr;
+      const headers: Record<string, string> = { Authorization: "Bearer " + sessionStorage.getItem("access_token") };
+      if (isSuperAdmin && selectedTenantId) headers["X-Tenant-Id"] = selectedTenantId;
+      return fetch(url, { headers }).then(r => r.json());
+    }
+  );
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">Organization</label>
+      <select {...register("organizationId")} className="w-full px-3 py-2 border rounded-lg">
+        <option value="">Select organization</option>
+        {data?.data?.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+      </select>
+    </div>
+  );
+}
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
 
 export function CreateUserPage() {
@@ -20,6 +54,8 @@ export function CreateUserPage() {
   const { userLabels } = useFieldLabels();
   const navigate = useNavigate();
   const reauth = useReauth();
+  const { data: orgsData } = useSWR<{ data: Array<{ id: string; name: string }> }>("/api/tenant/organizations?limit=100");
+  const [selectedTenantId, setSelectedTenantId] = useState('');
   const [error, setError] = useState('');
   const [generatedPassword, setGeneratedPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -34,7 +70,7 @@ export function CreateUserPage() {
     user?.role ? `/api/roles/${user.role}/creatable` : null,
     { revalidateOnMount: true, dedupingInterval: 0 }
   );
-  const creatableRoles = creatableRolesData || [];
+  const creatableRoles = user?.role === "SUPER_ADMIN" ? (creatableRolesData || []).filter(r => r.name === "TENANT_ADMIN") : (creatableRolesData || []);
 
   const { register, handleSubmit, setValue, formState: { errors, isSubmitting } } = useForm<CreateUserInput>({
     resolver: zodResolver(createUserSchema),
@@ -233,7 +269,24 @@ export function CreateUserPage() {
               )}
             </div>
           </div>
-{/* Tenant & Organization Assignment */}          {(user?.role === "SUPER_ADMIN" || user?.role === "TENANT_ADMIN" || user?.role === "ADMIN") && (          <div className="p-6 bg-gradient-to-r from-blue-50 to-white">            <div className="flex items-center gap-3 mb-4">              <div className="p-2 rounded-lg bg-blue-100">                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5" /></svg>              </div>              <h3 className="text-lg font-semibold text-gray-800">Tenant & Organization</h3>            </div>            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">              {user?.role === "SUPER_ADMIN" && (                <TenantSelector register={register} />              )}              <OrgSelector register={register} tenantId={user?.tenantId} isSuperAdmin={user?.role === "SUPER_ADMIN"} />            </div>          </div>          )}
+
+
+          {/* Organization Assignment */}
+          <div className="p-6 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-white">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 rounded-lg bg-blue-100">
+                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5" /></svg>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-800">Organization</h3>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Assign to Organization</label>
+              <select {...register("organizationId")} className="w-full px-3 py-3 border border-slate-200 rounded-xl text-sm font-medium bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400">
+                <option value="">-- Select an organization --</option>
+                {orgsData?.data?.map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+            </div>
+          </div>
 
           {/* Temporary Password Section */}
           <div className="p-6 bg-gradient-to-r from-slate-50 to-white">

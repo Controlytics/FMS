@@ -32,6 +32,7 @@
     "fastify-plugin": "^5.0.0",
     "ioredis": "^5.9.3",
     "jose": "^6.0.0",
+    "ldapts": "^8.1.7",
     "mqtt": "^5.15.0",
     "nodemailer": "^8.0.2",
     "pg": "^8.18.0",

@@ -21,7 +21,9 @@ export const updateUserSchema = z.object({
   email: z.string().email().max(100).optional(),
   department: z.string().max(50).optional(),
   role: z.string().min(1).optional(),
-  status: z.enum(['ENABLED', 'DISABLED']).optional(),
+  status: z.enum(["ENABLED", "DISABLED"]).optional(),
+  tenantId: z.string().uuid().optional(),
+  organizationId: z.string().uuid().optional(),
 });
 
 export const resetPasswordSchema = z.object({

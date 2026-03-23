@@ -25,6 +25,8 @@ export default async function userRoutes(app: FastifyInstance) {
           password: { type: 'string', minLength: 8 },
           confirmPassword: { type: 'string' },
           status: { type: 'string', enum: ['ENABLED', 'DISABLED'] },
+          tenantId: { type: 'string', format: 'uuid' },
+          organizationId: { type: 'string', format: 'uuid' },
         },
       },
       response: {
@@ -161,6 +163,8 @@ export default async function userRoutes(app: FastifyInstance) {
           fullName: { type: 'string' }, email: { type: 'string', format: 'email' },
           department: { type: 'string' }, role: { type: 'string' },
           status: { type: 'string', enum: ['ENABLED', 'DISABLED'] },
+          tenantId: { type: 'string', format: 'uuid' },
+          organizationId: { type: 'string', format: 'uuid' },
         },
       },
       response: {
