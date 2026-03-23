@@ -1,0 +1,158 @@
+# API Guide
+
+## Base URL
+```
+Production: http://44.213.157.198/api
+Local: http://localhost:3000/api
+Swagger UI: http://localhost:3000/docs
+```
+
+## Authentication
+All endpoints (except login and public) require JWT token:
+```
+Authorization: Bearer <jwt_token>
+```
+
+## Standard Response Format
+```json
+// Success (list)
+{ "data": [...], "total": 100, "page": 1, "limit": 10, "totalPages": 10 }
+
+// Success (single)
+{ "id": "uuid", "name": "...", ... }
+
+// Success (action)
+{ "success": true, "message": "..." }
+
+// Error
+{ "error": "ERROR_CODE", "message": "Human-readable message" }
+```
+
+## Error Codes
+| Code | HTTP Status | Meaning |
+|------|-------------|---------|
+| INVALID_CREDENTIALS | 401 | Wrong username/password |
+| TOKEN_EXPIRED | 401 | JWT expired |
+| SESSION_INVALID | 401 | Session terminated |
+| ACCOUNT_INACTIVE | 401 | User disabled |
+| FORBIDDEN | 403 | Insufficient permissions |
+| ORG_INACTIVE | 403 | Organization deactivated |
+| FORCE_PASSWORD_CHANGE | 403 | Must change password first |
+| REAUTH_REQUIRED | 403 | Re-authentication needed |
+| VALIDATION_ERROR | 400 | Invalid input |
+| CONFLICT | 409 | Duplicate resource |
+| NOT_FOUND | 404 | Resource not found |
+
+## Core Endpoints
+
+### Auth
+```
+POST   /api/auth/login           # Login (username, password, force?)
+POST   /api/auth/logout          # Logout (terminates session)
+POST   /api/auth/refresh         # Refresh JWT token
+GET    /api/auth/me              # Get current user profile
+POST   /api/auth/change-password # Change password (currentPassword, newPassword)
+POST   /api/auth/forgot-password # Request password reset
+```
+
+### Users
+```
+GET    /api/users                # List users (page, limit, search, role, status)
+POST   /api/users               # Create user (requires USER_CREATE)
+GET    /api/users/:id            # Get user details
+PUT    /api/users/:id            # Update user
+DELETE /api/users/:id            # Delete user
+POST   /api/users/:id/enable     # Enable user
+POST   /api/users/:id/disable    # Disable user
+POST   /api/users/:id/unlock     # Unlock locked user (with temp password)
+POST   /api/users/:id/reset-password # Reset password
+GET    /api/users/stats          # User count by status
+POST   /api/users/bulk-delete    # Bulk delete users
+```
+
+### Organizations
+```
+GET    /api/tenant/organizations          # List all organizations
+POST   /api/tenant/organizations          # Create organization
+GET    /api/tenant/organizations/:id      # Get organization details
+PUT    /api/tenant/organizations/:id      # Update organization
+DELETE /api/tenant/organizations/:id      # Delete (permanent=true for hard delete)
+```
+
+### Assets
+```
+GET    /api/assets/templates              # List templates
+POST   /api/assets/templates              # Create template
+GET    /api/assets/templates/:id          # Get template
+PUT    /api/assets/templates/:id          # Update template
+DELETE /api/assets/templates/:id          # Delete template
+GET    /api/assets/instances              # List entity instances
+POST   /api/assets/instances              # Create entity
+GET    /api/assets/instances/:id          # Get entity details
+PUT    /api/assets/instances/:id          # Update entity
+DELETE /api/assets/instances/:id          # Delete entity
+```
+
+### Rule Chains
+```
+GET    /api/rule-chains                   # List rule chains
+POST   /api/rule-chains                   # Create rule chain
+GET    /api/rule-chains/:id               # Get rule chain with nodes
+PUT    /api/rule-chains/:id               # Update (nodes, connections)
+DELETE /api/rule-chains/:id               # Delete rule chain
+POST   /api/rule-chains/:id/test          # Test rule chain with sample data
+```
+
+### Data Ingestion
+```
+POST   /api/data/telemetry               # Submit telemetry (device token auth)
+POST   /api/data/attributes              # Submit attributes
+POST   /api/data/event                   # Submit event
+POST   /api/data/binary                  # Submit binary data
+```
+
+### LDAP
+```
+GET    /api/ldap/config                  # Get LDAP config (password masked)
+PUT    /api/ldap/config                  # Save LDAP config
+POST   /api/ldap/test-connection         # Test LDAP server connection
+GET    /api/ldap/status                  # Quick enabled/disabled check
+```
+
+### Configuration
+```
+GET    /api/config/branding              # Public - tenant branding
+GET    /api/config/password-policy       # Password policy settings
+GET    /api/config/{key}                 # Get any config by key
+PUT    /api/config/{key}                 # Update config
+```
+
+### Notifications
+```
+GET    /api/notifications                # List notifications
+GET    /api/notifications/unread-count   # Unread count
+POST   /api/notifications/:id/read      # Mark as read
+POST   /api/notifications/read-all      # Mark all as read
+```
+
+### Audit
+```
+GET    /api/audit                        # Query audit trail (date range, user, action)
+GET    /api/audit/export                 # Export audit as CSV
+```
+
+## Example API Call
+
+```bash
+# Login
+curl -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "superadmin", "password": "YourPassword"}'
+
+# Response
+{"success": true, "token": "eyJhbG...", "user": {"id": "...", "role": "SUPER_ADMIN"}}
+
+# Use token for subsequent requests
+curl http://localhost:3000/api/users \
+  -H "Authorization: Bearer eyJhbG..."
+```
