@@ -22,7 +22,7 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
   // ═══════════════════════════════════════════════════════
 
   // ─── LIST ORGANIZATIONS ────────────────────────────────
-  app.get('/organizations', {
+  app.get('/', {
     schema: {
       tags: ['Admin'],
       summary: 'List organizations',
@@ -66,7 +66,7 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
   });
 
   // ─── GET ORGANIZATION ──────────────────────────────────
-  app.get('/organizations/:id', {
+  app.get('/:id', {
     schema: {
       tags: ['Admin'],
       summary: 'Get organization details',
@@ -83,7 +83,7 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
   });
 
   // ─── CREATE ORGANIZATION ───────────────────────────────
-  app.post('/organizations', {
+  app.post('/', {
     schema: {
       tags: ['Admin'],
       summary: 'Create organization',
@@ -122,7 +122,7 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
   });
 
   // ─── UPDATE ORGANIZATION ───────────────────────────────
-  app.put('/organizations/:id', {
+  app.put('/:id', {
     schema: {
       tags: ['Admin'],
       summary: 'Update organization',
@@ -159,7 +159,7 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
   });
 
   // ─── DELETE ORGANIZATION ───────────────────────────────
-  app.delete('/organizations/:id', {
+  app.delete('/:id', {
     schema: {
       tags: ['Admin'],
       summary: 'Deactivate or delete organization',
