@@ -12,14 +12,41 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 
+const UNS_ROOT = process.env.UNS_ROOT_PREFIX ?? 'digilog/v1';
+
+/** Validate that a UNS path is well-formed */
+function validateUnsPath(path: string): { valid: boolean; error?: string } {
+  // Must start with the UNS root prefix
+  if (!path.startsWith(UNS_ROOT + '/') && path !== UNS_ROOT) {
+    return { valid: false, error: `Path must start with "${UNS_ROOT}/"` };
+  }
+
+  // Only valid MQTT topic characters: alphanumeric, /, -, _
+  if (!/^[a-zA-Z0-9/_-]+$/.test(path)) {
+    return { valid: false, error: 'Path contains invalid characters. Only alphanumeric, /, -, and _ are allowed.' };
+  }
+
+  // No empty segments (double slashes)
+  if (path.includes('//')) {
+    return { valid: false, error: 'Path must not contain empty segments (double slashes).' };
+  }
+
+  // Must not end with /
+  if (path.endsWith('/')) {
+    return { valid: false, error: 'Path must not end with a trailing slash.' };
+  }
+
+  return { valid: true };
+}
+
 export default async function unsRoutes(app: FastifyInstance) {
   // GET /tree — Full UNS tree (hierarchical view)
   app.get('/tree', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'SUPERVISOR')],
+    preHandler: [app.requirePermission('UNS_VIEW')],
     schema: {
       tags: ['UNS'],
       summary: 'Get full UNS tree',
-      description: 'Returns the complete Unified Namespace tree in hierarchical format. Requires SUPER_ADMIN, ADMIN, or SUPERVISOR role.',
+      description: 'Returns the complete Unified Namespace tree in hierarchical format. Requires UNS_VIEW permission.',
       response: {
         200: {
           type: 'array',
@@ -37,11 +64,11 @@ export default async function unsRoutes(app: FastifyInstance) {
 
   // GET /entity/:entityId — Get entity's UNS mapping
   app.get('/entity/:entityId', {
-    preHandler: [app.requirePermission('ASSET_VIEW')],
+    preHandler: [app.requirePermission('UNS_VIEW')],
     schema: {
       tags: ['UNS'],
       summary: 'Get entity UNS mapping',
-      description: 'Retrieve the UNS mapping for a specific entity by its ID. Requires ASSET_VIEW permission.',
+      description: 'Retrieve the UNS mapping for a specific entity by its ID. Requires UNS_VIEW permission.',
       params: {
         type: 'object',
         required: ['entityId'],
@@ -115,11 +142,11 @@ export default async function unsRoutes(app: FastifyInstance) {
 
   // PUT /entity/:entityId — Override UNS path (manual override)
   app.put('/entity/:entityId', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requirePermission('UNS_MANAGE')],
     schema: {
       tags: ['UNS'],
       summary: 'Override entity UNS path',
-      description: 'Manually override the UNS path for an entity. Sets isOverridden to true. Requires SUPER_ADMIN role.',
+      description: 'Manually override the UNS path for an entity. Sets isOverridden to true. Requires UNS_MANAGE permission.',
       params: {
         type: 'object',
         required: ['entityId'],
@@ -162,6 +189,25 @@ export default async function unsRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'unsPath or pathOverride is required' });
     }
 
+    const trimmedPath = newPath.trim();
+
+    // Validate the UNS path
+    const validation = validateUnsPath(trimmedPath);
+    if (!validation.valid) {
+      return reply.code(400).send({ error: validation.error });
+    }
+
+    // Check for conflict with existing mappings (different entity, same path)
+    const conflict = await prisma.unsMapping.findFirst({
+      where: { unsPath: trimmedPath, entityId: { not: entityId } },
+    });
+    if (conflict) {
+      return reply.code(409).send({
+        error: 'Path conflict: this UNS path is already assigned to another entity',
+        conflictingEntityId: conflict.entityId,
+      });
+    }
+
     const existing = await prisma.unsMapping.findUnique({ where: { entityId } });
     if (!existing) {
       return reply.code(404).send({ error: 'UNS mapping not found for this entity' });
@@ -171,13 +217,13 @@ export default async function unsRoutes(app: FastifyInstance) {
       prisma.unsMapping.update({
         where: { entityId },
         data: {
-          unsPath: newPath.trim(),
+          unsPath: trimmedPath,
           isOverridden: true,
         },
       }),
       prisma.assetInstance.update({
         where: { id: entityId },
-        data: { unsPath: newPath.trim() },
+        data: { unsPath: trimmedPath },
       }),
     ]);
 
@@ -185,20 +231,70 @@ export default async function unsRoutes(app: FastifyInstance) {
       userId: user.username, userRole: user.role, action: 'UNS_PATH_OVERRIDDEN',
       targetType: 'uns_mapping', targetId: entityId,
       beforeValue: { unsPath: existing.unsPath },
-      afterValue: { unsPath: newPath.trim() },
+      afterValue: { unsPath: trimmedPath },
       ipAddress: req.ip, userAgent: req.headers['user-agent'],
     });
 
     return updatedMapping;
   });
 
+  // DELETE /entity/:entityId — Remove UNS mapping for an entity
+  app.delete('/entity/:entityId', {
+    preHandler: [app.requirePermission('UNS_MANAGE')],
+    schema: {
+      tags: ['UNS'],
+      summary: 'Remove entity UNS mapping',
+      description: 'Remove the UNS mapping for an entity and clear its cached unsPath. Requires UNS_MANAGE permission.',
+      params: {
+        type: 'object',
+        required: ['entityId'],
+        properties: {
+          entityId: { type: 'string', format: 'uuid', description: 'Entity instance ID' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            message: { type: 'string' },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('DELETE_UNS_MAPPING', req, reply);
+    if (!ok) return;
+
+    const { entityId } = req.params as { entityId: string };
+    const user = (req as any).user as { username: string; role: string };
+
+    const existing = await prisma.unsMapping.findUnique({ where: { entityId } });
+    if (!existing) {
+      return reply.code(404).send({ error: 'UNS mapping not found for this entity' });
+    }
+
+    await removeUnsMapping(entityId);
+
+    await auditLog({
+      userId: user.username, userRole: user.role, action: 'UNS_MAPPING_DELETED',
+      targetType: 'uns_mapping', targetId: entityId,
+      beforeValue: { unsPath: existing.unsPath, isOverridden: existing.isOverridden },
+      afterValue: null,
+      ipAddress: req.ip, userAgent: req.headers['user-agent'],
+    });
+
+    return { success: true, message: 'UNS mapping removed successfully' };
+  });
+
   // POST /entity/:entityId/move — Initiate move (returns impact report)
   app.post('/entity/:entityId/move', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('UNS_MANAGE')],
     schema: {
       tags: ['UNS'],
       summary: 'Generate move impact report',
-      description: 'Generates an impact report showing which UNS paths would change if the entity is moved to a new parent. Requires SUPER_ADMIN or ADMIN role.',
+      description: 'Generates an impact report showing which UNS paths would change if the entity is moved to a new parent. Requires UNS_MANAGE permission.',
       params: {
         type: 'object',
         required: ['entityId'],
@@ -272,11 +368,11 @@ export default async function unsRoutes(app: FastifyInstance) {
 
   // POST /entity/:entityId/move/confirm — Confirm cascade after reviewing impact
   app.post('/entity/:entityId/move/confirm', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
+    preHandler: [app.requirePermission('UNS_MANAGE')],
     schema: {
       tags: ['UNS'],
       summary: 'Confirm cascade move',
-      description: 'Confirms and executes the cascade move after reviewing the impact report. Updates all affected UNS paths. Requires SUPER_ADMIN or ADMIN role.',
+      description: 'Confirms and executes the cascade move after reviewing the impact report. Updates all affected UNS paths. Requires UNS_MANAGE permission.',
       params: {
         type: 'object',
         required: ['entityId'],
@@ -329,11 +425,11 @@ export default async function unsRoutes(app: FastifyInstance) {
 
   // GET /search — Search by wildcard pattern
   app.get('/search', {
-    preHandler: [app.requirePermission('ASSET_VIEW')],
+    preHandler: [app.requirePermission('UNS_VIEW')],
     schema: {
       tags: ['UNS'],
       summary: 'Search UNS by wildcard',
-      description: 'Search UNS mappings using a wildcard path pattern. Requires ASSET_VIEW permission.',
+      description: 'Search UNS mappings using a wildcard path pattern. Requires UNS_VIEW permission.',
       querystring: {
         type: 'object',
         required: ['path'],

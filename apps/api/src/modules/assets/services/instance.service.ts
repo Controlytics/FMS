@@ -325,7 +325,7 @@ export const instanceService = {
 
     // All deletes in one atomic transaction
     await prisma.$transaction(async (tx) => {
-      await tx.assetInstance.updateMany({ where: { id: { in: allIds } }, data: { isActive: false, updatedBy: ctx.userId } });
+      await tx.assetInstance.updateMany({ where: { id: { in: allIds } }, data: { isActive: false, unsPath: null, updatedBy: ctx.userId } });
       await tx.assetRelationship.deleteMany({ where: { OR: [{ sourceAssetId: { in: allIds } }, { targetAssetId: { in: allIds } }] } });
       await tx.assetIdentifier.deleteMany({ where: { assetId: { in: allIds } } });
       await tx.deviceCredential.deleteMany({ where: { entityId: { in: allIds } } });

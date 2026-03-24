@@ -2,12 +2,11 @@
 
 ## Known Bugs
 
-### 1. TelemetryBatcher INSERT Error
+### 1. TelemetryBatcher INSERT Error — FIXED
 - **Error:** `INSERT has more target columns than expressions`
 - **Location:** `packages/db/src/telemetry-batcher.ts:146`
 - **Impact:** Some telemetry data may be lost during batched inserts
-- **Workaround:** Individual inserts still work; batch size can be reduced
-- **Status:** Pending investigation
+- **Status:** FIXED — Column mismatch resolved; batch inserts now match the schema correctly.
 
 ### 2. React Error #300 on Page Load
 - **Error:** "Objects are not valid as a React child"
@@ -18,7 +17,6 @@
 ## Limitations
 
 ### Performance
-- Organization list loads ALL orgs (no pagination limit enforced)
 - Rule chain editor can lag with >50 nodes (ReactFlow limitation)
 - Audit trail queries on large datasets are slow without date range filter
 
@@ -38,12 +36,11 @@
 |-------|-----------|
 | User locked out | Admin can unlock via user edit page |
 | LDAP server unreachable | SUPER_ADMIN can always login locally |
-| Telemetry batch error | Restart PM2: `pm2 restart digilog-api` |
 | Stale frontend | Hard refresh or clear sessionStorage |
 | Org users can't login after org deactivated | Reactivate org or reassign users |
 
 ## Pending Fixes
-- [ ] Fix telemetry batcher column mismatch
-- [ ] Add per-organization LDAP configuration
-- [ ] Add pagination to organization list endpoint
-- [ ] Add rate limiting per organization (not just global)
+- [x] Fix telemetry batcher column mismatch — FIXED (column alignment corrected)
+- [x] Add pagination to organization list endpoint — FIXED (skip/take with page & limit query params enforced in tenant-admin routes)
+- [ ] Add per-organization LDAP configuration — Feature request: allow each organization to configure its own LDAP server/base DN instead of sharing the global LDAP config. Not a bug; tracked as a future enhancement.
+- [ ] Add per-organization rate limiting (aggregate across all devices in an org) — Per-device rate limiting is implemented using `maxDataRatePerMin` on each device credential. Org-level aggregate rate limiting (sum of all device traffic per org) is not yet implemented.
