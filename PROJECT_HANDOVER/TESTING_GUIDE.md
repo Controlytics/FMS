@@ -18,8 +18,8 @@
 - [ ] Expired password → redirected to change-password
 
 ### 2. User Management
-- [ ] SUPER_ADMIN creates TENANT_ADMIN with tenant assignment
-- [ ] TENANT_ADMIN creates users (cannot create TENANT_ADMIN)
+- [ ] SUPER_ADMIN creates ADMIN with organization assignment
+- [ ] ADMIN creates users (cannot create SUPER_ADMIN or ADMIN)
 - [ ] Edit user → change role, org assignment
 - [ ] Disable user → cannot login
 - [ ] Lock user → unlock with temp password

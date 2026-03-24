@@ -40,7 +40,7 @@ cd apps/api
 npx prisma migrate deploy
 npx prisma generate
 
-# Seed initial data (roles, super admin, default tenant)
+# Seed initial data (roles, super admin, default organization)
 npx prisma db seed
 ```
 

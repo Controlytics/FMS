@@ -21,13 +21,13 @@ Client → POST /api/auth/login (username, password)
 ## Authorization (RBAC)
 
 ### Role Hierarchy (highest to lowest)
-1. **SUPER_ADMIN** (Level 6, GLOBAL scope) - bypasses all permission checks
-2. **TENANT_ADMIN** (Level 5, TENANT scope) - manages tenant users/orgs
-3. **SUPERVISOR** (Level 4, TENANT scope) - monitoring, alarm acknowledgment
-4. **ORG_ADMIN** (Level 4, ORGANIZATION scope) - manages org resources
-5. **MAINTENANCE** (Level 3, TENANT scope) - checklists, maintenance tasks
-6. **OPERATOR** (Level 2, TENANT scope) - operations, monitoring
-7. **VIEWER** (Level 1, TENANT scope) - read-only access
+1. **SUPER_ADMIN** (Level 7, GLOBAL scope) - bypasses all permission checks, manages all organizations
+2. **ADMIN** (Level 6, GLOBAL scope) - manages assigned organizations and their users
+3. **ORG_ADMIN** (Level 5, ORGANIZATION scope) - manages org resources
+4. **SUPERVISOR** (Level 4, ORGANIZATION scope) - monitoring, alarm acknowledgment
+5. **MAINTENANCE** (Level 3, ORGANIZATION scope) - checklists, maintenance tasks
+6. **OPERATOR** (Level 2, ORGANIZATION scope) - operations, monitoring
+7. **VIEWER** (Level 1, ORGANIZATION scope) - read-only access
 
 ### Permission Enforcement
 - Route-level: `app.requirePermission('USER_CREATE')` pre-handler
@@ -41,11 +41,11 @@ Sensitive actions (user delete, config change) require password re-entry:
 - 5-minute verification token after re-auth
 - Sent via `x-reauth-password` header
 
-## Tenant Isolation
-- Every DB query includes `WHERE tenantId = ?`
-- JWT contains `tenantId` and `organizationId`
-- SUPER_ADMIN can impersonate tenants via `X-Tenant-Id` header
-- Organization-level isolation further restricts entity access
+## Data Isolation
+- Every DB query includes `WHERE organizationId = ?`
+- JWT contains `organizationId`
+- SUPER_ADMIN can query across all organizations
+- ADMIN can query across assigned organizations
 - Entity assignments provide fine-grained permissions (view/control/configure)
 
 ## API Security

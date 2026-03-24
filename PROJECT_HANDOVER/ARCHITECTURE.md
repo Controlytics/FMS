@@ -52,7 +52,7 @@
 | Category | Module | Purpose |
 |----------|--------|---------|
 | **Auth** | auth, users, roles, user-groups | Authentication, authorization, user management |
-| **Multi-Tenant** | super-admin, tenant-admin, org-admin, entity-assignments | Tenant/org management, resource assignments |
+| **Admin** | super-admin, admin, org-admin, entity-assignments | Organization management, resource assignments |
 | **Config** | config, config (dynamic) | System configuration (22 auto-discovered modules) |
 | **Assets** | assets | Templates, instances, relationships, identifiers |
 | **Data** | data-ingestion, queries, uns | IoT data pipeline, queries, UNS paths |
@@ -81,25 +81,24 @@ Device → MQTT/HTTP → API Gateway → Auth Check → Rate Limit Check
     → WebSocket Push to UI
 ```
 
-## Multi-Tenant Structure
+## Organization Structure
 
 ```
 Platform (SUPER_ADMIN scope)
-├── Tenant A (company)
-│   ├── Organization A1
-│   │   ├── User (OPERATOR)
-│   │   ├── User (MAINTENANCE)
-│   │   ├── Entity (Asset Instance)
-│   │   └── Entity Template
-│   ├── Organization A2
-│   │   └── ...
-│   └── TENANT_ADMIN (manages all orgs)
-├── Tenant B
+├── Organization A (company)
+│   ├── User (ORG_ADMIN - manages org resources)
+│   ├── User (SUPERVISOR)
+│   ├── User (OPERATOR)
+│   ├── User (MAINTENANCE)
+│   ├── Entity (Asset Instance)
+│   └── Entity Template
+├── Organization B
 │   └── ...
-└── SUPER_ADMIN (manages all tenants)
+├── ADMIN (manages assigned organizations)
+└── SUPER_ADMIN (manages all organizations)
 ```
 
-**Data Isolation:** Every query filters by `tenantId`. Organizations further restrict visibility. Entity assignments provide fine-grained access (view/control/configure).
+**Data Isolation:** Every query filters by `organizationId`. Entity assignments provide fine-grained access (view/control/configure).
 
 ## Rule Engine Architecture
 

@@ -27,12 +27,12 @@ modules/feature-name/
 ### 1. Create route in existing module
 ```typescript
 // In modules/your-module/routes.ts
-app.get('/your-endpoint', {
-  preHandler: [app.requirePermission('YOUR_PERMISSION')],
+app.get(/your-endpoint, {
+  preHandler: [app.requirePermission(YOUR_PERMISSION)],
   schema: {
-    tags: ['Your Module'],
-    summary: 'Description',
-    response: { 200: { type: 'object', properties: { ... } } },
+    tags: [Your Module],
+    summary: Description,
+    response: { 200: { type: object, properties: { ... } } },
   },
 }, async (req, reply) => {
   const result = await yourService.doSomething();
@@ -43,14 +43,14 @@ app.get('/your-endpoint', {
 ### 2. Register route (if new module)
 ```typescript
 // In app.ts
-import yourRoutes from './modules/your-module/routes.js';
-await app.register(yourRoutes, { prefix: '/api/your-prefix' });
+import yourRoutes from ./modules/your-module/routes.js;
+await app.register(yourRoutes, { prefix: /api/your-prefix });
 ```
 
 ### 3. Add permission (if needed)
 ```sql
 -- Update role permissions in DB
-UPDATE roles SET permissions = permissions || '["YOUR_PERMISSION"]' WHERE name = 'ADMIN';
+UPDATE roles SET permissions = permissions || [YOUR_PERMISSION] WHERE name = ADMIN;
 ```
 
 ## How to Add a New Frontend Page
@@ -59,14 +59,14 @@ UPDATE roles SET permissions = permissions || '["YOUR_PERMISSION"]' WHERE name =
 ```typescript
 // routes/your-feature/index.tsx
 export function YourPage() {
-  const { data } = useSWR('/api/your-endpoint');
+  const { data } = useSWR(/api/your-endpoint);
   return <div>...</div>;
 }
 ```
 
 ### 2. Add route in main.tsx
 ```typescript
-const YourPage = lazy(() => import('./routes/your-feature').then(m => ({ default: m.YourPage })));
+const YourPage = lazy(() => import(./routes/your-feature).then(m => ({ default: m.YourPage })));
 
 // In <Routes>:
 <Route path="/your-feature" element={
@@ -82,11 +82,11 @@ const YourPage = lazy(() => import('./routes/your-feature').then(m => ({ default
 ```typescript
 // In components/layout/sidebar.tsx, add to allNavItems:
 {
-  id: 'your-feature',
-  label: 'Your Feature',
-  href: '/your-feature',
+  id: your-feature,
+  label: Your Feature,
+  href: /your-feature,
   icon: (<svg>...</svg>),
-  defaultRoles: ['SUPER_ADMIN', 'TENANT_ADMIN'],
+  defaultRoles: [SUPER_ADMIN, ADMIN],
 },
 ```
 
@@ -95,7 +95,7 @@ const YourPage = lazy(() => import('./routes/your-feature').then(m => ({ default
 ### 1. Register node
 ```typescript
 // In modules/rule-chain/nodes/index.ts
-registerNode('your-node-type', 'ACTION', async (message, config, context) => {
+registerNode(your-node-type, ACTION, async (message, config, context) => {
   // Your logic here
   const result = doSomething(message, config);
 
@@ -117,16 +117,16 @@ The rule chain editor reads node types from the API. Registered nodes auto-appea
 ```typescript
 // modules/config/defs/your-config.def.ts
 export const yourConfigDef: ModuleConfigDefinition = {
-  moduleKey: 'your-config',
-  moduleName: 'Your Config',
-  description: 'Description',
-  icon: 'settings',
-  category: 'display',
+  moduleKey: your-config,
+  moduleName: Your Config,
+  description: Description,
+  icon: settings,
+  category: display,
   sortOrder: 20,
-  permissions: { read: 'CONFIG_READ', write: 'CONFIG_UPDATE' },
+  permissions: { read: CONFIG_READ, write: CONFIG_UPDATE },
   settings: [
-    { key: 'enabled', type: 'boolean', label: 'Enable', default: false },
-    { key: 'value', type: 'string', label: 'Value', default: '' },
+    { key: enabled, type: boolean, label: Enable, default: false },
+    { key: value, type: string, label: Value, default:  },
   ],
 };
 ```
@@ -134,7 +134,7 @@ export const yourConfigDef: ModuleConfigDefinition = {
 ### 2. Register in discovery
 ```typescript
 // lib/config-discovery.ts - add import
-import('../modules/config/defs/your-config.def.js'),
+import(../modules/config/defs/your-config.def.js),
 ```
 
 The config will auto-appear at `GET/PUT /api/config/dynamic/your-config`.

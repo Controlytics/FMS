@@ -15,7 +15,6 @@ apps/api/src/
 │   ├── error-schemas.ts     # Fastify JSON schema for error responses
 │   ├── build-context.ts     # Extract RequestContext from Fastify request
 │   ├── reauth-check.ts      # Re-authentication enforcement
-│   ├── tenant-utils.ts      # Shared getTenantId helper
 │   ├── config-registry.ts   # Dynamic config module registry
 │   ├── config-discovery.ts  # Auto-discover config definitions
 │   └── user-id-validator.ts # Username format validation

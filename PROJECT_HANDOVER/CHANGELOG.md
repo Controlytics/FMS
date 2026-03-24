@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026-03-24] - Tenant Layer Removal
+- Removed tenant/multi-tenant architecture entirely
+- SUPER_ADMIN now manages Organizations directly
+- Removed TENANT_ADMIN role (migrated to ADMIN)
+- Dropped tenants, tenant_configs tables and tenant_id from all tables
+- Changed /api/tenant/* routes to /api/organizations/*
+- Simplified role hierarchy: 7 roles instead of 8
+
 ## Recent Changes (March 2026)
 
 ### LDAP Integration
@@ -11,21 +19,17 @@
 - Test Connection button
 - Added `auth_source` and `ldap_dn` columns to users table
 
-### Multi-Tenant & Organization Improvements
-- Removed Tenants sidebar option for all users
+### Organization Management Improvements
 - Added Users sidebar option for SUPER_ADMIN
-- SUPER_ADMIN can only create TENANT_ADMIN users
-- TENANT_ADMIN cannot create TENANT_ADMIN role
+- SUPER_ADMIN can create ADMIN users
 - Organization selector added to create/edit user pages
-- Tenant selector on edit user page for SUPER_ADMIN
-- All organizations visible to all admin roles (not tenant-filtered)
+- All organizations visible to all admin roles
 
 ### Organization Management Redesign
 - Professional UI with stats cards (Total, Active, Inactive)
 - Search and filter bar (All/Active/Inactive)
 - Delete organization with user/entity unassignment
 - Edit organization dialog
-- Tenant name column for SUPER_ADMIN
 - Status toggle (activate/deactivate)
 - Inactive org blocks user login
 
@@ -36,7 +40,7 @@
 - Icons on tab headers with active state highlighting
 
 ### Code Cleanup
-- Extracted shared `getTenantId` utility (removed 4 duplicates)
+- Removed tenant-related utilities and duplicated code
 - Removed 20 console.log statements
 - Hardened OAuth2 logging (removed secret logging)
 - Git baseline created for safe rollback

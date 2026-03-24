@@ -4,33 +4,31 @@
 - **PostgreSQL** (Port 5432) - Application data via Prisma ORM
 - **TimescaleDB** (Port 5433) - Time-series telemetry data
 
-## Tables (48 total)
+## Tables
 
 ### Authentication & Users
 | Table | Purpose | Key Fields |
 |-------|---------|-----------|
-| `users` | User accounts | username, email, passwordHash, role, tenantId, organizationId, authSource (local/ldap), status |
+| `users` | User accounts | username, email, passwordHash, role, organizationId, authSource (local/ldap), status |
 | `roles` | Role definitions | name, displayName, hierarchyLevel, scope, permissions (JSONB array), color |
 | `sessions` | Active login sessions | userId, tokenHash, expiresAt, ipAddress, userAgent, isActive |
 | `password_history` | Password reuse prevention | userId, passwordHash, createdAt |
 | `password_reset_requests` | Reset workflow | userId, status (PENDING/APPROVED/REJECTED), notes |
 
-### Multi-Tenancy
+### Organizations
 | Table | Purpose | Key Fields |
 |-------|---------|-----------|
-| `tenants` | Tenant organizations | name, slug, plan, maxUsers, maxDevices, maxOrganizations, isActive |
-| `organizations` | Sub-groups within tenant | tenantId, name, slug, parentOrgId, isActive |
-| `tenant_configs` | Tenant-specific overrides | tenantId, moduleKey, config (JSONB) |
+| `organizations` | Company/group entities | name, slug, parentOrgId, isActive, maxUsers, maxDevices |
 
 ### Asset Management
 | Table | Purpose | Key Fields |
 |-------|---------|-----------|
 | `asset_templates` | Reusable blueprints | name, category, attributes, telemetryKeys, alarmRules, transportConfig |
 | `asset_template_versions` | Version history | templateId, version, snapshot (JSONB), status |
-| `asset_instances` | Actual entities | templateId, name, tenantId, organizationId, parentId, isActive |
+| `asset_instances` | Actual entities | templateId, name, organizationId, parentId, isActive |
 | `asset_relationships` | Entity connections | sourceId, targetId, type (CONTAINS/CONNECTED_TO/etc.) |
 | `asset_identifiers` | Physical IDs | entityId, type (QR/RFID/NFC/BARCODE), identifierValue (UNIQUE) |
-| `device_credentials` | API tokens | entityId, tenantId, accessToken, maxDataRatePerMin |
+| `device_credentials` | API tokens | entityId, accessToken, maxDataRatePerMin |
 
 ### Data & Telemetry
 | Table | Purpose | Key Fields |
@@ -43,7 +41,7 @@
 ### Rules & Automation
 | Table | Purpose | Key Fields |
 |-------|---------|-----------|
-| `rule_chains` | Rule chain definitions | name, tenantId, firstNodeId, isRoot, isSystem |
+| `rule_chains` | Rule chain definitions | name, organizationId, firstNodeId, isRoot, isSystem |
 | `rule_chain_versions` | Version snapshots | ruleChainId, version, snapshot, status |
 | `rule_nodes` | Individual nodes | ruleChainId, type, name, configuration (JSONB), debugMode |
 | `rule_node_connections` | Node connections | fromNodeId, toNodeId, label |
@@ -76,7 +74,7 @@
 | `system_config` | Key-value configs | configKey (UNIQUE), configValue (JSONB), configType |
 | `role_configs` | Role UI defaults | role, permissions (JSONB), sidebarItems, widgets |
 | `user_configs` | Per-user overrides | userId, sidebarItems, widgets, preferences |
-| `field_id_config` | Custom field labels | tenantId, module, fieldMappings (JSONB) |
+| `field_id_config` | Custom field labels | organizationId, module, fieldMappings (JSONB) |
 
 ### Utilities
 | Table | Purpose | Key Fields |
@@ -85,16 +83,14 @@
 | `uns_mappings` | ISA-95 UNS paths | entityId, unsPath, isOverride |
 | `help_articles` | Help docs | slug, title, content, category |
 | `help_article_versions` | Version history | articleId, version, content |
-| `user_groups` | Notification groups | name, tenantId |
+| `user_groups` | Notification groups | name, organizationId |
 | `user_group_members` | Group membership | groupId, userId |
 
 ## Key Relationships
 
 ```
-Tenant 1──* Organization
-Tenant 1──* User
 Organization 1──* User
-Organization *──* AssetInstance (via organizationId)
+Organization 1──* AssetInstance (via organizationId)
 AssetTemplate 1──* AssetInstance
 AssetInstance 1──* DataStream
 AssetInstance 1──* Alarm
@@ -105,8 +101,8 @@ RuleChain 1──* RuleNode
 RuleNode *──* RuleNode (via RuleNodeConnection)
 ```
 
-## Tenant Isolation
-- Most tables have `tenantId` column
-- API queries always filter by `tenantId` from JWT
-- SUPER_ADMIN can query across tenants
-- `organizationId` provides secondary isolation within tenants
+## Data Isolation
+- Queries filter by `organizationId` from JWT
+- SUPER_ADMIN can query across all organizations
+- ADMIN can query across assigned organizations
+- Entity assignments provide fine-grained access within organizations

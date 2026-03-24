@@ -16,7 +16,7 @@ The DigiLog platform is a functional, feature-rich IoT data logging system with 
 
 ### Features
 - Comprehensive rule engine with 77 node types
-- Full multi-tenant isolation with 7 role hierarchy
+- Organization-based data isolation with 7 role hierarchy
 - 21 CFR Part 11 compliance (audit trails, e-signatures, password policies)
 - LDAP/Active Directory integration
 - Multiple data ingestion protocols (MQTT, HTTP, WebSocket)
@@ -66,8 +66,8 @@ The DigiLog platform is a functional, feature-rich IoT data logging system with 
 1. Set up CI/CD pipeline (GitHub Actions)
 2. Add E2E tests (Playwright)
 3. Split `nodes/index.ts` into category files
-4. Implement per-tenant LDAP configuration
-5. Add tenant-level rate limiting
+4. Implement per-organization LDAP configuration
+5. Add organization-level rate limiting
 
 ### Medium-term (Quarter 1)
 1. Containerize with Docker (Docker Compose for dev, ECS/K8s for prod)

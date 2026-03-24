@@ -72,11 +72,11 @@ POST   /api/users/bulk-delete    # Bulk delete users
 
 ### Organizations
 ```
-GET    /api/tenant/organizations          # List all organizations
-POST   /api/tenant/organizations          # Create organization
-GET    /api/tenant/organizations/:id      # Get organization details
-PUT    /api/tenant/organizations/:id      # Update organization
-DELETE /api/tenant/organizations/:id      # Delete (permanent=true for hard delete)
+GET    /api/organizations                 # List all organizations
+POST   /api/organizations                 # Create organization
+GET    /api/organizations/:id             # Get organization details
+PUT    /api/organizations/:id             # Update organization
+DELETE /api/organizations/:id             # Delete (permanent=true for hard delete)
 ```
 
 ### Assets
@@ -121,7 +121,7 @@ GET    /api/ldap/status                  # Quick enabled/disabled check
 
 ### Configuration
 ```
-GET    /api/config/branding              # Public - tenant branding
+GET    /api/config/branding              # Public - organization branding
 GET    /api/config/password-policy       # Password policy settings
 GET    /api/config/{key}                 # Get any config by key
 PUT    /api/config/{key}                 # Update config

@@ -14,7 +14,7 @@ apps/web/src/
 │   ├── use-auth.ts          # Auth state, login/logout, token refresh
 │   ├── use-session.ts       # Session timeout warning
 │   ├── use-reauth.ts        # Re-authentication dialog trigger
-│   ├── use-branding.ts      # Tenant branding (logo, colors)
+│   ├── use-branding.ts      # Organization branding (logo, colors)
 │   ├── use-datetime-format.ts # Locale-aware formatting
 │   ├── use-field-labels.ts  # Custom field labels from config
 │   ├── use-role-colors.ts   # Role badge colors
@@ -41,10 +41,10 @@ apps/web/src/
 │   ├── users/
 │   │   ├── list.tsx         # User list with filters, bulk actions
 │   │   ├── create.tsx       # Create user form
-│   │   ├── edit.tsx         # Edit user with tenant/org assignment
+│   │   ├── edit.tsx         # Edit user with org assignment
 │   │   └── reset-requests.tsx
-│   ├── tenant/
-│   │   ├── organizations.tsx # Organization management
+│   ├── organizations/
+│   │   ├── index.tsx        # Organization management
 │   │   └── org-detail.tsx   # Org detail (users, entities, templates, assignments)
 │   ├── assets/              # (Lazy loaded)
 │   │   ├── index.tsx        # Entity tree view
@@ -85,18 +85,17 @@ All routes defined in `main.tsx` using React Router v7:
 
 ```typescript
 const api = new ApiClient();
-api.get('/api/users');
-api.post('/api/users', body);
-api.put('/api/users/123', body);
-api.delete('/api/users/123');
-api.postWithReauth('/api/users', body, password);  // For sensitive actions
+api.get(/api/users);
+api.post(/api/users, body);
+api.put(/api/users/123, body);
+api.delete(/api/users/123);
+api.postWithReauth(/api/users, body, password);  // For sensitive actions
 ```
 
 - Auto-attaches `Authorization: Bearer <token>` header
 - Handles 401 → redirect to login
 - Handles `FORCE_PASSWORD_CHANGE` → redirect to change-password
 - Handles `REAUTH_REQUIRED` → show re-auth dialog
-- Custom headers support for `X-Tenant-Id` and `x-reauth-password`
 
 ## Key UI Flows
 
@@ -110,8 +109,8 @@ api.postWithReauth('/api/users', body, password);  // For sensitive actions
 ### Create User
 1. Form with username, name, email, role dropdown, auto-generated password
 2. Role list fetched from `/api/roles/{currentRole}/creatable`
-3. SUPER_ADMIN: only sees TENANT_ADMIN role
-4. Organization dropdown from `/api/tenant/organizations`
+3. SUPER_ADMIN: can create ADMIN and below
+4. Organization dropdown from `/api/organizations`
 5. Submit with re-auth → `POST /api/users`
 
 ### Rule Chain Editor

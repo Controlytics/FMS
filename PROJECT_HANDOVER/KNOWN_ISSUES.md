@@ -32,11 +32,6 @@
 - TimescaleDB on same host as PostgreSQL
 - No horizontal scaling configured (would need Redis-based session sharing)
 
-### Multi-Tenancy
-- SUPER_ADMIN sees all organizations across all tenants (by design)
-- Tenant deletion not implemented (only deactivation)
-- No tenant-level LDAP configuration (global LDAP config only)
-
 ## Workarounds
 
 | Issue | Workaround |
@@ -49,7 +44,6 @@
 
 ## Pending Fixes
 - [ ] Fix telemetry batcher column mismatch
-- [ ] Add tenant-level LDAP configuration
-- [ ] Implement tenant hard-delete with cascade
+- [ ] Add per-organization LDAP configuration
 - [ ] Add pagination to organization list endpoint
-- [ ] Add rate limiting per tenant (not just global)
+- [ ] Add rate limiting per organization (not just global)
