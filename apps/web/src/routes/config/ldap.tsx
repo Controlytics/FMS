@@ -24,7 +24,6 @@ interface LdapConfig {
   connectionTimeout: number;
   roleMappings: RoleMappingRow[];
   defaultRole: string;
-  defaultTenantId: string;
   defaultOrganizationId: string;
   syncAttributes: boolean;
 }
@@ -45,7 +44,6 @@ const DEFAULTS: LdapConfig = {
   connectionTimeout: 5000,
   roleMappings: [],
   defaultRole: 'OPERATOR',
-  defaultTenantId: '',
   defaultOrganizationId: '',
   syncAttributes: true,
 };
@@ -53,7 +51,6 @@ const DEFAULTS: LdapConfig = {
 export default function LdapConfigPage() {
   const { data: savedConfig, mutate } = useSWR<LdapConfig>('/api/ldap/config');
   const { data: rolesData } = useSWR<Array<{ name: string; displayName: string }>>('/api/roles/active');
-  const { data: tenantsData } = useSWR<{ data: Array<{ id: string; name: string }> }>('/api/super-admin/tenants?limit=100');
   const { data: orgsData } = useSWR<{ data: Array<{ id: string; name: string }> }>('/api/tenant/organizations?limit=100');
 
   const [config, setConfig] = useState<LdapConfig>(DEFAULTS);
@@ -345,14 +342,6 @@ export default function LdapConfigPage() {
         <div className="p-6 space-y-4">
           <p className="text-sm text-slate-500">Configure how LDAP users are provisioned in DigiLog on first login.</p>
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Default Tenant</label>
-              <select value={config.defaultTenantId} onChange={e => updateField('defaultTenantId', e.target.value)}
-                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500/30">
-                <option value="">-- Select tenant --</option>
-                {tenantsData?.data?.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Default Organization</label>
               <select value={config.defaultOrganizationId || ''} onChange={e => updateField('defaultOrganizationId', e.target.value)}

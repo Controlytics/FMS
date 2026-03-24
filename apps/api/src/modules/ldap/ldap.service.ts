@@ -17,7 +17,6 @@ export interface LdapConfig {
   connectionTimeout: number;
   roleMappings: Array<{ ldapGroup: string; role: string }>;
   defaultRole: string;
-  defaultTenantId: string;
   defaultOrganizationId?: string;
   syncAttributes: boolean;
 }
@@ -49,7 +48,6 @@ const DEFAULT_CONFIG: LdapConfig = {
   connectionTimeout: 5000,
   roleMappings: [],
   defaultRole: 'OPERATOR',
-  defaultTenantId: '',
   defaultOrganizationId: '',
   syncAttributes: true,
 };
@@ -217,7 +215,6 @@ export const ldapService = {
         authSource: 'ldap',
         ldapDn: ldapResult.userDn,
         department: ldapResult.attributes.department || null,
-        tenantId: config.defaultTenantId || null,
         organizationId: config.defaultOrganizationId || null,
         status: 'ENABLED',
         forcePasswordChange: false,

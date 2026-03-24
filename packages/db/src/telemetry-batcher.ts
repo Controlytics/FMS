@@ -131,7 +131,7 @@ export async function flushDeviceEvents(): Promise<void> {
     const r = rows[i];
     const offset = i * 7;
     placeholders.push(
-      `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6})`
+      `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`
     );
     values.push(
       r.time, r.entityId, r.eventType,

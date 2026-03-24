@@ -62,10 +62,10 @@ export function UserListPage({ orgId }: { orgId?: string } = {}) {
   // Get available roles for filter, excluding SUPER_ADMIN for Admin users
   const availableRoles = useMemo(() => {
     if (!rolesData) return [];
-    if (currentUser?.role !== 'SUPER_ADMIN') {
-      return rolesData.filter(r => r.name !== 'SUPER_ADMIN');
-    }
-    return rolesData;
+    const hiddenRoles: string[] = [];
+    if (currentUser?.role !== 'SUPER_ADMIN') hiddenRoles.push('SUPER_ADMIN');
+    if (currentUser?.role !== 'SUPER_ADMIN' && currentUser?.role !== 'TENANT_ADMIN') hiddenRoles.push('TENANT_ADMIN');
+    return rolesData.filter(r => !hiddenRoles.includes(r.name));
   }, [rolesData, currentUser?.role]);
 
   // Build query params - filter by role and status on the server
@@ -81,11 +81,16 @@ export function UserListPage({ orgId }: { orgId?: string } = {}) {
   const policy = { ...DEFAULT_PASSWORD_POLICY, ...policyData };
 
   // Filter out SUPER_ADMIN users from the list for Admin users (only affects display, not server query)
+  const isTopAdmin = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'TENANT_ADMIN';
   const data = rawData ? {
     ...rawData,
-    data: currentUser?.role !== 'SUPER_ADMIN'
-      ? rawData.data?.filter((u: any) => u.role !== 'SUPER_ADMIN')
-      : rawData.data,
+    data: rawData.data?.filter((u: any) => {
+      if (currentUser?.role === 'SUPER_ADMIN') return true;
+      if (u.role === 'SUPER_ADMIN') return false;
+      if (currentUser?.role === 'TENANT_ADMIN') return true;
+      if (u.role === 'TENANT_ADMIN') return false;
+      return true;
+    }),
   } : null;
 
   const handleAction = async () => {
