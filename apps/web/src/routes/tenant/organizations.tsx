@@ -202,11 +202,7 @@ export default function OrganizationsPage() {
                     </div>
                   </div>
                 </td>
-                {isSuperAdmin && (
-                  <td className="px-5 py-4">
-                    <span className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-medium">{o.tenant?.name || "N/A"}</span>
-                  </td>
-                )}
+
                 <td className="px-5 py-4 text-center">
                   <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50 text-blue-700 text-sm font-semibold">{o.userCount}</span>
                 </td>
