@@ -2,7 +2,6 @@ import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fa
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { getTsdbPool } from '@digilog/db';
-import { getTenantId } from "../../lib/tenant-utils.js";
 
 /**
  * Dashboard routes — widget-based dashboards with assignment
@@ -16,11 +15,10 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     const role = req.user.role;
     if (role === 'SUPER_ADMIN') return true;
 
-    const tenantId = req.user.tenantId;
-    const dashboard = await prisma.dashboard.findFirst({ where: { id: dashboardId, ...(tenantId ? { tenantId } : {}) } });
+    const dashboard = await prisma.dashboard.findFirst({ where: { id: dashboardId } });
     if (!dashboard) return false;
 
-    if (['TENANT_ADMIN', 'ADMIN'].includes(role)) return true;
+    if (role === 'ADMIN') return true;
 
     // Check assignment
     const assignment = await prisma.dashboardAssignment.findFirst({
@@ -52,14 +50,10 @@ export default async function dashboardRoutes(app: FastifyInstance) {
   }, async (req) => {
     const { page = 1, limit = 20 } = req.query as any;
     const role = req.user.role;
-    const tenantId = getTenantId(req);
-
     let where: any = { isActive: true };
 
-    if (role === 'SUPER_ADMIN') {
-      if (tenantId) where.tenantId = tenantId;
-    } else if (['TENANT_ADMIN', 'ADMIN'].includes(role)) {
-      where.tenantId = tenantId;
+    if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
+      // No filter
     } else {
       // Org-scoped users: only assigned dashboards
       const assignments = await prisma.dashboardAssignment.findMany({
@@ -73,7 +67,7 @@ export default async function dashboardRoutes(app: FastifyInstance) {
         select: { dashboardId: true },
       });
       const ids = assignments.map(a => a.dashboardId);
-      where = { id: { in: ids }, isActive: true, tenantId: tenantId };
+      where = { id: { in: ids }, isActive: true };
     }
 
     const [data, total] = await Promise.all([
@@ -134,17 +128,13 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('DASHBOARD_CREATE')],
   }, async (req, reply) => {
     const body = req.body as any;
-    const tenantId = getTenantId(req);
-    if (!tenantId) return reply.code(400).send({ error: 'Tenant context required' });
-
     // If setting as default, unset other defaults
     if (body.isDefault) {
-      await prisma.dashboard.updateMany({ where: { tenantId, isDefault: true }, data: { isDefault: false } });
+      await prisma.dashboard.updateMany({ where: { isDefault: true }, data: { isDefault: false } });
     }
 
     const dashboard = await prisma.dashboard.create({
       data: {
-        tenantId,
         title: body.title,
         description: body.description,
         layout: body.layout || {},
@@ -186,13 +176,11 @@ export default async function dashboardRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = req.body as any;
-    const tenantId = getTenantId(req);
-
-    const existing = await prisma.dashboard.findFirst({ where: { id, ...(tenantId ? { tenantId } : {}) } });
+    const existing = await prisma.dashboard.findFirst({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'Dashboard not found' });
 
     if (body.isDefault) {
-      await prisma.dashboard.updateMany({ where: { ...(tenantId ? { tenantId } : {}), isDefault: true, id: { not: id } }, data: { isDefault: false } });
+      await prisma.dashboard.updateMany({ where: { isDefault: true, id: { not: id } }, data: { isDefault: false } });
     }
 
     const dashboard = await prisma.dashboard.update({ where: { id }, data: body });
@@ -209,9 +197,7 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('DASHBOARD_MANAGE')],
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const tenantId = getTenantId(req);
-
-    const existing = await prisma.dashboard.findFirst({ where: { id, ...(tenantId ? { tenantId } : {}) } });
+    const existing = await prisma.dashboard.findFirst({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'Dashboard not found' });
 
     await prisma.dashboard.update({ where: { id }, data: { isActive: false } });
@@ -245,9 +231,7 @@ export default async function dashboardRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = req.body as any;
-    const tenantId = getTenantId(req);
-
-    const dashWhere: any = { id }; if (tenantId) dashWhere.tenantId = tenantId; const dashboard = await prisma.dashboard.findFirst({ where: dashWhere });
+    const dashboard = await prisma.dashboard.findFirst({ where: { id } });
     if (!dashboard) return reply.code(404).send({ error: 'Dashboard not found' });
 
     const widget = await prisma.dashboardWidget.create({

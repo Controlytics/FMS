@@ -12,50 +12,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import useSWR from 'swr';
-function TenantSelector({ register, onChange }: { register: any; onChange?: (id: string) => void }) {
-  const { data } = useSWR<{ data: Array<{ id: string; name: string }> }>("/api/super-admin/tenants?limit=100");
-  const regProps = register("tenantId", { required: "Tenant is required" });
-  return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">Tenant <span className="text-red-500">*</span></label>
-      <select {...regProps} onChange={(e: any) => { regProps.onChange(e); if (onChange) onChange(e.target.value); }} className="w-full px-3 py-2 border rounded-lg">
-        <option value="">Select tenant</option>
-        {data?.data?.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-      </select>
-    </div>
-  );
-}
-function OrgSelector({ register, selectedTenantId, isSuperAdmin }: { register: any; selectedTenantId?: string; isSuperAdmin: boolean }) {
-  const { data } = useSWR<{ data: Array<{ id: string; name: string }> }>(
-    isSuperAdmin
-      ? (selectedTenantId ? ["/api/tenant/organizations?limit=100", selectedTenantId] : null)
-      : "/api/tenant/organizations?limit=100",
-    (keyOrArr: string | [string, string]) => {
-      const url = Array.isArray(keyOrArr) ? keyOrArr[0] : keyOrArr;
-      const headers: Record<string, string> = { Authorization: "Bearer " + sessionStorage.getItem("access_token") };
-      if (isSuperAdmin && selectedTenantId) headers["X-Tenant-Id"] = selectedTenantId;
-      return fetch(url, { headers }).then(r => r.json());
-    }
-  );
-  return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">Organization</label>
-      <select {...register("organizationId")} className="w-full px-3 py-2 border rounded-lg">
-        <option value="">Select organization</option>
-        {data?.data?.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-      </select>
-    </div>
-  );
-}
-import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
+import { generatePassword, DEFAULT_PASSWORD_POLICY } from "../../lib/password-utils";
 
 export function CreateUserPage() {
   const { user } = useAuth();
   const { userLabels } = useFieldLabels();
   const navigate = useNavigate();
   const reauth = useReauth();
-  const { data: orgsData } = useSWR<{ data: Array<{ id: string; name: string }> }>("/api/tenant/organizations?limit=100");
-  const [selectedTenantId, setSelectedTenantId] = useState('');
+  const { data: orgsData } = useSWR<{ data: Array<{ id: string; name: string }> }>("/api/organizations?limit=100");
   const [error, setError] = useState('');
   const [generatedPassword, setGeneratedPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -70,7 +34,7 @@ export function CreateUserPage() {
     user?.role ? `/api/roles/${user.role}/creatable` : null,
     { revalidateOnMount: true, dedupingInterval: 0 }
   );
-  const creatableRoles = user?.role === "SUPER_ADMIN" ? (creatableRolesData || []).filter(r => r.name === "TENANT_ADMIN") : (creatableRolesData || []);
+  const creatableRoles = creatableRolesData || [];
 
   const { register, handleSubmit, setValue, formState: { errors, isSubmitting } } = useForm<CreateUserInput>({
     resolver: zodResolver(createUserSchema),

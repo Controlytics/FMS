@@ -51,7 +51,7 @@ export function EditUserPage() {
 
   // Fetch organizations
   const { data: orgsData } = useSWR<{ data: Array<{ id: string; name: string }> }>(
-    "/api/tenant/organizations?limit=100"
+    "/api/organizations?limit=100"
   );
 
   const { data: userData, mutate } = useSWR(id ? `/api/users/${id}` : null);
@@ -141,7 +141,7 @@ export function EditUserPage() {
   const status = statusConfig[userData.status] || statusConfig.ENABLED;
 
   // Admin can only edit role and email, not fullName and department
-  const isAdmin = currentUser?.role === 'TENANT_ADMIN' || currentUser?.role === 'ADMIN';
+  const isAdmin = currentUser?.role === 'ADMIN';
 
   return (
     <div className="space-y-8 animate-fade-in">

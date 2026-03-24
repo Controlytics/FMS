@@ -2,7 +2,6 @@ import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fa
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { hashPassword } from '../../lib/password.js';
-import { getTenantId } from "../../lib/tenant-utils.js";
 
 /**
  * Organization Detail routes — manage users, entities, templates within an org
@@ -10,12 +9,12 @@ import { getTenantId } from "../../lib/tenant-utils.js";
  */
 export default async function orgDetailRoutes(app: FastifyInstance) {
 
-  // Access control: TENANT_ADMIN+, or ORG_ADMIN of this org
+  // Access control: ADMIN+, or ORG_ADMIN of this org
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
     const role = req.user?.role;
     if (!role) return reply.code(401).send({ error: 'UNAUTHORIZED' });
     if (role === 'SUPER_ADMIN') return;
-    if (['TENANT_ADMIN', 'ADMIN'].includes(role)) return;
+    if (role === 'ADMIN') return;
     if (role === 'ORG_ADMIN') {
       const { orgId } = req.params as { orgId?: string };
       if (orgId && req.user.organizationId === orgId) return;
@@ -88,10 +87,9 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const { orgId } = req.params as { orgId: string };
     const body = req.body as any;
-    const tenantId = getTenantId(req);
 
-    // Verify org exists and belongs to tenant
-    const org = await prisma.organization.findFirst({ where: { id: orgId, ...(tenantId ? { tenantId } : {}) } });
+    // Verify org exists
+    const org = await prisma.organization.findUnique({ where: { id: orgId } });
     if (!org) return reply.code(404).send({ error: 'Organization not found' });
 
     // Check uniqueness
@@ -116,7 +114,6 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
         status: 'ENABLED',
         forcePasswordChange: true,
         isTemporaryPassword: true,
-        tenantId: org.tenantId,
         organizationId: orgId,
         createdBy: req.user.username,
       },
@@ -204,11 +201,10 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { orgId } = req.params as { orgId: string };
-    const tenantId = getTenantId(req);
 
     // Direct org assignments
     const directAssignments = await prisma.entityAssignment.findMany({
-      where: { organizationId: orgId, assigneeType: 'ORGANIZATION', ...(tenantId ? { tenantId } : {}) },
+      where: { organizationId: orgId, assigneeType: 'ORGANIZATION' },
       select: { id: true, entityId: true, permissions: true, createdAt: true },
     });
 
@@ -248,11 +244,9 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const { orgId } = req.params as { orgId: string };
     const { entityId } = req.body as { entityId: string };
-    const tenantId = getTenantId(req);
-    if (!tenantId) return reply.code(400).send({ error: 'Tenant context required' });
 
     // Check entity exists
-    const entity = await prisma.assetInstance.findFirst({ where: { id: entityId, ...(tenantId ? { tenantId } : {}) } });
+    const entity = await prisma.assetInstance.findUnique({ where: { id: entityId } });
     if (!entity) return reply.code(404).send({ error: 'Entity not found' });
 
     // Check not already assigned
@@ -262,7 +256,7 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
     if (existing) return reply.code(409).send({ error: 'Already assigned' });
 
     const assignment = await prisma.entityAssignment.create({
-      data: { tenantId, entityId, assigneeType: 'ORGANIZATION', organizationId: orgId, createdBy: req.user.username },
+      data: { entityId, assigneeType: 'ORGANIZATION', organizationId: orgId, createdBy: req.user.username },
     });
 
     // Also set organizationId on the entity itself
@@ -300,10 +294,9 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { orgId } = req.params as { orgId: string };
-    const tenantId = getTenantId(req);
 
     const assignments = await prisma.templateAssignment.findMany({
-      where: { organizationId: orgId, assigneeType: 'ORGANIZATION', ...(tenantId ? { tenantId } : {}) },
+      where: { organizationId: orgId, assigneeType: 'ORGANIZATION' },
     });
 
     const templateIds = assignments.map(a => a.templateId);
@@ -340,10 +333,8 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const { orgId } = req.params as { orgId: string };
     const { templateId } = req.body as { templateId: string };
-    const tenantId = getTenantId(req);
-    if (!tenantId) return reply.code(400).send({ error: 'Tenant context required' });
 
-    const template = await prisma.assetTemplate.findFirst({ where: { id: templateId, ...(tenantId ? { tenantId } : {}) } });
+    const template = await prisma.assetTemplate.findUnique({ where: { id: templateId } });
     if (!template) return reply.code(404).send({ error: 'Template not found' });
 
     const existing = await prisma.templateAssignment.findFirst({
@@ -352,7 +343,7 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
     if (existing) return reply.code(409).send({ error: 'Template already assigned' });
 
     const assignment = await prisma.templateAssignment.create({
-      data: { tenantId, templateId, assigneeType: 'ORGANIZATION', organizationId: orgId, createdBy: req.user.username },
+      data: { templateId, assigneeType: 'ORGANIZATION', organizationId: orgId, createdBy: req.user.username },
     });
 
     return reply.code(201).send(assignment);
@@ -384,16 +375,15 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { orgId, userId } = req.params as { orgId: string; userId: string };
-    const tenantId = getTenantId(req);
 
     // Direct entity assignments
     const entityAssignments = await prisma.entityAssignment.findMany({
-      where: { userId, assigneeType: 'USER', ...(tenantId ? { tenantId } : {}) },
+      where: { userId, assigneeType: 'USER' },
     });
 
     // Direct template assignments
     const templateAssignments = await prisma.templateAssignment.findMany({
-      where: { userId, assigneeType: 'USER', ...(tenantId ? { tenantId } : {}) },
+      where: { userId, assigneeType: 'USER' },
     });
 
     // Get entity details
@@ -406,7 +396,7 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
     // Get entities from template assignments
     const templateIds = templateAssignments.map(a => a.templateId);
     const templateEntities = templateIds.length > 0 ? await prisma.assetInstance.findMany({
-      where: { templateId: { in: templateIds }, isActive: true, ...(tenantId ? { tenantId } : {}) },
+      where: { templateId: { in: templateIds }, isActive: true },
       select: { id: true, name: true, status: true, templateId: true, template: { select: { name: true } } },
     }) : [];
 
@@ -435,14 +425,12 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const { userId } = req.params as { orgId: string; userId: string };
     const { entityId } = req.body as { entityId: string };
-    const tenantId = getTenantId(req);
-    if (!tenantId) return reply.code(400).send({ error: 'Tenant context required' });
 
     const existing = await prisma.entityAssignment.findFirst({ where: { entityId, userId, assigneeType: 'USER' } });
     if (existing) return reply.code(409).send({ error: 'Already assigned' });
 
     const assignment = await prisma.entityAssignment.create({
-      data: { tenantId, entityId, assigneeType: 'USER', userId, createdBy: req.user.username },
+      data: { entityId, assigneeType: 'USER', userId, createdBy: req.user.username },
     });
     return reply.code(201).send(assignment);
   });
@@ -462,14 +450,12 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const { userId } = req.params as { orgId: string; userId: string };
     const { templateId } = req.body as { templateId: string };
-    const tenantId = getTenantId(req);
-    if (!tenantId) return reply.code(400).send({ error: 'Tenant context required' });
 
     const existing = await prisma.templateAssignment.findFirst({ where: { templateId, userId, assigneeType: 'USER' } });
     if (existing) return reply.code(409).send({ error: 'Already assigned' });
 
     const assignment = await prisma.templateAssignment.create({
-      data: { tenantId, templateId, assigneeType: 'USER', userId, createdBy: req.user.username },
+      data: { templateId, assigneeType: 'USER', userId, createdBy: req.user.username },
     });
     return reply.code(201).send(assignment);
   });
@@ -500,14 +486,13 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { orgId, userId } = req.params as { orgId: string; userId: string };
-    const tenantId = getTenantId(req);
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
 
     const allEntities = new Map<string, any>();
 
     // 1. Entities assigned to org (via entity_assignments)
     const orgEntityAssignments = await prisma.entityAssignment.findMany({
-      where: { organizationId: orgId, assigneeType: 'ORGANIZATION', ...(tenantId ? { tenantId } : {}) },
+      where: { organizationId: orgId, assigneeType: 'ORGANIZATION' },
       select: { entityId: true },
     });
     if (orgEntityAssignments.length > 0) {
@@ -527,12 +512,12 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
 
     // 3. Entities from templates assigned to org
     const orgTemplateAssignments = await prisma.templateAssignment.findMany({
-      where: { organizationId: orgId, assigneeType: 'ORGANIZATION', ...(tenantId ? { tenantId } : {}) },
+      where: { organizationId: orgId, assigneeType: 'ORGANIZATION' },
       select: { templateId: true },
     });
     if (orgTemplateAssignments.length > 0) {
       const tplEntities = await prisma.assetInstance.findMany({
-        where: { templateId: { in: orgTemplateAssignments.map(a => a.templateId) }, isActive: true, ...(tenantId ? { tenantId } : {}) },
+        where: { templateId: { in: orgTemplateAssignments.map(a => a.templateId) }, isActive: true },
         select: { id: true, name: true, status: true, templateId: true, template: { select: { name: true } } },
       });
       for (const e of tplEntities) if (!allEntities.has(e.id)) allEntities.set(e.id, { ...e, source: 'org_template' });
@@ -540,7 +525,7 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
 
     // 4. Entities individually assigned to user
     const userEntityAssignments = await prisma.entityAssignment.findMany({
-      where: { userId, assigneeType: 'USER', ...(tenantId ? { tenantId } : {}) },
+      where: { userId, assigneeType: 'USER' },
       select: { entityId: true },
     });
     if (userEntityAssignments.length > 0) {
@@ -553,12 +538,12 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
 
     // 5. Entities from templates individually assigned to user
     const userTemplateAssignments = await prisma.templateAssignment.findMany({
-      where: { userId, assigneeType: 'USER', ...(tenantId ? { tenantId } : {}) },
+      where: { userId, assigneeType: 'USER' },
       select: { templateId: true },
     });
     if (userTemplateAssignments.length > 0) {
       const tplEntities = await prisma.assetInstance.findMany({
-        where: { templateId: { in: userTemplateAssignments.map(a => a.templateId) }, isActive: true, ...(tenantId ? { tenantId } : {}) },
+        where: { templateId: { in: userTemplateAssignments.map(a => a.templateId) }, isActive: true },
         select: { id: true, name: true, status: true, templateId: true, template: { select: { name: true } } },
       });
       for (const e of tplEntities) if (!allEntities.has(e.id)) allEntities.set(e.id, { ...e, source: 'user_template' });

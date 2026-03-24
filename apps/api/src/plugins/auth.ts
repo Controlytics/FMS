@@ -85,7 +85,7 @@ async function authPlugin(app: FastifyInstance) {
       // Check user status and sync role + tenant from DB
       const user = await prisma.user.findUnique({
         where: { id: payload.sub },
-        select: { role: true, username: true, status: true, tenantId: true, organizationId: true, forcePasswordChange: true, passwordExpiresAt: true },
+        select: { role: true, username: true, status: true, organizationId: true, forcePasswordChange: true, passwordExpiresAt: true },
       });
       if (!user || user.status !== 'ENABLED') {
         return reply.code(401).send({ error: 'ACCOUNT_INACTIVE', message: 'Account is not active' });
@@ -101,14 +101,13 @@ async function authPlugin(app: FastifyInstance) {
 
       // Lookup role scope from DB
       const roleRecord = await prisma.role.findFirst({ where: { name: user.role }, select: { scope: true } });
-      const scope = roleRecord?.scope || (user.role === 'SUPER_ADMIN' ? 'GLOBAL' : 'TENANT');
+      const scope = roleRecord?.scope || (user.role === 'SUPER_ADMIN' ? 'GLOBAL' : 'ORGANIZATION');
 
       // Patch req.user with authoritative DB values
       req.user = {
         ...req.user,
         role: user.role,
         username: user.username,
-        tenantId: user.tenantId || undefined,
         organizationId: user.organizationId || undefined,
         scope,
       };

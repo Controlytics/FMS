@@ -53,7 +53,6 @@ const EmailSettingsPage = lazy(() => import('./routes/config/notification-settin
 const SmsSettingsPage = lazy(() => import('./routes/config/notification-settings/sms-settings').then(m => ({ default: m.SmsSettingsPage })));
 const NotificationRulesPage = lazy(() => import('./routes/config/notification-rules/index').then(m => ({ default: m.NotificationRulesPage })));
 const NotificationLogsPage = lazy(() => import('./routes/config/notification-settings/notification-logs').then(m => ({ default: m.NotificationLogsPage })));
-const TenantsPage = lazy(() => import("./routes/admin/tenants"));
 const OrganizationsPage = lazy(() => import("./routes/tenant/organizations"));
 const OrgDetailPage = lazy(() => import("./routes/tenant/org-detail"));
 
@@ -114,9 +113,8 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/dynamic/:moduleKey" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><DynamicConfigPage /></RequireRole>} />
 
             {/* Multi-Tenant Management */}
-            <Route path="/admin/tenants" element={<RequireRole roles={["SUPER_ADMIN"]}><Suspense fallback={<LazyFallback />}><TenantsPage /></Suspense></RequireRole>} />
-            <Route path="/tenant/organizations" element={<RequireRole roles={["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN"]}><Suspense fallback={<LazyFallback />}><OrganizationsPage /></Suspense></RequireRole>} />
-            <Route path="/tenant/organizations/:id" element={<RequireRole roles={["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "ORG_ADMIN"]}><Suspense fallback={<LazyFallback />}><OrgDetailPage /></Suspense></RequireRole>} />
+            <Route path="/organizations" element={<RequireRole roles={["SUPER_ADMIN", "ADMIN"]}><Suspense fallback={<LazyFallback />}><OrganizationsPage /></Suspense></RequireRole>} />
+            <Route path="/organizations/:id" element={<RequireRole roles={["SUPER_ADMIN", "ADMIN", "ORG_ADMIN"]}><Suspense fallback={<LazyFallback />}><OrgDetailPage /></Suspense></RequireRole>} />
             {/* Entity Management (lazy-loaded) — permission-based */}
             <Route path="/assets" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AssetsPage /></Suspense></RequireRole>} />
             <Route path="/assets/templates" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AssetTemplatesPage /></Suspense></RequireRole>} />

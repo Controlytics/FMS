@@ -59,7 +59,6 @@ export const userRepository = {
     isTemporaryPassword: boolean;
     passwordExpiresAt: Date | null;
     createdBy: string;
-    tenantId?: string;
     organizationId?: string;
   }) {
     return prisma.user.create({
@@ -75,7 +74,6 @@ export const userRepository = {
         isTemporaryPassword: data.isTemporaryPassword,
         passwordExpiresAt: data.passwordExpiresAt,
         createdBy: data.createdBy,
-        tenantId: data.tenantId,
         organizationId: data.organizationId,
       },
     });

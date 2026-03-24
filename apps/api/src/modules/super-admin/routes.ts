@@ -3,7 +3,7 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 
 /**
- * Super Admin routes — SUPER_ADMIN only, cross-tenant platform management
+ * Super Admin routes — SUPER_ADMIN only, platform management
  * Prefix: /api/super-admin
  */
 export default async function superAdminRoutes(app: FastifyInstance) {
@@ -14,11 +14,11 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     }
   });
 
-  // ─── LIST TENANTS ──────────────────────────────────────
-  app.get('/tenants', {
+  // ─── LIST ORGANIZATIONS ────────────────────────────────
+  app.get('/organizations', {
     schema: {
       tags: ['Super Admin'],
-      summary: 'List all tenants',
+      summary: 'List all organizations',
       querystring: {
         type: 'object',
         properties: {
@@ -36,80 +36,63 @@ export default async function superAdminRoutes(app: FastifyInstance) {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
         { slug: { contains: search, mode: 'insensitive' } },
-        { contactEmail: { contains: search, mode: 'insensitive' } },
       ];
     }
     if (isActive !== undefined) where.isActive = isActive;
 
     const [data, total] = await Promise.all([
-      prisma.tenant.findMany({
+      prisma.organization.findMany({
         where,
         skip: (page - 1) * limit,
         take: limit,
         orderBy: { createdAt: 'desc' },
-        include: {
-          _count: { select: { organizations: true } },
-        },
       }),
-      prisma.tenant.count({ where }),
+      prisma.organization.count({ where }),
     ]);
 
-    // Get user counts per tenant
-    const enriched = await Promise.all(data.map(async (t) => {
-      const userCount = await prisma.user.count({ where: { tenantId: t.id } });
-      const deviceCount = await prisma.deviceCredential.count({ where: { tenantId: t.id } });
-      return {
-        ...t,
-        userCount,
-        deviceCount,
-        organizationCount: t._count.organizations,
-      };
+    // Enrich with counts
+    const enriched = await Promise.all(data.map(async (org) => {
+      const userCount = await prisma.user.count({ where: { organizationId: org.id } });
+      const entityCount = await prisma.assetInstance.count({ where: { organizationId: org.id, isActive: true } });
+      return { ...org, userCount, entityCount };
     }));
 
     return { data: enriched, total, page, limit, totalPages: Math.ceil(total / limit) };
   });
 
-  // ─── GET TENANT ────────────────────────────────────────
-  app.get('/tenants/:id', {
+  // ─── GET ORGANIZATION ──────────────────────────────────
+  app.get('/organizations/:id', {
     schema: {
       tags: ['Super Admin'],
-      summary: 'Get tenant details',
+      summary: 'Get organization details',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const tenant = await prisma.tenant.findUnique({
+    const org = await prisma.organization.findUnique({
       where: { id },
-      include: {
-        organizations: { where: { isActive: true }, orderBy: { name: 'asc' } },
-        _count: { select: { organizations: true } },
-      },
     });
-    if (!tenant) return reply.code(404).send({ error: 'Tenant not found' });
+    if (!org) return reply.code(404).send({ error: 'Organization not found' });
 
-    const userCount = await prisma.user.count({ where: { tenantId: id } });
-    const deviceCount = await prisma.deviceCredential.count({ where: { tenantId: id } });
-    return { ...tenant, userCount, deviceCount };
+    const userCount = await prisma.user.count({ where: { organizationId: id } });
+    const entityCount = await prisma.assetInstance.count({ where: { organizationId: id, isActive: true } });
+    return { ...org, userCount, entityCount };
   });
 
-  // ─── CREATE TENANT ─────────────────────────────────────
-  app.post('/tenants', {
+  // ─── CREATE ORGANIZATION ───────────────────────────────
+  app.post('/organizations', {
     schema: {
       tags: ['Super Admin'],
-      summary: 'Create a new tenant',
+      summary: 'Create a new organization',
       body: {
         type: 'object',
-        required: ['name', 'slug', 'contactEmail'],
+        required: ['name', 'slug'],
         properties: {
           name: { type: 'string', minLength: 2, maxLength: 200 },
           slug: { type: 'string', minLength: 2, maxLength: 100, pattern: '^[a-z0-9][a-z0-9-]*[a-z0-9]$' },
-          contactEmail: { type: 'string', format: 'email' },
-          contactPhone: { type: 'string' },
-          plan: { type: 'string', enum: ['FREE', 'STARTER', 'PROFESSIONAL', 'ENTERPRISE'] },
-          maxUsers: { type: 'integer', minimum: 1 },
-          maxDevices: { type: 'integer', minimum: 1 },
-          maxOrganizations: { type: 'integer', minimum: 1 },
-          logoUrl: { type: 'string' },
+          description: { type: 'string', maxLength: 500 },
+          parentOrgId: { type: 'string', format: 'uuid' },
+          isActive: { type: 'boolean' },
           metadata: { type: 'object' },
         },
       },
@@ -118,49 +101,33 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     const body = req.body as any;
 
     // Check slug uniqueness
-    const existing = await prisma.tenant.findUnique({ where: { slug: body.slug } });
-    if (existing) return reply.code(409).send({ error: 'CONFLICT', message: 'Tenant slug already exists' });
+    const existing = await prisma.organization.findFirst({ where: { slug: body.slug } });
+    if (existing) return reply.code(409).send({ error: 'CONFLICT', message: 'Organization slug already exists' });
 
-    const tenant = await prisma.tenant.create({ data: body });
-
-    // Create default organization for the tenant
-    await prisma.organization.create({
-      data: {
-        tenantId: tenant.id,
-        name: 'Default Organization',
-        slug: 'default',
-        isActive: true,
-      },
-    });
+    const org = await prisma.organization.create({ data: { ...body, createdBy: req.user.username } });
 
     await auditLog({
       userId: req.user.username, userRole: req.user.role,
-      action: 'TENANT_CREATED', targetType: 'tenant', targetId: tenant.id,
-      afterValue: { name: tenant.name, slug: tenant.slug, plan: tenant.plan },
+      action: 'ORGANIZATION_CREATED', targetType: 'organization', targetId: org.id,
+      afterValue: { name: org.name, slug: org.slug },
       ipAddress: req.ip, userAgent: req.headers['user-agent'],
       sessionId: req.user.sessionId,
     });
 
-    return reply.code(201).send(tenant);
+    return reply.code(201).send(org);
   });
 
-  // ─── UPDATE TENANT ─────────────────────────────────────
-  app.put('/tenants/:id', {
+  // ─── UPDATE ORGANIZATION ───────────────────────────────
+  app.put('/organizations/:id', {
     schema: {
       tags: ['Super Admin'],
-      summary: 'Update a tenant',
+      summary: 'Update an organization',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
       body: {
         type: 'object',
         properties: {
           name: { type: 'string', minLength: 2, maxLength: 200 },
-          contactEmail: { type: 'string', format: 'email' },
-          contactPhone: { type: 'string' },
-          plan: { type: 'string', enum: ['FREE', 'STARTER', 'PROFESSIONAL', 'ENTERPRISE'] },
-          maxUsers: { type: 'integer', minimum: 1 },
-          maxDevices: { type: 'integer', minimum: 1 },
-          maxOrganizations: { type: 'integer', minimum: 1 },
-          logoUrl: { type: 'string' },
+          description: { type: 'string', maxLength: 500 },
           isActive: { type: 'boolean' },
           metadata: { type: 'object' },
         },
@@ -170,63 +137,61 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const body = req.body as any;
 
-    const existing = await prisma.tenant.findUnique({ where: { id } });
-    if (!existing) return reply.code(404).send({ error: 'Tenant not found' });
+    const existing = await prisma.organization.findUnique({ where: { id } });
+    if (!existing) return reply.code(404).send({ error: 'Organization not found' });
 
-    const tenant = await prisma.tenant.update({ where: { id }, data: body });
+    const org = await prisma.organization.update({ where: { id }, data: body });
 
     await auditLog({
       userId: req.user.username, userRole: req.user.role,
-      action: 'TENANT_UPDATED', targetType: 'tenant', targetId: tenant.id,
-      beforeValue: { name: existing.name, plan: existing.plan, isActive: existing.isActive },
-      afterValue: { name: tenant.name, plan: tenant.plan, isActive: tenant.isActive },
+      action: 'ORGANIZATION_UPDATED', targetType: 'organization', targetId: org.id,
+      beforeValue: { name: existing.name, isActive: existing.isActive },
+      afterValue: { name: org.name, isActive: org.isActive },
       ipAddress: req.ip, userAgent: req.headers['user-agent'],
       sessionId: req.user.sessionId,
     });
 
-    return tenant;
+    return org;
   });
 
-  // ─── DELETE TENANT ─────────────────────────────────────
-  app.delete('/tenants/:id', {
+  // ─── DELETE ORGANIZATION ───────────────────────────────
+  app.delete('/organizations/:id', {
     schema: {
       tags: ['Super Admin'],
-      summary: 'Deactivate a tenant (soft delete)',
+      summary: 'Deactivate an organization (soft delete)',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const existing = await prisma.tenant.findUnique({ where: { id } });
-    if (!existing) return reply.code(404).send({ error: 'Tenant not found' });
+    const existing = await prisma.organization.findUnique({ where: { id } });
+    if (!existing) return reply.code(404).send({ error: 'Organization not found' });
 
-    // Soft delete — deactivate instead of destroying data
-    await prisma.tenant.update({ where: { id }, data: { isActive: false } });
+    await prisma.organization.update({ where: { id }, data: { isActive: false } });
 
     await auditLog({
       userId: req.user.username, userRole: req.user.role,
-      action: 'TENANT_DEACTIVATED', targetType: 'tenant', targetId: id,
+      action: 'ORGANIZATION_DEACTIVATED', targetType: 'organization', targetId: id,
       afterValue: { name: existing.name, slug: existing.slug },
       ipAddress: req.ip, userAgent: req.headers['user-agent'],
       sessionId: req.user.sessionId,
     });
 
-    return { success: true, message: 'Tenant deactivated' };
+    return { success: true, message: 'Organization deactivated' };
   });
 
-  // ─── TENANT STATS ──────────────────────────────────────
+  // ─── PLATFORM STATS ────────────────────────────────────
   app.get('/stats', {
     schema: {
       tags: ['Super Admin'],
       summary: 'Platform-wide statistics',
     },
   }, async () => {
-    const [tenantCount, userCount, deviceCount, entityCount, orgCount] = await Promise.all([
-      prisma.tenant.count({ where: { isActive: true } }),
+    const [userCount, deviceCount, entityCount, orgCount] = await Promise.all([
       prisma.user.count(),
       prisma.deviceCredential.count(),
       prisma.assetInstance.count({ where: { isActive: true } }),
       prisma.organization.count({ where: { isActive: true } }),
     ]);
-    return { tenants: tenantCount, users: userCount, devices: deviceCount, entities: entityCount, organizations: orgCount };
+    return { users: userCount, devices: deviceCount, entities: entityCount, organizations: orgCount };
   });
 }

@@ -17,18 +17,18 @@ function UsersTab({ orgId }: { orgId: string }) {
 function EntitiesTab({ orgId }: { orgId: string }) {
   const [showAssign, setShowAssign] = useState(false);
   const [search, setSearch] = useState('');
-  const { data, mutate } = useSWR<{ data: Entity[]; total: number }>(`/api/tenant/organizations/${orgId}/entities`);
+  const { data, mutate } = useSWR<{ data: Entity[]; total: number }>(`/api/organizations/${orgId}/entities`);
   const { data: allEntities } = useSWR<{ data: Entity[] }>(showAssign ? '/api/assets/instances?limit=200' : null);
 
   const assignEntity = async (entityId: string) => {
     try {
-      await api.post(`/api/tenant/organizations/${orgId}/entities`, { entityId });
+      await api.post(`/api/organizations/${orgId}/entities`, { entityId });
       mutate();
     } catch (e: any) { alert(e.message || 'Failed'); }
   };
 
   const unassign = async (entityId: string) => {
-    await api.delete(`/api/tenant/organizations/${orgId}/entities/${entityId}`);
+    await api.delete(`/api/organizations/${orgId}/entities/${entityId}`);
     mutate();
   };
 
@@ -140,13 +140,13 @@ function EntitiesTab({ orgId }: { orgId: string }) {
 function TemplatesTab({ orgId }: { orgId: string }) {
   const [showAssign, setShowAssign] = useState(false);
   const [search, setSearch] = useState('');
-  const { data, mutate } = useSWR<{ data: Template[]; total: number }>(`/api/tenant/organizations/${orgId}/templates`);
+  const { data, mutate } = useSWR<{ data: Template[]; total: number }>(`/api/organizations/${orgId}/templates`);
   const { data: allTemplates } = useSWR<{ data: Template[] }>(showAssign ? '/api/assets/templates?limit=200' : null);
 
   const assignTemplate = async (templateId: string) => {
-    try { await api.post(`/api/tenant/organizations/${orgId}/templates`, { templateId }); mutate(); } catch (e: any) { alert(e.message || 'Failed'); }
+    try { await api.post(`/api/organizations/${orgId}/templates`, { templateId }); mutate(); } catch (e: any) { alert(e.message || 'Failed'); }
   };
-  const unassign = async (templateId: string) => { await api.delete(`/api/tenant/organizations/${orgId}/templates/${templateId}`); mutate(); };
+  const unassign = async (templateId: string) => { await api.delete(`/api/organizations/${orgId}/templates/${templateId}`); mutate(); };
 
   const assignedIds = new Set(data?.data.map(t => t.id) || []);
   const availableTemplates = allTemplates?.data.filter(t => !assignedIds.has(t.id)).filter(t => !search || t.name.toLowerCase().includes(search.toLowerCase())) || [];
@@ -256,17 +256,17 @@ function UserAssignmentsTab({ orgId }: { orgId: string }) {
   const [showAssignTemplate, setShowAssignTemplate] = useState(false);
   const [entitySearch, setEntitySearch] = useState('');
   const [templateSearch, setTemplateSearch] = useState('');
-  const { data: users } = useSWR<{ data: User[] }>(`/api/tenant/organizations/${orgId}/users?limit=100`);
-  const { data: userEntities, mutate } = useSWR(selectedUser ? `/api/tenant/organizations/${orgId}/users/${selectedUser}/entities` : null);
-  const { data: visibleEntities } = useSWR(selectedUser ? `/api/tenant/organizations/${orgId}/users/${selectedUser}/visible-entities` : null);
+  const { data: users } = useSWR<{ data: User[] }>(`/api/organizations/${orgId}/users?limit=100`);
+  const { data: userEntities, mutate } = useSWR(selectedUser ? `/api/organizations/${orgId}/users/${selectedUser}/entities` : null);
+  const { data: visibleEntities } = useSWR(selectedUser ? `/api/organizations/${orgId}/users/${selectedUser}/visible-entities` : null);
   const { data: allEntities } = useSWR<{ data: Entity[] }>(showAssignEntity ? '/api/assets/instances?limit=200' : null);
   const { data: allTemplates } = useSWR<{ data: Template[] }>(showAssignTemplate ? '/api/assets/templates?limit=200' : null);
 
   const selectedUserData = users?.data.find(u => u.id === selectedUser);
 
-  const assignEntity = async (entityId: string) => { await api.post(`/api/tenant/organizations/${orgId}/users/${selectedUser}/entities`, { entityId }); mutate(); };
-  const assignTemplate = async (templateId: string) => { await api.post(`/api/tenant/organizations/${orgId}/users/${selectedUser}/templates`, { templateId }); mutate(); };
-  const removeAssignment = async (assignmentId: string) => { await api.delete(`/api/tenant/organizations/${orgId}/users/${selectedUser}/entities/${assignmentId}`); mutate(); };
+  const assignEntity = async (entityId: string) => { await api.post(`/api/organizations/${orgId}/users/${selectedUser}/entities`, { entityId }); mutate(); };
+  const assignTemplate = async (templateId: string) => { await api.post(`/api/organizations/${orgId}/users/${selectedUser}/templates`, { templateId }); mutate(); };
+  const removeAssignment = async (assignmentId: string) => { await api.delete(`/api/organizations/${orgId}/users/${selectedUser}/entities/${assignmentId}`); mutate(); };
 
   const sourceColors: Record<string, { bg: string; text: string; dot: string; label: string }> = {
     org_entity: { bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-500', label: 'Org Entity' },
@@ -447,7 +447,7 @@ function UserAssignmentsTab({ orgId }: { orgId: string }) {
 export default function OrgDetailPage() {
   const { id: orgId } = useParams<{ id: string }>();
   const [tab, setTab] = useState<'users' | 'entities' | 'templates' | 'assignments'>('users');
-  const { data: org } = useSWR<OrgInfo>(orgId ? `/api/tenant/organizations/${orgId}` : null);
+  const { data: org } = useSWR<OrgInfo>(orgId ? `/api/organizations/${orgId}` : null);
 
   if (!orgId) return <div className="p-6">Invalid organization</div>;
 
@@ -461,7 +461,7 @@ export default function OrgDetailPage() {
   return (
     <div className="p-6 space-y-6 animate-fade-in">
       <div className="flex items-center gap-4">
-        <Link to="/tenant/organizations" className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
+        <Link to="/organizations" className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
         </Link>
         <div className="flex items-center gap-4 flex-1">

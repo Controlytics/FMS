@@ -507,11 +507,11 @@ registerNode({
   async execute(message, _config, ctx): Promise<NodeResult> {
     try {
       const configs = await prisma.systemConfig.findMany({ take: 20 });
-      const meta: Record<string, string> = { ...ctx.metadata, tenantId: 'default' };
+      const meta: Record<string, string> = { ...ctx.metadata };
       for (const c of configs) meta[`sys_${c.configKey}`] = String(c.configValue).slice(0, 200);
       return { output: 'Success', message, metadata: meta };
     } catch {
-      const meta = { ...ctx.metadata, tenantId: 'default' };
+      const meta = { ...ctx.metadata };
       return { output: 'Success', message, metadata: meta };
     }
   },

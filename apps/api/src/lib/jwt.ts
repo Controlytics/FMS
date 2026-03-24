@@ -22,9 +22,8 @@ export interface JwtPayload {
   username: string;
   role: string;
   sessionId: string;
-  tenantId?: string;
   organizationId?: string;
-  scope?: string; // GLOBAL | TENANT | ORGANIZATION
+  scope?: string; // GLOBAL | ORGANIZATION
 }
 
 export async function signToken(payload: JwtPayload, expirationHours = 8): Promise<string> {

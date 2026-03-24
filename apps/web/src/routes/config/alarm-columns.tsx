@@ -21,7 +21,7 @@ export function AlarmColumnsConfigPage() {
   // Set default selected role when roles load
   useEffect(() => {
     if (allRoles.length > 0 && !selectedRole) {
-      const admin = allRoles.find(r => r.name === 'TENANT_ADMIN' || r.name === 'ADMIN');
+      const admin = allRoles.find(r => r.name === 'ADMIN');
       setSelectedRole(admin?.name || allRoles[0].name);
     }
   }, [allRoles, selectedRole]);

@@ -51,7 +51,7 @@ const DEFAULTS: LdapConfig = {
 export default function LdapConfigPage() {
   const { data: savedConfig, mutate } = useSWR<LdapConfig>('/api/ldap/config');
   const { data: rolesData } = useSWR<Array<{ name: string; displayName: string }>>('/api/roles/active');
-  const { data: orgsData } = useSWR<{ data: Array<{ id: string; name: string }> }>('/api/tenant/organizations?limit=100');
+  const { data: orgsData } = useSWR<{ data: Array<{ id: string; name: string }> }>('/api/organizations?limit=100');
 
   const [config, setConfig] = useState<LdapConfig>(DEFAULTS);
   const [saving, setSaving] = useState(false);

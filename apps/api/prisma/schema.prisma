@@ -7,20 +7,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// =============================================
-// MULTI-TENANCY MODELS
-// =============================================
-
-enum TenantPlan {
-  FREE
-  STARTER
-  PROFESSIONAL
-  ENTERPRISE
-}
-
 enum RoleScope {
   GLOBAL
-  TENANT
   ORGANIZATION
 }
 
@@ -36,34 +24,9 @@ enum AssigneeType {
   ROLE
 }
 
-// Tenant — represents a company/customer
-model Tenant {
-  id               String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name             String     @unique @db.VarChar(200)
-  slug             String     @unique @db.VarChar(100) // URL-safe identifier
-  contactEmail     String     @map("contact_email") @db.VarChar(200)
-  contactPhone     String?    @map("contact_phone") @db.VarChar(30)
-  plan             TenantPlan @default(FREE)
-  maxUsers         Int        @default(10) @map("max_users")
-  maxDevices       Int        @default(50) @map("max_devices")
-  maxOrganizations Int        @default(5) @map("max_organizations")
-  logoUrl          String?    @map("logo_url") @db.VarChar(500)
-  isActive         Boolean    @default(true) @map("is_active")
-  metadata         Json       @default("{}") @db.JsonB
-  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz
-
-  organizations Organization[]
-  tenantConfigs TenantConfig[]
-
-  @@index([isActive])
-  @@map("tenants")
-}
-
 // Organization — logical grouping under a tenant
 model Organization {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId    String   @map("tenant_id") @db.Uuid
   name        String   @db.VarChar(200)
   slug        String   @db.VarChar(100)
   description String?  @db.VarChar(500)
@@ -74,36 +37,18 @@ model Organization {
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
   createdBy   String?  @map("created_by") @db.VarChar(50)
 
-  tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   parent   Organization?  @relation("OrgHierarchy", fields: [parentOrgId], references: [id])
   children Organization[] @relation("OrgHierarchy")
 
-  @@unique([tenantId, slug])
-  @@index([tenantId])
+  @@unique([slug])
   @@index([isActive])
   @@map("organizations")
-}
-
-// Tenant-specific configuration overrides
-model TenantConfig {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId  String   @map("tenant_id") @db.Uuid
-  moduleKey String   @map("module_key") @db.VarChar(100)
-  config    Json     @db.JsonB
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
-  updatedBy String?  @map("updated_by") @db.VarChar(50)
-
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-
-  @@unique([tenantId, moduleKey])
-  @@map("tenant_configs")
 }
 
 // Entity Assignment — controls which users/orgs can access which entities
 // Template Assignment - maps templates to orgs/users for visibility
 model TemplateAssignment {
   id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId       String       @map("tenant_id") @db.Uuid
   templateId     String       @map("template_id") @db.Uuid
   assigneeType   AssigneeType @map("assignee_type")
   userId         String?      @map("user_id") @db.Uuid
@@ -111,7 +56,6 @@ model TemplateAssignment {
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
   createdBy      String?      @map("created_by") @db.VarChar(50)
 
-  @@index([tenantId])
   @@index([templateId])
   @@index([organizationId])
   @@index([userId])
@@ -120,7 +64,6 @@ model TemplateAssignment {
 
 model EntityAssignment {
   id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId       String       @map("tenant_id") @db.Uuid
   entityId       String       @map("entity_id") @db.Uuid
   assigneeType   AssigneeType @map("assignee_type")
   userId         String?      @map("user_id") @db.Uuid
@@ -130,7 +73,6 @@ model EntityAssignment {
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
   createdBy      String?      @map("created_by") @db.VarChar(50)
 
-  @@index([tenantId])
   @@index([entityId])
   @@index([userId])
   @@index([organizationId])
@@ -144,7 +86,6 @@ model EntityAssignment {
 // Dashboard — container for widgets
 model Dashboard {
   id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId    String         @map("tenant_id") @db.Uuid
   title       String         @db.VarChar(200)
   description String?        @db.VarChar(500)
   layout      Json           @default("{}") @db.JsonB // Grid layout config
@@ -158,7 +99,6 @@ model Dashboard {
   widgets     DashboardWidget[]
   assignments DashboardAssignment[]
 
-  @@index([tenantId])
   @@index([isActive])
   @@map("dashboards")
 }
@@ -211,8 +151,7 @@ model Role {
   color          String    @default("#6366f1") @db.VarChar(100) // Badge color for UI (CSS class)
   isSystem       Boolean   @default(false) @map("is_system") // System roles cannot be deleted
   isActive       Boolean   @default(true) @map("is_active")
-  scope          RoleScope @default(TENANT)
-  tenantId       String?   @map("tenant_id") @db.Uuid // null for GLOBAL roles
+  scope          RoleScope @default(ORGANIZATION)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   createdBy      String?   @map("created_by") @db.VarChar(50)
@@ -220,7 +159,6 @@ model Role {
 
   @@index([hierarchyLevel])
   @@index([isActive])
-  @@index([tenantId])
   @@map("roles")
 }
 
@@ -240,7 +178,6 @@ model User {
   department          String?    @db.VarChar(50)
   photoUrl            String?    @map("photo_url") @db.VarChar(500)
   role                String     @db.VarChar(50) // References roles.name
-  tenantId            String?    @map("tenant_id") @db.Uuid // null for SUPER_ADMIN
   organizationId      String?    @map("organization_id") @db.Uuid
   status              UserStatus @default(ENABLED)
   failedLoginAttempts Int        @default(0) @map("failed_login_attempts")
@@ -262,7 +199,6 @@ model User {
   sessions        Session[]
 
   @@index([role])
-  @@index([tenantId])
   @@index([organizationId])
   @@index([status])
   @@map("users")
@@ -270,7 +206,6 @@ model User {
 
 model PasswordHistory {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId     String?  @map("tenant_id") @db.Uuid
   userId       String   @map("user_id") @db.Uuid
   passwordHash String   @map("password_hash")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -283,7 +218,6 @@ model PasswordHistory {
 
 model Session {
   id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId          String?  @map("tenant_id") @db.Uuid
   userId            String   @map("user_id") @db.Uuid
   tokenHash         String   @map("token_hash")
   ipAddress         String?  @map("ip_address") @db.VarChar(45)
@@ -303,7 +237,6 @@ model Session {
 
 model SystemConfig {
   id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId       String?  @map("tenant_id") @db.Uuid
   configKey      String   @unique @map("config_key") @db.VarChar(100)
   configValue    Json     @map("config_value")
   configType     String   @map("config_type") @db.VarChar(50)
@@ -316,7 +249,6 @@ model SystemConfig {
 
 model FieldIdConfig {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId    String?  @map("tenant_id") @db.Uuid
   fieldId     String   @unique @map("field_id") @db.VarChar(50)
   defaultName String   @map("default_name") @db.VarChar(100)
   displayName String   @map("display_name") @db.VarChar(100)
@@ -330,7 +262,6 @@ model FieldIdConfig {
 
 model PasswordResetRequest {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId    String?   @map("tenant_id") @db.Uuid
   userId      String    @map("user_id") @db.VarChar(50)
   status      String    @default("PENDING") @db.VarChar(20)
   requestedAt DateTime  @default(now()) @map("requested_at") @db.Timestamptz
@@ -343,7 +274,6 @@ model PasswordResetRequest {
 
 model AuditTrail {
   id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId         String?  @map("tenant_id") @db.Uuid
   timestamp        DateTime @default(now()) @db.Timestamptz
   userId           String?  @map("user_id") @db.VarChar(100)
   userName         String?  @map("user_name") @db.VarChar(100)
@@ -399,7 +329,6 @@ enum NotificationType {
 
 model Notification {
   id           String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId     String?          @map("tenant_id") @db.Uuid
   type         NotificationType
   title        String           @db.VarChar(200)
   message      String           @db.VarChar(1000)
@@ -422,7 +351,6 @@ model Notification {
 // User-specific sidebar and feature configuration
 model UserConfig {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId     String?  @map("tenant_id") @db.Uuid
   userId       String   @unique @map("user_id") @db.Uuid
   sidebarItems Json     @default("[]") @map("sidebar_items") @db.JsonB // Array of enabled sidebar items
   homeWidgets  Json     @default("[]") @map("home_widgets") @db.JsonB // Array of enabled home widgets
@@ -436,7 +364,6 @@ model UserConfig {
 // Role-based default configuration
 model RoleConfig {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId     String?  @map("tenant_id") @db.Uuid
   role         String   @unique @db.VarChar(50) // References roles.name
   sidebarItems Json     @default("[]") @map("sidebar_items") @db.JsonB
   homeWidgets  Json     @default("[]") @map("home_widgets") @db.JsonB
@@ -454,7 +381,6 @@ model RoleConfig {
 // Asset Template — reusable blueprint for asset types
 model AssetTemplate {
   id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId              String?  @map("tenant_id") @db.Uuid
   organizationId        String?  @map("organization_id") @db.Uuid
   name                  String   @unique @db.VarChar(100)
   description           String?  @db.VarChar(500)
@@ -497,7 +423,6 @@ model AssetTemplate {
 // Asset Template Version — snapshot of template at a point in time
 model AssetTemplateVersion {
   id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId      String?  @map("tenant_id") @db.Uuid
   templateId    String   @map("template_id") @db.Uuid
   versionNumber Int      @map("version_number")
   snapshot      Json     @db.JsonB // Full template snapshot at time of version
@@ -515,7 +440,6 @@ model AssetTemplateVersion {
 // Asset Instance — actual asset created from a template
 model AssetInstance {
   id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId         String?  @map("tenant_id") @db.Uuid
   organizationId   String?  @map("organization_id") @db.Uuid
   name             String   @db.VarChar(255)
   description      String?
@@ -551,7 +475,6 @@ model AssetInstance {
 // Asset Relationship — bidirectional connections between assets
 model AssetRelationship {
   id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId         String?  @map("tenant_id") @db.Uuid
   sourceAssetId    String   @map("source_asset_id") @db.Uuid
   targetAssetId    String   @map("target_asset_id") @db.Uuid
   relationshipType String   @map("relationship_type") @db.VarChar(50) // CONTAINS, CONTAINED_IN, CONNECTED_TO, etc.
@@ -575,7 +498,6 @@ model AssetRelationship {
 // Asset Identifier — physical identifiers (QR, RFID, NFC, Barcode, Manual)
 model AssetIdentifier {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId        String?  @map("tenant_id") @db.Uuid
   assetId         String   @map("asset_id") @db.Uuid
   identifierType  String   @map("identifier_type") @db.VarChar(20) // QR, BARCODE, RFID, NFC, MANUAL
   identifierValue String   @unique @map("identifier_value") @db.VarChar(255)
@@ -600,7 +522,6 @@ model AssetIdentifier {
 // Device Credentials (per entity instance)
 model DeviceCredential {
   id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId           String?   @map("tenant_id") @db.Uuid
   entityId           String    @unique @map("entity_id") @db.Uuid
   accessToken        String    @unique @map("access_token")
   credentialData     Json?     @map("credential_data") @db.JsonB
@@ -623,7 +544,6 @@ model DeviceCredential {
 // Rule Chains (SUPER_ADMIN only)
 model RuleChain {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId        String?  @map("tenant_id") @db.Uuid
   name            String   @db.VarChar(200)
   description     String?
   isRoot          Boolean  @default(false) @map("is_root")
@@ -648,7 +568,6 @@ model RuleChain {
 // Rule Chain Versions (append-only snapshots)
 model RuleChainVersion {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId    String?  @map("tenant_id") @db.Uuid
   ruleChainId String   @map("rule_chain_id") @db.Uuid
   version     Int
   snapshot    Json     @db.JsonB
@@ -666,7 +585,6 @@ model RuleChainVersion {
 // Rule Nodes
 model RuleNode {
   id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId      String?  @map("tenant_id") @db.Uuid
   ruleChainId   String   @map("rule_chain_id") @db.Uuid
   type          String   @db.VarChar(100)
   name          String   @db.VarChar(200)
@@ -688,7 +606,6 @@ model RuleNode {
 // Rule Node Connections
 model RuleNodeConnection {
   id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId    String? @map("tenant_id") @db.Uuid
   ruleChainId String  @map("rule_chain_id") @db.Uuid
   fromNodeId  String  @map("from_node_id") @db.Uuid
   toNodeId    String  @map("to_node_id") @db.Uuid
@@ -705,7 +622,6 @@ model RuleNodeConnection {
 // Alarm (single-row lifecycle: ACTIVE -> ACKNOWLEDGED -> CLEARED | MANUALLY_CLEARED)
 model Alarm {
   id        String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId  String? @map("tenant_id") @db.Uuid
   entityId  String  @map("entity_id") @db.Uuid
   alarmType String  @map("alarm_type") @db.VarChar(100)
   severity  String  @db.VarChar(20) // CRITICAL | MAJOR | MINOR | WARNING | INFO
@@ -743,7 +659,6 @@ model Alarm {
 // Checklist Review (3-step approval workflow)
 model ChecklistReview {
   id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId    String? @map("tenant_id") @db.Uuid
   checklistId String  @unique @map("checklist_id") // Links to ts_checklist_responses
   entityId    String  @map("entity_id") @db.Uuid
   templateId  String  @map("template_id") @db.Uuid
@@ -784,7 +699,6 @@ model ChecklistReview {
 // Electronic Signature (21 CFR Part 11 -- SS11.50 + SS11.70)
 model ElectronicSignature {
   id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId       String?  @map("tenant_id") @db.Uuid
   recordType     String   @map("record_type") @db.VarChar(30) // 'alarm' | 'checklist'
   recordId       String   @map("record_id") // Alarm.id or ChecklistReview.id
   signerUserId   String   @map("signer_user_id") @db.VarChar(50)
@@ -806,7 +720,6 @@ model ElectronicSignature {
 // Latest Telemetry (cache for current values)
 model LatestTelemetry {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId    String?  @map("tenant_id") @db.Uuid
   entityId    String   @map("entity_id") @db.Uuid
   key         String   @db.VarChar(200)
   valueNum    Float?   @map("value_num")
@@ -822,7 +735,6 @@ model LatestTelemetry {
 // UNS Mapping (entity -> ISA-95 UNS path)
 model UnsMapping {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId     String?  @map("tenant_id") @db.Uuid
   entityId     String   @unique @map("entity_id") @db.Uuid
   unsPath      String   @unique @map("uns_path")
   pathSegments Json     @map("path_segments") @db.JsonB
@@ -836,7 +748,6 @@ model UnsMapping {
 // Connectivity Status (per entity)
 model ConnectivityStatus {
   id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId           String?   @map("tenant_id") @db.Uuid
   entityId           String    @unique @map("entity_id") @db.Uuid
   status             String    @default("UNKNOWN") @db.VarChar(20) // ONLINE | OFFLINE | UNKNOWN
   lastActivityAt     DateTime? @map("last_activity_at") @db.Timestamptz
@@ -852,7 +763,6 @@ model ConnectivityStatus {
 // QR Codes (per entity)
 model QrCode {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId     String?  @map("tenant_id") @db.Uuid
   entityId     String   @unique @map("entity_id") @db.Uuid
   qrData       String   @map("qr_data") // URL only -- NO tokens
   imagePath    String   @map("image_path")
@@ -868,7 +778,6 @@ model QrCode {
 // Help Articles (version-controlled)
 model HelpArticle {
   id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId       String?  @map("tenant_id") @db.Uuid
   key            String   @unique @db.VarChar(100)
   title          String   @db.VarChar(200)
   content        String   @db.Text
@@ -887,7 +796,6 @@ model HelpArticle {
 // Help Article Versions
 model HelpArticleVersion {
   id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId      String?  @map("tenant_id") @db.Uuid
   helpArticleId String   @map("help_article_id") @db.Uuid
   version       Int
   content       String   @db.Text
@@ -904,7 +812,6 @@ model HelpArticleVersion {
 // Data Stream Registration (telemetry key registry per entity)
 model DataStream {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId  String?  @map("tenant_id") @db.Uuid
   entityId  String   @map("entity_id") @db.Uuid
   key       String   @db.VarChar(200)
   dataType  String   @map("data_type") @db.VarChar(20)
@@ -922,7 +829,6 @@ model DataStream {
 // Dead Letter Queue (failed pipeline messages)
 model DeadLetterQueue {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId     String?  @map("tenant_id") @db.Uuid
   messageId    String   @map("message_id")
   entityId     String?  @map("entity_id") @db.Uuid
   messageType  String   @map("message_type") @db.VarChar(50)
@@ -943,7 +849,6 @@ model DeadLetterQueue {
 // Ingestion System Config (hot-reload operational settings)
 model IngestionSystemConfig {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId        String?  @map("tenant_id") @db.Uuid
   key             String   @unique @db.VarChar(100)
   value           String // JSON-encoded value
   dataType        String   @map("data_type") @db.VarChar(20) // STRING | INTEGER | FLOAT | BOOLEAN | JSON
@@ -983,7 +888,6 @@ enum NotificationDeliveryStatus {
 
 model NotificationLog {
   id           String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId     String?                    @map("tenant_id") @db.Uuid
   channel      NotificationChannel
   recipient    String                     @db.VarChar(500)
   subject      String?                    @db.VarChar(500)
@@ -1013,7 +917,6 @@ model NotificationLog {
 
 model NotificationTemplate {
   id           String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId     String?             @map("tenant_id") @db.Uuid
   name         String              @unique @db.VarChar(100)
   channel      NotificationChannel
   subject      String?             @db.VarChar(500)
@@ -1051,7 +954,6 @@ enum NotificationEventType {
 // ─── User Groups ──────────────────────────────────────────────────────
 model UserGroup {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId    String?  @map("tenant_id") @db.Uuid
   name        String   @unique @db.VarChar(100)
   description String?  @db.VarChar(500)
   isActive    Boolean  @default(true) @map("is_active")
@@ -1067,7 +969,6 @@ model UserGroup {
 
 model UserGroupMember {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId  String?  @map("tenant_id") @db.Uuid
   groupId   String   @map("group_id") @db.Uuid
   userId    String   @map("user_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -1083,7 +984,6 @@ model UserGroupMember {
 // ─── Notification Rules ───────────────────────────────────────────────
 model NotificationRule {
   id          String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId    String?                 @map("tenant_id") @db.Uuid
   name        String                  @db.VarChar(200)
   description String?                 @db.VarChar(500)
   eventType   NotificationEventType   @map("event_type")
@@ -1119,7 +1019,6 @@ model NotificationRule {
 
 model NotificationRuleRecipient {
   id            String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId      String? @map("tenant_id") @db.Uuid
   ruleId        String  @map("rule_id") @db.Uuid
   recipientType String  @map("recipient_type") @db.VarChar(20) // ROLE | GROUP | USER
   roleValue     String? @map("role_value") @db.VarChar(50)

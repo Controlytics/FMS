@@ -160,7 +160,7 @@ export function RoleAccessPage() {
   });
 
   // ── Permissions tab state ──
-  const [permSelectedRole, setPermSelectedRole] = useState<string>('TENANT_ADMIN');
+  const [permSelectedRole, setPermSelectedRole] = useState<string>('ADMIN');
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
   const [permSaving, setPermSaving] = useState(false);
   const [permDirty, setPermDirty] = useState(false);
@@ -189,7 +189,7 @@ export function RoleAccessPage() {
 
   useEffect(() => {
     if (allRoles.length > 0 && !sidebarSelectedRole) {
-      const admin = allRoles.find(r => r.name === 'TENANT_ADMIN' || r.name === 'ADMIN');
+      const admin = allRoles.find(r => r.name === 'ADMIN' || r.name === 'ADMIN');
       setSidebarSelectedRole(admin?.name || allRoles[0].name);
     }
   }, [allRoles, sidebarSelectedRole]);

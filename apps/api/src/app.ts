@@ -12,7 +12,6 @@ import { registerSwagger } from './lib/swagger.js';
 import authPlugin from './plugins/auth.js';
 import auditLoggerPlugin from './plugins/audit-logger.js';
 import rbacPlugin from './plugins/rbac.js';
-import tenantPlugin from './plugins/tenant.js';
 import superAdminRoutes from "./modules/super-admin/routes.js";
 import ldapRoutes from "./modules/ldap/routes.js";
 import tenantAdminRoutes from "./modules/tenant-admin/routes.js";
@@ -111,7 +110,6 @@ await app.register(fastifyStatic, {
 await app.register(auditLoggerPlugin);
 await app.register(authPlugin);
 await app.register(rbacPlugin);
-await app.register(tenantPlugin);
 
 // Global error handler — maps AppError to HTTP responses
 app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
@@ -221,8 +219,8 @@ await app.register(notificationRulesRoutes, { prefix: '/api/notification-rules' 
 // Multi-tenant management routes
 await app.register(superAdminRoutes, { prefix: "/api/super-admin" });
 await app.register(ldapRoutes, { prefix: "/api/ldap" });
-await app.register(tenantAdminRoutes, { prefix: "/api/tenant" });
-await app.register(orgDetailRoutes, { prefix: "/api/tenant/organizations" });
+await app.register(tenantAdminRoutes, { prefix: "/api/organizations" });
+await app.register(orgDetailRoutes, { prefix: "/api/organizations" });
 await app.register(orgAdminRoutes, { prefix: "/api/org" });
 await app.register(entityAssignmentRoutes, { prefix: "/api/entity-assignments" });
 await app.register(dashboardRoutes, { prefix: "/api/dashboards" });

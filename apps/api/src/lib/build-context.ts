@@ -13,7 +13,6 @@ export function buildContext(req: FastifyRequest): RequestContext {
     ipAddress: req.ip,
     userAgent: req.headers['user-agent'],
     sessionId: req.user.sessionId,
-    tenantId: req.user.tenantId,
     organizationId: req.user.organizationId,
     scope: req.user.scope,
   };

@@ -7,12 +7,11 @@ import { useAuth } from "../../hooks/use-auth";
 interface Org {
   id: string; name: string; slug: string; description?: string;
   isActive: boolean; userCount: number; entityCount: number;
-  createdAt: string; tenant?: { name: string };
+  createdAt: string;
 }
 
 export default function OrganizationsPage() {
   const { user } = useAuth();
-  const isSuperAdmin = user?.role === "SUPER_ADMIN";
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: "", slug: "", description: "" });
@@ -23,12 +22,12 @@ export default function OrganizationsPage() {
   const navigate = useNavigate();
 
   const { data, mutate } = useSWR<{ data: Org[]; total: number }>(
-    `/api/tenant/organizations?page=1&limit=100${search ? `&search=${search}` : ""}`
+    `/api/organizations?page=1&limit=100${search ? `&search=${search}` : ""}`
   );
 
   const createOrg = async () => {
     try {
-      await api.post("/api/tenant/organizations", form);
+      await api.post("/api/organizations", form);
       setShowCreate(false);
       setForm({ name: "", slug: "", description: "" });
       mutate();
@@ -36,16 +35,16 @@ export default function OrganizationsPage() {
   };
 
   const toggleActive = async (id: string, isActive: boolean) => {
-    await api.put(`/api/tenant/organizations/${id}`, { isActive: !isActive });
+    await api.put(`/api/organizations/${id}`, { isActive: !isActive });
     mutate();
   };
 
   const deleteOrg = async (id: string, permanent: boolean) => {
     try {
       if (permanent) {
-        await api.delete(`/api/tenant/organizations/${id}?permanent=true`);
+        await api.delete(`/api/organizations/${id}?permanent=true`);
       } else {
-        await api.delete(`/api/tenant/organizations/${id}`);
+        await api.delete(`/api/organizations/${id}`);
       }
       setDeleteConfirm(null);
       mutate();
@@ -55,13 +54,13 @@ export default function OrganizationsPage() {
   const updateOrg = async () => {
     if (!editOrg) return;
     try {
-      await api.put(`/api/tenant/organizations/${editOrg.id}`, { name: editOrg.name, description: editOrg.description });
+      await api.put(`/api/organizations/${editOrg.id}`, { name: editOrg.name, description: editOrg.description });
       setEditOrg(null);
       mutate();
     } catch (e: any) { alert(e.message || "Failed to update"); }
   };
 
-  const allowed = ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN"].includes(user?.role || "");
+  const allowed = ["SUPER_ADMIN", "ADMIN"].includes(user?.role || "");
   if (!allowed) return <div className="p-6">Access denied</div>;
 
   const filteredOrgs = data?.data?.filter(o => {
@@ -183,7 +182,6 @@ export default function OrganizationsPage() {
           <thead>
             <tr className="bg-gradient-to-r from-slate-50 to-slate-100/50 border-b border-slate-200/60">
               <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Organization</th>
-              {isSuperAdmin && <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Tenant</th>}
               <th className="px-5 py-3.5 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Users</th>
               <th className="px-5 py-3.5 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Entities</th>
               <th className="px-5 py-3.5 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
@@ -192,7 +190,7 @@ export default function OrganizationsPage() {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {filteredOrgs.map(o => (
-              <tr key={o.id} className="hover:bg-slate-50/50 cursor-pointer transition-colors" onClick={() => navigate(`/tenant/organizations/${o.id}`)}>
+              <tr key={o.id} className="hover:bg-slate-50/50 cursor-pointer transition-colors" onClick={() => navigate(`/organizations/${o.id}`)}>
                 <td className="px-5 py-4">
                   <div className="flex items-center gap-3">
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm ${o.isActive ? "bg-gradient-to-br from-indigo-500 to-purple-600" : "bg-gradient-to-br from-slate-400 to-slate-500"}`}>

@@ -24,7 +24,7 @@ import { UserPagination } from './components/user-pagination';
 type PendingCount = { count: number };
 
 export function UserListPage({ orgId }: { orgId?: string } = {}) {
-  const apiBase = orgId ? `/api/tenant/organizations/${orgId}` : `/api`;
+  const apiBase = orgId ? `/api/organizations/${orgId}` : `/api`;
   const { user: currentUser } = useAuth();
   const reauth = useReauth();
   const { userLabels } = useFieldLabels();
@@ -64,7 +64,6 @@ export function UserListPage({ orgId }: { orgId?: string } = {}) {
     if (!rolesData) return [];
     const hiddenRoles: string[] = [];
     if (currentUser?.role !== 'SUPER_ADMIN') hiddenRoles.push('SUPER_ADMIN');
-    if (currentUser?.role !== 'SUPER_ADMIN' && currentUser?.role !== 'TENANT_ADMIN') hiddenRoles.push('TENANT_ADMIN');
     return rolesData.filter(r => !hiddenRoles.includes(r.name));
   }, [rolesData, currentUser?.role]);
 
@@ -81,14 +80,14 @@ export function UserListPage({ orgId }: { orgId?: string } = {}) {
   const policy = { ...DEFAULT_PASSWORD_POLICY, ...policyData };
 
   // Filter out SUPER_ADMIN users from the list for Admin users (only affects display, not server query)
-  const isTopAdmin = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'TENANT_ADMIN';
+  const isTopAdmin = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN';
   const data = rawData ? {
     ...rawData,
     data: rawData.data?.filter((u: any) => {
       if (currentUser?.role === 'SUPER_ADMIN') return true;
       if (u.role === 'SUPER_ADMIN') return false;
-      if (currentUser?.role === 'TENANT_ADMIN') return true;
-      if (u.role === 'TENANT_ADMIN') return false;
+      if (currentUser?.role === 'ADMIN') return true;
+      if (u.role === 'ADMIN') return false;
       return true;
     }),
   } : null;

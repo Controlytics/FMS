@@ -1,6 +1,5 @@
 import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
-import { getTenantId } from "../../lib/tenant-utils.js";
 
 /**
  * Organization Admin routes — ORG_ADMIN+ within their organization
@@ -11,7 +10,7 @@ export default async function orgAdminRoutes(app: FastifyInstance) {
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
     const role = req.user?.role;
     if (!role) return reply.code(401).send({ error: 'UNAUTHORIZED' });
-    if (role === 'SUPER_ADMIN' || role === 'TENANT_ADMIN' || role === 'ADMIN') return;
+    if (role === 'SUPER_ADMIN' || role === 'ADMIN') return;
     if (role !== 'ORG_ADMIN') {
       return reply.code(403).send({ error: 'FORBIDDEN', message: 'Organization Admin access required' });
     }
@@ -41,13 +40,12 @@ export default async function orgAdminRoutes(app: FastifyInstance) {
       },
     },
   }, async (req) => {
-    const tenantId = getTenantId(req);
     const orgId = getOrgId(req);
     const { page = 1, limit = 10, search } = req.query as any;
 
-    const where: any = { tenantId };
-    // TENANT_ADMIN sees all users in tenant; ORG_ADMIN sees only their org
-    if (!['SUPER_ADMIN', 'TENANT_ADMIN', 'ADMIN'].includes(req.user.role)) {
+    const where: any = {};
+    // ADMIN sees all users; ORG_ADMIN sees only their org
+    if (!['SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) {
       where.organizationId = orgId;
     }
     if (search) {
@@ -66,7 +64,7 @@ export default async function orgAdminRoutes(app: FastifyInstance) {
         select: {
           id: true, username: true, fullName: true, email: true,
           department: true, role: true, status: true, lastLogin: true,
-          organizationId: true, tenantId: true,
+          organizationId: true,
         },
         orderBy: { createdAt: 'desc' },
       }),
@@ -91,13 +89,12 @@ export default async function orgAdminRoutes(app: FastifyInstance) {
       },
     },
   }, async (req) => {
-    const tenantId = getTenantId(req);
     const orgId = getOrgId(req);
     const { page = 1, limit = 10, search } = req.query as any;
 
-    const where: any = { tenantId, isActive: true };
+    const where: any = { isActive: true };
     // ORG_ADMIN sees only their org's entities
-    if (!['SUPER_ADMIN', 'TENANT_ADMIN', 'ADMIN'].includes(req.user.role)) {
+    if (!['SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) {
       where.organizationId = orgId;
     }
     if (search) {
@@ -111,7 +108,7 @@ export default async function orgAdminRoutes(app: FastifyInstance) {
         take: limit,
         select: {
           id: true, name: true, description: true, status: true,
-          templateId: true, organizationId: true, tenantId: true,
+          templateId: true, organizationId: true,
           createdAt: true,
         },
         orderBy: { name: 'asc' },

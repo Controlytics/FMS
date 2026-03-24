@@ -143,7 +143,7 @@ export const authService = {
         await createNotification({
           type: 'ACCOUNT_LOCKED', title: 'Account Locked',
           message: `User ${user.fullName} (${user.username}) has been locked due to multiple failed login attempts.`,
-          targetUserId: user.username, forRole: 'TENANT_ADMIN',
+          targetUserId: user.username, forRole: 'ADMIN',
         });
         await createNotification({
           type: 'ACCOUNT_LOCKED', title: 'Your Account Has Been Locked',
@@ -225,7 +225,7 @@ export const authService = {
 
     const loginRole = await prisma.role.findFirst({ where: { name: user.role }, select: { scope: true } });
     const token = await signToken({
-      sub: user.id, username: user.username, role: user.role, sessionId: session.id, tenantId: user.tenantId || undefined, organizationId: user.organizationId || undefined, scope: loginRole?.scope || "TENANT",
+      sub: user.id, username: user.username, role: user.role, sessionId: session.id, organizationId: user.organizationId || undefined, scope: loginRole?.scope || "TENANT",
     }, sessionDurationHours);
 
     await authRepository.updateUser(user.id, { failedLoginAttempts: 0, lastLogin: new Date(), lockoutUntil: null });
@@ -418,7 +418,7 @@ export const authService = {
     await createNotification({
       type: 'PASSWORD_RESET_REQUEST', title: 'Password Reset Request',
       message: `User ${user.fullName} (${user.username}) has requested a password reset.`,
-      targetUserId: user.username, forRole: 'TENANT_ADMIN',
+      targetUserId: user.username, forRole: 'ADMIN',
     });
   },
 };

@@ -1,27 +1,21 @@
 import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
-import { getTenantId } from "../../lib/tenant-utils.js";
 
 /**
- * Tenant Admin routes — TENANT_ADMIN+ within their tenant
+ * Admin routes — ADMIN+ organization management
  * Prefix: /api/tenant
  */
 export default async function tenantAdminRoutes(app: FastifyInstance) {
-  // All routes require at least TENANT_ADMIN (or SUPER_ADMIN)
+  // All routes require at least ADMIN (or SUPER_ADMIN)
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
     const role = req.user?.role;
     if (!role) return reply.code(401).send({ error: 'UNAUTHORIZED' });
-    if (role === 'SUPER_ADMIN') return; // SUPER_ADMIN can access with X-Tenant-Id
-    if (!['TENANT_ADMIN', 'ADMIN'].includes(role)) {
-      return reply.code(403).send({ error: 'FORBIDDEN', message: 'Tenant Admin access required' });
-    }
-    if (!req.user?.tenantId) {
-      return reply.code(403).send({ error: 'FORBIDDEN', message: 'No tenant context' });
+    if (role === 'SUPER_ADMIN') return;
+    if (!['ADMIN'].includes(role)) {
+      return reply.code(403).send({ error: 'FORBIDDEN', message: 'Admin access required' });
     }
   });
-
-  // Helper: get effective tenantId (from JWT or X-Tenant-Id header for SUPER_ADMIN)
 
   // ═══════════════════════════════════════════════════════
   // ORGANIZATION MANAGEMENT
@@ -30,8 +24,8 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
   // ─── LIST ORGANIZATIONS ────────────────────────────────
   app.get('/organizations', {
     schema: {
-      tags: ['Tenant Admin'],
-      summary: 'List organizations in tenant',
+      tags: ['Admin'],
+      summary: 'List organizations',
       querystring: {
         type: 'object',
         properties: {
@@ -56,8 +50,7 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
         where,
         skip: (page - 1) * limit,
         take: limit,
-        orderBy: { name: "asc" },
-        include: { tenant: { select: { name: true } } },
+        orderBy: { name: 'asc' },
       }),
       prisma.organization.count({ where }),
     ]);
@@ -75,7 +68,7 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
   // ─── GET ORGANIZATION ──────────────────────────────────
   app.get('/organizations/:id', {
     schema: {
-      tags: ['Tenant Admin'],
+      tags: ['Admin'],
       summary: 'Get organization details',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
     },
@@ -92,7 +85,7 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
   // ─── CREATE ORGANIZATION ───────────────────────────────
   app.post('/organizations', {
     schema: {
-      tags: ['Tenant Admin'],
+      tags: ['Admin'],
       summary: 'Create organization',
       body: {
         type: 'object',
@@ -107,25 +100,14 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const tenantId = getTenantId(req);
-    if (!tenantId) return reply.code(400).send({ error: 'Tenant context required' });
-
     const body = req.body as any;
 
-    // Check tenant org limit
-    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
-    if (!tenant) return reply.code(404).send({ error: 'Tenant not found' });
-    const orgCount = await prisma.organization.count({ where: { tenantId } });
-    if (orgCount >= tenant.maxOrganizations) {
-      return reply.code(400).send({ error: 'ORG_LIMIT', message: `Organization limit (${tenant.maxOrganizations}) reached for this tenant` });
-    }
-
-    // Check slug uniqueness within tenant
-    const existing = await prisma.organization.findFirst({ where: { tenantId, slug: body.slug } });
-    if (existing) return reply.code(409).send({ error: 'CONFLICT', message: 'Organization slug already exists in this tenant' });
+    // Check slug uniqueness
+    const existing = await prisma.organization.findFirst({ where: { slug: body.slug } });
+    if (existing) return reply.code(409).send({ error: 'CONFLICT', message: 'Organization slug already exists' });
 
     const org = await prisma.organization.create({
-      data: { ...body, tenantId, createdBy: req.user.username },
+      data: { ...body, createdBy: req.user.username },
     });
 
     await auditLog({
@@ -142,7 +124,7 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
   // ─── UPDATE ORGANIZATION ───────────────────────────────
   app.put('/organizations/:id', {
     schema: {
-      tags: ['Tenant Admin'],
+      tags: ['Admin'],
       summary: 'Update organization',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
       body: {
@@ -179,7 +161,7 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
   // ─── DELETE ORGANIZATION ───────────────────────────────
   app.delete('/organizations/:id', {
     schema: {
-      tags: ['Tenant Admin'],
+      tags: ['Admin'],
       summary: 'Deactivate or delete organization',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
       querystring: { type: 'object', properties: { permanent: { type: 'string' } } },
@@ -248,33 +230,25 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
   });
 
   // ═══════════════════════════════════════════════════════
-  // TENANT INFO
+  // PLATFORM INFO
   // ═══════════════════════════════════════════════════════
 
-  // ─── GET MY TENANT ─────────────────────────────────────
+  // ─── GET PLATFORM INFO ─────────────────────────────────
   app.get('/info', {
     schema: {
-      tags: ['Tenant Admin'],
-      summary: 'Get current tenant info',
+      tags: ['Admin'],
+      summary: 'Get platform info',
     },
-  }, async (req, reply) => {
-    const tenantId = getTenantId(req);
-    if (!tenantId) return reply.code(400).send({ error: 'No tenant context' });
-
-    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
-    if (!tenant) return reply.code(404).send({ error: 'Tenant not found' });
-
+  }, async () => {
     const [userCount, orgCount, deviceCount, entityCount] = await Promise.all([
-      prisma.user.count({ where: { tenantId } }),
-      prisma.organization.count({ where: { tenantId, isActive: true } }),
-      prisma.deviceCredential.count({ where: { tenantId } }),
-      prisma.assetInstance.count({ where: { tenantId, isActive: true } }),
+      prisma.user.count(),
+      prisma.organization.count({ where: { isActive: true } }),
+      prisma.deviceCredential.count(),
+      prisma.assetInstance.count({ where: { isActive: true } }),
     ]);
 
     return {
-      ...tenant,
       usage: { users: userCount, organizations: orgCount, devices: deviceCount, entities: entityCount },
-      limits: { maxUsers: tenant.maxUsers, maxDevices: tenant.maxDevices, maxOrganizations: tenant.maxOrganizations },
     };
   });
 }

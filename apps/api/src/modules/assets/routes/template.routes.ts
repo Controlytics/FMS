@@ -74,24 +74,19 @@ export default async function templateRoutes(app: FastifyInstance) {
   }, async (req) => {
     const query = templateQuerySchema.parse(req.query);
 
-    // Inject tenant/assignment visibility filter for templates
+    // Inject assignment visibility filter for templates
     const role = req.user?.role;
-    const tenantId = req.user?.tenantId;
     const orgId = req.user?.organizationId;
     const userId = req.user?.sub;
 
     let visibilityFilter: Record<string, unknown> | undefined;
 
-    if (role === "SUPER_ADMIN") {
+    if (role === "SUPER_ADMIN" || role === "ADMIN") {
       // No filter
-    } else if (role === "TENANT_ADMIN" || role === "ADMIN") {
-      visibilityFilter = { tenantId };
     } else {
-      // Org-scoped users: only see assigned templates
       const { prisma } = await import("../../../lib/prisma.js");
       const templateAssignments = await prisma.templateAssignment.findMany({
         where: {
-          ...(tenantId ? { tenantId } : {}),
           OR: [
             { assigneeType: "ORGANIZATION", organizationId: orgId },
             { assigneeType: "USER", userId },
@@ -105,11 +100,9 @@ export default async function templateRoutes(app: FastifyInstance) {
         return { data: [], total: 0, page: query.page, limit: query.limit ?? 0, totalPages: 0 };
       }
       visibilityFilter = {
-        ...(tenantId ? { tenantId } : {}),
         id: { in: assignedIds },
       };
     }
-
     return templateService.list(query, visibilityFilter);
   });
 
