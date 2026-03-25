@@ -146,6 +146,21 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/notifications" element={<NotificationsPage />} />
 
             {/* Audit trail */}
+
+            {/* Phase 2: Digital Filter Management System */}
+            <Route path="/filter-cleaning-profiles" element={<Suspense fallback={<LazyFallback />}><CleaningProfileListPage /></Suspense>} />
+            <Route path="/filter-cleaning-profiles/:id/edit" element={<Suspense fallback={<LazyFallback />}><CleaningProfileEditorPage2 /></Suspense>} />
+            <Route path="/filter-profiles" element={<Suspense fallback={<LazyFallback />}><FilterProfileListPage /></Suspense>} />
+            <Route path="/filters/:id/operate" element={<Suspense fallback={<LazyFallback />}><FilterOperationsPage /></Suspense>} />
+            <Route path="/filters/:id/trace" element={<Suspense fallback={<LazyFallback />}><FilterTraceabilityPage /></Suspense>} />
+            <Route path="/cleaning-cycles" element={<Suspense fallback={<LazyFallback />}><CleaningCycleHistoryPage /></Suspense>} />
+            <Route path="/cleaning-cycles/:id" element={<Suspense fallback={<LazyFallback />}><CleaningCycleTimelinePage /></Suspense>} />
+            <Route path="/config/filter-lifecycle" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><LifecycleStateConfigPage /></Suspense></RequireRole>} />
+            <Route path="/config/filter-cleaning-reasons" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><CleaningReasonsConfigPage /></Suspense></RequireRole>} />
+            <Route path="/pm-schedules" element={<Suspense fallback={<LazyFallback />}><PmScheduleListPage /></Suspense>} />
+            <Route path="/pm-schedules/:entityId" element={<Suspense fallback={<LazyFallback />}><PmScheduleDetailPage /></Suspense>} />
+            <Route path="/ahus/:id" element={<Suspense fallback={<LazyFallback />}><AhuDashboardPage /></Suspense>} />
+
             <Route path="/audit" element={<AuditTrailPage />} />
 
           </Route>
