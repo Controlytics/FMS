@@ -17,14 +17,16 @@ const STAGE_CONFIG: Record<string, { icon: string; color: string; bgColor: strin
   RETIRED:        { icon: '🚫', color: 'text-red-400',    bgColor: 'bg-red-950/40',    borderColor: 'border-red-800' },
 };
 
-const PIPELINE_STAGES = ['TO_BE_CLEANED', 'WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'READY_FOR_USE'];
+// Pipeline stages come from API: state.pipelineStages
 
-function getStageStatus(stage: string, currentState: string | null, completedStages: string[]): 'completed' | 'current' | 'upcoming' | 'locked' {
+function getStageStatus(stage: string, currentState: string | null, completedStages: string[], allStages: string[]): 'completed' | 'current' | 'upcoming' | 'locked' {
   if (completedStages.includes(stage)) return 'completed';
   if (stage === currentState) return 'current';
-  const currentIdx = PIPELINE_STAGES.indexOf(currentState ?? '');
-  const stageIdx = PIPELINE_STAGES.indexOf(stage);
+  const currentIdx = allStages.indexOf(currentState ?? '');
+  const stageIdx = allStages.indexOf(stage);
   if (currentIdx >= 0 && stageIdx === currentIdx + 1) return 'upcoming';
+  // If no current state in pipeline (e.g. INSTALLED), first stage is upcoming
+  if (currentIdx < 0 && stageIdx === 0) return 'upcoming';
   return 'locked';
 }
 
@@ -154,8 +156,9 @@ export function FilterOperationsPage() {
         <div className="space-y-3">
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Cleaning Pipeline</h2>
 
-          {PIPELINE_STAGES.map((stage, idx) => {
-            const status = getStageStatus(stage, state.currentState, completedStages);
+          {(state.pipelineStages ?? []).map((ps: any, idx: number) => ps.stateKey).map((stage: string, idx: number) => {
+            const allStages = (state.pipelineStages ?? []).map((ps: any) => ps.stateKey);
+            const status = getStageStatus(stage, state.currentState, completedStages, allStages);
             const config = STAGE_CONFIG[stage] ?? { icon: '⬜', color: 'text-gray-300', bgColor: 'bg-gray-800', borderColor: 'border-gray-600' };
             const isNext = status === 'upcoming';
             const event = (events?.data ?? []).find((e: any) => e.toState === stage && e.eventType === 'STATE_TRANSITION');

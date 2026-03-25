@@ -60,6 +60,23 @@ export class FilterOperationsService {
 
     const totalCycles = await prisma.cleaningCycle.count({ where: { filterId } });
 
+    // Fetch full pipeline stages
+    let pipelineStages: any[] = [];
+    if (filter.filterProfileId) {
+      const fpx = await prisma.filterProfile.findUnique({ where: { id: filter.filterProfileId } });
+      if (fpx) {
+        const cpx = await prisma.filterCleaningProfile.findUnique({
+          where: { id: fpx.cleaningProfileId },
+          include: { stages: { orderBy: { sortOrder: "asc" } } },
+        });
+        if (cpx) {
+          pipelineStages = cpx.stages
+            .filter(s => s.nodeType === "STAGE")
+            .map(s => ({ stateKey: s.stateKey, nodeType: s.nodeType, sortOrder: s.sortOrder, configuration: s.configuration }));
+        }
+      }
+    }
+
     return {
       filterId: filter.id,
       filterName: filter.name,
@@ -67,6 +84,7 @@ export class FilterOperationsService {
       currentCycle,
       nextAllowedStages,
       nextBlocks,
+      pipelineStages,
       profile,
       filterSet: filter.filterSet,
       totalCycles,
