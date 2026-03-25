@@ -3,17 +3,13 @@ import useSWR from 'swr';
 import { useNavigate } from 'react-router-dom';
 
 const ALL_STAGES = [
-  { key: 'INSTALLED', label: 'Installed', icon: '📦', color: 'from-blue-800 to-blue-900', border: 'border-blue-600', activeBg: 'bg-blue-900/40' },
-  { key: 'TO_BE_CLEANED', label: 'To Be Cleaned', icon: '🔴', color: 'from-red-800 to-red-900', border: 'border-red-600', activeBg: 'bg-red-900/40' },
-  { key: 'WASH_IN', label: 'Wash In', icon: '🚿', color: 'from-sky-800 to-sky-900', border: 'border-sky-600', activeBg: 'bg-sky-900/40' },
-  { key: 'WASH_OUT', label: 'Wash Out', icon: '💧', color: 'from-sky-800 to-sky-950', border: 'border-sky-500', activeBg: 'bg-sky-900/40' },
-  { key: 'DRY_IN', label: 'Dry In', icon: '🌡️', color: 'from-amber-800 to-amber-900', border: 'border-amber-600', activeBg: 'bg-amber-900/40' },
-  { key: 'DRY_OUT', label: 'Dry Out', icon: '☀️', color: 'from-amber-800 to-amber-950', border: 'border-amber-500', activeBg: 'bg-amber-900/40' },
-  { key: 'STORAGE_IN', label: 'Storage In', icon: '📥', color: 'from-gray-700 to-gray-800', border: 'border-gray-500', activeBg: 'bg-gray-800/40' },
-  { key: 'STORAGE_OUT', label: 'Storage Out', icon: '📤', color: 'from-gray-700 to-gray-900', border: 'border-gray-400', activeBg: 'bg-gray-800/40' },
-  { key: 'READY_FOR_USE', label: 'Ready for Use', icon: '✅', color: 'from-green-800 to-green-900', border: 'border-green-600', activeBg: 'bg-green-900/40' },
-  { key: 'IN_USE', label: 'In Use', icon: '⚡', color: 'from-emerald-800 to-emerald-900', border: 'border-emerald-600', activeBg: 'bg-emerald-900/40' },
-  { key: 'RETIRED', label: 'Retired', icon: '🚫', color: 'from-red-900 to-red-950', border: 'border-red-800', activeBg: 'bg-red-950/40' },
+  { key: "TO_BE_CLEANED", label: "To Be Cleaned", icon: "🔴", color: "from-red-800 to-red-900", border: "border-red-600", activeBg: "bg-red-900/40" },
+  { key: "WASH_IN", label: "Wash In", icon: "🚿", color: "from-sky-800 to-sky-900", border: "border-sky-600", activeBg: "bg-sky-900/40" },
+  { key: "WASH_OUT", label: "Wash Out", icon: "💧", color: "from-sky-800 to-sky-950", border: "border-sky-500", activeBg: "bg-sky-900/40" },
+  { key: "DRY_IN", label: "Dry In", icon: "🌡️", color: "from-amber-800 to-amber-900", border: "border-amber-600", activeBg: "bg-amber-900/40" },
+  { key: "DRY_OUT", label: "Dry Out", icon: "☀️", color: "from-amber-800 to-amber-950", border: "border-amber-500", activeBg: "bg-amber-900/40" },
+  { key: "STORAGE_IN", label: "Storage In", icon: "📥", color: "from-gray-700 to-gray-800", border: "border-gray-500", activeBg: "bg-gray-800/40" },
+  { key: "STORAGE_OUT", label: "Storage Out", icon: "📤", color: "from-gray-700 to-gray-900", border: "border-gray-400", activeBg: "bg-gray-800/40" },
 ];
 
 export function FilterStatusPage() {
