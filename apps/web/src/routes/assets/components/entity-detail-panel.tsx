@@ -697,24 +697,38 @@ export function AssetDetailPanel({
                         <button
                           className="text-cyan-400 hover:text-cyan-300 transition-colors px-2 py-1 text-xs border border-cyan-800 rounded flex items-center gap-1"
                           onClick={() => {
-                            const w = window.open("", "_blank", "width=420,height=550");
-                            if (!w) return;
                             const val = ident.identifierValue;
                             const name = asset.name;
                             const type = ident.identifierType;
                             const label = ident.label || "";
-                            w.document.write('<html><head><title>QR - ' + name + '</title>');
-                            w.document.write('<style>body{text-align:center;font-family:sans-serif;padding:40px;background:#0f172a;color:white}.qr-box{background:white;display:inline-block;padding:24px;border-radius:12px;margin:20px 0}.name{font-size:20px;font-weight:bold;margin:12px 0 4px}.val{font-size:28px;font-family:monospace;color:#22d3ee;margin:8px 0}.type{font-size:12px;color:#94a3b8}button{margin:8px;padding:10px 24px;border:none;border-radius:8px;cursor:pointer;font-size:14px}.print-btn{background:#0891b2;color:white}.close-btn{background:#374151;color:#d1d5db}@media print{body{background:white;color:black}.val{color:#0891b2}button{display:none}}</style>');
-                            w.document.write('<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></' + 'script>');
-                            w.document.write('</head><body>');
-                            w.document.write('<div class="qr-box"><canvas id="qr"></canvas></div>');
-                            w.document.write('<div class="name">' + name + '</div>');
-                            w.document.write('<div class="val">' + val + '</div>');
-                            w.document.write('<div class="type">' + type + (label ? ' | ' + label : '') + '</div><br/>');
-                            w.document.write('<button class="print-btn" onclick="window.print()">Print</button>');
-                            w.document.write('<button class="close-btn" onclick="window.close()">Close</button>');
-                            w.document.write('<script>QRCode.toCanvas(document.getElementById("qr"),"' + val + '",{width:200,margin:2})</' + 'script>');
-                            w.document.write('</body></html>');
+                            const qrImgUrl = "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=" + encodeURIComponent(val);
+                            const w = window.open("", "_blank", "width=420,height=600");
+                            if (!w) return;
+                            w.document.write(`<!DOCTYPE html><html><head><title>QR - ${name}</title>
+                            <style>
+                              body{text-align:center;font-family:Arial,sans-serif;padding:30px;background:#0f172a;color:white;margin:0}
+                              .qr-box{background:white;display:inline-block;padding:24px;border-radius:12px;margin:20px 0}
+                              .qr-box img{display:block}
+                              .name{font-size:20px;font-weight:bold;margin:16px 0 4px}
+                              .val{font-size:28px;font-family:monospace;color:#22d3ee;margin:8px 0 4px}
+                              .type{font-size:13px;color:#94a3b8;margin-bottom:20px}
+                              .btns{display:flex;gap:10px;justify-content:center}
+                              button{padding:10px 28px;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600}
+                              .print-btn{background:#0891b2;color:white}
+                              .print-btn:hover{background:#06b6d4}
+                              .close-btn{background:#374151;color:#d1d5db}
+                              .close-btn:hover{background:#4b5563}
+                              @media print{body{background:white;color:black;padding:20px}.val{color:#0891b2}.btns{display:none}}
+                            </style></head><body>
+                            <div class="qr-box"><img src="${qrImgUrl}" width="200" height="200" alt="QR Code"/></div>
+                            <div class="name">${name}</div>
+                            <div class="val">${val}</div>
+                            <div class="type">${type}${label ? " | " + label : ""}</div>
+                            <div class="btns">
+                              <button class="print-btn" onclick="window.print()">Print Label</button>
+                              <button class="close-btn" onclick="window.close()">Close</button>
+                            </div>
+                            </body></html>`);
                             w.document.close();
                           }}
                           title="View & Print QR Code"
