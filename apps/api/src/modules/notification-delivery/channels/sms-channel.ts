@@ -62,19 +62,44 @@ async function sendViaAwsSns(config: SmsConfig, to: string, message: string): Pr
     return { success: false, error: 'AWS SNS credentials not configured' };
   }
 
-  const { execSync } = await import('child_process');
+  // Use child_process.spawn (non-blocking) instead of execSync
+  const { spawn } = await import('child_process');
+  
+  return new Promise<DeliveryResult>((resolve) => {
+    const env = {
+      ...process.env,
+      AWS_ACCESS_KEY_ID: awsAccessKeyId,
+      AWS_SECRET_ACCESS_KEY: awsSecretAccessKey,
+    };
 
-  // Escape single quotes in the message for shell safety
-  const safeMessage = message.replace(/'/g, "'\''");
-  const cmd = `AWS_ACCESS_KEY_ID='${awsAccessKeyId}' AWS_SECRET_ACCESS_KEY='${awsSecretAccessKey}' aws sns publish --region '${awsRegion}' --phone-number '${to}' --message '${safeMessage}'`;
+    const child = spawn('aws', [
+      'sns', 'publish',
+      '--region', awsRegion,
+      '--phone-number', to,
+      '--message', message,
+      '--output', 'json',
+    ], { env, timeout: 15000 });
 
-  try {
-    const result = execSync(cmd, { timeout: 15000, encoding: 'utf-8' });
-    const parsed = JSON.parse(result);
-    return { success: true, messageId: parsed.MessageId ?? `aws-${Date.now()}` };
-  } catch (err: any) {
-    return { success: false, error: `AWS SNS error: ${err.stderr ?? err.message}`.substring(0, 300) };
-  }
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+    child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+    child.on('close', (code: number | null) => {
+      if (code === 0) {
+        try {
+          const parsed = JSON.parse(stdout);
+          resolve({ success: true, messageId: parsed.MessageId ?? 'aws-' + Date.now() });
+        } catch {
+          resolve({ success: true, messageId: 'aws-' + Date.now() });
+        }
+      } else {
+        resolve({ success: false, error: ('AWS SNS error: ' + stderr).substring(0, 300) });
+      }
+    });
+    child.on('error', (err: Error) => {
+      resolve({ success: false, error: ('AWS SNS error: ' + err.message).substring(0, 300) });
+    });
+  });
 }
 
 async function sendViaVonage(config: SmsConfig, to: string, message: string): Promise<DeliveryResult> {

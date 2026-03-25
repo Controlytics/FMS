@@ -23,6 +23,7 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/alarm-columns.def.js'),
     import('../modules/config/defs/notification-email.def.js'),
     import('../modules/config/defs/notification-sms.def.js'),
+import('../modules/config/defs/notification-telegram.def.js'),    import('../modules/config/defs/notification-slack.def.js'),
     import('../modules/config/defs/notification-rules.def.js'),
     import('../modules/config/defs/notification-logs.def.js'),
     import('../modules/config/defs/backup.def.js'),

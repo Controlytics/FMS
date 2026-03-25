@@ -6,12 +6,15 @@
 import { prisma } from '../../lib/prisma.js';
 import { emailChannel } from './channels/email-channel.js';
 import { smsChannel } from './channels/sms-channel.js';
+import { telegramChannel } from './channels/telegram-channel.js';import { slackChannel } from './channels/slack-channel.js';
 import { resolveTemplate } from './template-engine.js';
 import type { NotificationPayload, DeliveryResult, NotificationChannel } from './types.js';
 
 const channels: Record<string, NotificationChannel> = {
   EMAIL: emailChannel,
   SMS: smsChannel,
+  TELEGRAM: telegramChannel,
+  SLACK: slackChannel,
 };
 
 const MAX_RETRIES = 3;
@@ -155,7 +158,7 @@ export async function sendBulkNotification(
 /**
  * Test a notification channel connection/configuration.
  */
-export async function testChannel(channelName: 'EMAIL' | 'SMS'): Promise<DeliveryResult> {
+export async function testChannel(channelName: 'EMAIL' | 'SMS' | 'TELEGRAM' | 'SLACK'): Promise<DeliveryResult> {
   const channel = channels[channelName];
   if (!channel) return { success: false, error: `Unknown channel: ${channelName}` };
   return channel.testConnection();
@@ -165,7 +168,7 @@ export async function testChannel(channelName: 'EMAIL' | 'SMS'): Promise<Deliver
  * Send a test notification to verify end-to-end delivery.
  */
 export async function sendTestNotification(
-  channelName: 'EMAIL' | 'SMS',
+  channelName: 'EMAIL' | 'SMS' | 'TELEGRAM' | 'SLACK' | 'TELEGRAM' | 'SLACK',
   recipient: string,
 ): Promise<DeliveryResult> {
   return sendNotification({

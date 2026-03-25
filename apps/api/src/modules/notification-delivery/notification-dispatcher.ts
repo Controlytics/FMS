@@ -164,6 +164,37 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
         }
       }
 
+      // Telegram
+      if ((rule as any).telegramEnabled) {
+        const userTgConfig = await prisma.systemConfig.findUnique({ where: { configKey: `user-telegram-${user.id}` } });
+        const chatId = (userTgConfig?.configValue as any)?.chatId;
+        if (chatId) {
+          const body = resolveTemplate(smsTemplate?.bodyTemplate ?? getDefaultInAppMessage(eventType), userVars);
+          sendNotification({
+            channel: 'TELEGRAM',
+            recipient: chatId,
+            subject: resolveTemplate(emailTemplate?.subject ?? variables.eventLabel ?? eventType, userVars),
+            message: body,
+            triggeredBy: 'notification-rule',
+            ruleChainId: rule.id,
+            metadata: { ruleName: rule.name, eventType, userId: user.id },
+          }).catch(err => console.error(`[Dispatcher] Telegram to ${chatId} failed:`, err.message));
+        }
+      }
+
+      // Slack
+      if ((rule as any).slackEnabled) {
+        const body = resolveTemplate(smsTemplate?.bodyTemplate ?? getDefaultInAppMessage(eventType), userVars);
+        sendNotification({
+          channel: 'SLACK',
+          recipient: '',
+          subject: resolveTemplate(emailTemplate?.subject ?? variables.eventLabel ?? eventType, userVars),
+          message: body,
+          triggeredBy: 'notification-rule',
+          ruleChainId: rule.id,
+          metadata: { ruleName: rule.name, eventType, userId: user.id },
+        }).catch(err => console.error(`[Dispatcher] Slack failed:`, err.message));
+      }
       // In-App
       if (rule.inAppEnabled) {
         const message = resolveTemplate(
