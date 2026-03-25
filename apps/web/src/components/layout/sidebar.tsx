@@ -134,6 +134,41 @@ const allNavItems: NavItem[] = [
     ),
     defaultRoles: ['SUPER_ADMIN', 'ADMIN'],
   },
+  {
+    id: "filter-operations",
+    label: "Filter Operations",
+    href: "/filters",
+    icon: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" /></svg>),
+    defaultRoles: ["SUPER_ADMIN", "ADMIN", "ORG_ADMIN", "SUPERVISOR", "MAINTENANCE", "OPERATOR"],
+  },
+  {
+    id: "cleaning-cycles",
+    label: "Cleaning Cycles",
+    href: "/cleaning-cycles",
+    icon: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>),
+    defaultRoles: ["SUPER_ADMIN", "ADMIN", "ORG_ADMIN", "SUPERVISOR"],
+  },
+  {
+    id: "cleaning-profiles",
+    label: "Cleaning Profiles",
+    href: "/filter-cleaning-profiles",
+    icon: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>),
+    defaultRoles: ["SUPER_ADMIN", "ADMIN", "ORG_ADMIN"],
+  },
+  {
+    id: "filter-profiles",
+    label: "Filter Profiles",
+    href: "/filter-profiles",
+    icon: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>),
+    defaultRoles: ["SUPER_ADMIN", "ADMIN", "ORG_ADMIN"],
+  },
+  {
+    id: "pm-schedules",
+    label: "PM Schedules",
+    href: "/pm-schedules",
+    icon: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>),
+    defaultRoles: ["SUPER_ADMIN", "ADMIN", "ORG_ADMIN", "SUPERVISOR"],
+  },
 ];
 
 interface SidebarProps {
