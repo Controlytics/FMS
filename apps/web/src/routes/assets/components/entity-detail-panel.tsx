@@ -604,7 +604,7 @@ export function AssetDetailPanel({
                   <TableHead>Type</TableHead>
                   <TableHead>Direction</TableHead>
                   <TableHead>Related Entity</TableHead>
-                  <TableHead className="w-16">Remove</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -693,15 +693,45 @@ export function AssetDetailPanel({
                       )}
                     </TableCell>
                     <TableCell>
-                      <button
-                        className="text-slate-400 hover:text-red-500 transition-colors p-1"
-                        onClick={() => onDeleteIdentifier(ident.id)}
-                        title="Remove identifier"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          className="text-cyan-400 hover:text-cyan-300 transition-colors px-2 py-1 text-xs border border-cyan-800 rounded flex items-center gap-1"
+                          onClick={() => {
+                            const w = window.open("", "_blank", "width=420,height=550");
+                            if (!w) return;
+                            const val = ident.identifierValue;
+                            const name = asset.name;
+                            const type = ident.identifierType;
+                            const label = ident.label || "";
+                            w.document.write('<html><head><title>QR - ' + name + '</title>');
+                            w.document.write('<style>body{text-align:center;font-family:sans-serif;padding:40px;background:#0f172a;color:white}.qr-box{background:white;display:inline-block;padding:24px;border-radius:12px;margin:20px 0}.name{font-size:20px;font-weight:bold;margin:12px 0 4px}.val{font-size:28px;font-family:monospace;color:#22d3ee;margin:8px 0}.type{font-size:12px;color:#94a3b8}button{margin:8px;padding:10px 24px;border:none;border-radius:8px;cursor:pointer;font-size:14px}.print-btn{background:#0891b2;color:white}.close-btn{background:#374151;color:#d1d5db}@media print{body{background:white;color:black}.val{color:#0891b2}button{display:none}}</style>');
+                            w.document.write('<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></' + 'script>');
+                            w.document.write('</head><body>');
+                            w.document.write('<div class="qr-box"><canvas id="qr"></canvas></div>');
+                            w.document.write('<div class="name">' + name + '</div>');
+                            w.document.write('<div class="val">' + val + '</div>');
+                            w.document.write('<div class="type">' + type + (label ? ' | ' + label : '') + '</div><br/>');
+                            w.document.write('<button class="print-btn" onclick="window.print()">Print</button>');
+                            w.document.write('<button class="close-btn" onclick="window.close()">Close</button>');
+                            w.document.write('<script>QRCode.toCanvas(document.getElementById("qr"),"' + val + '",{width:200,margin:2})</' + 'script>');
+                            w.document.write('</body></html>');
+                            w.document.close();
+                          }}
+                          title="View & Print QR Code"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" strokeWidth={2} /><rect x="14" y="3" width="7" height="7" rx="1" strokeWidth={2} /><rect x="3" y="14" width="7" height="7" rx="1" strokeWidth={2} /><circle cx="17.5" cy="17.5" r="3.5" strokeWidth={2} /></svg>
+                          View QR
+                        </button>
+                        <button
+                          className="text-slate-400 hover:text-red-500 transition-colors p-1"
+                          onClick={() => onDeleteIdentifier(ident.id)}
+                          title="Remove identifier"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
