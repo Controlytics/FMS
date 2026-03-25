@@ -56,6 +56,20 @@ const NotificationLogsPage = lazy(() => import('./routes/config/notification-set
 const OrganizationsPage = lazy(() => import("./routes/tenant/organizations"));
 const OrgDetailPage = lazy(() => import("./routes/tenant/org-detail"));
 
+// Phase 2: Digital Filter Management System
+const CleaningProfileListPage = lazy(() => import("./routes/filter-management/cleaning-profile-list").then(m => ({ default: m.CleaningProfileListPage })));
+const FilterProfileListPage = lazy(() => import("./routes/filter-management/filter-profile-list").then(m => ({ default: m.FilterProfileListPage })));
+const FilterOperationsPage = lazy(() => import("./routes/filter-management/filter-operations").then(m => ({ default: m.FilterOperationsPage })));
+const CleaningCycleHistoryPage = lazy(() => import("./routes/cleaning-cycles/history").then(m => ({ default: m.CleaningCycleHistoryPage })));
+const CleaningCycleTimelinePage = lazy(() => import("./routes/cleaning-cycles/timeline").then(m => ({ default: m.CleaningCycleTimelinePage })));
+const LifecycleStateConfigPage = lazy(() => import("./routes/config/filter-lifecycle").then(m => ({ default: m.LifecycleStateConfigPage })));
+const CleaningReasonsConfigPage = lazy(() => import("./routes/config/filter-cleaning-reasons").then(m => ({ default: m.CleaningReasonsConfigPage })));
+const PmScheduleListPage = lazy(() => import("./routes/pm-schedules/index").then(m => ({ default: m.PmScheduleListPage })));
+const PmScheduleDetailPage = lazy(() => import("./routes/pm-schedules/detail").then(m => ({ default: m.PmScheduleDetailPage })));
+const AhuDashboardPage = lazy(() => import("./routes/filter-management/ahu-dashboard").then(m => ({ default: m.AhuDashboardPage })));
+const FilterTraceabilityPage = lazy(() => import("./routes/filter-management/filter-traceability").then(m => ({ default: m.FilterTraceabilityPage })));
+const CleaningProfileEditorPage2 = lazy(() => import("./routes/filter-management/cleaning-profile-editor").then(m => ({ default: m.CleaningProfileEditorPage })));
+
 function LazyFallback() {
   return (
     <div className="flex items-center justify-center h-64">
@@ -160,7 +174,6 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/pm-schedules" element={<Suspense fallback={<LazyFallback />}><PmScheduleListPage /></Suspense>} />
             <Route path="/pm-schedules/:entityId" element={<Suspense fallback={<LazyFallback />}><PmScheduleDetailPage /></Suspense>} />
             <Route path="/ahus/:id" element={<Suspense fallback={<LazyFallback />}><AhuDashboardPage /></Suspense>} />
-
             <Route path="/audit" element={<AuditTrailPage />} />
 
           </Route>
