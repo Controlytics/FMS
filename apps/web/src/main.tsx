@@ -68,7 +68,6 @@ const PmScheduleListPage = lazy(() => import("./routes/pm-schedules/index").then
 const PmScheduleDetailPage = lazy(() => import("./routes/pm-schedules/detail").then(m => ({ default: m.PmScheduleDetailPage })));
 const AhuDashboardPage = lazy(() => import("./routes/filter-management/ahu-dashboard").then(m => ({ default: m.AhuDashboardPage })));
 const FilterTraceabilityPage = lazy(() => import("./routes/filter-management/filter-traceability").then(m => ({ default: m.FilterTraceabilityPage })));
-const FilterScanPage = lazy(() => import("./routes/filter-management/filter-scan").then(m => ({ default: m.FilterScanPage })));
 const CleaningProfileEditorPage2 = lazy(() => import("./routes/filter-management/cleaning-profile-editor").then(m => ({ default: m.CleaningProfileEditorPage })));
 
 function LazyFallback() {
@@ -163,8 +162,7 @@ createRoot(document.getElementById('root')!).render(
             {/* Audit trail */}
 
             {/* Phase 2: Digital Filter Management System */}
-            <Route path="/filters" element={<Suspense fallback={<LazyFallback />}><FilterScanPage /></Suspense>} />
-            <Route path="/filter-scan" element={<Suspense fallback={<LazyFallback />}><FilterScanPage /></Suspense>} />
+            <Route path="/filters" element={<Suspense fallback={<LazyFallback />}><FilterOperationsPage /></Suspense>} />
             <Route path="/filter-cleaning-profiles" element={<Suspense fallback={<LazyFallback />}><CleaningProfileListPage /></Suspense>} />
             <Route path="/filter-cleaning-profiles/:id/edit" element={<Suspense fallback={<LazyFallback />}><CleaningProfileEditorPage2 /></Suspense>} />
             <Route path="/filter-profiles" element={<Suspense fallback={<LazyFallback />}><FilterProfileListPage /></Suspense>} />
