@@ -37,3 +37,25 @@ npx vite build   # Output to dist/
 - Rule chain editor with 77 node types
 - Alarm dashboard with real-time updates
 - Mobile-optimized checklist at `/checklist/:entityId`
+
+## Phase 2 Pages
+- `routes/filter-management/filter-operations.tsx` — Main operations page (8 stages, scan, checklist dialog, reason selection)
+- `routes/filter-management/cleaning-profile-editor.tsx` — Visual pipeline editor (canvas, drag, wire, properties panel)
+- `routes/filter-management/cleaning-profile-list.tsx` — Profile list with status badges
+- `routes/filter-management/filter-profile-list.tsx` — Filter profile management
+- `routes/filter-management/ahu-dashboard.tsx` — AHU filter set view
+- `routes/filter-management/filter-traceability.tsx` — Per-filter history
+- `routes/cleaning-cycles/history.tsx` — Expandable cycle history
+- `routes/cleaning-cycles/timeline.tsx` — Cycle event timeline with performer names
+- `routes/checklists/list.tsx` — Checklist profile list
+- `routes/checklists/detail.tsx` — Checklist detail with questions
+- `routes/pm-schedules/` — PM schedule pages
+- `routes/config/filter-lifecycle.tsx` — Lifecycle state config
+- `routes/config/filter-cleaning-reasons.tsx` — Cleaning reasons config
+
+### Phase 2 Patterns
+- All routes wrapped in `<RequireRole permissions={[PERMISSIONS.ASSET_READ]}>`
+- SWR for data fetching with refresh intervals
+- Toast notifications for success/error (not alert())
+- Checklist dialog: no skip, no backdrop dismiss, mandatory submission
+

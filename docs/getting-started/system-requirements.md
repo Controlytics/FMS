@@ -33,3 +33,8 @@
 ## Browser Support
 - Chrome 90+, Firefox 90+, Safari 15+, Edge 90+
 - Mobile: iOS Safari 15+, Android Chrome 90+
+
+
+---
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.

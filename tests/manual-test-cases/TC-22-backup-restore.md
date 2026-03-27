@@ -194,3 +194,7 @@
   2. Verify response status is 400
   3. Verify error is "NO_FILE"
 - **Expected Result**: 400 Bad Request — "No backup file uploaded"
+
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+

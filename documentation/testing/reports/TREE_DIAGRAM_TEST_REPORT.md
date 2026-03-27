@@ -302,3 +302,8 @@ Tests the API endpoints used by the frontend configuration pages.
 ## Conclusion
 
 The Tree Diagram features (Sections 1-7) are fully functional with proper validation, error handling, and edge case coverage. The system correctly enforces relationship constraints, prevents cycles, and supports bidirectional auto-inverse relationships. Template Linking Rules (Sections 8-11) were subsequently removed on 2026-02-20 — any asset can now link to any other asset with any relationship type.
+
+
+---
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.

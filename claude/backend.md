@@ -862,3 +862,33 @@ The backend follows a layered architecture with API Gateway/Routes, Middleware L
 *Last Updated: 2026-03-07*
 *Compliance Standard: 21 CFR Part 11*
 *Status: All features COMPLETE — 145+ API endpoints, 30 Prisma models, 7 TimescaleDB hypertables, 1,344 tests (0 failures)*
+
+
+## Phase 2 Backend Modules
+
+### filter-operations (Prefix: /api/filters)
+Core module for filter cleaning lifecycle management.
+- `filter-operations.service.ts` — getCurrentState, startCycle, advance, bypass, submitChecklist, getCycles, getCycleById, getEvents, getCleaningReasons
+- `routes.ts` — REST endpoints for cycle management
+- `events-routes.ts` — REST endpoints for events, cycles, reasons queries
+- Organization scoping via `orgWhere(ctx)` on all queries
+- Transaction wrapping for startCycle (race condition prevention)
+- Server-side checklist enforcement in advance()
+
+### cleaning-profiles (Prefix: /api/filter-cleaning-profiles)
+- Pipeline profile CRUD with versioning (archive old, create new version)
+- Pipeline validation: START/END nodes, stage keys, checklist profiles, graph connectivity
+- Transaction wrapping for update operations
+
+### checklist-profiles (Prefix: /api/checklist-profiles)
+- Profile CRUD with usage check on delete (blocks if referenced by pipeline nodes)
+- Question CRUD with reorder support
+
+### filter-profiles (Prefix: /api/filter-profiles)
+- Links cleaning profiles to filter instances
+- Organization scoping with fallback for global scope users
+
+### pm-schedules (Prefix: /api/pm-schedules)
+- Annual PM schedule management per AHU
+- Monthly entry management with tolerance windows
+

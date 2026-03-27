@@ -108,3 +108,16 @@ Located in `ingestion.service.ts`:
 - Execution is recursive: output messages are passed to connected nodes
 - Debug mode records execution trace per node
 - Script nodes run in sandboxed VM with 1-second timeout
+
+
+## Phase 2: Digital Filter Management System (2026-03-27)
+
+### Overview
+Complete digital filter cleaning lifecycle management for pharmaceutical cleanrooms. Supports configurable cleaning pipelines with checklist gates, 8 cleaning stages, dual filter sets, PM scheduling, and full traceability.
+
+### Key Components
+- **5 backend modules**: cleaning-profiles, filter-profiles, filter-operations, pm-schedules, checklist-profiles
+- **12+ frontend pages**: operations, profiles, cycles, checklists, PM, AHU dashboard, traceability, config
+- **9 database tables**: filter_cleaning_profiles, filter_pipeline_stages, filter_pipeline_connections, filter_profiles, cleaning_cycles, filter_events, pm_schedules, pm_schedule_entries, pm_executions
+- **Quality audit**: 43 issues found and 35 fixed (security, compliance, logic, UI)
+

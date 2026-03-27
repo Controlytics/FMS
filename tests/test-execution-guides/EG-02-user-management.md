@@ -519,3 +519,7 @@ curl -s -X GET "$API/users?search=test" \
 # VTOKEN=$(get_vtoken)
 # curl -s -X DELETE "$API/users/<id>" -H "Authorization: Bearer $TOKEN" -H "X-Verification-Token: $VTOKEN"
 ```
+
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+

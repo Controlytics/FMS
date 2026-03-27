@@ -46,3 +46,8 @@
 | FlowMeter-WTP-001 | meterModel | calibrationDate |
 | VibSensor-Motor-001 | motorId | installDate |
 | TemperatureSensor | firmwareVersion | location |
+
+
+## Phase 2 (2026-03-27)
+Digital Filter Management System added with filter operations, cleaning profiles, checklist gates, PM scheduling, and full traceability.
+

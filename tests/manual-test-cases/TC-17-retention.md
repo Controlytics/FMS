@@ -314,3 +314,7 @@
   3. Verify response status is 400
   4. Verify error references maxItems constraint
 - **Expected Result**: 400 Bad Request — records array exceeds maxItems of 500
+
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+

@@ -192,3 +192,7 @@ MQTT authentication uses the device access token as the password.
 - [Device Connectivity](../user-guide/connectivity/device-connectivity.md) — Token management
 - [Entity API](entities.md) — Entity CRUD operations
 - [Authentication API](authentication.md) — User authentication
+
+
+> **Note:** Phase 2 adds filter management endpoints. See API_GUIDE.md for the full Phase 2 API reference including filter operations, cleaning profiles, checklist profiles, and PM schedules.
+

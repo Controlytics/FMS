@@ -148,3 +148,17 @@ Organizations using DigiLog in regulated environments should:
 - [Audit Trail](../administration/audit/audit-trail.md) — How the audit trail works
 - [Security Configuration](../administration/security/security.md) — Password and session policies
 - [Roles & Permissions](../administration/roles/roles-and-permissions.md) — Access control configuration
+
+
+### Filter Operations Compliance
+- All filter state transitions recorded as immutable events with SHA-256 checksums
+- Checklist answers stored with timestamps and performer identity
+- Bypass deviations require justification and are logged as BYPASS_DEVIATION events
+- Cleaning cycle lifecycle tracked from start to completion with full event chain
+- Organization scoping ensures cross-tenant data isolation
+
+
+
+---
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.

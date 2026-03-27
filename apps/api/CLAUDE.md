@@ -38,3 +38,19 @@ cd apps/api && npx vitest run   # Run unit tests
 - PM2 env vars: TSDB_DATABASE=digilog_tsdb, PORT=3000
 - Redis: localhost:6379
 - EMQX: localhost:1883 (MQTT), 18083 (dashboard)
+
+## Phase 2 Modules
+- `modules/cleaning-profiles/` — Pipeline profile CRUD with versioning and validation
+- `modules/filter-profiles/` — Filter-to-profile assignment
+- `modules/filter-operations/` — Cycle lifecycle (start, advance, bypass, checklist, events)
+- `modules/pm-schedules/` — PM scheduling with executions
+- `modules/checklist-profiles/` — Checklist template and question management
+- `modules/config/defs/filter-*.def.ts` — Config definitions for filter management
+
+### Key Patterns in Phase 2
+- Organization scoping via `orgWhere(ctx)` on all filter queries
+- Pipeline graph validation (connectivity, stateKeys, checklist profiles)
+- Transaction wrapping for cycle start and profile versioning
+- Server-side checklist enforcement in `advance()`
+- Input sanitization on user-provided text fields
+

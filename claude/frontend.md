@@ -562,3 +562,22 @@ All password input fields in the application follow these security standards:
 *Last Updated: 2026-03-07*
 *Compliance Standard: 21 CFR Part 11*
 *Status: All features COMPLETE — 34+ pages, 9 custom hooks, 16 UI components, React 19 + Vite 6 + Tailwind CSS 4*
+
+
+## Phase 2 Frontend Pages
+
+### Filter Operations (/filters)
+Main operations page with 8 cleaning stage blocks. Click stage → select block (if needed) → scan filter → submit.
+Includes cleaning reason selection dialog, checklist auto-trigger, toast notifications.
+
+### Cleaning Profile Editor (/filter-cleaning-profiles/:id/edit)
+Visual canvas-based pipeline editor. Drag nodes from sidebar, wire from output to input ports.
+Node types: START, END, STAGE (with state dropdown), CHECKLIST (with profile selector).
+Save validation: 7 checks (name, keys, profiles, connectivity).
+
+### Cleaning Cycle History (/cleaning-cycles)
+Expandable cycle cards showing filter name, status, reason, duration, stage progress dots.
+Click to expand inline stage timeline with timestamps and remarks.
+
+### All Phase 2 routes are wrapped in RequireRole with ASSET_READ permission.
+

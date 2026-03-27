@@ -506,3 +506,8 @@ All in `packages/shared/src/schemas/`:
 7. Consider adding automated E2E test suite that covers the complete telemetry flow
 8. Add monitoring/alerting for BullMQ queue depth and failure rates
 9. Consider load testing at higher throughput (100+ msg/s) for production readiness
+
+
+---
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.

@@ -208,3 +208,56 @@ All errors follow this format:
 ```
 
 Common codes: `VALIDATION_ERROR`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `SESSION_CONFLICT`, `RATE_LIMITED`
+
+## Phase 2: Filter Operations API
+
+### Cleaning Profiles
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /api/filter-cleaning-profiles | List cleaning profiles |
+| GET | /api/filter-cleaning-profiles/:id | Get profile with pipeline |
+| POST | /api/filter-cleaning-profiles | Create profile with stages/connections |
+| PUT | /api/filter-cleaning-profiles/:id | Update (creates new version) |
+
+### Filter Profiles
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /api/filter-profiles | List filter profiles |
+| POST | /api/filter-profiles | Create filter profile |
+| PUT | /api/filter-profiles/:id | Update filter profile |
+| DELETE | /api/filter-profiles/:id | Delete filter profile |
+
+### Filter Operations
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /api/filters/:id/current-state | Get filter state, next stages, pending checklists |
+| POST | /api/filters/:id/start-cycle | Start cleaning cycle (requires cleaningReasonKey) |
+| POST | /api/filters/:id/advance | Advance to next stage (enforces checklist completion) |
+| POST | /api/filters/:id/submit-checklist | Submit checklist answers |
+| POST | /api/filters/:id/bypass | Bypass stage (BYPASS_ENABLED profiles only) |
+
+### Events & Cycles
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /api/filter/events | List filter events (filterId, cycleId, eventType filters) |
+| GET | /api/filter/cycles | List cleaning cycles (includeEvents=true for events) |
+| GET | /api/filter/cycles/:id | Get cycle detail with events and performer names |
+| GET | /api/filter/reasons | Get cleaning reasons |
+
+### Checklist Profiles
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /api/checklist-profiles | List checklist profiles |
+| GET | /api/checklist-profiles/:id | Get profile with questions |
+| POST | /api/checklist-profiles | Create checklist profile |
+| POST | /api/checklist-profiles/:id/questions | Add question |
+| PUT | /api/checklist-profiles/:id/questions/:qid | Update question |
+| DELETE | /api/checklist-profiles/:id | Delete (blocked if referenced by pipelines) |
+
+### PM Schedules
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /api/pm-schedules/:entityId | Get PM schedule for AHU |
+| POST | /api/pm-schedules | Create PM schedule |
+| PUT | /api/pm-schedules/:id | Update PM schedule |
+

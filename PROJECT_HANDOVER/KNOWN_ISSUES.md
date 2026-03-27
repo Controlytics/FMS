@@ -44,3 +44,16 @@
 - [x] Add pagination to organization list endpoint — FIXED (skip/take with page & limit query params enforced in tenant-admin routes)
 - [ ] Add per-organization LDAP configuration — Feature request: allow each organization to configure its own LDAP server/base DN instead of sharing the global LDAP config. Not a bug; tracked as a future enhancement.
 - [ ] Add per-organization rate limiting (aggregate across all devices in an org) — Per-device rate limiting is implemented using `maxDataRatePerMin` on each device credential. Org-level aggregate rate limiting (sum of all device traffic per org) is not yet implemented.
+
+
+## Phase 2: Digital Filter Management System (2026-03-27)
+
+### Overview
+Complete digital filter cleaning lifecycle management for pharmaceutical cleanrooms. Supports configurable cleaning pipelines with checklist gates, 8 cleaning stages, dual filter sets, PM scheduling, and full traceability.
+
+### Key Components
+- **5 backend modules**: cleaning-profiles, filter-profiles, filter-operations, pm-schedules, checklist-profiles
+- **12+ frontend pages**: operations, profiles, cycles, checklists, PM, AHU dashboard, traceability, config
+- **9 database tables**: filter_cleaning_profiles, filter_pipeline_stages, filter_pipeline_connections, filter_profiles, cleaning_cycles, filter_events, pm_schedules, pm_schedule_entries, pm_executions
+- **Quality audit**: 43 issues found and 35 fixed (security, compliance, logic, UI)
+

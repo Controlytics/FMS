@@ -298,3 +298,7 @@
   1. Set recipient phone to unverified number.
   2. Trigger notification.
 - **Expected Result**: Status SENT (AWS accepts) but SMS not delivered.
+
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+

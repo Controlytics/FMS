@@ -106,3 +106,57 @@ Time-series hypertables: ts_telemetry, ts_attributes, ts_checklist_responses, ts
 - Input sanitization (HTML stripping) on all text fields
 - Rate limiting on device data ingestion
 - IP allowlists for device credentials
+
+## Phase 2: Filter Management Module
+
+### Backend Modules (5)
+```
+apps/api/src/modules/
+  cleaning-profiles/      — CRUD, versioning, pipeline validation
+  filter-profiles/        — CRUD, assign to filters
+  filter-operations/      — Cycle lifecycle, advance, bypass, checklist, events
+  pm-schedules/           — PM schedule CRUD, execution tracking
+  checklist-profiles/     — Checklist template CRUD, questions management
+```
+
+### Database Schema (9 tables)
+```
+filter_cleaning_profiles  — Pipeline profiles (name, flowMode, version, alarmFlags)
+filter_pipeline_stages    — Pipeline nodes (START, STAGE, CHECKLIST, END)
+filter_pipeline_connections — Directed edges between pipeline nodes
+filter_profiles           — Links cleaning profiles to filter instances
+cleaning_cycles           — Cycle tracking (status, reason, timestamps)
+filter_events             — Immutable event log (transitions, checklists, deviations)
+pm_schedules              — Annual PM schedules per AHU
+pm_schedule_entries       — Monthly PM entries with tolerance windows
+pm_executions             — PM execution records
+```
+
+### Pipeline Architecture
+```
+START → STAGE(WASH_IN) → STAGE(WASH_OUT) → CHECKLIST(Post-Wash) → STAGE(DRY_IN) → STAGE(DRY_OUT) → END
+```
+- Nodes: START, END, STAGE (with stateKey), CHECKLIST (with checklistProfileId)
+- Connections: directed edges (fromStageId → toStageId)
+- Flow modes: STRICT (sequential only) or BYPASS_ENABLED (with deviation logging)
+- Checklists: automatically triggered when pipeline reaches a CHECKLIST node
+- Auto-complete: cycle ends automatically when last STAGE leads to END
+
+### Frontend Pages (12+)
+```
+/filters                      — Filter Operations (8 stage blocks + filter status)
+/filter-cleaning-profiles     — Cleaning Profile list
+/filter-cleaning-profiles/:id/edit — Visual pipeline editor
+/filter-profiles              — Filter Profile list
+/cleaning-cycles              — Cycle history with expandable timeline
+/cleaning-cycles/:id          — Cycle detail timeline
+/checklists                   — Checklist Profile list
+/checklists/:id               — Checklist detail with questions
+/pm-schedules                 — PM Schedule list
+/pm-schedules/:entityId       — PM Schedule detail
+/ahus/:id                     — AHU Dashboard
+/filters/:id/trace            — Filter traceability
+/config/filter-lifecycle      — Lifecycle states config
+/config/filter-cleaning-reasons — Cleaning reasons config
+```
+

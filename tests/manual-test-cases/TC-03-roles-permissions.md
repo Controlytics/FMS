@@ -198,3 +198,7 @@
   1. Attempt to create role with hierarchyLevel 0
   2. Verify response is 400 (minimum is 1)
 - **Expected Result**: 400 validation error — hierarchyLevel min is 1
+
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+

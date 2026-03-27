@@ -121,3 +121,7 @@ These rules apply ALWAYS — remind Claude Code if it deviates:
 6. **Batch flush before job ack** — telemetry batcher MUST flush before BullMQ marks job complete
 7. **ConfigService for limits** — all operational limits come from SystemConfig table, NOT env vars
 8. **SUPER_ADMIN operations are NOT auditable** — system-level operations excluded from compliance logs
+
+
+> **Update (2026-03-27):** Phase 2 Digital Filter Management System has been completed. See CHANGELOG.md for full details.
+

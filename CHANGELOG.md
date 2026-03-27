@@ -1,5 +1,42 @@
 # Changelog
 
+## [2.0.0] — 2026-03-27
+
+### Added — Phase 2: Digital Filter Management System
+- **Filter Operations page** — 8 cleaning stages (TO_BE_CLEANED through READY_FOR_USE) with block selection, QR scan
+- **Cleaning Profile Editor** — Visual pipeline builder with STAGE, CHECKLIST, START, END nodes and wire connections
+- **Checklist Profiles** — CRUD for checklist templates with 10 question types (YES_NO, PASS_FAIL, NUMERIC, DROPDOWN, etc.)
+- **Filter Profiles** — Assign cleaning profiles to filters, block restrictions, max cycle limits
+- **Cleaning Cycles** — Full lifecycle tracking with expandable history, stage timeline, filter names, performer names
+- **PM Scheduling** — Per-AHU preventive maintenance schedules with monthly entries and tolerance windows
+- **AHU Dashboard** — Filter set visualization with state-colored indicators
+- **Filter Traceability** — Per-filter event history, cycle list, deviation tracking
+- **Checklist gates in pipeline** — CHECKLIST nodes between stages auto-trigger question dialogs; server-side enforcement
+- **Cleaning reason selection** — User selects from 8 configurable reasons when starting a cycle
+- **Config pages** — Filter Lifecycle States and Filter Cleaning Reasons management
+- **9 new database tables** — pm_schedules, pm_schedule_entries, pm_executions, filter_cleaning_profiles, filter_pipeline_stages, filter_pipeline_connections, filter_profiles, cleaning_cycles, filter_events
+- **9 new enums** — CleaningCycleStatus, FilterEventType, PipelineNodeType, FlowMode, BlockRestriction, etc.
+- **17 new permissions** across 6 roles
+- **3 config definitions** — filter-cleaning-reasons, filter_lifecycle_states, filter-pm-schedule
+
+### Fixed — Quality Audit (30 issues resolved)
+- **CRITICAL:** Path traversal in binary file endpoints + missing auth
+- **CRITICAL:** Auth double-throw for expired accounts
+- **CRITICAL:** Config pages returning 404 (missing config definitions)
+- **HIGH:** Organization scoping added to all filter-operations methods
+- **HIGH:** Server-side checklist enforcement in advance() — prevents API bypass
+- **HIGH:** bypass() now requires active cycle and validates target state
+- **HIGH:** Permission guards on all 13 Phase 2 frontend routes
+- **MEDIUM:** Race conditions in startCycle and submitChecklist (transactions + duplicate checks)
+- **MEDIUM:** Cleaning profile update wrapped in transaction
+- **MEDIUM:** Input sanitization (XSS) for remarks/justification fields
+- **MEDIUM:** Pipeline validation (stateKeys, checklist profiles, graph connectivity)
+- **MEDIUM:** getCycles performance (events opt-in via query param)
+- **LOW:** 28 missing permissions added to ALL_PERMISSIONS
+- **LOW:** Auth plugin role scope caching (30s TTL)
+- **LOW:** ErrorBoundary dark theme, PM page navigation, node delete confirmation
+
+
 ## [Unreleased] — 2026-03-16
 
 ### Added

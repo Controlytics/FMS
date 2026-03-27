@@ -34,3 +34,21 @@ DigiLog uses a modern tech stack:
 - **Database:** PostgreSQL + TimescaleDB (time-series)
 - **MQTT:** EMQX broker
 - **Queue:** Redis + BullMQ
+
+
+## Digital Filter Management (Phase 2)
+
+DigiLog includes a comprehensive Digital Filter Management System for pharmaceutical cleanroom HEPA filter cleaning lifecycle management.
+
+### Features
+- 8-stage cleaning pipeline (To Be Cleaned, Wash In/Out, Dry In/Out, Storage In/Out, Ready For Use)
+- Visual pipeline editor for creating cleaning profiles
+- Checklist gates between stages with 10 question types
+- Real-time filter status tracking with QR/barcode scan
+- Cleaning cycle history with full audit trail
+- PM scheduling per AHU with tolerance windows
+- Configurable cleaning reasons with justification support
+
+### Compliance
+All filter operations are recorded as immutable events with SHA-256 checksums, electronic signatures, and deviation tracking per 21 CFR Part 11.
+

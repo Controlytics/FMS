@@ -812,3 +812,7 @@
   4. Verify the response returns 0 records (SUPER_ADMIN actions are never logged).
   5. Verify there is no way to reconstruct SUPER_ADMIN audit records because they were never created.
 - **Expected Result**: SUPER_ADMIN audit records cannot be deleted because they were never created. The `auditLog()` function returns early when `entry.userRole === 'SUPER_ADMIN'`. This exemption is a deliberate regulatory design decision.
+
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+

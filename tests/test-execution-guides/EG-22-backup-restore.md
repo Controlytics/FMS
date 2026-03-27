@@ -415,3 +415,7 @@ rm -f /tmp/digilog-backup.json /tmp/digilog-backup.bak /tmp/digilog-backup.sql \
       /tmp/tampered-backup.json /tmp/backup-headers.txt /tmp/bak-headers.txt \
       /tmp/sql-headers.txt /tmp/csv-headers.txt
 ```
+
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+

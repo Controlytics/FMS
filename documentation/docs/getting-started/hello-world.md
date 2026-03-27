@@ -167,3 +167,8 @@ You've successfully created an entity, sent telemetry, and viewed data. Here's w
 - [Alarms](../user-guide/alarms/alarms.md) — Set up threshold-based alerts with e-signatures
 - [MQTT Connectivity](../user-guide/connectivity/mqtt.md) — Connect devices via MQTT for real-time streaming
 - [Checklists](../user-guide/checklists/checklists.md) — Create inspection forms with QR code access
+
+
+---
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.

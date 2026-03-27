@@ -124,3 +124,7 @@ Reference these sections in DATA_INGESTION_REQUIREMENTS_v3.md:
 - **Section 21.1**: Docker Compose for TimescaleDB
 - **Section 21.2**: Docker Compose (full 5-service config), queue definitions, priorities, file structure
 - **Appendix B**: Default help articles seed data
+
+
+> **Update (2026-03-27):** Phase 2 Digital Filter Management System has been completed. See CHANGELOG.md for full details.
+

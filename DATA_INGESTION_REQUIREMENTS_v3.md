@@ -3354,3 +3354,7 @@ This appendix documents 25 gaps identified during a deep review of the v3.1.0 sp
 ---
 
 *End of Requirements Document v3.2.0*
+
+
+> **Note:** Phase 2 added auth preHandlers and path traversal prevention to binary file endpoints in the data ingestion module. See quality audit commit 429538f.
+

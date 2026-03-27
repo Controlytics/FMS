@@ -898,3 +898,30 @@ The Zod schema in `packages/shared/src/schemas/assets.ts` defined `category` as 
 **Files Changed:** 23 files across `apps/web/src/` (hooks, pages, components)
 
 **Verification:** Changed branding settings, navigated away and back â new branding visible immediately without refresh. Changed user role, confirmed user list updates instantly. Modified notification rule, confirmed rules page shows updated data.
+
+
+## Phase 2 Quality Audit (2026-03-27)
+
+| # | Severity | Issue | Status |
+|---|----------|-------|--------|
+| 36 | CRITICAL | Path traversal in binary file endpoints | Fixed |
+| 37 | CRITICAL | Auth double-throw for expired accounts | Fixed |
+| 38 | CRITICAL | Config pages return 404 | Fixed |
+| 39 | CRITICAL | Empty CHECKLIST node blocks filters | Fixed |
+| 40 | CRITICAL | Orphaned stuck IN_PROGRESS cycles | Fixed |
+| 41 | HIGH | No org scoping in filter-operations | Fixed |
+| 42 | HIGH | Checklist not enforced server-side | Fixed |
+| 43 | HIGH | bypass() no cycle check | Fixed |
+| 44 | HIGH | Hardcoded TYPE_C reason | Fixed |
+| 45 | HIGH | No permission guards on Phase 2 routes | Fixed |
+| 46 | HIGH | Missing stages in operations UI | Fixed |
+| 47 | MEDIUM | Race condition in startCycle | Fixed |
+| 48 | MEDIUM | Race condition in submitChecklist | Fixed |
+| 49 | MEDIUM | Profile update no transaction | Fixed |
+| 50 | MEDIUM | Missing input sanitization | Fixed |
+| 51 | MEDIUM | Pipeline validation incomplete | Fixed |
+| 52 | MEDIUM | getCycles performance | Fixed |
+| 53-65 | MEDIUM/LOW | Various UI and logic fixes | Fixed |
+
+All tracked as GitHub issues #36-#65, all closed.
+

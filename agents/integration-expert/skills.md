@@ -219,3 +219,10 @@ When a failure is detected:
 | Restart | `pm2 restart digilog-api` |
 | Logs | `pm2 logs digilog-api --lines 50 --nostream` |
 | Admin | username: `admin`, password: `Admin@123`, force: `true` |
+
+
+## Phase 2 Coverage
+- Filter management module testing (operations, profiles, cycles, checklists)
+- PM scheduling module testing
+- Quality audit: 43 issues found, 35 fixed (commit 429538f)
+

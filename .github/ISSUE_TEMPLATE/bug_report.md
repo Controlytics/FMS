@@ -75,3 +75,5 @@ assignees: ''
 - [ ] PLAN.md updated
 - [ ] BUSINESS_CONTEXT.md updated (if business impact)
 - [ ] CODEBASE_CONTEXT.md updated (if architecture change)
+
+> Phase 2: Digital Filter Management System is now available. For filter-related bugs, include the cleaning profile, stage, and cycle details.

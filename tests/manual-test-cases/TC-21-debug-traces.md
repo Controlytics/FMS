@@ -193,3 +193,7 @@
   1. Send GET /api/debug/traces without Authorization header
   2. Verify response status is 401
 - **Expected Result**: 401 Unauthorized — missing token
+
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+

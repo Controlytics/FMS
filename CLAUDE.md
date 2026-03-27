@@ -5,7 +5,7 @@ DigiLog (21cfrlogbook) — IoT data logging platform with 21 CFR Part 11 complia
 
 ## Repository
 - **Remote:** github.com/pankajexa/21cfrlogbook.git
-- **Branch:** DataIngestion (active development)
+- **Branch:** DigitalFMS (active development)
 
 ## Monorepo Structure
 ```
@@ -17,8 +17,8 @@ packages/queue/  — BullMQ job queue
 ```
 
 ## EC2 Instance
-- **IP:** 3.108.185.106 (may change on restart)
-- **SSH:** `ssh -i ~/Downloads/21cfrbook.pem ubuntu@3.108.185.106`
+- **IP:** 34.232.224.0 (may change on restart)
+- **SSH:** `ssh -i ~/Downloads/21cfrbook.pem ubuntu@34.232.224.0`
 - **Services:** Nginx (80/443), Fastify (3000), PostgreSQL (5432), EMQX (1883/18083), Redis (6379)
 
 ## Build Commands
@@ -39,9 +39,9 @@ npx nx build shared && npx nx build db && npx nx build queue
 - **Password:** Admin@123
 
 ## Key URLs
-- App: http://3.108.185.106
-- Swagger: http://3.108.185.106/docs
-- EMQX: http://3.108.185.106:18083
+- App: http://34.232.224.0
+- Swagger: http://34.232.224.0/docs
+- EMQX: http://34.232.224.0:18083
 
 ## Important Notes
 - Always run `npx tsc` before `pm2 restart` (PM2 runs compiled JS)
@@ -51,3 +51,28 @@ npx nx build shared && npx nx build db && npx nx build queue
 - 77 rule chain node types across 8 categories
 - 23 config definitions with auto-discovery
 - 28 help articles with version history
+
+## Phase 2: Digital Filter Management System
+
+### New Backend Modules
+- `cleaning-profiles/` — Pipeline profile CRUD with visual editor support
+- `filter-profiles/` — Filter-to-profile assignment
+- `filter-operations/` — Core operations: cycle start/advance/bypass/checklist/events
+- `pm-schedules/` — Preventive maintenance scheduling
+- `checklist-profiles/` — Checklist template management
+
+### Key API Endpoints
+```
+POST /api/filters/:id/start-cycle    — Start cleaning cycle
+POST /api/filters/:id/advance        — Advance to next stage
+POST /api/filters/:id/submit-checklist — Submit checklist answers
+POST /api/filters/:id/bypass         — Bypass stage (deviation)
+GET  /api/filters/:id/current-state  — Get filter state + next actions
+GET  /api/filter/cycles              — List cleaning cycles
+GET  /api/filter/events              — List filter events
+```
+
+### Pipeline Flow
+CHECKLIST nodes between STAGE nodes trigger automatic question dialogs.
+Server-side enforcement: advance() blocks if pending checklist not completed.
+Cycle auto-completes when last STAGE leads to END node.

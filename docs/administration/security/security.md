@@ -20,3 +20,8 @@ All text inputs are sanitized to strip HTML tags (XSS prevention) via lib/saniti
 - TimescaleDB compression for data at rest
 - SHA-256 hash-chain audit trail
 - Backup integrity verification
+
+
+---
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.

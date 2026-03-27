@@ -88,3 +88,8 @@ All other ports should be accessible only from localhost or internal network.
 
 - [What is DigiLog?](what-is-digilog.md) — Platform overview and architecture
 - [Hello World](hello-world.md) — Create your first entity in 15 minutes
+
+
+---
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.

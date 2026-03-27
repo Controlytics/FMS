@@ -39,3 +39,8 @@ Note: 200 in TSDB = 100 from first publish run + 100 from second. Each publish s
 - Events and traces delete
 - Rate limiting on data ingestion
 - Large dataset performance
+
+
+## Phase 2 (2026-03-27)
+Digital Filter Management System added with filter operations, cleaning profiles, checklist gates, PM scheduling, and full traceability.
+

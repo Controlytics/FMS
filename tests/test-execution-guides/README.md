@@ -477,3 +477,7 @@ For a complete regression test, execute in this recommended order:
 - **Soft Delete**: Entity templates and instances use soft delete (isActive=false). Help articles also use soft delete. QR codes and relationships use hard delete.
 - **Single Session**: Each user can only have one active session. A new login invalidates the previous session's token.
 - **TimescaleDB**: Retention and trace queries run against the `digilog_tsdb` database, not the main `digilog_db`.
+
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+

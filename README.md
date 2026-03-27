@@ -81,3 +81,21 @@ Interactive Swagger UI available at `/docs` when the server is running.
 ## License
 
 Proprietary — Pankaj Exa Technologies
+
+## Phase 2: Digital Filter Management System (FMS)
+
+- **Filter Operations** — 8-stage cleaning lifecycle (To Be Cleaned, Wash In/Out, Dry In/Out, Storage In/Out, Ready For Use) with QR/barcode scan
+- **Cleaning Profiles** — Visual pipeline editor with drag-and-drop nodes, connections, CHECKLIST gates, BYPASS mode
+- **Checklist Integration** — Configurable checklists (YES_NO, PASS_FAIL, NUMERIC, DROPDOWN, MULTI_SELECT, TEXT) triggered between pipeline stages
+- **Filter Profiles** — Assign cleaning profiles to filters with block restrictions and max cycle limits
+- **Cleaning Cycles** — Full audit trail with stage timestamps, remarks, performer names, checklist answers
+- **PM Scheduling** — Preventive maintenance schedules per AHU with tolerance windows
+- **AHU Dashboard** — Filter set management (Set A/B swap), lifecycle state visualization
+- **Filter Traceability** — Complete event history, cycle timeline, deviation tracking per filter
+
+### Phase 2 Database (9 new tables)
+`pm_schedules`, `pm_schedule_entries`, `pm_executions`, `filter_cleaning_profiles`, `filter_pipeline_stages`, `filter_pipeline_connections`, `filter_profiles`, `cleaning_cycles`, `filter_events`
+
+### Phase 2 Permissions (17)
+`FILTER_OPERATE`, `FILTER_BYPASS`, `FCP_READ/CREATE/UPDATE`, `FP_READ/CREATE`, `CYCLE_READ`, `EVENT_READ`, `CHECKLIST_SUBMIT`, `PM_READ/CREATE/UPDATE/EXECUTE`
+

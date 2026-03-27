@@ -2147,3 +2147,7 @@ LIMIT 50;
 5. **Password State**: Several tests modify the `cfr_tester` password. Track the current password state throughout testing. The sequence in this guide is: `Admin@123` -> `NewPass@123` -> `NewPass@456` -> `Changed@789`.
 
 6. **Electronic Signatures**: Electronic signatures are created during checklist reviews and alarm acknowledgments. If no electronic signatures exist in the database, perform an alarm acknowledgment or checklist review to generate test data for TC-25-P17 and TC-25-P18.
+
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+

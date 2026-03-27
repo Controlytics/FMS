@@ -302,3 +302,10 @@ After each manual test run, report:
 | EMQX Dashboard | `http://localhost:18083` |
 | Test Scripts | `scripts/publish-http.js`, `scripts/publish-mqtt.js` |
 | Reference Data | `references/entities.md`, `references/test-results.md` |
+
+
+## Phase 2 Coverage
+- Filter management module testing (operations, profiles, cycles, checklists)
+- PM scheduling module testing
+- Quality audit: 43 issues found, 35 fixed (commit 429538f)
+

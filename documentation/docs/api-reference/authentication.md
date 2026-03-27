@@ -229,3 +229,7 @@ The JWT token contains:
 - [Entity API](entities.md) — CRUD operations for entities
 - [Telemetry API](telemetry.md) — Data ingestion endpoints
 - [Security Configuration](../administration/security/security.md) — Auth settings
+
+
+> **Note:** Phase 2 adds filter management endpoints. See API_GUIDE.md for the full Phase 2 API reference including filter operations, cleaning profiles, checklist profiles, and PM schedules.
+

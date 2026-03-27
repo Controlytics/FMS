@@ -383,3 +383,7 @@ PGPASSWORD=digilog123 psql -h localhost -U digilog -d digilog_db \
   -c "SELECT id, channel, status, recipient, error_message, retry_count, created_at
       FROM notification_logs ORDER BY created_at DESC LIMIT 20"
 ```
+
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+

@@ -766,3 +766,7 @@ A: Yes. Use the **"Test Connection"** button to verify connectivity without enab
 ---
 
 *Document Version: 1.0 | Last Updated: 2026-03-24 | DigiLog Application*
+
+
+> **Note:** Phase 2 (Digital FMS) does not affect LDAP integration. LDAP-authenticated users can access filter management features based on their assigned permissions.
+

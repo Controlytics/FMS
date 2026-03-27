@@ -678,3 +678,10 @@ Full details in Session 2 report below.
 - **Open Bugs:** 7 (BUG-V001–V007), see `tasks/system-validation-report.md`
 - **Next Priority:** Fix route ordering (BUG-V003/V004), TimescaleDB write gap (BUG-V002), export params (BUG-V007)
 - **Test Data Cleanup:** 6 templates + 18 entities + 6 rule chains created during S10 validation
+
+
+## Phase 2 Coverage
+- Filter management module testing (operations, profiles, cycles, checklists)
+- PM scheduling module testing
+- Quality audit: 43 issues found, 35 fixed (commit 429538f)
+

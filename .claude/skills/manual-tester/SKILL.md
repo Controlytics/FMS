@@ -175,3 +175,8 @@ SELECT id, name FROM asset_instances ORDER BY name;
 ### Scripts
 - **`scripts/publish-http.js`** — Bulk HTTP publish for FlowMeter and VibSensor
 - **`scripts/publish-mqtt.js`** — Bulk MQTT publish for Pipeline-Sensor with correct UNS topics
+
+
+## Phase 2 (2026-03-27)
+Digital Filter Management System added with filter operations, cleaning profiles, checklist gates, PM scheduling, and full traceability.
+

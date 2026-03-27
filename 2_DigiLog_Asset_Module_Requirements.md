@@ -1002,3 +1002,13 @@ Items explicitly noted for later phases:
 3. **Bulk Import/Migration Tools** — For large-scale onboarding of existing assets from spreadsheets or legacy systems.
 4. **Analytics & Trending** — Trend charts on telemetry over time, compliance trend reports, predictive maintenance triggers.
 5. **Integration APIs** — REST and MQTT APIs for third-party systems to push telemetry, query asset data, or trigger checklists.
+
+
+## Phase 2: Filter-Specific Asset Extensions
+
+Asset instances now support filter management with additional columns:
+- `filter_profile_id` (UUID, FK to filter_profiles) — assigns a cleaning profile
+- `current_lifecycle_state` (VARCHAR) — current cleaning stage
+- `current_cycle_id` (UUID, FK to cleaning_cycles) — active cleaning cycle
+- `filter_set` (VARCHAR) — SET_A or SET_B for dual-set management
+

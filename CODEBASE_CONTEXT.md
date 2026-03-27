@@ -1174,3 +1174,28 @@ Centralized at `documentation/testing/`:
 - `automation/` — Test scripts
 - `validation/` — Compliance verification
 - `regression/` — Regression results
+
+## Phase 2 Modules
+
+### Backend (`apps/api/src/modules/`)
+- `cleaning-profiles/` — FilterCleaningProfile CRUD with visual pipeline (stages + connections), versioning
+- `filter-profiles/` — FilterProfile CRUD, links cleaning profiles to filter instances
+- `filter-operations/` — Core cycle lifecycle: start, advance, bypass, submit-checklist, events, cycles
+- `pm-schedules/` — PM schedule CRUD with monthly entries and execution tracking
+- `checklist-profiles/` — ChecklistProfile and ChecklistQuestion CRUD
+
+### Frontend (`apps/web/src/routes/`)
+- `filter-management/filter-operations.tsx` — 8-stage cleaning operations with scan/submit
+- `filter-management/cleaning-profile-editor.tsx` — Visual pipeline editor (canvas, nodes, wires)
+- `filter-management/cleaning-profile-list.tsx` — Profile listing with archive/activate
+- `filter-management/filter-profile-list.tsx` — Filter profile management
+- `filter-management/ahu-dashboard.tsx` — AHU filter set visualization
+- `filter-management/filter-traceability.tsx` — Per-filter event/cycle history
+- `cleaning-cycles/history.tsx` — Expandable cycle history with stage timeline
+- `cleaning-cycles/timeline.tsx` — Detailed cycle event timeline
+- `checklists/list.tsx` — Checklist profile list
+- `checklists/detail.tsx` — Checklist detail with question management
+- `pm-schedules/index.tsx` — PM schedule list
+- `config/filter-lifecycle.tsx` — Lifecycle state configuration
+- `config/filter-cleaning-reasons.tsx` — Cleaning reasons configuration
+

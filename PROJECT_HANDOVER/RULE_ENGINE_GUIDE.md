@@ -130,3 +130,8 @@ When `debugMode: true` on a node:
 - Timing captured (ms)
 - Errors logged with stack trace
 - Viewable at `/debug/traces` in UI
+
+
+---
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.

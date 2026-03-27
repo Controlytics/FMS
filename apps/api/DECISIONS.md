@@ -164,3 +164,13 @@
 **Decision:** Implemented self-registering config module architecture instead of hardcoded routes per config.
 **Rationale:** With 23+ config modules, adding new ones required touching multiple files (routes, service, frontend routing). The registry pattern allows adding a new config by creating a single definition file.
 **Trade-offs:** Slightly more complex startup (auto-discovery), but zero-touch addition of new config modules.
+
+## Phase 2 Decisions
+
+- **Pipeline as graph, not linear list**: Chose directed graph (stages + connections) over linear array to support future branching, parallel paths, and conditional flows
+- **Checklist as pipeline node, not stage property**: Checklists are first-class CHECKLIST nodes in the graph, not attached to stages. This allows placing checklists between any stages, or multiple checklists in sequence
+- **Versioning via create-new + archive-old**: Updating a cleaning profile creates a new version and archives the old one, preserving historical data for completed cycles
+- **Events as immutable log**: filter_events table is append-only with SHA-256 checksums for 21 CFR Part 11 compliance
+- **Auto-complete on last stage**: Cycle auto-completes when the last STAGE node leads to END, eliminating a separate "end cycle" step
+- **Server-side checklist enforcement**: advance() checks for pending checklists and blocks if not completed, preventing API-level bypass
+

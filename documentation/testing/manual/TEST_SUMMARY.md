@@ -102,3 +102,31 @@
 All core features are functional and tested. Asset template telemetry schemas are fully supported end-to-end (create, edit, version, display). Link Assets dialog upgraded to multi-select targets with search and bulk creation. Link Assets dropdown bug fixed -- root cause was Fastify JSON schema coercing `null` parentId to empty string, causing frontend tree walk to find no root nodes. Instruments feature was added then removed per user request. Template Linking Rules feature was added then completely removed -- any asset can now link to any other asset with any of the 12 relationship types, no restrictions. Full API verification passed.
 
 **Update (2026-03-07):** All development phases (A through K) are COMPLETE and deployed to production at 3.108.185.106. System includes 145+ API endpoints, 34+ frontend pages, 30 Prisma models, 7 TimescaleDB hypertables, and 1,344 automated tests with 0 failures. Three additional bugs were found and fixed on 2026-03-07: LatestTelemetry UUID cast (P0), device credential createdAt on token regeneration (P2), and entity resolver cache TTL (P3). Test tools created: push-telemetry.py, push-telemetry.mjs, telemetry-200.csv.
+
+
+## Phase 2: Filter Management Test Cases
+
+### TC-FM-01: Filter Operations
+- Start cleaning cycle with reason selection
+- Advance through all 8 stages
+- Verify checklist auto-trigger between stages
+- Submit checklist and verify next stage unlocks
+- Verify cycle auto-completes on last stage
+
+### TC-FM-02: Cleaning Profiles
+- Create profile with visual pipeline editor
+- Add STAGE, CHECKLIST nodes and connect them
+- Save and verify validation (name, keys, connectivity)
+- Edit profile (versioning) and verify old version archived
+
+### TC-FM-03: Checklist Enforcement
+- Attempt advance without completing checklist (expect CHECKLIST_PENDING)
+- Submit checklist via API and verify advance works
+- Verify duplicate submission blocked (409 ALREADY_SUBMITTED)
+
+### TC-FM-04: Bypass Flow
+- Attempt bypass on STRICT profile (expect BYPASS_FORBIDDEN)
+- Attempt bypass without active cycle (expect NO_CYCLE)
+- Attempt bypass with invalid target state (expect INVALID_TARGET)
+- Successful bypass with justification on BYPASS_ENABLED profile
+

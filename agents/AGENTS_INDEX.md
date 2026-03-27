@@ -49,3 +49,16 @@ Developer makes changes
 - `agents/testing/security-compliance-tester/skills.md`
 - `agents/testing/manual-tester/skills.md`
 - `agents/infra-maintenance/skills.md`
+
+
+## Phase 2 Testing Coverage
+
+### Filter Management Testing
+- Filter operations: start cycle, advance through stages, checklist submission, bypass
+- Cleaning profiles: create, edit pipeline, version, validate
+- Checklist profiles: create, add questions, delete with usage check
+- Filter profiles: assign to filters, block restrictions
+- Cleaning cycles: history, timeline, events, performer names
+- PM schedules: create, update, execute
+- Config pages: lifecycle states, cleaning reasons
+

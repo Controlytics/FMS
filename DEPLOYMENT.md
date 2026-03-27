@@ -37,7 +37,7 @@
 # 1. Clone the repo
 git clone https://github.com/pankajexa/21cfrlogbook.git
 cd 21cfrlogbook
-git checkout DataIngestion
+git checkout DigitalFMS
 
 # 2. Run the setup script (installs everything)
 sudo bash deploy/setup.sh
@@ -119,7 +119,7 @@ sudo -u postgres psql -d digilog_tsdb -f init-tsdb.sql
 # Clone and checkout
 git clone https://github.com/pankajexa/21cfrlogbook.git
 cd 21cfrlogbook
-git checkout DataIngestion
+git checkout DigitalFMS
 
 # Create .env
 cp .env.example .env
@@ -273,7 +273,7 @@ After EMQX is running, configure the HTTP auth webhook via the EMQX dashboard (`
 cd /home/ubuntu/21cfrlogbook
 
 # Pull latest code
-git pull origin DataIngestion
+git pull origin DigitalFMS
 
 # Install any new dependencies
 npm install
@@ -303,3 +303,12 @@ pm2 restart digilog-api
 | Nginx 502 | Check API is running: `pm2 status`. Check port 3000: `ss -tlnp \| grep 3000` |
 | MQTT not connecting | Check EMQX: `sudo systemctl status emqx`. Check port 1883 |
 | Buttons/features not working | Usually missing `.env` vars or databases not initialized |
+
+
+## Phase 2 Deployment Notes
+- Branch: DigitalFMS
+- Instance: i-072fc466f5de8a10a (t3.large, us-east-1)
+- IP: 34.232.224.0
+- 9 new database tables migrated via Prisma
+- 3 new config definitions auto-seeded on startup
+- 17 new permissions seeded across 6 roles

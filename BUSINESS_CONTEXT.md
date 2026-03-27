@@ -549,3 +549,24 @@ All 12 historical bugs have been converted to structured GitHub issues (#2–#13
 - **Full bug traceability** — Bug_Resolution_Log → Git Issue → Commit → Documentation
 - **Supports audit preparation** — structured documents reduce audit preparation from weeks to hours
 - **Maintains system validated state** — documentation always reflects current validated configuration
+
+## Phase 2: Digital Filter Management System
+
+### Business Need
+Pharmaceutical cleanrooms use HEPA filters that require periodic cleaning following strict GMP protocols. Manual paper-based tracking is error-prone, non-traceable, and fails 21 CFR Part 11 compliance.
+
+### Solution
+Digital FMS provides:
+- **Configurable cleaning pipelines** — Each facility defines its own cleaning stages (wash, dry, storage) with optional quality checklists between stages
+- **Real-time tracking** — Operators scan filters at each stage, system enforces sequence and records timestamps
+- **Dual filter sets** — AHUs maintain Set A (in-use) and Set B (spare), enabling rotation during cleaning
+- **PM scheduling** — Annual preventive maintenance calendar per AHU with tolerance windows
+- **Complete traceability** — Every state transition, checklist answer, and deviation is immutably recorded
+- **Configurable reasons** — 8 cleaning reasons (PM, Type A/B/C, On Request, Contamination, Failure, Custom) with optional justification
+
+### Compliance
+- All events stored with SHA-256 checksums (tamper detection)
+- Electronic signatures via user authentication
+- Deviation tracking for bypass/out-of-sequence operations
+- Immutable audit trail for all filter operations
+

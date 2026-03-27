@@ -268,3 +268,10 @@ After each test run, produce:
 | API | `http://localhost:3000/api` |
 | Web | `http://3.108.185.106` |
 | Admin | username: `admin`, password: `Admin@123` |
+
+
+## Phase 2 Coverage
+- Filter management module testing (operations, profiles, cycles, checklists)
+- PM scheduling module testing
+- Quality audit: 43 issues found, 35 fixed (commit 429538f)
+

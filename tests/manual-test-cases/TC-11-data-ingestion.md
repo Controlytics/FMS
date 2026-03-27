@@ -204,3 +204,7 @@
   2. Wait for pipeline processing.
   3. Verify the message is rejected at Stage 6 with ERR_TYPE_MISMATCH and routed to DLQ.
 - **Expected Result**: Pipeline fails at Stage 6 validation. Message sent to Dead Letter Queue.
+
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+

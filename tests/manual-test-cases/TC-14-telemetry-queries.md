@@ -221,3 +221,7 @@
   3. Send GET /api/telemetry/{entityId}/keys.
   4. Verify empty array returned.
 - **Expected Result**: Empty arrays (no data, not an error).
+
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+

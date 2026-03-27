@@ -124,3 +124,13 @@
 ## 31. Field ID Grouping by Module (2026-03-12)
 **Decision:** Restructured Field ID Names page to group fields by module with color-coded tabs.
 **Rationale:** With expansion from 6 to 39 fields across 7 modules, a flat list was unusable. Module grouping with search and filter makes management practical.
+
+## Phase 2 Decisions
+
+- **Pipeline as graph, not linear list**: Chose directed graph (stages + connections) over linear array to support future branching, parallel paths, and conditional flows
+- **Checklist as pipeline node, not stage property**: Checklists are first-class CHECKLIST nodes in the graph, not attached to stages. This allows placing checklists between any stages, or multiple checklists in sequence
+- **Versioning via create-new + archive-old**: Updating a cleaning profile creates a new version and archives the old one, preserving historical data for completed cycles
+- **Events as immutable log**: filter_events table is append-only with SHA-256 checksums for 21 CFR Part 11 compliance
+- **Auto-complete on last stage**: Cycle auto-completes when the last STAGE node leads to END, eliminating a separate "end cycle" step
+- **Server-side checklist enforcement**: advance() checks for pending checklists and blocks if not completed, preventing API-level bypass
+

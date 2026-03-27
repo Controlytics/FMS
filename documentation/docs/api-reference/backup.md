@@ -195,3 +195,7 @@ backup.zip/
 
 - [System Configuration](configuration.md) — Configuration management
 - [Audit Trail API](audit.md) — Audit log queries
+
+
+> **Note:** Phase 2 adds filter management endpoints. See API_GUIDE.md for the full Phase 2 API reference including filter operations, cleaning profiles, checklist profiles, and PM schedules.
+

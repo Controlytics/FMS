@@ -203,3 +203,7 @@
   3. Immediately send 5 parallel GET /api/auth/me requests with the old token
   4. Verify all 5 return 401
 - **Expected Result**: All requests fail — session termination is immediate and consistent
+
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+

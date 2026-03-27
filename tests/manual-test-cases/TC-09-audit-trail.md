@@ -249,3 +249,7 @@
   2. Verify the audit log entry is still created for the attempt.
   3. Verify response: `{ success: true, count: 0 }`.
 - **Expected Result**: Operation succeeds with count 0 (no records matched).
+
+
+> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+
