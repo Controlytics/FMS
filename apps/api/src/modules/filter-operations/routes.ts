@@ -1,5 +1,5 @@
 /**
- * Filter Operations Routes — Cycle management, advance, bypass, events, cycles.
+ * Filter Operations Routes — Cycle management, advance, bypass, checklist, events, cycles.
  */
 import type { FastifyInstance } from 'fastify';
 import { FilterOperationsService } from './filter-operations.service.js';
@@ -71,6 +71,31 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     return service.advance(ctx, id, req.body);
+  });
+
+  app.post('/:id/submit-checklist', {
+    preHandler: [app.requirePermission('FILTER_OPERATE')],
+    schema: {
+      tags: ['Filter Operations'],
+      summary: 'Submit checklist answers for current stage',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      body: {
+        type: 'object',
+        required: ['answers'],
+        properties: {
+          answers: {
+            type: 'object',
+            additionalProperties: true,
+            description: 'Map of questionId -> answer value',
+          },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const { id } = req.params as { id: string };
+    return service.submitChecklist(ctx, id, req.body as any);
   });
 
   app.post('/:id/bypass', {

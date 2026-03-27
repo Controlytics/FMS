@@ -31,11 +31,12 @@ export function PmScheduleListPage() {
       </div>
 
       <div className="bg-gray-800 border border-gray-700 rounded-xl p-6">
-        <p className="text-gray-400 text-center py-8">
-          Select an AHU from the Assets page to view or create its PM schedule.
-          <br /><br />
-          <span className="text-sm text-gray-500">PM schedules are managed per AHU entity. Navigate to an AHU asset and access its PM schedule from there.</span>
-        </p>
+        <div className="text-center py-8">
+          <p className="text-gray-400">PM schedules are managed per AHU. Select an AHU to view or create its schedule.</p>
+          <button onClick={() => navigate('/assets')} className="mt-4 px-5 py-2 bg-cyan-600 text-white rounded-lg text-sm hover:bg-cyan-500">
+            Go to Assets
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -382,7 +382,7 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
 
   // GET /binary/:entityId — List binary files for an entity
   app.get('/binaries/:entityId', {
-    
+    preHandler: [app.requirePermission('ASSET_READ')],
     schema: {
       tags: ['Data Ingestion'],
       summary: 'List binary files for entity',
@@ -447,7 +447,7 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
 
   // GET /binary/:entityId/file — Serve a binary file
   app.get('/binaries/:entityId/file', {
-    
+    preHandler: [app.requirePermission('ASSET_READ')],
     schema: {
       tags: ['Data Ingestion'],
       summary: 'Serve binary file',
@@ -465,7 +465,7 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const { entityId } = req.params as { entityId: string };
     const filePath = (req.query as any).path as string;
-    if (!filePath || !filePath.includes(entityId)) {
+    if (!filePath || filePath.includes('..') || !filePath.includes(entityId) || !filePath.startsWith('/home/ubuntu/21cfrlogbook/uploads/')) {
       throw Object.assign(new Error('Invalid file path'), { statusCode: 400 });
     }
     const { existsSync, createReadStream } = await import('fs');
@@ -486,6 +486,7 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
 
   // DELETE /binaries/:entityId — Delete a binary file
   app.delete('/binaries/:entityId', {
+    preHandler: [app.requirePermission('ASSET_DELETE')],
     schema: {
       tags: ['Data Ingestion'],
       summary: 'Delete a binary file',
@@ -507,7 +508,7 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
     const { filePath } = req.query as { filePath: string };
 
     // Security: ensure filePath belongs to this entity
-    if (!filePath || !filePath.includes(entityId)) {
+    if (!filePath || filePath.includes('..') || !filePath.includes(entityId) || !filePath.startsWith('/home/ubuntu/21cfrlogbook/uploads/')) {
       throw Object.assign(new Error('Invalid file path'), { statusCode: 400 });
     }
 

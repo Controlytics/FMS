@@ -34,6 +34,9 @@ import('../modules/config/defs/notification-telegram.def.js'),    import('../mod
     import('../modules/config/defs/retention.def.js'),
     import('../modules/config/defs/help.def.js'),
     import('../modules/config/defs/uns.def.js'),
+    import('../modules/config/defs/filter-cleaning-reasons.def.js'),
+    import('../modules/config/defs/filter-lifecycle-states.def.js'),
+    import('../modules/config/defs/filter-pm-schedule.def.js'),
     // ─── Add new module configs below this line ───
   ]);
 

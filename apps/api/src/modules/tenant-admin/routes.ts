@@ -15,6 +15,7 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
     if (!['ADMIN'].includes(role)) {
       return reply.code(403).send({ error: 'FORBIDDEN', message: 'Admin access required' });
     }
+
   });
 
   // ═══════════════════════════════════════════════════════

@@ -72,8 +72,7 @@ export const authService = {
       } else if (user.isTemporaryPassword && user.forcePasswordChange) {
         await authRepository.updateUser(user.id, { status: 'ENABLED' });
       } else {
-        throw new AppError(403, "ACCOUNT_LOCKED", "Account locked due to multiple failed login attempts. Contact administrator.");
-        throw new AppError(403, 'PASSWORD_EXPIRED', 'Your password has expired. Contact an administrator to reset your password.');
+        throw new AppError(403, "PASSWORD_EXPIRED", "Your password has expired. Contact an administrator to reset your password.");
       }
     }
 

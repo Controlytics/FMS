@@ -56,7 +56,7 @@ import { startMaintenanceWorker, stopMaintenanceWorker } from './workers/mainten
 import { getTsdbPool, initTelemetryBatcher, closeTelemetryBatcher } from '@digilog/db';
 import { AppError } from './lib/errors.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
-import cleaningProfileRoutes from './modules/cleaning-profiles/routes.js';import filterProfileRoutes from './modules/filter-profiles/routes.js';
+import cleaningProfileRoutes from './modules/cleaning-profiles/routes.js';import checklistProfileRoutes from './modules/checklist-profiles/routes.js';import filterProfileRoutes from './modules/filter-profiles/routes.js';
 import pmScheduleRoutes from './modules/pm-schedules/routes.js';import pmExecutionRoutes from './modules/pm-schedules/execution-routes.js';import filterOperationsRoutes from './modules/filter-operations/routes.js';import filterEventsRoutes from './modules/filter-operations/events-routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -226,7 +226,7 @@ await app.register(orgDetailRoutes, { prefix: "/api/organizations" });
 await app.register(orgAdminRoutes, { prefix: "/api/org" });
 await app.register(entityAssignmentRoutes, { prefix: "/api/entity-assignments" });
 await app.register(dashboardRoutes, { prefix: "/api/dashboards" });
-await app.register(cleaningProfileRoutes, { prefix: '/api/filter-cleaning-profiles' });await app.register(filterProfileRoutes, { prefix: '/api/filter-profiles' });
+await app.register(cleaningProfileRoutes, { prefix: '/api/filter-cleaning-profiles' });await app.register(checklistProfileRoutes, { prefix: '/api/checklist-profiles' });await app.register(filterProfileRoutes, { prefix: '/api/filter-profiles' });
 await app.register(pmScheduleRoutes, { prefix: '/api/pm-schedules' });await app.register(pmExecutionRoutes, { prefix: '/api/pm-executions' });await app.register(filterOperationsRoutes, { prefix: '/api/filters' });await app.register(filterEventsRoutes, { prefix: '/api/filter' });
 await app.register(wsHandler);
 

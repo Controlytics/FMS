@@ -22,7 +22,7 @@ export function LifecycleStateConfigPage() {
     try {
       await apiClient.put('/api/config/dynamic/filter_lifecycle_states', { value: states });
       mutate('/api/config/dynamic/filter_lifecycle_states');
-    } catch (e: any) { alert(e.message); }
+    } catch (e: any) { console.error(e.message); }
     setSaving(false);
   };
 

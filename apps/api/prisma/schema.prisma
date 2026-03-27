@@ -1311,3 +1311,58 @@ model FilterEvent {
   @@index([cycleId])
   @@map("filter_events")
 }
+
+// ─── Checklist Profiles & Questions ──────────────────────────
+
+enum ChecklistQuestionType {
+  YES_NO
+  PASS_FAIL
+  YES_NO_NA
+  TEXT
+  NUMERIC
+  DROPDOWN
+  MULTI_SELECT
+  DATE_TIME
+  PHOTO
+  SIGNATURE
+  CALCULATED
+  CONDITIONAL
+
+  @@map("checklist_question_type")
+}
+
+model ChecklistProfile {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String   @db.VarChar(255)
+  description    String?
+  organizationId String   @map("organization_id") @db.Uuid
+  isActive       Boolean  @default(true) @map("is_active")
+  createdBy      String?  @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  questions ChecklistQuestion[]
+
+  @@index([organizationId, isActive])
+  @@map("checklist_profiles")
+}
+
+model ChecklistQuestion {
+  id           String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId    String                @map("profile_id") @db.Uuid
+  question     String
+  questionType ChecklistQuestionType @default(YES_NO) @map("question_type")
+  required     Boolean               @default(false)
+  section      String?               @db.VarChar(255)
+  description  String?
+  options      Json                  @default("[]") @db.JsonB
+  validation   Json                  @default("{}") @db.JsonB
+  sortOrder    Int                   @default(0) @map("sort_order")
+  createdAt    DateTime              @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime              @updatedAt @map("updated_at") @db.Timestamptz
+
+  profile ChecklistProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, sortOrder])
+  @@map("checklist_questions")
+}

@@ -225,6 +225,15 @@ export default async function entityAssignmentRoutes(app: FastifyInstance) {
       data: { permissions: body.permissions },
     });
 
+    await auditLog({
+      userId: req.user.username, userRole: req.user.role,
+      action: 'ASSIGNMENT_UPDATED', targetType: 'entity_assignment', targetId: id,
+      beforeValue: { permissions: existing.permissions },
+      afterValue: { permissions: body.permissions },
+      ipAddress: req.ip, userAgent: req.headers['user-agent'],
+      sessionId: req.user.sessionId,
+    });
+
     return updated;
   });
 

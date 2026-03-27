@@ -16,7 +16,7 @@ export function PmScheduleDetailPage() {
     try {
       await apiClient.post('/api/pm-executions', { scheduleEntryId: entryId, entityId });
       mutate(`/api/pm-schedules/${entityId}?year=${year}`);
-    } catch (e: any) { alert(e.message); }
+    } catch (e: any) { console.error(e.message); }
     setStarting(null);
   };
 

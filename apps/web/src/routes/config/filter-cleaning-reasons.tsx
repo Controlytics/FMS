@@ -22,7 +22,7 @@ export function CleaningReasonsConfigPage() {
     try {
       await apiClient.put('/api/config/dynamic/filter-cleaning-reasons', { value: reasons });
       mutate('/api/config/dynamic/filter-cleaning-reasons');
-    } catch (e: any) { alert(e.message); }
+    } catch (e: any) { console.error(e.message); }
     setSaving(false);
   };
 

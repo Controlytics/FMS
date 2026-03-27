@@ -10,6 +10,7 @@ import { LoginPage } from './routes/auth/login';
 import { ForgotPasswordPage } from './routes/auth/forgot-password';
 import { ChangePasswordPage } from './routes/auth/change-password';
 import { DashboardPage } from './routes/dashboard';
+import { FilterOperationsPage } from "./routes/filter-management/filter-operations";
 import { PERMISSIONS } from '@digilog/shared';
 import { UserListPage } from './routes/users/list';
 import { CreateUserPage } from './routes/users/create';
@@ -57,9 +58,11 @@ const OrganizationsPage = lazy(() => import("./routes/tenant/organizations"));
 const OrgDetailPage = lazy(() => import("./routes/tenant/org-detail"));
 
 // Phase 2: Digital Filter Management System
+const ChecklistProfileListPage = lazy(() => import("./routes/checklists/list").then(m => ({ default: m.ChecklistProfileListPage })));
+const ChecklistProfileDetailPage = lazy(() => import("./routes/checklists/detail").then(m => ({ default: m.ChecklistProfileDetailPage })));
 const CleaningProfileListPage = lazy(() => import("./routes/filter-management/cleaning-profile-list").then(m => ({ default: m.CleaningProfileListPage })));
 const FilterProfileListPage = lazy(() => import("./routes/filter-management/filter-profile-list").then(m => ({ default: m.FilterProfileListPage })));
-const FilterOperationsPage = lazy(() => import("./routes/filter-management/filter-operations").then(m => ({ default: m.FilterOperationsPage })));
+
 const CleaningCycleHistoryPage = lazy(() => import("./routes/cleaning-cycles/history").then(m => ({ default: m.CleaningCycleHistoryPage })));
 const CleaningCycleTimelinePage = lazy(() => import("./routes/cleaning-cycles/timeline").then(m => ({ default: m.CleaningCycleTimelinePage })));
 const LifecycleStateConfigPage = lazy(() => import("./routes/config/filter-lifecycle").then(m => ({ default: m.LifecycleStateConfigPage })));
@@ -162,11 +165,13 @@ createRoot(document.getElementById('root')!).render(
             {/* Audit trail */}
 
             {/* Phase 2: Digital Filter Management System */}
-            <Route path="/filters" element={<Suspense fallback={<LazyFallback />}><FilterOperationsPage /></Suspense>} />
+            <Route path="/filters" element={<FilterOperationsPage />} />
+            <Route path="/checklists" element={<Suspense fallback={<LazyFallback />}><ChecklistProfileListPage /></Suspense>} />
+            <Route path="/checklists/:id" element={<Suspense fallback={<LazyFallback />}><ChecklistProfileDetailPage /></Suspense>} />
             <Route path="/filter-cleaning-profiles" element={<Suspense fallback={<LazyFallback />}><CleaningProfileListPage /></Suspense>} />
             <Route path="/filter-cleaning-profiles/:id/edit" element={<Suspense fallback={<LazyFallback />}><CleaningProfileEditorPage2 /></Suspense>} />
             <Route path="/filter-profiles" element={<Suspense fallback={<LazyFallback />}><FilterProfileListPage /></Suspense>} />
-            <Route path="/filters/:id/operate" element={<Suspense fallback={<LazyFallback />}><FilterOperationsPage /></Suspense>} />
+            <Route path="/filters/:id/operate" element={<FilterOperationsPage />} />
             <Route path="/filters/:id/trace" element={<Suspense fallback={<LazyFallback />}><FilterTraceabilityPage /></Suspense>} />
             <Route path="/cleaning-cycles" element={<Suspense fallback={<LazyFallback />}><CleaningCycleHistoryPage /></Suspense>} />
             <Route path="/cleaning-cycles/:id" element={<Suspense fallback={<LazyFallback />}><CleaningCycleTimelinePage /></Suspense>} />

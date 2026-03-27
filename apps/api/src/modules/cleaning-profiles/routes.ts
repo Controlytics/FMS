@@ -1,5 +1,5 @@
 /**
- * Cleaning Profile Routes — CRUD + validate + simulate for filter cleaning profiles.
+ * Cleaning Profile Routes — CRUD + validate + toggle status for filter cleaning profiles.
  */
 import type { FastifyInstance } from 'fastify';
 import { CleaningProfileService } from './cleaning-profile.service.js';
@@ -20,7 +20,7 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
         properties: {
           page: { type: 'integer', default: 1 },
           limit: { type: 'integer', default: 20 },
-          status: { type: 'string', enum: ['DRAFT', 'ACTIVE', 'ARCHIVED'] },
+          status: { type: 'string', enum: ['ACTIVE', 'INACTIVE'] },
         },
       },
       response: {
@@ -159,6 +159,28 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
     return service.update(ctx, id, req.body);
   });
 
+  // PATCH /:id/toggle-status — Toggle active/inactive
+  app.patch('/:id/toggle-status', {
+    preHandler: [app.requirePermission('FCP_UPDATE')],
+    schema: {
+      tags: ['Cleaning Profiles'],
+      summary: 'Toggle cleaning profile active/inactive',
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: { id: { type: 'string', format: 'uuid' } },
+      },
+      response: {
+        200: { type: 'object', properties: { success: { type: 'boolean' }, status: { type: 'string' } } },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const { id } = req.params as { id: string };
+    return service.toggleStatus(ctx, id);
+  });
+
   // DELETE /:id — Archive
   app.delete('/:id', {
     preHandler: [app.requirePermission('FCP_DELETE')],
@@ -179,6 +201,58 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     return service.archive(ctx, id);
+  });
+
+  // GET /:id/assigned-assets — Get assets assigned to this cleaning profile
+  app.get('/:id/assigned-assets', {
+    preHandler: [app.requirePermission('FCP_READ')],
+    schema: {
+      tags: ['Cleaning Profiles'],
+      summary: 'Get assets assigned to this cleaning profile',
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: { id: { type: 'string', format: 'uuid' } },
+      },
+      response: {
+        200: { type: 'array', items: { type: 'object', additionalProperties: true } },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const { id } = req.params as { id: string };
+    return service.getAssignedAssets(ctx, id);
+  });
+
+  // POST /:id/assign-assets — Assign assets to this cleaning profile
+  app.post('/:id/assign-assets', {
+    preHandler: [app.requirePermission('FCP_UPDATE')],
+    schema: {
+      tags: ['Cleaning Profiles'],
+      summary: 'Assign assets to this cleaning profile',
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: { id: { type: 'string', format: 'uuid' } },
+      },
+      body: {
+        type: 'object',
+        required: ['assetIds'],
+        properties: {
+          assetIds: { type: 'array', items: { type: 'string', format: 'uuid' } },
+        },
+      },
+      response: {
+        200: { type: 'object', properties: { success: { type: 'boolean' }, assignedCount: { type: 'integer' } } },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const { id } = req.params as { id: string };
+    const { assetIds } = req.body as { assetIds: string[] };
+    return service.assignAssets(ctx, id, assetIds);
   });
 
   // POST /:id/validate — Validate pipeline

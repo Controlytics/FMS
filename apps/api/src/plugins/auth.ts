@@ -24,6 +24,20 @@ async function getSessionDurationHours(): Promise<number> {
   return hours;
 }
 
+// Role scope cache (30s TTL) to avoid DB query per request
+const roleScopeCache = new Map<string, { scope: string; cachedAt: number }>();
+const ROLE_SCOPE_CACHE_TTL = 30_000;
+
+async function getRoleScope(roleName: string): Promise<string> {
+  const now = Date.now();
+  const cached = roleScopeCache.get(roleName);
+  if (cached && (now - cached.cachedAt) < ROLE_SCOPE_CACHE_TTL) return cached.scope;
+  const roleRecord = await prisma.role.findFirst({ where: { name: roleName }, select: { scope: true } });
+  const scope = (roleRecord?.scope as string) ?? 'ORGANIZATION';
+  roleScopeCache.set(roleName, { scope, cachedAt: now });
+  return scope;
+}
+
 const PUBLIC_PATHS = [
   '/api/auth/login', '/api/auth/forgot-password', '/api/auth/beacon-logout',
   '/api/health', '/docs', '/docs/',
@@ -100,7 +114,7 @@ async function authPlugin(app: FastifyInstance) {
       }
 
       // Lookup role scope from DB
-      const roleRecord = await prisma.role.findFirst({ where: { name: user.role }, select: { scope: true } });
+      const roleRecord = { scope: await getRoleScope(user.role) };
       const scope = roleRecord?.scope || (user.role === 'SUPER_ADMIN' ? 'GLOBAL' : 'ORGANIZATION');
 
       // Patch req.user with authoritative DB values

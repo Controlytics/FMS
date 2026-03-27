@@ -74,7 +74,7 @@ export class FilterProfileService {
         blockRestriction: blockRestriction ?? 'OWN_BLOCK_ONLY',
         allowedBlocks: allowedBlocks ?? undefined,
         maxCleaningCycles,
-        organizationId: ctx.organizationId!,
+        organizationId: ctx.organizationId || ((await prisma.organization.findFirst({ select: { id: true } }))?.id ?? ''),
       },
     });
 

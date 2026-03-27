@@ -46,6 +46,39 @@ const ALL_PERMISSIONS = [
   { key: 'ROLE_MANAGE', label: 'Manage Roles', category: 'Configuration' },
   // Audit
   { key: 'AUDIT_READ', label: 'View Audit Trail', category: 'Audit' },
+  // Assets & Entities
+  { key: 'ASSET_READ', label: 'View Assets', category: 'Assets' },
+  { key: 'ASSET_VIEW', label: 'View Asset Details', category: 'Assets' },
+  { key: 'ASSET_CREATE', label: 'Create Assets', category: 'Assets' },
+  { key: 'ASSET_UPDATE', label: 'Update Assets', category: 'Assets' },
+  { key: 'ASSET_DELETE', label: 'Delete Assets', category: 'Assets' },
+  { key: 'ENTITY_ASSIGN', label: 'Assign Entities', category: 'Assets' },
+  // Filter Management
+  { key: 'FILTER_OPERATE', label: 'Operate Filters (Advance/Submit)', category: 'Filter Management' },
+  { key: 'FILTER_BYPASS', label: 'Bypass Filter Stages', category: 'Filter Management' },
+  { key: 'FCP_READ', label: 'View Cleaning Profiles', category: 'Filter Management' },
+  { key: 'FCP_CREATE', label: 'Create Cleaning Profiles', category: 'Filter Management' },
+  { key: 'FCP_UPDATE', label: 'Update Cleaning Profiles', category: 'Filter Management' },
+  { key: 'FP_READ', label: 'View Filter Profiles', category: 'Filter Management' },
+  { key: 'FP_CREATE', label: 'Create Filter Profiles', category: 'Filter Management' },
+  { key: 'CYCLE_READ', label: 'View Cleaning Cycles', category: 'Filter Management' },
+  { key: 'EVENT_READ', label: 'View Filter Events', category: 'Filter Management' },
+  { key: 'CHECKLIST_SUBMIT', label: 'Submit Checklists', category: 'Filter Management' },
+  // PM Scheduling
+  { key: 'PM_READ', label: 'View PM Schedules', category: 'PM Scheduling' },
+  { key: 'PM_CREATE', label: 'Create PM Schedules', category: 'PM Scheduling' },
+  { key: 'PM_UPDATE', label: 'Update PM Schedules', category: 'PM Scheduling' },
+  { key: 'PM_EXECUTE', label: 'Execute PM Tasks', category: 'PM Scheduling' },
+  // Rule Chains
+  { key: 'RULE_CHAIN_VIEW', label: 'View Rule Chains', category: 'Rule Chains' },
+  { key: 'RULE_CHAIN_CREATE', label: 'Create Rule Chains', category: 'Rule Chains' },
+  { key: 'RULE_CHAIN_UPDATE', label: 'Update Rule Chains', category: 'Rule Chains' },
+  { key: 'RULE_CHAIN_DELETE', label: 'Delete Rule Chains', category: 'Rule Chains' },
+  // UNS
+  { key: 'UNS_VIEW', label: 'View UNS Config', category: 'UNS' },
+  { key: 'UNS_MANAGE', label: 'Manage UNS Config', category: 'UNS' },
+  // Debug
+  { key: 'READ_DEBUG_TRACE', label: 'View Debug Traces', category: 'Debug' },
   // Approvals
 ];
 
