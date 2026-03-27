@@ -1,0 +1,414 @@
+# DigiLog — Local Windows Setup Guide
+
+**Purpose:** This file contains everything Claude (or a developer) needs to clone, set up, and run the DigiLog application locally on a Windows machine. Follow every step exactly.
+
+---
+
+## 1. Prerequisites — Install These First
+
+### 1.1 Node.js v20 (LTS)
+- Download: https://nodejs.org/en/download — select **v20.x LTS** (NOT v22)
+- Verify: `node -v` should show `v20.x.x`
+- npm comes bundled: `npm -v` should show `10.x.x`
+
+### 1.2 PostgreSQL 16 with TimescaleDB
+- Download PostgreSQL 16: https://www.postgresql.org/download/windows/
+- During install: remember the superuser password (e.g. `postgres`)
+- Port: **5432** (default)
+- After install, add TimescaleDB extension:
+  - Download TimescaleDB for PG16: https://docs.timescale.com/self-hosted/latest/install/installation-windows/
+  - Run the TimescaleDB installer, select your PostgreSQL 16 installation
+  - Restart PostgreSQL service after TimescaleDB install
+
+### 1.3 Redis 7
+- Option A (Recommended): Install via WSL2
+  ```bash
+  wsl --install  # if not already
+  # Inside WSL:
+  sudo apt update && sudo apt install redis-server -y
+  sudo service redis-server start
+  redis-cli ping  # should return PONG
+  ```
+- Option B: Use Memurai (Redis-compatible for Windows): https://www.memurai.com/get-memurai
+- Port: **6379** (default)
+- No password needed for local dev (we'll configure .env accordingly)
+
+### 1.4 Git
+- Download: https://git-scm.com/download/win
+- Verify: `git --version`
+
+### 1.5 EMQX MQTT Broker (Optional — only needed for IoT data ingestion)
+- Download: https://www.emqx.io/downloads — Windows version
+- Port: **1883** (MQTT), **18083** (dashboard)
+- If you don't need MQTT, set `MQTT_ENABLED=false` in .env
+
+---
+
+## 2. Clone the Repository
+
+```bash
+git clone https://github.com/pankajexa/21cfrlogbook.git
+cd 21cfrlogbook
+git checkout DigitalFMS
+```
+
+---
+
+## 3. Create Databases
+
+Open **pgAdmin** or **psql** and run:
+
+```sql
+-- Create the application user
+CREATE USER digilog WITH PASSWORD 'digilog123';
+
+-- Create the main database (Prisma)
+CREATE DATABASE digilog_db OWNER digilog;
+
+-- Create the TimescaleDB database
+CREATE DATABASE digilog_tsdb OWNER digilog;
+
+-- Grant privileges
+GRANT ALL PRIVILEGES ON DATABASE digilog_db TO digilog;
+GRANT ALL PRIVILEGES ON DATABASE digilog_tsdb TO digilog;
+
+-- Connect to digilog_tsdb and enable TimescaleDB
+\c digilog_tsdb
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+GRANT ALL ON SCHEMA public TO digilog;
+```
+
+Then run the TimescaleDB init script:
+```bash
+psql -U digilog -d digilog_tsdb -f init-tsdb.sql
+```
+
+> **Note:** The `init-tsdb.sql` file is in the project root. It creates 7 hypertables for telemetry, attributes, events, checklists, traces, binary data, and alarm history.
+
+---
+
+## 4. Create Environment Files
+
+### 4.1 Root `.env` (copy to project root AND `apps/api/.env`)
+
+Create the file `21cfrlogbook/.env` with this content:
+
+```env
+# ─── PostgreSQL (Prisma) ──────────────────────────────────
+DATABASE_URL=postgresql://digilog:digilog123@localhost:5432/digilog_db?schema=public
+
+# ─── TimescaleDB ─────────────────────────────────────────
+TSDB_HOST=localhost
+TSDB_PORT=5432
+TSDB_DATABASE=digilog_tsdb
+TSDB_USER=digilog
+TSDB_PASSWORD=digilog123
+TSDB_POOL_MAX=10
+
+# ─── MQTT (EMQX) ────────────────────────────────────────
+MQTT_ENABLED=false
+MQTT_BROKER_HOST=localhost
+MQTT_BROKER_PORT=1883
+MQTT_BROKER_TLS_PORT=8883
+MQTT_BROKER_WS_PORT=8083
+MQTT_BROKER_WSS_PORT=8084
+MQTT_AUTH_CALLBACK_URL=http://localhost:3000/api/internal/mqtt
+EMQX_ADMIN_PASSWORD=public
+
+# ─── Redis (BullMQ + Pub/Sub) ────────────────────────────
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+
+# ─── SMTP (optional) ─────────────────────────────────────
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASSWORD=
+
+# ─── UNS ─────────────────────────────────────────────────
+UNS_ROOT_PREFIX=digilog/v1
+UNS_VERSION=v1
+
+# ─── JWT Configuration ───────────────────────────────────
+JWT_SECRET=LOCAL_DEV_SECRET_CHANGE_IN_PRODUCTION_1234567890abcdefghijklmnopqrstuvwxyz
+VERIFICATION_TOKEN_SECRET=LOCAL_DEV_VERIFY_SECRET_CHANGE_IN_PRODUCTION_1234567890abcdefghijklmn
+JWT_EXPIRES_IN=8h
+
+# ─── Server Configuration ────────────────────────────────
+NODE_ENV=development
+API_PORT=3000
+
+# ─── CORS Configuration ──────────────────────────────────
+CORS_ORIGIN=http://localhost:5173
+ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+
+# ─── Upload Configuration ────────────────────────────────
+UPLOAD_DIR=./uploads
+MAX_FILE_SIZE=5242880
+```
+
+**IMPORTANT:** Copy the same file to `apps/api/.env`:
+```bash
+cp .env apps/api/.env
+```
+
+---
+
+## 5. Install Dependencies
+
+```bash
+npm install
+```
+
+This installs all dependencies for the monorepo (root + apps/api + apps/web + packages/*).
+
+---
+
+## 6. Set Up the Database
+
+### 6.1 Generate Prisma Client
+```bash
+cd apps/api
+npx prisma generate
+```
+
+### 6.2 Run Migrations
+```bash
+npx prisma migrate deploy
+```
+
+> This creates all 40+ tables including the 9 Phase 2 filter management tables.
+
+### 6.3 Seed the Database
+```bash
+npx prisma db seed
+```
+
+> This creates: 6 default roles (SUPER_ADMIN through VIEWER), superadmin user (username: `superadmin`, password: `Admin@123`), 29 system config entries, 17 filter management permissions, and sample organizations.
+
+```bash
+cd ../..
+```
+
+---
+
+## 7. Build the Project
+
+```bash
+npm run build
+```
+
+This runs `turbo build` which builds all packages in dependency order:
+1. `@digilog/shared` (shared types)
+2. `@digilog/db` (Prisma client wrapper)
+3. `@digilog/queue` (BullMQ wrapper)
+4. `@digilog/api` (Fastify backend — TypeScript → JavaScript)
+5. `@digilog/web` (React frontend — Vite build)
+
+---
+
+## 8. Run the Application
+
+### 8.1 Development Mode (with hot reload)
+
+Open **two terminals**:
+
+**Terminal 1 — Backend API:**
+```bash
+cd apps/api
+npx tsx watch src/app.ts
+```
+API runs on http://localhost:3000
+
+**Terminal 2 — Frontend:**
+```bash
+cd apps/web
+npx vite
+```
+Frontend runs on http://localhost:5173
+
+### 8.2 Production Mode
+
+```bash
+# Build first
+npm run build
+
+# Start API
+cd apps/api
+node dist/app.js
+
+# Serve frontend (use any static server)
+cd ../web
+npx vite preview
+```
+
+---
+
+## 9. Verify It Works
+
+1. Open http://localhost:5173 in your browser
+2. Login: **superadmin** / **Admin@123**
+3. You should see the dashboard
+4. Check the sidebar for:
+   - Filter Operations
+   - Cleaning Cycles
+   - Checklists
+   - Cleaning Profiles
+   - Filter Profiles
+   - PM Schedules
+
+### API Health Check
+```bash
+curl http://localhost:3000/api/health
+# or in browser: http://localhost:3000/api/docs (Swagger UI)
+```
+
+---
+
+## 10. Project Structure
+
+```
+21cfrlogbook/
+├── apps/
+│   ├── api/                    # Fastify backend (TypeScript)
+│   │   ├── prisma/
+│   │   │   ├── schema.prisma   # Database schema (40+ models)
+│   │   │   ├── seed.ts         # Database seeder
+│   │   │   └── migrations/     # SQL migrations
+│   │   └── src/
+│   │       ├── app.ts          # Entry point
+│   │       ├── modules/        # 27 feature modules
+│   │       ├── plugins/        # Auth, CORS, etc.
+│   │       └── lib/            # Shared utilities
+│   └── web/                    # React frontend (Vite + Tailwind)
+│       └── src/
+│           ├── main.tsx        # Router + routes
+│           ├── routes/         # 46+ pages
+│           ├── components/     # Shared components
+│           └── lib/            # API client, hooks
+├── packages/
+│   ├── shared/                 # Shared types & schemas
+│   ├── db/                     # Prisma client wrapper
+│   └── queue/                  # BullMQ wrapper
+├── init-tsdb.sql               # TimescaleDB hypertable creation
+├── turbo.json                  # Turborepo build config
+└── package.json                # Root workspace config
+```
+
+---
+
+## 11. Key Configuration
+
+| Config | Value | Notes |
+|--------|-------|-------|
+| API Port | 3000 | Fastify backend |
+| Web Dev Port | 5173 | Vite dev server |
+| PostgreSQL | localhost:5432 | User: digilog, DB: digilog_db |
+| TimescaleDB | localhost:5432 | DB: digilog_tsdb (same PG instance) |
+| Redis | localhost:6379 | No password for local dev |
+| MQTT (EMQX) | localhost:1883 | Optional — set MQTT_ENABLED=false to skip |
+| Default Login | superadmin / Admin@123 | Created by seed |
+
+---
+
+## 12. Common Commands
+
+```bash
+# Install dependencies
+npm install
+
+# Build everything
+npm run build
+
+# Run dev mode (both API + Web)
+npm run dev
+
+# Database commands
+npm run db:migrate    # Run pending migrations
+npm run db:seed       # Seed default data
+npm run db:studio     # Open Prisma Studio (visual DB browser)
+
+# Run tests
+npm run test
+
+# Build only API
+npx turbo build --filter=@digilog/api
+
+# Build only Web
+npx turbo build --filter=@digilog/web
+
+# Prisma commands (from apps/api/)
+npx prisma generate          # Regenerate Prisma client
+npx prisma migrate dev       # Create + apply new migration
+npx prisma migrate deploy    # Apply pending migrations
+npx prisma studio            # Visual DB browser on localhost:5555
+```
+
+---
+
+## 13. Troubleshooting
+
+### "Module not found" errors
+```bash
+npm install
+npx turbo build --force
+```
+
+### Prisma client errors
+```bash
+cd apps/api
+npx prisma generate
+cd ../..
+npm run build
+```
+
+### Database connection errors
+- Check PostgreSQL is running: `pg_isready`
+- Check Redis is running: `redis-cli ping`
+- Verify .env DATABASE_URL matches your PostgreSQL credentials
+- Ensure both `digilog_db` and `digilog_tsdb` databases exist
+
+### TimescaleDB errors
+- Ensure TimescaleDB extension is installed for your PostgreSQL version
+- Run: `psql -U digilog -d digilog_tsdb -c "SELECT extversion FROM pg_extension WHERE extname='timescaledb';"`
+- If missing, run `CREATE EXTENSION timescaledb;` in digilog_tsdb
+
+### Port conflicts
+- API (3000): `netstat -ano | findstr :3000`
+- Web (5173): `netstat -ano | findstr :5173`
+- PostgreSQL (5432): `netstat -ano | findstr :5432`
+- Redis (6379): `netstat -ano | findstr :6379`
+
+### Windows-specific issues
+- Use **Git Bash** or **WSL2** for running commands (not CMD)
+- If `bcrypt` fails to install, run: `npm install --build-from-source bcrypt`
+- If `sharp` errors occur: `npm install --platform=win32 --arch=x64 sharp`
+
+---
+
+## 14. Git Information
+
+| Field | Value |
+|-------|-------|
+| Repository | https://github.com/pankajexa/21cfrlogbook.git |
+| Branch | DigitalFMS |
+| Latest Commit | cbc74c1 (docs: update all 157 .md files) |
+
+---
+
+## 15. Architecture Summary
+
+- **Backend:** Fastify 5 + TypeScript + Prisma ORM + BullMQ job queue
+- **Frontend:** React 19 + Vite 6 + Tailwind CSS 4 + SWR + React Router 7
+- **Database:** PostgreSQL 16 + TimescaleDB (time-series) + Prisma migrations
+- **Queue:** Redis + BullMQ (data ingestion pipeline, maintenance workers)
+- **Auth:** JWT tokens with bcrypt password hashing, session management
+- **MQTT:** EMQX broker for IoT device connectivity (optional for local dev)
+
+### Phase 2: Digital Filter Management System
+- 5 backend modules: cleaning-profiles, filter-profiles, filter-operations, pm-schedules, checklist-profiles
+- 12+ frontend pages: operations, profiles, cycles, checklists, PM, AHU dashboard, traceability
+- 9 database tables: filter_cleaning_profiles, filter_pipeline_stages, filter_pipeline_connections, filter_profiles, cleaning_cycles, filter_events, pm_schedules, pm_schedule_entries, pm_executions
+- Visual pipeline editor with STAGE, CHECKLIST, START, END nodes
+- Server-side checklist enforcement, race condition protection, input sanitization
