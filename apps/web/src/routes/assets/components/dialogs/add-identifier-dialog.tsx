@@ -45,10 +45,20 @@ export function AddIdentifierDialog({ open, onClose, saving, onSubmit }: Props) 
     // After 300ms of no new input, tag scan is complete
     if (rfidTimerRef.current) clearTimeout(rfidTimerRef.current);
     rfidTimerRef.current = setTimeout(() => {
-      const tag = rfidBufferRef.current.trim().toUpperCase();
-      if (tag.length >= 3) {
-        setRfidDetected(tag);
+      let tag = rfidBufferRef.current.trim().toUpperCase();
+      if (tag.length < 3) return;
+
+      // Deduplicate repeated scans (e.g., "ABCD1234ABCD1234" → "ABCD1234")
+      if (tag.length >= 6 && tag.length % 2 === 0) {
+        const half = tag.length / 2;
+        if (tag.substring(0, half) === tag.substring(half)) tag = tag.substring(0, half);
       }
+      if (tag.length >= 9 && tag.length % 3 === 0) {
+        const third = tag.length / 3;
+        if (tag.substring(0, third) === tag.substring(third, third * 2) && tag.substring(0, third) === tag.substring(third * 2)) tag = tag.substring(0, third);
+      }
+
+      setRfidDetected(tag);
     }, 300);
 
     setNewIdentifier(p => ({ ...p, identifierValue: val }));

@@ -9,6 +9,7 @@ import { CleaningReasonDialog } from './components/cleaning-reason-dialog';
 import { EquipmentDialog } from './components/equipment-dialog';
 import { ChecklistDialog } from './components/checklist-dialog';
 import { CLEANING_STAGES_OPS } from '../../lib/filter-constants';
+import { ErrorPopup } from '../../components/ui/error-popup';
 import type { FilterInstance, PaginatedResponse } from '../../types/filter';
 
 const CLEANING_STAGES = CLEANING_STAGES_OPS;
@@ -44,6 +45,7 @@ export function FilterOperationsPage() {
   const [remarks, setRemarks] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [popupError, setPopupError] = useState('');
   const [recentSubmissions, setRecentSubmissions] = useState<Array<{stage: string; filter: string; block?: string; time: string}>>([]);
   const [submitting, setSubmitting] = useState(false); // double-submit guard
 
@@ -234,7 +236,7 @@ export function FilterOperationsPage() {
         setChecklistError('');
       }
     } catch (e: any) {
-      setError(e.message ?? 'Failed');
+      setPopupError(e.message ?? 'Failed');
     }
     setLoading(false); setSubmitting(false);
   };
@@ -302,7 +304,7 @@ export function FilterOperationsPage() {
         setChecklistError('');
       }
     }, {
-      onError: (e: unknown) => { setReasonError((e as any)?.message ?? 'Failed'); },
+      onError: (e: unknown) => { setReasonError((e as any)?.message ?? 'Failed'); setPopupError((e as any)?.message ?? 'Failed'); },
     });
     setLoading(false); setSubmitting(false);
   };
@@ -328,7 +330,7 @@ export function FilterOperationsPage() {
         setChecklistDialog({ filterId: equipmentDialog.filterId, filterName: equipmentDialog.filterName, checklists: advanceResult.pendingChecklist });
         setChecklistError('');
       }
-    } catch (e: any) { setEquipmentError(e.message ?? 'Failed to advance'); }
+    } catch (e: any) { setEquipmentError(e.message ?? 'Failed to advance'); setPopupError(e.message ?? 'Failed to advance'); }
     setEquipmentLoading(false);
   };
 
@@ -345,6 +347,7 @@ export function FilterOperationsPage() {
       refreshFilters();
     } catch (e: any) {
       setChecklistError(e.message ?? 'Failed to submit checklist');
+      setPopupError(e.message ?? 'Failed to submit checklist');
     }
     setChecklistLoading(false);
   };
@@ -528,6 +531,9 @@ export function FilterOperationsPage() {
         onCancel={reauth.cancel}
         actionLabel="Filter Operation"
       />
+
+      {/* Error Popup */}
+      <ErrorPopup error={popupError} onClose={() => setPopupError('')} />
     </div>
   );
 }

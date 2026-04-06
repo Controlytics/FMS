@@ -22,6 +22,10 @@ export const identifierService = {
     const asset = await instanceRepository.findByIdSimple(data.assetId);
     if (!asset) throw new ValidationError('Entity instance not found');
 
+    // Only one identifier per entity
+    const existingForAsset = await identifierRepository.findMany({ assetId: data.assetId });
+    if (existingForAsset.length > 0) throw new ConflictError('This entity already has an identifier. Remove the existing one first.');
+
     const existingIdent = await identifierRepository.findByIdentifierValue(data.identifierValue);
     if (existingIdent) throw new ConflictError('Identifier value already exists');
 

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config>
+        <trust-anchors>
+            <!-- Trust system CAs -->
+            <certificates src="system" />
+            <!-- Trust our mkcert root CA -->
+            <certificates src="@raw/rootca" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

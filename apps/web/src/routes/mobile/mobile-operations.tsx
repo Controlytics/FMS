@@ -17,10 +17,25 @@ const STAGES = [
 
 type View = 'home' | 'status' | 'stage';
 
+// Build identifier→filter map from identifiers list
+function buildIdentifierMap(identifiers: any[]): Record<string, { filterId: string; filterName: string }> {
+  const list = Array.isArray(identifiers) ? identifiers : [];
+  const map: Record<string, { filterId: string; filterName: string }> = {};
+  for (const ident of list) {
+    if (ident.identifierValue && ident.assetId) {
+      const entry = { filterId: ident.assetId, filterName: ident.asset?.name || ident.assetId };
+      map[ident.identifierValue] = entry;
+      map[ident.identifierValue.toUpperCase()] = entry;
+      map[ident.identifierValue.toLowerCase()] = entry;
+    }
+  }
+  return map;
+}
+
 export function MobileOperationsPage() {
   const { user, isLoading: authLoading, logout: authLogout } = useAuth();
   const { formatTime } = useDatetimeFormat();
-  const { online, pendingCount, syncing, executeOrQueue, manualSync, cacheFilterData, getOfflineFilters } = useOffline();
+  const { online, pendingCount, syncing, executeOrQueue, manualSync, cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
   const mobileNav = useNavigate();
 
   if (!authLoading && !user) return <Navigate to="/m/login" replace />;
@@ -50,17 +65,47 @@ export function MobileOperationsPage() {
   const [checklistDialog, setChecklistDialog] = useState<{ filterId: string; filterName: string; checklists: any[] } | null>(null);
   const [checklistAnswers, setChecklistAnswers] = useState<Record<string, any>>({});
 
-  // Data
+  // Data — always fetch when online, cache for offline
   const { data: instancesData } = useSWR(online ? '/api/assets/instances?limit=500' : null, { refreshInterval: 15000 });
   const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=100' : null);
   const { data: reasonsData } = useSWR(online ? '/api/filters/reasons' : null);
+  const { data: identifiersData } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null);
   const [offlineFilters, setOfflineFilters] = useState<any[]>([]);
+  const [offlineTemplates, setOfflineTemplates] = useState<any[]>([]);
+  const [offlineReasons, setOfflineReasons] = useState<any[]>([]);
+  const [dataCached, setDataCached] = useState(false);
 
+  // Cache data when online for offline use
   useEffect(() => { if (instancesData?.data) cacheFilterData(instancesData.data); }, [instancesData]);
-  useEffect(() => { if (!online) getOfflineFilters().then(setOfflineFilters); }, [online]);
+  useEffect(() => {
+    if (identifiersData) {
+      const map = buildIdentifierMap(identifiersData as any[]);
+      if (Object.keys(map).length > 0) {
+        cache('identifier-map', map);
+      }
+    }
+  }, [identifiersData, cache]);
+  useEffect(() => { if (templatesData?.data) cache('templates', templatesData.data); }, [templatesData, cache]);
+  useEffect(() => { const r = (reasonsData as any)?.reasons ?? reasonsData; if (r) cache('cleaning-reasons', r); }, [reasonsData, cache]);
 
-  const cleaningReasons = (reasonsData as any)?.reasons ?? reasonsData ?? [];
-  const templates = (templatesData?.data ?? []) as any[];
+  // Track when all data is cached and ready for offline
+  useEffect(() => {
+    if (online && instancesData?.data && templatesData?.data && identifiersData && reasonsData) {
+      setDataCached(true);
+    }
+  }, [online, instancesData, templatesData, identifiersData, reasonsData]);
+
+  // Load cached data when offline
+  useEffect(() => {
+    if (!online) {
+      getOfflineFilters().then(setOfflineFilters);
+      getCache<any[]>('templates').then(t => setOfflineTemplates(t ?? []));
+      getCache<any[]>('cleaning-reasons').then(r => setOfflineReasons(r ?? []));
+    }
+  }, [online]);
+
+  const cleaningReasons = online ? ((reasonsData as any)?.reasons ?? reasonsData ?? []) : offlineReasons;
+  const templates = (online ? (templatesData?.data ?? []) : offlineTemplates) as any[];
   const instances = online ? ((instancesData?.data ?? []) as any[]) : offlineFilters;
   const filterTemplateId = templates.find((t: any) => t.name === 'Filter')?.id;
   const blockTemplateId = templates.find((t: any) => t.name === 'Block')?.id;
@@ -83,12 +128,38 @@ export function MobileOperationsPage() {
 
   const resolveFilter = async (): Promise<{ filterId: string; filterName: string } | null> => {
     let filterId = ''; let filterName = '';
-    if (online) {
-      try { const l = await apiClient.get<any>(`/api/assets/identifiers/lookup/${encodeURIComponent(scanValue.trim())}`); if (l?.asset?.id) { filterId = l.asset.id; filterName = l.asset.name; } } catch {}
+
+    // Deduplicate RFID scan value (reader may repeat tag ID)
+    let sv = scanValue.trim().toUpperCase();
+    if (sv.length >= 6 && sv.length % 2 === 0) {
+      const half = sv.length / 2;
+      if (sv.substring(0, half) === sv.substring(half)) sv = sv.substring(0, half);
     }
-    if (!filterId) { const m = allFilters.find((a: any) => a.name?.toLowerCase() === scanValue.trim().toLowerCase()); if (m) { filterId = m.id; filterName = m.name; } }
-    if (!filterId && scanValue.match(/^[0-9a-f]{8}-/i)) { filterId = scanValue.trim(); filterName = scanValue.slice(0, 8); }
-    if (!filterId) { setError('Filter not found'); return null; }
+    if (sv.length >= 9 && sv.length % 3 === 0) {
+      const third = sv.length / 3;
+      if (sv.substring(0, third) === sv.substring(third, third * 2) && sv.substring(0, third) === sv.substring(third * 2)) sv = sv.substring(0, third);
+    }
+
+    // Online: try identifier lookup API
+    if (online) {
+      try { const l = await apiClient.get<any>(`/api/assets/identifiers/lookup/${encodeURIComponent(sv)}`); if (l?.asset?.id) { filterId = l.asset.id; filterName = l.asset.name; } } catch {}
+    }
+
+    // Try cached identifier map (works both online and offline)
+    if (!filterId) {
+      try {
+        const map = await getCache<Record<string, { filterId: string; filterName: string }>>('identifier-map');
+        if (map) {
+          const match = map[sv] || map[sv.toUpperCase()] || map[sv.toLowerCase()] || map[scanValue.trim()];
+          if (match) { filterId = match.filterId; filterName = match.filterName; }
+        }
+      } catch {}
+    }
+
+    // Fallback: match by filter name in cached instances
+    if (!filterId) { const m = allFilters.find((a: any) => a.name?.toLowerCase() === sv.toLowerCase()); if (m) { filterId = m.id; filterName = m.name; } }
+    if (!filterId && sv.match(/^[0-9a-f]{8}-/i)) { filterId = sv; filterName = sv.slice(0, 8); }
+    if (!filterId) { setError('Filter not found. Ensure you scanned while online first to cache identifiers.'); return null; }
     return { filterId, filterName };
   };
 
@@ -127,11 +198,21 @@ export function MobileOperationsPage() {
     if (!reasonDialog || !selectedReason) return;
     setLoading(true); setError('');
     try {
-      await apiClient.post(`/api/filters/${reasonDialog.filterId}/start-cycle`, { cleaningReasonKey: selectedReason, cleaningJustification: justification || undefined, cleaningAreaId: selectedBlock?.id });
+      const cyclePayload = { cleaningReasonKey: selectedReason, cleaningJustification: justification || undefined, cleaningAreaId: selectedBlock?.id };
+      const { executed: cycleExecuted } = await executeOrQueue('start-cycle', reasonDialog.filterId, reasonDialog.filterName, cyclePayload);
+
+      if (!cycleExecuted) {
+        // Offline: also queue the advance after start-cycle
+        await executeOrQueue('advance', reasonDialog.filterId, reasonDialog.filterName, { targetState: reasonDialog.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${reasonDialog.stage.replace(/_/g, ' ')} - ${reasonDialog.filterName}` }, reasonDialog.stage);
+        setSuccess(`${reasonDialog.filterName} → ${reasonDialog.stage.replace(/_/g, ' ')} (queued)`);
+        setRecentOps(prev => [{ stage: reasonDialog.stage, filter: reasonDialog.filterName, time: formatTime(new Date()), queued: true }, ...prev].slice(0, 20));
+        setScanValue(''); setRemarks(''); setReasonDialog(null); setLoading(false); return;
+      }
+
       if (reasonDialog.stage === 'WASH_IN' && selectedBlock?.id) {
         try { const groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${selectedBlock.id}`); if (groups?.length) { setReasonDialog(null); setEquipDialog({ filterId: reasonDialog.filterId, filterName: reasonDialog.filterName, stage: reasonDialog.stage, groups }); setSelectedEquipGroup(null); setReadings({}); setLoading(false); return; } } catch {}
       }
-      const result = await apiClient.post<any>(`/api/filters/${reasonDialog.filterId}/advance`, { targetState: reasonDialog.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${reasonDialog.stage.replace(/_/g, ' ')} - ${reasonDialog.filterName}` });
+      const { result } = await executeOrQueue('advance', reasonDialog.filterId, reasonDialog.filterName, { targetState: reasonDialog.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${reasonDialog.stage.replace(/_/g, ' ')} - ${reasonDialog.filterName}` }, reasonDialog.stage);
       setSuccess(`${reasonDialog.filterName} → ${reasonDialog.stage.replace(/_/g, ' ')}`);
       setRecentOps(prev => [{ stage: reasonDialog.stage, filter: reasonDialog.filterName, time: formatTime(new Date()) }, ...prev].slice(0, 20));
       setScanValue(''); setRemarks(''); setReasonDialog(null); mutate('/api/assets/instances?limit=500');
@@ -144,10 +225,13 @@ export function MobileOperationsPage() {
     if (!equipDialog || !selectedEquipGroup) return;
     setLoading(true); setError('');
     try {
-      const result = await apiClient.post<any>(`/api/filters/${equipDialog.filterId}/advance`, { targetState: equipDialog.stage, cleaningAreaId: selectedBlock?.id, equipmentGroupId: selectedEquipGroup.id, instrumentReadings: readings, remarks: remarks || `${equipDialog.stage.replace(/_/g, ' ')} - ${equipDialog.filterName}` });
-      setSuccess(`${equipDialog.filterName} → ${equipDialog.stage.replace(/_/g, ' ')}`);
-      setRecentOps(prev => [{ stage: equipDialog.stage, filter: equipDialog.filterName, time: formatTime(new Date()) }, ...prev].slice(0, 20));
-      setScanValue(''); setRemarks(''); setEquipDialog(null); setSelectedEquipGroup(null); setReadings({}); mutate('/api/assets/instances?limit=500');
+      const advancePayload = { targetState: equipDialog.stage, cleaningAreaId: selectedBlock?.id, equipmentGroupId: selectedEquipGroup.id, instrumentReadings: readings, remarks: remarks || `${equipDialog.stage.replace(/_/g, ' ')} - ${equipDialog.filterName}` };
+      const { executed, result } = await executeOrQueue('advance', equipDialog.filterId, equipDialog.filterName, advancePayload, equipDialog.stage);
+      const queued = !executed;
+      setSuccess(`${equipDialog.filterName} → ${equipDialog.stage.replace(/_/g, ' ')}${queued ? ' (queued)' : ''}`);
+      setRecentOps(prev => [{ stage: equipDialog.stage, filter: equipDialog.filterName, time: formatTime(new Date()), queued }, ...prev].slice(0, 20));
+      setScanValue(''); setRemarks(''); setEquipDialog(null); setSelectedEquipGroup(null); setReadings({});
+      if (executed) mutate('/api/assets/instances?limit=500');
       if (result?.pendingChecklist?.length > 0) { setChecklistDialog({ filterId: equipDialog.filterId, filterName: equipDialog.filterName, checklists: result.pendingChecklist }); setChecklistAnswers({}); }
     } catch (e: any) { setError(e.message ?? 'Failed'); }
     setLoading(false);
@@ -157,7 +241,12 @@ export function MobileOperationsPage() {
     if (!checklistDialog) return;
     for (const cl of checklistDialog.checklists) { for (const q of cl.questions) { if (q.required && (checklistAnswers[q.id] === undefined || checklistAnswers[q.id] === '')) { setError(`Answer required: "${q.question}"`); return; } } }
     setLoading(true); setError('');
-    try { await apiClient.post(`/api/filters/${checklistDialog.filterId}/submit-checklist`, { answers: checklistAnswers }); setSuccess('Checklist submitted'); setChecklistDialog(null); setChecklistAnswers({}); mutate('/api/assets/instances?limit=500'); } catch (e: any) { setError(e.message ?? 'Failed'); }
+    try {
+      const { executed } = await executeOrQueue('submit-checklist', checklistDialog.filterId, checklistDialog.filterName, { answers: checklistAnswers });
+      setSuccess(`Checklist submitted${executed ? '' : ' (queued)'}`);
+      setChecklistDialog(null); setChecklistAnswers({});
+      if (executed) mutate('/api/assets/instances?limit=500');
+    } catch (e: any) { setError(e.message ?? 'Failed'); }
     setLoading(false);
   };
 
@@ -184,6 +273,12 @@ export function MobileOperationsPage() {
             <div className={`w-1.5 h-1.5 rounded-full ${online ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`} />
             {online ? 'Online' : 'Offline'}
           </div>
+          {online && (
+            <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium ${dataCached ? 'bg-blue-50 text-blue-600 border border-blue-200' : 'bg-yellow-50 text-yellow-600 border border-yellow-200'}`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${dataCached ? 'bg-blue-500' : 'bg-yellow-400 animate-pulse'}`} />
+              {dataCached ? 'Data Synced' : 'Syncing...'}
+            </div>
+          )}
           {pendingCount > 0 && (
             <button onClick={manualSync} disabled={!online || syncing} className="px-2 py-1 bg-amber-50 border border-amber-200 rounded-full text-[10px] text-amber-700 font-medium">
               {syncing ? '⟳' : pendingCount} {syncing ? 'Syncing' : 'pending'}

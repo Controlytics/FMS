@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import Fastify from 'fastify';
+import fs from 'node:fs';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -69,13 +70,14 @@ const app = Fastify({
   logger: {
     level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
   },
-  trustProxy: 1,  // Trust exactly 1 proxy hop (nginx) — prevents X-Forwarded-For spoofing
+  trustProxy: 1,  // Trust exactly 1 proxy hop (nginx/Vite proxy) — prevents X-Forwarded-For spoofing
   bodyLimit: 10 * 1024 * 1024, // 10 MB for base64 image uploads in checklists
   ajv: {
     customOptions: {
       keywords: ['example'],
     },
   },
+  // API runs on HTTP — Vite HTTPS proxy handles browser→API connection
 });
 
 // Swagger API docs (register before routes)

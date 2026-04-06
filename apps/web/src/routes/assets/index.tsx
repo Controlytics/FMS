@@ -12,6 +12,7 @@ import {
 import { Select } from '@/components/ui/select';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/cn';
+import { ErrorPopup } from '@/components/ui/error-popup';
 import { AssetDetailPanel } from './components/entity-detail-panel';
 import { useAssetTreeLogic } from './hooks/use-asset-tree-logic';
 import { useAssetMutations } from './hooks/use-asset-mutations';
@@ -238,13 +239,8 @@ export function AssetExplorerPage() {
         </div>
       </div>
 
-      {/* Error Banner */}
-      {error && (
-        <div className="mx-6 mt-3 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 flex items-center justify-between">
-          <span>{error}</span>
-          <button onClick={() => setError('')} className="text-red-400 hover:text-red-600"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
-        </div>
-      )}
+      {/* Error Popup */}
+      <ErrorPopup error={error} onClose={() => setError('')} />
 
       {/* Main Content */}
       {viewMode === 'tree' ? (

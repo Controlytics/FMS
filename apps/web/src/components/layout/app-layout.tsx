@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/use-auth';
 import { useSession } from '@/hooks/use-session';
@@ -12,6 +13,7 @@ import useSWR from 'swr';
 
 export function AppLayout() {
   useRfidGuard(); // Block RFID UKB input from going into random fields
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const location = useLocation();
   const { branding } = useBranding();
@@ -150,10 +152,10 @@ export function AppLayout() {
 
   return (
     <div className="flex h-screen bg-slate-50">
-      <Sidebar userRole={user?.role ?? ''} />
+      <Sidebar userRole={user?.role ?? ''} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Header user={user} onLogout={logout} />
-        <main className="flex-1 overflow-y-auto p-6 bg-gradient-to-br from-slate-50 to-slate-100/50">
+        <Header user={user} onLogout={logout} onMenuToggle={() => setSidebarOpen(o => !o)} />
+        <main className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 bg-gradient-to-br from-slate-50 to-slate-100/50">
           <Outlet />
         </main>
       </div>

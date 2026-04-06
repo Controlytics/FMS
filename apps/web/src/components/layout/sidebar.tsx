@@ -5,12 +5,17 @@ import { useBranding } from '@/hooks/use-branding';
 import { useAuth } from '@/hooks/use-auth';
 import { SIDEBAR_PRIVILEGE_MAP, FEATURE_TO_PERMISSION_MAP } from '@digilog/shared';
 
+interface SidebarProps {
+  userRole: string;
+  open: boolean;
+  onClose: () => void;
+}
+
 interface NavItem {
   id: string;
   label: string;
   href: string;
   icon: React.ReactNode;
-
 }
 
 // All available nav items with their IDs matching the config
@@ -195,7 +200,7 @@ interface SidebarProps {
   userRole: string;
 }
 
-export function Sidebar({ userRole }: SidebarProps) {
+export function Sidebar({ userRole, open, onClose }: SidebarProps) {
   const location = useLocation();
   const { branding } = useBranding();
   const { user } = useAuth();
@@ -237,10 +242,18 @@ export function Sidebar({ userRole }: SidebarProps) {
   });
 
   return (
-    <aside
-      className="flex h-full w-64 flex-col"
-      style={{ background: `linear-gradient(180deg, ${branding.primaryColor} 0%, ${branding.loginBgStart} 100%)` }}
-    >
+    <>
+      {/* Mobile overlay */}
+      {open && (
+        <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={onClose} />
+      )}
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-50 flex w-64 flex-col transition-transform duration-300 lg:static lg:translate-x-0',
+          open ? 'translate-x-0' : '-translate-x-full'
+        )}
+        style={{ background: `linear-gradient(180deg, ${branding.primaryColor} 0%, ${branding.loginBgStart} 100%)` }}
+      >
       {/* Logo Section */}
       <div className="flex flex-col items-center py-3 border-b border-white/10">
         <Link to="/" className="flex flex-col items-center w-full px-3">
@@ -276,6 +289,7 @@ export function Sidebar({ userRole }: SidebarProps) {
             <Link
               key={item.href}
               to={item.href}
+              onClick={onClose}
               className={cn(
                 'flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200',
                 active
@@ -306,5 +320,6 @@ export function Sidebar({ userRole }: SidebarProps) {
         </div>
       </div>
     </aside>
+    </>
   );
 }

@@ -15,6 +15,7 @@ interface HeaderProps {
     department?: string;
   } | undefined;
   onLogout: () => void;
+  onMenuToggle?: () => void;
 }
 
 const roleColors: Record<string, string> = {
@@ -35,7 +36,7 @@ const roleLabels: Record<string, string> = {
   VIEWER: 'Viewer',
 };
 
-export function Header({ user, onLogout }: HeaderProps) {
+export function Header({ user, onLogout, onMenuToggle }: HeaderProps) {
   const [showMenu, setShowMenu] = useState(false);
   const { branding } = useBranding();
   const navigate = useNavigate();
@@ -48,7 +49,18 @@ export function Header({ user, onLogout }: HeaderProps) {
   const unreadCount = notificationData?.count ?? 0;
 
   return (
-    <header className="flex h-16 items-center justify-end border-b border-slate-200 bg-white px-6 shadow-sm">
+    <header className="flex h-14 lg:h-16 items-center justify-between border-b border-slate-200 bg-white px-4 lg:px-6 shadow-sm">
+      {/* Left side - Hamburger menu (mobile only) */}
+      <button
+        onClick={onMenuToggle}
+        className="p-2 rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors lg:hidden"
+        aria-label="Toggle menu"
+      >
+        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
+      <div className="hidden lg:block" /> {/* Spacer for desktop */}
       {/* Right side - User info */}
       <div className="flex items-center gap-3">
         {user && (

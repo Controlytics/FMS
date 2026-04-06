@@ -80,8 +80,11 @@ export default defineConfig({
     port: 5175,
     strictPort: true,
     host: true,
-    // HTTPS disabled — causes issues with tablet HTTP connections
-    // Enable for production with proper certs
+    // HTTPS disabled for dev — install rootCA on tablet for production HTTPS
+    // https: {
+    //   key: fs.readFileSync(path.resolve(__dirname, '../../certs/server.key')),
+    //   cert: fs.readFileSync(path.resolve(__dirname, '../../certs/server.crt')),
+    // },
     proxy: {
       '/api': {
         target: 'http://localhost:3000',

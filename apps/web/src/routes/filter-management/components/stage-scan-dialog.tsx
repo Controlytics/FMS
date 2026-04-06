@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { apiClient } from '@/lib/api-client';
 
 interface StageScanDialogProps {
   activeStage: {
@@ -44,14 +45,36 @@ export function StageScanDialog({
 }: StageScanDialogProps) {
   // RFID: detected tag waiting for Continue/Remove
   const [rfidDetected, setRfidDetected] = useState<string | null>(null);
+  const [filterInfo, setFilterInfo] = useState<{ name: string; parentName: string } | null>(null);
+  const [lookingUp, setLookingUp] = useState(false);
   const rfidTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Reset RFID state when dialog opens/closes
   useEffect(() => {
     if (!activeStage) {
       setRfidDetected(null);
+      setFilterInfo(null);
     }
   }, [activeStage]);
+
+  // When tag is detected, look up filter details
+  const lookupFilter = useCallback(async (tagId: string) => {
+    setLookingUp(true);
+    setFilterInfo(null);
+    try {
+      const lookup = await apiClient.get<any>(`/api/assets/identifiers/lookup/${encodeURIComponent(tagId)}`);
+      if (lookup?.asset) {
+        setFilterInfo({
+          name: lookup.asset.name || 'Unknown',
+          parentName: lookup.asset.parent?.name || '—',
+        });
+      }
+    } catch {
+      // Not found by identifier — try name match (won't have parent info)
+      setFilterInfo(null);
+    }
+    setLookingUp(false);
+  }, []);
 
   // Handle input — detect RFID burst (input stops for 300ms = one tag complete)
   const handleScanInput = useCallback((value: string) => {
@@ -63,13 +86,31 @@ export function StageScanDialog({
     // After 300ms of no new input, tag is complete
     if (rfidTimerRef.current) clearTimeout(rfidTimerRef.current);
     rfidTimerRef.current = setTimeout(() => {
-      const tag = value.trim();
-      if (tag.length >= 3) {
-        setRfidDetected(tag.toUpperCase());
-        onScanValueChange(tag.toUpperCase());
+      let tag = value.trim().toUpperCase();
+      if (tag.length < 3) return;
+
+      // Deduplicate: if the reader scanned the same tag multiple times rapidly,
+      // the value will be the tag ID repeated (e.g., "ABCD1234ABCD1234").
+      // Detect this by checking if the first half equals the second half.
+      if (tag.length >= 6 && tag.length % 2 === 0) {
+        const half = tag.length / 2;
+        if (tag.substring(0, half) === tag.substring(half)) {
+          tag = tag.substring(0, half);
+        }
       }
+      // Also handle 3x repeated
+      if (tag.length >= 9 && tag.length % 3 === 0) {
+        const third = tag.length / 3;
+        if (tag.substring(0, third) === tag.substring(third, third * 2) && tag.substring(0, third) === tag.substring(third * 2)) {
+          tag = tag.substring(0, third);
+        }
+      }
+
+      setRfidDetected(tag);
+      onScanValueChange(tag);
+      lookupFilter(tag);
     }, 300);
-  }, [rfidDetected, onScanValueChange, onClearError]);
+  }, [rfidDetected, onScanValueChange, onClearError, lookupFilter]);
 
   const handleContinue = () => {
     if (rfidDetected) {
@@ -80,6 +121,7 @@ export function StageScanDialog({
 
   const handleRemove = () => {
     setRfidDetected(null);
+    setFilterInfo(null);
     onScanValueChange('');
     onClearError();
   };
@@ -124,12 +166,38 @@ export function StageScanDialog({
                 </div>
               )}
 
-              {/* Tag detected — show Continue / Remove */}
+              {/* Tag detected — show filter info + Continue / Remove */}
               {rfidDetected ? (
-                <div className="p-4 border-2 border-purple-300 bg-purple-50 rounded-xl">
-                  <p className="text-xs text-purple-500 font-medium mb-1">Tag Detected</p>
-                  <p className="text-xl font-mono font-bold text-purple-800 text-center">{rfidDetected}</p>
-                  <div className="flex gap-3 mt-4">
+                <div className="p-4 border-2 border-purple-300 bg-purple-50 rounded-xl space-y-3">
+                  <div>
+                    <p className="text-xs text-purple-500 font-medium">Tag Detected</p>
+                    <p className="text-lg font-mono font-bold text-purple-800 mt-0.5">{rfidDetected}</p>
+                  </div>
+
+                  {/* Filter details from lookup */}
+                  {lookingUp && (
+                    <div className="flex items-center gap-2 text-xs text-slate-400">
+                      <div className="w-3 h-3 border-2 border-slate-300 border-t-transparent rounded-full animate-spin" />
+                      Looking up filter...
+                    </div>
+                  )}
+                  {filterInfo && (
+                    <div className="bg-white rounded-lg p-3 border border-purple-200 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-500">Filter</span>
+                        <span className="text-sm font-semibold text-slate-800">{filterInfo.name}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-500">AHU</span>
+                        <span className="text-sm font-medium text-slate-600">{filterInfo.parentName}</span>
+                      </div>
+                    </div>
+                  )}
+                  {!lookingUp && !filterInfo && (
+                    <p className="text-xs text-amber-600">No filter found for this tag. You can still continue with manual lookup.</p>
+                  )}
+
+                  <div className="flex gap-3">
                     <button onClick={handleRemove}
                       className="flex-1 py-2.5 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-xl hover:bg-red-50">
                       Remove
@@ -165,7 +233,7 @@ export function StageScanDialog({
                 </>
               )}
 
-              {/* Remarks — only show when no tag detected yet or manual mode */}
+              {/* Remarks — only show when no tag detected yet */}
               {!rfidDetected && (
                 <textarea className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-2 text-slate-800 text-sm placeholder:text-slate-400" rows={2}
                   placeholder="Remarks (optional)" value={remarks} onChange={e => onRemarksChange(e.target.value)} />
