@@ -1,8 +1,9 @@
+// NOTE: Prefer importing as `apiClient` using @/ alias across all files
 const BASE_URL = import.meta.env.VITE_API_URL ?? '';
 
 class ApiClient {
   private getToken(): string | null {
-    return sessionStorage.getItem('access_token');
+    return sessionStorage.getItem('access_token') || localStorage.getItem('access_token_backup');
   }
 
   private async request<T>(url: string, options: RequestInit = {}): Promise<T> {
@@ -23,7 +24,7 @@ class ApiClient {
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
+      const err = await res.json().catch(() => ({ error: 'PARSE_ERROR', message: 'Failed to parse server response' }));
       // Re-auth errors: throw without logging out so the dialog can show the error
       if (err.error === 'REAUTH_REQUIRED' || err.error === 'REAUTH_FAILED') {
         throw err;
@@ -37,10 +38,17 @@ class ApiClient {
       if (res.status === 401) {
         if (!url.includes('/api/auth/login')) {
           sessionStorage.removeItem('access_token');
-          // Redirect to login with returnUrl, but skip if already on /login
-          if (!window.location.pathname.startsWith('/login')) {
-            const returnPath = window.location.pathname + window.location.search;
-            window.location.href = returnPath !== '/' ? `/login?returnUrl=${encodeURIComponent(returnPath)}` : '/login';
+          localStorage.removeItem('access_token_backup');
+          // Redirect to login — use mobile login for /m routes
+          const isMobile = window.location.pathname.startsWith('/m');
+          const loginPath = isMobile ? '/m/login' : '/login';
+          if (!window.location.pathname.startsWith(loginPath)) {
+            if (isMobile) {
+              window.location.href = '/m/login';
+            } else {
+              const returnPath = window.location.pathname + window.location.search;
+              window.location.href = returnPath !== '/' ? `/login?returnUrl=${encodeURIComponent(returnPath)}` : '/login';
+            }
           }
         }
         throw new Error(err.message ?? 'Invalid credentials');
@@ -65,32 +73,28 @@ class ApiClient {
   // Re-auth variants: include password for actions requiring re-authentication
   // Password is sent in BOTH body (_currentPassword) and header (x-reauth-password)
   // to ensure the backend can always extract it regardless of body parsing behavior.
+  withReauth<T>(method: string, url: string, password: string, body?: unknown) {
+    const headers: Record<string, string> = { 'x-reauth-password': password };
+    const opts: RequestInit = { method, headers };
+    if (body !== undefined) {
+      opts.body = JSON.stringify({ ...(body as object), _currentPassword: password });
+    }
+    return this.request<T>(url, opts);
+  }
   deleteWithReauth<T>(url: string, password: string) {
-    return this.request<T>(url, { method: 'DELETE', headers: { 'x-reauth-password': password } });
+    return this.withReauth<T>('DELETE', url, password);
   }
   postWithReauth<T>(url: string, body: unknown, password: string) {
-    return this.request<T>(url, {
-      method: 'POST',
-      body: JSON.stringify({ ...(body as object), _currentPassword: password }),
-      headers: { 'x-reauth-password': password },
-    });
+    return this.withReauth<T>('POST', url, password, body);
   }
   putWithReauth<T>(url: string, body: unknown, password: string) {
-    return this.request<T>(url, {
-      method: 'PUT',
-      body: JSON.stringify({ ...(body as object), _currentPassword: password }),
-      headers: { 'x-reauth-password': password },
-    });
+    return this.withReauth<T>('PUT', url, password, body);
   }
   patchWithReauth<T>(url: string, body: unknown, password: string) {
-    return this.request<T>(url, {
-      method: 'PATCH',
-      body: JSON.stringify({ ...(body as object), _currentPassword: password }),
-      headers: { 'x-reauth-password': password },
-    });
+    return this.withReauth<T>('PATCH', url, password, body);
   }
   getWithReauth<T>(url: string, password: string) {
-    return this.request<T>(url, { headers: { 'x-reauth-password': password } });
+    return this.withReauth<T>('GET', url, password);
   }
 }
 

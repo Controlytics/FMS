@@ -1,6 +1,6 @@
 # DigiLog — Business Context
 
-**Last updated:** 2026-03-09
+**Last updated:** 2026-04-04
 **System Health Score:** 87/100 (validated 2026-03-09 via comprehensive QA)
 
 ---
@@ -242,7 +242,7 @@ Custom roles can be created with granular permission combinations for specialize
 **Business need:** Automate decision-making based on incoming data — trigger alarms, transform values, route data, without custom code.
 
 **What it does:**
-- **31 node types** — filter, transform, switch, delay, aggregate, enrichment, action, external integration
+- **77 node types** — filter, transform, switch, delay, aggregate, enrichment, action, external integration across 8 categories
 - **Visual editor** — React Flow-based drag-and-drop rule chain builder
 - **Sandboxed execution** — User scripts run in secure VM contexts (no access to system resources)
 - **Sub-chain delegation** — Rule chains can call other chains for modular automation
@@ -281,7 +281,7 @@ Custom roles can be created with granular permission combinations for specialize
 | **11.10(a)** | System access limited to authorized individuals | JWT + sessions, RBAC, account lockout |
 | **11.10(b)** | Audit trail — record creating, modifying, deleting | SHA-256 checksummed audit records for all mutations |
 | **11.10(c)** | Audit trail — independent of operator | Server-side audit logging, operators cannot disable |
-| **11.10(d)** | Limit system access to authorized individuals | Role-based permissions (21 granular permissions) |
+| **11.10(d)** | Limit system access to authorized individuals | Role-based permissions (52+ granular permissions) |
 | **11.10(e)** | Audit trails for operator actions | Before/after values captured for every change |
 | **11.10(g)** | Authority checks | `requirePermission()` + `requireRole()` on every endpoint |
 | **11.10(h)** | Device checks | Session management, idle timeout, single-tab enforcement |
@@ -437,17 +437,18 @@ DigiLog is positioned for **small-to-medium regulated manufacturers** (50-500 em
 | **Phase A** | Data Ingestion Infrastructure (Docker, TimescaleDB, Prisma models, shared types, seed data) | Done |
 | **Phase B** | Transport Layer (MQTT auth, HTTP ingestion, WebSocket, entity resolver) | Done |
 | **Phase C** | Ingestion Pipeline (BullMQ worker, 11 pipeline stages, DLQ, connectivity tracker) | Done |
-| **Phase D** | Rule Chain Engine (31 node types, BFS execution, debug recorder, sandboxed scripts) | Done |
+| **Phase D** | Rule Chain Engine (77 node types, BFS execution, debug recorder, sandboxed scripts) | Done |
 | **Phase E** | Unified Namespace (ISA-95 paths, wildcard search, cascade moves) | Done |
 | **Phase F** | Queries & Export (telemetry, alarms, export, retention routes) | Done |
 | **Phase G-J** | Connectivity, QR Codes, Help Articles, Rule Chain Editor, Alarm Dashboard, UNS Config | Done |
 | **Phase K** | Testing & Documentation (1344 tests, 36-page docs, CI/CD pipeline) | Done |
+| **Phase 2 FMS** | Digital Filter Management System (6 modules, 11+ tables, 14+ pages) | Done |
+| **Phase 3** | Bulk upload, retirement/replacement, mobile PWA, Android APK, unified theme | Done |
 
 ### Upcoming Phases
 
 | Phase | Capability | Business Value |
 |-------|-----------|----------------|
-| **v3.1** | Electronic Signatures (e-sign with re-authentication) | Formal approval workflows for deviations, change controls, batch release |
 | **v3.2** | Reports & Dashboards | PDF/Excel audit reports, entity status reports, compliance dashboards |
 | **v4.0** | HTTPS/TLS + Multi-tenant | Secure communications + single deployment serving multiple facilities |
 
@@ -459,22 +460,22 @@ DigiLog is positioned for **small-to-medium regulated manufacturers** (50-500 em
 
 | Metric | Value |
 |--------|-------|
-| API endpoints | ~145+ |
-| Database models | 30 (15 original + 15 Phase A) |
-| Frontend pages | 34+ |
+| API endpoints | ~200+ |
+| Database models | 57 Prisma models + 17 enums |
+| Frontend route groups | 20+ |
 | Custom hooks | 9 |
-| Permission types | 39+ (across 10 categories) |
+| Permission types | 52+ (across 10+ categories) |
 | Entity relationship types | 12 |
 | Checklist question types | 14 |
 | Attribute data types | 9 |
 | Alarm rule types | 7 |
-| Rule chain node types | 31 |
-| Configuration endpoints | 36+ |
+| Rule chain node types | 77 |
+| Configuration definitions | 23 |
 | Automated tests | 1,344 (0 failures, 83 test files) |
 | Default roles | 6 |
 | TimescaleDB hypertables | 7 |
-| Help articles | 28 |
-| Documentation pages | 36 |
+| Help articles | 40+ |
+| API modules | 34 |
 
 ### Documentation & Governance
 
@@ -518,7 +519,7 @@ DigiLog is positioned for **small-to-medium regulated manufacturers** (50-500 em
 
 ## 14. Documentation Governance — Business Impact
 
-**Effective:** 2026-02-25 (v2.1.1) | **Updated:** 2026-03-07 (v3.0.0)
+**Effective:** 2026-02-25 (v2.1.1) | **Updated:** 2026-04-04 (v2.1.0)
 
 ### Why This Matters for Regulated Industries
 

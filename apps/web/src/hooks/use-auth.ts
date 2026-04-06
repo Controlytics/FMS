@@ -36,8 +36,9 @@ interface LoginResponse {
 
 export function useAuth() {
   const navigate = useNavigate();
+  const getToken = () => sessionStorage.getItem('access_token') || localStorage.getItem('access_token_backup');
   const { data: user, error, isLoading, mutate } = useSWR<User>(
-    sessionStorage.getItem('access_token') ? '/api/auth/me' : null,
+    getToken() ? '/api/auth/me' : null,
   );
 
   const login = async (username: string, password: string, force?: boolean) => {
@@ -47,6 +48,7 @@ export function useAuth() {
       ...(force && { force }),
     });
     sessionStorage.setItem('access_token', res.token);
+    localStorage.setItem('access_token_backup', res.token);
 
     if (res.user.forcePasswordChange) {
       navigate('/change-password', { replace: true });
@@ -69,6 +71,7 @@ export function useAuth() {
       // ignore
     }
     sessionStorage.removeItem('access_token');
+    localStorage.removeItem('access_token_backup');
     // Clean up single-tab localStorage keys
     const myTabId = sessionStorage.getItem('digilog_tab_id');
     if (myTabId && localStorage.getItem('digilog_active_tab_id') === myTabId) {
@@ -111,6 +114,13 @@ export function useAuth() {
     const refreshToken = async () => {
       const token = sessionStorage.getItem('access_token');
       if (!token) return;
+
+      // Prevent multiple tabs from refreshing simultaneously
+      const lockKey = 'digilog_token_refresh_lock';
+      const lockValue = localStorage.getItem(lockKey);
+      if (lockValue && Date.now() - parseInt(lockValue) < 10000) return; // Another tab is refreshing
+      localStorage.setItem(lockKey, String(Date.now()));
+
       try {
         const res = await fetch('/api/auth/refresh', {
           method: 'POST',
@@ -120,10 +130,13 @@ export function useAuth() {
           const data = await res.json();
           if (data.token) {
             sessionStorage.setItem('access_token', data.token);
+            localStorage.setItem('access_token_backup', data.token);
           }
         }
       } catch {
         // Silent fail — next request will trigger 401 logout if token truly expired
+      } finally {
+        localStorage.removeItem(lockKey);
       }
     };
 

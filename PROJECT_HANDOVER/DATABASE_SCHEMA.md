@@ -1,8 +1,9 @@
 # Database Schema
 
 ## Overview
-- **PostgreSQL** (Port 5432) - Application data via Prisma ORM
-- **TimescaleDB** (Port 5433) - Time-series telemetry data
+- **PostgreSQL 18** (Port 5432) - Application data via Prisma ORM (57 models, 17 enums)
+- **TimescaleDB** - Time-series telemetry data (same PostgreSQL instance, database `digilog_tsdb`)
+- **Note:** The application database is `digilog_tsdb`, NOT `digilog_db`
 
 ## Tables
 
@@ -86,19 +87,64 @@
 | `user_groups` | Notification groups | name, organizationId |
 | `user_group_members` | Group membership | groupId, userId |
 
+### Phase 2: Filter Management System
+| Table | Purpose | Key Fields |
+|-------|---------|-----------|
+| `filter_cleaning_profiles` | Cleaning pipeline definitions | name, description, organizationId, flowMode, isActive |
+| `filter_pipeline_stages` | Pipeline nodes | profileId, type (PipelineNodeType), label, position, config (JSONB) |
+| `filter_pipeline_connections` | Pipeline edges | profileId, fromStageId, toStageId, label |
+| `filter_profiles` | Filter-to-profile assignments | instrumentId, cleaningProfileId, filterSet (SET_A/SET_B), isActive |
+| `cleaning_cycles` | Cleaning cycle instances | filterProfileId, status (CleaningCycleStatus), startedAt, completedAt, startedBy |
+| `filter_events` | Audit trail for operations | cycleId, eventType (FilterEventType), stageId, userId, data (JSONB), timestamp |
+| `equipment_groups` | AHU equipment groupings | name, organizationId, description |
+| `equipment_group_instruments` | Group membership | groupId, instrumentId |
+| `checklist_profiles` | Checklist templates | name, organizationId, description |
+| `checklist_questions` | Template questions | profileId, question, type (ChecklistQuestionType), options (JSONB), sortOrder |
+| `pm_schedules` | Preventive maintenance schedules | name, organizationId, frequency, status (PmScheduleStatus) |
+| `pm_schedule_entries` | Schedule items | scheduleId, filterProfileId, description |
+| `pm_executions` | Execution tracking | entryId, status (PmExecutionStatus), executedBy, executedAt, notes |
+
+## Phase 2 Enums
+
+| Enum | Values |
+|------|--------|
+| `PipelineNodeType` | START, END, WASH_IN, WASH_OUT, DRY_IN, DRY_OUT, STORAGE_IN, STORAGE_OUT, CHECKLIST |
+| `PipelineFlowMode` | SEQUENTIAL, PARALLEL |
+| `FilterSetLabel` | SET_A, SET_B |
+| `CleaningCycleStatus` | IN_PROGRESS, COMPLETED, ABORTED |
+| `FilterEventType` | CYCLE_STARTED, STAGE_ENTERED, STAGE_COMPLETED, CHECKLIST_SUBMITTED, STAGE_BYPASSED, CYCLE_COMPLETED, CYCLE_ABORTED |
+| `BlockRestriction` | NONE, CHECKLIST_PENDING |
+| `ChecklistQuestionType` | TEXT, YES_NO, NUMERIC, SELECT, MULTI_SELECT |
+| `PmScheduleStatus` | ACTIVE, INACTIVE, COMPLETED |
+| `PmExecutionStatus` | PENDING, IN_PROGRESS, COMPLETED, MISSED |
+
 ## Key Relationships
 
 ```
-Organization 1──* User
-Organization 1──* AssetInstance (via organizationId)
-AssetTemplate 1──* AssetInstance
-AssetInstance 1──* DataStream
-AssetInstance 1──* Alarm
-AssetInstance *──* AssetInstance (via AssetRelationship)
-User 1──* Session
-User 1──* AuditTrail
-RuleChain 1──* RuleNode
-RuleNode *──* RuleNode (via RuleNodeConnection)
+Organization 1--* User
+Organization 1--* AssetInstance (via organizationId)
+Organization 1--* FilterCleaningProfile
+Organization 1--* EquipmentGroup
+Organization 1--* ChecklistProfile
+Organization 1--* PmSchedule
+AssetTemplate 1--* AssetInstance
+AssetInstance 1--* DataStream
+AssetInstance 1--* Alarm
+AssetInstance *--* AssetInstance (via AssetRelationship)
+User 1--* Session
+User 1--* AuditTrail
+RuleChain 1--* RuleNode
+RuleNode *--* RuleNode (via RuleNodeConnection)
+
+FilterCleaningProfile 1--* FilterPipelineStage
+FilterCleaningProfile 1--* FilterPipelineConnection
+FilterCleaningProfile 1--* FilterProfile
+FilterProfile 1--* CleaningCycle
+CleaningCycle 1--* FilterEvent
+EquipmentGroup *--* AssetInstance (via EquipmentGroupInstrument)
+ChecklistProfile 1--* ChecklistQuestion
+PmSchedule 1--* PmScheduleEntry
+PmScheduleEntry 1--* PmExecution
 ```
 
 ## Data Isolation
@@ -106,16 +152,4 @@ RuleNode *──* RuleNode (via RuleNodeConnection)
 - SUPER_ADMIN can query across all organizations
 - ADMIN can query across assigned organizations
 - Entity assignments provide fine-grained access within organizations
-
-
-## Phase 2: Digital Filter Management System (2026-03-27)
-
-### Overview
-Complete digital filter cleaning lifecycle management for pharmaceutical cleanrooms. Supports configurable cleaning pipelines with checklist gates, 8 cleaning stages, dual filter sets, PM scheduling, and full traceability.
-
-### Key Components
-- **5 backend modules**: cleaning-profiles, filter-profiles, filter-operations, pm-schedules, checklist-profiles
-- **12+ frontend pages**: operations, profiles, cycles, checklists, PM, AHU dashboard, traceability, config
-- **9 database tables**: filter_cleaning_profiles, filter_pipeline_stages, filter_pipeline_connections, filter_profiles, cleaning_cycles, filter_events, pm_schedules, pm_schedule_entries, pm_executions
-- **Quality audit**: 43 issues found and 35 fixed (security, compliance, logic, UI)
-
+- Phase 2 tables (cleaning profiles, filter profiles, PM schedules) all scoped by organizationId

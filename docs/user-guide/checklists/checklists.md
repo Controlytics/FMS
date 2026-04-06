@@ -16,14 +16,13 @@ PASS_FAIL, YES_NO, YES_NO_NA, MCQ, MULTI_SELECT, TEXT, NUMERIC, DROPDOWN, PHOTO,
 - Mobile-optimized UI with camera and signature pad
 
 ## Electronic Signatures
-Each step requires re-authentication. Signatures include SHA-256 hash of the record data.
-
+Each step requires re-authentication. Signatures include SHA-256 hash of the record data per 21 CFR Part 11 sections 11.50 and 11.70.
 
 ## Checklist Profiles (Phase 2)
 
-Checklist Profiles are reusable question templates that can be attached to cleaning pipeline CHECKLIST nodes.
+Checklist Profiles are reusable question templates that can be attached to cleaning pipeline CHECKLIST nodes. Managed via the checklist-profiles API module.
 
-### Question Types
+### Question Types (10 for Pipeline Checklists)
 | Type | Description |
 |------|-------------|
 | YES_NO | Yes/No toggle buttons |
@@ -45,3 +44,10 @@ When a CHECKLIST node is placed between two STAGE nodes in a cleaning profile pi
 4. Server enforces completion — advance() blocks if checklist pending
 5. Answers are stored as CHECKLIST_COMPLETED events in the audit trail
 
+### API Endpoints
+```
+GET  /api/checklist-profiles     — List checklist profiles
+POST /api/checklist-profiles     — Create checklist profile
+GET  /api/checklist-profiles/:id — Get checklist profile detail
+PUT  /api/checklist-profiles/:id — Update checklist profile
+```

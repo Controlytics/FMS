@@ -13,6 +13,32 @@ import { randomBytes } from 'node:crypto';
 import { provisionUnsMapping } from '../../uns/uns.service.js';
 import { getEntityUnsPath } from '../../../lib/uns-path.js';
 
+async function validateParent(parentId: string, childTemplateId: string, childId?: string) {
+  const parent = await instanceRepository.findByIdSimple(parentId);
+  if (!parent) throw new ValidationError('Parent entity instance not found');
+
+  if (childId && parentId === childId) {
+    throw new ValidationError('Cannot set self as parent');
+  }
+
+  const template = await templateRepository.findById(childTemplateId);
+  const maxParent = (template as any)?.maxParentConnections ?? 1;
+  if (maxParent === 0) {
+    throw new ValidationError('This template does not allow parent connections (Number of Parent Connections = 0). Create this entity without a parent.');
+  }
+
+  const parentTemplate = await templateRepository.findById(parent.templateId);
+  const parentMax = (parentTemplate as any)?.maxConnections ?? 10;
+  if (parentMax > 0) {
+    const parentUsed = await relationshipRepository.countBySourceAsset(parentId);
+    if (parentUsed >= parentMax) {
+      throw new ValidationError(`Parent entity has reached max connections (${parentUsed}/${parentMax})`);
+    }
+  }
+
+  return parent;
+}
+
 export const instanceService = {
   async list(query: { search?: string; templateId?: string; status?: string; parentId?: string | null; isActive?: string; page: number; limit?: number }, visibilityFilter?: Record<string, unknown>) {
     const where: Record<string, unknown> = { ...visibilityFilter };
@@ -20,7 +46,9 @@ export const instanceService = {
     if (query.templateId) where.templateId = query.templateId;
     if (query.status) where.status = query.status;
     if (query.parentId !== undefined) where.parentId = query.parentId === 'null' ? null : query.parentId;
+    // Default to active entities only; pass isActive=false explicitly to include inactive
     if (query.isActive !== undefined) where.isActive = query.isActive === 'true';
+    else where.isActive = true;
 
     const { instances, total } = await instanceRepository.findMany(where, query.page, query.limit);
     return {
@@ -56,22 +84,7 @@ export const instanceService = {
     }
 
     if (data.parentId) {
-      const parent = await instanceRepository.findByIdSimple(data.parentId);
-      if (!parent) throw new ValidationError('Parent entity instance not found');
-
-      const maxParent = (template as any).maxParentConnections ?? 1;
-      if (maxParent === 0) {
-        throw new ValidationError('This template does not allow parent connections (Number of Parent Connections = 0). Create this entity without a parent.');
-      }
-
-      const parentTemplate = await templateRepository.findById(parent.templateId);
-      const parentMax = (parentTemplate as any)?.maxConnections ?? 10;
-      if (parentMax > 0) {
-        const parentUsed = await relationshipRepository.countBySourceAsset(data.parentId);
-        if (parentUsed >= parentMax) {
-          throw new ValidationError(`Parent entity has reached max connections (${parentUsed}/${parentMax})`);
-        }
-      }
+      await validateParent(data.parentId, data.templateId);
     }
 
     // Atomic: create instance + parent relationship in one transaction
@@ -141,20 +154,22 @@ export const instanceService = {
           `${unsPath}/rpc/request`,
           `${unsPath}/rpc/response`,
         ];
-        await prisma.deviceCredential.create({
-          data: {
-            entityId: instance.id,
-            accessToken: token,
-            status: 'ACTIVE',
-            isActive: true,
-            credentialData: { allowedTopics },
-          },
-        });
-        await prisma.connectivityStatus.create({
-          data: {
-            entityId: instance.id,
-            status: 'OFFLINE',
-          },
+        await prisma.$transaction(async (tx) => {
+          await tx.deviceCredential.create({
+            data: {
+              entityId: instance.id,
+              accessToken: token,
+              status: 'ACTIVE',
+              isActive: true,
+              credentialData: { allowedTopics },
+            },
+          });
+          await tx.connectivityStatus.create({
+            data: {
+              entityId: instance.id,
+              status: 'OFFLINE',
+            },
+          });
         });
       } catch (err) {
         // Non-fatal — log but don't fail entity creation
@@ -189,9 +204,7 @@ export const instanceService = {
     const parentIdChanging = data.parentId !== undefined && data.parentId !== existing.parentId;
 
     if (parentIdChanging && data.parentId) {
-      const parent = await instanceRepository.findByIdSimple(data.parentId);
-      if (!parent) throw new ValidationError('Parent entity instance not found');
-      if (data.parentId === id) throw new ValidationError('Cannot set self as parent');
+      await validateParent(data.parentId, existing.templateId, id);
 
       const childCount = await relationshipRepository.countContainsChildren(id);
       if (childCount > 0) {
@@ -289,7 +302,7 @@ export const instanceService = {
     return instance;
   },
 
-  async changeStatus(id: string, status: string, ctx: RequestContext) {
+  async changeStatus(id: string, status: string, ctx: RequestContext, remarks?: string) {
     if (!status || typeof status !== 'string' || status.trim() === '') {
       throw new ValidationError('Status is required and must be a non-empty string');
     }
@@ -308,8 +321,31 @@ export const instanceService = {
       targetType: 'asset_instance', targetId: id,
       beforeValue: { status: existing.status },
       afterValue: { status: instance.status },
-      reason: `Status: "${existing.status}" → "${instance.status}"`,
+      reason: `Status: "${existing.status}" → "${instance.status}"${remarks ? ` — ${remarks}` : ''}`,
       signatureMeaning: `Entity "${instance.name}" status changed from "${existing.status}" to "${instance.status}"`,
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+
+    return instance;
+  },
+
+  async changeLifecycleState(id: string, lifecycleState: string, ctx: RequestContext, remarks: string) {
+    const existing = await instanceRepository.findByIdSimple(id);
+    if (!existing) throw new NotFoundError('Entity instance not found');
+
+    const instance = await instanceRepository.update(id, {
+      currentLifecycleState: lifecycleState.trim(),
+      updatedBy: ctx.userId,
+    });
+
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole,
+      action: 'FILTER_LIFECYCLE_STATE_CHANGED',
+      targetType: 'asset_instance', targetId: id,
+      beforeValue: { currentLifecycleState: existing.currentLifecycleState },
+      afterValue: { currentLifecycleState: instance.currentLifecycleState },
+      reason: `Lifecycle state: "${existing.currentLifecycleState ?? 'None'}" → "${instance.currentLifecycleState}" — ${remarks}`,
+      signatureMeaning: `Filter "${instance.name}" lifecycle state manually changed from "${existing.currentLifecycleState ?? 'None'}" to "${instance.currentLifecycleState}"`,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
 

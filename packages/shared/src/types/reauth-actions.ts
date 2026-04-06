@@ -62,6 +62,24 @@ export const REAUTH_ACTIONS = {
   EXECUTE_RETENTION: { label: 'Execute Retention', category: 'Retention' },
   UPDATE_SYSTEM_CONFIG: { label: 'Update System Config', category: 'System Config' },
   RESTART_SERVER: { label: 'Restart Server', category: 'System Config' },
+
+  // Phase 2: Filter Management
+  START_CLEANING_CYCLE: { label: 'Start Cleaning Cycle', category: 'Filter Management' },
+  BYPASS_FILTER_STAGE: { label: 'Bypass Filter Stage (Deviation)', category: 'Filter Management' },
+  TERMINATE_CLEANING_CYCLE: { label: 'Terminate Cleaning Cycle', category: 'Filter Management' },
+  CREATE_CLEANING_PROFILE: { label: 'Create Cleaning Profile', category: 'Cleaning Profiles' },
+  UPDATE_CLEANING_PROFILE: { label: 'Update Cleaning Profile', category: 'Cleaning Profiles' },
+  DELETE_CLEANING_PROFILE: { label: 'Delete Cleaning Profile', category: 'Cleaning Profiles' },
+  CREATE_FILTER_PROFILE: { label: 'Create Filter Profile', category: 'Filter Profiles' },
+  UPDATE_FILTER_PROFILE: { label: 'Update Filter Profile', category: 'Filter Profiles' },
+  DELETE_FILTER_PROFILE: { label: 'Delete Filter Profile', category: 'Filter Profiles' },
+  ASSIGN_FILTER_PROFILE: { label: 'Assign Filter Profile', category: 'Filter Profiles' },
+  CREATE_PM_SCHEDULE: { label: 'Create PM Schedule', category: 'PM Schedules' },
+  UPDATE_PM_SCHEDULE: { label: 'Update PM Schedule', category: 'PM Schedules' },
+  DELETE_PM_SCHEDULE: { label: 'Delete PM Schedule', category: 'PM Schedules' },
+  CREATE_EQUIPMENT_GROUP: { label: 'Create Equipment Group', category: 'Equipment Groups' },
+  UPDATE_EQUIPMENT_GROUP: { label: 'Update Equipment Group', category: 'Equipment Groups' },
+  DELETE_EQUIPMENT_GROUP: { label: 'Delete Equipment Group', category: 'Equipment Groups' },
 } as const;
 
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;
@@ -80,6 +98,11 @@ export const REAUTH_ACTION_CATEGORIES = [
   'Help',
   'Retention',
   'System Config',
+  'Filter Management',
+  'Cleaning Profiles',
+  'Filter Profiles',
+  'PM Schedules',
+  'Equipment Groups',
 ] as const;
 
 export type ReauthActionCategory = (typeof REAUTH_ACTION_CATEGORIES)[number];

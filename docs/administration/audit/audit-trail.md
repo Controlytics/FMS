@@ -1,20 +1,33 @@
 # Audit Trail
 
-Tamper-evident log of all system activities.
+Tamper-evident log of all system activities, including Phase 2 Digital Filter Management operations.
 
 ## What Gets Logged
-User actions (login/logout, password changes), entity operations (CRUD, status changes), configuration changes, data operations (backup/restore, exports), checklist submissions and approvals.
+
+### Core Operations
+- User actions (login/logout, password changes, session events)
+- Entity operations (CRUD, status changes, relationship changes)
+- Configuration changes (all 23 config modules)
+- Data operations (backup/restore, exports)
+- Checklist submissions and approvals (3-step workflow)
+- Rule chain create/update/delete with version tracking
+
+### Phase 2 Filter Operations
+- Filter cycle start, stage advance, cycle completion
+- Checklist submissions within cleaning pipeline
+- Stage bypass with deviation justification
+- PM schedule create/update/execute
+- Filter retirement and replacement
+- Cleaning profile create/update
+- Filter profile assignment changes
 
 ## Entry Fields
 Timestamp, User, Role, Action, Target, Before/After Value, IP, User Agent, Session ID, Checksum
 
 ## Integrity
-SHA-256 hash-chain — each entry hashes the previous. Modification breaks the chain and is detectable.
+SHA-256 hash-chain -- each entry hashes the previous. Modification breaks the chain and is detectable.
 
 ## Compliance
 Satisfies 21 CFR Part 11 sections 11.10(e), 11.10(k)(2), 11.50, 11.70.
 
-
----
-
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.
+All filter operations are recorded as immutable events with SHA-256 checksums, electronic signatures, and deviation tracking.

@@ -27,6 +27,7 @@
     "adm-zip": "^0.5.16",
     "bcrypt": "^5.1.1",
     "bullmq": "^5.70.1",
+    "csv-parse": "^6.2.1",
     "dotenv": "^16.4.0",
     "fastify": "^5.2.0",
     "fastify-plugin": "^5.0.0",
@@ -43,11 +44,13 @@
   "devDependencies": {
     "@types/adm-zip": "^0.5.7",
     "@types/bcrypt": "^5.0.2",
+    "@types/pg": "^8.11.0",
     "@types/node": "^22.0.0",
     "@types/nodemailer": "^7.0.11",
     "prisma": "^6.3.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

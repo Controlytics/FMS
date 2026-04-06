@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.1.0] — 2026-04-04
+
+### Added — Phase 2 Enhancements
+- **Equipment Groups** — Group instruments and filters under AHUs with CRUD endpoints
+- **Checklist Profiles** — Standalone checklist profile management with typed questions (YES_NO, PASS_FAIL, NUMERIC, DROPDOWN, MULTI_SELECT, TEXT)
+- **Bulk Upload** — CSV-based bulk filter import functionality
+- **Filter Retirement & Replacement** — End-of-life management for filters
+- **Filter Scan** — QR/barcode scanning for filter identification
+- **Mobile PWA** — Progressive Web App support for tablet/mobile filter operations
+- **Android APK** — Capacitor-based Android build (JDK 21, apps/android/)
+- **Notification Channels** — Telegram and Slack delivery channels added
+- **Dashboard Widgets** — Configurable dashboard with widget assignments
+
+### Updated
+- Prisma schema expanded to **57 models** with **17 enums**
+- API modules expanded to **34 total**
+- Frontend routes expanded with equipment management, bulk upload, retirement pages
+- All documentation files updated to reflect current application state
+
 ## [2.0.0] — 2026-03-27
 
 ### Added — Phase 2: Digital Filter Management System

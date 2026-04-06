@@ -6,8 +6,9 @@ import { auditQuerySchema } from '@digilog/shared';
 import { errorResponses } from '../../lib/error-schemas.js';
 
 export default async function auditRoutes(app: FastifyInstance) {
-  // GET /api/audit — query audit trail (all authenticated users)
+  // GET /api/audit — query audit trail (requires AUDIT_READ permission)
   app.get('/', {
+    preHandler: [app.requirePermission('AUDIT_READ')],
     schema: {
       tags: ['Audit'],
       summary: 'Query audit trail',
@@ -66,8 +67,6 @@ export default async function auditRoutes(app: FastifyInstance) {
   }, async (req) => {
     const query = auditQuerySchema.parse(req.query);
     const where: Record<string, unknown> = {
-      // SUPER_ADMIN actions are exempt from audit display (21 CFR Part 11)
-      // Use AND+OR to exclude SUPER_ADMIN while including NULL userRole
       AND: [
         { OR: [{ userRole: { not: 'SUPER_ADMIN' } }, { userRole: null }] },
       ],
@@ -149,8 +148,9 @@ export default async function auditRoutes(app: FastifyInstance) {
     };
   });
 
-  // GET /api/audit/:id — detail
+  // GET /api/audit/:id — detail (requires AUDIT_READ permission)
   app.get('/:id', {
+    preHandler: [app.requirePermission('AUDIT_READ')],
     schema: {
       tags: ['Audit'],
       summary: 'Get audit record by ID',
@@ -200,11 +200,11 @@ export default async function auditRoutes(app: FastifyInstance) {
 
   // DELETE /api/audit/:id — delete single audit record (SUPER_ADMIN only)
   app.delete('/:id', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    preHandler: [app.requireSuperAdmin()],
     schema: {
       tags: ['Audit'],
       summary: 'Delete audit record',
-      description: 'Permanently delete a single audit trail record. Requires CONFIG_UPDATE permission.',
+      description: 'Permanently delete a single audit trail record. SUPER_ADMIN only.',
       params: {
         type: 'object',
         required: ['id'],
@@ -224,11 +224,10 @@ export default async function auditRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    
+
     const record = await prisma.auditTrail.findUnique({ where: { id } });
     if (!record) return reply.code(404).send({ error: 'Audit record not found' });
 
-    // Log the deletion BEFORE disabling trigger (so it goes through normal audit)
     await auditLog({
       userId: req.user.sub, userRole: req.user.role,
       action: 'AUDIT_RECORD_DELETED',
@@ -239,7 +238,6 @@ export default async function auditRoutes(app: FastifyInstance) {
       ipAddress: req.ip, sessionId: req.user.sessionId,
     });
 
-    // Atomic: disable trigger + delete + re-enable trigger in one transaction
     await prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe('ALTER TABLE "audit_trail" DISABLE TRIGGER audit_trail_no_delete');
       await tx.auditTrail.delete({ where: { id } });
@@ -251,11 +249,11 @@ export default async function auditRoutes(app: FastifyInstance) {
 
   // POST /api/audit/bulk-delete — delete multiple audit records (SUPER_ADMIN only)
   app.post('/bulk-delete', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    preHandler: [app.requireSuperAdmin()],
     schema: {
       tags: ['Audit'],
       summary: 'Delete selected audit records',
-      description: 'Permanently delete multiple audit trail records by their IDs. Requires CONFIG_UPDATE permission.',
+      description: 'Permanently delete multiple audit trail records by their IDs. SUPER_ADMIN only.',
       body: {
         type: 'object',
         required: ['ids'],
@@ -277,13 +275,11 @@ export default async function auditRoutes(app: FastifyInstance) {
   }, async (req) => {
     const { ids } = req.body as { ids: string[] };
 
-    // Fetch records being deleted for audit trail
     const records = await prisma.auditTrail.findMany({
       where: { id: { in: ids } },
       select: { id: true, action: true, timestamp: true, userId: true, targetType: true, targetId: true },
     });
 
-    // Log the bulk deletion BEFORE disabling trigger
     await auditLog({
       userId: req.user.sub, userRole: req.user.role,
       action: 'AUDIT_RECORDS_BULK_DELETED',
@@ -294,7 +290,6 @@ export default async function auditRoutes(app: FastifyInstance) {
       ipAddress: req.ip, sessionId: req.user.sessionId,
     });
 
-    // Atomic: disable trigger + delete + re-enable trigger in one transaction
     const result = await prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe('ALTER TABLE "audit_trail" DISABLE TRIGGER audit_trail_no_delete');
       const deleted = await tx.auditTrail.deleteMany({

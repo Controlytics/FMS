@@ -71,6 +71,7 @@ function getNotificationQueue(): Queue {
 }
 
 // ─── Rate limiting state (in-memory) ───────────────────
+// TODO: Move rate limiting to Redis for cross-instance consistency in cluster mode
 
 const rateLimitMap = new Map<string, { count: number; windowStart: number }>();
 
@@ -478,6 +479,9 @@ export async function processIngestionMessage(msg: IngestionMessage): Promise<Pi
     const failedStage = trace?.failedStage ?? 'unknown';
     await addToDLQ(msg, errorMessage, failedStage);
 
+    // NOTE: Returning { success: false } instead of re-throwing so BullMQ marks
+    // the job as completed (DLQ handles retries). Re-throwing would cause infinite
+    // BullMQ retries for permanently invalid messages.
     return {
       success: false,
       messageId: msg.messageId,
@@ -495,14 +499,15 @@ async function executeStage3(msg: IngestionMessage, warnings: string[]): Promise
     return;
   }
 
+  // Fetch credential once for both IP validation and rate limiting
+  const credential = await prisma.deviceCredential.findUnique({
+    where: { id: msg.credentialId },
+    select: { allowedIps: true, maxDataRatePerMin: true },
+  });
+
   // IP allowlist check
   const ipValidationEnabled = await getConfigOrDefault<boolean>('device.ip_validation_enabled', false);
   if (ipValidationEnabled && msg.sourceIp) {
-    const credential = await prisma.deviceCredential.findUnique({
-      where: { id: msg.credentialId },
-      select: { allowedIps: true },
-    });
-
     if (credential?.allowedIps && credential.allowedIps.length > 0) {
       if (!credential.allowedIps.includes(msg.sourceIp)) {
         // Log IP mismatch event
@@ -525,11 +530,6 @@ async function executeStage3(msg: IngestionMessage, warnings: string[]): Promise
   // Rate limiting
   const rateLimitEnabled = await getConfigOrDefault<boolean>('device.rate_limit_enabled', true);
   if (rateLimitEnabled) {
-    const credential = await prisma.deviceCredential.findUnique({
-      where: { id: msg.credentialId },
-      select: { maxDataRatePerMin: true },
-    });
-
     const maxRate = credential?.maxDataRatePerMin ?? 600;
     const now = Date.now();
     const key = `rate:${msg.credentialId}`;
@@ -725,8 +725,7 @@ async function executeStage10(msg: IngestionMessage): Promise<void> {
       return;
   }
 
-  // SUPER_ADMIN actions are exempt from audit logging
-  if (msg.metadata?.userRole === 'SUPER_ADMIN') return;
+  // All roles are audited — 21 CFR Part 11 compliance requires complete audit trail
 
   const timestamp = new Date();
   const userId = msg.metadata?.userId || msg.credentialId || 'system';
@@ -864,7 +863,7 @@ async function evaluateTemplateAlarmRules(
       });
 
       if (!existing) {
-        console.log(`[TemplateAlarm] ${rule.name}: ${rule.sourceField}=${value} ${rule.condition} ${rule.threshold} → TRIGGERED`);
+        console.info(`[TemplateAlarm] ${rule.name}: ${rule.sourceField}=${value} ${rule.condition} ${rule.threshold} → TRIGGERED`);
         await createAlarm({
           entityId: msg.entityId,
           alarmType,
@@ -887,7 +886,7 @@ async function evaluateTemplateAlarmRules(
       });
 
       if (activeAlarm) {
-        console.log(`[TemplateAlarm] ${rule.name}: ${rule.sourceField}=${value} back to normal → CLEARED`);
+        console.info(`[TemplateAlarm] ${rule.name}: ${rule.sourceField}=${value} back to normal → CLEARED`);
         await prisma.alarm.updateMany({
           where: { entityId: msg.entityId, alarmType, status: 'ACTIVE' },
           data: {

@@ -47,6 +47,9 @@ async function rbacPlugin(app: FastifyInstance) {
       }
 
       if (!hasPermission) {
+        if (process.env.NODE_ENV === 'production') {
+          return reply.code(403).send({ error: 'FORBIDDEN', message: 'Insufficient permissions' });
+        }
         return reply.code(403).send({
           error: 'FORBIDDEN',
           message: 'Permission denied',
@@ -64,6 +67,9 @@ async function rbacPlugin(app: FastifyInstance) {
       if (userRole === 'SUPER_ADMIN') return;
 
       if (!userRole || !roles.includes(userRole)) {
+        if (process.env.NODE_ENV === 'production') {
+          return reply.code(403).send({ error: 'FORBIDDEN', message: 'Insufficient permissions' });
+        }
         return reply.code(403).send({
           error: 'FORBIDDEN',
           message: 'Permission denied',
@@ -78,6 +84,9 @@ async function rbacPlugin(app: FastifyInstance) {
   app.decorate('requireSuperAdmin', () => {
     return async (req: FastifyRequest, reply: FastifyReply) => {
       if (req.user?.role !== 'SUPER_ADMIN') {
+        if (process.env.NODE_ENV === 'production') {
+          return reply.code(403).send({ error: 'FORBIDDEN', message: 'Insufficient permissions' });
+        }
         return reply.code(403).send({
           error: 'FORBIDDEN',
           message: 'Super Admin access required',

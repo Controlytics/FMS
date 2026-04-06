@@ -21,6 +21,7 @@ import 'reactflow/dist/style.css';
 import Editor from '@monaco-editor/react';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useReauth } from '@/hooks/use-reauth';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -372,6 +373,7 @@ function NodeConfigPanel({
   debugLoading,
 }: NodeConfigPanelProps) {
   const { toast } = useToast();
+  const { formatTime } = useDatetimeFormat();
   const [localName, setLocalName] = useState('');
   const [localConfig, setLocalConfig] = useState<Record<string, any>>({});
   const [debugEnabled, setDebugEnabled] = useState(false);
@@ -805,7 +807,7 @@ function NodeConfigPanel({
                         <span className="text-[10px] text-slate-400">{ev.durationMs}ms</span>
                       </div>
                       <span className="text-[9px] text-slate-400">
-                        {new Date(ev.timestamp).toLocaleTimeString()}
+                        {formatTime(ev.timestamp)}
                       </span>
                     </div>
                     {ev.error && (
@@ -1213,6 +1215,7 @@ const DEFAULT_POSITION = { x: 200, y: 100 };
 export function RuleChainEditorPage() {
   const { id: chainId } = useParams<{ id: string }>();
   const { toast } = useToast();
+  const { formatTime } = useDatetimeFormat();
   const reauth = useReauth();
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);

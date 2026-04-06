@@ -291,7 +291,7 @@ openssl x509 -in ldap-ca-cert.pem -text -noout
 
 ```bash
 # SSH into the DigiLog server
-ssh -i multi-tenant-ldapp-key.pem ubuntu@44.213.157.198
+ssh -i 21cfrbook.pem ubuntu@34.232.224.0
 
 # Copy the certificate
 sudo cp ldap-ca-cert.pem /usr/local/share/ca-certificates/ldap-ca-cert.crt
@@ -320,7 +320,7 @@ If your LDAP server uses a self-signed certificate:
 
 ### Step 1: Login as Super Admin
 
-1. Open `http://44.213.157.198` in your browser
+1. Open `http://34.232.224.0` in your browser
 2. Login with: **Username:** `superadmin` | **Password:** `Admin@123`
 
 ### Step 2: Navigate to LDAP Configuration
@@ -494,7 +494,7 @@ Mappings are evaluated **top to bottom** — the first matching group wins. Orde
 
 ```bash
 # SSH into the server
-ssh -i multi-tenant-ldapp-key.pem ubuntu@44.213.157.198
+ssh -i 21cfrbook.pem ubuntu@34.232.224.0
 
 # Test LDAP connectivity
 ldapsearch -x -H ldaps://ad.company.com:636 \
@@ -648,7 +648,7 @@ When an LDAP user logs in for the first time:
 
 ```bash
 # SSH into DigiLog server
-ssh -i multi-tenant-ldapp-key.pem ubuntu@44.213.157.198
+ssh -i 21cfrbook.pem ubuntu@34.232.224.0
 
 # Check API logs for LDAP errors
 pm2 logs digilog-api --lines 50 | grep -i ldap
@@ -765,8 +765,8 @@ A: Yes. Use the **"Test Connection"** button to verify connectivity without enab
 
 ---
 
-*Document Version: 1.0 | Last Updated: 2026-03-24 | DigiLog Application*
+*Document Version: 1.1 | Last Updated: 2026-04-04 | DigiLog Application*
 
 
-> **Note:** Phase 2 (Digital FMS) does not affect LDAP integration. LDAP-authenticated users can access filter management features based on their assigned permissions.
+> **Note:** Phase 2 (Digital FMS) does not affect LDAP integration. LDAP-authenticated users can access all filter management features (cleaning profiles, filter operations, PM schedules, equipment groups, etc.) based on their assigned permissions (52+ permissions available).
 

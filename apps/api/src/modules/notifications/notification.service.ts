@@ -122,18 +122,18 @@ export const notificationService = {
     return { success: true };
   },
 
-  async bulkRead(ids: string[]) {
-    const result = await notificationRepository.bulkMarkRead(ids);
+  async bulkRead(ids: string[], username: string) {
+    const result = await notificationRepository.bulkMarkRead(ids, username);
     return { success: true, count: result.count };
   },
 
-  async bulkUnread(ids: string[]) {
-    const result = await notificationRepository.bulkMarkUnread(ids);
+  async bulkUnread(ids: string[], username: string) {
+    const result = await notificationRepository.bulkMarkUnread(ids, username);
     return { success: true, count: result.count };
   },
 
-  async bulkDelete(ids: string[]) {
-    const result = await notificationRepository.bulkDelete(ids);
+  async bulkDelete(ids: string[], username: string) {
+    const result = await notificationRepository.bulkDelete(ids, username);
     return { success: true, count: result.count };
   },
 

@@ -62,16 +62,20 @@ export const notificationRepository = {
     });
   },
 
-  async bulkMarkRead(ids: string[]) {
+  async bulkMarkRead(ids: string[], username?: string) {
+    const where: any = { id: { in: ids } };
+    if (username) where.OR = [{ forUserId: username }, { targetUserId: username }];
     return prisma.notification.updateMany({
-      where: { id: { in: ids } },
+      where,
       data: { isRead: true, readAt: new Date() },
     });
   },
 
-  async bulkMarkUnread(ids: string[]) {
+  async bulkMarkUnread(ids: string[], username?: string) {
+    const where: any = { id: { in: ids } };
+    if (username) where.OR = [{ forUserId: username }, { targetUserId: username }];
     return prisma.notification.updateMany({
-      where: { id: { in: ids } },
+      where,
       data: { isRead: false, readAt: null },
     });
   },
@@ -80,7 +84,9 @@ export const notificationRepository = {
     return prisma.notification.delete({ where: { id } });
   },
 
-  async bulkDelete(ids: string[]) {
-    return prisma.notification.deleteMany({ where: { id: { in: ids } } });
+  async bulkDelete(ids: string[], username?: string) {
+    const where: any = { id: { in: ids } };
+    if (username) where.OR = [{ forUserId: username }, { targetUserId: username }];
+    return prisma.notification.deleteMany({ where });
   },
 };

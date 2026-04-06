@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- KC-series UHF RFID Reader (VID:10473 PID:20993) -->
+    <usb-device vendor-id="10473" product-id="20993" />
+    <!-- Common CH340 USB-Serial (many RFID readers) -->
+    <usb-device vendor-id="6790" product-id="29987" />
+    <!-- CP2102 USB-Serial -->
+    <usb-device vendor-id="4292" product-id="60000" />
+    <!-- FTDI USB-Serial -->
+    <usb-device vendor-id="1027" product-id="24577" />
+    <!-- Prolific PL2303 -->
+    <usb-device vendor-id="1659" product-id="8963" />
+    <!-- Generic catch-all for other USB serial devices -->
+    <usb-device vendor-id="0" />
+</resources>

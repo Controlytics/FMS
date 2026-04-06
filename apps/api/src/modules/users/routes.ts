@@ -71,7 +71,119 @@ export default async function userRoutes(app: FastifyInstance) {
       },
     },
   }, async (req) => {
-    return userService.getStats(req.user.role);
+    const organizationId = req.user.role !== 'SUPER_ADMIN' ? req.user.organizationId : undefined;
+    return userService.getStats(req.user.role, organizationId);
+  });
+
+  // POST /api/users/bulk-delete — Requires USER_DELETE permission
+  app.post('/bulk-delete', {
+    preHandler: [app.requirePermission('USER_DELETE')],
+    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    schema: {
+      tags: ['Users'],
+      summary: 'Bulk delete users',
+      description: 'Permanently delete multiple users and all related data. Requires USER_DELETE permission.',
+      body: {
+        type: 'object',
+        required: ['userIds'],
+        properties: {
+          userIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1, maxItems: 50 },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' }, deletedCount: { type: 'integer' },
+            deletedUsers: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, username: { type: 'string' } } } },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('BULK_DELETE_USERS', req, reply);
+    if (!ok) return;
+
+    const parsed = bulkDeleteUsersSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
+    }
+
+    const result = await userService.bulkDelete(parsed.data.userIds, req.user.sub, buildContext(req));
+    return { success: true, ...result };
+  });
+
+  // GET /api/users/reset-requests — List password reset requests
+  app.get('/reset-requests', {
+    preHandler: [app.requirePermission('USER_RESET_PASSWORD')],
+    schema: {
+      tags: ['Users'], summary: 'List password reset requests', description: 'Get all password reset requests (pending and processed)',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            data: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' }, userId: { type: 'string' },
+                  status: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED'] },
+                  processedBy: { type: 'string', nullable: true }, notes: { type: 'string', nullable: true },
+                  requestedAt: { type: 'string', format: 'date-time' }, processedAt: { type: 'string', format: 'date-time', nullable: true },
+                  userFullName: { type: 'string' }, userEmail: { type: 'string' }, userDepartment: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async () => {
+    return userService.listResetRequests();
+  });
+
+  // GET /api/users/reset-requests/pending — Get count of pending reset requests
+  app.get('/reset-requests/pending', {
+    preHandler: [app.requirePermission('USER_RESET_PASSWORD')],
+    schema: {
+      tags: ['Users'], summary: 'Pending reset request count', description: 'Get count of pending password reset requests',
+      response: { 200: { type: 'object', properties: { count: { type: 'integer' } } } },
+    },
+  }, async () => {
+    return userService.getPendingResetRequestCount();
+  });
+
+  // POST /api/users/reset-requests/:id/process — Process a password reset request
+  app.post('/reset-requests/:id/process', {
+    preHandler: [app.requirePermission('USER_RESET_PASSWORD')],
+    schema: {
+      tags: ['Users'], summary: 'Process reset request', description: 'Approve or reject a password reset request',
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
+      body: {
+        type: 'object', required: ['action'],
+        properties: {
+          action: { type: 'string', enum: ['approve', 'reject'] },
+          newPassword: { type: 'string', description: 'Required when approving' },
+          notes: { type: 'string' },
+        },
+      },
+      response: { 200: { type: 'object', properties: { success: { type: 'boolean' }, message: { type: 'string' } } }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('PROCESS_RESET_REQUEST', req, reply);
+    if (!ok) return;
+
+    const { id } = req.params as { id: string };
+    const body = req.body as { action: 'approve' | 'reject'; newPassword?: string; notes?: string };
+
+    if (!body.action || !['approve', 'reject'].includes(body.action)) {
+      return reply.code(400).send({ error: 'VALIDATION', message: 'Invalid action. Must be "approve" or "reject".' });
+    }
+
+    const result = await userService.processResetRequest(id, body.action, body.newPassword, body.notes, buildContext(req));
+    return { success: true, ...result };
   });
 
   // GET /api/users — List users
@@ -114,7 +226,9 @@ export default async function userRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const query = userQuerySchema.parse(req.query);
-    return userService.list(query);
+    // Non-SUPER_ADMIN users must only see users within their own organization
+    const organizationId = req.user.role !== 'SUPER_ADMIN' ? req.user.organizationId : undefined;
+    return userService.list({ ...query, organizationId });
   });
 
   // GET /api/users/:id — Get user detail
@@ -208,44 +322,6 @@ export default async function userRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
-  // POST /api/users/bulk-delete — Requires USER_DELETE permission
-  app.post('/bulk-delete', {
-    preHandler: [app.requirePermission('USER_DELETE')],
-    schema: {
-      tags: ['Users'],
-      summary: 'Bulk delete users',
-      description: 'Permanently delete multiple users and all related data. Requires USER_DELETE permission.',
-      body: {
-        type: 'object',
-        required: ['userIds'],
-        properties: {
-          userIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1, maxItems: 50 },
-        },
-      },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' }, deletedCount: { type: 'integer' },
-            deletedUsers: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, username: { type: 'string' } } } },
-          },
-        },
-        ...errorResponses,
-      },
-    },
-  }, async (req, reply) => {
-    const { ok } = await enforceReauth('BULK_DELETE_USERS', req, reply);
-    if (!ok) return;
-
-    const parsed = bulkDeleteUsersSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
-
-    const result = await userService.bulkDelete(parsed.data.userIds, req.user.sub, buildContext(req));
-    return { success: true, ...result };
-  });
-
   // POST /api/users/:id/enable
   app.post('/:id/enable', {
     preHandler: [app.requirePermission('USER_ENABLE_DISABLE')],
@@ -316,77 +392,5 @@ export default async function userRoutes(app: FastifyInstance) {
     }
     await userService.resetPassword(id, parsed.data.newPassword, buildContext(req));
     return { success: true, message: 'Password reset successfully. User must change on next login.' };
-  });
-
-  // GET /api/users/reset-requests — List password reset requests
-  app.get('/reset-requests', {
-    preHandler: [app.requirePermission('USER_RESET_PASSWORD')],
-    schema: {
-      tags: ['Users'], summary: 'List password reset requests', description: 'Get all password reset requests (pending and processed)',
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            data: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  id: { type: 'string' }, userId: { type: 'string' },
-                  status: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED'] },
-                  processedBy: { type: 'string', nullable: true }, notes: { type: 'string', nullable: true },
-                  requestedAt: { type: 'string', format: 'date-time' }, processedAt: { type: 'string', format: 'date-time', nullable: true },
-                  userFullName: { type: 'string' }, userEmail: { type: 'string' }, userDepartment: { type: 'string' },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  }, async () => {
-    return userService.listResetRequests();
-  });
-
-  // GET /api/users/reset-requests/pending — Get count of pending reset requests
-  app.get('/reset-requests/pending', {
-    preHandler: [app.requirePermission('USER_RESET_PASSWORD')],
-    schema: {
-      tags: ['Users'], summary: 'Pending reset request count', description: 'Get count of pending password reset requests',
-      response: { 200: { type: 'object', properties: { count: { type: 'integer' } } } },
-    },
-  }, async () => {
-    return userService.getPendingResetRequestCount();
-  });
-
-  // POST /api/users/reset-requests/:id/process — Process a password reset request
-  app.post('/reset-requests/:id/process', {
-    preHandler: [app.requirePermission('USER_RESET_PASSWORD')],
-    schema: {
-      tags: ['Users'], summary: 'Process reset request', description: 'Approve or reject a password reset request',
-      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
-      body: {
-        type: 'object', required: ['action'],
-        properties: {
-          action: { type: 'string', enum: ['approve', 'reject'] },
-          newPassword: { type: 'string', description: 'Required when approving' },
-          notes: { type: 'string' },
-        },
-      },
-      response: { 200: { type: 'object', properties: { success: { type: 'boolean' }, message: { type: 'string' } } }, ...errorResponses },
-    },
-  }, async (req, reply) => {
-    const { ok } = await enforceReauth('PROCESS_RESET_REQUEST', req, reply);
-    if (!ok) return;
-
-    const { id } = req.params as { id: string };
-    const body = req.body as { action: 'approve' | 'reject'; newPassword?: string; notes?: string };
-
-    if (!body.action || !['approve', 'reject'].includes(body.action)) {
-      return reply.code(400).send({ error: 'Invalid action. Must be "approve" or "reject".' });
-    }
-
-    const result = await userService.processResetRequest(id, body.action, body.newPassword, body.notes, buildContext(req));
-    return { success: true, ...result };
   });
 }

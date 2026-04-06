@@ -13,12 +13,27 @@ async function main() {
       displayName: 'Super Admin',
       description: 'System owner with full access to all features',
       hierarchyLevel: 6,
+      scope: 'GLOBAL',
       permissions: [
         'USER_CREATE', 'USER_READ', 'USER_UPDATE', 'USER_DELETE', 'USER_ENABLE_DISABLE', 'USER_UNLOCK', 'USER_RESET_PASSWORD',
         'CONFIG_READ', 'CONFIG_UPDATE', 'FIELD_ID_UPDATE',
-        'AUDIT_READ', 'ROLE_MANAGE',
+        'AUDIT_READ', 'AUDIT_EXPORT', 'ROLE_MANAGE',
+        'ORG_MANAGE', 'ORG_VIEW', 'ORG_CREATE', 'ORG_DELETE',
         'ASSET_TEMPLATE_CREATE', 'ASSET_TEMPLATE_UPDATE', 'ASSET_TEMPLATE_DELETE', 'ASSET_CREATE', 'ASSET_UPDATE', 'ASSET_DELETE',
-        'ASSET_RELATIONSHIP_CREATE', 'ASSET_RELATIONSHIP_DELETE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_IDENTIFIER_DELETE', 'ASSET_VIEW',
+        'ASSET_RELATIONSHIP_CREATE', 'ASSET_RELATIONSHIP_DELETE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_IDENTIFIER_DELETE', 'ASSET_VIEW', 'ASSET_READ',
+        'ENTITY_ASSIGN',
+        'DASHBOARD_CREATE', 'DASHBOARD_MANAGE', 'DASHBOARD_VIEW', 'DASHBOARD_ASSIGN',
+        'RULE_CHAIN_VIEW', 'RULE_CHAIN_CREATE', 'RULE_CHAIN_UPDATE', 'RULE_CHAIN_DELETE',
+        'ALARM_VIEW', 'ALARM_ACKNOWLEDGE', 'ALARM_CLEAR',
+        'NOTIFICATION_VIEW', 'NOTIFICATION_CREATE', 'NOTIFICATION_UPDATE', 'NOTIFICATION_DELETE', 'NOTIFICATION_MANAGE',
+        'UNS_VIEW', 'UNS_MANAGE',
+        'BACKUP_MANAGE',
+        // Phase 2: Filter Management
+        'FILTER_OPERATE', 'FILTER_BYPASS', 'CHECKLIST_SUBMIT', 'EVENT_READ',
+        'FCP_READ', 'FCP_CREATE', 'FCP_UPDATE', 'FCP_DELETE',
+        'FP_READ', 'FP_CREATE', 'FP_UPDATE', 'FP_DELETE', 'FP_ASSIGN',
+        'PM_READ', 'PM_CREATE', 'PM_UPDATE', 'PM_DELETE', 'PM_EXECUTE',
+        'CYCLE_READ', 'READ_DEBUG_TRACE', 'MANAGE_DEBUG_TRACE',
       ],
       color: 'bg-gradient-to-r from-red-500 to-pink-500',
       isSystem: true,
@@ -30,10 +45,24 @@ async function main() {
       hierarchyLevel: 5,
       permissions: [
         'USER_CREATE', 'USER_READ', 'USER_UPDATE', 'USER_DELETE', 'USER_ENABLE_DISABLE', 'USER_UNLOCK', 'USER_RESET_PASSWORD',
-        'CONFIG_READ', 'CONFIG_UPDATE',
-        'AUDIT_READ',
+        'CONFIG_READ', 'CONFIG_UPDATE', 'FIELD_ID_UPDATE', 'ROLE_MANAGE',
+        'AUDIT_READ', 'AUDIT_EXPORT',
+        'ORG_MANAGE', 'ORG_VIEW', 'ORG_CREATE', 'ORG_DELETE',
         'ASSET_TEMPLATE_CREATE', 'ASSET_TEMPLATE_UPDATE', 'ASSET_TEMPLATE_DELETE', 'ASSET_CREATE', 'ASSET_UPDATE', 'ASSET_DELETE',
-        'ASSET_RELATIONSHIP_CREATE', 'ASSET_RELATIONSHIP_DELETE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_IDENTIFIER_DELETE', 'ASSET_VIEW',
+        'ASSET_RELATIONSHIP_CREATE', 'ASSET_RELATIONSHIP_DELETE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_IDENTIFIER_DELETE', 'ASSET_VIEW', 'ASSET_READ',
+        'ENTITY_ASSIGN',
+        'DASHBOARD_CREATE', 'DASHBOARD_MANAGE', 'DASHBOARD_VIEW', 'DASHBOARD_ASSIGN',
+        'RULE_CHAIN_VIEW', 'RULE_CHAIN_CREATE', 'RULE_CHAIN_UPDATE', 'RULE_CHAIN_DELETE',
+        'ALARM_VIEW', 'ALARM_ACKNOWLEDGE', 'ALARM_CLEAR',
+        'NOTIFICATION_VIEW', 'NOTIFICATION_CREATE', 'NOTIFICATION_UPDATE', 'NOTIFICATION_DELETE', 'NOTIFICATION_MANAGE',
+        'UNS_VIEW', 'UNS_MANAGE',
+        'BACKUP_MANAGE',
+        // Phase 2: Filter Management
+        'FILTER_OPERATE', 'FILTER_BYPASS', 'CHECKLIST_SUBMIT', 'EVENT_READ',
+        'FCP_READ', 'FCP_CREATE', 'FCP_UPDATE', 'FCP_DELETE',
+        'FP_READ', 'FP_CREATE', 'FP_UPDATE', 'FP_DELETE', 'FP_ASSIGN',
+        'PM_READ', 'PM_CREATE', 'PM_UPDATE', 'PM_DELETE', 'PM_EXECUTE',
+        'CYCLE_READ', 'READ_DEBUG_TRACE', 'MANAGE_DEBUG_TRACE',
       ],
       color: 'bg-gradient-to-r from-purple-500 to-indigo-500',
       isSystem: true,
@@ -45,7 +74,12 @@ async function main() {
       hierarchyLevel: 4,
       permissions: [
         'AUDIT_READ',
-        'ASSET_VIEW', 'ASSET_CREATE',
+        'ASSET_VIEW', 'ASSET_READ', 'ASSET_CREATE',
+        'ALARM_VIEW', 'ALARM_ACKNOWLEDGE', 'ALARM_CLEAR',
+        'DASHBOARD_VIEW',
+        // Phase 2: Filter operations + read access
+        'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'EVENT_READ',
+        'FCP_READ', 'FP_READ', 'PM_READ', 'CYCLE_READ',
       ],
       color: 'bg-gradient-to-r from-blue-500 to-cyan-500',
       isSystem: true,
@@ -57,7 +91,12 @@ async function main() {
       hierarchyLevel: 3,
       permissions: [
         'AUDIT_READ',
-        'ASSET_VIEW', 'ASSET_CREATE', 'ASSET_UPDATE',
+        'ASSET_VIEW', 'ASSET_READ', 'ASSET_CREATE', 'ASSET_UPDATE',
+        'ALARM_VIEW', 'ALARM_ACKNOWLEDGE',
+        'DASHBOARD_VIEW',
+        // Phase 2: Filter operations + checklist
+        'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'EVENT_READ',
+        'FCP_READ', 'FP_READ', 'PM_READ', 'CYCLE_READ',
       ],
       color: 'bg-gradient-to-r from-amber-500 to-orange-500',
       isSystem: true,
@@ -65,11 +104,16 @@ async function main() {
     {
       name: 'OPERATOR',
       displayName: 'Operator',
-      description: 'Operator with read access',
+      description: 'Operator with read access and filter operations',
       hierarchyLevel: 2,
       permissions: [
         'AUDIT_READ',
-        'ASSET_VIEW',
+        'ASSET_VIEW', 'ASSET_READ',
+        'ALARM_VIEW',
+        'DASHBOARD_VIEW',
+        // Phase 2: Filter operations + checklist
+        'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'EVENT_READ',
+        'FCP_READ', 'FP_READ', 'PM_READ', 'CYCLE_READ',
       ],
       color: 'bg-gradient-to-r from-emerald-500 to-green-500',
       isSystem: true,
@@ -81,7 +125,9 @@ async function main() {
       hierarchyLevel: 1,
       permissions: [
         'AUDIT_READ',
-        'ASSET_VIEW',
+        'ASSET_VIEW', 'ASSET_READ',
+        'ALARM_VIEW',
+        'DASHBOARD_VIEW',
       ],
       color: 'bg-gradient-to-r from-slate-400 to-slate-500',
       isSystem: true,
@@ -98,6 +144,7 @@ async function main() {
         permissions: role.permissions,
         color: role.color,
         isSystem: role.isSystem,
+        ...(role.scope ? { scope: role.scope } : {}),
       },
       create: {
         name: role.name,
@@ -107,6 +154,7 @@ async function main() {
         permissions: role.permissions,
         color: role.color,
         isSystem: role.isSystem,
+        ...(role.scope ? { scope: role.scope } : {}),
         createdBy: 'system',
       },
     });
@@ -114,11 +162,19 @@ async function main() {
   console.log('  Created default roles');
 
   // 2. Create default SUPER_ADMIN
-  const passwordHash = await bcrypt.hash('Admin@123', 12);
+  const defaultPassword = process.env.INITIAL_ADMIN_PASSWORD ?? 'Admin@123';
+  const passwordHash = await bcrypt.hash(defaultPassword, 12);
 
   await prisma.user.upsert({
     where: { username: 'superadmin' },
-    update: {},
+    update: {
+      fullName: 'System Administrator',
+      email: 'admin@digilog.local',
+      role: 'SUPER_ADMIN',
+      status: 'ENABLED',
+      forcePasswordChange: false,
+      isTemporaryPassword: false,
+    },
     create: {
       username: 'superadmin',
       fullName: 'System Administrator',
@@ -143,7 +199,7 @@ async function main() {
     }
   }
 
-  console.log('  Created default admin user (superadmin / Admin@123)');
+  console.log('  Created default admin user (superadmin / ******* — set INITIAL_ADMIN_PASSWORD env var)');
 
   // 3. System configurations
   const configs = [
@@ -194,12 +250,75 @@ async function main() {
       configType: 'display',
       requiresReauth: false,
     },
+    {
+      configKey: 'action-reauth',
+      configValue: {
+        actions: [
+          // User management
+          { action: 'CREATE_USER', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'UPDATE_USER', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'DELETE_USER', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'BULK_DELETE_USERS', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'ENABLE_USER', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'DISABLE_USER', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'UNLOCK_USER', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'RESET_PASSWORD', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'PROCESS_RESET_REQUEST', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          // Asset/Entity management
+          { action: 'CREATE_ASSET', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'UPDATE_ASSET', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'DELETE_ASSET', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'CREATE_ASSET_TEMPLATE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'UPDATE_ASSET_TEMPLATE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'DELETE_ASSET_TEMPLATE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'CREATE_ASSET_IDENTIFIER', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'DELETE_ASSET_IDENTIFIER', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'CREATE_ASSET_RELATIONSHIP', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'DELETE_ASSET_RELATIONSHIP', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          // Filter operations
+          { action: 'START_CLEANING_CYCLE', roles: ['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'MAINTENANCE', 'OPERATOR'] },
+          { action: 'FILTER_BYPASS', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'TERMINATE_CLEANING_CYCLE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          // Rule chains
+          { action: 'CREATE_RULE_CHAIN', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'UPDATE_RULE_CHAIN', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'DELETE_RULE_CHAIN', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          // Alarms
+          { action: 'ACKNOWLEDGE_ALARM', roles: ['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'MAINTENANCE'] },
+          { action: 'CLEAR_ALARM', roles: ['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR'] },
+          // Roles & Config
+          { action: 'CREATE_ROLE', roles: ['SUPER_ADMIN'] },
+          { action: 'UPDATE_ROLE', roles: ['SUPER_ADMIN'] },
+          { action: 'DELETE_ROLE', roles: ['SUPER_ADMIN'] },
+          { action: 'UPDATE_USERID_CONFIG', roles: ['SUPER_ADMIN'] },
+          { action: 'UPDATE_BRANDING', roles: ['SUPER_ADMIN'] },
+          { action: 'UPDATE_ROLE_CONFIG', roles: ['SUPER_ADMIN'] },
+          // Help articles
+          { action: 'CREATE_HELP_ARTICLE', roles: ['SUPER_ADMIN'] },
+          { action: 'UPDATE_HELP_ARTICLE', roles: ['SUPER_ADMIN'] },
+          { action: 'DELETE_HELP_ARTICLE', roles: ['SUPER_ADMIN'] },
+          // UNS
+          { action: 'OVERRIDE_UNS_PATH', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'DELETE_UNS_MAPPING', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'UPDATE_UNS_CONFIG', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          // Backup
+          { action: 'EXPORT_BACKUP', roles: ['SUPER_ADMIN'] },
+          { action: 'RESTORE_BACKUP', roles: ['SUPER_ADMIN'] },
+        ],
+      },
+      configType: 'security',
+      requiresReauth: false,
+    },
   ];
 
   for (const config of configs) {
     await prisma.systemConfig.upsert({
       where: { configKey: config.configKey },
-      update: {},
+      update: {
+        configValue: config.configValue,
+        configType: config.configType,
+        requiresReauth: config.requiresReauth,
+      },
       create: config,
     });
   }
@@ -253,12 +372,63 @@ async function main() {
     { fieldId: 'FLD_ATTR_001', defaultName: 'Key', displayName: 'Key', module: 'Attributes', description: 'Attribute key name' },
     { fieldId: 'FLD_ATTR_002', defaultName: 'Value', displayName: 'Value', module: 'Attributes', description: 'Attribute value' },
     { fieldId: 'FLD_ATTR_003', defaultName: 'Last Updated', displayName: 'Last Updated', module: 'Attributes', description: 'Last update timestamp' },
+    // Phase 2: Filter Operations
+    { fieldId: 'FLD_FILTER_001', defaultName: 'Filter Name', displayName: 'Filter Name', module: 'Filter Operations', description: 'Filter instance name' },
+    { fieldId: 'FLD_FILTER_002', defaultName: 'Filter Set', displayName: 'Filter Set', module: 'Filter Operations', description: 'Filter set (A or B)' },
+    { fieldId: 'FLD_FILTER_003', defaultName: 'Current State', displayName: 'Current State', module: 'Filter Operations', description: 'Current lifecycle state' },
+    { fieldId: 'FLD_FILTER_004', defaultName: 'Block', displayName: 'Block', module: 'Filter Operations', description: 'Cleaning area/block assignment' },
+    { fieldId: 'FLD_FILTER_005', defaultName: 'Cleaning Reason', displayName: 'Cleaning Reason', module: 'Filter Operations', description: 'Reason for cleaning cycle' },
+    { fieldId: 'FLD_FILTER_006', defaultName: 'Scan/ID', displayName: 'Scan/ID', module: 'Filter Operations', description: 'Scanned QR code or filter identifier' },
+    // Cleaning Cycles
+    { fieldId: 'FLD_CYCLE_001', defaultName: 'Cycle Code', displayName: 'Cycle Code', module: 'Cleaning Cycles', description: 'Unique cleaning cycle identifier' },
+    { fieldId: 'FLD_CYCLE_002', defaultName: 'Filter', displayName: 'Filter', module: 'Cleaning Cycles', description: 'Associated filter name' },
+    { fieldId: 'FLD_CYCLE_003', defaultName: 'Block', displayName: 'Block', module: 'Cleaning Cycles', description: 'Cleaning area/block' },
+    { fieldId: 'FLD_CYCLE_004', defaultName: 'Reason', displayName: 'Reason', module: 'Cleaning Cycles', description: 'Cleaning reason' },
+    { fieldId: 'FLD_CYCLE_005', defaultName: 'Status', displayName: 'Status', module: 'Cleaning Cycles', description: 'Cycle status' },
+    { fieldId: 'FLD_CYCLE_006', defaultName: 'Progress', displayName: 'Progress', module: 'Cleaning Cycles', description: 'Stage progress indicators' },
+    { fieldId: 'FLD_CYCLE_007', defaultName: 'Duration', displayName: 'Duration', module: 'Cleaning Cycles', description: 'Total cycle duration' },
+    { fieldId: 'FLD_CYCLE_008', defaultName: 'Started', displayName: 'Started', module: 'Cleaning Cycles', description: 'Cycle start timestamp' },
+    { fieldId: 'FLD_CYCLE_009', defaultName: 'Completed', displayName: 'Completed', module: 'Cleaning Cycles', description: 'Cycle completion timestamp' },
+    // Cleaning Profiles
+    { fieldId: 'FLD_CP_001', defaultName: 'Profile Name', displayName: 'Profile Name', module: 'Cleaning Profiles', description: 'Cleaning profile name' },
+    { fieldId: 'FLD_CP_002', defaultName: 'Version', displayName: 'Version', module: 'Cleaning Profiles', description: 'Profile version number' },
+    { fieldId: 'FLD_CP_003', defaultName: 'Status', displayName: 'Status', module: 'Cleaning Profiles', description: 'Profile status' },
+    { fieldId: 'FLD_CP_004', defaultName: 'Flow Mode', displayName: 'Flow Mode', module: 'Cleaning Profiles', description: 'Pipeline flow mode' },
+    { fieldId: 'FLD_CP_005', defaultName: 'Stages', displayName: 'Stages', module: 'Cleaning Profiles', description: 'Number of pipeline stages' },
+    // Checklists
+    { fieldId: 'FLD_CL_001', defaultName: 'Checklist Name', displayName: 'Checklist Name', module: 'Checklists', description: 'Checklist profile name' },
+    { fieldId: 'FLD_CL_002', defaultName: 'Questions', displayName: 'Questions', module: 'Checklists', description: 'Number of questions' },
+    { fieldId: 'FLD_CL_003', defaultName: 'Active', displayName: 'Active', module: 'Checklists', description: 'Checklist active status' },
+    // Equipment Groups
+    { fieldId: 'FLD_EQ_001', defaultName: 'Group Name', displayName: 'Group Name', module: 'Equipment Groups', description: 'Equipment group name' },
+    { fieldId: 'FLD_EQ_002', defaultName: 'Block', displayName: 'Block', module: 'Equipment Groups', description: 'Associated block' },
+    { fieldId: 'FLD_EQ_003', defaultName: 'Description', displayName: 'Description', module: 'Equipment Groups', description: 'Instrument description' },
+    { fieldId: 'FLD_EQ_004', defaultName: 'Instrument ID', displayName: 'Instrument ID', module: 'Equipment Groups', description: 'Instrument identifier' },
+    { fieldId: 'FLD_EQ_005', defaultName: 'Range', displayName: 'Range', module: 'Equipment Groups', description: 'Instrument min-max range' },
+    { fieldId: 'FLD_EQ_006', defaultName: 'Operating Range', displayName: 'Operating Range', module: 'Equipment Groups', description: 'Operating min-max range' },
+    { fieldId: 'FLD_EQ_007', defaultName: 'UOM', displayName: 'UOM', module: 'Equipment Groups', description: 'Unit of measurement' },
+    { fieldId: 'FLD_EQ_008', defaultName: 'Least Count', displayName: 'Least Count', module: 'Equipment Groups', description: 'Instrument least count/resolution' },
+    // PM Schedules
+    { fieldId: 'FLD_PM_001', defaultName: 'Schedule Name', displayName: 'Schedule Name', module: 'PM Schedules', description: 'PM schedule name' },
+    { fieldId: 'FLD_PM_002', defaultName: 'Entity', displayName: 'Entity', module: 'PM Schedules', description: 'Associated entity' },
+    { fieldId: 'FLD_PM_003', defaultName: 'Interval', displayName: 'Interval', module: 'PM Schedules', description: 'Schedule interval in days' },
+    { fieldId: 'FLD_PM_004', defaultName: 'Next Due', displayName: 'Next Due', module: 'PM Schedules', description: 'Next scheduled execution date' },
+    { fieldId: 'FLD_PM_005', defaultName: 'Status', displayName: 'Status', module: 'PM Schedules', description: 'Schedule status' },
+    // Filter Profiles
+    { fieldId: 'FLD_FP_001', defaultName: 'Filter', displayName: 'Filter', module: 'Filter Profiles', description: 'Filter instance' },
+    { fieldId: 'FLD_FP_002', defaultName: 'Cleaning Profile', displayName: 'Cleaning Profile', module: 'Filter Profiles', description: 'Assigned cleaning profile' },
+    { fieldId: 'FLD_FP_003', defaultName: 'Assigned Date', displayName: 'Assigned Date', module: 'Filter Profiles', description: 'Profile assignment date' },
   ];
 
   for (const field of fieldIds) {
     await prisma.fieldIdConfig.upsert({
       where: { fieldId: field.fieldId },
-      update: {},
+      update: {
+        defaultName: field.defaultName,
+        displayName: field.displayName,
+        module: field.module,
+        description: field.description,
+      },
       create: field,
     });
   }
@@ -323,7 +493,18 @@ async function main() {
   for (const config of ingestionConfigs) {
     await prisma.ingestionSystemConfig.upsert({
       where: { key: config.key },
-      update: {},
+      update: {
+        value: config.value,
+        dataType: config.dataType,
+        category: config.category,
+        label: config.label,
+        description: config.description ?? null,
+        defaultValue: config.defaultValue,
+        minValue: config.minValue ?? null,
+        maxValue: config.maxValue ?? null,
+        unit: config.unit ?? null,
+        requiresRestart: config.requiresRestart ?? false,
+      },
       create: {
         key: config.key,
         value: config.value,
@@ -371,22 +552,40 @@ async function main() {
     { key: 'alarms.management', title: 'Managing and Acknowledging Alarms', category: 'alarms', sortOrder: 2 },
     { key: 'audit.overview', title: 'Audit Trail & Compliance', category: 'audit', sortOrder: 1 },
     { key: 'users.roles', title: 'User Roles & Permissions', category: 'users', sortOrder: 1 },
+    // Phase 2: Filter Management
+    { key: 'filter-ops.overview', title: 'Filter Operations Overview', category: 'filter-operations', sortOrder: 1 },
+    { key: 'filter-ops.scanning', title: 'Filter Scanning & Identification', category: 'filter-operations', sortOrder: 2 },
+    { key: 'filter-ops.equipment', title: 'Equipment Groups & Instrument Readings', category: 'filter-operations', sortOrder: 3 },
+    { key: 'cleaning-cycles.overview', title: 'Cleaning Cycle History', category: 'cleaning-cycles', sortOrder: 1 },
+    { key: 'cleaning-cycles.timeline', title: 'Cycle Timeline & Events', category: 'cleaning-cycles', sortOrder: 2 },
+    { key: 'cleaning-profiles.overview', title: 'Cleaning Profiles Overview', category: 'cleaning-profiles', sortOrder: 1 },
+    { key: 'cleaning-profiles.editor', title: 'Pipeline Visual Editor', category: 'cleaning-profiles', sortOrder: 2 },
+    { key: 'checklist-profiles.overview', title: 'Checklist Profiles Guide', category: 'checklist-profiles', sortOrder: 1 },
+    { key: 'filter-profiles.overview', title: 'Filter Profile Assignment', category: 'filter-profiles', sortOrder: 1 },
+    { key: 'equipment-groups.overview', title: 'Equipment Groups Configuration', category: 'equipment-groups', sortOrder: 1 },
+    { key: 'pm-schedules.overview', title: 'PM Schedule Management', category: 'pm-schedules', sortOrder: 1 },
+    { key: 'filter-lifecycle.overview', title: 'Filter Lifecycle States', category: 'filter-lifecycle', sortOrder: 1 },
   ];
 
   for (const article of helpArticles) {
     await prisma.helpArticle.upsert({
       where: { key: article.key },
-      update: {},
+      update: {
+        title: article.title,
+        content: `# ${article.title}\n\nThis article covers the key concepts and usage guidelines for ${article.title.toLowerCase()}. For detailed instructions, please refer to the system documentation or contact your administrator.`,
+        category: article.category,
+        sortOrder: article.sortOrder,
+      },
       create: {
         key: article.key,
         title: article.title,
-        content: `# ${article.title}\n\nContent for this help article will be added during implementation.`,
+        content: `# ${article.title}\n\nThis article covers the key concepts and usage guidelines for ${article.title.toLowerCase()}. For detailed instructions, please refer to the system documentation or contact your administrator.`,
         category: article.category,
         sortOrder: article.sortOrder,
       },
     });
   }
-  console.log('  Created default help articles (28 articles)');
+  console.log('  Created default help articles (40 articles)');
 
   console.log('Seed completed successfully!');
 }

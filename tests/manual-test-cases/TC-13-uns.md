@@ -151,5 +151,11 @@
 - **Expected Result**: 401 Unauthorized.
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2 Notes
+
+- UNS (Unified Namespace) applies to filter entities. Filter instances can be mapped to ISA-95 hierarchy paths.
+- Filter entities appear in the UNS tree like any other entity instance.
+- UNS paths for filters follow the same auto-generation and override rules.
 

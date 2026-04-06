@@ -1,7 +1,7 @@
 # Phase E: Unified Namespace (UNS) (2-3 days)
 
-> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07.
-> UNS path builder, auto-provisioning, cascade move, wildcard matching, UNS config API (6 endpoints), and tree view data all operational.
+> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07. Phase 2 Digital FMS completed 2026-03-27.
+> UNS path builder, auto-provisioning, cascade move, wildcard matching, UNS config API (6 endpoints), and tree view data all operational. UNS managed via `uns` config definition.
 
 ## Prompt for Claude Code
 
@@ -83,5 +83,5 @@ VERIFICATION:
 - **Section 12.2**: UnsMapping Prisma model
 
 
-> **Update (2026-03-27):** Phase 2 Digital Filter Management System has been completed. See CHANGELOG.md for full details.
+> **Update (2026-03-27):** Phase 2 Digital FMS completed. Filter entities participate in UNS hierarchy. Equipment groups (AHUs) organize filter entities for dashboard management.
 

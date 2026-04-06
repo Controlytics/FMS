@@ -1,7 +1,7 @@
 # Phase C: Data Ingestion Pipeline (2-3 days)
 
-> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07.
-> BullMQ ingestion worker, pipeline stages 1-11, telemetry batcher, DLQ, pipeline tracer, connectivity tracker, and ConfigService all operational.
+> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07. Phase 2 Digital FMS completed 2026-03-27.
+> BullMQ ingestion worker, pipeline stages 1-11, telemetry batcher, DLQ, pipeline tracer, connectivity tracker, and ConfigService (23 config definitions) all operational.
 
 ## Prompt for Claude Code
 
@@ -143,5 +143,5 @@ VERIFICATION:
 - **Section 21.2**: Worker architecture (in-process BullMQ, job priorities, batch flush before ack)
 
 
-> **Update (2026-03-27):** Phase 2 Digital Filter Management System has been completed. See CHANGELOG.md for full details.
+> **Update (2026-03-27):** Phase 2 Digital FMS completed. Filter operations integrate with the pipeline for audit trail, event emission, and notification dispatch. ConfigService now manages 23 config definitions including filter-cleaning-reasons, filter-lifecycle-states, and filter-pm-schedule.
 

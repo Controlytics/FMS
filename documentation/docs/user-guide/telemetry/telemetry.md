@@ -1,27 +1,42 @@
 # Telemetry
 
-Time-series data from devices stored in TimescaleDB.
+Time-series data from devices stored in TimescaleDB hypertables with compression.
 
 ## Ingestion
-- MQTT: topic v1/devices/me/telemetry (via EMQX broker)
-- HTTP: POST /api/v1/{token}/telemetry
+- **MQTT:** Topic `digilog/v1/<uns-path>/telemetry` (via EMQX broker)
+- **HTTP:** `POST /api/data/telemetry` (with device access token)
+- **Processing:** BullMQ worker queues messages for rule chain evaluation and TimescaleDB storage
 
 ## Storage
-- Full history in digilog_tsdb (TimescaleDB hypertable with compression)
-- Latest values in digilog_db (latest_telemetry table)
+- **Full history:** `digilog_tsdb` (TimescaleDB hypertables with compression)
+- **Latest values:** `digilog_db` (latest_telemetry table for fast lookups)
+- **Atomic upsert:** SQL-level atomic telemetry upsert prevents race conditions
+
+> **Important:** The time-series database is `digilog_tsdb`, NOT `digilog_db`.
 
 ## Data Types
 Numeric (double), String, Boolean, JSON
 
 ## Querying
-- Latest values: GET /api/queries/telemetry/:entityId
-- History: GET /api/queries/telemetry/:entityId/history (with aggregation: MIN, MAX, AVG, SUM, COUNT)
-- Time buckets for downsampling
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/queries/telemetry/latest` | Latest values for an entity |
+| `GET /api/queries/telemetry/timeseries` | Historical time-series with aggregation |
+| `GET /api/queries/telemetry/keys` | Available telemetry keys for entity |
+| `GET /api/queries/telemetry/attributes` | Device attributes |
+
+### Aggregation Functions
+MIN, MAX, AVG, SUM, COUNT -- with configurable time buckets for downsampling.
+
+## Real-Time Display
+- SWR polling for periodic updates
+- WebSocket for live telemetry streaming
+- Auto-refresh in Entity Detail > Telemetry tab
 
 ## Retention
-Configurable per data type in Config > Retention. Default: 365 days for telemetry.
+Configurable per data type in **Config > Retention**. Default: 365 days for telemetry. Archive support for long-term storage.
 
-
----
-
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.
+## Export
+Telemetry data can be exported via:
+- `GET /api/queries/export/telemetry` -- CSV/JSON export with time range
+- Database backup (includes all hypertable data)

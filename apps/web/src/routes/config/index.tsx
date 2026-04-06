@@ -203,6 +203,18 @@ const superAdminCards = [
     gradient: "from-blue-500 to-indigo-600",
     shadowColor: "shadow-blue-500/25",
   },
+  {
+    title: "Cleaning Profile Assignment",
+    description: "Configure how cleaning profiles are automatically assigned to filters",
+    href: "/config/cleaning-profile-assignment",
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+      </svg>
+    ),
+    gradient: "from-teal-500 to-cyan-600",
+    shadowColor: "shadow-teal-500/25",
+  },
 ];
 
 export function ConfigIndexPage() {
@@ -381,7 +393,7 @@ export function ConfigIndexPage() {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {dynamicModules.map((mod) => (
-              <Link key={mod.moduleKey} to={`/config/dynamic/${mod.moduleKey}`} className="group">
+              <Link key={mod.moduleKey} to={mod.customPagePath || `/config/dynamic/${mod.moduleKey}`} className="group">
                 <Card className="relative overflow-hidden border border-slate-200 transition-all duration-200 hover:shadow-lg hover:border-slate-300 hover:-translate-y-0.5">
                   <CardContent className="pt-6 pb-4 px-6">
                     <div className="flex items-start gap-4">

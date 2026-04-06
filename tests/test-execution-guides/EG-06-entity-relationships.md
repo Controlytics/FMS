@@ -2,7 +2,7 @@
 
 ## Prerequisites
 - **API Base**: `http://localhost:3000/api`
-- **Credentials**: admin / Admin@123 (SUPER_ADMIN)
+- **Credentials**: superadmin / Admin@123 (SUPER_ADMIN)
 - **Prerequisite**: At least 3 entity instances must exist (run TC-05 first)
 - **Tools**: curl, jq
 
@@ -12,7 +12,7 @@ API="http://localhost:3000/api"
 
 TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123","force":true}' | jq -r '.token')
 
 get_vtoken() {
   curl -s -X POST "$API/auth/verify" \
@@ -305,5 +305,5 @@ echo "Relationships will be cleaned up when instances are soft-deleted"
 ```
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+> **Phase 2 (Digital FMS):** Relationships apply to filter instances. Equipment group assignments use /api/equipment-groups endpoints.
 

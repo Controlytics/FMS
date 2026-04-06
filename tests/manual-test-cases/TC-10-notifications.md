@@ -300,5 +300,11 @@
 - **Expected Result**: Status SENT (AWS accepts) but SMS not delivered.
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2 Notes
+
+- Notification delivery channels (in-app, email, SMS, Telegram, Slack) support Phase 2 filter events.
+- Filter-related notification events: FILTER_CYCLE_STARTED, FILTER_CYCLE_COMPLETED, FILTER_STAGE_BYPASSED, PM_SCHEDULE_DUE.
+- Notification rules can be configured to trigger on filter operation events.
 

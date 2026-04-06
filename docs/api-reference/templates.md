@@ -1,9 +1,27 @@
-# API Reference: templates
+# API Reference: Templates
 
-See the interactive Swagger UI at /docs for complete endpoint documentation with request/response schemas.
+See the interactive Swagger UI at `/docs` for complete endpoint documentation with request/response schemas.
 
-Refer to the [API Guide](../../API_GUIDE.md) for endpoint summaries and examples.
+## Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/assets/templates | List templates |
+| POST | /api/assets/templates | Create template |
+| GET | /api/assets/templates/:id | Get template detail |
+| PUT | /api/assets/templates/:id | Update template (creates new version) |
+| DELETE | /api/assets/templates/:id | Soft delete template |
 
+## Template Fields
+- Name, Category, Description, Icon
+- Attribute Schema (14 data types)
+- Telemetry Schema (expected data points with types and units)
+- Alarm Rules (threshold, rate-of-change, absence)
+- Checklist Schema (14 question types)
+- Connectivity Settings (transport type, credential type, auto-provision, rate limits)
+- Relationship Constraints (max connections, max parents)
 
-> **Note:** Phase 2 adds filter management endpoints. See API_GUIDE.md for the full Phase 2 API reference including filter operations, cleaning profiles, checklist profiles, and PM schedules.
+## Versioning
+Every edit creates a new version. Instances track which version they were created from.
 
+## Default Rule Chain
+Templates with alarm rules auto-generate a default rule chain for threshold evaluation.

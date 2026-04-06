@@ -1,70 +1,75 @@
 # Rule Engine Guide
 
 ## Overview
-The rule engine processes IoT data through configurable visual pipelines. Each rule chain contains nodes connected by labeled edges, forming a directed graph.
+The rule engine processes IoT data through configurable visual pipelines. Each rule chain contains nodes connected by labeled edges, forming a directed graph. 77 node types across 8 categories.
 
-## Node Categories (77 total)
+## Node Categories (77 total across 8 categories)
 
 ### INPUT (1 node)
-- **input** — Entry point for all messages. Passes data unchanged to connected nodes.
+- **input** -- Entry point for all messages. Passes data unchanged to connected nodes.
 
 ### FILTER (8 nodes)
-- **msg-type-filter** — Route by message type (TELEMETRY, ATTRIBUTE, EVENT)
-- **script-filter** — Custom JavaScript filter (return true/false)
-- **check-relation** — Check if entity has specific relationship
-- **originator-type-filter** — Filter by template name
-- **check-alarm-status** — Check if alarm exists with status
-- **entity-type-filter** — Route by template category
-- **entity-type-switch** — Multi-way switch by template name
-- **template-switch** — Route based on template category
+- **msg-type-filter** -- Route by message type (TELEMETRY, ATTRIBUTE, EVENT)
+- **script-filter** -- Custom JavaScript filter (return true/false)
+- **check-relation** -- Check if entity has specific relationship
+- **originator-type-filter** -- Filter by template name
+- **check-alarm-status** -- Check if alarm exists with status
+- **entity-type-filter** -- Route by template category
+- **entity-type-switch** -- Multi-way switch by template name
+- **template-switch** -- Route based on template category
 
 ### ENRICHMENT (10+ nodes)
-- **change-originator** — Change message source entity
-- **calculate** — Numeric operations (add, multiply, scale, round)
-- **string-operation** — String transforms (concat, uppercase, substring)
-- **http-request** — Outbound HTTP call, merge response into message
-- **rest-api-call** — REST API with auth headers
-- **save-attributes** — Store as entity attributes
-- **save-telemetry** — Store as telemetry data point
-- **gps-location** — Extract/transform GPS coordinates
+- **change-originator** -- Change message source entity
+- **calculate** -- Numeric operations (add, multiply, scale, round)
+- **string-operation** -- String transforms (concat, uppercase, substring)
+- **http-request** -- Outbound HTTP call, merge response into message
+- **rest-api-call** -- REST API with auth headers
+- **save-attributes** -- Store as entity attributes
+- **save-telemetry** -- Store as telemetry data point
+- **gps-location** -- Extract/transform GPS coordinates
 
 ### TRANSFORMATION (12+ nodes)
-- **script-transformation** — Custom JavaScript transform
-- **split-message** — Split into multiple messages
-- **aggregate-stream** — Aggregate over time window (avg, sum, min, max)
-- **json-path** — Extract fields via JSONPath
-- **geofence** — GPS geofencing (point-in-polygon)
-- **deduplicate** — Dedup over configurable window
-- **rate-limit** — Rate limit per entity
-- **delay** — Delay message by duration
-- **timezone-converter** — Convert timestamps
+- **script-transformation** -- Custom JavaScript transform
+- **split-message** -- Split into multiple messages
+- **aggregate-stream** -- Aggregate over time window (avg, sum, min, max)
+- **json-path** -- Extract fields via JSONPath
+- **geofence** -- GPS geofencing (point-in-polygon)
+- **deduplicate** -- Dedup over configurable window
+- **rate-limit** -- Rate limit per entity
+- **delay** -- Delay message by duration
+- **timezone-converter** -- Convert timestamps
 
 ### ACTION (15+ nodes)
-- **create-alarm** — Create alarm with severity, type, details
-- **clear-alarm** — Clear active alarm by type
-- **send-email** — Send via SMTP
-- **send-sms** — Send via SMS gateway
-- **telegram-notification** — Telegram bot message
-- **slack-notification** — Slack webhook
-- **create-notification** — In-app notification
-- **trigger-webhook** — External webhook call
-- **log-to-console** — Debug logging
-- **execute-rule-chain** — Invoke another rule chain
+- **create-alarm** -- Create alarm with severity, type, details
+- **clear-alarm** -- Clear active alarm by type
+- **send-email** -- Send via SMTP
+- **send-sms** -- Send via SMS gateway
+- **send-to-slack** -- Slack webhook notification
+- **create-notification** -- In-app notification
+- **trigger-webhook** -- External webhook call
+- **log-to-console** -- Debug logging
+- **execute-rule-chain** -- Invoke another rule chain
 
 ### EXTERNAL INTEGRATION (10+ nodes)
-- **mqtt-publish** — Publish to MQTT topic
-- **kafka-producer** — Kafka message
-- **aws-lambda** — Invoke Lambda function
-- **gcp-pubsub** — Google Cloud Pub/Sub
-- **azure-service-bus** — Azure messaging
-- **influxdb-write** — Write to InfluxDB
-- **splunk-hec** — Splunk HTTP Event Collector
+- **mqtt-publish** -- Publish to MQTT topic
+- **kafka-producer** -- Kafka message
+- **aws-lambda** -- Invoke Lambda function
+- **gcp-pubsub** -- Google Cloud Pub/Sub
+- **azure-service-bus** -- Azure messaging
+- **influxdb-write** -- Write to InfluxDB
+- **splunk-hec** -- Splunk HTTP Event Collector
+
+### FLOW (nodes for control flow)
+- Various flow control nodes for branching and merging message paths
+
+### ANALYTICS (nodes for data analysis)
+- Aggregation, trending, and statistical analysis nodes
 
 ## Execution Lifecycle
 
 ```
 1. Telemetry arrives (MQTT/HTTP/WS)
-2. Ingestion worker picks up message
+2. Ingestion worker picks up message (BullMQ)
 3. Find entity's assigned rule chain
 4. Start at INPUT node
 5. Execute node handler:
@@ -98,12 +103,12 @@ The rule engine processes IoT data through configurable visual pipelines. Each r
 
 ### Temperature Alert Rule Chain
 ```
-[Input] → [Filter: temp > 80°C]
-            ├── True  → [Create Alarm: HIGH_TEMP, CRITICAL]
-            │              → [Send Email: ops@company.com]
-            │              → [Slack Notification: #alerts]
-            └── False → [Save Telemetry]
-                          → [Log: "Normal reading"]
+[Input] -> [Filter: temp > 80C]
+            +-- True  -> [Create Alarm: HIGH_TEMP, CRITICAL]
+            |              -> [Send Email: ops@company.com]
+            |              -> [Slack Notification: #alerts]
+            +-- False -> [Save Telemetry]
+                          -> [Log: "Normal reading"]
 ```
 
 ### Node Configuration (Filter Node)
@@ -131,7 +136,17 @@ When `debugMode: true` on a node:
 - Errors logged with stack trace
 - Viewable at `/debug/traces` in UI
 
+## Visual Editor (Frontend)
+- ReactFlow-based canvas at `/rule-chains/:id/edit`
+- Drag nodes from categorized palette onto canvas
+- Connect nodes by dragging from output ports to input ports
+- Configure each node via side panel (JSON configuration)
+- Save sends full node + connection graph to `PUT /api/rule-chains/:id`
+- Debug mode highlights execution path with green/red per node
+- Nodes auto-appear in palette when registered in backend
 
----
-
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.
+## Integration with Data Ingestion
+- Each asset instance can be assigned a rule chain
+- During 10-stage data ingestion, stage 5 executes the assigned rule chain
+- Rule chain outputs can trigger alarms, notifications, data storage, and external integrations
+- Execution is async via BullMQ worker for non-blocking ingestion

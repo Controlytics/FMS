@@ -1,4 +1,4 @@
-# Hello World — Your First Entity and Telemetry
+# Hello World -- Your First Entity and Telemetry
 
 This tutorial walks you through creating your first entity, connecting a device, and viewing telemetry data in DigiLog. You will complete these steps in under 15 minutes.
 
@@ -7,19 +7,19 @@ This tutorial walks you through creating your first entity, connecting a device,
 ## Prerequisites
 
 - DigiLog instance running (API + frontend accessible)
-- Admin credentials (default: `admin` / `Admin@123`)
+- Admin credentials (default: `superadmin` / `Admin@123`)
 - A tool to send HTTP requests (curl, Postman, or Python)
 
 ---
 
 ## Step 1: Log In
 
-1. Open your DigiLog instance in a browser (e.g., `http://your-server-ip`).
+1. Open your DigiLog instance in a browser (e.g., `http://34.232.224.0`).
 2. Enter your username and password.
 3. If this is your first login, you may be prompted to change your password.
 4. If an active session exists, click **Continue Here** to terminate the previous session.
 
-> **Note:** The default admin account requires `force: true` when logging in via API due to the single-session policy.
+> **Note:** The default superadmin account requires `force: true` when logging in via API due to the single-session policy.
 
 ---
 
@@ -74,7 +74,7 @@ The entity appears in the hierarchy tree. Click on it to open the **Entity Detai
 
 1. In the Entity Detail Panel, click the **Connectivity** tab.
 2. You will see a device access token was auto-generated.
-3. Copy the access token — you'll use it to send data.
+3. Copy the access token -- you'll use it to send data.
 4. Note the **Code Snippets** section, which provides ready-to-use examples.
 
 ---
@@ -86,7 +86,7 @@ Use any of the following methods to send telemetry:
 ### Using curl
 
 ```bash
-curl -X POST "http://your-server-ip/api/data/telemetry" \
+curl -X POST "http://34.232.224.0/api/data/telemetry" \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"temperature": 25.5, "humidity": 60}'
@@ -97,7 +97,7 @@ curl -X POST "http://your-server-ip/api/data/telemetry" \
 ```python
 import requests
 
-url = "http://your-server-ip/api/data/telemetry"
+url = "http://34.232.224.0/api/data/telemetry"
 headers = {
     "Authorization": "Bearer YOUR_ACCESS_TOKEN",
     "Content-Type": "application/json"
@@ -111,7 +111,7 @@ print(response.status_code, response.json())
 ### Using Node.js
 
 ```javascript
-const res = await fetch('http://your-server-ip/api/data/telemetry', {
+const res = await fetch('http://34.232.224.0/api/data/telemetry', {
   method: 'POST',
   headers: {
     'Authorization': 'Bearer YOUR_ACCESS_TOKEN',
@@ -140,7 +140,7 @@ You should receive a `200 OK` response confirming the data was ingested.
 Attributes are static properties of the device that change infrequently:
 
 ```bash
-curl -X POST "http://your-server-ip/api/data/attributes" \
+curl -X POST "http://34.232.224.0/api/data/attributes" \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"firmware_version": "1.2.3", "model": "SensorX-200"}'
@@ -162,13 +162,16 @@ View attributes in the **Attributes** tab of the Entity Detail Panel.
 
 You've successfully created an entity, sent telemetry, and viewed data. Here's what to explore next:
 
-- [Asset Templates](../user-guide/templates/asset-templates.md) — Design templates with complex attribute schemas
-- [Rule Engine](../user-guide/rule-engine/overview.md) — Automate data processing and trigger alarms
-- [Alarms](../user-guide/alarms/alarms.md) — Set up threshold-based alerts with e-signatures
-- [MQTT Connectivity](../user-guide/connectivity/mqtt.md) — Connect devices via MQTT for real-time streaming
-- [Checklists](../user-guide/checklists/checklists.md) — Create inspection forms with QR code access
+- [Asset Templates](../user-guide/templates/asset-templates.md) -- Design templates with complex attribute schemas
+- [Rule Engine](../user-guide/rule-engine/overview.md) -- Automate data processing and trigger alarms
+- [Alarms](../user-guide/alarms/alarms.md) -- Set up threshold-based alerts with e-signatures
+- [MQTT Connectivity](../user-guide/connectivity/mqtt.md) -- Connect devices via MQTT for real-time streaming
+- [Checklists](../user-guide/checklists/checklists.md) -- Create inspection forms with QR code access
 
-
----
-
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.
+### Phase 2: Digital Filter Management
+After setting up basic IoT data logging, explore the Digital Filter Management System:
+- Create cleaning profiles with the visual pipeline editor
+- Assign filter profiles to entity instances
+- Start cleaning cycles, advance through stages, and submit checklists
+- Set up PM schedules for preventive maintenance tracking
+- View the AHU dashboard for real-time filter status overview

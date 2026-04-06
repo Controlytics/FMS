@@ -2,7 +2,7 @@
 
 ## Prerequisites
 - **API Base**: `http://localhost:3000/api`
-- **Credentials**: admin / Admin@123 (SUPER_ADMIN)
+- **Credentials**: superadmin / Admin@123 (SUPER_ADMIN)
 - **Required Role**: SUPER_ADMIN or ADMIN for all user management operations
 - **Tools**: curl, jq
 
@@ -13,7 +13,7 @@ API="http://localhost:3000/api"
 # Login and get token
 TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123","force":true}' | jq -r '.token')
 
 # Helper: Get verification token
 get_vtoken() {
@@ -37,7 +37,7 @@ curl -s -X GET "$API/users?page=1&limit=10" \
 ```
 
 **Browser Steps:**
-1. Navigate to http://3.108.185.106/users
+1. Navigate to http://34.232.224.0/users
 2. Observe user table with columns: Username, Full Name, Email, Role, Status
 3. Check pagination controls at bottom
 
@@ -92,7 +92,7 @@ curl -s -X POST "$API/users" \
 ```
 
 **Browser Steps:**
-1. Navigate to http://3.108.185.106/users/create
+1. Navigate to http://34.232.224.0/users/create
 2. Fill in Username: testuser01
 3. Fill in Full Name: Test User One
 4. Fill in Email: test01@company.com
@@ -357,7 +357,7 @@ curl -s -w "\nHTTP_CODE:%{http_code}\n" -X POST "$API/users" \
   -H "Authorization: Bearer $TOKEN" \
   -H "X-Verification-Token: $VTOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","fullName":"Duplicate","email":"dup@test.com","role":"OPERATOR","password":"DupTest@123","confirmPassword":"DupTest@123"}'
+  -d '{"username":"superadmin","fullName":"Duplicate","email":"dup@test.com","role":"OPERATOR","password":"DupTest@123","confirmPassword":"DupTest@123"}'
 ```
 
 **Expected Result:**
@@ -521,5 +521,5 @@ curl -s -X GET "$API/users?search=test" \
 ```
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+> **Phase 2 (Digital FMS):** User management unchanged. New privileges FILTER_VIEW, FILTER_MANAGE, FILTER_OPERATE available for role assignment. Default login: `superadmin` / `Admin@123`.
 

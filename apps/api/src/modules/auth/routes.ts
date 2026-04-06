@@ -94,6 +94,7 @@ export default async function authRoutes(app: FastifyInstance) {
 
   // POST /api/auth/refresh — Refresh JWT token (extends session)
   app.post('/refresh', {
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     schema: {
       tags: ['Authentication'],
       summary: 'Refresh JWT token',
@@ -243,6 +244,7 @@ export default async function authRoutes(app: FastifyInstance) {
 
   // POST /api/auth/change-password
   app.post('/change-password', {
+    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     schema: {
       tags: ['Auth'],
       summary: 'Change password',
@@ -274,6 +276,13 @@ export default async function authRoutes(app: FastifyInstance) {
 
   // POST /api/auth/verify (re-authentication for sensitive ops)
   app.post('/verify', {
+    config: {
+      rateLimit: {
+        max: 5,
+        timeWindow: '1 minute',
+        keyGenerator: (req: any) => req.ip,
+      },
+    },
     schema: {
       tags: ['Auth'],
       summary: 'Re-authenticate',
@@ -291,7 +300,7 @@ export default async function authRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const body = req.body as { password?: string };
     if (!body.password) {
-      return reply.code(400).send({ error: 'Password is required' });
+      return reply.code(400).send({ error: 'VALIDATION', message: 'Password is required' });
     }
 
     const verificationToken = await authService.verify(req.user.sub, body.password);
@@ -326,7 +335,7 @@ export default async function authRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const body = req.body as { username?: string };
     if (!body.username) {
-      return reply.code(400).send({ error: 'User ID is required' });
+      return reply.code(400).send({ error: 'VALIDATION', message: 'User ID is required' });
     }
 
     const result = await authService.forgotPassword(body.username, req.ip, req.headers['user-agent']);

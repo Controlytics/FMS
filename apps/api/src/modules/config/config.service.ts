@@ -24,10 +24,14 @@ function reverseMapPermissions(rolePermissions: string[]): Record<string, boolea
 }
 
 export const configService = {
-  async getConfig(key: string, schema: any) {
+  async getConfig(key: string, schema: any, def?: { defaults?: any }) {
     const config = await configRepository.getSystemConfig(key);
     const parsed = schema.safeParse(config?.configValue ?? {});
-    return parsed.success ? parsed.data : config?.configValue ?? {};
+    if (!parsed.success) {
+      console.warn(`[Config] Validation failed for ${key}, using defaults`);
+      return def?.defaults ?? {};
+    }
+    return parsed.data;
   },
 
   async updateConfig(key: string, data: any, schema: any, configType: string, requiresReauth: boolean, ctx: RequestContext) {
@@ -85,8 +89,22 @@ export const configService = {
     const config = await configRepository.upsertRoleConfig(role, data, existing, ctx.userId);
 
     // Sync feature privileges to role's permissions array
+    // Preserves any permissions NOT covered by feature toggles (e.g., manually granted)
     if (data.permissions) {
-      const permissionSet = new Set<string>();
+      // Get all permissions that are controlled by feature toggles
+      const allMappedPerms = new Set<string>();
+      for (const perms of Object.values(FEATURE_TO_PERMISSION_MAP)) {
+        for (const p of perms) allMappedPerms.add(p);
+      }
+
+      // Get current role permissions from DB
+      const currentRole = await prisma.role.findFirst({ where: { name: role }, select: { permissions: true } });
+      const currentPerms = (currentRole?.permissions as string[]) || [];
+
+      // Start with permissions NOT controlled by any feature toggle (preserve them)
+      const permissionSet = new Set<string>(currentPerms.filter(p => !allMappedPerms.has(p)));
+
+      // Add permissions from enabled feature toggles
       for (const [featureId, enabled] of Object.entries(data.permissions)) {
         if (enabled && FEATURE_TO_PERMISSION_MAP[featureId]) {
           for (const perm of FEATURE_TO_PERMISSION_MAP[featureId]) {
@@ -94,6 +112,7 @@ export const configService = {
           }
         }
       }
+
       const permissionsArray = Array.from(permissionSet);
       await prisma.role.updateMany({
         where: { name: role },

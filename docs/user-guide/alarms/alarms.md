@@ -14,12 +14,19 @@ ACTIVE -> ACKNOWLEDGED -> CLEARED (or MANUALLY_CLEARED)
 WARNING, ALARM, CRITICAL
 
 ## Management
-- Auto-created by rule chains (Create Alarm node)
+- Auto-created by rule chains (Create Alarm node) — 77 node types across 8 categories
 - Auto-cleared when condition resolves (Clear Alarm node)
 - Manual acknowledge/clear with electronic signature (21 CFR Part 11)
-- Dashboard with filtering by severity, status, entity, type, date range
+- Dashboard with filtering by severity, status, entity, type, date range, assignee
+- Real-time badge count in sidebar via WebSocket
+- Bulk acknowledge for selected alarms
 
+## Notifications
+Alarm events can trigger notifications via 4 channels: Email, SMS, Telegram, Slack (configured via notification rules).
 
----
-
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.
+## Phase 2 Integration
+Filter management operations can generate alarms:
+- PM schedule overdue alerts
+- Bypass deviation warnings
+- Equipment group alerts
+These alarms follow the same lifecycle and appear in the unified alarm dashboard.

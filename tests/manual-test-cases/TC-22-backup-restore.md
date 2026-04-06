@@ -196,5 +196,11 @@
 - **Expected Result**: 400 Bad Request — "No backup file uploaded"
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2 Notes
+
+- Backup export includes all Phase 2 tables: CleaningProfile, FilterProfile, CleaningCycle, FilterEvent, PmSchedule, PmEntry, PmExecution, ChecklistProfile, EquipmentGroup, and related records.
+- Backup/restore preserves cleaning cycle history, filter events, PM schedules, and checklist profiles.
+- The backup checksum covers all Phase 2 data for integrity verification.
 

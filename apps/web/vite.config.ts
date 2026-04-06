@@ -1,16 +1,67 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
+import fs from 'fs';
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
+      manifest: {
+        name: 'DigiLog - Filter Management',
+        short_name: 'DigiLog',
+        description: 'Digital Filter Management System - 21 CFR Part 11 Compliant',
+        theme_color: '#0891b2',
+        background_color: '#f8fafc',
+        display: 'standalone',
+        orientation: 'any',
+        start_url: '/m',
+        scope: '/',
+        categories: ['business', 'productivity'],
+        icons: [
+          { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+          { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+        ],
+        shortcuts: [
+          {
+            name: 'Filter Operations',
+            short_name: 'Operations',
+            url: '/m',
+            icons: [{ src: '/pwa-192x192.png', sizes: '192x192' }],
+          },
+        ],
+      },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        runtimeCaching: [
+          {
+            // WARNING: Caching /api/ responses is risky for 21 CFR Part 11 compliance.
+            // Consider excluding sensitive endpoints (audit, filter-operations) from cache.
+            urlPattern: /^https?:\/\/.*\/api\//,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-cache',
+              expiration: { maxEntries: 100, maxAgeSeconds: 300 },
+              networkTimeoutSeconds: 5,
+            },
+          },
+        ],
+      },
+    }),
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
   },
   build: {
+    sourcemap: 'hidden',
     chunkSizeWarningLimit: 800,
     rollupOptions: {
       output: {
@@ -27,15 +78,17 @@ export default defineConfig({
   },
   server: {
     port: 5175,
-    strictPort: true, // Never auto-switch to another port
-    host: true, // Expose to network
+    strictPort: true,
+    host: true,
+    // HTTPS disabled — causes issues with tablet HTTP connections
+    // Enable for production with proper certs
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: 'http://localhost:3000',
         changeOrigin: true,
       },
       '/uploads': {
-        target: 'http://localhost:3001',
+        target: 'http://localhost:3000',
         changeOrigin: true,
       },
     },

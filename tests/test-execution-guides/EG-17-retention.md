@@ -1,7 +1,7 @@
 # EG-17: Data Retention — Execution Guide
 
 ## Prerequisites
-- **Credentials**: SUPER_ADMIN account (admin / Admin@123)
+- **Credentials**: SUPER_ADMIN account (superadmin / Admin@123)
 - **Secondary Account**: An ADMIN or OPERATOR account for negative permission tests
 - **Tools**: curl, jq (optional), browser
 - **Setup**: At least one entity with telemetry data in TimescaleDB. Generate device token and send some telemetry first if needed.
@@ -12,7 +12,7 @@
 # Get JWT token for SUPER_ADMIN
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 echo "Token: $TOKEN"
 
@@ -60,7 +60,7 @@ curl -s -X GET http://localhost:3000/api/config/retention \
 ### Test: TC-17-P02 — Update Retention Configuration
 
 **Browser Steps:**
-1. Navigate to http://3.108.185.106/config/retention
+1. Navigate to http://34.232.224.0/config/retention
 2. Modify telemetry retention days to 180
 3. Modify compression after days to 14
 4. Toggle autoEnabled ON
@@ -520,5 +520,5 @@ curl -s -X PUT http://localhost:3000/api/config/retention \
 ```
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+> **Phase 2 (Digital FMS):** Retention applies to filter telemetry in TimescaleDB. Filter cycle/event records in main Prisma DB are NOT subject to retention policies.
 

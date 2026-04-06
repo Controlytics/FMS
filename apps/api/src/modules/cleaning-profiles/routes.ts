@@ -170,6 +170,7 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
         required: ['id'],
         properties: { id: { type: 'string', format: 'uuid' } },
       },
+      body: { type: 'object', additionalProperties: true },
       response: {
         200: { type: 'object', properties: { success: { type: 'boolean' }, status: { type: 'string' } } },
         ...errorResponses,

@@ -1,9 +1,9 @@
 # EG-13: Unified Namespace (UNS) -- Execution Guide
 
 ## Prerequisites
-- **App URL**: http://3.108.185.106
+- **App URL**: http://34.232.224.0
 - **API Base**: http://localhost:3000/api
-- **SUPER_ADMIN Credentials**: admin / Admin@123
+- **SUPER_ADMIN Credentials**: superadmin / Admin@123
 - **Entities**: At least 2-3 entities in a parent-child hierarchy with UNS mappings
 - **Browser**: Chrome or Firefox
 
@@ -12,7 +12,7 @@
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 # Find entities with UNS mappings
 sudo -u postgres psql digilog_db -c "SELECT entity_id, uns_path, is_overridden FROM uns_mappings ORDER BY uns_path LIMIT 10;"
@@ -33,7 +33,7 @@ curl -s -X GET http://localhost:3000/api/uns/tree \
 ```
 
 **Browser Steps:**
-1. Navigate to http://3.108.185.106/config/uns.
+1. Navigate to http://34.232.224.0/config/uns.
 2. Verify the UNS tree displays hierarchically.
 
 **Expected Result:**
@@ -225,5 +225,5 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/uns/tree
 - [ ] Response status 401
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+> **Phase 2 (Digital FMS):** UNS applies to filter entities. Filters map to ISA-95 hierarchy paths using same auto-generation and override rules.
 

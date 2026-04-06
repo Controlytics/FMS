@@ -1,9 +1,9 @@
 # EG-16: Data Export -- Execution Guide
 
 ## Prerequisites
-- **App URL**: http://3.108.185.106
+- **App URL**: http://34.232.224.0
 - **API Base**: http://localhost:3000/api
-- **SUPER_ADMIN Credentials**: admin / Admin@123
+- **SUPER_ADMIN Credentials**: superadmin / Admin@123
 - **Data Required**: Entity with telemetry, attributes, and/or checklist data. Alarms in the system.
 - **TimescaleDB**: ts_telemetry, ts_attributes, ts_checklist_responses tables should have data.
 
@@ -12,7 +12,7 @@
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 # Find entity with telemetry data
 ENTITY_ID=$(sudo -u postgres psql -t -A digilog_db -c "SELECT entity_id FROM latest_telemetry LIMIT 1;")
@@ -304,5 +304,5 @@ curl -s -o /dev/null -w "%{http_code}" "http://localhost:3000/api/export/telemet
 - [ ] Response status 401
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+> **Phase 2 (Digital FMS):** Export endpoints apply to filter entity telemetry, attributes, and alarms. Filter cycle/event history available via GET /api/filter/cycles and /api/filter/events.
 

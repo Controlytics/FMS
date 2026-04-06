@@ -13,13 +13,13 @@
 
 ### TC-01-P01: Login with Valid Credentials
 - **Priority**: High
-- **Preconditions**: User `admin` exists with password `Admin@123`, account is ENABLED
-- **Test Data**: `{ "username": "admin", "password": "Admin@123" }`
+- **Preconditions**: User `superadmin` exists with password `Admin@123`, account is ENABLED
+- **Test Data**: `{ "username": "superadmin", "password": "Admin@123" }`
 - **Steps**:
   1. Send POST /api/auth/login with valid username and password
   2. Verify response status is 200
   3. Verify response contains `token`, `user`, `expiresIn`
-  4. Verify `user.username` equals `admin`
+  4. Verify `user.username` equals `superadmin` (default seed user)
   5. Verify `user.role` equals `SUPER_ADMIN`
 - **Expected Result**: 200 OK with JWT token, user object (id, username, fullName, role, forcePasswordChange, isTemporaryPassword), and expiresIn string
 
@@ -90,8 +90,8 @@
 
 ### TC-01-P08: Forgot Password Request
 - **Priority**: Medium
-- **Preconditions**: User `admin` exists
-- **Test Data**: `{ "username": "admin" }`
+- **Preconditions**: User `superadmin` exists
+- **Test Data**: `{ "username": "superadmin" }`
 - **Steps**:
   1. Send POST /api/auth/forgot-password with valid username
   2. Verify response status is 200
@@ -101,7 +101,7 @@
 ### TC-01-P09: Force Login (Terminate Existing Session)
 - **Priority**: Medium
 - **Preconditions**: User already logged in from another client
-- **Test Data**: `{ "username": "admin", "password": "Admin@123", "force": true }`
+- **Test Data**: `{ "username": "superadmin", "password": "Admin@123", "force": true }`
 - **Steps**:
   1. Login from Client A, get token_A
   2. Attempt login from Client B without force flag
@@ -137,8 +137,8 @@
 
 ### TC-01-N02: Login with Wrong Password
 - **Priority**: High
-- **Preconditions**: User `admin` exists
-- **Test Data**: `{ "username": "admin", "password": "WrongPassword123" }`
+- **Preconditions**: User `superadmin` exists
+- **Test Data**: `{ "username": "superadmin", "password": "WrongPassword123" }`
 - **Steps**:
   1. Send POST /api/auth/login with valid username, wrong password
   2. Verify response status is 401
@@ -217,7 +217,7 @@
 ### TC-01-N10: Session Conflict Detection (Login from Second Location)
 - **Priority**: High
 - **Preconditions**: User already logged in
-- **Test Data**: `{ "username": "admin", "password": "Admin@123" }`
+- **Test Data**: `{ "username": "superadmin", "password": "Admin@123" }`
 - **Steps**:
   1. Login from Client A, receive token
   2. Attempt login from Client B with same credentials (no force flag)
@@ -256,7 +256,7 @@
 ### TC-01-N14: Forgot Password Rate Limiting (6th Request in 5 Minutes)
 - **Priority**: Medium
 - **Preconditions**: None
-- **Test Data**: `{ "username": "admin" }` sent 6 times within 5 minutes
+- **Test Data**: `{ "username": "superadmin" }` sent 6 times within 5 minutes
 - **Steps**:
   1. Send POST /api/auth/forgot-password 5 times rapidly
   2. Send 6th request within 5-minute window
@@ -264,5 +264,12 @@
 - **Expected Result**: 429 after 5 requests in 5-minute window
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2 Notes
+
+- Authentication endpoints are unchanged for Phase 2. The same login/session/reauth system applies to all Digital Filter Management System operations.
+- New reauth actions added for Phase 2: BYPASS_FILTER_STAGE (requires password re-verification for stage bypass with deviation).
+- Filter operations (start-cycle, advance, submit-checklist) use the standard Bearer JWT authentication.
+- Default login credentials: `superadmin` / `Admin@123`.
 

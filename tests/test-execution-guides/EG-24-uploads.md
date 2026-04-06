@@ -1,7 +1,7 @@
 # EG-24: File Uploads — Execution Guide
 
 ## Prerequisites
-- **Credentials**: SUPER_ADMIN (admin / Admin@123)
+- **Credentials**: SUPER_ADMIN (superadmin / Admin@123)
 - **Tools**: curl, jq, browser, test image files (JPEG, PNG, GIF, WebP)
 - **Setup**: Prepare test images of various sizes and types
 - **Base URL**: http://localhost:3000
@@ -35,7 +35,7 @@ echo "%PDF-1.4 fake pdf content" > /tmp/test-file.pdf
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 echo "Token: $TOKEN"
 ```
@@ -47,7 +47,7 @@ echo "Token: $TOKEN"
 ### Test: TC-24-P01 — Upload JPEG Photo
 
 **Browser Steps:**
-1. Navigate to http://3.108.185.106/profile
+1. Navigate to http://34.232.224.0/profile
 2. Click on profile photo area or upload button
 3. Select a JPEG image file
 4. Verify upload completes and photo preview updates
@@ -151,7 +151,7 @@ curl -s -o /dev/null -w "Status: %{http_code}\nContent-Type: %{content_type}\nSi
 ```
 
 **Browser Steps:**
-1. Open http://3.108.185.106/uploads/photos/<filename> directly in browser
+1. Open http://34.232.224.0/uploads/photos/<filename> directly in browser
 2. Verify the image displays without login
 
 **Expected Result:**
@@ -347,5 +347,5 @@ rm -f /tmp/test-photo.jpg /tmp/test-photo.png /tmp/test.gif /tmp/test.webp \
 ```
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+> **Phase 2 (Digital FMS):** File uploads unchanged. Phase 2 adds bulk filter upload via CSV (separate endpoint in filter operations module, not /api/uploads/photo).
 

@@ -9,10 +9,15 @@ npx nx build shared
 # or: cd packages/shared && npx tsc
 ```
 
+**Important:** After any changes to the shared package, rebuild it before testing API or Web:
+```bash
+npx nx build shared
+```
+
 ## Key Exports
 - `schemas/` — Zod validation schemas (login, user, config, etc.)
 - `types/` — TypeScript interfaces and enums
-- `constants/` — PERMISSIONS enum, role hierarchy, field definitions
+- `constants/` — PERMISSIONS enum, role hierarchy, field definitions, alarm column definitions
 - `index.ts` — Barrel export
 
 ## Usage
@@ -20,8 +25,36 @@ npx nx build shared
 import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 ```
 
+## Exports Inventory
+
+### Permissions
+- `PERMISSIONS` enum — 52+ permission constants (ASSET_CREATE, ASSET_READ, FILTER_MANAGE, etc.)
+- Used by both backend `requirePermission()` and frontend `<RequireRole permissions={[]}>`
+
+### Schemas
+- `loginSchema` — Login form validation
+- `createUserSchema` — User creation validation
+- `updateUserSchema` — User update validation
+- `passwordPolicySchema` — Password policy config validation
+- `loginSecuritySchema` — Login security config validation
+- `sessionConfigSchema` — Session config validation
+- `datetimeConfigSchema` — Date/time format validation
+
+### Types
+- Role hierarchy types
+- Notification event types
+- Config key types
+- Alarm column definitions
+- Relationship type mappings (INVERSE_RELATIONSHIP_MAP)
+
+### Constants
+- `ALARM_COLUMN_DEFINITIONS` — 11 alarm columns with metadata
+- `INVERSE_RELATIONSHIP_MAP` — Bidirectional relationship type pairs
+- Default audit text templates
 
 ## Phase 2 Notes
 - No new shared types added for Phase 2 (types are co-located in API modules)
-- Prisma schema extended with 9 new models and 9 new enums in `apps/api/prisma/schema.prisma`
-
+- Prisma schema extended with Phase 2 models (57 total models, 17 enums) in `apps/api/prisma/schema.prisma`
+- Known issue: Phase 2 types (filter operations, cleaning profiles, etc.) should be extracted to shared package for frontend type safety
+- 78 field IDs across all modules (including filter management fields)
+- 52+ privileges covering all Phase 1 and Phase 2 operations

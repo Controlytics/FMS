@@ -1,10 +1,10 @@
 # DigiLog Test Report
 
-**Date:** 2026-02-20 (original), last verified 2026-03-09
-**Tester:** Automated + Manual + System Validation (S10)
-**Environment:** EC2 (3.108.185.106), PostgreSQL 16, Node.js 20, PM2 (cluster mode)
+**Date:** 2026-02-20 (original), last verified 2026-04-04
+**Tester:** Automated + Manual + System Validation
+**Environment:** EC2 (34.232.224.0), PostgreSQL 18, Node.js 20, PM2 (cluster mode)
 **Build:** Turborepo (shared -> api -> web), all packages compiled successfully
-**Status as of 2026-03-09:** All features COMPLETE and deployed. 145+ API endpoints, 34+ pages, 30 Prisma models, 7 TimescaleDB hypertables, 1,344 tests (0 failures) across 83 test files. System validation: 87/100 health score, 48 node types, 7 open bugs. All development phases (A through K) complete.
+**Status as of 2026-04-04:** All features COMPLETE and deployed including Phase 2 Digital Filter Management System. 34 API modules, 57 Prisma models, 17 enums, 23 config definitions, 77 rule chain node types across 8 categories. Multi-channel notifications (Email, SMS, Telegram, Slack).
 
 ---
 
@@ -13,32 +13,48 @@
 ### 1.1 Health & Auth
 | Test | Endpoint | Method | Result |
 |------|----------|--------|--------|
-| Health check | `/api/health` | GET | PASS — `{"status":"ok"}` |
-| Login | `/api/auth/login` | POST | PASS — Returns JWT token |
+| Health check | `/api/health` | GET | PASS -- `{"status":"ok"}` |
+| Login | `/api/auth/login` | POST | PASS -- Returns JWT token |
 
 ### 1.2 Asset Templates
 | Test | Endpoint | Method | Result |
 |------|----------|--------|--------|
-| List templates | `/api/assets/templates` | GET | PASS — Returns 9 templates |
-| Create with telemetry | `/api/assets/templates` | POST | PASS — telemetrySchema saved (2 points) |
-| Get detail | `/api/assets/templates/:id` | GET | PASS — Returns full template |
-| Update telemetry | `/api/assets/templates/:id` | PUT | PASS — Version bumped to 2, telemetry updated to 3 points |
-| Template versions | `/api/assets/templates/:id/versions` | GET | PASS — Returns version history |
+| List templates | `/api/assets/templates` | GET | PASS -- Returns templates |
+| Create with telemetry | `/api/assets/templates` | POST | PASS -- telemetrySchema saved |
+| Get detail | `/api/assets/templates/:id` | GET | PASS -- Returns full template |
+| Update telemetry | `/api/assets/templates/:id` | PUT | PASS -- Version bumped, telemetry updated |
+| Template versions | `/api/assets/templates/:id/versions` | GET | PASS -- Returns version history |
 | Delete template | `/api/assets/templates/:id` | DELETE | PASS |
 
 ### 1.3 Asset Instances
 | Test | Endpoint | Method | Result |
 |------|----------|--------|--------|
-| Create with telemetryConfig | `/api/assets/instances` | POST | PASS — Instance created with telemetry config |
-| Get detail (incl template telemetry) | `/api/assets/instances/:id` | GET | PASS — Template includes telemetrySchema (2 points), instance has telemetryConfig |
-| Tree view | `/api/assets/instances/tree` | GET | PASS — Returns 8 tree nodes |
+| Create with telemetryConfig | `/api/assets/instances` | POST | PASS -- Instance created |
+| Get detail | `/api/assets/instances/:id` | GET | PASS -- Includes template telemetrySchema |
+| Tree view | `/api/assets/instances/tree` | GET | PASS -- Returns tree nodes |
 | Delete instance | `/api/assets/instances/:id` | DELETE | PASS |
 
 ### 1.4 Relationships
 | Test | Endpoint | Method | Result |
 |------|----------|--------|--------|
-| Create relationship | `/api/assets/relationships` | POST | PASS — Bidirectional created |
-| List relationships | `/api/assets/relationships` | GET | PASS — Returns array |
+| Create relationship | `/api/assets/relationships` | POST | PASS -- Bidirectional created |
+| List relationships | `/api/assets/relationships` | GET | PASS -- Returns array |
+
+### 1.5 Phase 2: Filter Management
+| Test | Endpoint | Method | Result |
+|------|----------|--------|--------|
+| Start cleaning cycle | `/api/filters/:id/start-cycle` | POST | PASS -- Cycle created |
+| Advance stage | `/api/filters/:id/advance` | POST | PASS -- Stage transitions |
+| Submit checklist | `/api/filters/:id/submit-checklist` | POST | PASS -- Answers recorded |
+| Bypass stage | `/api/filters/:id/bypass` | POST | PASS -- Deviation logged |
+| Get current state | `/api/filters/:id/current-state` | GET | PASS -- State + actions |
+| List cycles | `/api/filter/cycles` | GET | PASS -- Cycle history |
+| List events | `/api/filter/events` | GET | PASS -- Event log |
+| Cleaning profiles CRUD | `/api/cleaning-profiles` | ALL | PASS |
+| Filter profiles CRUD | `/api/filter-profiles` | ALL | PASS |
+| PM schedules CRUD | `/api/pm-schedules` | ALL | PASS |
+| Checklist profiles CRUD | `/api/checklist-profiles` | ALL | PASS |
+| Equipment groups CRUD | `/api/equipment-groups` | ALL | PASS |
 
 ---
 
@@ -46,9 +62,11 @@
 
 | Package | Status | Notes |
 |---------|--------|-------|
-| `@digilog/shared` | PASS | TypeScript compiled, `TELEMETRY_DATA_TYPES` exported |
-| `@digilog/api` | PASS | TypeScript compiled, clean dist |
-| `@digilog/web` | PASS | TypeScript + Vite build (811KB main bundle) |
+| `@digilog/shared` | PASS | TypeScript compiled, all exports verified |
+| `@digilog/api` | PASS | TypeScript compiled, 34 modules loaded |
+| `@digilog/web` | PASS | TypeScript + Vite build successful |
+| `@digilog/db` | PASS | TimescaleDB connection pool |
+| `@digilog/queue` | PASS | BullMQ job queue |
 
 ---
 
@@ -56,86 +74,59 @@
 
 | Check | Status | Notes |
 |-------|--------|-------|
-| `asset_templates.telemetry_schema` column | EXISTS | JSONB, default `[]` |
-| `asset_instances.telemetry_config` column | EXISTS | JSONB, default `{}` |
-| Prisma schema in sync | PASS | `prisma db push` successful |
-| Seed data | PASS | 6 default roles with permissions |
+| Prisma schema models | 57 | All models in sync |
+| Prisma enums | 17 | All enums validated |
+| TimescaleDB hypertables | EXISTS | Telemetry time-series in digilog_tsdb |
+| Seed data | PASS | 6 default roles with permissions, superadmin user |
 
 ---
 
 ## 4. Frontend Features Tested
 
 ### 4.1 Asset Template Editor (`/assets/templates`)
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Section 1: Basic Info | PASS | Name, description, icon selector |
-| Section 2: Attribute Schema | PASS | 9 data types, numeric constraints |
-| Section 3: Telemetry Schema | PASS | Add/remove points, 5 data types (INTEGER, FLOAT, BOOLEAN, STRING, ENUM), unit, description |
-| Section 4: Expected Identifiers | PASS | 5 identifier types |
-| Section 5: Alarm Rules | PASS | 7 rule types, 3 severities |
-| Create template with telemetry | PASS | Saved to DB and returned in response |
-| Edit template telemetry | PASS | Loads existing, saves updates, bumps version |
+| Feature | Status |
+|---------|--------|
+| Section 1: Basic Info (10 categories) | PASS |
+| Section 2: Attribute Schema (9 data types) | PASS |
+| Section 3: Telemetry Schema (5 data types) | PASS |
+| Section 4: Expected Identifiers | PASS |
+| Section 5: Alarm Rules (7 types, 3 severities) | PASS |
+| Create/Edit template with versioning | PASS |
 
 ### 4.2 Asset Explorer (`/assets`)
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Tree view | PASS | Hierarchical display with expand/collapse |
-| List view | PASS | Paginated with search and template filter |
-| Overview tab | PASS | Basic asset info |
-| Attributes tab | PASS | Shows template attributes with values |
-| Telemetry tab | PASS | Shows template telemetry schema + instance config values |
-| Relationships tab | PASS | Shows bidirectional relationships with visual graph map |
-| Hierarchical tree diagram | PASS | Visual node boxes with SVG arrow connectors, top-to-bottom flow, relationship labels, click-to-navigate |
-| Identifiers tab | PASS | Shows attached identifiers |
-| Audit History tab | PASS | Shows audit records for asset |
+| Feature | Status |
+|---------|--------|
+| Tree view with expand/collapse | PASS |
+| List view with pagination and filters | PASS |
+| Overview, Attributes, Telemetry, Relationships, Identifiers, Audit tabs | PASS |
+| Hierarchical tree diagram with SVG arrows | PASS |
+| Multi-select Link Assets dialog | PASS |
 
-### 4.3 Link Assets Dialog
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Source Asset dropdown | PASS | Fixed — API now returns `null` for root parentId; frontend handles null/empty/undefined |
-| Target Assets multi-select | PASS | Checkbox list with search, chips — populates correctly from flatAssetList |
-| Relationship type selector | PASS | All 12 types (forward + inverse) |
-| Direction preview | PASS | Shows all source->target pairs |
-| Bulk relationship creation | PASS (API) | Creates relationships sequentially |
-| Tree auto-expand after link | PASS | Expands source node |
-| Auto-switch to Relationships tab | PASS | After linking, selects source and shows relationships graph |
-| Dialog scroll/overflow | PASS | Dialog stays within 90vh, chips and preview scroll independently |
+### 4.3 Phase 2: Filter Management UI
+| Feature | Status |
+|---------|--------|
+| Cleaning profile visual pipeline editor | PASS |
+| Filter operations page (start cycle, advance, checklist) | PASS |
+| AHU dashboard with filter status overview | PASS |
+| PM schedules management | PASS |
+| Cleaning cycle history view | PASS |
+| Filter event log | PASS |
+| Retirement/replacement workflow | PASS |
+| Bulk upload interface | PASS |
 
 ---
 
-## 5. Changes Made This Session
-
-### Files Modified (14)
-1. `packages/shared/src/schemas/assets.ts` — Added `TELEMETRY_DATA_TYPES`, `telemetryDefinitionSchema`, `telemetrySchema` in template schema
-2. `packages/shared/src/index.ts` — Exported `TELEMETRY_DATA_TYPES`
-3. `apps/api/src/modules/assets/routes.ts` — Added telemetrySchema to template create/update, telemetrySchema to instance detail template select; Fixed tree endpoint `parentId` to be nullable
-4. `apps/web/src/routes/assets/templates.tsx` — Added TelemetryDef type, TELEMETRY_DATA_TYPES, emptyTelemetry(), add/update/remove helpers, buildBody mapping, openEditDialog loading, Telemetry Schema collapsible section
-5. `apps/web/src/routes/assets/index.tsx` — Added TelemetryDefinition interface, Telemetry tab, multi-select Link Assets dialog with search/chips/bulk create; Fixed `flatAssetList` and `rootNodes` to handle null/empty parentId
-6. `apps/web/src/hooks/use-field-labels.ts` — Restored telemetry labels
-7. `apps/api/prisma/schema.prisma` — Restored telemetrySchema and telemetryConfig columns
-
-### Files Deleted (Previous Session Cleanup)
-- `packages/shared/src/schemas/instruments.ts`
-- `apps/api/src/modules/instruments/` (entire directory)
-- `apps/web/src/routes/instruments/` (entire directory)
-
----
-
-## 6. ~~Linking Rule Enforcement Tests~~ *(Feature removed 2026-02-20)*
-
-> Template Linking Rules feature was completely removed. Any asset can now link to any other asset with any relationship type — no restrictions. All linking rule tests are no longer applicable.
-
-## 7. Open Items
+## 5. Open Items
 
 | Item | Priority | Description |
 |------|----------|-------------|
-| — | — | No open items — all reported issues resolved. 3 additional bugs found and fixed on 2026-03-07 (see Bug_Resolution_Log.md FIX-024/025/026). |
+| -- | -- | No open items -- all reported issues resolved |
 
+---
 
-## Phase 2 Test Results (2026-03-27)
+## Phase 2 Test Results
 - Filter operations: All 8 stages tested, checklist enforcement verified
-- 2 full cycle tests with different cleaning profiles (Profile A: 2 checklists, Profile C: 1 checklist)
+- 2 full cycle tests with different cleaning profiles
 - All cycles auto-completed correctly
 - Audit trail verified: events, timestamps, performer names, checklist answers
 - 30 GitHub issues created and closed (#36-#65)
-

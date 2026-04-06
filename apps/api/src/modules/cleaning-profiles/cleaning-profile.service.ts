@@ -5,13 +5,9 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
+import { orgScope } from '../../lib/org-scope.js';
 
-
-
-function orgFilter(ctx: RequestContext) {
-  if (ctx.scope === 'GLOBAL') return {};
-  return { organizationId: ctx.organizationId };
-}
+function orgFilter(ctx: RequestContext) { return orgScope(ctx); }
 
 export class CleaningProfileService {
   async list(ctx: RequestContext, query: { page?: number; limit?: number; status?: string }) {
@@ -23,27 +19,24 @@ export class CleaningProfileService {
     if (query.status === 'ACTIVE') where.status = 'ACTIVE';
     else if (query.status === 'INACTIVE') where.status = 'ARCHIVED';
 
-    // Only show the latest version per profile name (exclude old archived versions)
-    // Get all matching profiles, then deduplicate by name keeping highest version
-    const allProfiles = await prisma.filterCleaningProfile.findMany({
+    // Get latest version per profile name using distinct + orderBy
+    const latestPerName = await prisma.filterCleaningProfile.findMany({
       where,
+      distinct: ['name'],
       orderBy: [{ name: 'asc' }, { version: 'desc' }],
-      include: { stages: { select: { nodeType: true } }, _count: { select: { connections: true } } },
+      select: { id: true },
     });
 
-    // Deduplicate: keep only the latest version per name
-    const seen = new Map<string, typeof allProfiles[0]>();
-    for (const p of allProfiles) {
-      const existing = seen.get(p.name);
-      if (!existing || p.version > existing.version) {
-        seen.set(p.name, p);
-      }
-    }
-    const deduped = Array.from(seen.values());
+    const total = latestPerName.length;
+    const pagedIds = latestPerName.slice((page - 1) * limit, page * limit).map(p => p.id);
 
-    // Paginate
-    const total = deduped.length;
-    const paged = deduped.slice((page - 1) * limit, page * limit);
+    const paged = pagedIds.length > 0
+      ? await prisma.filterCleaningProfile.findMany({
+          where: { id: { in: pagedIds } },
+          orderBy: [{ name: 'asc' }, { version: 'desc' }],
+          include: { stages: { select: { nodeType: true } }, _count: { select: { connections: true } } },
+        })
+      : [];
 
     return {
       data: paged.map(p => ({
@@ -86,7 +79,7 @@ export class CleaningProfileService {
       data: {
         name,
         description,
-        organizationId: ctx.organizationId || ((await prisma.organization.findFirst({ select: { id: true } }))?.id ?? ''),
+        organizationId: (() => { if (!ctx.organizationId) throw new AppError(400, 'VALIDATION_ERROR', 'Organization context required'); return ctx.organizationId; })(),
         flowMode: flowMode ?? 'STRICT',
         alarmOnForwardSkip: alarmOnForwardSkip ?? true,
         alarmOnBackwardJump: alarmOnBackwardJump ?? true,
@@ -114,12 +107,18 @@ export class CleaningProfileService {
       profile.stages.forEach((s, i) => stageMap.set(i, s.id));
 
       await prisma.filterPipelineConnection.createMany({
-        data: connections.map((c: any) => ({
-          profileId: profile.id,
-          fromStageId: c.fromStageId ?? stageMap.get(c.fromIndex) ?? '',
-          toStageId: c.toStageId ?? stageMap.get(c.toIndex) ?? '',
-          label: c.label ?? 'Next',
-        })),
+        data: connections.map((c: any) => {
+          const fromId = c.fromStageId ?? stageMap.get(c.fromIndex);
+          if (!fromId) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid connection: could not resolve source stage');
+          const toId = c.toStageId ?? stageMap.get(c.toIndex);
+          if (!toId) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid connection: could not resolve target stage');
+          return {
+            profileId: profile.id,
+            fromStageId: fromId,
+            toStageId: toId,
+            label: c.label ?? 'Next',
+          };
+        }),
       });
     }
 
@@ -184,12 +183,18 @@ export class CleaningProfileService {
       newProfile.stages.forEach((s, i) => stageMap.set(i, s.id));
 
       await tx.filterPipelineConnection.createMany({
-        data: conns.map((c: any) => ({
-          profileId: newProfile.id,
-          fromStageId: c.fromStageId ?? stageMap.get(c.fromIndex) ?? '',
-          toStageId: c.toStageId ?? stageMap.get(c.toIndex) ?? '',
-          label: c.label ?? 'Next',
-        })),
+        data: conns.map((c: any) => {
+          const fromId = c.fromStageId ?? stageMap.get(c.fromIndex);
+          if (!fromId) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid connection: could not resolve source stage');
+          const toId = c.toStageId ?? stageMap.get(c.toIndex);
+          if (!toId) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid connection: could not resolve target stage');
+          return {
+            profileId: newProfile.id,
+            fromStageId: fromId,
+            toStageId: toId,
+            label: c.label ?? 'Next',
+          };
+        }),
       });
     }
 
@@ -377,11 +382,19 @@ export class CleaningProfileService {
     }
 
     if (connections && connections.length > 0) {
+      // Build a UUID-to-index map so connections with fromStageId/toStageId can be normalized
+      const stageIdToIndex = new Map<string, number>();
+      stages.forEach((s: any, i: number) => {
+        if (s.id) stageIdToIndex.set(s.id, i);
+      });
+
       const hasIncoming = new Set<number>();
       const hasOutgoing = new Set<number>();
       connections.forEach((c: any) => {
-        hasOutgoing.add(c.fromIndex ?? -1);
-        hasIncoming.add(c.toIndex ?? -1);
+        const fromIdx = c.fromIndex ?? (c.fromStageId ? stageIdToIndex.get(c.fromStageId) : undefined) ?? -1;
+        const toIdx = c.toIndex ?? (c.toStageId ? stageIdToIndex.get(c.toStageId) : undefined) ?? -1;
+        hasOutgoing.add(fromIdx);
+        hasIncoming.add(toIdx);
       });
 
       // START must have outgoing

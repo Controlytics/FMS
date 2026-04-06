@@ -1,4 +1,4 @@
-import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
+import { type FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 
@@ -7,15 +7,10 @@ import { auditLog } from '../../lib/audit.js';
  * Prefix: /api/super-admin
  */
 export default async function superAdminRoutes(app: FastifyInstance) {
-  // All routes require SUPER_ADMIN
-  app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
-    if (req.user?.role !== 'SUPER_ADMIN') {
-      return reply.code(403).send({ error: 'FORBIDDEN', message: 'Super Admin access required' });
-    }
-  });
 
   // ─── LIST ORGANIZATIONS ────────────────────────────────
   app.get('/organizations', {
+    preHandler: [app.requireRole('SUPER_ADMIN')],
     schema: {
       tags: ['Super Admin'],
       summary: 'List all organizations',
@@ -62,6 +57,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
 
   // ─── GET ORGANIZATION ──────────────────────────────────
   app.get('/organizations/:id', {
+    preHandler: [app.requireRole('SUPER_ADMIN')],
     schema: {
       tags: ['Super Admin'],
       summary: 'Get organization details',
@@ -81,6 +77,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
 
   // ─── CREATE ORGANIZATION ───────────────────────────────
   app.post('/organizations', {
+    preHandler: [app.requireRole('SUPER_ADMIN')],
     schema: {
       tags: ['Super Admin'],
       summary: 'Create a new organization',
@@ -104,7 +101,8 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     const existing = await prisma.organization.findFirst({ where: { slug: body.slug } });
     if (existing) return reply.code(409).send({ error: 'CONFLICT', message: 'Organization slug already exists' });
 
-    const org = await prisma.organization.create({ data: { ...body, createdBy: req.user.username } });
+    const { name, slug, description, parentOrgId, metadata } = body;
+    const org = await prisma.organization.create({ data: { name, slug, description, parentOrgId, metadata, createdBy: req.user.username } });
 
     await auditLog({
       userId: req.user.username, userRole: req.user.role,
@@ -119,6 +117,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
 
   // ─── UPDATE ORGANIZATION ───────────────────────────────
   app.put('/organizations/:id', {
+    preHandler: [app.requireRole('SUPER_ADMIN')],
     schema: {
       tags: ['Super Admin'],
       summary: 'Update an organization',
@@ -140,7 +139,8 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     const existing = await prisma.organization.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'Organization not found' });
 
-    const org = await prisma.organization.update({ where: { id }, data: body });
+    const { name, description, isActive, metadata } = body;
+    const org = await prisma.organization.update({ where: { id }, data: { name, description, isActive, metadata } });
 
     await auditLog({
       userId: req.user.username, userRole: req.user.role,
@@ -156,6 +156,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
 
   // ─── DELETE ORGANIZATION ───────────────────────────────
   app.delete('/organizations/:id', {
+    preHandler: [app.requireRole('SUPER_ADMIN')],
     schema: {
       tags: ['Super Admin'],
       summary: 'Deactivate an organization (soft delete)',
@@ -181,6 +182,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
 
   // ─── PLATFORM STATS ────────────────────────────────────
   app.get('/stats', {
+    preHandler: [app.requireRole('SUPER_ADMIN')],
     schema: {
       tags: ['Super Admin'],
       summary: 'Platform-wide statistics',

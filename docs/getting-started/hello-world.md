@@ -2,8 +2,10 @@
 
 ## 1. Login
 Navigate to your DigiLog instance and login:
+- **URL:** http://34.232.224.0 (or your instance IP)
 - **Username:** superadmin
 - **Password:** Admin@123
+- **Swagger:** http://34.232.224.0/docs
 
 ## 2. Create an Entity Template
 1. Go to **Assets > Templates**
@@ -26,14 +28,22 @@ Navigate to your DigiLog instance and login:
 3. Copy the access token
 
 ## 5. Send Telemetry
-
+Use any of the auto-generated code snippets (Python, Node.js, cURL, Arduino, ESP32) from the Connectivity tab, or:
+```bash
+curl -X POST http://34.232.224.0/api/data/telemetry \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"temperature": 72.5, "humidity": 45}'
+```
 
 ## 6. Verify
 - Check entity > **Telemetry** tab for the data
 - Send temperature > 100 to trigger the alarm
 - Check **Alarms** dashboard
 
-
----
-
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.
+## 7. Try Digital Filter Management (Phase 2)
+1. Go to **Cleaning Profiles** and create a pipeline with stages and checklist nodes
+2. Go to **Filter Profiles** and assign a cleaning profile to a filter
+3. Start a cleaning cycle via **Filter Operations**
+4. Advance through stages, submit checklists, and track cycle completion
+5. View cycle history and filter events for full traceability

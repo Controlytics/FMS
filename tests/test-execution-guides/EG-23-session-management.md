@@ -1,7 +1,7 @@
 # EG-23: Session Management — Execution Guide
 
 ## Prerequisites
-- **Credentials**: SUPER_ADMIN (admin / Admin@123), secondary test user account
+- **Credentials**: SUPER_ADMIN (superadmin / Admin@123), secondary test user account
 - **Tools**: curl, jq, two browser tabs/windows, database access (psql)
 - **Setup**: Default session config (8h duration, 15min idle timeout)
 - **Base URL**: http://localhost:3000
@@ -11,7 +11,7 @@
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 echo "Token: $TOKEN"
 ```
@@ -27,7 +27,7 @@ echo "Token: $TOKEN"
 # Login
 RESPONSE=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}')
+  -d '{"username":"superadmin","password":"Admin@123"}')
 
 echo "$RESPONSE" | jq '{token: .token[0:20], expiresIn: .expiresIn}'
 
@@ -107,7 +107,7 @@ curl -s -X PUT http://localhost:3000/api/config/session \
 ```
 
 **Browser Steps:**
-1. Navigate to http://3.108.185.106 and login
+1. Navigate to http://34.232.224.0 and login
 2. Do NOT move the mouse, press keys, or scroll
 3. After ~1 minute (idleTimeout - warningMinutes), warning dialog should appear
 4. Verify countdown timer is visible (starts at 60 seconds)
@@ -146,14 +146,14 @@ curl -s -X PUT http://localhost:3000/api/config/session \
 # Login from "Client A"
 TOKEN_A=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 echo "Token A: ${TOKEN_A:0:20}..."
 
 # Login from "Client B" (same user)
 TOKEN_B=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 echo "Token B: ${TOKEN_B:0:20}..."
 
@@ -187,7 +187,7 @@ curl -s -X GET http://localhost:3000/api/auth/me \
 # Login to get active session
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 # Change password (terminates other sessions)
 curl -s -X POST http://localhost:3000/api/auth/change-password \
@@ -207,7 +207,7 @@ curl -s -o /dev/null -w "Current session: %{http_code}\n" \
 # Login with new password
 NEW_TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"NewAdmin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"NewAdmin@123"}' | jq -r '.token')
 
 # Restore original password
 curl -s -X POST http://localhost:3000/api/auth/change-password \
@@ -230,9 +230,9 @@ curl -s -X POST http://localhost:3000/api/auth/change-password \
 ### Test: TC-23-P07 — Single-Tab Enforcement (Browser)
 
 **Browser Steps:**
-1. Open Tab 1: http://3.108.185.106 and login
+1. Open Tab 1: http://34.232.224.0 and login
 2. Verify dashboard loads normally
-3. Open Tab 2: http://3.108.185.106
+3. Open Tab 2: http://34.232.224.0
 4. Verify Tab 2 shows "Duplicate Tab" or similar warning
 5. In Tab 2, click "Take Over" or "Continue Here"
 6. Return to Tab 1
@@ -258,7 +258,7 @@ console.log('User:', localStorage.getItem('digilog_active_user_id'));
 ### Test: TC-23-P08 — Session Survives Page Refresh
 
 **Browser Steps:**
-1. Login at http://3.108.185.106
+1. Login at http://34.232.224.0
 2. Navigate to /users or any protected page
 3. Press F5 to refresh
 4. Verify user remains logged in (not redirected to login)
@@ -349,7 +349,7 @@ curl -s -X GET http://localhost:3000/api/auth/me \
 # Login
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 # Logout
 curl -s -X POST http://localhost:3000/api/auth/logout \
@@ -414,7 +414,7 @@ localStorage.removeItem('digilog_tab_heartbeat');
 # Login and immediately logout
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 curl -s -X POST http://localhost:3000/api/auth/logout \
   -H "Authorization: Bearer $TOKEN" > /dev/null
@@ -441,7 +441,7 @@ wait
 # Restore default session config
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 curl -s -X PUT http://localhost:3000/api/config/session \
   -H "Authorization: Bearer $TOKEN" \
@@ -455,5 +455,5 @@ curl -s -X PUT http://localhost:3000/api/config/session \
 ```
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+> **Phase 2 (Digital FMS):** Session management unchanged. All filter endpoints use same JWT/session auth. Default login: `superadmin` / `Admin@123`.
 

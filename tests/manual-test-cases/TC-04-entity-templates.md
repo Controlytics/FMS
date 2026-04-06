@@ -4,7 +4,7 @@
 - **Module**: Entity Template Management
 - **API Endpoints**: 6
 - **Frontend Pages**: /assets/templates
-- **Permissions**: ASSET_VIEW (read), ASSET_TEMPLATE_CREATE, ASSET_TEMPLATE_UPDATE, ASSET_TEMPLATE_DELETE (write)
+- **Permissions**: ASSET_VIEW (read), ASSET_TEMPLATE_MANAGE (create/update/delete)
 - **Reauth Actions**: CREATE_ASSET_TEMPLATE, UPDATE_ASSET_TEMPLATE, DELETE_ASSET_TEMPLATE
 - **Categories**: General, Equipment, Room, Building, Sensor, Vehicle, Utility, Process, Storage, Laboratory
 
@@ -249,5 +249,11 @@
 - **Expected Result**: 400 — invalid UUID format
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2 Notes
+
+- Entity templates support filter-type entities. Filter templates include AHU (Air Handling Unit) configurations.
+- Template attribute types include all standard types plus support for filter-specific attributes (filter type, media type, efficiency rating).
+- Templates used for filter instances follow the same versioning and lifecycle rules as standard templates.
 

@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { passwordPolicySchema, type PasswordPolicyConfig } from '@digilog/shared';
-import useSWR from 'swr';
+import useSWR, { mutate } from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,7 +15,7 @@ export function PasswordPolicyPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const reauth = useReauth();
-  const { data } = useSWR('/api/config/password-policy', { revalidateOnMount: true, dedupingInterval: 0 });
+  const { data } = useSWR('/api/config/password-policy', { revalidateOnMount: true, dedupingInterval: 5000 });
 
   const { register, handleSubmit, watch, reset, formState: { errors, isSubmitting, isDirty } } = useForm<PasswordPolicyConfig>({
     resolver: zodResolver(passwordPolicySchema),
@@ -30,6 +30,7 @@ export function PasswordPolicyPage() {
     await reauth.execute('UPDATE_PASSWORD_POLICY', async (password?) => {
       if (password) await apiClient.put('/api/config/password-policy', { ...formData, _currentPassword: password });
       else await apiClient.put('/api/config/password-policy', formData);
+      mutate('/api/config/password-policy');
       setSuccess('Settings updated successfully');
       reset(formData);
     }, {
@@ -79,6 +80,23 @@ export function PasswordPolicyPage() {
               </svg>
             </div>
             <p className="text-sm text-emerald-700">{success}</p>
+          </div>
+        )}
+        {Object.keys(errors).length > 0 && (
+          <div className="flex items-start gap-3 rounded-xl bg-amber-50 border border-amber-200 p-4">
+            <div className="p-2 rounded-lg bg-amber-100">
+              <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-amber-800">Please fix the following validation errors:</p>
+              <ul className="mt-1 text-sm text-amber-700 list-disc list-inside">
+                {Object.entries(errors).map(([field, err]) => (
+                  <li key={field}>{(err as any)?.message || `${field} is invalid`}</li>
+                ))}
+              </ul>
+            </div>
           </div>
         )}
 

@@ -265,13 +265,13 @@ export function ChecklistHistoryTab({ entityId, formatDateTime, userRole, checkl
               <div className="flex items-center gap-2 text-sm">
                 <span className="text-slate-500 font-medium w-12">From:</span>
                 <span className="text-slate-700 font-mono text-xs">
-                  {new Date(timeRange.from).toLocaleString()}
+                  {formatDateTime(timeRange.from)}
                 </span>
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <span className="text-slate-500 font-medium w-12">To:</span>
                 <span className="text-slate-700 font-mono text-xs">
-                  {new Date(timeRange.to).toLocaleString()}
+                  {formatDateTime(timeRange.to)}
                 </span>
               </div>
             </div>

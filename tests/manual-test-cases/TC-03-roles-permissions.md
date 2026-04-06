@@ -50,8 +50,8 @@
   1. Send GET /api/roles/permissions/all
   2. Verify response contains permissions array
   3. Each permission has key, label, category
-  4. Verify at least 39+ permissions are returned
-- **Expected Result**: 200 OK with `{ permissions: [{ key, label, category }, ...] }`
+  4. Verify at least 52+ permissions are returned (including Phase 2 filter permissions)
+- **Expected Result**: 200 OK with `{ permissions: [{ key, label, category }, ...] }` — includes FILTER_VIEW, FILTER_MANAGE, FILTER_OPERATE among others
 
 ### TC-03-P05: Create Custom Role
 - **Priority**: High
@@ -200,5 +200,28 @@
 - **Expected Result**: 400 validation error — hierarchyLevel min is 1
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2 Test Cases
+
+### TC-03-P11: Verify Phase 2 Filter Permissions Exist
+- **Priority**: High
+- **Preconditions**: Logged in as SUPER_ADMIN
+- **Test Data**: None
+- **Steps**:
+  1. Send GET /api/roles/permissions/all
+  2. Verify response includes FILTER_VIEW, FILTER_MANAGE, FILTER_OPERATE permissions
+  3. Verify permissions have category "Filter Management" or similar
+- **Expected Result**: 200 OK with 52+ permissions including Phase 2 filter-related permissions
+
+### TC-03-P12: Create Role with Filter Permissions
+- **Priority**: High
+- **Preconditions**: Logged in as SUPER_ADMIN, verification token obtained
+- **Test Data**: `{ "name": "FILTER_OPERATOR", "displayName": "Filter Operator", "hierarchyLevel": 3, "permissions": ["FILTER_VIEW", "FILTER_OPERATE", "ASSET_VIEW"], "color": "#0EA5E9" }`
+- **Steps**:
+  1. Obtain verification token
+  2. Send POST /api/roles with role data including filter permissions
+  3. Verify response `{ success: true, data: {...} }`
+  4. Create a user with this role and verify they can access filter operations
+- **Expected Result**: 200 OK, role with filter permissions created and functional
 

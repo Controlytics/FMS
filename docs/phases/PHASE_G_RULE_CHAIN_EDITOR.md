@@ -1,7 +1,7 @@
 # Phase G: Rule Chain Visual Editor (5-7 days)
 
-> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07.
-> React Flow canvas, node palette, node config panel, Monaco script editor, debug panel, version history, save/test/export/import flows all operational.
+> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07. Phase 2 Digital FMS completed 2026-03-27.
+> React Flow canvas with 77 node types, node palette (8 categories), node config panel, Monaco script editor, debug panel, version history, save/test/export/import flows all operational. Light theme (bg-white, text-slate-800).
 
 ## Prompt for Claude Code
 
@@ -124,5 +124,5 @@ VERIFICATION:
 - **Section 14.2**: Frontend file structure (rule-chain components)
 
 
-> **Update (2026-03-27):** Phase 2 Digital Filter Management System has been completed. See CHANGELOG.md for full details.
+> **Update (2026-03-27):** Phase 2 Digital FMS completed. Visual pipeline editor for cleaning profiles uses similar React Flow canvas approach. Rule chain editor now supports 77 node types across 8 categories. All UI uses unified light theme.
 

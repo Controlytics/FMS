@@ -5,6 +5,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { brandingConfigSchema, type BrandingConfig } from '@digilog/shared';
 import useSWR, { mutate as globalMutate } from 'swr';
 import { apiClient } from '@/lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -16,11 +18,12 @@ import { LoginBgSection } from './branding-components/login-bg-section';
 
 export function BrandingConfigPage() {
   const navigate = useNavigate();
+  const reauth = useReauth();
   const [error, setError] = useState('');
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
   const [showErrorPopup, setShowErrorPopup] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { data, mutate } = useSWR('/api/config/branding', { revalidateOnMount: true, dedupingInterval: 0 });
+  const { data, mutate } = useSWR('/api/config/branding', { revalidateOnMount: true, dedupingInterval: 5000 });
 
   const { register, handleSubmit, watch, setValue, reset, formState: { errors, isSubmitting, isDirty } } = useForm<BrandingConfig>({
     resolver: zodResolver(brandingConfigSchema),
@@ -70,17 +73,20 @@ export function BrandingConfigPage() {
 
   const onSubmit = async (formData: BrandingConfig) => {
     setError('');
-    try {
-      await apiClient.put('/api/config/branding', formData);
+    await reauth.execute('UPDATE_BRANDING', async (password?) => {
+      if (password) await apiClient.putWithReauth('/api/config/branding', formData, password);
+      else await apiClient.put('/api/config/branding', formData);
       // Refresh the global branding cache so sidebar/login page updates
       await globalMutate('/api/config/branding');
       reset(formData);
       setShowSuccessPopup(true);
-    } catch (err: any) {
-      const errorMsg = err.message || 'Failed to update';
-      setError(errorMsg);
-      setShowErrorPopup(true);
-    }
+    }, {
+      onError: (err) => {
+        const errorMsg = (err as any)?.message || 'Failed to update';
+        setError(errorMsg);
+        setShowErrorPopup(true);
+      },
+    });
   };
 
   return (
@@ -293,6 +299,18 @@ export function BrandingConfigPage() {
           </Button>
         </div>
       </Dialog>
+
+      {/* Reauth Dialog */}
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Update Branding"
+      />
     </div>
   );
 }

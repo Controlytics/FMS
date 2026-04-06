@@ -41,6 +41,53 @@ Note: 200 in TSDB = 100 from first publish run + 100 from second. Each publish s
 - Large dataset performance
 
 
-## Phase 2 (2026-03-27)
-Digital Filter Management System added with filter operations, cleaning profiles, checklist gates, PM scheduling, and full traceability.
+## Session: 2026-03-27 — Phase 2 Digital FMS
+
+### Filter Operations Tests
+
+| Test | Action | Expected | Status |
+|------|--------|----------|--------|
+| Start cleaning cycle | POST /api/filters/:id/start-cycle | Cycle created, state = WASH_IN | PASS |
+| Advance stage | POST /api/filters/:id/advance | State advances to next stage | PASS |
+| Checklist gate blocks advance | POST advance without checklist | 400 error, pending checklist | PASS |
+| Submit checklist | POST /api/filters/:id/submit-checklist | Checklist recorded, advance unblocked | PASS |
+| Bypass stage | POST /api/filters/:id/bypass | Stage skipped with deviation event | PASS |
+| Cycle auto-complete | Advance past last stage | Cycle status = COMPLETED | PASS |
+| Current state | GET /api/filters/:id/current-state | Returns stage, cycle, next actions | PASS |
+
+### Cleaning Profile Tests
+
+| Test | Action | Expected | Status |
+|------|--------|----------|--------|
+| Create profile | POST /api/cleaning-profiles | Profile created with stages/connections | PASS |
+| Pipeline validation | Create profile with no END node | 400 validation error | PASS |
+| Visual editor | Load editor UI | Canvas renders stages and connections | PASS |
+
+### PM Schedule Tests
+
+| Test | Action | Expected | Status |
+|------|--------|----------|--------|
+| Create schedule | POST /api/pm-schedules | Schedule with entries created | PASS |
+| Start execution | POST /api/pm-schedules/:id/executions | Execution IN_PROGRESS | PASS |
+| Complete execution | PUT execution status=COMPLETED | Execution marked complete | PASS |
+
+### UI Verification
+
+| Page | Check | Status |
+|------|-------|--------|
+| Filter Operations | Stage grid shows correct filter counts | PASS |
+| Filter Status | All filters with current lifecycle state | PASS |
+| Cleaning Profile Editor | Visual pipeline editor renders | PASS |
+| Cleaning Cycles History | Completed cycles listed | PASS |
+| Cleaning Cycles Timeline | Event timeline renders | PASS |
+| PM Schedules | Schedule list with entries | PASS |
+| Filter Traceability | Event history per filter | PASS |
+| AHU Dashboard | Equipment group overview | PASS |
+
+### Not Yet Tested (Phase 2)
+- Concurrent advance() race condition
+- Bulk filter upload via CSV
+- Filter retirement and replacement flow
+- Equipment group CRUD
+- Checklist profile management UI
 

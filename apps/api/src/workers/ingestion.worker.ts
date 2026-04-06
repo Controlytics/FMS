@@ -51,7 +51,7 @@ export async function startIngestionWorker(): Promise<void> {
   worker.on('completed', (job) => {
     // Job completed — logged at debug level only
     if (process.env.NODE_ENV !== 'production') {
-      console.log(`[IngestionWorker] Job ${job.id} completed`);
+      console.info(`[IngestionWorker] Job ${job.id} completed`);
     }
   });
 
@@ -63,7 +63,7 @@ export async function startIngestionWorker(): Promise<void> {
     console.error('[IngestionWorker] Worker error:', err.message);
   });
 
-  console.log(`[IngestionWorker] Started with concurrency=${concurrency}`);
+  console.info(`[IngestionWorker] Started with concurrency=${concurrency}`);
 }
 
 /**
@@ -73,6 +73,6 @@ export async function stopIngestionWorker(): Promise<void> {
   if (worker) {
     await worker.close();
     worker = null;
-    console.log('[IngestionWorker] Stopped');
+    console.info('[IngestionWorker] Stopped');
   }
 }

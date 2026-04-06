@@ -1,7 +1,7 @@
 # Phase B: Transport & Protocol Layer (3-4 days)
 
-> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07.
-> EMQX MQTT auth/ACL callbacks, HTTP data endpoints, WebSocket handler, message normalizer, and entity resolver all operational.
+> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07. Phase 2 Digital FMS completed 2026-03-27.
+> EMQX MQTT auth/ACL callbacks, HTTP data endpoints, WebSocket handler, message normalizer, and entity resolver all operational. Phase 2 adds filter operation endpoints.
 
 ## Prompt for Claude Code
 
@@ -136,5 +136,5 @@ VERIFICATION:
 - **Section 11.11**: MQTT auth callback endpoints
 
 
-> **Update (2026-03-27):** Phase 2 Digital Filter Management System has been completed. See CHANGELOG.md for full details.
+> **Update (2026-03-27):** Phase 2 Digital FMS completed. Filter operations use HTTP endpoints (POST /api/filters/:id/start-cycle, advance, submit-checklist, bypass). Total system: 34 API modules, 57 Prisma models, 4 notification channels (Email, SMS, Telegram, Slack).
 

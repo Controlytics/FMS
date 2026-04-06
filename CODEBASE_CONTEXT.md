@@ -1,7 +1,7 @@
 # DigiLog Codebase Context & Reference
 
 > Comprehensive reference for working on the DigiLog 21 CFR Part 11 Compliant Digital Logbook.
-> Updated: 2026-03-09 (All Phases A–K Complete + v3.0 + v3.1 System Validation — 87/100 health score, 48 rule chain nodes, 7 open bugs)
+> Updated: 2026-04-04 (All Phases A-K Complete + Phase 2 Digital FMS + Phase 3 enhancements — 34 API modules, 57 Prisma models, 77 rule chain node types, 52+ permissions)
 
 ---
 
@@ -36,9 +36,10 @@ DigiLog is a regulatory-compliant digital logbook for pharma/biotech/food manufa
 - **System Configuration** for branding, security, datetime, pagination, field labels
 - **Notification System** with role-based delivery
 - **Backup/Restore** with 4 export formats (JSON, BAK, SQL, CSV) — all restorable via UI
-- **Data Ingestion & Integration** with MQTT transport, WebSocket real-time streaming, rule chain engine (31 node types, sandboxed VM execution, sub-chain delegation), telemetry queries, alarm management (with MANUALLY_CLEARED status), Unified Namespace (ISA-95), entity connectivity tracking, QR code generation, and alarm column visibility configuration
+- **Data Ingestion & Integration** with MQTT transport, WebSocket real-time streaming, rule chain engine (77 node types, sandboxed VM execution, sub-chain delegation), telemetry queries, alarm management (with MANUALLY_CLEARED status), Unified Namespace (ISA-95), entity connectivity tracking, QR code generation, and alarm column visibility configuration
+- **Digital Filter Management System** with cleaning profiles (visual pipeline editor), filter profiles, filter operations (cycle start/advance/bypass/checklist), PM schedules, checklist profiles, equipment groups, bulk upload, retirement/replacement
 
-**Default Login:** `admin` / `Admin@123` (forces password change)
+**Default Login:** `superadmin` / `Admin@123`
 
 ---
 
@@ -50,28 +51,34 @@ DigiLog is a regulatory-compliant digital logbook for pharma/biotech/food manufa
 │   ├── api/                    # Fastify 5 backend (port 3000)
 │   │   ├── src/
 │   │   │   ├── app.ts          # Entry point, middleware stack
-│   │   │   ├── lib/            # Utilities (jwt, password, prisma, reauth, hash-chain, etc.)
+│   │   │   ├── lib/            # Utilities (jwt, password, prisma, reauth, hash-chain, sanitize, etc.)
 │   │   │   ├── plugins/        # Fastify plugins (auth, rbac, audit-logger)
-│   │   │   ├── modules/        # Feature modules (auth, users, roles, config, assets, audit, notifications, uploads, backup)
+│   │   │   ├── modules/        # 34 feature modules
 │   │   │   │   ├── data-ingestion/   # HTTP ingestion, entity resolver, normalizer, pipeline, DLQ, connectivity tracker
-│   │   │   │   ├── rule-chain/       # Rule chain engine, 31 node types, sandboxed VM execution, sub-chain delegation, debug recorder
+│   │   │   │   ├── rule-chain/       # Rule chain engine, 77 node types, sandboxed VM execution, sub-chain delegation, debug recorder
 │   │   │   │   ├── uns/              # Unified Namespace (ISA-95)
 │   │   │   │   ├── queries/          # Telemetry, alarms, export, retention
 │   │   │   │   ├── connectivity/     # Entity connectivity status & code snippets
 │   │   │   │   ├── notification-rules/  # Notification rules CRUD, multi-select event types
-│   │   │   │   ├── notification-delivery/ # Email (OAuth2 Office365) + SMS (AWS SNS) dispatch, dynamic templates, retry logic
+│   │   │   │   ├── notification-delivery/ # Email/SMS/Telegram/Slack dispatch, dynamic templates, retry logic
 │   │   │   │   ├── user-groups/          # User group management for notifications
 │   │   │   │   ├── qr-code/          # QR code generation
-│   │   │   │   └── help/             # Help articles with versioning
+│   │   │   │   ├── help/             # Help articles with versioning
+│   │   │   │   ├── cleaning-profiles/    # Pipeline profile CRUD (Phase 2)
+│   │   │   │   ├── filter-profiles/      # Filter-to-profile assignment (Phase 2)
+│   │   │   │   ├── filter-operations/    # Cycle lifecycle, advance, bypass, checklist, events (Phase 2)
+│   │   │   │   ├── pm-schedules/         # PM schedule CRUD, execution tracking (Phase 2)
+│   │   │   │   ├── checklist-profiles/   # Checklist template CRUD (Phase 2)
+│   │   │   │   └── equipment-groups/     # Equipment group management (Phase 2)
 │   │   │   ├── transport/      # MQTT auth, MQTT client, WebSocket handler
 │   │   │   └── workers/        # BullMQ ingestion & maintenance workers
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma   # Database schema (15 models)
+│   │   │   ├── schema.prisma   # Database schema (57 models, 17 enums)
 │   │   │   ├── seed.ts         # Default data seeding
 │   │   │   └── sql/            # PostgreSQL extensions
 │   │   └── uploads/            # Uploaded files directory
 │   │
-│   └── web/                    # React 19 frontend (Vite, port 5173 dev / port 80 prod)
+│   └── web/                    # React 19 frontend (Vite, port 5175 dev / port 80 prod)
 │       ├── src/
 │       │   ├── main.tsx        # Entry point with router + providers
 │       │   ├── app.css         # Global Tailwind styles
@@ -124,7 +131,7 @@ DigiLog is a regulatory-compliant digital logbook for pharma/biotech/food manufa
 | **Build** | Vite | 6.1.0 |
 | **Styling** | Tailwind CSS | 4.0.0 |
 | **ORM** | Prisma | 6.3.0 |
-| **Database** | PostgreSQL | 16 (pgcrypto) |
+| **Database** | PostgreSQL | 18 (pgcrypto) |
 | **Auth** | jose (JWT) | 6.0.0 |
 | **Password** | bcrypt | 5.1.1 |
 | **Validation** | Zod | 3.24.0 |
@@ -135,7 +142,7 @@ DigiLog is a regulatory-compliant digital logbook for pharma/biotech/food manufa
 | **Time-Series DB** | TimescaleDB | latest-pg16 |
 | **MQTT Broker** | EMQX | 5-elixir |
 | **Queue** | BullMQ | 5.x |
-| **Redis** | Redis | 7-alpine |
+| **Redis** | Redis | 5 |
 | **MQTT Client** | mqtt.js | 5.x |
 
 **Key Backend Plugins:** @fastify/cors, @fastify/helmet, @fastify/rate-limit, @fastify/multipart, @fastify/static, @fastify/swagger, @fastify/swagger-ui
@@ -326,7 +333,7 @@ const { data: tree } = useSWR<TreeNode[]>('/api/assets/instances/tree');
 | File | Exports | Purpose |
 |------|---------|---------|
 | `roles.ts` | `DEFAULT_ROLES`, `USER_STATUS`, `RoleData` interface | Role hierarchy, user status enum |
-| `permissions.ts` | `PERMISSIONS` (39+ keys), `Permission` type | All permission constants |
+| `permissions.ts` | `PERMISSIONS` (52+ keys), `Permission` type | All permission constants |
 | `permission-categories.ts` | `PERMISSION_CATEGORIES` (10 categories) | Grouped permissions for role editor UI (User Management, System, Entity Management, Audit & Approvals, Notifications, Data & Ingestion, Rule Chains, Alarms, Checklists, Advanced) |
 | `alarm-columns.ts` | `ALARM_COLUMN_DEFINITIONS`, `ALL_ALARM_COLUMN_IDS` | Alarm table column visibility definitions (11 columns) |
 | `feature-privileges.ts` | `FEATURE_PRIVILEGES`, `FEATURE_PRIVILEGE_CATEGORIES` | Config page privilege management |
@@ -339,7 +346,7 @@ const { data: tree } = useSWR<TreeNode[]>('/api/assets/instances/tree');
 
 ## 7. Database Schema (Prisma)
 
-### 30 Models
+### 57 Models (including Phase 2 FMS)
 
 #### User & Auth (5 models)
 - **User** — username, fullName, email, passwordHash, role (string), status (ENABLED/DISABLED/LOCKED/EXPIRED), forcePasswordChange, failedLoginAttempts, lockoutUntil, passwordExpiresAt

@@ -92,6 +92,36 @@ const CATEGORY_META: Record<ReauthActionCategory, { gradient: string; bgLight: s
     icon: 'M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01',
     description: 'Server and system-level configuration',
   },
+  'Filter Management': {
+    gradient: 'from-sky-500 to-blue-600',
+    bgLight: 'bg-sky-50 border-sky-200 text-sky-700',
+    icon: 'M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z',
+    description: 'Filter cleaning operations and cycle management',
+  },
+  'Cleaning Profiles': {
+    gradient: 'from-teal-500 to-emerald-600',
+    bgLight: 'bg-teal-50 border-teal-200 text-teal-700',
+    icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2',
+    description: 'Cleaning pipeline profile management',
+  },
+  'Filter Profiles': {
+    gradient: 'from-indigo-500 to-blue-600',
+    bgLight: 'bg-indigo-50 border-indigo-200 text-indigo-700',
+    icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10',
+    description: 'Filter-to-profile assignment management',
+  },
+  'Equipment Groups': {
+    gradient: 'from-gray-500 to-zinc-600',
+    bgLight: 'bg-gray-50 border-gray-200 text-gray-700',
+    icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35',
+    description: 'Equipment group and instrument management',
+  },
+  'PM Schedules': {
+    gradient: 'from-rose-500 to-pink-600',
+    bgLight: 'bg-rose-50 border-rose-200 text-rose-700',
+    icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
+    description: 'Preventive maintenance schedule management',
+  },
 };
 
 // Group actions by category

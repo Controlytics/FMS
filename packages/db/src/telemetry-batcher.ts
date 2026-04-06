@@ -78,8 +78,11 @@ export function addDeviceEventRow(row: DeviceEventRow): void {
   }
 }
 
+let flushingTelemetry = false;
 export async function flushTelemetry(): Promise<void> {
+  if (flushingTelemetry) return;
   if (telemetryBuffer.length === 0 || !pool) return;
+  flushingTelemetry = true;
 
   const rows = telemetryBuffer.splice(0);
   const values: unknown[] = [];
@@ -105,21 +108,32 @@ export async function flushTelemetry(): Promise<void> {
   } catch (err) {
     // Put rows back on failure for retry, but respect max buffer size
     if (telemetryBuffer.length + rows.length <= maxBufferSize) {
-      telemetryBuffer.unshift(...rows);
+      // Use loop to avoid call stack overflow with large arrays
+      for (let i = rows.length - 1; i >= 0; i--) {
+        telemetryBuffer.unshift(rows[i]);
+      }
     } else {
       // Only re-queue what fits; drop oldest excess
       const space = Math.max(0, maxBufferSize - telemetryBuffer.length);
       if (space > 0) {
-        telemetryBuffer.unshift(...rows.slice(-space));
+        const requeue = rows.slice(-space);
+        for (let i = requeue.length - 1; i >= 0; i--) {
+          telemetryBuffer.unshift(requeue[i]);
+        }
       }
       console.warn(`[TelemetryBatcher] Dropped ${rows.length - space} telemetry rows on re-queue (buffer full)`);
     }
     throw err;
+  } finally {
+    flushingTelemetry = false;
   }
 }
 
+let flushingDeviceEvents = false;
 export async function flushDeviceEvents(): Promise<void> {
+  if (flushingDeviceEvents) return;
   if (deviceEventBuffer.length === 0 || !pool) return;
+  flushingDeviceEvents = true;
 
   const rows = deviceEventBuffer.splice(0);
   const values: unknown[] = [];
@@ -145,15 +159,23 @@ export async function flushDeviceEvents(): Promise<void> {
   } catch (err) {
     // Put rows back on failure for retry, but respect max buffer size
     if (deviceEventBuffer.length + rows.length <= maxBufferSize) {
-      deviceEventBuffer.unshift(...rows);
+      // Use loop to avoid call stack overflow with large arrays
+      for (let i = rows.length - 1; i >= 0; i--) {
+        deviceEventBuffer.unshift(rows[i]);
+      }
     } else {
       const space = Math.max(0, maxBufferSize - deviceEventBuffer.length);
       if (space > 0) {
-        deviceEventBuffer.unshift(...rows.slice(-space));
+        const requeue = rows.slice(-space);
+        for (let i = requeue.length - 1; i >= 0; i--) {
+          deviceEventBuffer.unshift(requeue[i]);
+        }
       }
       console.warn(`[TelemetryBatcher] Dropped ${rows.length - space} device event rows on re-queue (buffer full)`);
     }
     throw err;
+  } finally {
+    flushingDeviceEvents = false;
   }
 }
 

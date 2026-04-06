@@ -2,9 +2,9 @@
 
 ## Base URL
 ```
-Production: http://44.213.157.198/api
+Production: http://34.232.224.0/api
 Local: http://localhost:3000/api
-Swagger UI: http://localhost:3000/docs
+Swagger UI: http://localhost:3000/docs (Production: http://34.232.224.0/docs)
 ```
 
 ## Authentication
@@ -141,13 +141,108 @@ GET    /api/audit                        # Query audit trail (date range, user, 
 GET    /api/audit/export                 # Export audit as CSV
 ```
 
-## Example API Call
+### Roles
+```
+GET    /api/roles                        # List all roles
+GET    /api/roles/:role/creatable        # Roles the given role can create
+PUT    /api/roles/:id                    # Update role permissions
+```
+
+### Uploads
+```
+POST   /api/uploads                      # Upload file (max 5MB)
+GET    /api/uploads/:id                  # Get uploaded file
+```
+
+### QR Codes
+```
+POST   /api/qr-codes                     # Generate QR code for entity
+GET    /api/qr-codes/:id                 # Get QR code image
+```
+
+### System Health
+```
+GET    /api/system-health                # System metrics, uptime, request stats
+```
+
+### Deployment Check
+```
+GET    /api/deployment-check             # Verify deployment status
+```
+
+## Phase 2: Digital Filter Management System
+
+### Cleaning Profiles
+```
+GET    /api/cleaning-profiles            # List all cleaning profiles
+POST   /api/cleaning-profiles            # Create cleaning profile with pipeline stages
+GET    /api/cleaning-profiles/:id        # Get profile with full pipeline definition
+PUT    /api/cleaning-profiles/:id        # Update profile (stages, connections)
+DELETE /api/cleaning-profiles/:id        # Delete cleaning profile
+```
+
+### Filter Profiles
+```
+GET    /api/filter-profiles              # List filter-to-cleaning-profile assignments
+POST   /api/filter-profiles              # Assign cleaning profile to filter
+GET    /api/filter-profiles/:id          # Get filter profile details
+PUT    /api/filter-profiles/:id          # Update assignment
+DELETE /api/filter-profiles/:id          # Remove assignment
+```
+
+### Filter Operations
+```
+POST   /api/filters/:id/start-cycle      # Start a new cleaning cycle
+POST   /api/filters/:id/advance          # Advance to next pipeline stage
+POST   /api/filters/:id/submit-checklist # Submit checklist answers for gate
+POST   /api/filters/:id/bypass           # Bypass stage (creates deviation record)
+GET    /api/filters/:id/current-state    # Get filter state + next available actions
+GET    /api/filter/cycles                # List cleaning cycles (with filters)
+GET    /api/filter/events                # List filter events (audit trail)
+```
+
+### PM Schedules
+```
+GET    /api/pm-schedules                 # List preventive maintenance schedules
+POST   /api/pm-schedules                 # Create PM schedule
+GET    /api/pm-schedules/:id             # Get PM schedule details
+PUT    /api/pm-schedules/:id             # Update PM schedule
+DELETE /api/pm-schedules/:id             # Delete PM schedule
+```
+
+### Checklist Profiles
+```
+GET    /api/checklist-profiles           # List checklist templates
+POST   /api/checklist-profiles           # Create checklist profile with questions
+GET    /api/checklist-profiles/:id       # Get checklist profile
+PUT    /api/checklist-profiles/:id       # Update checklist profile
+DELETE /api/checklist-profiles/:id       # Delete checklist profile
+```
+
+### Equipment Groups
+```
+GET    /api/equipment-groups             # List equipment groups (AHU groupings)
+POST   /api/equipment-groups             # Create equipment group
+GET    /api/equipment-groups/:id         # Get group with instruments
+PUT    /api/equipment-groups/:id         # Update group
+DELETE /api/equipment-groups/:id         # Delete group
+```
+
+### Pipeline Flow
+The cleaning pipeline follows a directed graph:
+- **STAGE nodes**: WASH_IN, WASH_OUT, DRY_IN, DRY_OUT, STORAGE_IN, STORAGE_OUT, START, END
+- **CHECKLIST nodes**: Placed between stages as gates requiring operator input
+- `advance()` is blocked if a pending checklist has not been completed
+- Cycle auto-completes when last STAGE leads to END node
+- Dual filter sets (SET_A/SET_B) supported per profile
+
+## Example API Calls
 
 ```bash
 # Login
 curl -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username": "superadmin", "password": "YourPassword"}'
+  -d '{"username": "superadmin", "password": "Admin@123"}'
 
 # Response
 {"success": true, "token": "eyJhbG...", "user": {"id": "...", "role": "SUPER_ADMIN"}}
@@ -155,17 +250,18 @@ curl -X POST http://localhost:3000/api/auth/login \
 # Use token for subsequent requests
 curl http://localhost:3000/api/users \
   -H "Authorization: Bearer eyJhbG..."
+
+# Start a filter cleaning cycle
+curl -X POST http://localhost:3000/api/filters/<filter-id>/start-cycle \
+  -H "Authorization: Bearer eyJhbG..." \
+  -H "Content-Type: application/json" \
+  -d '{"filterSet": "SET_A"}'
+
+# Get filter current state
+curl http://localhost:3000/api/filters/<filter-id>/current-state \
+  -H "Authorization: Bearer eyJhbG..."
+
+# List cleaning cycles
+curl "http://localhost:3000/api/filter/cycles?page=1&limit=10" \
+  -H "Authorization: Bearer eyJhbG..."
 ```
-
-
-## Phase 2: Digital Filter Management System (2026-03-27)
-
-### Overview
-Complete digital filter cleaning lifecycle management for pharmaceutical cleanrooms. Supports configurable cleaning pipelines with checklist gates, 8 cleaning stages, dual filter sets, PM scheduling, and full traceability.
-
-### Key Components
-- **5 backend modules**: cleaning-profiles, filter-profiles, filter-operations, pm-schedules, checklist-profiles
-- **12+ frontend pages**: operations, profiles, cycles, checklists, PM, AHU dashboard, traceability, config
-- **9 database tables**: filter_cleaning_profiles, filter_pipeline_stages, filter_pipeline_connections, filter_profiles, cleaning_cycles, filter_events, pm_schedules, pm_schedule_entries, pm_executions
-- **Quality audit**: 43 issues found and 35 fixed (security, compliance, logic, UI)
-

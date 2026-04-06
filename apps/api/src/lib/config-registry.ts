@@ -173,7 +173,7 @@ class ConfigRegistry {
             requiresReauth: def.requiresReauth,
           },
         });
-        console.log(`Config registry: seeded defaults for ${def.moduleKey}`);
+        console.info(`Config registry: seeded defaults for ${def.moduleKey}`);
       }
     }
   }

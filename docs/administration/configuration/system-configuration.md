@@ -1,19 +1,46 @@
 # System Configuration
 
-23 config modules with auto-discovery at startup.
+23 config definitions with auto-discovery at startup. All operational limits are stored in the database (SystemConfig table), not environment variables.
+
+## Config Definitions
+| Key | Description |
+|-----|-------------|
+| action-reauth | Actions requiring re-authentication |
+| alarm-columns | Alarm dashboard column configuration |
+| audit-templates | Audit trail template definitions |
+| backup | Backup and restore settings |
+| branding | Application branding (logo, name) |
+| datetime | Date/time format preferences |
+| field-ids | Entity field ID format configuration |
+| filter-cleaning-reasons | Configurable cleaning reason codes with justification support |
+| filter-lifecycle-states | Filter lifecycle state definitions |
+| filter-pm-schedule | PM schedule configuration for filters |
+| help | Help article settings |
+| login-security | Login attempt limits, lockout policy |
+| notification-email | SMTP/OAuth2 email delivery settings |
+| notification-logs | Notification logging configuration |
+| notification-rules | Notification rule definitions |
+| notification-slack | Slack webhook integration |
+| notification-sms | SMS delivery (AWS SNS/Twilio/Vonage) |
+| notification-telegram | Telegram bot integration |
+| pagination | Default page sizes and limits |
+| password-policy | Password complexity, expiration, history |
+| retention | Data retention policies per hypertable |
+| role-privileges | Role-to-privilege mapping (52+ privileges) |
+| roles | Role hierarchy definitions |
+| session | Session timeout, idle warning, single-tab |
+| sidebar-config | Navigation sidebar structure |
+| uns | Unified Namespace settings |
+| user-id | User ID format (prefix, sequential, etc.) |
 
 ## Categories
 - **Security:** Password Policy, Login Security, Session Management, Action Re-authentication
 - **Display:** DateTime Format, Branding, Pagination, Field IDs, Alarm Columns, Audit Templates
-- **Integrations:** Email (SMTP/OAuth2), SMS (AWS SNS/Twilio), Notification Rules, UNS
+- **Integrations:** Email (SMTP/OAuth2), SMS (AWS SNS/Twilio/Vonage), Telegram, Slack, Notification Rules, UNS
+- **Filter Management:** Filter Cleaning Reasons, Filter Lifecycle States, Filter PM Schedule
 - **Advanced:** Data Retention, Backup & Restore, System Health, Help Articles, Debug Traces
 
 ## API
-- GET /api/config/registry/manifest — list all modules
-- GET /api/config/dynamic/:moduleKey — get config
-- PUT /api/config/dynamic/:moduleKey — update config
-
-
----
-
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.
+- `GET /api/config/registry/manifest` — List all config modules
+- `GET /api/config/dynamic/:moduleKey` — Get config for a module
+- `PUT /api/config/dynamic/:moduleKey` — Update config (audit trail, some require reauth)

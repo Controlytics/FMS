@@ -63,6 +63,36 @@ export default async function roleRoutes(app: FastifyInstance) {
     return roleService.listActive();
   });
 
+  // GET /api/roles/permissions/all — Get all available permissions
+  app.get('/permissions/all', {
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
+    schema: {
+      tags: ['Roles'],
+      summary: 'List all available permissions',
+      description: 'Return the complete list of available permissions grouped by category. Requires ROLE_MANAGE permission.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            permissions: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  key: { type: 'string' },
+                  label: { type: 'string' },
+                  category: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async () => {
+    return roleService.getAllPermissions();
+  });
+
   // GET /api/roles/:name — Get single role by name
   app.get('/:name', {
     preHandler: [app.requirePermission('ROLE_MANAGE')],
@@ -274,39 +304,9 @@ export default async function roleRoutes(app: FastifyInstance) {
     }
   });
 
-  // GET /api/roles/permissions/all — Get all available permissions
-  app.get('/permissions/all', {
-    preHandler: [app.requirePermission('ROLE_MANAGE')],
-    schema: {
-      tags: ['Roles'],
-      summary: 'List all available permissions',
-      description: 'Return the complete list of available permissions grouped by category. Requires ROLE_MANAGE permission.',
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            permissions: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  key: { type: 'string' },
-                  label: { type: 'string' },
-                  category: { type: 'string' },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  }, async () => {
-    return roleService.getAllPermissions();
-  });
-
   // GET /api/roles/:name/creatable — Get roles that this role can create
   app.get('/:name/creatable', {
-    preHandler: [app.requirePermission('ROLE_MANAGE')],
+    preHandler: [app.requirePermission('USER_CREATE')],
     schema: {
       tags: ['Roles'],
       summary: 'Get creatable roles for a role',
@@ -340,7 +340,9 @@ export default async function roleRoutes(app: FastifyInstance) {
       },
     },
   }, async (req) => {
-    const { name } = req.params as { name: string };
-    return roleService.getCreatableRoles(name);
+    // Use the authenticated user's actual role instead of the URL parameter
+    // to prevent privilege escalation by querying another role's creatable list
+    const roleName = req.user.role;
+    return roleService.getCreatableRoles(roleName);
   });
 }

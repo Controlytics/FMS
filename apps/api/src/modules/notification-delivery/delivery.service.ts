@@ -89,6 +89,7 @@ export async function sendNotification(payload: NotificationPayload): Promise<De
 
 /**
  * Retry a failed notification delivery.
+ * TODO: Replace setTimeout retries with BullMQ delayed jobs for durability across restarts
  */
 async function scheduleRetry(logId: string, payload: NotificationPayload, attempt: number): Promise<void> {
   if (attempt >= MAX_RETRIES) {
@@ -168,7 +169,7 @@ export async function testChannel(channelName: 'EMAIL' | 'SMS' | 'TELEGRAM' | 'S
  * Send a test notification to verify end-to-end delivery.
  */
 export async function sendTestNotification(
-  channelName: 'EMAIL' | 'SMS' | 'TELEGRAM' | 'SLACK' | 'TELEGRAM' | 'SLACK',
+  channelName: 'EMAIL' | 'SMS' | 'TELEGRAM' | 'SLACK',
   recipient: string,
 ): Promise<DeliveryResult> {
   return sendNotification({

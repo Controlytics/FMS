@@ -19,13 +19,17 @@ export class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error };
   }
 
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('[ErrorBoundary] Caught error:', error, info.componentStack);
+  }
+
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-900 p-4">
-          <div className="max-w-md w-full bg-gray-800 rounded-lg shadow-lg p-6 space-y-4">
-            <h1 className="text-xl font-semibold text-red-400">Something went wrong</h1>
-            <p className="text-sm text-gray-300">
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+          <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-6 space-y-4">
+            <h1 className="text-xl font-semibold text-red-600">Something went wrong</h1>
+            <p className="text-sm text-slate-600">
               An unexpected error occurred. Please try refreshing the page.
             </p>
             {this.state.error && (

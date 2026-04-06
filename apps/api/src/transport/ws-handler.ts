@@ -65,7 +65,7 @@ function initRedisSubscriber(): IORedis {
       if (err) {
         console.error('[WS] Failed to subscribe to ws:events:', err.message);
       } else {
-        console.log('[WS] Subscribed to Redis channel ws:events');
+        console.info('[WS] Subscribed to Redis channel ws:events');
       }
     });
 
@@ -78,6 +78,7 @@ function initRedisSubscriber(): IORedis {
         };
 
         // Broadcast to all clients subscribed to this entityId
+        const deadClients: WsClient[] = [];
         for (const client of allClients) {
           if (!client.authenticated) continue;
           if (!client.subscriptions.has(event.entityId)) continue;
@@ -91,8 +92,11 @@ function initRedisSubscriber(): IORedis {
               timestamp: new Date().toISOString(),
             }));
           } catch {
-            // Client disconnected — will be cleaned up
+            deadClients.push(client);
           }
+        }
+        for (const dead of deadClients) {
+          removeConnection(dead);
         }
       } catch {
         // Invalid JSON — ignore

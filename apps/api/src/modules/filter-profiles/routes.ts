@@ -98,6 +98,24 @@ export default async function filterProfileRoutes(app: FastifyInstance) {
     return service.update(ctx, id, req.body);
   });
 
+  app.delete('/:id', {
+    preHandler: [app.requirePermission('FP_DELETE')],
+    schema: {
+      tags: ['Filter Profiles'],
+      summary: 'Delete filter profile',
+      description: 'Deletes a filter profile. Fails if filters are still assigned.',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      response: {
+        200: { type: 'object', properties: { success: { type: 'boolean' } } },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const { id } = req.params as { id: string };
+    return service.delete(ctx, id);
+  });
+
   app.post('/:id/assign', {
     preHandler: [app.requirePermission('FP_ASSIGN')],
     schema: {

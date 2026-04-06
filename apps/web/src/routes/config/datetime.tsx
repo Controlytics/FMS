@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { datetimeConfigSchema, type DatetimeConfig } from '@digilog/shared';
-import useSWR from 'swr';
+import useSWR, { mutate } from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -24,12 +24,14 @@ export function DatetimeConfigPage() {
 
   const watchedDateFormat = watch('dateFormat');
   const watchedTimeFormat = watch('timeFormat');
+  const watchedTimezone = watch('timezone');
 
   const onSubmit = async (formData: DatetimeConfig) => {
     setError(''); setSuccess('');
     await reauth.execute('UPDATE_DATETIME_CONFIG', async (password?) => {
       if (password) await apiClient.putWithReauth('/api/config/datetime', formData, password);
       else await apiClient.put('/api/config/datetime', formData);
+      mutate('/api/config/datetime/current');
       setSuccess('Date/time format updated successfully');
       reset(formData);
     }, {
@@ -40,7 +42,7 @@ export function DatetimeConfigPage() {
   // Preview function - uses the configured timezone
   const getPreviewDate = () => {
     const date = new Date();
-    const tz = 'Asia/Kolkata';
+    const tz = watchedTimezone || 'Asia/Kolkata';
     try {
       const opts: Intl.DateTimeFormatOptions = { timeZone: tz };
       const formats: Record<string, string> = {
@@ -63,7 +65,7 @@ export function DatetimeConfigPage() {
 
   const getPreviewTime = () => {
     const date = new Date();
-    const tz = 'Asia/Kolkata';
+    const tz = watchedTimezone || 'Asia/Kolkata';
     try {
       if (watchedTimeFormat === '12-hour') {
         return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: tz });

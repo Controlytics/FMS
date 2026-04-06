@@ -1,9 +1,9 @@
 # EG-01: Authentication — Execution Guide
 
 ## Prerequisites
-- **App URL**: http://3.108.185.106
-- **API Base**: http://localhost:3000/api (from server) or http://3.108.185.106/api (external)
-- **Default Credentials**: admin / Admin@123 (SUPER_ADMIN)
+- **App URL**: http://34.232.224.0
+- **API Base**: http://localhost:3000/api (from server) or http://34.232.224.0/api (external)
+- **Default Credentials**: superadmin / Admin@123 (SUPER_ADMIN)
 - **Tools**: curl, browser (Chrome/Firefox), second browser/incognito for session tests
 - **Test User**: Create `locktest` user for lockout testing (TC-01-N03)
 
@@ -15,7 +15,7 @@ API="http://localhost:3000/api"
 # Login and store token for subsequent tests
 TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 echo "Token: $TOKEN"
 ```
@@ -30,18 +30,18 @@ echo "Token: $TOKEN"
 ```bash
 curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq .
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq .
 ```
 
 **Browser Steps:**
-1. Navigate to http://3.108.185.106/login
+1. Navigate to http://34.232.224.0/login
 2. Enter username: `admin`
 3. Enter password: `Admin@123`
 4. Click "Sign In"
 5. Observe redirect to dashboard
 
 **Expected Result:**
-- API: `{"success":true,"token":"eyJ...","user":{"id":"...","username":"admin","fullName":"...","role":"SUPER_ADMIN","forcePasswordChange":false,"isTemporaryPassword":false},"expiresIn":"8h"}`
+- API: `{"success":true,"token":"eyJ...","user":{"id":"...","username":"superadmin","fullName":"...","role":"SUPER_ADMIN","forcePasswordChange":false,"isTemporaryPassword":false},"expiresIn":"8h"}`
 - UI: Redirect to / (dashboard), sidebar visible, user avatar in top-right
 
 **Pass/Fail:**
@@ -61,7 +61,7 @@ curl -s -X GET "$API/auth/me" \
 ```
 
 **Expected Result:**
-- API: `{"id":"...","username":"admin","fullName":"...","email":"...","role":"SUPER_ADMIN","status":"ENABLED","permissions":[...]}`
+- API: `{"id":"...","username":"superadmin","fullName":"...","email":"...","role":"SUPER_ADMIN","status":"ENABLED","permissions":[...]}`
 - `permissions` is a non-empty array of permission strings
 
 **Pass/Fail:**
@@ -89,7 +89,7 @@ curl -s -X PUT "$API/auth/profile" \
 5. Save changes
 
 **Expected Result:**
-- API: `{"id":"...","username":"admin","fullName":"System Administrator Updated","department":"IT Operations","role":"SUPER_ADMIN"}`
+- API: `{"id":"...","username":"superadmin","fullName":"System Administrator Updated","department":"IT Operations","role":"SUPER_ADMIN"}`
 - UI: Profile page shows updated values
 
 **Verify persistence:**
@@ -123,14 +123,14 @@ curl -s -X POST "$API/auth/change-password" \
 ```bash
 curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"NewPass@123"}' | jq '.success'
+  -d '{"username":"superadmin","password":"NewPass@123"}' | jq '.success'
 ```
 
 **IMPORTANT: Change password back after test:**
 ```bash
 NEW_TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"NewPass@123","force":true}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"NewPass@123","force":true}' | jq -r '.token')
 
 curl -s -X POST "$API/auth/change-password" \
   -H "Authorization: Bearer $NEW_TOKEN" \
@@ -153,7 +153,7 @@ curl -s -X POST "$API/auth/change-password" \
 # Get a fresh token for this test
 LOGOUT_TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123","force":true}' | jq -r '.token')
 
 # Logout
 curl -s -X POST "$API/auth/logout" \
@@ -181,7 +181,7 @@ curl -s -w "\nHTTP_CODE:%{http_code}\n" -X GET "$API/auth/me" \
 # Get a fresh token
 BEACON_TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123","force":true}' | jq -r '.token')
 
 # Beacon logout (no auth header, token in body)
 curl -s -X POST "$API/auth/beacon-logout" \
@@ -209,7 +209,7 @@ curl -s -w "\nHTTP_CODE:%{http_code}\n" -X GET "$API/auth/me" \
 ```bash
 TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123","force":true}' | jq -r '.token')
 
 curl -s -X POST "$API/auth/verify" \
   -H "Authorization: Bearer $TOKEN" \
@@ -234,11 +234,11 @@ curl -s -X POST "$API/auth/verify" \
 ```bash
 curl -s -X POST "$API/auth/forgot-password" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin"}' | jq .
+  -d '{"username":"superadmin"}' | jq .
 ```
 
 **Browser Steps:**
-1. Navigate to http://3.108.185.106/forgot-password
+1. Navigate to http://34.232.224.0/forgot-password
 2. Enter username: `admin`
 3. Submit the form
 
@@ -259,19 +259,19 @@ curl -s -X POST "$API/auth/forgot-password" \
 # Login from "Client A"
 TOKEN_A=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123","force":true}' | jq -r '.token')
 echo "Token A: $TOKEN_A"
 
 # Attempt login from "Client B" without force
 curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq .
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq .
 # Should get SESSION_CONFLICT
 
 # Force login from "Client B"
 TOKEN_B=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123","force":true}' | jq -r '.token')
 echo "Token B: $TOKEN_B"
 
 # Verify Token A is invalid
@@ -333,7 +333,7 @@ curl -s -w "\nHTTP_CODE:%{http_code}\n" -X POST "$API/auth/login" \
 ```bash
 curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"WrongPassword123"}' | jq .
+  -d '{"username":"superadmin","password":"WrongPassword123"}' | jq .
 ```
 
 **Expected Result:**
@@ -351,7 +351,7 @@ curl -s -X POST "$API/auth/login" \
 ```bash
 TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123","force":true}' | jq -r '.token')
 
 VTOKEN=$(curl -s -X POST "$API/auth/verify" \
   -H "Authorization: Bearer $TOKEN" \
@@ -490,7 +490,7 @@ curl -s -w "\nHTTP_CODE:%{http_code}\n" -X POST "$API/auth/login" \
 ```bash
 TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123","force":true}' | jq -r '.token')
 
 curl -s -X PUT "$API/auth/profile" \
   -H "Authorization: Bearer $TOKEN" \
@@ -514,12 +514,12 @@ curl -s -X PUT "$API/auth/profile" \
 # Ensure session exists
 TOKEN_A=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123","force":true}' | jq -r '.token')
 
 # Attempt second login without force
 curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq .
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq .
 ```
 
 **Expected Result:**
@@ -596,7 +596,7 @@ for i in {1..6}; do
   echo "--- Request $i ---"
   curl -s -w "HTTP_CODE:%{http_code}\n" -X POST "$API/auth/forgot-password" \
     -H "Content-Type: application/json" \
-    -d '{"username":"admin"}'
+    -d '{"username":"superadmin"}'
   echo ""
 done
 ```
@@ -616,7 +616,7 @@ done
 # Restore admin profile if modified
 TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123","force":true}' | jq -r '.token')
 
 curl -s -X PUT "$API/auth/profile" \
   -H "Authorization: Bearer $TOKEN" \
@@ -625,5 +625,5 @@ curl -s -X PUT "$API/auth/profile" \
 ```
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+> **Phase 2 (Digital FMS):** Authentication endpoints are unchanged. Filter operations use standard Bearer JWT. Default login: `superadmin` / `Admin@123`. New reauth action: BYPASS_FILTER_STAGE.
 

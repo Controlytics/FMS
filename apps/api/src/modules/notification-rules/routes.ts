@@ -60,7 +60,7 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
     const groupMap = new Map(groups.map(g => [g.id, g.name]));
     const userMap = new Map(users.map(u => [u.id, u]));
 
-    return rules.map(rule => {
+    const data = rules.map(rule => {
       const types = rule.eventTypes?.length ? rule.eventTypes : [rule.eventType];
       const typesMeta = types.map(et => EVENT_TYPE_META[et] ? { value: et, ...EVENT_TYPE_META[et] } : null).filter(Boolean);
       return {
@@ -77,6 +77,8 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
       })),
       };
     });
+
+    return { data, total: data.length };
   });
 
   // GET /api/notification-rules/:id — single rule
@@ -254,6 +256,14 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
       });
     });
 
+    const ctx = buildContext(req);
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole,
+      action: 'NOTIFICATION_RULE_UPDATED', targetType: 'notification_rule', targetId: id,
+      afterValue: { name: rule.name, eventType: rule.eventType },
+      ipAddress: req.ip, sessionId: req.user.sessionId,
+    });
+
     return rule;
   });
 
@@ -267,7 +277,17 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { id } = req.params as { id: string };
+    const existing = await prisma.notificationRule.findUnique({ where: { id } });
     await prisma.notificationRule.delete({ where: { id } });
+
+    const ctx = buildContext(req);
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole,
+      action: 'NOTIFICATION_RULE_DELETED', targetType: 'notification_rule', targetId: id,
+      beforeValue: existing ? { name: existing.name, eventType: existing.eventType } : undefined,
+      ipAddress: req.ip, sessionId: req.user.sessionId,
+    });
+
     return { success: true };
   });
 

@@ -1,9 +1,9 @@
 # EG-09: Audit Trail -- Execution Guide
 
 ## Prerequisites
-- **App URL**: http://3.108.185.106
-- **API Base**: http://localhost:3000/api (from server) or http://3.108.185.106/api (remote)
-- **SUPER_ADMIN Credentials**: admin / Admin@123
+- **App URL**: http://34.232.224.0
+- **API Base**: http://localhost:3000/api (from server) or http://34.232.224.0/api (remote)
+- **SUPER_ADMIN Credentials**: superadmin / Admin@123
 - **Additional User**: Create or use an ADMIN-level user for non-SUPER_ADMIN audit generation
 - **Browser**: Chrome or Firefox with DevTools open (Network tab)
 - **Tools**: curl, psql (for DB verification)
@@ -14,7 +14,7 @@
 # Login as SUPER_ADMIN
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 echo "Token: $TOKEN"
 ```
@@ -307,7 +307,7 @@ curl -s -X GET "http://localhost:3000/api/audit?action=AUDIT_RECORDS_BULK_DELETE
 ### Test: TC-09-P13 -- SUPER_ADMIN Actions Not Logged
 
 **Browser Steps:**
-1. Navigate to http://3.108.185.106/audit.
+1. Navigate to http://34.232.224.0/audit.
 2. Review the audit table. No records should have userRole "SUPER_ADMIN".
 
 **API (curl):**
@@ -493,5 +493,5 @@ curl -s -X POST http://localhost:3000/api/audit/bulk-delete \
 - [ ] count is 0
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+> **Phase 2 (Digital FMS):** Audit trail includes filter operation events: FILTER_CYCLE_STARTED, FILTER_STAGE_ADVANCED, FILTER_STAGE_BYPASSED, FILTER_CHECKLIST_SUBMITTED, FILTER_CYCLE_COMPLETED. Test per TC-09-P16 through TC-09-P18.
 

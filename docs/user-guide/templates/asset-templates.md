@@ -15,9 +15,7 @@ Templates define reusable blueprints for entity types.
 Every edit creates a new version. Instances track which version they were created from.
 
 ## Default Rule Chain
-Templates with alarm rules auto-generate a default rule chain that evaluates incoming telemetry against thresholds.
+Templates with alarm rules auto-generate a default rule chain that evaluates incoming telemetry against thresholds. 77 node types available across 8 categories.
 
-
----
-
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.
+## Phase 2: Filter Templates
+Templates can be used for filter entities. When an entity created from a template is assigned a filter profile, it gains filter-specific fields (filter_profile_id, current_lifecycle_state, current_cycle_id, filter_set) and can participate in the cleaning pipeline workflow.

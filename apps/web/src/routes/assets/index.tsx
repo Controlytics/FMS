@@ -94,6 +94,9 @@ export function AssetExplorerPage() {
   // Data Fetching
   // =============================================
 
+  // Data fetching: tree + detail + relationships + audit are separate queries
+  // because each has different refresh intervals and cache invalidation needs.
+  // SWR deduplicates by key, so navigating within the tree doesn't re-fetch the tree.
   const { data: treeData, isLoading: treeLoading } = useSWR<TreeNode[]>('/api/assets/instances/tree', { refreshInterval: 30000 });
   const { data: selectedAsset, isLoading: detailLoading } = useSWR<AssetInstance>(selectedAssetId ? `/api/assets/instances/${selectedAssetId}` : null);
   const { data: templatesData } = useSWR<{ data: AssetTemplate[] }>('/api/assets/templates?isActive=true');

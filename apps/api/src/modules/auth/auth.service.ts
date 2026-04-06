@@ -93,7 +93,7 @@ export const authService = {
         }
       } catch (err: any) {
         if (err instanceof AppError) throw err;
-        console.error('[LDAP] Auth error:', err.message);
+        console.error('[LDAP] Auth error: LDAP authentication failed');
         throw new AppError(401, 'LDAP_ERROR', 'LDAP authentication failed. Contact administrator.');
       }
     }
@@ -348,21 +348,19 @@ export const authService = {
     if (newPassword.length < minLength) throw new AppError(400, 'POLICY_VIOLATION', `Password must be at least ${minLength} characters`);
     if (newPassword.length > maxLength) throw new AppError(400, 'POLICY_VIOLATION', `Password must be at most ${maxLength} characters`);
 
-    if (policy.requireUppercase) {
-      const minUpper = (policy.minUppercase as number) ?? 1;
-      if ((newPassword.match(/[A-Z]/g) || []).length < minUpper) throw new AppError(400, 'POLICY_VIOLATION', `Password must contain at least ${minUpper} uppercase letter(s)`);
-    }
-    if (policy.requireLowercase) {
-      const minLower = (policy.minLowercase as number) ?? 1;
-      if ((newPassword.match(/[a-z]/g) || []).length < minLower) throw new AppError(400, 'POLICY_VIOLATION', `Password must contain at least ${minLower} lowercase letter(s)`);
-    }
-    if (policy.requireNumbers) {
-      const minNum = (policy.minNumbers as number) ?? 1;
-      if ((newPassword.match(/[0-9]/g) || []).length < minNum) throw new AppError(400, 'POLICY_VIOLATION', `Password must contain at least ${minNum} number(s)`);
-    }
-    if (policy.requireSpecialChars) {
-      const minSpecial = (policy.minSpecialChars as number) ?? 1;
-      if ((newPassword.match(/[^A-Za-z0-9]/g) || []).length < minSpecial) throw new AppError(400, 'POLICY_VIOLATION', `Password must contain at least ${minSpecial} special character(s)`);
+    const policyChecks: Array<{ flag: string; regex: RegExp; countKey: string; name: string; defaultMin: number }> = [
+      { flag: 'requireUppercase', regex: /[A-Z]/g, countKey: 'minUppercase', name: 'uppercase letter', defaultMin: 1 },
+      { flag: 'requireLowercase', regex: /[a-z]/g, countKey: 'minLowercase', name: 'lowercase letter', defaultMin: 1 },
+      { flag: 'requireNumbers', regex: /[0-9]/g, countKey: 'minNumbers', name: 'number', defaultMin: 1 },
+      { flag: 'requireSpecialChars', regex: /[^A-Za-z0-9]/g, countKey: 'minSpecialChars', name: 'special character', defaultMin: 1 },
+    ];
+    for (const check of policyChecks) {
+      if ((policy as any)[check.flag]) {
+        const min = ((policy as any)[check.countKey] as number) ?? check.defaultMin;
+        if ((newPassword.match(check.regex) || []).length < min) {
+          throw new AppError(400, 'POLICY_VIOLATION', `Password must contain at least ${min} ${check.name}(s)`);
+        }
+      }
     }
     if (policy.cannotBeUserId !== false && newPassword === user.username) throw new AppError(400, 'POLICY_VIOLATION', 'Password cannot be same as User ID');
     if (policy.cannotContainUserId !== false && newPassword.toLowerCase().includes(user.username.toLowerCase())) throw new AppError(400, 'POLICY_VIOLATION', 'Password cannot contain User ID');
@@ -374,7 +372,10 @@ export const authService = {
 
     const reuseCount = (policy.preventReuseCount as number) ?? 12;
     const history = await authRepository.getPasswordHistory(user.id, reuseCount);
-    for (const h of history) {
+    // Only check passwords from the last 12 months
+    const maxAge = 365 * 24 * 60 * 60 * 1000; // 12 months
+    const recentHistory = history.filter(h => (Date.now() - new Date(h.createdAt).getTime()) < maxAge);
+    for (const h of recentHistory) {
       const reused = await verifyPassword(newPassword, h.passwordHash);
       if (reused) throw new AppError(400, 'POLICY_VIOLATION', `Password cannot match any of your last ${reuseCount} passwords`);
     }

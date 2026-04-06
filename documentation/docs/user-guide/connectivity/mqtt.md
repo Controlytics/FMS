@@ -1,23 +1,49 @@
 # MQTT Setup
 
-Powered by EMQX broker.
+Powered by EMQX broker for real-time device connectivity.
 
 ## Connection
-- Host: your server IP, Port: 1883 (TCP) / 8883 (TLS)
-- Username: entity access token, Password: empty
-- WebSocket: 8083 (WS) / 8084 (WSS)
+| Parameter | Value |
+|-----------|-------|
+| Host | Server IP (e.g., 34.232.224.0) |
+| TCP Port | 1883 |
+| TLS Port | 8883 |
+| WebSocket | 8083 (WS) / 8084 (WSS) |
+| Username | Entity access token |
+| Password | (empty) |
 
 ## Topics
-- v1/devices/me/telemetry — send telemetry
-- v1/devices/me/attributes — update attributes
+| Topic | Purpose |
+|-------|---------|
+| `digilog/v1/<uns-path>/telemetry` | Send telemetry data |
+| `digilog/v1/<uns-path>/attributes` | Update device attributes |
+| `digilog/v1/<uns-path>/events` | Send device events |
+| `digilog/v1/<uns-path>/rpc/request` | Receive RPC commands (subscribe) |
+| `digilog/v1/<uns-path>/rpc/response` | Send RPC responses (publish) |
 
-## QoS
-0 (at most once), 1 (at least once, recommended), 2 (exactly once)
+## QoS Levels
+| QoS | Description | Recommendation |
+|-----|-------------|----------------|
+| 0 | At most once | Low-priority telemetry |
+| 1 | At least once | **Recommended** for most use cases |
+| 2 | Exactly once | Critical control messages |
 
-## Dashboard
-EMQX management at port 18083.
+## EMQX Dashboard
+Management interface available at port 18083 for:
+- Client connection monitoring
+- Topic subscription inspection
+- Message rate metrics
+- ACL rule management
 
+## Authentication Flow
+1. Device connects with access token as MQTT username
+2. EMQX calls DigiLog's MQTT auth webhook (`/api/mqtt/auth`)
+3. Token validated against device credentials database
+4. ACL rules applied based on entity UNS path (`/api/mqtt/acl`)
 
----
-
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.
+## MQTT + Rule Chain
+Incoming MQTT messages are processed through the data ingestion pipeline:
+1. EMQX webhook delivers message to DigiLog API
+2. BullMQ worker queues the message
+3. Rule chain engine evaluates the data against configured rules
+4. Actions fire (save to TimescaleDB, create alarms, send notifications)

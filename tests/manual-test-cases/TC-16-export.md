@@ -201,5 +201,11 @@
 - **Expected Result**: 400 validation error or empty results.
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2 Notes
+
+- Export endpoints apply to filter entities. Telemetry, attributes, and alarms for filter instances can be exported in CSV/JSON format.
+- Filter cleaning cycle history and events can be retrieved via GET /api/filter/cycles and GET /api/filter/events (these are list endpoints, not export endpoints).
+- Future: dedicated filter report export may be added.
 

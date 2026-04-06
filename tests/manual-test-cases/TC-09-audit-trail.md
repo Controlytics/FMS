@@ -5,7 +5,7 @@
 - **API Endpoints**: 4 (GET /, GET /:id, DELETE /:id, POST /bulk-delete)
 - **Frontend Pages**: /audit
 - **Permissions**: All authenticated users can read; DELETE and bulk-delete require CONFIG_UPDATE permission (SUPER_ADMIN)
-- **Key Facts**: SHA-256 checksum on {timestamp, userId, action, targetType, targetId, afterValue}. SUPER_ADMIN actions are NOT logged (21 CFR Part 11 exemption). Deletion is audit-logged before execution. 60+ audit action types.
+- **Key Facts**: SHA-256 checksum on {timestamp, userId, action, targetType, targetId, afterValue}. SUPER_ADMIN actions are NOT logged (21 CFR Part 11 exemption). Deletion is audit-logged before execution. 60+ audit action types including Phase 2 filter operations (FILTER_CYCLE_STARTED, FILTER_STAGE_ADVANCED, FILTER_STAGE_BYPASSED, FILTER_CHECKLIST_SUBMITTED, FILTER_CYCLE_COMPLETED).
 
 ---
 
@@ -251,5 +251,39 @@
 - **Expected Result**: Operation succeeds with count 0 (no records matched).
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2: Filter Operation Audit Test Cases
+
+### TC-09-P16: Audit Trail for Filter Cycle Start
+- **Priority**: High
+- **Preconditions**: Filter cycle started by non-SUPER_ADMIN user
+- **Test Data**: `action=FILTER_CYCLE_STARTED`
+- **Steps**:
+  1. Start a cleaning cycle as ADMIN user
+  2. Send GET /api/audit?action=FILTER_CYCLE_STARTED
+  3. Verify audit record includes filterId, cycleId, userId, and timestamp
+  4. Verify integrityValid is true
+- **Expected Result**: Filter cycle start is audit-logged with full traceability
+
+### TC-09-P17: Audit Trail for Filter Stage Bypass (Deviation)
+- **Priority**: High
+- **Preconditions**: Stage bypassed by non-SUPER_ADMIN user
+- **Test Data**: `action=FILTER_STAGE_BYPASSED`
+- **Steps**:
+  1. Bypass a filter stage as ADMIN user with deviation reason
+  2. Send GET /api/audit?action=FILTER_STAGE_BYPASSED
+  3. Verify audit record includes bypass reason, stage name, and deviation notes in afterValue
+  4. Verify integrityValid is true
+- **Expected Result**: Bypass deviations are fully audit-logged for regulatory compliance
+
+### TC-09-P18: Audit Trail for Filter Checklist Submission
+- **Priority**: Medium
+- **Preconditions**: Checklist submitted at a CHECKLIST node
+- **Test Data**: `action=FILTER_CHECKLIST_SUBMITTED`
+- **Steps**:
+  1. Submit a checklist at a pipeline CHECKLIST node
+  2. Send GET /api/audit?action=FILTER_CHECKLIST_SUBMITTED
+  3. Verify audit record includes checklist answers in afterValue
+- **Expected Result**: Checklist submissions are audit-logged with answer data
 

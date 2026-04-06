@@ -17,12 +17,17 @@
     "test:unit": "turbo run test --filter=@digilog/shared --filter=@digilog/api"
   },
   "devDependencies": {
+    "@types/sanitize-html": "^2.16.1",
     "puppeteer": "^24.37.5",
     "turbo": "^2.4.0",
+    "vite-plugin-pwa": "^1.2.0",
     "vitest": "^4.0.18"
   },
   "dependencies": {
     "html5-qrcode": "^2.3.8",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.7",
+    "sanitize-html": "^2.17.2",
     "typescript": "^6.0.2",
     "vite": "^7.3.1"
   }

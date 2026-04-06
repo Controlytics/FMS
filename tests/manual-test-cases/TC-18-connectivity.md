@@ -213,5 +213,11 @@
 - **Expected Result**: 400 Bad Request — customToken must be at least 8 characters
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2 Notes
+
+- Connectivity management applies to filter entities. Filters with IoT sensors can have device tokens for telemetry data ingestion.
+- Filter entities support the same connectivity features: token generation, MQTT/HTTP data transport, code snippets, and connection history.
+- The AHU dashboard relies on device connectivity to display real-time filter status.
 

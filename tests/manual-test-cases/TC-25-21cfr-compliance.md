@@ -7,8 +7,8 @@
 - **Key Implementation Details**:
   - SHA-256 checksummed audit trail entries with read-time integrity verification
   - ElectronicSignature model with full non-repudiation fields (signer identity, role, meaning, IP, user agent, record hash, signature hash)
-  - 47+ reauth actions across 13 categories requiring password re-verification before critical operations
-  - RBAC with 6 default roles, 39+ granular permissions, dynamic role management
+  - 52+ reauth actions across 14+ categories requiring password re-verification before critical operations (includes Phase 2 filter operations)
+  - RBAC with 6 default roles, 52+ granular permissions, dynamic role management (includes FILTER_VIEW, FILTER_MANAGE, FILTER_OPERATE)
   - Session management: single active session, 24h absolute timeout, configurable idle timeout, sliding window
   - Password policy: configurable complexity, history tracking, expiry, account lockout
   - Atomic transactions on all entity mutations with soft-delete preservation
@@ -189,7 +189,7 @@
 - **Preconditions**: Valid user account exists.
 - **Test Data**: username: admin, password: Admin@123 (or current password).
 - **Steps**:
-  1. Send POST /api/auth/login with `{ "username": "admin", "password": "Admin@123" }`.
+  1. Send POST /api/auth/login with `{ "username": "superadmin", "password": "Admin@123" }`.
   2. Verify response contains `token` (JWT) and `user` object.
   3. Verify the JWT contains claims: `sub` (userId), `username`, `role`, `sessionId`.
   4. Verify the session is created in the DB with `isActive: true`.
@@ -367,7 +367,7 @@
 - **Steps**:
   1. Send POST /api/auth/login with `{ "username": "nonexistent_user_xyz", "password": "AnyPassword@1" }`.
   2. Note the response body and status code.
-  3. Send POST /api/auth/login with `{ "username": "admin", "password": "WrongPassword@1" }`.
+  3. Send POST /api/auth/login with `{ "username": "superadmin", "password": "WrongPassword@1" }`.
   4. Note the response body and status code.
   5. Compare both responses: verify the error messages are identical (e.g., "Invalid credentials").
   6. Verify both return `attemptsRemaining` in the response (even for non-existent users).
@@ -814,5 +814,58 @@
 - **Expected Result**: SUPER_ADMIN audit records cannot be deleted because they were never created. The `auditLog()` function returns early when `entry.userRole === 'SUPER_ADMIN'`. This exemption is a deliberate regulatory design decision.
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2: Filter Management 21 CFR Compliance Test Cases
+
+### TC-25-P37: Filter Stage Bypass Requires Reauth (Electronic Signature)
+- **Priority**: High
+- **Regulation**: SS11.100, SS11.50 — Electronic signature for deviation
+- **Preconditions**: Active cleaning cycle at a STAGE node. Reauth enabled for BYPASS_FILTER_STAGE.
+- **Test Data**: Filter instance ID, bypass reason.
+- **Steps**:
+  1. Attempt POST /api/filters/:id/bypass WITHOUT reauth password.
+  2. Verify 401 REAUTH_REQUIRED with action BYPASS_FILTER_STAGE.
+  3. Retry with _currentPassword — verify 200 success.
+  4. Verify audit trail entry FILTER_STAGE_BYPASSED with deviation reason.
+  5. Verify the bypass event includes the signer's identity (userId, role, IP).
+- **Expected Result**: Stage bypass (deviation) requires electronic signature via reauth. Full audit trail captures the deviation for regulatory compliance.
+
+### TC-25-P38: Filter Checklist Submission Audit Trail
+- **Priority**: High
+- **Regulation**: SS11.10(e) — Audit trail for filter operations
+- **Preconditions**: Filter at a CHECKLIST node with pending checklist.
+- **Test Data**: Checklist answers.
+- **Steps**:
+  1. Submit checklist answers via POST /api/filters/:id/submit-checklist.
+  2. Query audit trail for FILTER_CHECKLIST_SUBMITTED action.
+  3. Verify audit record includes question IDs, answers, and submitter identity.
+  4. Verify integrityValid is true (SHA-256 checksum).
+- **Expected Result**: Checklist submissions are fully audit-logged with answer data, supporting 21 CFR Part 11 traceability.
+
+### TC-25-P39: Filter Cleaning Cycle Traceability
+- **Priority**: High
+- **Regulation**: SS11.10(a), SS11.10(e) — Accuracy and completeness of records
+- **Preconditions**: A completed cleaning cycle exists.
+- **Test Data**: Filter instance ID.
+- **Steps**:
+  1. Send GET /api/filter/cycles to list cycles.
+  2. Verify cycle record includes startedAt, completedAt, all stage transitions.
+  3. Send GET /api/filter/events to list events.
+  4. Verify complete event chain: CYCLE_STARTED, STAGE_ADVANCED (for each stage), any BYPASS events, CHECKLIST_SUBMITTED events, CYCLE_COMPLETED.
+  5. Verify each event has timestamp, userId, and details.
+- **Expected Result**: Complete cleaning cycle traceability from start to completion with all intermediate events recorded.
+
+### TC-25-N21: Filter Operations Without FILTER_OPERATE Permission
+- **Priority**: High
+- **Regulation**: SS11.10(d) — Limiting system access
+- **Preconditions**: Authenticated as VIEWER (no FILTER_OPERATE permission).
+- **Test Data**: Valid filter instance ID.
+- **Steps**:
+  1. Attempt POST /api/filters/:id/start-cycle — verify 403.
+  2. Attempt POST /api/filters/:id/advance — verify 403.
+  3. Attempt POST /api/filters/:id/submit-checklist — verify 403.
+  4. Attempt POST /api/filters/:id/bypass — verify 403.
+  5. Attempt GET /api/filters/:id/current-state — may be 403 (requires FILTER_VIEW).
+- **Expected Result**: All filter operations blocked without appropriate permissions. RBAC enforces FILTER_OPERATE for write operations and FILTER_VIEW for read operations.
 

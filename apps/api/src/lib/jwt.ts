@@ -4,8 +4,9 @@ import { randomBytes } from 'node:crypto';
 function getSecret(envVar: string, name: string): Uint8Array {
   const value = process.env[envVar];
   if (!value || value.length < 32) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error(`FATAL: ${envVar} must be set to a string of at least 32 characters in production.`);
+    const nodeEnv = process.env.NODE_ENV?.toLowerCase();
+    if (nodeEnv === 'production' || nodeEnv === 'staging') {
+      throw new Error(`FATAL: ${envVar} must be set to a string of at least 32 characters in production/staging.`);
     }
     const generated = randomBytes(32).toString('hex');
     console.warn(`WARNING: ${envVar} not set or too short. Using random secret for this session. Set ${envVar} in .env for persistent sessions.`);

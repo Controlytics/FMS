@@ -1,5 +1,65 @@
 # Changelog
 
+## Phase 2: Digital Filter Management System (2026-03-27)
+
+### New Backend Modules
+- **cleaning-profiles**: Pipeline profile CRUD with visual editor support (stages, connections)
+- **filter-profiles**: Filter-to-cleaning-profile assignment management
+- **filter-operations**: Core operations — cycle start, advance, bypass, checklist submission, events
+- **pm-schedules**: Preventive maintenance scheduling with entries and execution tracking
+- **checklist-profiles**: Checklist template management with configurable questions
+- **equipment-groups**: AHU equipment grouping with instrument assignments
+
+### New Database Models (13 Prisma models)
+- FilterCleaningProfile, FilterPipelineStage, FilterPipelineConnection
+- FilterProfile, CleaningCycle, FilterEvent
+- EquipmentGroup, EquipmentGroupInstrument
+- ChecklistProfile, ChecklistQuestion
+- PmSchedule, PmScheduleEntry, PmExecution
+
+### New Enums (9)
+- PmScheduleStatus, PmExecutionStatus, FilterSetLabel
+- PipelineFlowMode, PipelineNodeType, CleaningCycleStatus
+- FilterEventType, BlockRestriction, ChecklistQuestionType
+
+### Frontend Pages Added
+- Filter operations page (start/advance/bypass/checklist)
+- Filter profiles management
+- Cleaning cycle history with timeline view
+- Cleaning profile editor (visual pipeline builder)
+- AHU dashboard
+- Filter traceability view
+- Filter status/scan pages
+- PM schedule management
+- Checklist profile management
+- Bulk filter upload
+- Equipment group management
+- Filter retirement and replacement workflows
+
+### Quality Audit
+- 43 issues identified, 35 fixed across security, compliance, logic, and UI
+- Comprehensive security review of all Phase 2 endpoints
+- Input sanitization applied to all filter management text fields
+
+## Phase 3 Enhancements (2026-03 to 2026-04)
+
+### Bulk Upload & Data Management
+- Bulk filter upload via CSV/Excel
+- Filter retirement and replacement workflows
+- Equipment group management with instrument linking
+
+### UI Improvements
+- Unified light theme across all pages (bg-white, text-slate-800, no dark theme)
+- Filters page redesign with improved status visualization
+- Mobile PWA/APK support via Capacitor (apps/android/)
+
+### Infrastructure
+- Windows local development setup (start-digilog.bat / stop-digilog.bat)
+- Redis 5, EMQX, PostgreSQL 18, API via tsx watch, Frontend via Vite
+- Android build support with JDK21 + Android SDK + Capacitor
+
+---
+
 ## [2026-03-24] - Tenant Layer Removal
 - Removed tenant/multi-tenant architecture entirely
 - SUPER_ADMIN now manages Organizations directly
@@ -8,7 +68,7 @@
 - Changed /api/tenant/* routes to /api/organizations/*
 - Simplified role hierarchy: 7 roles instead of 8
 
-## Recent Changes (March 2026)
+## Earlier Changes (March 2026)
 
 ### LDAP Integration
 - Added LDAP/Active Directory authentication support
@@ -45,24 +105,14 @@
 - Hardened OAuth2 logging (removed secret logging)
 - Git baseline created for safe rollback
 
-### Earlier Changes
+### Core Infrastructure
 - Template alarm rule evaluation during telemetry ingestion
 - Audit trail UUID migration
 - QR scan checklist fix
-- Config registry system with auto-discovery
+- Config registry system with auto-discovery (23 config definitions)
 - Real-time auto-refresh via SWR polling and WebSocket
-- Data ingestion pipeline (8-stage processing)
+- Data ingestion pipeline (10-stage processing)
 - TimescaleDB hypertables for telemetry
-
-
-## Phase 2: Digital Filter Management System (2026-03-27)
-
-### Overview
-Complete digital filter cleaning lifecycle management for pharmaceutical cleanrooms. Supports configurable cleaning pipelines with checklist gates, 8 cleaning stages, dual filter sets, PM scheduling, and full traceability.
-
-### Key Components
-- **5 backend modules**: cleaning-profiles, filter-profiles, filter-operations, pm-schedules, checklist-profiles
-- **12+ frontend pages**: operations, profiles, cycles, checklists, PM, AHU dashboard, traceability, config
-- **9 database tables**: filter_cleaning_profiles, filter_pipeline_stages, filter_pipeline_connections, filter_profiles, cleaning_cycles, filter_events, pm_schedules, pm_schedule_entries, pm_executions
-- **Quality audit**: 43 issues found and 35 fixed (security, compliance, logic, UI)
-
+- Notification system: email, SMS (Twilio/AWS SNS/Vonage/HTTP), in-app
+- 77 rule chain node types across 8 categories
+- Input sanitization for XSS prevention on all text fields

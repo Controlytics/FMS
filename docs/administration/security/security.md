@@ -4,7 +4,8 @@
 - JWT tokens with 30-minute auto-refresh
 - Session management with idle timeout and warning
 - Single-tab enforcement per user
-- Re-authentication required for sensitive operations
+- Re-authentication required for sensitive operations (managed via `action-reauth` config)
+- Configurable login security (lockout after failed attempts, via `login-security` config)
 
 ## Input Sanitization
 All text inputs are sanitized to strip HTML tags (XSS prevention) via lib/sanitize.ts.
@@ -20,8 +21,17 @@ All text inputs are sanitized to strip HTML tags (XSS prevention) via lib/saniti
 - TimescaleDB compression for data at rest
 - SHA-256 hash-chain audit trail
 - Backup integrity verification
+- Organization scoping ensures cross-tenant data isolation
 
+## Password Policy
+Configurable via `password-policy` config:
+- Complexity requirements (min length, uppercase, lowercase, numbers, special chars)
+- Password history (prevent reuse)
+- Password expiration
+- Account lockout after failed attempts
 
----
-
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.
+## Phase 2 Filter Security
+- All filter state transitions require authenticated user context
+- Bypass operations require FILTER_BYPASS privilege and deviation justification
+- Checklist submissions within pipeline are bound by electronic signatures
+- Organization-scoped data isolation for multi-tenant filter management

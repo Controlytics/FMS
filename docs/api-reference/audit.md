@@ -1,9 +1,16 @@
-# API Reference: audit
+# API Reference: Audit
 
-See the interactive Swagger UI at /docs for complete endpoint documentation with request/response schemas.
+See the interactive Swagger UI at `/docs` for complete endpoint documentation with request/response schemas.
 
-Refer to the [API Guide](../../API_GUIDE.md) for endpoint summaries and examples.
+## Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/audit | List audit entries (filter: action, user, entity, date range) |
+| GET | /api/audit/:id | Get audit entry detail |
+| POST | /api/export/audit | Export audit trail (CSV/JSON/PDF) |
 
+## Audit Entry Fields
+Timestamp, User, Role, Action, Target, Before/After Value, IP, User Agent, Session ID, Checksum (SHA-256 hash-chain)
 
-> **Note:** Phase 2 adds filter management endpoints. See API_GUIDE.md for the full Phase 2 API reference including filter operations, cleaning profiles, checklist profiles, and PM schedules.
-
+## Audited Actions
+Core operations (login, CRUD, config changes) plus Phase 2 filter operations (cycle start/advance/complete, bypass, checklist submission, PM execution, retirement/replacement).

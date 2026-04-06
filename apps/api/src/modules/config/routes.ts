@@ -6,6 +6,8 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { buildContext } from '../../lib/build-context.js';
 import { configService } from './config.service.js';
 import { configRepository } from './config.repository.js';
+import { prisma } from '../../lib/prisma.js';
+import { auditLog } from '../../lib/audit.js';
 
 // Map config keys to reauth action names
 const CONFIG_KEY_TO_ACTION: Record<string, string> = {
@@ -768,5 +770,59 @@ export default async function configRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     return configService.getMyActions(req.user.role);
+  });
+
+  // ====== Cleaning Profile Assignment Configuration ======
+
+  // GET /api/config/cleaning-profile-assignment
+  app.get('/cleaning-profile-assignment', {
+    preHandler: [app.requirePermission('CONFIG_READ')],
+    schema: {
+      tags: ['Config'],
+      summary: 'Get cleaning profile assignment configuration',
+      response: { 200: { type: 'object', additionalProperties: true } },
+    },
+  }, async () => {
+    const row = await prisma.systemConfig.findUnique({ where: { configKey: 'cleaning-profile-assignment' } });
+    return row?.configValue ?? { mode: 'BY_ENTITY', rules: [] };
+  });
+
+  // PUT /api/config/cleaning-profile-assignment
+  app.put('/cleaning-profile-assignment', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Config'],
+      summary: 'Update cleaning profile assignment configuration',
+      body: {
+        type: 'object',
+        required: ['mode', 'rules'],
+        properties: {
+          mode: { type: 'string', enum: ['BY_FILTER_SIZE', 'BY_ENTITY', 'BY_AHU', 'BY_BLOCK', 'BY_FILTER_SET'] },
+          rules: { type: 'array', items: { type: 'object', additionalProperties: true } },
+        },
+      },
+      response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } } },
+    },
+  }, async (req) => {
+    const body = req.body as { mode: string; rules: any[] };
+    const ctx = buildContext(req);
+
+    const existing = await prisma.systemConfig.findUnique({ where: { configKey: 'cleaning-profile-assignment' } });
+
+    await prisma.systemConfig.upsert({
+      where: { configKey: 'cleaning-profile-assignment' },
+      update: { configValue: body },
+      create: { configKey: 'cleaning-profile-assignment', configValue: body as any, configType: 'filter' },
+    });
+
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'CONFIG_CHANGED',
+      targetType: 'system_config', targetId: 'cleaning-profile-assignment',
+      beforeValue: existing?.configValue,
+      afterValue: body,
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+
+    return { success: true };
   });
 }

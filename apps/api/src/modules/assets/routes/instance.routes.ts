@@ -4,6 +4,7 @@ import { buildContext } from '../../../lib/build-context.js';
 import { errorResponses } from '../../../lib/error-schemas.js';
 import { createAssetInstanceSchema, updateAssetInstanceSchema, assetQuerySchema } from '@digilog/shared';
 import { instanceService } from '../services/instance.service.js';
+import { bulkUploadFilters } from '../services/bulk-upload-filter.service.js';
 
 export default async function instanceRoutes(app: FastifyInstance) {
 
@@ -47,6 +48,11 @@ export default async function instanceRoutes(app: FastifyInstance) {
                   createdAt: { type: 'string' },
                   updatedAt: { type: 'string' },
                   createdBy: { type: 'string' },
+                  filterProfileId: { type: ['string', 'null'], nullable: true },
+                  currentLifecycleState: { type: ['string', 'null'], nullable: true },
+                  currentCycleId: { type: ['string', 'null'], nullable: true },
+                  filterSet: { type: ['string', 'null'], nullable: true },
+                  organizationId: { type: ['string', 'null'], nullable: true },
                   template: {
                     type: 'object',
                     properties: { name: { type: 'string' }, icon: { type: 'string' } },
@@ -87,6 +93,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
           ],
         },
         select: { entityId: true },
+        take: 10000,
       });
 
       const templateAssignments = await prisma.templateAssignment.findMany({
@@ -97,6 +104,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
           ],
         },
         select: { templateId: true },
+        take: 10000,
       });
 
       const assignedEntityIds = entityAssignments.map((a: any) => a.entityId);
@@ -163,6 +171,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
           { assigneeType: "ROLE", roleValue: role },
         ]},
         select: { entityId: true },
+        take: 10000,
       });
       const templateAssignments = await prisma.templateAssignment.findMany({
         where: { OR: [
@@ -170,6 +179,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
           { assigneeType: "USER", userId },
         ]},
         select: { templateId: true },
+        take: 10000,
       });
       const eIds = entityAssignments.map((a: any) => a.entityId);
       const tIds = templateAssignments.map((a: any) => a.templateId);
@@ -249,6 +259,78 @@ export default async function instanceRoutes(app: FastifyInstance) {
     return reply.code(201).send({ success: true, data: instance });
   });
 
+  // POST /instances/bulk-upload-filters — Bulk create filters from CSV
+  app.post('/instances/bulk-upload-filters', {
+    preHandler: [app.requirePermission('ASSET_CREATE')],
+    schema: {
+      tags: ['Entities'],
+      summary: 'Bulk upload filters from CSV',
+      description: 'Upload a CSV file to create multiple filter instances under an AHU. CSV columns: name, filterSet (A/B), filterProfileId (optional).',
+      consumes: ['multipart/form-data'],
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            created: { type: 'integer' },
+            failed: { type: 'integer' },
+            results: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  row: { type: 'integer' },
+                  name: { type: 'string' },
+                  status: { type: 'string' },
+                  id: { type: 'string' },
+                  error: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    try {
+      let csvBuffer: Buffer | null = null;
+      let ahuId = '';
+      let blockId = '';
+
+      const parts = req.parts();
+      for await (const part of parts) {
+        if (part.type === 'file' && part.fieldname === 'file') {
+          const chunks: Buffer[] = [];
+          for await (const chunk of part.file) {
+            chunks.push(chunk);
+          }
+          csvBuffer = Buffer.concat(chunks);
+        } else if (part.type === 'field' && part.fieldname === 'ahuId') {
+          ahuId = (part.value as string) ?? '';
+        } else if (part.type === 'field' && part.fieldname === 'blockId') {
+          blockId = (part.value as string) ?? '';
+        }
+      }
+
+      if (!csvBuffer || csvBuffer.length === 0) {
+        return reply.code(400).send({ error: 'VALIDATION', message: 'CSV file is required' });
+      }
+      if (!ahuId) {
+        return reply.code(400).send({ error: 'VALIDATION', message: 'ahuId is required' });
+      }
+
+      const result = await bulkUploadFilters(csvBuffer, ahuId, blockId || undefined, buildContext(req));
+      return { success: true, ...result };
+    } catch (err: any) {
+      if (err.statusCode === 415 || err.message?.includes('multipart')) {
+        return reply.code(400).send({ error: 'INVALID_REQUEST', message: 'Request must be multipart/form-data' });
+      }
+      app.log.error(err);
+      return reply.code(500).send({ error: 'UPLOAD_FAILED', message: err.message ?? 'Bulk upload failed' });
+    }
+  });
+
   // 11. PUT /instances/:id — Update instance
   app.put('/instances/:id', {
     preHandler: [app.requirePermission('ASSET_UPDATE')],
@@ -315,6 +397,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
         required: ['status'],
         properties: {
           status: { type: 'string', description: 'New status value' },
+          remarks: { type: 'string', description: 'Reason for status change' },
         },
       },
       response: {
@@ -333,8 +416,53 @@ export default async function instanceRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     const { id } = req.params as { id: string };
-    const body = req.body as { status: string };
-    const instance = await instanceService.changeStatus(id, body.status, buildContext(req));
+    const body = req.body as { status: string; remarks?: string };
+    const instance = await instanceService.changeStatus(id, body.status, buildContext(req), body.remarks);
+    return { success: true, data: instance };
+  });
+
+  // 12b. PATCH /instances/:id/lifecycle-state — Manual lifecycle state update
+  app.patch('/instances/:id/lifecycle-state', {
+    preHandler: [app.requirePermission('ASSET_UPDATE')],
+    schema: {
+      tags: ['Entities'],
+      summary: 'Manually update filter lifecycle state',
+      description: 'Update the currentLifecycleState of a filter instance. Requires re-authentication.',
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: { id: { type: 'string', format: 'uuid' } },
+      },
+      body: {
+        type: 'object',
+        required: ['lifecycleState', 'remarks'],
+        properties: {
+          lifecycleState: {
+            type: 'string',
+            enum: ['INSTALLED', 'WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN', 'STORAGE_OUT', 'IN_USE'],
+            description: 'New lifecycle state',
+          },
+          remarks: { type: 'string', minLength: 1, description: 'Reason for manual state change' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            data: { type: 'object', additionalProperties: true },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_ASSET', req, reply);
+    if (!ok) return;
+
+    const { id } = req.params as { id: string };
+    const body = req.body as { lifecycleState: string; remarks: string };
+    const instance = await instanceService.changeLifecycleState(id, body.lifecycleState, buildContext(req), body.remarks);
     return { success: true, data: instance };
   });
 

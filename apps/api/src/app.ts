@@ -58,6 +58,9 @@ import { AppError } from './lib/errors.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
 import cleaningProfileRoutes from './modules/cleaning-profiles/routes.js';import checklistProfileRoutes from './modules/checklist-profiles/routes.js';import filterProfileRoutes from './modules/filter-profiles/routes.js';
 import pmScheduleRoutes from './modules/pm-schedules/routes.js';import pmExecutionRoutes from './modules/pm-schedules/execution-routes.js';import filterOperationsRoutes from './modules/filter-operations/routes.js';import filterEventsRoutes from './modules/filter-operations/events-routes.js';
+import equipmentGroupRoutes from './modules/equipment-groups/routes.js';
+import deploymentCheckRoutes from './modules/deployment-check/routes.js';
+import adminRequestRoutes from './modules/admin-requests/routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -113,6 +116,9 @@ await app.register(auditLoggerPlugin);
 await app.register(authPlugin);
 await app.register(rbacPlugin);
 
+// Rate limiter for error notifications (max 1 per minute)
+let lastErrorNotification = 0;
+
 // Global error handler — maps AppError to HTTP responses
 app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
   if (err instanceof AppError) {
@@ -146,20 +152,24 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
   }
   // Genuine internal errors
   app.log.error(err);
-  // Dispatch SYSTEM_ERROR notification (fire-and-forget, don't block error response)
-  dispatchNotification({
-    eventType: 'SYSTEM_ERROR',
-    context: {},
-    variables: {
-      errorType: err.constructor?.name ?? 'Error',
-      errorMessage: err.message ?? 'Unknown error',
-      url: _req.url ?? 'N/A',
-      timestamp: new Date().toISOString(),
-    },
-  }).catch(() => {}); // Silently ignore dispatch errors to avoid infinite loops
+  // Dispatch SYSTEM_ERROR notification (fire-and-forget, rate-limited to 1 per minute)
+  const now = Date.now();
+  if (now - lastErrorNotification > 60000) {
+    lastErrorNotification = now;
+    dispatchNotification({
+      eventType: 'SYSTEM_ERROR',
+      context: {},
+      variables: {
+        errorType: err.constructor?.name ?? 'Error',
+        errorMessage: err.message ?? 'Unknown error',
+        url: _req.url ?? 'N/A',
+        timestamp: new Date().toISOString(),
+      },
+    }).catch(() => {}); // Silently ignore dispatch errors to avoid infinite loops
+  }
   return reply.code(err.statusCode ?? 500).send({
     error: 'INTERNAL_ERROR',
-    message: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message,
+    message: process.env.NODE_ENV === 'production' ? 'Internal server error' : (err.message || 'Internal server error').substring(0, 200),
   });
 });
 
@@ -186,7 +196,17 @@ app.get('/api/health', {
       },
     },
   },
-}, async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
+}, async (_req, reply) => {
+  try {
+    const { prisma } = await import('@digilog/db');
+    await prisma.$queryRaw`SELECT 1`;
+    const { healthCheck } = await import('@digilog/db');
+    const tsdbOk = await healthCheck();
+    return { status: 'ok', db: 'connected', tsdb: tsdbOk ? 'connected' : 'error' };
+  } catch (err) {
+    return reply.code(503 as any).send({ status: 'error', db: 'disconnected' });
+  }
+});
 
 // Auto-discover config module definitions
 await discoverAndRegisterConfigs();
@@ -227,7 +247,10 @@ await app.register(orgAdminRoutes, { prefix: "/api/org" });
 await app.register(entityAssignmentRoutes, { prefix: "/api/entity-assignments" });
 await app.register(dashboardRoutes, { prefix: "/api/dashboards" });
 await app.register(cleaningProfileRoutes, { prefix: '/api/filter-cleaning-profiles' });await app.register(checklistProfileRoutes, { prefix: '/api/checklist-profiles' });await app.register(filterProfileRoutes, { prefix: '/api/filter-profiles' });
-await app.register(pmScheduleRoutes, { prefix: '/api/pm-schedules' });await app.register(pmExecutionRoutes, { prefix: '/api/pm-executions' });await app.register(filterOperationsRoutes, { prefix: '/api/filters' });await app.register(filterEventsRoutes, { prefix: '/api/filter' });
+await app.register(pmScheduleRoutes, { prefix: '/api/pm-schedules' });await app.register(pmExecutionRoutes, { prefix: '/api/pm-executions' });await app.register(filterOperationsRoutes, { prefix: '/api/filters' });await app.register(filterEventsRoutes, { prefix: '/api/filters' });
+await app.register(equipmentGroupRoutes, { prefix: '/api/equipment-groups' });
+await app.register(deploymentCheckRoutes, { prefix: '/api/deployment-check' });
+await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
 await app.register(wsHandler);
 
 // Initialize rule chain node registry
@@ -284,6 +307,12 @@ try {
 // Graceful shutdown
 const shutdown = async (signal: string) => {
   app.log.info(`Received ${signal}, shutting down gracefully...`);
+  const shutdownTimeout = setTimeout(() => {
+    console.error('[SHUTDOWN] Timed out after 15s, forcing exit');
+    process.exit(1);
+  }, 15000);
+  shutdownTimeout.unref();
+
   try {
     await stopIngestionWorker();
     await stopMaintenanceWorker();
@@ -295,6 +324,8 @@ const shutdown = async (signal: string) => {
     await closeTracerRedis();
     await closeDebugRedis();
     await app.close();
+    try { const { closeTsdbPool } = await import('@digilog/db'); await closeTsdbPool(); } catch {}
+    try { const { closeRedisConnection } = await import('@digilog/queue'); await closeRedisConnection(); } catch {}
   } catch (err) {
     app.log.error(err as Error, 'Error during shutdown');
   }

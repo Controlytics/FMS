@@ -1,11 +1,11 @@
 # Deployment Guide
 
 ## Current Production Server
-- **IP:** 44.213.157.198
+- **IP:** 34.232.224.0 (may change on restart)
 - **Region:** us-east-1 (N. Virginia)
 - **Instance:** AWS EC2 (Ubuntu)
-- **SSH Key:** `multi-tenant-ldapp-key.pem`
-- **SSH:** `ssh -i multi-tenant-ldapp-key.pem ubuntu@44.213.157.198`
+- **SSH Key:** `21cfrbook.pem`
+- **SSH:** `ssh -i ~/Downloads/21cfrbook.pem ubuntu@34.232.224.0`
 
 ## Services Running
 | Service | Port | Manager |
@@ -13,34 +13,46 @@
 | Nginx | 80/443 | systemd |
 | Fastify API | 3000 | PM2 |
 | PostgreSQL | 5432 | systemd |
-| TimescaleDB | 5433 | systemd |
 | Redis | 6379 | systemd |
 | EMQX MQTT | 1883/8083/18083 | systemd |
 
-## Build Process
+## Key URLs
+| URL | Purpose |
+|-----|---------|
+| http://34.232.224.0 | Application (frontend) |
+| http://34.232.224.0/docs | Swagger API docs |
+| http://34.232.224.0:18083 | EMQX Management Console |
+
+## Default Login
+- **Username:** superadmin
+- **Password:** Admin@123
+
+## Build & Deploy Process
 ```bash
 # SSH into server
-ssh -i multi-tenant-ldapp-key.pem ubuntu@44.213.157.198
+ssh -i ~/Downloads/21cfrbook.pem ubuntu@34.232.224.0
 
 # Navigate to project
 cd /home/ubuntu/21cfrlogbook
 
-# Pull latest code (if using git remote)
-git pull origin main
+# Pull latest code
+git pull origin DigitalFMS
 
 # Install dependencies (if package.json changed)
 npm install
 
-# Build everything (Turborepo)
-npm run build
-# This runs:
-#   1. packages/shared → TypeScript compile
-#   2. packages/db → Prisma generate
-#   3. apps/api → TypeScript compile (output: dist/)
-#   4. apps/web → Vite build (output: dist/)
+# Build backend (TypeScript compile)
+npx tsc -p apps/api/tsconfig.json
 
-# Restart API
+# IMPORTANT: Always compile TypeScript BEFORE restarting PM2 (PM2 runs compiled JS)
 pm2 restart digilog-api
+
+# Build frontend
+cd apps/web && npx vite build
+# Output goes to apps/web/dist/ (served by Nginx)
+
+# Rebuild shared packages (if shared types changed)
+npx nx build shared && npx nx build db && npx nx build queue
 
 # Verify
 curl http://localhost:3000/api/health
@@ -52,14 +64,16 @@ curl http://localhost:3000/api/health
 ```bash
 NODE_ENV=production
 API_PORT=3000
-DATABASE_URL=postgresql://digilog:digilog123@localhost:5432/digilog_db?schema=public
+DATABASE_URL=postgresql://digilog:digilog123@localhost:5432/digilog_tsdb?schema=public
 TSDB_HOST=localhost
-TSDB_PORT=5433
+TSDB_PORT=5432
 REDIS_HOST=localhost
 MQTT_ENABLED=true
 MQTT_BROKER_HOST=localhost
 MQTT_BROKER_PORT=1883
 ```
+
+**Note:** The database name is `digilog_tsdb`, NOT `digilog_db`.
 
 ### Nginx Configuration
 Nginx serves:
@@ -78,13 +92,21 @@ pm2 save                    # Save current process list
 pm2 startup                 # Auto-start on server reboot
 ```
 
-## Database Backup
+## Database Management
 ```bash
 # Backup
-pg_dump -U digilog digilog_db > backup_$(date +%Y%m%d).sql
+pg_dump -U digilog digilog_tsdb > backup_$(date +%Y%m%d).sql
 
 # Restore
-psql -U digilog digilog_db < backup_20260323.sql
+psql -U digilog digilog_tsdb < backup_20260323.sql
+
+# Run Prisma migrations
+cd apps/api
+npx prisma migrate deploy
+npx prisma generate
+
+# Seed data (roles, super admin, default org)
+npx prisma db seed
 ```
 
 ## Rollback
@@ -94,8 +116,9 @@ git log --oneline -10
 
 # Rollback to specific commit
 git checkout <commit_hash> -- apps/
-npm run build
+npx tsc -p apps/api/tsconfig.json
 pm2 restart digilog-api
+cd apps/web && npx vite build
 ```
 
 ## Health Checks
@@ -107,7 +130,7 @@ curl http://localhost:3000/api/health
 pm2 list
 
 # PostgreSQL
-psql -U digilog -d digilog_db -c "SELECT 1;"
+psql -U digilog -d digilog_tsdb -c "SELECT 1;"
 
 # Redis
 redis-cli ping
@@ -116,15 +139,34 @@ redis-cli ping
 mosquitto_pub -t test -m "hello" -h localhost
 ```
 
+## Windows Local Development
 
-## Phase 2: Digital Filter Management System (2026-03-27)
+### Prerequisites
+- Redis 5 (Windows build)
+- EMQX MQTT Broker
+- PostgreSQL 18
+- Node.js 20+
 
-### Overview
-Complete digital filter cleaning lifecycle management for pharmaceutical cleanrooms. Supports configurable cleaning pipelines with checklist gates, 8 cleaning stages, dual filter sets, PM scheduling, and full traceability.
+### Start/Stop Scripts
+```bash
+# Start all services and dev servers
+start-digilog.bat
 
-### Key Components
-- **5 backend modules**: cleaning-profiles, filter-profiles, filter-operations, pm-schedules, checklist-profiles
-- **12+ frontend pages**: operations, profiles, cycles, checklists, PM, AHU dashboard, traceability, config
-- **9 database tables**: filter_cleaning_profiles, filter_pipeline_stages, filter_pipeline_connections, filter_profiles, cleaning_cycles, filter_events, pm_schedules, pm_schedule_entries, pm_executions
-- **Quality audit**: 43 issues found and 35 fixed (security, compliance, logic, UI)
+# Stop all services
+stop-digilog.bat
+```
 
+### Manual Start
+```bash
+# API (with hot reload)
+cd apps/api
+npx tsx watch src/app.ts
+
+# Frontend (with hot reload)
+cd apps/web
+npx vite
+
+# Backend: http://localhost:3000
+# Frontend: http://localhost:5173
+# Swagger: http://localhost:3000/docs
+```

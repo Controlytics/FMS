@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { loginSchema, type LoginInput } from '@digilog/shared';
 import { useAuth } from '@/hooks/use-auth';
 import { useBranding } from '@/hooks/use-branding';
+import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -20,6 +21,7 @@ export function LoginPage() {
     return <Navigate to={returnUrl} replace />;
   }
   const { branding } = useBranding();
+  const { formatDateTime } = useDatetimeFormat();
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
@@ -261,8 +263,15 @@ export function LoginPage() {
               </Button>
             </form>
 
+            {/* Contact Admin */}
+            <div className="mt-4 text-center">
+              <a href="/contact-admin" className="text-sm font-medium text-cyan-600 hover:text-cyan-700 hover:underline">
+                Contact Admin
+              </a>
+            </div>
+
             {/* Company info */}
-            <div className="mt-8 pt-6 border-t border-slate-200 text-center">
+            <div className="mt-6 pt-6 border-t border-slate-200 text-center">
               <p className="text-base font-bold text-slate-700">{branding.companyName}</p>
               <p className="text-sm text-slate-500 mt-1 font-semibold">Version {branding.version}</p>
             </div>
@@ -372,7 +381,7 @@ export function LoginPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   <span className="text-sm text-slate-700">
-                    <span className="font-medium">Logged in:</span> {new Date(sessionConflict.loginTime).toLocaleString()}
+                    <span className="font-medium">Logged in:</span> {formatDateTime(sessionConflict.loginTime)}
                   </span>
                 </div>
               </div>

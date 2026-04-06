@@ -5,6 +5,7 @@ import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
 
 // ─── Email Types & Constants ──────────────────────────────────────────
 interface EmailConfig {
@@ -137,6 +138,7 @@ function ChannelSettingsPage({ defaultTab = 'email' }: { defaultTab?: 'email' | 
 
 // ─── Email Tab ────────────────────────────────────────────────────────
 function EmailTab() {
+  const { formatDateTime } = useDatetimeFormat();
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [testing, setTesting] = useState(false);
@@ -518,7 +520,7 @@ function EmailTab() {
                             {oauth2Status.hasRefreshToken && ' (with refresh token)'}
                             {oauth2Status.tokenExpiresAt && (
                               <span className="text-green-500 ml-1">
-                                {' \u2014 expires ' + new Date(oauth2Status.tokenExpiresAt).toLocaleString()}
+                                {' \u2014 expires ' + formatDateTime(oauth2Status.tokenExpiresAt)}
                               </span>
                             )}
                           </span>

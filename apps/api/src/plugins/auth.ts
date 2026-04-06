@@ -51,7 +51,7 @@ const PUBLIC_PATHS = [
 ];
 
 // Paths that are public only for GET requests
-const PUBLIC_GET_PATHS = ['/api/config/branding', '/api/config/datetime/current', '/uploads/'];
+const PUBLIC_GET_PATHS = ['/api/config/branding', '/api/config/datetime/current', '/uploads/photos/', '/uploads/branding/', '/api/roles/active'];
 
 async function authPlugin(app: FastifyInstance) {
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
@@ -60,6 +60,9 @@ async function authPlugin(app: FastifyInstance) {
 
     // Paths that are public only for GET requests
     if (req.method === 'GET' && PUBLIC_GET_PATHS.some((p) => req.url.startsWith(p))) return;
+
+    // POST /api/admin-requests — public submit (but GET/other methods require auth)
+    if (req.method === 'POST' && req.url === '/api/admin-requests') return;
 
     const header = req.headers.authorization;
     if (!header?.startsWith('Bearer ')) {

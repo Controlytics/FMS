@@ -13,12 +13,14 @@ import { AuditTable } from './components/audit-table';
 import { AuditDetailModal } from './components/audit-detail-modal';
 import { AuditPagination } from './components/audit-pagination';
 import { AuditDeleteDialog } from './components/audit-delete-dialog';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 export function AuditTrailPage() {
   const { user } = useAuth();
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
   const paginationOptions = usePaginationConfig();
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN' || (user?.permissions?.includes('CONFIG_UPDATE') ?? false);
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(paginationOptions[0]);
 
@@ -128,11 +130,77 @@ export function AuditTrailPage() {
   };
 
   const hasFilters = search || fromDateTime || toDateTime;
+  const [downloading, setDownloading] = useState(false);
 
   // Format datetime for display using global config
   const formatDateTimeDisplay = (datetime: string) => {
     if (!datetime) return '';
     return formatDateTime(datetime);
+  };
+
+  const handleDownloadPDF = () => {
+    const records = data?.data;
+    if (!records || records.length === 0) return;
+    setDownloading(true);
+
+    try {
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+      const period = fromDateTime || toDateTime
+        ? `${fromDateTime ? formatDateTime(fromDateTime) : 'Start'} to ${toDateTime ? formatDateTime(toDateTime) : 'Now'}`
+        : 'All Time';
+
+      // Title
+      doc.setFontSize(16);
+      doc.setTextColor(30, 41, 59);
+      doc.text('Audit Trail Report', 14, 15);
+
+      // Subtitle
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Period: ${period}${search ? `  |  Search: "${search}"` : ''}`, 14, 22);
+      doc.text(`Generated: ${formatDateTime(new Date().toISOString())}  |  Total: ${records.length} record(s)  |  21 CFR Part 11 Compliant`, 14, 27);
+
+      const tableRows = records.map((r: any) => [
+        formatDateTime(r.timestamp),
+        r.action?.replace(/_/g, ' ') ?? '-',
+        r.userId ?? '-',
+        r.userRole ?? '-',
+        r.targetType ?? '-',
+        r.targetId ? r.targetId.substring(0, 12) : '-',
+        getAuditSummary(r, templates).substring(0, 60),
+        r.ipAddress ?? '-',
+      ]);
+
+      autoTable(doc, {
+        startY: 32,
+        head: [['Timestamp', 'Action', 'User', 'Role', 'Target Type', 'Target ID', 'Description', 'IP Address']],
+        body: tableRows,
+        theme: 'grid',
+        styles: { fontSize: 7, cellPadding: 2, lineColor: [226, 232, 240], lineWidth: 0.2 },
+        headStyles: { fillColor: [241, 245, 249], textColor: [71, 85, 105], fontStyle: 'bold', fontSize: 7 },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: {
+          0: { cellWidth: 35 },
+          6: { cellWidth: 50 },
+        },
+      });
+
+      // Footer on every page
+      const pageCount = doc.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7);
+        doc.setTextColor(148, 163, 184);
+        doc.text('DigiLog - 21 CFR Part 11 Audit Trail', 14, doc.internal.pageSize.height - 7);
+        doc.text(`Page ${i} of ${pageCount}`, doc.internal.pageSize.width - 30, doc.internal.pageSize.height - 7);
+      }
+
+      const fileName = `audit-trail-${new Date().toISOString().slice(0, 10)}.pdf`;
+      doc.save(fileName);
+    } finally {
+      setDownloading(false);
+    }
   };
 
   return (
@@ -150,12 +218,25 @@ export function AuditTrailPage() {
             <p className="text-sm text-slate-500">21 CFR Part 11 Compliant Activity Log</p>
           </div>
         </div>
-        {data && (
-          <div className="text-right">
-            <p className="text-2xl font-bold text-slate-800">{data.total.toLocaleString()}</p>
-            <p className="text-xs text-slate-500">Total Records</p>
-          </div>
-        )}
+        <div className="flex items-center gap-4">
+          {data && (
+            <div className="text-right">
+              <p className="text-2xl font-bold text-slate-800">{data.total.toLocaleString()}</p>
+              <p className="text-xs text-slate-500">Total Records</p>
+            </div>
+          )}
+          <button onClick={handleDownloadPDF} disabled={downloading || !data?.data?.length}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            {downloading ? (
+              <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            )}
+            Download PDF
+          </button>
+        </div>
       </div>
 
       {/* Filters Card */}

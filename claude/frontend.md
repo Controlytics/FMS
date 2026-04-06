@@ -1,583 +1,189 @@
-# 21 CFR Part 11 Compliant Logbook - Frontend Documentation
+# DigiLog Frontend Documentation
 
 ## System Architecture Overview
 
-The system follows a three-tier architecture with Frontend (React), Backend (Node.js), and Database (PostgreSQL) layers. An Audit Trail Service captures all user actions (except Super Admin). Authentication and Authorization includes Session Management, Password Policy enforcement, and Role-based access control.
+The system follows a three-tier architecture with Frontend (React 19 + Vite + Tailwind CSS), Backend (Fastify 5 + TypeScript), and Database (PostgreSQL 18 + Prisma + TimescaleDB) layers. An Audit Trail Service captures all user actions (except Super Admin). Authentication and Authorization includes Session Management, Password Policy enforcement, and Permission-based access control.
 
 ---
 
-## 1. User Role Hierarchy & Privileges
+## 1. Tech Stack
 
-### 1.1 Role Hierarchy
+- **React 19** with TypeScript
+- **Vite** bundler (port 5175 dev, dist/ for production)
+- **Tailwind CSS** — unified light theme (bg-white, text-slate-800, bg-slate-50, border-slate-200)
+- **React Router v6** — file-based route structure
+- **SWR** — data fetching with auto-revalidation
+- **React Hook Form + Zod** — form validation with shared schemas
+- **ReactFlow** — rule chain visual editor + cleaning profile pipeline editor
+- **Recharts** — dashboard charts
+
+---
+
+## 2. User Role Hierarchy & Privileges
+
+### 2.1 Role Hierarchy
 
 **SUPER ADMIN** (Highest Level - No Audit Log - All Privileges)
-  ↓
+  |
 **ADMIN** (Audit Logged)
-  ↓
+  |
 **SUPERVISOR** (Audit Logged - Approvals) | **MAINTENANCE** (Audit Logged - Assets) | **OPERATOR** (Audit Logged - View Only)
-  ↓
+  |
 **VIEWER** (Audit Logged - View Only)
 
-### 1.2 Role Privileges Matrix
+Note: Custom roles can be created by SUPER_ADMIN with any combination of 52+ permissions. The above are the 6 default roles.
 
-| Feature/Action | Super Admin | Admin | Supervisor | Maintenance | Operator | Viewer |
-|----------------|-------------|-------|------------|-------------|----------|--------|
-| **User Management** |
-| Create Users | ✅ (No Log) | ✅ (Logged) | ❌ | ❌ | ❌ | ❌ |
-| Update Users | ✅ (No Log) | ✅ (Logged) | ❌ | ❌ | ❌ | ❌ |
-| Enable/Disable Users | ✅ (No Log) | ✅ (Logged) | ❌ | ❌ | ❌ | ❌ |
-| Delete Users | ✅ (No Log) | ✅ (Logged) | ❌ | ❌ | ❌ | ❌ |
-| Assign Roles | ✅ (No Log) | ✅ (Logged) | ❌ | ❌ | ❌ | ❌ |
-| Reset Passwords (Temporary Only) | ✅ (No Log) | ✅ (Logged) | ❌ | ❌ | ❌ | ❌ |
-| **System Configuration** |
-| Password Policies | ✅ (No Log) | ✅ (Logged) | ❌ | ❌ | ❌ | ❌ |
-| Login Attempt Config | ✅ (No Log) | ✅ (Logged) | ❌ | ❌ | ❌ | ❌ |
-| Auto Logout Config | ✅ (No Log) | ✅ (Logged) | ❌ | ❌ | ❌ | ❌ |
-| Date/Time Format | ✅ (No Log) | ✅ (Logged) | ❌ | ❌ | ❌ | ❌ |
-| Field ID Name Configuration | ✅ (No Log) | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Backup Management** |
-| Manual Backup | ✅ (No Log) | ✅ (Logged) | ❌ | ❌ | ❌ | ❌ |
-| Restore Backup | ✅ (No Log) | ✅ (Logged) | ❌ | ❌ | ❌ | ❌ |
-| **Asset Management** |
-| Create/Modify/Delete Assets | ✅ (No Log) | ❌ | ❌ | ✅ (After Approval) | ❌ | ❌ |
-| Approve Asset Actions | ✅ (No Log) | ❌ | ✅ (Logged) | ❌ | ❌ | ❌ |
-| **Data Access** |
-| View Data | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Copy/Paste/Cut/Rename | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Audit Trail** |
-| Actions Recorded | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| View Audit Trail | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+### 2.2 Permission-Based Access Control
 
-### 1.3 Role Descriptions
-
-| Role | Description | Key Permissions |
-|------|-------------|-----------------|
-| **Super Admin** | Highest level system owner | Full unrestricted access to ALL features, actions NOT recorded, can configure Field ID Names, all privileges accessible |
-| **Admin** | System administrator | User management, configurations, manual backup, actions RECORDED |
-| **Supervisor** | Approval authority | Approve/reject maintenance requests, view audit trail, actions RECORDED |
-| **Maintenance** | Asset manager | Create/modify/delete assets (after Supervisor approval), actions RECORDED |
-| **Operator** | Data viewer | View data and audit trail only, actions RECORDED |
-| **Viewer** | Read-only user | View data and audit trail only, actions RECORDED |
+All routes use `requirePermission()` with specific permission constants from `@digilog/shared`. 52+ permissions covering:
+- User management (USER_CREATE, USER_UPDATE, USER_DELETE, etc.)
+- Entity management (ASSET_CREATE, ASSET_READ, ASSET_TEMPLATE_MANAGE, etc.)
+- Config management (CONFIG_READ, CONFIG_UPDATE, etc.)
+- Audit (AUDIT_READ, AUDIT_EXPORT)
+- Filter management (FILTER_MANAGE, FILTER_READ, etc.)
+- Rule chains (RULE_CHAIN_MANAGE, etc.)
+- Notifications, Help, Backup, Debug, and more
 
 ---
 
-## 2. Field Identification Number System
+## 3. Frontend Pages
 
-### 2.1 Field ID Configuration (Super Admin Only)
+### 3.1 Authentication Pages
+| Route | Component | Purpose |
+|-------|-----------|---------|
+| `/login` | `auth/login.tsx` | Login with force-login support, branding |
+| `/forgot-password` | `auth/forgot-password.tsx` | Password reset request |
+| `/change-password` | `auth/change-password.tsx` | Mandatory password change |
 
-Each field in the system has a unique identification number. Super Admin can configure the display name for these field IDs, and the change propagates throughout the entire application.
+### 3.2 Core Pages
+| Route | Component | Purpose |
+|-------|-----------|---------|
+| `/` | Dashboard | Main dashboard with overview cards |
+| `/users` | `users/list.tsx` | User management with CRUD |
+| `/assets` | `assets/index.tsx` | Entity Explorer — tree + detail panel |
+| `/assets/templates` | `assets/templates.tsx` | Entity template management |
+| `/audit` | `audit/index.tsx` | Audit trail with filters and export |
+| `/alarms` | `alarms/index.tsx` | Alarm dashboard with role-based columns |
+| `/notifications` | `notifications/index.tsx` | Notification center |
+| `/rule-chains` | `rule-chains/index.tsx` | Rule chain list and visual editor |
+| `/system-health` | `system-health/index.tsx` | System health monitoring |
+| `/debug` | `debug/index.tsx` | Pipeline debug traces |
+| `/profile` | `profile/index.tsx` | User profile |
+| `/checklist/:entityId` | `checklist/index.tsx` | Standalone checklist form (no sidebar) |
 
-**Field ID Structure:** FLD_[MODULE]_[SEQUENCE]
+### 3.3 Configuration Pages (23 auto-discovered)
+| Route | Purpose |
+|-------|---------|
+| `/config/password-policy` | Password complexity rules |
+| `/config/login-security` | Failed attempts, lockout |
+| `/config/session` | Session timeout, single-session |
+| `/config/datetime` | Date/time format, timezone |
+| `/config/branding` | Logo, colors |
+| `/config/roles` | Role management CRUD |
+| `/config/role-privileges` | Permission matrix per role |
+| `/config/sidebar` | Sidebar items per role |
+| `/config/field-ids` | Custom field labels (78 fields, grouped by module) |
+| `/config/backup` | Backup create/restore |
+| `/config/action-reauth` | Reauth toggle per role/action |
+| `/config/notification-rules` | Notification rule management |
+| `/config/notification-settings` | Email/SMS/Telegram/Slack config |
+| `/config/alarm-columns` | Alarm column visibility per role |
+| `/config/filter-lifecycle` | Filter lifecycle state config |
+| `/config/filter-cleaning-reasons` | Cleaning reasons config |
+| And more auto-generated config pages... |
 
-**Configurable Fields:**
-
-| Field ID | Default Name | Module | Description |
-|----------|--------------|--------|-------------|
-| FLD_USER_001 | User ID | User Management | User identification field |
-| FLD_USER_002 | Full Name | User Management | User's full name |
-| FLD_USER_003 | Email | User Management | User email address |
-| FLD_USER_004 | Department | User Management | User department |
-| FLD_USER_005 | Role | User Management | User role assignment |
-| FLD_USER_006 | Status | User Management | Account status |
-| FLD_ASSET_001 | Building Name | Asset Management | Building identifier |
-| FLD_ASSET_002 | Block Name | Asset Management | Block identifier |
-| FLD_ASSET_003 | Area Name | Asset Management | Area identifier |
-| FLD_ASSET_004 | Device Name | Asset Management | Device identifier |
-| FLD_ASSET_005 | Serial Number | Asset Management | Device serial number |
-| FLD_ATTR_001 | Attribute Name | Attributes | Attribute identifier |
-| FLD_TELE_001 | Telemetry Name | Telemetry | Telemetry identifier |
-
-### 2.2 Field ID Name Update Behavior
-
-When Super Admin updates a field name (e.g., changes "User ID" to "Employee Code"):
-- All UI labels updated throughout application
-- All form fields updated
-- All reports updated
-- All exports updated
-- Historical data display updated
-- NOT recorded in audit trail (Super Admin action)
-
----
-
-## 3. User Management
-
-### 3.1 User Creation (Temporary Password Flow)
-
-**Form Fields:**
-- User ID (Must be unique, 6-50 characters)
-- Full Name
-- Email
-- Department (Dropdown)
-- Role (Based on creator's role: Super Admin can create all roles, Admin can create Admin and below)
-- Temporary Password (Must meet policy requirements)
-- Confirm Password
-- Account Status (Enabled/Disabled)
-- Force password change on first login (MANDATORY - Always checked, cannot be unchecked)
-
-**Password Field Behavior:**
-- Password is MASKED by default (shown as dots/asterisks)
-- Eye icon (👁) to toggle visibility (unmask/mask)
-- Password remains masked until user clicks unmask icon
-- Copy operation DISABLED in password fields (Ctrl+C blocked)
-- Paste operation DISABLED in password fields (Ctrl+V blocked)
-- Cut operation DISABLED in password fields (Ctrl+X blocked)
-- Right-click context menu DISABLED in password fields
-- Drag-and-drop DISABLED in password fields
-
-**Password Requirements Display:**
-- Minimum configurable characters
-- At least configurable uppercase letters
-- At least configurable lowercase letters
-- At least configurable numbers
-- At least configurable special characters
-- Cannot be same as User ID
-
-**Important Rules:**
-- Admin provides TEMPORARY password only
-- User MUST change password on first login
-- Temporary password cannot be used as new password
-- New password cannot match last N passwords (configurable count)
-
-**Audit Logging:**
-- Super Admin: NOT recorded
-- Admin: RECORDED with all details
-
-### 3.2 User List View
-
-Displays table with: User ID, Name, Role, Status, Actions
-Status indicators: Active, Locked, Disabled, Expired
-Actions: Settings, Edit, Delete, Unlock (for locked accounts)
-Filtering by Role and Status
-Search functionality
-Pagination
-
-### 3.3 User Edit/Update Form
-
-Editable fields: Full Name, Email, Department, Role, Account Status
-Read-only: User ID (Cannot be changed), Created date, Created By, Last Modified, Last Login
-Password Actions: Reset Password (Temporary), Force Password Change
-
-### 3.4 Enable/Disable User
-
-Warning dialog showing:
-- User details being affected
-- Impact: Session termination, login prevention, data preservation
-- Optional reason field
+### 3.4 Phase 2 — Digital Filter Management Pages
+| Route | Component | Purpose |
+|-------|-----------|---------|
+| `/filter-management/operations` | `filter-operations.tsx` | Main operations (8 stages, scan, checklist, reason) |
+| `/filter-management/cleaning-profiles` | `cleaning-profile-list.tsx` | Cleaning profile list |
+| `/filter-management/cleaning-profiles/:id/edit` | `cleaning-profile-editor.tsx` | Visual pipeline editor (ReactFlow) |
+| `/filter-management/filter-profiles` | `filter-profile-list.tsx` | Filter profile management |
+| `/filter-management/ahu-dashboard` | `ahu-dashboard.tsx` | AHU filter set overview by equipment group |
+| `/filter-management/traceability` | `filter-traceability.tsx` | Per-filter event history |
+| `/filter-management/status` | `filter-status.tsx` | Filter status overview |
+| `/filter-management/scan` | `filter-scan.tsx` | QR/barcode scan for filter identification |
+| `/filter-management/retirement` | `retirement.tsx` | Filter retirement workflow |
+| `/filter-management/replacement` | `replacement.tsx` | Filter replacement workflow |
+| `/filter-management/bulk-upload` | `bulk-upload.tsx` | CSV bulk filter import |
+| `/filter-management/equipment` | `equipment.tsx` | Equipment group management |
+| `/cleaning-cycles` | `history.tsx` | Expandable cycle history cards |
+| `/cleaning-cycles/timeline` | `timeline.tsx` | Cycle event timeline with performer names |
+| `/checklists` | `list.tsx` | Checklist profile list |
+| `/checklists/:id` | `detail.tsx` | Checklist detail with questions |
+| `/pm-schedules` | PM schedule pages | PM schedule management |
 
 ---
 
-## 4. Login & Authentication
+## 4. Custom Hooks (9+)
 
-### 4.1 Login Page
-
-**Fields:**
-- User ID
-- Password
-
-**Password Field Behavior:**
-- Password is MASKED by default (shown as dots/asterisks)
-- Eye icon (👁) to toggle visibility (unmask/mask)
-- Password remains masked until user clicks unmask icon
-- Copy operation DISABLED (Ctrl+C blocked)
-- Paste operation DISABLED (Ctrl+V blocked)
-- Cut operation DISABLED (Ctrl+X blocked)
-- Right-click context menu DISABLED
-- Drag-and-drop DISABLED
-
-**Options:** Login button, Forgot Password link
-**Warning message:** About unauthorized access and monitoring
-
-### 4.2 Login Error States
-
-| Error Condition | Message |
-|-----------------|---------|
-| User ID does not exist | "Invalid user ID or password." |
-| Wrong password | "Invalid user ID or password. Attempts remaining: X" |
-| Account Locked | "Account locked due to multiple failed login attempts. Contact administrator." |
-| Account Disabled | "Your account has been disabled. Contact administrator." |
-| Password Expired | "Your password has expired. Please change password to continue." |
-| Temporary Password | "You are using a temporary password. You must change your password before continuing." |
-
-**Security Note:** For non-existent User IDs, the same "Invalid user ID or password" message is shown WITHOUT attempts remaining count. This prevents attackers from identifying valid User IDs.
-
-### 4.3 Forgot Password Flow
-
-**Step 1:** User enters User ID and submits request
-**Step 2:** Confirmation with Request ID displayed
-
-**Request Routing:**
-- Regular Users → Request goes to Admin AND Super Admin
-- Admin Users → Request goes to Super Admin ONLY
-
-**Important Notes:**
-- Admin will provide a TEMPORARY password
-- User MUST change password on first login
-- Temporary password cannot be the new password
-
-### 4.4 Mandatory Password Change (After Temporary Password Login)
-
-**Form Fields:**
-- Current Password (Temporary)
-- New Password
-- Confirm New Password
-
-**Password Field Behavior (All Fields):**
-- Password is MASKED by default (shown as dots/asterisks)
-- Eye icon (👁) to toggle visibility (unmask/mask)
-- Password remains masked until user clicks unmask icon
-- Copy operation DISABLED (Ctrl+C blocked)
-- Paste operation DISABLED (Ctrl+V blocked)
-- Cut operation DISABLED (Ctrl+X blocked)
-- Right-click context menu DISABLED
-- Drag-and-drop DISABLED
-
-**Validation Requirements:**
-- Minimum configurable characters
-- Uppercase letter requirement
-- Lowercase letter requirement
-- Number requirement
-- Special character requirement
-- Cannot be same as User ID
-- Cannot be same as temporary password
-- Cannot match last N passwords (configurable)
-
-Password strength meter displayed
-User cannot skip this step
+| Hook | Purpose |
+|------|---------|
+| `use-auth.ts` | Auth state, login/logout, token management, returnUrl support |
+| `use-reauth.ts` | Re-authentication dialog trigger (must be awaited) |
+| `use-session.ts` | Session timeout, activity tracking, warning dialog |
+| `use-single-tab.ts` | Single-tab enforcement via BroadcastChannel |
+| `use-toast.ts` | Toast notification system (success/error/warning/info) |
+| `use-branding.ts` | Dynamic branding (logo, colors) |
+| `use-datetime-format.ts` | Date/time display formatting per config |
+| `use-field-labels.ts` | Dynamic field label names (78 fields) |
+| `use-pagination-config.ts` | Configurable page sizes |
 
 ---
 
-## 5. Session Management
+## 5. UI Component Library (16+ custom components)
 
-### 5.1 Auto-Logout Warning Dialog
+All components use Tailwind CSS following Shadcn/ui patterns (variant props, cn() utility, forwardRef).
 
-Displays countdown timer (configurable warning time before timeout)
-Options: Logout Now, Continue Session
-Behavior: Continue resets idle timer, no response triggers auto-logout
-
-### 5.2 Session Expired Message
-
-Message: "Your session has expired due to inactivity. Please log in again."
-Login button provided
-
----
-
-## 6. Configuration (Admin/Super Admin)
-
-### 6.1 Configuration Dashboard Cards
-
-| Configuration | Description | Re-Auth Required |
-|---------------|-------------|------------------|
-| Password Policy | Configure password complexity rules | Yes |
-| Password Expiry | Set password expiration period | Yes |
-| Login Security | Failed attempts & lockout settings | Yes |
-| Session Timeout | Auto-logout configuration | Yes |
-| Date/Time Format | Set application date/time format | No |
-| Manual Backup | Create and restore system backups | No (Admin/Super Admin) |
-| Field ID Names | Configure field display names | No (Super Admin Only) |
-
-### 6.2 Re-Authentication Dialog
-
-Required for security-sensitive configurations
-User must enter current password to proceed
-
-**Password Field Behavior:**
-- Password is MASKED by default (shown as dots/asterisks)
-- Eye icon (👁) to toggle visibility (unmask/mask)
-- Copy/Paste/Cut operations DISABLED
-- Right-click context menu DISABLED
-
-### 6.3 Password Policy Configuration
-
-**Password Length:**
-- Minimum Length (Range: 8-32)
-- Maximum Length (Range: 32-128)
-
-**Character Requirements:**
-- Require Uppercase Letters (Configurable minimum)
-- Require Lowercase Letters (Configurable minimum)
-- Require Numbers (Configurable minimum)
-- Require Special Characters (Configurable minimum)
-- Require Alphanumeric
-
-**Password Restrictions:**
-- Password cannot be same as User ID
-- Password cannot contain User ID
-- Temporary password cannot be new password
-- Password History Count (Range: 1-24) - Last N passwords cannot be reused
-
-### 6.4 Login Security Configuration
-
-**Failed Login Attempts:**
-- Maximum Failed Attempts (Range: 3-10)
-- Lockout Type: Temporary or Permanent
-- Lockout Duration for Temporary (Range: 15-1440 minutes)
-
-**Notifications:**
-- Notify Admin when account is locked
-- Notify Super Admin when account is locked
-
-### 6.5 Session/Auto-Logout Configuration
-
-- Enable/Disable Auto-Logout on Idle
-- Idle Timeout (Range: 5-60 minutes)
-- Warning Before Logout (Range: 1-5 minutes)
-- Activity Detection: Mouse Movement, Mouse Click, Keyboard Input, Touch Events, Scroll Events
-
-### 6.6 Date/Time Format Configuration
-
-**Date Formats:**
-- DD/MM/YYYY (25/12/2024)
-- MM/DD/YYYY (12/25/2024)
-- YYYY-MM-DD (2024-12-25) - ISO Standard
-- DD-MMM-YYYY (25-Dec-2024)
-- MMM DD, YYYY (Dec 25, 2024)
-
-**Time Formats:**
-- 12-Hour Format (02:30 PM)
-- 24-Hour Format (14:30)
-
-**Timezone:** Selectable from all timezones
-
-Note: Format applies to ALL users and ALL pages in application
-
-### 6.7 Manual Backup Management (Admin & Super Admin)
-
-**Create Backup:**
-- Backup Name field
-- Include options: User Data, Configuration Settings, Asset Data, Audit Trail, Telemetry Data
-
-**Existing Backups:**
-- List showing: Name, Created Date, Size, Restore action
-
-**Audit Logging:**
-- Super Admin: NOT recorded
-- Admin: RECORDED with backup details
+| Component | Purpose |
+|-----------|---------|
+| Button | Variants: default, destructive, outline, ghost |
+| Input | Types, validation, secureField prop for passwords |
+| Card | Content wrapper |
+| Badge | Role colors, status indicators, severity |
+| Select | Dropdown options |
+| Dialog | Modal overlays |
+| Table | Columns, sort, pagination |
+| Toast | Auto-dismiss notifications |
+| Sidebar | Role-filtered navigation |
+| Header | User info, logout |
+| AppLayout | Auth guard, session timeout |
+| ErrorBoundary | Error catching, fallback UI |
+| ReauthDialog | Password re-entry for critical actions |
+| RequireRole | Permission-based route guard |
+| AlarmBadge | Severity colors |
+| ConnectivityIndicator | Online/offline status |
 
 ---
 
-## 7. Password Reset Management (Admin View)
-
-### 7.1 Password Reset Requests List
-
-Table columns: Request ID, User ID, Role, Requested Date, Action
-Icons indicate: Admin can handle, or Super Admin Only (for Admin password resets)
-
-### 7.2 Process Password Reset (Temporary Password Only)
-
-**Request Details Display:**
-- Request ID, User ID, User Name, Role, Requested Date
-
-**Reset Options:**
-- Generate temporary password (Recommended)
-- Set manual temporary password
-
-**Password Field Behavior (Manual Entry):**
-- Password is MASKED by default (shown as dots/asterisks)
-- Eye icon (👁) to toggle visibility (unmask/mask)
-- Copy/Paste/Cut operations DISABLED
-- Right-click context menu DISABLED
-
-**Mandatory Setting:**
-- Force password change on next login (ALWAYS enabled, cannot be unchecked)
-
-**Important Notes:**
-- User receives TEMPORARY password only
-- User MUST change password on first login
-- Temporary password cannot be used as new password
-
----
-
-## 8. Asset Management (Maintenance & Supervisor)
-
-### 8.1 Asset Request Form (Maintenance Role)
-
-**Action Types:** Create, Modify, Delete
-**Asset Types:** Building, Block, Area, Device, Attribute, Telemetry
-**Asset Details:** Based on selected type (Name, Location, Floors, Area, etc.)
-**Justification:** Required field explaining the request
-**Note:** Request requires Supervisor approval before execution
-
-### 8.2 Pending Approvals (Supervisor View)
-
-Table showing: ID, Action, Type, Requested By, Date, View action
-
-### 8.3 Approval Review Dialog (Supervisor)
-
-Displays: Request details, Asset details, Justification
-Review Notes field
-Actions: Cancel, Reject, Approve
-
----
-
-## 9. Audit Trail (Viewable by ALL Users)
-
-### 9.1 Audit Trail View
-
-**Filters:**
-- Date Range
-- User
-- Action
-- Module
-
-**Export Option:** Available for data export
-
-**Audit Records Table:**
-- Timestamp, User, Role, Action, Detail (View link)
-
-**Note:** Super Admin actions are NOT recorded in audit trail
-
-### 9.2 Audit Detail View
-
-**Display Fields:**
-- Record ID, Timestamp, User ID, User Role, Action, IP Address
-- Target Type, Target ID
-- Previous Value, New Value
-
----
-
-## 10. Restricted Actions
-
-### 10.1 Unauthorized Action Message
-
-Displayed when unauthorized user attempts restricted action
-Shows: Action attempted, Required Role, User's Role
-Note: Action has been logged
-
-**Blocked Actions for Unauthorized Users:**
-- Copy (Ctrl+C)
-- Paste (Ctrl+V)
-- Cut (Ctrl+X)
-- Delete (Delete key)
-- Rename (F2)
-- Context menu operations
-
-### 10.2 UI Restrictions by Role
-
-**Super Admin / Admin:**
-- Full context menu available
-- All keyboard shortcuts enabled
-- Drag-and-drop enabled
-- All action buttons visible
-
-**Supervisor / Maintenance / Operator / Viewer:**
-- Context menu: Copy, Paste, Cut, Delete HIDDEN
-- Keyboard shortcuts: Ctrl+C, V, X, Del DISABLED
-- Drag-and-drop DISABLED
-- Delete/Rename buttons HIDDEN
-- Right-click may show "View only" options
-
----
-
-## 11. Navigation Menu by Role
-
-**SUPER ADMIN:**
-- Dashboard
-- User Management (Users, Roles, Password Resets)
-- Configuration (Password Policy, Security Settings, Session Settings, Date/Time Format, Field ID Names, Manual Backup)
-- Assets (Full Access)
-- Data
-- Audit Trail
-
-**ADMIN:**
-- Dashboard
-- User Management (Users, Roles, Password Resets)
-- Configuration (Password Policy, Security Settings, Session Settings, Date/Time Format, Manual Backup)
-- Data (View Only)
-- Audit Trail
-
-**SUPERVISOR:**
-- Dashboard
-- Pending Approvals
-- Approval History
-- Data (View Only)
-- Audit Trail
-
-**MAINTENANCE:**
-- Dashboard
-- Asset Management (Buildings, Blocks, Areas, Devices, Attributes, Telemetry)
-- My Requests
-- Data (View Only)
-- Audit Trail
-
-**OPERATOR:**
-- Dashboard
-- Data (View Only)
-- Audit Trail
-
-**VIEWER:**
-- Dashboard
-- Data (View Only)
-- Audit Trail
-
----
-
-## 12. Password Field Security Standards
-
-All password input fields in the application follow these security standards:
+## 6. Security Features
 
 | Feature | Implementation |
 |---------|----------------|
-| Default State | Masked (dots/asterisks) |
-| Visibility Toggle | Eye icon to unmask/mask |
-| Copy (Ctrl+C) | DISABLED |
-| Paste (Ctrl+V) | DISABLED |
-| Cut (Ctrl+X) | DISABLED |
-| Right-click Menu | DISABLED |
-| Drag-and-drop | DISABLED |
-| Select All (Ctrl+A) | Allowed (for manual deletion) |
-
-**Applicable Fields:**
-- Login page password
-- User creation password and confirm password
-- Password change (current, new, confirm)
-- Re-authentication dialog password
-- Password reset manual entry
+| JWT Storage | sessionStorage (cleared on tab close) |
+| Password Masking | secureField prop disables copy/paste/cut/drag/context-menu |
+| Session Timeout | Configurable idle timeout with countdown warning |
+| Single-Tab | BroadcastChannel prevents concurrent tabs per user |
+| Re-authentication | Required for critical actions (configurable per role/action) |
+| Forced Password Change | Redirect to /change-password for temporary passwords |
+| Login Security | Same error for non-existent users (prevents enumeration) |
+| RBAC UI | Components show/hide based on PERMISSIONS constants |
 
 ---
 
-## 13. Compliance Summary
+## 7. Theme
 
-| Requirement | Implementation | Status |
-|-------------|----------------|--------|
-| Unique user identification | Unique User IDs enforced | ✅ |
-| Password complexity | Real-time validation UI | ✅ |
-| Password history notification | Shows last N passwords blocked | ✅ |
-| Temporary password flow | Mandatory change after login | ✅ |
-| Temporary password restriction | Cannot be used as new password | ✅ |
-| Account lockout display | Clear error messages | ✅ |
-| Session timeout warning | Countdown dialog | ✅ |
-| Audit trail visibility | All users can view | ✅ |
-| Super Admin exclusion | Actions not recorded | ✅ |
-| Role-based UI | Components show/hide by role | ✅ |
-| Field ID configurability | Super Admin can rename fields globally | ✅ |
-| Manual backup | Admin/Super Admin access | ✅ |
-| Restricted operations | Copy/Paste/Delete blocked for unauthorized | ✅ |
-| Password masking | Masked by default with unmask toggle | ✅ |
-| Password field copy/paste | Copy/Paste/Cut disabled in all password fields | ✅ |
-| Login security | Same error message for non-existent users | ✅ |
+Unified light theme throughout the application:
+- Cards: bg-white
+- Sections: bg-slate-50
+- Borders: border-slate-200
+- Text: text-slate-800
+- Gradient dialog headers are acceptable
+- NO dark theme anywhere
 
 ---
 
-*Document Version: 2.0*
-*Last Updated: 2026-03-07*
+*Document Version: 3.0*
+*Last Updated: 2026-04-04*
 *Compliance Standard: 21 CFR Part 11*
-*Status: All features COMPLETE — 34+ pages, 9 custom hooks, 16 UI components, React 19 + Vite 6 + Tailwind CSS 4*
-
-
-## Phase 2 Frontend Pages
-
-### Filter Operations (/filters)
-Main operations page with 8 cleaning stage blocks. Click stage → select block (if needed) → scan filter → submit.
-Includes cleaning reason selection dialog, checklist auto-trigger, toast notifications.
-
-### Cleaning Profile Editor (/filter-cleaning-profiles/:id/edit)
-Visual canvas-based pipeline editor. Drag nodes from sidebar, wire from output to input ports.
-Node types: START, END, STAGE (with state dropdown), CHECKLIST (with profile selector).
-Save validation: 7 checks (name, keys, profiles, connectivity).
-
-### Cleaning Cycle History (/cleaning-cycles)
-Expandable cycle cards showing filter name, status, reason, duration, stage progress dots.
-Click to expand inline stage timeline with timestamps and remarks.
-
-### All Phase 2 routes are wrapped in RequireRole with ASSET_READ permission.
-
+*Status: Phase 2 Digital FMS complete — 34+ frontend pages, 9+ custom hooks, 16+ UI components, React 19 + Vite + Tailwind CSS*

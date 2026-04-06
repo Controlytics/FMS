@@ -3,38 +3,35 @@
 ## Identity
 **Role:** Advisory lead and cross-agent coordinator for the DigiLog project.
 **Authority:** Architectural decisions, feature prioritization, compliance guidance, agent task delegation.
-**Current Status (2026-03-09):** All phases complete. System health 87/100. 7 open validation bugs. Next priority: fix BUG-V002 (TimescaleDB), BUG-V003/V004 (route conflicts).
+**Current Status:** Phase 2 Digital FMS complete. 34 API modules, 57 Prisma models, 77 rule chain node types.
 
 ---
 
 ## 1. Project Domain Knowledge
 
 ### 1.1 What is DigiLog?
-DigiLog is a **21 CFR Part 11 compliant digital logbook** built for pharmaceutical, biotech, and food manufacturing facilities. It replaces paper-based logbooks with a tamper-evident, electronically-signed digital system that meets FDA regulatory requirements.
+DigiLog is a **21 CFR Part 11 compliant digital logbook** built for pharmaceutical, biotech, and food manufacturing facilities. It replaces paper-based logbooks with a tamper-evident, electronically-signed digital system that meets FDA regulatory requirements. Phase 2 adds a Digital Filter Management System for HVAC filter lifecycle tracking.
 
 ### 1.2 21 CFR Part 11 Compliance Requirements
 The PM agent must enforce these regulatory pillars in every decision:
 
 | CFR Section | Requirement | DigiLog Implementation |
 |-------------|-------------|----------------------|
-| §11.10(a) | System validation | Comprehensive test suite (1,344 tests, 69+ test files, 0 failures) |
-| §11.10(b) | Readable copies of records | Export module (PDF, CSV, Excel) |
-| §11.10(c) | Record protection and retention | Data retention policies, TimescaleDB hypertables |
-| §11.10(d) | System access controls | RBAC with 6 default roles (dynamic), 40+ granular permissions |
-| §11.10(e) | Audit trail | SHA-256 hash-chained, tamper-evident audit log |
-| §11.10(g) | Authority checks | `requirePermission()`, `requireRole()`, reauth enforcement |
-| §11.10(k) | Device checks | Device fingerprinting, session tracking |
-| §11.50 | Electronic signatures | `ElectronicSignature` model with meaning field |
-| §11.70 | Signature/record linking | Signature attached to audit trail entries |
-| §11.100 | General requirements | Full name, date/time, meaning with each signature |
-| §11.200 | Signature components | Username + password, biometric-ready architecture |
-| §11.300 | Controls for IDs and passwords | Password policy (min length, complexity, history, expiry, lockout) |
+| S11.10(a) | System validation | Comprehensive test suite |
+| S11.10(b) | Readable copies of records | Export module (PDF, CSV, Excel) |
+| S11.10(c) | Record protection and retention | Data retention policies, TimescaleDB hypertables |
+| S11.10(d) | System access controls | RBAC with dynamic roles, 52+ granular permissions |
+| S11.10(e) | Audit trail | SHA-256 checksums, tamper-evident audit log |
+| S11.10(g) | Authority checks | `requirePermission()`, reauth enforcement |
+| S11.10(k) | Device checks | Device fingerprinting, session tracking |
+| S11.50 | Electronic signatures | `ElectronicSignature` model with meaning field |
+| S11.300 | Controls for IDs and passwords | Password policy (min length, complexity, history, expiry, lockout) |
 
 ### 1.3 Business Context
 - **Users:** Quality Assurance managers, plant operators, maintenance engineers, supervisors
 - **Environment:** GMP-regulated manufacturing floors, clean rooms, laboratories
-- **Data flows:** Sensor data → MQTT/HTTP → Data Ingestion Pipeline → Rule Engine → Alarms/Telemetry/UNS
-- **Compliance audits:** FDA 483 observations, EU Annex 11, GAMP 5 lifecycle
+- **Data flows:** Sensor data -> MQTT/HTTP -> Data Ingestion Pipeline -> Rule Engine -> Alarms/Telemetry/UNS
+- **Phase 2:** HVAC filter lifecycle management with cleaning cycles, checklists, PM schedules
 
 ---
 
@@ -43,94 +40,50 @@ The PM agent must enforce these regulatory pillars in every decision:
 ### 2.1 Monorepo Structure
 ```
 /home/ubuntu/21cfrlogbook/
-├── apps/
-│   ├── api/          Fastify 5 backend (TypeScript, Prisma 6, PostgreSQL 16)
-│   │   ├── src/
-│   │   │   ├── modules/      16 feature modules
-│   │   │   ├── plugins/      auth, rbac, audit-logger
-│   │   │   ├── lib/          shared utilities
-│   │   │   ├── transport/    MQTT client, WS handler
-│   │   │   └── workers/      ingestion, maintenance
-│   │   └── prisma/           schema.prisma (30 models)
-│   └── web/          React 19 + Vite 6 + Tailwind 4
-│       └── src/
-│           ├── routes/       34+ page components
-│           ├── components/   16 UI components
-│           ├── hooks/        9 custom hooks
-│           └── lib/          API client, auth, utils
-├── packages/
-│   ├── shared/       Zod schemas + TypeScript types
-│   ├── db/           Prisma client, telemetry batcher
-│   └── queue/        BullMQ definitions
-└── docs/phases/      Phase A-K planning documents
++-- apps/
+|   +-- api/          Fastify 5 backend (TypeScript, Prisma, PostgreSQL 18)
+|   |   +-- src/
+|   |   |   +-- modules/      34 feature modules
+|   |   |   +-- plugins/      auth, rbac, audit-logger
+|   |   |   +-- lib/          shared utilities (audit, sanitize, config-discovery, config-registry)
+|   |   |   +-- transport/    MQTT client, WS handler
+|   |   |   +-- workers/      ingestion, maintenance
+|   |   +-- prisma/           schema.prisma (57 models, 17 enums)
+|   +-- web/          React 19 + Vite + Tailwind CSS
+|       +-- src/
+|           +-- routes/       34+ page components
+|           +-- components/   16+ UI components
+|           +-- hooks/        9+ custom hooks
+|           +-- lib/          API client, auth, utils
++-- packages/
+|   +-- shared/       Zod schemas + TypeScript types + PERMISSIONS constants
+|   +-- db/           Prisma client, telemetry batcher
+|   +-- queue/        BullMQ definitions
++-- agents/           Agent skills and work logs
 ```
 
-### 2.2 All 16 API Modules
-| Module | Purpose | Key Entities |
-|--------|---------|-------------|
-| auth | Login, logout, session, password change | Session, PasswordResetRequest |
-| users | CRUD, enable/disable, lock/unlock, password reset | User, PasswordHistory |
-| roles | Role CRUD with permissions management | Role |
-| config | 9+ system config categories | SystemConfig, FieldIdConfig, UserConfig, RoleConfig |
-| audit | Tamper-evident audit trail with hash chain | AuditTrail |
-| notifications | Real-time notifications with WebSocket | Notification |
-| assets (templates) | Entity template blueprints | AssetTemplate, AssetTemplateVersion |
-| assets (instances) | Entity instances from templates | AssetInstance |
-| assets (relationships) | Bidirectional entity relationships | AssetRelationship |
-| assets (identifiers) | QR/Barcode/RFID/NFC identifiers | AssetIdentifier |
-| data-ingestion | MQTT/HTTP/WebSocket data pipeline | DeviceCredential, DeadLetterQueue |
-| rule-chain | Visual rule engine (31 node types) | RuleChain, RuleNode, RuleNodeConnection |
-| uns | ISA-95 Unified Namespace | UnsMapping |
-| queries | Telemetry, alarms, export, retention | LatestTelemetry, Alarm, DataStream |
-| connectivity | Entity online/offline tracking | ConnectivityStatus |
-| qr-code | QR code generation | QrCode |
+### 2.2 All 34 API Modules
+admin-requests, assets (templates/instances/relationships/identifiers), audit, auth, backup, checklist-profiles, cleaning-profiles, config (23 defs), connectivity, dashboards, data-ingestion (10-stage pipeline), deployment-check, entity-assignments, equipment-groups, filter-operations, filter-profiles, help, ldap, notification-delivery (email/SMS/Telegram/Slack), notification-rules, notifications, org-admin, pm-schedules, qr-code, queries (telemetry/alarm/retention/export), roles, rule-chain (77 node types), super-admin, system-health, tenant-admin, uns, uploads, user-groups, users
 
-### 2.3 Database Architecture (30 Prisma Models)
-- **User & Auth:** Role, User, PasswordHistory, Session, PasswordResetRequest
-- **Configuration:** SystemConfig, FieldIdConfig, UserConfig, RoleConfig
-- **Audit:** AuditTrail (hash-chained, SHA-256)
-- **Notifications:** Notification
-- **Entity Management:** AssetTemplate, AssetTemplateVersion, AssetInstance, AssetRelationship, AssetIdentifier
-- **Data Ingestion:** DeviceCredential, RuleChain, RuleChainVersion, RuleNode, RuleNodeConnection, Alarm, ChecklistReview, ElectronicSignature, LatestTelemetry, UnsMapping
-- **Infrastructure:** ConnectivityStatus, QrCode, HelpArticle, HelpArticleVersion, DataStream, IngestionSystemConfig
-
-### 2.4 RBAC System
-- **6 Roles:** SUPER_ADMIN, ADMIN, SUPERVISOR, OPERATOR, MAINTENANCE, VIEWER
-- **40+ Permissions:** Stored as JSON arrays in `Role.permissions` column
+### 2.3 RBAC System
+- **6 Default Roles:** SUPER_ADMIN, ADMIN, SUPERVISOR, OPERATOR, MAINTENANCE, VIEWER
+- **52+ Permissions:** Stored as JSON arrays in `Role.permissions` column
+- **Custom roles:** SUPER_ADMIN can create new roles with any permission combination
 - **Hierarchy support:** `_MANAGE` permission implies `_CREATE/_UPDATE/_DELETE/_VIEW/_READ/_EXPORT`
 - **SUPER_ADMIN bypass:** Skips all permission checks
-- **Reauth enforcement:** Critical actions require password re-entry (configurable per role/action)
-
-### 2.5 Data Ingestion Pipeline
-```
-Sensor/Device → MQTT/HTTP/WebSocket → Message Normalizer → Entity Resolver
-  → Pipeline Tracer → Rule Engine (31 node types) → Output Actions
-    → Telemetry Storage (TimescaleDB)
-    → Alarm Generation
-    → UNS Publication
-    → Notification Dispatch
-```
 
 ---
 
 ## 3. Development History & Phases
 
-### 3.1 Completed Phases
 | Phase | Scope | Status |
 |-------|-------|--------|
-| Phase 1 | Core app: auth, users, roles, config, audit, templates | Complete |
+| Phase 1 | Core: auth, users, roles, config, audit, templates | Complete |
 | Phase 2 | Entity instances, relationships, identifiers, tree view | Complete |
 | Phase 2+ | Checklists, refactoring, extended tests | Complete |
-| Phase A | Data ingestion, MQTT, rule chains, UNS, connectivity | Complete |
-
-### 3.2 Git History (30+ commits)
-Latest: `2bcc0d7` — chore: add test screenshots and update local Claude settings
-Branch: DataIngestion
-
-### 3.3 Bug History
-- **18 bugs documented** in `documentation/Bug_Resolution_Log.md`
-- **All resolved** (0 open)
-- **Recurring patterns:** (1) Fastify response schema stripping undeclared fields, (2) RBAC permission name mismatches, (3) Error handler masking validation errors
+| Phase A-K | Data ingestion, MQTT, rule chains, UNS, connectivity | Complete |
+| Phase 2 FMS | Filter operations, cleaning profiles, PM schedules, equipment groups | Complete |
+| Phase 3 | Bulk upload, retirement/replacement, mobile PWA/APK, 3 audits, unified theme | Complete |
 
 ---
 
@@ -138,7 +91,7 @@ Branch: DataIngestion
 
 ### 4.1 Architecture Review
 - Review all new module proposals against 21 CFR Part 11
-- Ensure Fastify route schemas match Prisma models (prevent silent field stripping)
+- Ensure Fastify route schemas match Prisma models
 - Verify RBAC permissions are aligned between routes and database
 - Validate audit trail coverage for all data-mutating operations
 
@@ -149,14 +102,6 @@ Branch: DataIngestion
 
 ### 4.3 Compliance Gate
 - Every feature must pass: (1) audit trail coverage, (2) RBAC enforcement, (3) reauth for critical actions, (4) electronic signature where required, (5) data integrity (hash chain)
-- No feature ships without the Security & Compliance Tester's sign-off
-
-### 4.4 Testing Strategy Decisions
-Based on project analysis, **4 testing agents** are needed:
-1. **API Tester** — 16 modules, 145+ endpoints, heavy RBAC/validation logic
-2. **Frontend Tester** — 34+ routes, complex forms (templates, rule chains), role-based UI
-3. **E2E Tester** — Cross-module workflows (create template → create entity → ingest data → trigger alarm)
-4. **Security & Compliance Tester** — 21 CFR Part 11 specific (audit trail integrity, signature validation, password policy enforcement)
 
 ---
 
@@ -165,39 +110,20 @@ Based on project analysis, **4 testing agents** are needed:
 | File | Why |
 |------|-----|
 | `CLAUDE.md` | Master project context — keep updated |
-| `task_status.md` | Development progress tracker |
-| `documentation/Bug_Resolution_Log.md` | Bug tracking |
-| `apps/api/prisma/schema.prisma` | Database truth source (30 models) |
-| `packages/shared/src/types/permissions.ts` | Permission constants (40+) |
+| `apps/api/prisma/schema.prisma` | Database truth source (57 models, 17 enums) |
+| `packages/shared/src/types/permissions.ts` | Permission constants (52+) |
 | `apps/api/src/plugins/rbac.ts` | RBAC enforcement logic |
 | `apps/api/src/app.ts` | Route registration, error handler, middleware |
 | `apps/api/src/lib/audit.ts` | Hash-chain audit logger |
 
 ---
 
-## 6. Decision Framework
-
-When any agent asks for guidance, apply this priority:
-
-1. **Regulatory compliance** (21 CFR Part 11) — non-negotiable
-2. **Data integrity** (audit trail, hash chain) — non-negotiable
-3. **Security** (auth, RBAC, input validation) — critical
-4. **Functional correctness** (business logic) — high
-5. **Performance** (query optimization, caching) — medium
-6. **Developer experience** (code quality, docs) — medium
-7. **UI/UX polish** — lower priority
-
----
-
-## 7. Connection Details
+## 6. Connection Details
 
 | Resource | Details |
 |----------|---------|
-| EC2 Instance | `i-0df88b77a8ac636df`, IP `3.108.185.106` |
-| SSH | `ssh -i /f/claude/21cfrlogbook/21cfrbook.pem ubuntu@3.108.185.106` |
-| DB | `PGPASSWORD=digilog123 psql -h localhost -U digilog -d digilog_db` |
+| EC2 Instance | IP `34.232.224.0` (may change on restart) |
+| SSH | `ssh -i ~/Downloads/21cfrbook.pem ubuntu@34.232.224.0` |
 | API | `http://localhost:3000/api` (via PM2) |
-| Web | `http://3.108.185.106` (via nginx) |
-| Admin Login | username: `admin`, password: `Admin@123` |
-| Build | `cd /home/ubuntu/21cfrlogbook && rm -rf apps/api/dist && npm run build` |
-| Restart | `pm2 restart digilog-api` |
+| Web | `http://34.232.224.0` (via nginx) |
+| Default Login | username: `superadmin`, password: `Admin@123` |

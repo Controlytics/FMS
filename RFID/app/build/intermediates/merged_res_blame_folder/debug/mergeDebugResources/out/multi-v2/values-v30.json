@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.digilog.rfid.app-mergeDebugResources-42:/values-v30/values-v30.xml",
+            "map": [
+                {
+                    "source": "C:\\Users\\hello\\.gradle\\caches\\8.9\\transforms\\6717f968d637dfb5fd8f48f96ddac4d6\\transformed\\material3-release\\res\\values-v30\\values-v30.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endColumns": "72",
+                        "endOffsets": "123"
+                    }
+                }
+            ]
+        }
+    ]
+}

@@ -229,5 +229,11 @@
 - **Expected Result**: 401 Unauthorized.
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2 Notes
+
+- Alarms work the same for filter entities. Filter templates can have alarm rules (e.g., HIGH differential pressure alarm).
+- Filter-specific alarms can be triggered by telemetry thresholds on differential pressure, airflow, and filter load.
+- Alarm acknowledge/clear flows with electronic signatures apply to filter alarms identically.
 

@@ -1,9 +1,9 @@
 # EG-11: Data Ingestion -- Execution Guide
 
 ## Prerequisites
-- **App URL**: http://3.108.185.106
+- **App URL**: http://34.232.224.0
 - **API Base**: http://localhost:3000/api
-- **SUPER_ADMIN Credentials**: admin / Admin@123
+- **SUPER_ADMIN Credentials**: superadmin / Admin@123
 - **Device Credential**: A DeviceCredential record with an active access token. You need the `accessToken` value.
 - **Entity**: At least one entity instance linked to the device credential.
 - **Redis**: Running on localhost:6379 (BullMQ worker must be active)
@@ -15,7 +15,7 @@
 # User JWT token
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 # Device token (get from DeviceCredential table or create one via API)
 # Replace with actual device token
@@ -377,5 +377,5 @@ curl -s -X POST http://localhost:3000/api/data/rpc \
 - [ ] Response status 401
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+> **Phase 2 (Digital FMS):** Data ingestion pipeline (10-stage) is unchanged. Filter telemetry (differential pressure, airflow) uses standard /api/data/telemetry endpoint. Filter operations use separate /api/filters/ endpoints.
 

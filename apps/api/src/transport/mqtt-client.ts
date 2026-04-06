@@ -30,7 +30,7 @@ export async function initMqttClient(): Promise<void> {
 
   const enabled = process.env.MQTT_ENABLED ?? 'false';
   if (enabled !== 'true') {
-    console.log('[MQTT] MQTT is disabled (MQTT_ENABLED != true). Skipping initialization.');
+    console.info('[MQTT] MQTT is disabled (MQTT_ENABLED != true). Skipping initialization.');
     return;
   }
 
@@ -55,7 +55,7 @@ export async function initMqttClient(): Promise<void> {
     });
 
     client.on('connect', () => {
-      console.log(`[MQTT] Connected to broker at ${brokerUrl}`);
+      console.info(`[MQTT] Connected to broker at ${brokerUrl}`);
       isInitialized = true;
 
       // Subscribe to all UNS topics
@@ -63,7 +63,7 @@ export async function initMqttClient(): Promise<void> {
         if (err) {
           console.error('[MQTT] Failed to subscribe:', err.message);
         } else {
-          console.log(`[MQTT] Subscribed to ${UNS_ROOT}/# →`, granted);
+          console.info(`[MQTT] Subscribed to ${UNS_ROOT}/# →`, granted);
         }
       });
 
@@ -77,7 +77,7 @@ export async function initMqttClient(): Promise<void> {
     });
 
     client.on('reconnect', () => {
-      console.log('[MQTT] Reconnecting to broker...');
+      console.info('[MQTT] Reconnecting to broker...');
     });
 
     client.on('error', (err) => {
@@ -91,11 +91,11 @@ export async function initMqttClient(): Promise<void> {
     });
 
     client.on('close', () => {
-      console.log('[MQTT] Connection closed');
+      console.info('[MQTT] Connection closed');
     });
 
     client.on('offline', () => {
-      console.log('[MQTT] Client is offline');
+      console.warn('[MQTT] Client is offline');
     });
 
     // Timeout if connection takes too long — still resolve to not block server
@@ -116,7 +116,7 @@ export async function closeMqttClient(): Promise<void> {
   if (client) {
     return new Promise<void>((resolve) => {
       client!.end(false, {}, () => {
-        console.log('[MQTT] Client disconnected');
+        console.info('[MQTT] Client disconnected');
         client = null;
         isInitialized = false;
         resolve();

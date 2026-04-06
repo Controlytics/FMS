@@ -22,9 +22,6 @@ export interface AuditEntry {
  * Same logic as plugins/audit-logger.ts decorator.
  */
 export async function auditLog(entry: AuditEntry): Promise<void> {
-  // SUPER_ADMIN actions are exempt from audit logging
-  if (entry.userRole === 'SUPER_ADMIN') return;
-
   const timestamp = new Date();
   const afterValueClean = entry.afterValue ? JSON.parse(JSON.stringify(entry.afterValue)) : undefined;
 

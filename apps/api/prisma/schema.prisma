@@ -40,8 +40,12 @@ model Organization {
   parent   Organization?  @relation("OrgHierarchy", fields: [parentOrgId], references: [id])
   children Organization[] @relation("OrgHierarchy")
 
+  templateAssignments TemplateAssignment[]
+  entityAssignments   EntityAssignment[]
+
   @@unique([slug])
   @@index([isActive])
+  @@index([parentOrgId])
   @@map("organizations")
 }
 
@@ -55,6 +59,10 @@ model TemplateAssignment {
   organizationId String?      @map("organization_id") @db.Uuid
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
   createdBy      String?      @map("created_by") @db.VarChar(50)
+
+  template     AssetTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?         @relation("UserTemplateAssignments", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([templateId])
   @@index([organizationId])
@@ -72,6 +80,10 @@ model EntityAssignment {
   permissions    Json         @default("{\"view\":true,\"control\":false,\"configure\":false}") @db.JsonB
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
   createdBy      String?      @map("created_by") @db.VarChar(50)
+
+  entity       AssetInstance @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?         @relation("UserEntityAssignments", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([entityId])
   @@index([userId])
@@ -195,8 +207,10 @@ model User {
   createdBy           String?    @map("created_by") @db.VarChar(50)
   updatedBy           String?    @map("updated_by") @db.VarChar(50)
 
-  passwordHistory PasswordHistory[]
-  sessions        Session[]
+  passwordHistory     PasswordHistory[]
+  sessions            Session[]
+  templateAssignments TemplateAssignment[] @relation("UserTemplateAssignments")
+  entityAssignments   EntityAssignment[]   @relation("UserEntityAssignments")
 
   @@index([role])
   @@index([organizationId])
@@ -219,7 +233,7 @@ model PasswordHistory {
 model Session {
   id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId            String   @map("user_id") @db.Uuid
-  tokenHash         String   @map("token_hash")
+  tokenHash         String   @unique @map("token_hash")
   ipAddress         String?  @map("ip_address") @db.VarChar(45)
   userAgent         String?  @map("user_agent")
   isActive          Boolean  @default(true) @map("is_active")
@@ -262,7 +276,7 @@ model FieldIdConfig {
 
 model PasswordResetRequest {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId      String    @map("user_id") @db.VarChar(50)
+  userId      String    @map("user_id") @db.Uuid
   status      String    @default("PENDING") @db.VarChar(20)
   requestedAt DateTime  @default(now()) @map("requested_at") @db.Timestamptz
   processedAt DateTime? @map("processed_at") @db.Timestamptz
@@ -270,6 +284,26 @@ model PasswordResetRequest {
   notes       String?
 
   @@map("password_reset_requests")
+}
+
+model AdminRequest {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requestType         String    @map("request_type") @db.VarChar(30) // CREATE_USER, MODIFY_USER, UNLOCK, FORGOT_PASSWORD
+  status              String    @default("PENDING") @db.VarChar(20) // PENDING, APPROVED, REJECTED
+  requesterName       String    @map("requester_name") @db.VarChar(100)
+  requesterEmployeeId String?   @map("requester_employee_id") @db.VarChar(50)
+  requesterEmail      String?   @map("requester_email") @db.VarChar(100)
+  requestData         Json      @default("{}") @map("request_data") @db.JsonB // Type-specific form data
+  remarks             String?   @db.VarChar(500) // Requester's reason
+  adminRemarks        String?   @map("admin_remarks") @db.VarChar(500) // Admin notes on approve/reject
+  processedBy         String?   @map("processed_by") @db.VarChar(100)
+  requestedAt         DateTime  @default(now()) @map("requested_at") @db.Timestamptz
+  processedAt         DateTime? @map("processed_at") @db.Timestamptz
+
+  @@index([status])
+  @@index([requestType])
+  @@index([requestedAt(sort: Desc)])
+  @@map("admin_requests")
 }
 
 model AuditTrail {
@@ -295,6 +329,7 @@ model AuditTrail {
   @@index([action])
   @@index([targetType, targetId])
   @@index([sessionId])
+  @@index([userId, timestamp(sort: Desc)])
   @@map("audit_trail")
 }
 
@@ -345,6 +380,7 @@ model Notification {
   @@index([forRole])
   @@index([isRead])
   @@index([createdAt(sort: Desc)])
+  @@index([forUserId, isRead, createdAt(sort: Desc)])
   @@map("notifications")
 }
 
@@ -411,9 +447,10 @@ model AssetTemplate {
   autoProvision        Boolean @default(true) @map("auto_provision") // auto-create credentials on instance creation
   defaultRuleChainId   String? @map("default_rule_chain_id") @db.Uuid
 
-  versions         AssetTemplateVersion[]
-  instances        AssetInstance[]
-  defaultRuleChain RuleChain?             @relation(fields: [defaultRuleChainId], references: [id])
+  versions            AssetTemplateVersion[]
+  instances           AssetInstance[]
+  templateAssignments TemplateAssignment[]
+  defaultRuleChain    RuleChain?             @relation(fields: [defaultRuleChainId], references: [id])
 
   @@index([isActive])
   @@index([category])
@@ -457,22 +494,26 @@ model AssetInstance {
   createdBy        String?  @map("created_by") @db.VarChar(50)
   updatedBy        String?  @map("updated_by") @db.VarChar(50)
 
-  template        AssetTemplate       @relation(fields: [templateId], references: [id])
-  parent          AssetInstance?      @relation("AssetHierarchy", fields: [parentId], references: [id])
-  children        AssetInstance[]     @relation("AssetHierarchy")
-  sourceRelations AssetRelationship[] @relation("SourceAsset")
-  targetRelations AssetRelationship[] @relation("TargetAsset")
-  identifiers     AssetIdentifier[]
+  template              AssetTemplate       @relation(fields: [templateId], references: [id])
+  parent                AssetInstance?      @relation("AssetHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children              AssetInstance[]     @relation("AssetHierarchy")
+  sourceRelations       AssetRelationship[] @relation("SourceAsset")
+  targetRelations       AssetRelationship[] @relation("TargetAsset")
+  identifiers           AssetIdentifier[]
+  entityAssignments     EntityAssignment[]
+  equipmentGroups       EquipmentGroup[]
+  filterProfileId       String?             @map("filter_profile_id") @db.Uuid
+  currentLifecycleState String?             @map("current_lifecycle_state") @db.VarChar(100)
+  currentCycleId        String?             @map("current_cycle_id") @db.Uuid
+  filterSet             FilterSetLabel?     @map("filter_set")
+  filterProfile         FilterProfile?      @relation("FilterProfileInstances", fields: [filterProfileId], references: [id])
+  currentCycle          CleaningCycle?      @relation("CurrentCycleInstance", fields: [currentCycleId], references: [id])
 
   @@index([templateId])
   @@index([status])
   @@index([parentId])
   @@index([name])
   @@index([isActive])
-  filterProfileId       String?          @map("filter_profile_id") @db.Uuid
-  currentLifecycleState String?          @map("current_lifecycle_state") @db.VarChar(100)
-  currentCycleId        String?          @map("current_cycle_id") @db.Uuid
-  filterSet             FilterSetLabel?  @map("filter_set")
   @@map("asset_instances")
 }
 
@@ -609,11 +650,11 @@ model RuleNode {
 
 // Rule Node Connections
 model RuleNodeConnection {
-  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  ruleChainId String  @map("rule_chain_id") @db.Uuid
-  fromNodeId  String  @map("from_node_id") @db.Uuid
-  toNodeId    String  @map("to_node_id") @db.Uuid
-  label       String  @db.VarChar(100)
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ruleChainId String @map("rule_chain_id") @db.Uuid
+  fromNodeId  String @map("from_node_id") @db.Uuid
+  toNodeId    String @map("to_node_id") @db.Uuid
+  label       String @db.VarChar(100)
 
   ruleChain RuleChain @relation(fields: [ruleChainId], references: [id], onDelete: Cascade)
   fromNode  RuleNode  @relation("FromNode", fields: [fromNodeId], references: [id], onDelete: Cascade)
@@ -625,12 +666,12 @@ model RuleNodeConnection {
 
 // Alarm (single-row lifecycle: ACTIVE -> ACKNOWLEDGED -> CLEARED | MANUALLY_CLEARED)
 model Alarm {
-  id        String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  entityId  String  @map("entity_id") @db.Uuid
-  alarmType String  @map("alarm_type") @db.VarChar(100)
-  severity  String  @db.VarChar(20) // CRITICAL | MAJOR | MINOR | WARNING | INFO
-  status    String  @default("ACTIVE") @db.VarChar(20) // ACTIVE | ACKNOWLEDGED | CLEARED | MANUALLY_CLEARED
-  unsPath   String  @map("uns_path")
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityId  String @map("entity_id") @db.Uuid
+  alarmType String @map("alarm_type") @db.VarChar(100)
+  severity  String @db.VarChar(20) // CRITICAL | MAJOR | MINOR | WARNING | INFO
+  status    String @default("ACTIVE") @db.VarChar(20) // ACTIVE | ACKNOWLEDGED | CLEARED | MANUALLY_CLEARED
+  unsPath   String @map("uns_path")
 
   // Creation
   createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -662,10 +703,10 @@ model Alarm {
 
 // Checklist Review (3-step approval workflow)
 model ChecklistReview {
-  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  checklistId String  @unique @map("checklist_id") // Links to ts_checklist_responses
-  entityId    String  @map("entity_id") @db.Uuid
-  templateId  String  @map("template_id") @db.Uuid
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  checklistId String @unique @map("checklist_id") @db.VarChar(255) // Links to ts_checklist_responses
+  entityId    String @map("entity_id") @db.Uuid
+  templateId  String @map("template_id") @db.Uuid
 
   // Current state
   currentStep     String @default("SUBMITTED") @map("current_step") @db.VarChar(30)
@@ -827,6 +868,7 @@ model DataStream {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   @@unique([entityId, key])
+  @@index([source])
   @@map("data_streams")
 }
 
@@ -1018,6 +1060,7 @@ model NotificationRule {
 
   @@index([eventType])
   @@index([isActive])
+  @@index([isActive, priority(sort: Desc)])
   @@map("notification_rules")
 }
 
@@ -1036,7 +1079,6 @@ model NotificationRuleRecipient {
   @@map("notification_rule_recipients")
 }
 
-
 // ─── Phase 2: Filter Management System ─────────────────────
 
 enum PmScheduleStatus {
@@ -1045,6 +1087,14 @@ enum PmScheduleStatus {
   ARCHIVED
 
   @@map("pm_schedule_status")
+}
+
+enum CleaningProfileStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+
+  @@map("cleaning_profile_status")
 }
 
 enum PmExecutionStatus {
@@ -1105,6 +1155,7 @@ enum FilterEventType {
   SCRIPT_EXECUTED
   CYCLE_STARTED
   CYCLE_COMPLETED
+  CYCLE_TERMINATED
 
   @@map("filter_event_type")
 }
@@ -1127,7 +1178,8 @@ model PmSchedule {
   createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime         @updatedAt @map("updated_at") @db.Timestamptz
 
-  entries PmScheduleEntry[]
+  entries        PmScheduleEntry[]
+  filterProfiles FilterProfile[]
 
   @@unique([entityId, year, version])
   @@index([entityId, status])
@@ -1176,23 +1228,25 @@ model PmExecution {
 }
 
 model FilterCleaningProfile {
-  id                   String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name                 String           @db.VarChar(255)
+  id                   String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                 String                @db.VarChar(255)
   description          String?
-  organizationId       String           @map("organization_id") @db.Uuid
-  flowMode             PipelineFlowMode @default(STRICT) @map("flow_mode")
-  alarmOnForwardSkip   Boolean          @default(true) @map("alarm_on_forward_skip")
-  alarmOnBackwardJump  Boolean          @default(true) @map("alarm_on_backward_jump")
-  alarmOnOutOfSequence Boolean          @default(true) @map("alarm_on_out_of_sequence")
-  cleaningReasons      Json?            @map("cleaning_reasons") @db.JsonB
-  version              Int              @default(1)
-  status               PmScheduleStatus @default(DRAFT)
-  createdBy            String           @map("created_by") @db.Uuid
-  createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt            DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+  organizationId       String                @map("organization_id") @db.Uuid
+  flowMode             PipelineFlowMode      @default(STRICT) @map("flow_mode")
+  alarmOnForwardSkip   Boolean               @default(true) @map("alarm_on_forward_skip")
+  alarmOnBackwardJump  Boolean               @default(true) @map("alarm_on_backward_jump")
+  alarmOnOutOfSequence Boolean               @default(true) @map("alarm_on_out_of_sequence")
+  cleaningReasons      Json?                 @map("cleaning_reasons") @db.JsonB
+  version              Int                   @default(1)
+  status               CleaningProfileStatus @default(DRAFT)
+  createdBy            String                @map("created_by") @db.Uuid
+  createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime              @updatedAt @map("updated_at") @db.Timestamptz
 
-  stages      FilterPipelineStage[]
-  connections FilterPipelineConnection[]
+  stages         FilterPipelineStage[]
+  connections    FilterPipelineConnection[]
+  cleaningCycles CleaningCycle[]
+  filterProfiles FilterProfile[]
 
   @@index([organizationId, status])
   @@map("filter_cleaning_profiles")
@@ -1248,6 +1302,10 @@ model FilterProfile {
   createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz
 
+  cleaningProfile FilterCleaningProfile? @relation(fields: [cleaningProfileId], references: [id])
+  pmSchedule      PmSchedule?            @relation(fields: [defaultPmScheduleId], references: [id])
+  assetInstances  AssetInstance[]        @relation("FilterProfileInstances")
+
   @@index([organizationId, isActive])
   @@map("filter_profiles")
 }
@@ -1273,13 +1331,20 @@ model CleaningCycle {
   createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz
   updatedAt             DateTime            @updatedAt @map("updated_at") @db.Timestamptz
 
-  events FilterEvent[]
+  equipmentGroupId String? @map("equipment_group_id") @db.Uuid
+
+  events          FilterEvent[]
+  equipmentGroup  EquipmentGroup?        @relation(fields: [equipmentGroupId], references: [id])
+  profile         FilterCleaningProfile? @relation(fields: [profileId], references: [id])
+  activeInstances AssetInstance[]        @relation("CurrentCycleInstance")
 
   @@index([filterId, status])
   @@index([ahuId, status])
+  @@index([status])
   @@index([startedAt])
   @@index([cleaningReasonKey])
   @@index([pmExecutionId])
+  @@index([filterId, status, startedAt(sort: Desc)])
   @@map("cleaning_cycles")
 }
 
@@ -1309,7 +1374,53 @@ model FilterEvent {
   @@index([performedAt])
   @@index([eventType, filterId])
   @@index([cycleId])
+  @@index([filterId, cycleId, eventType])
+  @@index([filterId, performedAt(sort: Desc)])
   @@map("filter_events")
+}
+
+// ─── Equipment Groups ──────────────────────────────────────
+
+model EquipmentGroup {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String   @db.VarChar(255)
+  blockId        String   @map("block_id") @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  isActive       Boolean  @default(true) @map("is_active")
+  createdBy      String?  @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  block       AssetInstance              @relation(fields: [blockId], references: [id])
+  instruments EquipmentGroupInstrument[]
+  cycles      CleaningCycle[]
+
+  @@index([blockId])
+  @@index([organizationId, isActive])
+  @@map("equipment_groups")
+}
+
+model EquipmentGroupInstrument {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  groupId       String   @map("group_id") @db.Uuid
+  description   String   @db.VarChar(255) // "Compressed Air Pressure", "RO Water Pressure", "Dryer Temperature"
+  stageKey      String   @map("stage_key") @db.VarChar(100) // "WASH_IN" or "DRY_IN"
+  serialNumber  String   @map("serial_number") @db.VarChar(100)
+  instrumentId  String   @map("instrument_id") @db.VarChar(100)
+  uom           String   @db.VarChar(50)
+  instrumentMin Float    @map("instrument_min")
+  instrumentMax Float    @map("instrument_max")
+  operatingMin  Float    @map("operating_min")
+  operatingMax  Float    @map("operating_max")
+  leastCount    Float    @map("least_count")
+  sortOrder     Int      @default(0) @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  group EquipmentGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, sortOrder])
+  @@map("equipment_group_instruments")
 }
 
 // ─── Checklist Profiles & Questions ──────────────────────────

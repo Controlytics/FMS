@@ -178,5 +178,11 @@
 - **Expected Result**: 401 Unauthorized — missing token
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2 Notes
+
+- QR code generation applies to filter instances. Filters can have QR codes for scanning on mobile devices.
+- QR action types include dashboard, checklist, and history — useful for filter inspection workflows.
+- Filter QR codes link to the mobile-optimized filter detail page when scanned.
 

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
+import { useDatetimeFormat } from '../../../../hooks/use-datetime-format';
 
 interface BinaryFile {
   time: string;
@@ -13,6 +14,7 @@ interface BinaryFile {
 }
 
 export function ImagesTab({ entityId }: { entityId: string }) {
+  const { formatDateTime, formatDate, formatTime } = useDatetimeFormat();
   const { data, isLoading, mutate } = useSWR<{ data: BinaryFile[]; total: number }>(
     `/api/data/binaries/${entityId}`,
     { revalidateOnMount: true, dedupingInterval: 0 }
@@ -96,7 +98,7 @@ export function ImagesTab({ entityId }: { entityId: string }) {
               </button>
               <div className="p-2">
                 <p className="text-xs font-medium text-slate-700 truncate">{file.fileName}</p>
-                <p className="text-[10px] text-slate-400">{new Date(file.time).toLocaleString()} · {(file.fileSize / 1024).toFixed(1)} KB</p>
+                <p className="text-[10px] text-slate-400">{formatDateTime(file.time)} · {(file.fileSize / 1024).toFixed(1)} KB</p>
               </div>
             </div>
           );

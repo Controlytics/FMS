@@ -1,9 +1,9 @@
 # EG-14: Telemetry Queries -- Execution Guide
 
 ## Prerequisites
-- **App URL**: http://3.108.185.106
+- **App URL**: http://34.232.224.0
 - **API Base**: http://localhost:3000/api
-- **SUPER_ADMIN Credentials**: admin / Admin@123
+- **SUPER_ADMIN Credentials**: superadmin / Admin@123
 - **Entity with Data**: An entity that has received telemetry data (temperature, humidity, etc.)
 - **TimescaleDB**: Running with ts_telemetry, ts_attributes, ts_checklist_responses tables populated
 
@@ -12,7 +12,7 @@
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 # Find an entity with telemetry data
 ENTITY_ID=$(sudo -u postgres psql -t -A digilog_db -c "SELECT entity_id FROM latest_telemetry LIMIT 1;")
@@ -57,7 +57,7 @@ curl -s -X GET "http://localhost:3000/api/telemetry/$ENTITY_ID/latest" \
 ```
 
 **Browser Steps:**
-1. Navigate to http://3.108.185.106/assets.
+1. Navigate to http://34.232.224.0/assets.
 2. Select the entity.
 3. Click the Telemetry tab.
 4. Verify latest values display.
@@ -283,5 +283,5 @@ curl -s -X GET "http://localhost:3000/api/telemetry/$NO_DATA_ENTITY/latest" \
 - [ ] No error returned
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+> **Phase 2 (Digital FMS):** Telemetry queries work for filter entities. Filter telemetry keys (differentialPressure, airflow, filterLoad) queryable via same endpoints. AHU dashboard uses these endpoints.
 

@@ -13,6 +13,11 @@ export const AUDIT_TEMPLATE_CATEGORIES = [
   'Backup',
   'Data & Approvals',
   'Entity Management',
+  'Filter Operations',
+  'Cleaning Profiles',
+  'Filter Profiles',
+  'Equipment Groups',
+  'PM Schedules',
 ] as const;
 
 export type AuditTemplateCategory = (typeof AUDIT_TEMPLATE_CATEGORIES)[number];
@@ -327,6 +332,142 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     label: 'Alarm Cleared',
     category: 'Entity Management',
     template: 'Alarm "{targetName}" cleared by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+
+  // Phase 2: Filter Operations
+  CYCLE_STARTED: {
+    label: 'Cleaning Cycle Started',
+    category: 'Filter Operations',
+    template: 'Cleaning cycle started for filter "{targetName}" with reason "{reason}" by {actor}',
+    placeholders: ['actor', 'targetName', 'reason'],
+  },
+  STATE_TRANSITION: {
+    label: 'Filter Stage Advanced',
+    category: 'Filter Operations',
+    template: 'Filter "{targetName}" advanced to stage "{stage}" by {actor}',
+    placeholders: ['actor', 'targetName', 'stage'],
+  },
+  CHECKLIST_COMPLETED: {
+    label: 'Checklist Completed',
+    category: 'Filter Operations',
+    template: 'Checklist "{targetName}" completed for filter by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  BYPASS_DEVIATION: {
+    label: 'Stage Bypassed (Deviation)',
+    category: 'Filter Operations',
+    template: 'Stage "{stage}" bypassed for filter "{targetName}" by {actor} — deviation recorded',
+    placeholders: ['actor', 'targetName', 'stage'],
+  },
+  CYCLE_COMPLETED: {
+    label: 'Cleaning Cycle Completed',
+    category: 'Filter Operations',
+    template: 'Cleaning cycle completed for filter "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  CYCLE_TERMINATED: {
+    label: 'Cleaning Cycle Terminated',
+    category: 'Filter Operations',
+    template: 'Cleaning cycle terminated for filter "{targetName}" by {actor} — reason: "{reason}"',
+    placeholders: ['actor', 'targetName', 'reason'],
+  },
+  PARAMETER_CAPTURE: {
+    label: 'Instrument Reading Captured',
+    category: 'Filter Operations',
+    template: 'Instrument readings captured for filter "{targetName}" at stage "{stage}" by {actor}',
+    placeholders: ['actor', 'targetName', 'stage'],
+  },
+
+  // Cleaning Profiles
+  CLEANING_PROFILE_CREATED: {
+    label: 'Cleaning Profile Created',
+    category: 'Cleaning Profiles',
+    template: 'Cleaning profile "{targetName}" created by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  CLEANING_PROFILE_UPDATED: {
+    label: 'Cleaning Profile Updated',
+    category: 'Cleaning Profiles',
+    template: 'Cleaning profile "{targetName}" updated (new version) by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  CLEANING_PROFILE_DELETED: {
+    label: 'Cleaning Profile Archived',
+    category: 'Cleaning Profiles',
+    template: 'Cleaning profile "{targetName}" archived by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  CLEANING_PROFILE_STATUS_CHANGED: {
+    label: 'Cleaning Profile Status Changed',
+    category: 'Cleaning Profiles',
+    template: 'Cleaning profile "{targetName}" status changed to "{status}" by {actor}',
+    placeholders: ['actor', 'targetName', 'status'],
+  },
+
+  // Filter Profiles
+  FILTER_PROFILE_CREATED: {
+    label: 'Filter Profile Created',
+    category: 'Filter Profiles',
+    template: 'Filter profile created for "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  FILTER_PROFILE_UPDATED: {
+    label: 'Filter Profile Updated',
+    category: 'Filter Profiles',
+    template: 'Filter profile updated for "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  FILTER_PROFILE_ASSIGNED: {
+    label: 'Filter Profile Assigned',
+    category: 'Filter Profiles',
+    template: 'Cleaning profile assigned to filter "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+
+  // Equipment Groups
+  EQUIPMENT_GROUP_CREATED: {
+    label: 'Equipment Group Created',
+    category: 'Equipment Groups',
+    template: 'Equipment group "{targetName}" created for block by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  EQUIPMENT_GROUP_UPDATED: {
+    label: 'Equipment Group Updated',
+    category: 'Equipment Groups',
+    template: 'Equipment group "{targetName}" instruments updated by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  EQUIPMENT_GROUP_DELETED: {
+    label: 'Equipment Group Deleted',
+    category: 'Equipment Groups',
+    template: 'Equipment group "{targetName}" deactivated by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+
+  // PM Schedules
+  PM_SCHEDULE_CREATED: {
+    label: 'PM Schedule Created',
+    category: 'PM Schedules',
+    template: 'PM schedule created for "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  PM_SCHEDULE_UPDATED: {
+    label: 'PM Schedule Updated',
+    category: 'PM Schedules',
+    template: 'PM schedule updated for "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  PM_SCHEDULE_DELETED: {
+    label: 'PM Schedule Deleted',
+    category: 'PM Schedules',
+    template: 'PM schedule deleted for "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  PM_EXECUTION_COMPLETED: {
+    label: 'PM Execution Completed',
+    category: 'PM Schedules',
+    template: 'PM execution completed for "{targetName}" by {actor}',
     placeholders: ['actor', 'targetName'],
   },
 };

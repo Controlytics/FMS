@@ -5,7 +5,7 @@ export type { Role, UserStatus, RoleData } from './types/roles.js';
 export { AUDIT_ACTIONS } from './types/audit-actions.js';
 export type { AuditAction } from './types/audit-actions.js';
 
-export { PERMISSIONS, ROLE_PERMISSIONS } from './types/permissions.js';
+export { PERMISSIONS } from './types/permissions.js';
 export type { Permission } from './types/permissions.js';
 
 export { PERMISSION_CATEGORIES } from './types/permission-categories.js';
@@ -16,6 +16,9 @@ export type { FeaturePrivilege } from './types/feature-privileges.js';
 
 export { SIDEBAR_ITEMS } from './types/sidebar-items.js';
 export type { SidebarItem } from './types/sidebar-items.js';
+
+export { SIDEBAR_PRIVILEGE_MAP, getPrivilegesForSection } from './types/sidebar-privilege-map.js';
+export type { SidebarSection } from './types/sidebar-privilege-map.js';
 
 export { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES } from './types/reauth-actions.js';
 export type { ReauthAction, ReauthActionCategory } from './types/reauth-actions.js';

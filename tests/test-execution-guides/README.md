@@ -1,11 +1,11 @@
 # DigiLog Manual Test Cases — Master Index
 
 ## Project Information
-- **Application**: DigiLog (21 CFR Part 11 Compliant Digital Logbook)
-- **Version**: DataIngestion branch
-- **App URL**: http://3.108.185.106
-- **API Base URL**: http://3.108.185.106/api (or http://localhost:3000/api from server)
-- **Swagger UI**: http://3.108.185.106/docs
+- **Application**: DigiLog (21 CFR Part 11 Compliant IoT Data Logging Platform with Digital Filter Management System)
+- **Version**: DigitalFMS branch (Phase 2)
+- **App URL**: http://34.232.224.0 (or http://localhost:5173 for local dev)
+- **API Base URL**: http://34.232.224.0/api (or http://localhost:3000/api from server)
+- **Swagger UI**: http://34.232.224.0/docs (or http://localhost:3000/docs)
 
 ---
 
@@ -81,7 +81,7 @@ Each EG file mirrors its corresponding TC file and adds:
 ### Credentials
 | Role | Username | Password | Notes |
 |------|----------|----------|-------|
-| SUPER_ADMIN | admin | Admin@123 | Full access, all permissions |
+| SUPER_ADMIN | superadmin | Admin@123 | Full access, all permissions |
 | ADMIN | admin_user | Admin@123 | Create via /users if needed |
 | SUPERVISOR | supervisor_user | Supervisor@123 | Create via /users if needed |
 | OPERATOR | operator_user | Operator@123 | Create via /users if needed |
@@ -95,12 +95,14 @@ Each EG file mirrors its corresponding TC file and adds:
 - **mosquitto_pub** (optional): For MQTT connectivity tests
 
 ### Environment
-- **Server**: SSH via `ssh -i ~/Downloads/21cfrbook.pem ubuntu@3.108.185.106`
+- **Server**: SSH via `ssh -i ~/Downloads/21cfrbook.pem ubuntu@34.232.224.0`
 - **API Port**: 3000 (direct), 80 (via nginx)
-- **Database**: PostgreSQL 16 on localhost:5432, database `digilog_db`
-- **TimescaleDB**: PostgreSQL 16 on localhost:5432, database `digilog_tsdb`
-- **Redis**: localhost:6379
+- **Database**: PostgreSQL 18 on localhost:5432, database `digilog_db` (Prisma ORM)
+- **TimescaleDB**: PostgreSQL 18 on localhost:5432, database `digilog_tsdb`
+- **Redis**: localhost:6379 (Redis 5, BullMQ queue)
 - **EMQX**: MQTT on 1883, Dashboard at :18083
+- **Tech Stack**: Fastify + TypeScript (backend), React + Vite + Tailwind CSS (frontend)
+- **Models**: 57 Prisma models, 17 enums, 34 API modules
 
 ---
 
@@ -111,7 +113,7 @@ Each EG file mirrors its corresponding TC file and adds:
 # Get JWT token
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 ```
 
 ### Common Request Patterns
@@ -442,42 +444,118 @@ See CLAUDE.md for full endpoint listing.
 
 For a complete regression test, execute in this recommended order:
 
+### Phase 1 — Core Platform
 1. **TC-01** Authentication (foundational — ensures login works)
 2. **TC-23** Session Management (session lifecycle, idle timeout)
 3. **TC-02** User Management (CRUD users for subsequent tests)
-4. **TC-03** Roles & Permissions (RBAC setup)
-5. **TC-08** Configuration (system settings)
+4. **TC-03** Roles & Permissions (RBAC setup with 52+ privileges)
+5. **TC-08** Configuration (23 system config definitions)
 6. **TC-22** Backup & Restore (export a backup before other tests modify data)
 7. **TC-04** Entity Templates (template blueprints)
-8. **TC-05** Entity Instances (create entities)
+8. **TC-05** Entity Instances (create entities, including filter instances)
 9. **TC-06** Entity Relationships (link entities)
 10. **TC-07** Entity Identifiers (physical IDs)
 11. **TC-19** QR Codes (requires entities)
 12. **TC-18** Connectivity (requires entities, generates device tokens)
-13. **TC-11** Data Ingestion (send telemetry/attributes)
-14. **TC-12** Rule Chains (processing pipeline)
+13. **TC-11** Data Ingestion (10-stage pipeline, MQTT/HTTP)
+14. **TC-12** Rule Chains (77 node types, 8 categories)
 15. **TC-13** UNS (ISA-95 namespace)
 16. **TC-14** Telemetry Queries (read back data)
 17. **TC-15** Alarms (alarm lifecycle)
-18. **TC-16** Export (CSV/JSON export)
-19. **TC-09** Audit Trail (verify audit integrity)
-20. **TC-10** Notifications (notification lifecycle)
-21. **TC-20** Help Articles (standalone CRUD)
-22. **TC-21** Debug Traces (requires connectivity + telemetry data)
-23. **TC-24** File Uploads (standalone feature)
-24. **TC-25** 21 CFR Compliance (cross-cutting regulatory validation)
-25. **TC-17** Data Retention (run last — deletes data)
+18. **TC-16** Export (CSV/JSON/Excel export)
+
+### Phase 2 — Digital Filter Management System
+19. **TC-05** Entity Instances — Filter-specific tests (cleaning profiles, filter profiles, filter operations)
+20. **TC-08** Configuration — Filter config definitions (field IDs, privileges)
+
+### Phase 1 — Continued
+21. **TC-09** Audit Trail (verify audit integrity, filter operation audit entries)
+22. **TC-10** Notifications (notification lifecycle)
+23. **TC-20** Help Articles (40+ articles with version history)
+24. **TC-21** Debug Traces (requires connectivity + telemetry data)
+25. **TC-24** File Uploads (standalone feature, bulk CSV upload)
+26. **TC-25** 21 CFR Compliance (cross-cutting regulatory validation)
+27. **TC-17** Data Retention (run last — deletes data)
 
 ---
 
 ## Notes
 
 - **SUPER_ADMIN Audit Exemption**: SUPER_ADMIN actions are NOT logged in the audit trail per 21 CFR Part 11 design. Test audit trail entries with non-SUPER_ADMIN accounts.
-- **Reauth**: Some endpoints require re-authentication. In curl, this is handled by the token; in the browser, a reauth dialog appears. If reauth is disabled for an action, the operation proceeds without a dialog.
+- **Reauth**: Some endpoints require re-authentication. In curl, this is handled by the `_currentPassword` field or `x-reauth-password` header; in the browser, a reauth dialog appears. If reauth is disabled for an action, the operation proceeds without a dialog.
 - **Soft Delete**: Entity templates and instances use soft delete (isActive=false). Help articles also use soft delete. QR codes and relationships use hard delete.
 - **Single Session**: Each user can only have one active session. A new login invalidates the previous session's token.
 - **TimescaleDB**: Retention and trace queries run against the `digilog_tsdb` database, not the main `digilog_db`.
+- **Input Sanitization**: All text fields are HTML-stripped via lib/sanitize.ts before storage.
+- **Default Login**: superadmin / Admin@123 (the seed user is `superadmin`, not `admin`).
 
+---
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+## Phase 2: Digital Filter Management System
+
+Phase 2 adds a complete Digital Filter Management System with the following modules and endpoints:
+
+### Cleaning Profiles
+| Method | Endpoint | Permission |
+|--------|----------|------------|
+| GET | /api/cleaning-profiles | FILTER_VIEW |
+| GET | /api/cleaning-profiles/:id | FILTER_VIEW |
+| POST | /api/cleaning-profiles | FILTER_MANAGE (reauth) |
+| PUT | /api/cleaning-profiles/:id | FILTER_MANAGE (reauth) |
+| DELETE | /api/cleaning-profiles/:id | FILTER_MANAGE (reauth) |
+
+Pipeline stages: WASH_IN, WASH_OUT, DRY_IN, DRY_OUT, STORAGE_IN, STORAGE_OUT with visual editor support. CHECKLIST nodes between STAGE nodes trigger automatic question dialogs.
+
+### Filter Profiles
+| Method | Endpoint | Permission |
+|--------|----------|------------|
+| GET | /api/filter-profiles | FILTER_VIEW |
+| GET | /api/filter-profiles/:id | FILTER_VIEW |
+| POST | /api/filter-profiles | FILTER_MANAGE (reauth) |
+| PUT | /api/filter-profiles/:id | FILTER_MANAGE (reauth) |
+| DELETE | /api/filter-profiles/:id | FILTER_MANAGE (reauth) |
+
+### Filter Operations
+| Method | Endpoint | Permission |
+|--------|----------|------------|
+| POST | /api/filters/:id/start-cycle | FILTER_OPERATE |
+| POST | /api/filters/:id/advance | FILTER_OPERATE |
+| POST | /api/filters/:id/submit-checklist | FILTER_OPERATE |
+| POST | /api/filters/:id/bypass | FILTER_OPERATE (reauth) |
+| GET | /api/filters/:id/current-state | FILTER_VIEW |
+| GET | /api/filter/cycles | FILTER_VIEW |
+| GET | /api/filter/events | FILTER_VIEW |
+
+### PM Schedules
+| Method | Endpoint | Permission |
+|--------|----------|------------|
+| GET | /api/pm-schedules | FILTER_VIEW |
+| GET | /api/pm-schedules/:id | FILTER_VIEW |
+| POST | /api/pm-schedules | FILTER_MANAGE (reauth) |
+| PUT | /api/pm-schedules/:id | FILTER_MANAGE (reauth) |
+| DELETE | /api/pm-schedules/:id | FILTER_MANAGE (reauth) |
+
+### Checklist Profiles
+| Method | Endpoint | Permission |
+|--------|----------|------------|
+| GET | /api/checklist-profiles | FILTER_VIEW |
+| GET | /api/checklist-profiles/:id | FILTER_VIEW |
+| POST | /api/checklist-profiles | FILTER_MANAGE (reauth) |
+| PUT | /api/checklist-profiles/:id | FILTER_MANAGE (reauth) |
+| DELETE | /api/checklist-profiles/:id | FILTER_MANAGE (reauth) |
+
+Question types: TEXT, BOOLEAN, NUMBER, SELECT, MULTI_SELECT.
+
+### Equipment Groups
+| Method | Endpoint | Permission |
+|--------|----------|------------|
+| GET | /api/equipment-groups | FILTER_VIEW |
+| POST | /api/equipment-groups | FILTER_MANAGE |
+
+### Key Phase 2 Concepts
+- **Cleaning Cycle**: Start cycle on a filter, advance through pipeline stages, submit checklists at checklist nodes, complete when reaching END node
+- **Bypass**: Skip a stage with deviation reason (audit-logged, requires reauth)
+- **Checklist Enforcement**: Server blocks advance() if pending checklist not completed
+- **Filter Traceability**: Complete history of cycles, events, retirement, and replacement
+- **Bulk Upload**: CSV upload for filter creation
 

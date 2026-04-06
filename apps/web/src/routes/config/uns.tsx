@@ -1,9 +1,11 @@
 import { useState, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
+import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -136,9 +138,11 @@ function TreeNode({
 // ── Main page ──────────────────────────────────────────────────────────────
 
 export function UnsConfigPage() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
   const reauth = useReauth();
+  const { formatDate } = useDatetimeFormat();
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
 
   // Tree data
@@ -218,6 +222,11 @@ export function UnsConfigPage() {
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center gap-4">
+        <button onClick={() => navigate('/config')} className="p-2 rounded-xl hover:bg-slate-100 transition-colors">
+          <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
         <div className="p-3 rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 shadow-lg shadow-teal-500/25">
           <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
@@ -232,6 +241,45 @@ export function UnsConfigPage() {
           </p>
         </div>
       </div>
+
+      {/* UNS Info Card */}
+      <Card className="p-5 border-slate-200/60">
+        <div className="flex items-start gap-4">
+          <div className="p-2.5 rounded-xl bg-gradient-to-br from-teal-50 to-cyan-50 border border-teal-200/50">
+            <svg className="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div className="flex-1">
+            <h3 className="text-sm font-semibold text-slate-800">ISA-95 Namespace Configuration</h3>
+            <p className="text-xs text-slate-500 mt-1">Topic paths are auto-generated based on entity hierarchy following ISA-95 levels.</p>
+            <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="bg-slate-50 rounded-lg px-3 py-2">
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider">Prefix</span>
+                <p className="text-sm font-mono text-slate-800 mt-0.5">digilog/v1</p>
+              </div>
+              <div className="bg-slate-50 rounded-lg px-3 py-2">
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider">Separator</span>
+                <p className="text-sm font-mono text-slate-800 mt-0.5">/</p>
+              </div>
+              <div className="bg-slate-50 rounded-lg px-3 py-2">
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider">Levels</span>
+                <p className="text-sm text-slate-800 mt-0.5">Enterprise &rarr; Site &rarr; Area &rarr; Line &rarr; Cell</p>
+              </div>
+              <div className="bg-slate-50 rounded-lg px-3 py-2">
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider">Wildcards</span>
+                <p className="text-sm font-mono text-slate-800 mt-0.5">+ (single) &nbsp; # (multi)</p>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="text-[10px] text-slate-500">Topic suffixes:</span>
+              {['/telemetry', '/attributes', '/rpc', '/events', '/alarms', '/binary'].map(s => (
+                <span key={s} className="px-2 py-0.5 text-[10px] font-mono bg-teal-50 text-teal-700 border border-teal-200 rounded-full">{s}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left panel: Search + Tree */}
@@ -404,7 +452,7 @@ export function UnsConfigPage() {
                     <div>
                       <span className="text-xs text-slate-500">Created</span>
                       <p className="text-xs text-slate-600 mt-0.5">
-                        {new Date(entityDetail.createdAt).toLocaleDateString()}
+                        {formatDate(entityDetail.createdAt)}
                       </p>
                     </div>
                   )}
@@ -412,7 +460,7 @@ export function UnsConfigPage() {
                     <div>
                       <span className="text-xs text-slate-500">Updated</span>
                       <p className="text-xs text-slate-600 mt-0.5">
-                        {new Date(entityDetail.updatedAt).toLocaleDateString()}
+                        {formatDate(entityDetail.updatedAt)}
                       </p>
                     </div>
                   )}

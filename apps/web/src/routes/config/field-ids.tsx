@@ -43,6 +43,7 @@ export function FieldIdsPage() {
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeModule, setActiveModule] = useState<string | null>(null);
 
@@ -86,12 +87,13 @@ export function FieldIdsPage() {
   const handleSave = async (fieldId: string) => {
     if (!editValue.trim()) return;
     setSaving(true);
+    setError('');
     try {
       await api.put(`/api/config/field-ids/${fieldId}`, { displayName: editValue.trim() });
       mutate('/api/config/field-ids');
       setEditingField(null);
-    } catch (error) {
-      console.error('Failed to save:', error);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save field name');
     } finally {
       setSaving(false);
     }
@@ -104,11 +106,12 @@ export function FieldIdsPage() {
 
   const handleReset = async (field: FieldConfig) => {
     setSaving(true);
+    setError('');
     try {
       await api.put(`/api/config/field-ids/${field.fieldId}`, { displayName: field.defaultName });
       mutate('/api/config/field-ids');
-    } catch (error) {
-      console.error('Failed to reset:', error);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to reset field name');
     } finally {
       setSaving(false);
     }
@@ -151,6 +154,23 @@ export function FieldIdsPage() {
           </div>
         </div>
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="flex items-center gap-3 rounded-xl bg-red-50 border border-red-200 p-4">
+          <div className="p-2 rounded-lg bg-red-100">
+            <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <p className="text-sm text-red-700">{error}</p>
+          <button onClick={() => setError('')} className="ml-auto p-1 rounded-lg hover:bg-red-100 transition-colors">
+            <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {/* Module Filter Tabs */}
       <div className="flex flex-wrap gap-2">

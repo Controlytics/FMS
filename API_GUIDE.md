@@ -2,7 +2,8 @@
 
 ## Base URL
 ```
-http://3.108.185.106/api
+Production: http://34.232.224.0/api
+Development: http://localhost:3000/api
 ```
 
 ## Authentication
@@ -21,9 +22,10 @@ Authorization: Bearer <token>
 ```
 
 ### Interactive Docs
-Swagger UI: `http://3.108.185.106/docs`
+- Production Swagger UI: `http://34.232.224.0/docs`
+- Development Swagger UI: `http://localhost:3000/docs`
 
-## API Modules
+## API Modules (34 total)
 
 ### Auth (`/api/auth`)
 | Method | Endpoint | Description |
@@ -146,10 +148,18 @@ Swagger UI: `http://3.108.185.106/docs`
 | POST | `/:id/read` | Mark as read |
 | POST | `/read-all` | Mark all as read |
 
+### Notification Rules (`/api/notification-rules`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | List notification rules |
+| POST | `/` | Create rule |
+| PUT | `/:id` | Update rule |
+| DELETE | `/:id` | Delete rule |
+
 ### Configuration (`/api/config`)
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/registry/manifest` | All config modules |
+| GET | `/registry/manifest` | All config modules (23 definitions) |
 | GET | `/dynamic/:moduleKey` | Get module config |
 | PUT | `/dynamic/:moduleKey` | Update module config |
 
@@ -196,6 +206,106 @@ Swagger UI: `http://3.108.185.106/docs`
 | POST | `/:entityId/test` | Test connectivity |
 | GET | `/:entityId/snippets` | Generate code snippets |
 
+### LDAP (`/api/ldap`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/config` | Get LDAP configuration |
+| PUT | `/config` | Update LDAP configuration |
+| POST | `/test` | Test LDAP connection |
+
+### System Health (`/api/system-health`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | System health metrics |
+
+### Entity Assignments (`/api/entity-assignments`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | List entity assignments |
+| POST | `/` | Create assignment |
+| DELETE | `/:id` | Delete assignment |
+
+### User Groups (`/api/user-groups`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | List user groups |
+| POST | `/` | Create group |
+| PUT | `/:id` | Update group |
+| DELETE | `/:id` | Delete group |
+
+### QR Codes (`/api/qr-codes`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/generate` | Generate QR code |
+| GET | `/:entityId` | Get QR code |
+| GET | `/:entityId/svg` | Get QR as SVG |
+| DELETE | `/:entityId` | Delete QR code |
+
+---
+
+## Phase 2: Filter Operations API
+
+### Cleaning Profiles (`/api/filter-cleaning-profiles`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | List cleaning profiles |
+| GET | `/:id` | Get profile with pipeline |
+| POST | `/` | Create profile with stages/connections |
+| PUT | `/:id` | Update (creates new version) |
+
+### Filter Profiles (`/api/filter-profiles`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | List filter profiles |
+| POST | `/` | Create filter profile |
+| PUT | `/:id` | Update filter profile |
+| DELETE | `/:id` | Delete filter profile |
+
+### Filter Operations (`/api/filters`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/:id/current-state` | Get filter state, next stages, pending checklists |
+| POST | `/:id/start-cycle` | Start cleaning cycle (requires cleaningReasonKey) |
+| POST | `/:id/advance` | Advance to next stage (enforces checklist completion) |
+| POST | `/:id/submit-checklist` | Submit checklist answers |
+| POST | `/:id/bypass` | Bypass stage (BYPASS_ENABLED profiles only) |
+
+### Events & Cycles (`/api/filter`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/events` | List filter events (filterId, cycleId, eventType filters) |
+| GET | `/cycles` | List cleaning cycles (includeEvents=true for events) |
+| GET | `/cycles/:id` | Get cycle detail with events and performer names |
+| GET | `/reasons` | Get cleaning reasons |
+
+### Checklist Profiles (`/api/checklist-profiles`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | List checklist profiles |
+| GET | `/:id` | Get profile with questions |
+| POST | `/` | Create checklist profile |
+| POST | `/:id/questions` | Add question |
+| PUT | `/:id/questions/:qid` | Update question |
+| DELETE | `/:id` | Delete (blocked if referenced by pipelines) |
+
+### PM Schedules (`/api/pm-schedules`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/:entityId` | Get PM schedule for AHU |
+| POST | `/` | Create PM schedule |
+| PUT | `/:id` | Update PM schedule |
+
+### Equipment Groups (`/api/equipment-groups`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | List equipment groups |
+| GET | `/:id` | Get group with instruments |
+| POST | `/` | Create equipment group |
+| PUT | `/:id` | Update equipment group |
+| DELETE | `/:id` | Delete equipment group |
+
+---
+
 ## Error Responses
 
 All errors follow this format:
@@ -208,56 +318,3 @@ All errors follow this format:
 ```
 
 Common codes: `VALIDATION_ERROR`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `SESSION_CONFLICT`, `RATE_LIMITED`
-
-## Phase 2: Filter Operations API
-
-### Cleaning Profiles
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /api/filter-cleaning-profiles | List cleaning profiles |
-| GET | /api/filter-cleaning-profiles/:id | Get profile with pipeline |
-| POST | /api/filter-cleaning-profiles | Create profile with stages/connections |
-| PUT | /api/filter-cleaning-profiles/:id | Update (creates new version) |
-
-### Filter Profiles
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /api/filter-profiles | List filter profiles |
-| POST | /api/filter-profiles | Create filter profile |
-| PUT | /api/filter-profiles/:id | Update filter profile |
-| DELETE | /api/filter-profiles/:id | Delete filter profile |
-
-### Filter Operations
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /api/filters/:id/current-state | Get filter state, next stages, pending checklists |
-| POST | /api/filters/:id/start-cycle | Start cleaning cycle (requires cleaningReasonKey) |
-| POST | /api/filters/:id/advance | Advance to next stage (enforces checklist completion) |
-| POST | /api/filters/:id/submit-checklist | Submit checklist answers |
-| POST | /api/filters/:id/bypass | Bypass stage (BYPASS_ENABLED profiles only) |
-
-### Events & Cycles
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /api/filter/events | List filter events (filterId, cycleId, eventType filters) |
-| GET | /api/filter/cycles | List cleaning cycles (includeEvents=true for events) |
-| GET | /api/filter/cycles/:id | Get cycle detail with events and performer names |
-| GET | /api/filter/reasons | Get cleaning reasons |
-
-### Checklist Profiles
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /api/checklist-profiles | List checklist profiles |
-| GET | /api/checklist-profiles/:id | Get profile with questions |
-| POST | /api/checklist-profiles | Create checklist profile |
-| POST | /api/checklist-profiles/:id/questions | Add question |
-| PUT | /api/checklist-profiles/:id/questions/:qid | Update question |
-| DELETE | /api/checklist-profiles/:id | Delete (blocked if referenced by pipelines) |
-
-### PM Schedules
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /api/pm-schedules/:entityId | Get PM schedule for AHU |
-| POST | /api/pm-schedules | Create PM schedule |
-| PUT | /api/pm-schedules/:id | Update PM schedule |
-

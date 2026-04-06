@@ -24,7 +24,7 @@ export const instanceRepository = {
         templateId: true,
         status: true,
         template: { select: { name: true, icon: true } },
-        _count: { select: { children: true } },
+        _count: { select: { children: { where: { isActive: true } } } },
       },
       orderBy: { name: 'asc' },
     });
@@ -91,7 +91,7 @@ export const instanceRepository = {
         status: true,
         isActive: true,
         template: { select: { name: true, icon: true } },
-        _count: { select: { children: true } },
+        _count: { select: { children: { where: { isActive: true } } } },
       },
       orderBy: { name: 'asc' },
     });

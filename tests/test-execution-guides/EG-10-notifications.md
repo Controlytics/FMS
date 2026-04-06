@@ -1,9 +1,9 @@
 # EG-10: Notifications -- Execution Guide
 
 ## Prerequisites
-- **App URL**: http://3.108.185.106
+- **App URL**: http://34.232.224.0
 - **API Base**: http://localhost:3000/api
-- **SUPER_ADMIN Credentials**: admin / Admin@123
+- **SUPER_ADMIN Credentials**: superadmin / Admin@123
 - **Additional User**: An OPERATOR or ADMIN user for role-filtering tests
 - **Browser**: Chrome or Firefox with DevTools open
 
@@ -12,7 +12,7 @@
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 ```
 
 ---
@@ -50,7 +50,7 @@ curl -s -X GET http://localhost:3000/api/notifications \
 ```
 
 **Browser Steps:**
-1. Navigate to http://3.108.185.106/notifications.
+1. Navigate to http://34.232.224.0/notifications.
 2. Verify notification list displays with items.
 3. Check badge count in sidebar matches `unreadCount`.
 
@@ -385,5 +385,5 @@ PGPASSWORD=digilog123 psql -h localhost -U digilog -d digilog_db \
 ```
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+> **Phase 2 (Digital FMS):** Notification rules can trigger on filter events: FILTER_CYCLE_STARTED, FILTER_CYCLE_COMPLETED, FILTER_STAGE_BYPASSED, PM_SCHEDULE_DUE. All delivery channels supported.
 

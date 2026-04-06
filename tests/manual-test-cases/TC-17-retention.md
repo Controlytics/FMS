@@ -316,5 +316,11 @@
 - **Expected Result**: 400 Bad Request — records array exceeds maxItems of 500
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2 Notes
+
+- Retention policies apply to filter telemetry data stored in TimescaleDB. Filter telemetry (differential pressure, airflow) follows the same retention rules as other entity telemetry.
+- Filter cleaning cycle records and events are stored in the main Prisma database, not TimescaleDB, and are subject to standard backup/restore, not retention policies.
+- PM schedule records are retained indefinitely in the main database.
 

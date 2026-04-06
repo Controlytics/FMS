@@ -14,7 +14,7 @@ Send telemetry data from a device.
 
 **Request:**
 ```bash
-curl -X POST "http://your-server/api/data/telemetry" \
+curl -X POST "http://34.232.224.0/api/data/telemetry" \
   -H "Authorization: Bearer DEVICE_ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"temperature": 25.5, "humidity": 60, "pressure": 1013.25}'
@@ -51,7 +51,7 @@ curl -X POST "http://your-server/api/data/telemetry" \
 Send device attributes (static/semi-static properties).
 
 ```bash
-curl -X POST "http://your-server/api/data/attributes" \
+curl -X POST "http://34.232.224.0/api/data/attributes" \
   -H "Authorization: Bearer DEVICE_ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"firmware_version": "1.2.3", "model": "SensorX-200"}'
@@ -62,7 +62,7 @@ curl -X POST "http://your-server/api/data/attributes" \
 Send device events (connection, disconnection, error).
 
 ```bash
-curl -X POST "http://your-server/api/data/event" \
+curl -X POST "http://34.232.224.0/api/data/event" \
   -H "Authorization: Bearer DEVICE_ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"event_type": "REBOOT", "details": {"reason": "firmware_update"}}'
@@ -73,7 +73,7 @@ curl -X POST "http://your-server/api/data/event" \
 Send binary data (firmware uploads, large payloads).
 
 ```bash
-curl -X POST "http://your-server/api/data/binary" \
+curl -X POST "http://34.232.224.0/api/data/binary" \
   -H "Authorization: Bearer DEVICE_ACCESS_TOKEN" \
   -H "Content-Type: application/octet-stream" \
   --data-binary @firmware.bin
@@ -90,7 +90,7 @@ These endpoints use **user JWT tokens** for authentication.
 Get the latest telemetry values for an entity.
 
 ```bash
-curl "http://your-server/api/queries/telemetry/latest?entityId=ENTITY_ID" \
+curl "http://34.232.224.0/api/queries/telemetry/latest?entityId=ENTITY_ID" \
   -H "Authorization: Bearer USER_TOKEN"
 ```
 
@@ -122,7 +122,7 @@ curl "http://your-server/api/queries/telemetry/latest?entityId=ENTITY_ID" \
 Query historical time-series data.
 
 ```bash
-curl "http://your-server/api/queries/telemetry/timeseries?\
+curl "http://34.232.224.0/api/queries/telemetry/timeseries?\
 entityId=ENTITY_ID&\
 keys=temperature,humidity&\
 startTs=1709280000000&\
@@ -189,10 +189,6 @@ MQTT authentication uses the device access token as the password.
 
 ## Next Steps
 
-- [Device Connectivity](../user-guide/connectivity/device-connectivity.md) — Token management
-- [Entity API](entities.md) — Entity CRUD operations
-- [Authentication API](authentication.md) — User authentication
-
-
-> **Note:** Phase 2 adds filter management endpoints. See API_GUIDE.md for the full Phase 2 API reference including filter operations, cleaning profiles, checklist profiles, and PM schedules.
-
+- [Device Connectivity](../user-guide/connectivity/device-connectivity.md) -- Token management
+- [Authentication API](authentication.md) -- User authentication
+- [MQTT Setup](../user-guide/connectivity/mqtt.md) -- MQTT broker configuration

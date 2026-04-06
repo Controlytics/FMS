@@ -1,7 +1,7 @@
 # Phase F: Queries & Export (3-4 days)
 
-> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07.
-> Telemetry query endpoints (7), alarm endpoints (5), export endpoints (5), retention management (4), all with TimescaleDB continuous aggregates and configurable limits.
+> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07. Phase 2 Digital FMS completed 2026-03-27.
+> Telemetry query endpoints (7), alarm endpoints (5), export endpoints (5), retention management (4), all with TimescaleDB continuous aggregates and configurable limits. Phase 2 adds filter cycle/event query endpoints.
 
 ## Prompt for Claude Code
 
@@ -135,5 +135,5 @@ VERIFICATION:
 - **Section 3.3**: Electronic signature schema (§11.50 fields)
 
 
-> **Update (2026-03-27):** Phase 2 Digital Filter Management System has been completed. See CHANGELOG.md for full details.
+> **Update (2026-03-27):** Phase 2 Digital FMS completed. Added filter-specific query endpoints: GET /api/filter/cycles (cleaning cycle history), GET /api/filter/events (filter events), GET /api/filters/:id/current-state (filter state + next actions).
 

@@ -1,6 +1,6 @@
 # Rule Chain Engine
 
-Visual DAG-based data processing with 77 built-in node types.
+Visual DAG-based data processing with 77 built-in node types across 8 categories.
 
 ## Categories
 - **INPUT** (1): Entry point
@@ -12,13 +12,17 @@ Visual DAG-based data processing with 77 built-in node types.
 - **FLOW** (6): Delay, Checkpoint, Sub-chain delegation, Generator, Deduplication, Message Count
 - **ANALYTICS** (4): Aggregate Latest/Stream, Alarms Count, Entity Count
 
+## Visual Editor
+React Flow canvas with drag-and-drop node palette, Monaco script editor for JavaScript nodes, real-time debug panel, version history with diff view, and test message execution with path highlighting.
+
 ## Scripting
-Custom JavaScript in sandboxed VM (1s timeout). Available: msg, metadata, msgType.
+Custom JavaScript in sandboxed VM (isolated-vm, configurable timeout and memory). Available context: msg, metadata, msgType, log().
 
 ## Debugging
-Debug mode records input/output for each node. View traces at Debug > Traces.
+Debug mode records input/output for each node in a ring buffer. Real-time streaming via WebSocket to the debug panel. View traces at Debug > Traces.
 
+## Versioning
+Every save creates a version snapshot. Restore any previous version. Export/import as JSON.
 
----
-
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.
+## Default Chains
+Templates with alarm rules auto-generate a default rule chain: INPUT -> msg-type-filter -> save-timeseries/save-attributes with alarm threshold evaluation.

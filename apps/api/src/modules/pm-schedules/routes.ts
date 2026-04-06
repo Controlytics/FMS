@@ -74,6 +74,24 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
     return service.update(ctx, id, req.body);
   });
 
+  app.delete('/:id', {
+    preHandler: [app.requirePermission('PM_DELETE')],
+    schema: {
+      tags: ['PM Schedules'],
+      summary: 'Delete PM schedule',
+      description: 'Deletes a PM schedule and its entries. Fails if executions are in progress.',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      response: {
+        200: { type: 'object', properties: { success: { type: 'boolean' } } },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const { id } = req.params as { id: string };
+    return service.delete(ctx, id);
+  });
+
   app.get('/:entityId/history', {
     preHandler: [app.requirePermission('PM_READ')],
     schema: {

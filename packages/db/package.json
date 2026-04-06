@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@prisma/client": "^6.3.0",
-    "pg": "^8.13.0"
+    "pg": "^8.18.0"
   },
   "devDependencies": {
     "@types/pg": "^8.11.0",

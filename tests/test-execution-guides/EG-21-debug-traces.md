@@ -1,7 +1,7 @@
 # EG-21: Debug Traces — Execution Guide
 
 ## Prerequisites
-- **Credentials**: SUPER_ADMIN (admin / Admin@123) who has READ_DEBUG_TRACE and MANAGE_DEBUG_TRACE permissions
+- **Credentials**: SUPER_ADMIN (superadmin / Admin@123) who has READ_DEBUG_TRACE and MANAGE_DEBUG_TRACE permissions
 - **Secondary Account**: User without debug trace permissions for negative tests
 - **Tools**: curl, jq, browser
 - **Setup**: Entity with device token. Must have sent at least some telemetry data.
@@ -11,7 +11,7 @@
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 # Get an entity with a device token
 ENTITY_ID=$(curl -s -X GET "http://localhost:3000/api/assets/instances?limit=1" \
@@ -36,7 +36,7 @@ echo "Device Token: $DEVICE_TOKEN"
 ### Test: TC-21-P01 — Enable Tracing for Entity
 
 **Browser Steps:**
-1. Navigate to http://3.108.185.106/debug
+1. Navigate to http://34.232.224.0/debug
 2. Find the entity in the entity filter or settings
 3. Toggle tracing ON for the entity
 4. Verify toggle indicates "Enabled"
@@ -100,7 +100,7 @@ curl -s -X GET "http://localhost:3000/api/debug/traces?entityId=$ENTITY_ID&pageS
 ### Test: TC-21-P03 — List Traces with Pagination
 
 **Browser Steps:**
-1. Navigate to http://3.108.185.106/debug
+1. Navigate to http://34.232.224.0/debug
 2. Verify trace list displays with pagination controls
 3. Click next page to verify pagination works
 
@@ -245,7 +245,7 @@ curl -s -X GET "http://localhost:3000/api/debug/traces/$TRACE_ID" \
 ### Test: TC-21-P09 — Get Pipeline Statistics
 
 **Browser Steps:**
-1. Navigate to http://3.108.185.106/debug
+1. Navigate to http://34.232.224.0/debug
 2. Check the statistics panel at top of page
 3. Verify success rates, average duration, top errors are displayed
 
@@ -415,5 +415,5 @@ curl -s -o /dev/null -w "%{http_code}" \
 - [ ] Response status is 401
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+> **Phase 2 (Digital FMS):** Debug traces apply to filter entity telemetry. Filter operations (cycle start, advance) do NOT generate pipeline traces as they use separate API endpoints.
 

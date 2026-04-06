@@ -206,5 +206,11 @@
 - **Expected Result**: Pipeline fails at Stage 6 validation. Message sent to Dead Letter Queue.
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2 Notes
+
+- Data ingestion pipeline (10-stage) is unchanged for Phase 2. Filter entities can receive telemetry data like any other entity.
+- Filter operations (cycle start, advance, checklist submit) use separate endpoints (/api/filters/) and are NOT part of the data ingestion pipeline.
+- Filter-related telemetry (differential pressure, airflow) can be ingested via the standard /api/data/telemetry endpoint using device tokens.
 

@@ -6,25 +6,25 @@ This execution guide validates DigiLog's compliance with the FDA's 21 CFR Part 1
 
 ## Prerequisites
 
-- **App URL**: http://3.108.185.106
-- **API Base**: http://3.108.185.106/api (remote) or http://localhost:3000/api (from server)
-- **SUPER_ADMIN Credentials**: admin / Admin@123
+- **App URL**: http://34.232.224.0
+- **API Base**: http://34.232.224.0/api (remote) or http://localhost:3000/api (from server)
+- **SUPER_ADMIN Credentials**: superadmin / Admin@123
 - **Additional Users**: Create or use users at various role levels (ADMIN, SUPERVISOR, OPERATOR, VIEWER)
 - **Browser**: Chrome or Firefox with DevTools open (Network tab, Application tab for localStorage/sessionStorage)
 - **Tools**: curl, jq, psql (for DB verification), a second browser or incognito window for session tests
-- **Database**: `digilog_db` on PostgreSQL 16 (localhost:5432)
+- **Database**: `digilog_db` on PostgreSQL 18 (localhost:5432)
 - **Incognito/Second Browser**: Required for session conflict, single-tab, and concurrent login tests
 
 ## Setup: Obtain Auth Tokens
 
 ```bash
 # Store API base URL
-API="http://3.108.185.106/api"
+API="http://34.232.224.0/api"
 
 # Login as SUPER_ADMIN
 TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 echo "SUPER_ADMIN Token: $TOKEN"
 
 # Login as a non-SUPER_ADMIN user (e.g., ADMIN or OPERATOR) for audit-visible actions
@@ -74,9 +74,9 @@ curl -s -X POST "$API/users" \
 **Regulation:** SS11.10(e) -- Use of secure, computer-generated, time-stamped audit trails
 
 **How to Execute:**
-1. Login as a non-SUPER_ADMIN user (e.g., OPERATOR) in the browser at http://3.108.185.106/login
+1. Login as a non-SUPER_ADMIN user (e.g., OPERATOR) in the browser at http://34.232.224.0/login
 2. Perform an auditable action (e.g., update own profile via /profile)
-3. Login as SUPER_ADMIN and navigate to http://3.108.185.106/audit
+3. Login as SUPER_ADMIN and navigate to http://34.232.224.0/audit
 4. Find the audit record for the action performed
 5. Click on the record to see full details including the `integrityValid` field
 
@@ -117,8 +117,8 @@ ORDER BY "createdAt" DESC LIMIT 5;
 **Regulation:** SS11.10(e) -- Audit trail integrity verification
 
 **How to Execute:**
-1. Login as SUPER_ADMIN at http://3.108.185.106/login
-2. Navigate to http://3.108.185.106/audit
+1. Login as SUPER_ADMIN at http://34.232.224.0/login
+2. Navigate to http://34.232.224.0/audit
 3. Open any audit record detail view
 4. Verify the integrity badge shows "Valid" or equivalent
 
@@ -190,9 +190,9 @@ DELETE FROM audit_trail WHERE id = 1;
 **Regulation:** SS11.10(e) -- System owner exemption (business requirement)
 
 **How to Execute:**
-1. Login as SUPER_ADMIN at http://3.108.185.106/login
+1. Login as SUPER_ADMIN at http://34.232.224.0/login
 2. Perform several actions (create user, change config, etc.)
-3. Navigate to http://3.108.185.106/audit
+3. Navigate to http://34.232.224.0/audit
 4. Verify no records appear with `userRole: "SUPER_ADMIN"`
 
 **API Alternative (curl):**
@@ -229,8 +229,8 @@ WHERE user_role = 'SUPER_ADMIN';
 **Regulation:** SS11.10(d) -- Limiting system access to authorized individuals
 
 **How to Execute:**
-1. Login as SUPER_ADMIN at http://3.108.185.106/login
-2. Navigate to http://3.108.185.106/config/role-privileges
+1. Login as SUPER_ADMIN at http://34.232.224.0/login
+2. Navigate to http://34.232.224.0/config/role-privileges
 3. Verify 6 default roles are listed with their hierarchy levels
 4. Verify each role has distinct permission sets
 
@@ -296,7 +296,7 @@ curl -s -X POST "$API/assets/templates" \
 **Regulation:** SS11.10(d) -- System access controls; SS11.200(a) -- Unique identification
 
 **How to Execute:**
-1. Login as `cfr_tester` in Browser 1 at http://3.108.185.106/login
+1. Login as `cfr_tester` in Browser 1 at http://34.232.224.0/login
 2. Open a second browser (or incognito) and attempt to login as `cfr_tester` again
 3. Observe the session conflict dialog
 4. If forced login, verify the first session is terminated
@@ -455,8 +455,8 @@ ORDER BY last_active_at DESC LIMIT 3;
 **Regulation:** SS11.300(b) -- Ensure password uniqueness, aging, recall
 
 **How to Execute:**
-1. Login as SUPER_ADMIN at http://3.108.185.106/login
-2. Navigate to http://3.108.185.106/config/password-policy
+1. Login as SUPER_ADMIN at http://34.232.224.0/login
+2. Navigate to http://34.232.224.0/config/password-policy
 3. Verify all password policy fields are configurable
 4. Note the current settings
 
@@ -659,7 +659,7 @@ WHERE username = 'cfr_tester';
 **How to Execute:**
 1. With `cfr_tester` locked from TC-25-P13
 2. Login as SUPER_ADMIN
-3. Navigate to http://3.108.185.106/users and find `cfr_tester`
+3. Navigate to http://34.232.224.0/users and find `cfr_tester`
 4. Click Unlock button
 5. Verify the user can login again
 
@@ -710,7 +710,7 @@ WHERE username = 'cfr_tester';
 for i in $(seq 1 12); do
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API/auth/login" \
     -H "Content-Type: application/json" \
-    -d '{"username":"admin","password":"wrong"}')
+    -d '{"username":"superadmin","password":"wrong"}')
   echo "Request $i: HTTP $STATUS"
 done
 ```
@@ -890,8 +890,8 @@ curl -s -X GET "$API/audit/$AUDIT_ID" \
 **Regulation:** SS11.100(a) -- Ensure authenticity and integrity of records; SS11.10(g) -- Authority checks
 
 **How to Execute:**
-1. Login as ADMIN user at http://3.108.185.106/login
-2. Navigate to http://3.108.185.106/users
+1. Login as ADMIN user at http://34.232.224.0/login
+2. Navigate to http://34.232.224.0/users
 3. Attempt to create a new user
 4. Verify the re-authentication dialog appears (password prompt)
 5. Enter password and confirm the operation
@@ -937,7 +937,7 @@ curl -s -X POST "$API/users" \
 **Regulation:** SS11.200(a) -- Electronic signatures employ at least two distinct identification components
 
 **How to Execute:**
-1. Navigate to http://3.108.185.106/login
+1. Navigate to http://34.232.224.0/login
 2. Verify the login form requires both username AND password
 3. Attempt to login with only username (no password)
 4. Attempt to login with only password (no username)
@@ -947,7 +947,7 @@ curl -s -X POST "$API/users" \
 # Attempt login with only username (missing password)
 curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin"}' | jq .
+  -d '{"username":"superadmin"}' | jq .
 
 # Attempt login with only password (missing username)
 curl -s -X POST "$API/auth/login" \
@@ -957,7 +957,7 @@ curl -s -X POST "$API/auth/login" \
 # Successful login requires BOTH components
 curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq '{success}'
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq '{success}'
 ```
 
 **Expected Result:**
@@ -1079,13 +1079,13 @@ ORDER BY created_at DESC;
 
 **How to Execute:**
 1. Login as `cfr_tester` in Browser Tab 1
-2. Open a new tab in the SAME browser and navigate to http://3.108.185.106
+2. Open a new tab in the SAME browser and navigate to http://34.232.224.0
 3. Observe the duplicate tab detection warning
 4. Verify the system uses localStorage heartbeat mechanism
 
 **Browser Steps:**
-1. Open http://3.108.185.106/login in Tab 1, login as `cfr_tester`
-2. Open a new tab (Tab 2) in the same browser, navigate to http://3.108.185.106
+1. Open http://34.232.224.0/login in Tab 1, login as `cfr_tester`
+2. Open a new tab (Tab 2) in the same browser, navigate to http://34.232.224.0
 3. Observe: Tab 2 should show a "duplicate tab" warning
 4. In DevTools Application > Local Storage, verify keys:
    - `digilog_active_tab_id` -- the active tab's unique ID
@@ -1124,13 +1124,13 @@ curl -s -X GET "$API/config/user-id" \
 curl -s -X POST "$API/config/user-id/validate" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin"}' | jq .
+  -d '{"username":"superadmin"}' | jq .
 
 # Attempt to create user with existing username (should fail)
 curl -s -X POST "$API/users" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","fullName":"Duplicate Admin","email":"dup@test.com","password":"Admin@123","role":"VIEWER","_currentPassword":"Admin@123"}' | jq .
+  -d '{"username":"superadmin","fullName":"Duplicate Admin","email":"dup@test.com","password":"Admin@123","role":"VIEWER","_currentPassword":"Admin@123"}' | jq .
 ```
 
 **DB Verification:**
@@ -1407,7 +1407,7 @@ curl -s -X GET "$API/auth/me" \
 # Attempt login with correct username, wrong password
 curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"WrongPassword!"}' | jq .
+  -d '{"username":"superadmin","password":"WrongPassword!"}' | jq .
 ```
 
 **Expected Result:**
@@ -1867,7 +1867,7 @@ curl -s -X POST "$API/auth/change-password" \
 
 ## Section 3: Database Verification Queries
 
-All queries should be run against the `digilog_db` database on PostgreSQL 16 (localhost:5432).
+All queries should be run against the `digilog_db` database on PostgreSQL 18 (localhost:5432).
 
 ### Connection
 ```bash
@@ -2140,7 +2140,7 @@ LIMIT 50;
 
 2. **Hash Chain vs Individual Checksums**: The current implementation uses individual SHA-256 checksums per audit record (not a chained hash where each includes the previous). This is documented in `apps/api/DECISIONS.md` as Decision #4. The `previousChecksum` field exists in the schema for future enhancement.
 
-3. **Rate Limit Testing**: Rate limit tests may be affected by nginx proxy configuration. If testing from the server directly (localhost), use `http://localhost:3000/api`. If testing externally, use `http://3.108.185.106/api` and be aware that `trustProxy: 1` is configured.
+3. **Rate Limit Testing**: Rate limit tests may be affected by nginx proxy configuration. If testing from the server directly (localhost), use `http://localhost:3000/api`. If testing externally, use `http://34.232.224.0/api` and be aware that `trustProxy: 1` is configured.
 
 4. **Test User Cleanup**: After testing, clean up any test users created (`cfr_tester`, `cfr_tester2`, `reauth_test`, `firstlogin_test`, `force_change_test`) to avoid leaving test data in the system.
 
@@ -2149,5 +2149,5 @@ LIMIT 50;
 6. **Electronic Signatures**: Electronic signatures are created during checklist reviews and alarm acknowledgments. If no electronic signatures exist in the database, perform an alarm acknowledgment or checklist review to generate test data for TC-25-P17 and TC-25-P18.
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+> **Phase 2 (Digital FMS):** Filter operations comply with 21 CFR Part 11. Stage bypass requires reauth (electronic signature). Filter checklist submissions are audit-logged. Test per TC-25-P37 through TC-25-P39 and TC-25-N21. 52+ privileges and 52+ reauth actions include filter operations.
 

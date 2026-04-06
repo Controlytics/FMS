@@ -166,5 +166,11 @@
 - **Expected Result**: 400 Bad Request — "Request must be multipart/form-data with a file"
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2 Notes
+
+- File uploads remain unchanged. Profile photo upload is the primary use case.
+- Phase 2 adds bulk filter upload via CSV — this uses a separate endpoint in the filter operations module, not the /api/uploads/photo endpoint.
+- CSV bulk upload for filters supports columns: name, filterType, location, templateId, and custom attributes.
 

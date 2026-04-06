@@ -1,9 +1,7 @@
 import { type FastifyInstance } from 'fastify';
-import { createWriteStream } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pipeline } from 'node:stream/promises';
 import { randomUUID } from 'node:crypto';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -18,9 +16,9 @@ async function ensureDirectories() {
   await mkdir(profilePhotosDir, { recursive: true });
 }
 
-// Allowed image types
-const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+// Allowed image types — configurable via environment
+const ALLOWED_TYPES = (process.env.UPLOAD_ALLOWED_TYPES ?? 'image/jpeg,image/png,image/gif,image/webp').split(',');
+const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE ?? `${5 * 1024 * 1024}`, 10); // default 5MB
 
 export default async function uploadRoutes(app: FastifyInstance) {
   // Ensure directories exist on startup
@@ -81,8 +79,35 @@ export default async function uploadRoutes(app: FastifyInstance) {
       const filename = `${req.user.sub}-${randomUUID()}${ext}`;
       const filepath = path.join(profilePhotosDir, filename);
 
-      // Save file
-      await pipeline(data.file, createWriteStream(filepath));
+      // Buffer the file first
+      const chunks: Buffer[] = [];
+      for await (const chunk of data.file) {
+        chunks.push(chunk);
+      }
+      const buffer = Buffer.concat(chunks);
+
+      // Check file size
+      if (buffer.length > MAX_FILE_SIZE) {
+        return reply.code(400).send({ error: 'FILE_TOO_LARGE', message: 'File exceeds 5MB' });
+      }
+
+      // Validate magic bytes
+      const MAGIC_BYTES: Record<string, number[]> = {
+        'image/jpeg': [0xFF, 0xD8, 0xFF],
+        'image/png': [0x89, 0x50, 0x4E, 0x47],
+        'image/gif': [0x47, 0x49, 0x46],
+        'image/webp': [0x52, 0x49, 0x46, 0x46], // RIFF header
+      };
+      const expectedMagic = MAGIC_BYTES[data.mimetype];
+      if (expectedMagic) {
+        const matches = expectedMagic.every((byte, i) => buffer[i] === byte);
+        if (!matches) {
+          return reply.code(400).send({ error: 'INVALID_FILE', message: 'File content does not match declared type' });
+        }
+      }
+
+      // Write to disk
+      await writeFile(filepath, buffer);
 
       // Return the URL
       const photoUrl = `/uploads/photos/${filename}`;

@@ -5,13 +5,9 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
+import { orgScope } from '../../lib/org-scope.js';
 
-
-
-function orgFilter(ctx: RequestContext) {
-  if (ctx.scope === 'GLOBAL') return {};
-  return { organizationId: ctx.organizationId };
-}
+function orgFilter(ctx: RequestContext) { return orgScope(ctx); }
 
 export class FilterProfileService {
   async list(ctx: RequestContext, query: { page?: number; limit?: number }) {
@@ -22,6 +18,10 @@ export class FilterProfileService {
     const [data, total] = await Promise.all([
       prisma.filterProfile.findMany({
         where,
+        include: {
+          cleaningProfile: { select: { name: true } },
+          _count: { select: { assetInstances: true } },
+        },
         skip: (page - 1) * limit,
         take: limit,
         orderBy: { createdAt: 'desc' },
@@ -29,20 +29,12 @@ export class FilterProfileService {
       prisma.filterProfile.count({ where }),
     ]);
 
-    // Enrich with cleaning profile name and active filter count
-    const enriched = await Promise.all(data.map(async (fp) => {
-      const cleaningProfile = await prisma.filterCleaningProfile.findUnique({
-        where: { id: fp.cleaningProfileId },
-        select: { name: true },
-      });
-      const activeFilterCount = await prisma.assetInstance.count({
-        where: { filterProfileId: fp.id },
-      });
-      return {
-        ...fp,
-        cleaningProfileName: cleaningProfile?.name ?? 'Unknown',
-        activeFilterCount,
-      };
+    const enriched = data.map((fp) => ({
+      ...fp,
+      cleaningProfileName: fp.cleaningProfile?.name ?? 'Unknown',
+      activeFilterCount: fp._count.assetInstances,
+      cleaningProfile: undefined,
+      _count: undefined,
     }));
 
     return { data: enriched, total, page, limit, totalPages: Math.ceil(total / limit) };
@@ -74,7 +66,7 @@ export class FilterProfileService {
         blockRestriction: blockRestriction ?? 'OWN_BLOCK_ONLY',
         allowedBlocks: allowedBlocks ?? undefined,
         maxCleaningCycles,
-        organizationId: ctx.organizationId || ((await prisma.organization.findFirst({ select: { id: true } }))?.id ?? ''),
+        organizationId: (() => { if (!ctx.organizationId) throw new AppError(400, 'VALIDATION_ERROR', 'Organization context required'); return ctx.organizationId; })(),
       },
     });
 
@@ -90,6 +82,13 @@ export class FilterProfileService {
 
   async update(ctx: RequestContext, id: string, data: any) {
     const existing = await this.getById(ctx, id);
+
+    // Validate cleaning profile is active if being changed
+    if (data.cleaningProfileId) {
+      const cp = await prisma.filterCleaningProfile.findUnique({ where: { id: data.cleaningProfileId } });
+      if (!cp) throw new AppError(404, 'NOT_FOUND', 'Cleaning profile not found');
+      if (cp.status !== 'ACTIVE') throw new AppError(400, 'VALIDATION_ERROR', 'Cleaning profile must be active');
+    }
 
     const updated = await prisma.filterProfile.update({
       where: { id },
@@ -116,8 +115,41 @@ export class FilterProfileService {
     return updated;
   }
 
+  async delete(ctx: RequestContext, id: string) {
+    const existing = await this.getById(ctx, id);
+
+    // Check if any filters are currently assigned to this profile
+    const assignedCount = await prisma.assetInstance.count({
+      where: { filterProfileId: id },
+    });
+    if (assignedCount > 0) {
+      throw new AppError(400, 'VALIDATION_ERROR', `Cannot delete: ${assignedCount} filter(s) are still assigned to this profile`);
+    }
+
+    await prisma.filterProfile.delete({ where: { id } });
+
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'DELETED',
+      targetType: 'filter_profile', targetId: id,
+      beforeValue: { name: existing.name },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    });
+
+    return { success: true };
+  }
+
   async assign(ctx: RequestContext, id: string, filterInstanceIds: string[]) {
     const fp = await this.getById(ctx, id);
+
+    // Validate target filters belong to the same organization
+    if (ctx.organizationId) {
+      const filterCount = await prisma.assetInstance.count({
+        where: { id: { in: filterInstanceIds }, organizationId: ctx.organizationId },
+      });
+      if (filterCount !== filterInstanceIds.length) {
+        throw new AppError(400, 'VALIDATION_ERROR', 'Some filters do not belong to your organization');
+      }
+    }
 
     // Update each filter instance
     const updated = await prisma.assetInstance.updateMany({

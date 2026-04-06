@@ -5,6 +5,7 @@ import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { apiClient } from '@/lib/api-client';
+import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
@@ -91,6 +92,7 @@ export function NotificationsPage() {
   const [period, setPeriod] = useState('all');
   const [readFilter, setReadFilter] = useState('');
   const { mutate: globalMutate } = useSWRConfig();
+  const { toast } = useToast();
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -135,7 +137,8 @@ export function NotificationsPage() {
       await apiClient.put(`/api/notifications/${id}/read`, {});
       mutate();
       globalMutate('/api/notifications/unread-count');
-    } catch (err) {
+    } catch (err: any) {
+      toast.error('Failed to mark as read', err.message || 'Operation failed');
       console.error('Failed to mark notification as read:', err);
     }
   };
@@ -145,7 +148,8 @@ export function NotificationsPage() {
       await apiClient.put(`/api/notifications/${id}/unread`, {});
       mutate();
       globalMutate('/api/notifications/unread-count');
-    } catch (err) {
+    } catch (err: any) {
+      toast.error('Failed to mark as unread', err.message || 'Operation failed');
       console.error('Failed to mark notification as unread:', err);
     }
   };
@@ -155,7 +159,8 @@ export function NotificationsPage() {
       await apiClient.put('/api/notifications/mark-all-read', {});
       mutate();
       globalMutate('/api/notifications/unread-count');
-    } catch (err) {
+    } catch (err: any) {
+      toast.error('Failed to mark all as read', err.message || 'Operation failed');
       console.error('Failed to mark all notifications as read:', err);
     }
   };
@@ -166,7 +171,8 @@ export function NotificationsPage() {
       setSelectedIds(new Set());
       mutate();
       globalMutate('/api/notifications/unread-count');
-    } catch (err) {
+    } catch (err: any) {
+      toast.error('Failed to bulk mark as read', err.message || 'Operation failed');
       console.error('Failed to bulk mark as read:', err);
     }
   };
@@ -177,7 +183,8 @@ export function NotificationsPage() {
       setSelectedIds(new Set());
       mutate();
       globalMutate('/api/notifications/unread-count');
-    } catch (err) {
+    } catch (err: any) {
+      toast.error('Failed to bulk mark as unread', err.message || 'Operation failed');
       console.error('Failed to bulk mark as unread:', err);
     }
   };
@@ -189,7 +196,8 @@ export function NotificationsPage() {
       setShowDeleteConfirm(false);
       mutate();
       globalMutate('/api/notifications/unread-count');
-    } catch (err) {
+    } catch (err: any) {
+      toast.error('Failed to delete notifications', err.message || 'Operation failed');
       console.error('Failed to bulk delete:', err);
     }
   };
@@ -204,7 +212,8 @@ export function NotificationsPage() {
       });
       mutate();
       globalMutate('/api/notifications/unread-count');
-    } catch (err) {
+    } catch (err: any) {
+      toast.error('Failed to delete notification', err.message || 'Operation failed');
       console.error('Failed to delete notification:', err);
     }
   };

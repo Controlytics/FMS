@@ -1,4 +1,4 @@
-import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
+import { type FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { hashPassword } from '../../lib/password.js';
@@ -9,19 +9,13 @@ import { hashPassword } from '../../lib/password.js';
  */
 export default async function orgDetailRoutes(app: FastifyInstance) {
 
-  // Access control: ADMIN+, or ORG_ADMIN of this org
-  app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
-    const role = req.user?.role;
-    if (!role) return reply.code(401).send({ error: 'UNAUTHORIZED' });
-    if (role === 'SUPER_ADMIN') return;
-    if (role === 'ADMIN') return;
-    if (role === 'ORG_ADMIN') {
-      const { orgId } = req.params as { orgId?: string };
-      if (orgId && req.user.organizationId === orgId) return;
+  // ORG_ADMIN cross-tenant guard: ensure ORG_ADMINs can only manage their own org
+  app.addHook('preHandler', async (req, reply) => {
+    const { orgId } = (req.params as any) ?? {};
+    if (orgId && req.user?.role === 'ORG_ADMIN' && req.user.organizationId !== orgId) {
+      return reply.code(403).send({ error: 'FORBIDDEN', message: 'You can only manage your own organization' });
     }
-    return reply.code(403).send({ error: 'FORBIDDEN', message: 'Organization access required' });
   });
-
 
   // ═══════════════════════════════════════════════════════
   // USERS IN ORG
@@ -29,6 +23,7 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
 
   // List users in org
   app.get('/:orgId/users', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
     schema: {
       tags: ['Organization Management'],
       summary: 'List users in organization',
@@ -67,6 +62,7 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
 
   // Create user in org
   app.post('/:orgId/users', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
     schema: {
       tags: ['Organization Management'],
       summary: 'Create user in organization',
@@ -132,6 +128,7 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
 
   // Update user in org
   app.put('/:orgId/users/:userId', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
     schema: {
       tags: ['Organization Management'],
       summary: 'Update user in organization',
@@ -154,9 +151,10 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
     const user = await prisma.user.findFirst({ where: { id: userId, organizationId: orgId } });
     if (!user) return reply.code(404).send({ error: 'User not found in this organization' });
 
+    const { fullName, email, department, role, status } = body;
     const updated = await prisma.user.update({
       where: { id: userId },
-      data: { ...body, updatedBy: req.user.username },
+      data: { fullName, email, department, role, status, updatedBy: req.user.username },
       select: { id: true, username: true, fullName: true, email: true, role: true, status: true },
     });
 
@@ -165,6 +163,7 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
 
   // Delete user from org
   app.delete('/:orgId/users/:userId', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
     schema: {
       tags: ['Organization Management'],
       summary: 'Remove user from organization',
@@ -194,6 +193,7 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
 
   // List entities assigned to org
   app.get('/:orgId/entities', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
     schema: {
       tags: ['Organization Management'],
       summary: 'List entities assigned to organization',
@@ -231,6 +231,7 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
 
   // Assign entity to org
   app.post('/:orgId/entities', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
     schema: {
       tags: ['Organization Management'],
       summary: 'Assign entity to organization',
@@ -267,6 +268,7 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
 
   // Unassign entity from org
   app.delete('/:orgId/entities/:entityId', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
     schema: {
       tags: ['Organization Management'],
       summary: 'Unassign entity from organization',
@@ -287,6 +289,7 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
 
   // List templates assigned to org
   app.get('/:orgId/templates', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
     schema: {
       tags: ['Organization Management'],
       summary: 'List entity templates assigned to organization',
@@ -320,6 +323,7 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
 
   // Assign template to org
   app.post('/:orgId/templates', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
     schema: {
       tags: ['Organization Management'],
       summary: 'Assign entity template to organization',
@@ -351,6 +355,7 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
 
   // Unassign template from org
   app.delete('/:orgId/templates/:templateId', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
     schema: {
       tags: ['Organization Management'],
       summary: 'Unassign template from organization',
@@ -368,6 +373,7 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
 
   // List entities assigned to a specific user
   app.get('/:orgId/users/:userId/entities', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
     schema: {
       tags: ['Organization Management'],
       summary: 'List entities assigned to a specific user',
@@ -412,6 +418,7 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
 
   // Assign entity to individual user
   app.post('/:orgId/users/:userId/entities', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
     schema: {
       tags: ['Organization Management'],
       summary: 'Assign entity to individual user',
@@ -437,6 +444,7 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
 
   // Assign template to individual user
   app.post('/:orgId/users/:userId/templates', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
     schema: {
       tags: ['Organization Management'],
       summary: 'Assign entity template to individual user',
@@ -462,6 +470,7 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
 
   // Remove entity assignment from user
   app.delete('/:orgId/users/:userId/entities/:assignmentId', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
     schema: {
       tags: ['Organization Management'],
       summary: 'Remove entity assignment from user',
@@ -479,6 +488,7 @@ export default async function orgDetailRoutes(app: FastifyInstance) {
   // ═══════════════════════════════════════════════════════
 
   app.get('/:orgId/users/:userId/visible-entities', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
     schema: {
       tags: ['Organization Management'],
       summary: 'Get all entities visible to a user (org + template + individual)',

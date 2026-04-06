@@ -1,7 +1,7 @@
 # EG-22: Backup & Restore — Execution Guide
 
 ## Prerequisites
-- **Credentials**: SUPER_ADMIN (admin / Admin@123), VIEWER account for negative tests
+- **Credentials**: SUPER_ADMIN (superadmin / Admin@123), VIEWER account for negative tests
 - **Tools**: curl, jq, browser, gunzip (for BAK files), unzip (for CSV exports)
 - **Setup**: Database has data (users, entities, configs) for meaningful backup
 - **Base URL**: http://localhost:3000
@@ -11,7 +11,7 @@
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 echo "Token: $TOKEN"
 ```
@@ -23,7 +23,7 @@ echo "Token: $TOKEN"
 ### Test: TC-22-P01 — Export Full Backup as JSON
 
 **Browser Steps:**
-1. Navigate to http://3.108.185.106/config/backup
+1. Navigate to http://34.232.224.0/config/backup
 2. Select "JSON" format
 3. Click "Export Backup" (reauth dialog may appear)
 4. Complete reauth if prompted
@@ -192,7 +192,7 @@ curl -s -X POST http://localhost:3000/api/backup/restore \
 # Re-login (session may have been invalidated)
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 # Verify users
 curl -s -X GET "http://localhost:3000/api/users?limit=5" \
@@ -233,7 +233,7 @@ curl -s -X POST http://localhost:3000/api/backup/restore \
 # Re-login
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 # Check users
 curl -s -X GET http://localhost:3000/api/users \
@@ -417,5 +417,5 @@ rm -f /tmp/digilog-backup.json /tmp/digilog-backup.bak /tmp/digilog-backup.sql \
 ```
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+> **Phase 2 (Digital FMS):** Backup includes all Phase 2 tables: CleaningProfile, FilterProfile, CleaningCycle, FilterEvent, PmSchedule, PmEntry, PmExecution, ChecklistProfile, EquipmentGroup.
 

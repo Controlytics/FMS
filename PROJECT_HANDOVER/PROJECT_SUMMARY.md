@@ -1,34 +1,52 @@
 # DigiLog - Project Summary
 
 ## Overview
-DigiLog is an enterprise-grade IoT data logging platform designed for **21 CFR Part 11 compliance**. It enables organizations to manage assets (equipment, sensors, devices), collect telemetry data, automate workflows through rule chains, and maintain FDA-compliant audit trails with electronic signatures.
+DigiLog is an enterprise-grade IoT data logging platform designed for **21 CFR Part 11 compliance**. It enables organizations to manage assets (equipment, sensors, devices), collect telemetry data, automate workflows through rule chains, and maintain FDA-compliant audit trails with electronic signatures. Phase 2 adds a complete **Digital Filter Management System (FMS)** for pharmaceutical cleanroom filter cleaning lifecycle management.
 
 ## Purpose
 Provide a secure platform for regulated industries (pharmaceutical, manufacturing, food & beverage) to:
 - Monitor and control industrial equipment via IoT protocols (MQTT, HTTP, WebSocket)
 - Enforce 21 CFR Part 11 compliance with electronic signatures and audit trails
-- Automate data processing with a visual rule chain engine (77 node types)
+- Automate data processing with a visual rule chain engine (77 node types, 8 categories)
 - Manage alarms, notifications, and checklists with approval workflows
+- Manage filter cleaning lifecycles with configurable pipelines, checklist gates, and full traceability
 
 ## Key Features
+
+### Core Platform (Phase 1)
 - **Organization Management** - SUPER_ADMIN > Organization > User hierarchy with data isolation
 - **Asset Management** - Templates, instances, relationships, QR code identification
-- **Rule Chain Engine** - Visual drag-and-drop automation with 77 node types
-- **Data Ingestion** - MQTT, HTTP, WebSocket protocols with TimescaleDB storage
+- **Rule Chain Engine** - Visual drag-and-drop automation with 77 node types across 8 categories
+- **Data Ingestion** - MQTT, HTTP, WebSocket protocols with 10-stage pipeline and TimescaleDB storage
 - **Alarm Management** - Real-time alarms with severity levels and electronic signatures
 - **Checklist System** - 3-step approval (Performed/Checked/Verified) with digital signatures
 - **LDAP Integration** - Active Directory authentication with auto-provisioning
-- **Notification System** - Email, SMS, Telegram, Slack delivery channels
+- **Notification System** - Email, SMS (Twilio/AWS SNS/Vonage/HTTP), in-app delivery channels
 - **Audit Trail** - Immutable logs for all mutations with IP tracking and checksums
 - **Dashboard System** - Configurable widgets with real-time data
+- **Configuration System** - 23 auto-discovered configuration modules
+
+### Digital Filter Management System (Phase 2)
+- **Cleaning Profiles** - Visual pipeline editor with 8 stage types (WASH_IN/OUT, DRY_IN/OUT, STORAGE_IN/OUT) + checklist gates
+- **Filter Operations** - Cycle start, advance, bypass, checklist submission with server-side enforcement
+- **PM Schedules** - Preventive maintenance scheduling with execution tracking
+- **Equipment Groups** - AHU grouping with instrument assignments
+- **Filter Traceability** - Complete event history timeline per filter
+- **Bulk Upload** - CSV/Excel import for filters
+- **Retirement/Replacement** - End-of-life filter workflows
+
+### Infrastructure (Phase 3)
+- **Mobile Support** - PWA/APK via Capacitor for tablet use
+- **Unified Light Theme** - Consistent UI across all pages
+- **Windows Local Development** - Batch scripts for local dev environment
 
 ## Target Users
 - **Super Admin** - Platform-wide management, organization creation
 - **Admin** - System-level user/org management
 - **Org Admin** - Organization-level management
-- **Supervisors** - Monitoring, alarm acknowledgment
-- **Maintenance** - Checklist execution, equipment updates
-- **Operators** - Day-to-day operations, monitoring
+- **Supervisors** - Monitoring, alarm acknowledgment, filter cycle oversight
+- **Maintenance** - Checklist execution, equipment updates, filter cleaning operations
+- **Operators** - Day-to-day operations, monitoring, filter cycle advancement
 - **Viewers** - Read-only access
 
 ## Technology Stack
@@ -37,24 +55,27 @@ Provide a secure platform for regulated industries (pharmaceutical, manufacturin
 |-------|-----------|
 | **Frontend** | React 19, Vite 6.1, TailwindCSS v4, ReactFlow, SWR |
 | **Backend** | Node.js, Fastify 5.2, TypeScript |
-| **Database** | PostgreSQL (Prisma ORM), TimescaleDB (time-series) |
-| **Message Queue** | Redis + BullMQ |
+| **Database** | PostgreSQL 18 (Prisma ORM, 57 models, 17 enums), TimescaleDB (time-series) |
+| **Message Queue** | Redis 5 + BullMQ |
 | **IoT Protocol** | EMQX MQTT Broker |
 | **Real-time** | WebSocket (Fastify plugin) |
 | **Auth** | JWT + Session-based, LDAP/AD support |
 | **Process Manager** | PM2 |
 | **Reverse Proxy** | Nginx |
 | **Monorepo** | Turborepo with npm workspaces |
+| **Mobile** | Capacitor (Android APK/PWA) |
 
+## Scale
+- **34 backend API modules**
+- **57 Prisma models** with 17 enums
+- **77 rule chain node types** across 8 categories
+- **23 auto-discovered config definitions**
+- **52+ role privileges**
+- **40+ help articles** with version history
+- **10-stage data ingestion pipeline**
+- **4 SMS providers** (Twilio, AWS SNS, Vonage, HTTP Gateway)
 
-## Phase 2: Digital Filter Management System (2026-03-27)
-
-### Overview
-Complete digital filter cleaning lifecycle management for pharmaceutical cleanrooms. Supports configurable cleaning pipelines with checklist gates, 8 cleaning stages, dual filter sets, PM scheduling, and full traceability.
-
-### Key Components
-- **5 backend modules**: cleaning-profiles, filter-profiles, filter-operations, pm-schedules, checklist-profiles
-- **12+ frontend pages**: operations, profiles, cycles, checklists, PM, AHU dashboard, traceability, config
-- **9 database tables**: filter_cleaning_profiles, filter_pipeline_stages, filter_pipeline_connections, filter_profiles, cleaning_cycles, filter_events, pm_schedules, pm_schedule_entries, pm_executions
-- **Quality audit**: 43 issues found and 35 fixed (security, compliance, logic, UI)
-
+## Deployment
+- **Production:** AWS EC2 at 34.232.224.0
+- **Services:** Nginx (80/443), Fastify (3000), PostgreSQL (5432), EMQX (1883/18083), Redis (6379)
+- **Default Login:** superadmin / Admin@123

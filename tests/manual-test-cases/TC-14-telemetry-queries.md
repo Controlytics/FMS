@@ -223,5 +223,11 @@
 - **Expected Result**: Empty arrays (no data, not an error).
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2 Notes
+
+- Telemetry queries work the same for filter entities. Filter-related telemetry keys (differentialPressure, airflow, filterLoad) can be queried via the same endpoints.
+- Filter entities support all aggregation functions (avg, min, max, sum, count) on numeric telemetry keys.
+- The AHU dashboard uses these telemetry query endpoints to display real-time filter performance data.
 

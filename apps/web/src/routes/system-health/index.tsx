@@ -1,5 +1,6 @@
 import useSWR from 'swr';
 import { useEffect, useState } from 'react';
+import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 
 interface SystemHealthData {
   os: {
@@ -120,6 +121,7 @@ function MetricCard({
 }
 
 export function SystemHealthPage() {
+  const { formatTime } = useDatetimeFormat();
   const [autoRefresh, setAutoRefresh] = useState(true);
   const { data, isLoading, mutate } = useSWR<SystemHealthData>('/api/system-health', {
     refreshInterval: autoRefresh ? 10000 : 0,
@@ -170,7 +172,7 @@ export function SystemHealthPage() {
           <h1 className="text-2xl font-bold text-slate-800">System Health</h1>
           <p className="text-sm text-slate-500 mt-1">
             Server: {data.os.hostname} &middot; Last updated:{' '}
-            {new Date(data.timestamp).toLocaleTimeString()}
+            {formatTime(data.timestamp)}
           </p>
         </div>
         <div className="flex items-center gap-3">

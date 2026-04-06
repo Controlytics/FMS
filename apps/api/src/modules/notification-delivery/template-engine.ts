@@ -11,7 +11,10 @@ const VARIABLE_REGEX = /\$\{([^}]+)\}/g;
 export function resolveTemplate(template: string, variables: Record<string, string>): string {
   return template.replace(VARIABLE_REGEX, (match, key: string) => {
     const value = variables[key.trim()];
-    return value !== undefined ? value : match;
+    if (value === undefined) return match;
+    // HTML-escape variable values to prevent XSS in email templates
+    const escaped = String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return escaped;
   });
 }
 

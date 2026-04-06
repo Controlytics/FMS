@@ -12,8 +12,9 @@ export const QUEUES = {
     name: 'notification',
     defaultJobOptions: {
       attempts: 3,
-      backoff: { type: 'exponential' as const, delay: 60000 },
+      backoff: { type: 'exponential' as const, delay: 5000 },
       removeOnComplete: 50,
+      removeOnFail: 500,
     },
   },
   EXPORT: {
@@ -22,6 +23,7 @@ export const QUEUES = {
       attempts: 2,
       timeout: 300000, // 5 minute timeout
       removeOnComplete: 20,
+      removeOnFail: 100,
     },
   },
   REPORTS: {
@@ -31,6 +33,7 @@ export const QUEUES = {
       attempts: 2,
       timeout: 600000, // 10 minute timeout
       removeOnComplete: 20,
+      removeOnFail: 100,
     },
   },
   MAINTENANCE: {
@@ -38,6 +41,7 @@ export const QUEUES = {
     defaultJobOptions: {
       attempts: 1,
       removeOnComplete: 10,
+      removeOnFail: 100,
     },
   },
 } as const;

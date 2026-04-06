@@ -81,7 +81,10 @@ export default async function exportRoutes(app: FastifyInstance) {
 
     const format = query.format ?? 'csv';
     const maxRangeDays = await getConfigOrDefault<number>('export.max_range_days', 90);
-    const maxRows = await getConfigOrDefault<number>('export.max_rows', 1000000);
+    const maxRows = Math.min(
+      await getConfigOrDefault<number>('export.max_rows', 100000),
+      100000 // Hard cap regardless of config
+    );
 
     const rangeCheck = validateDateRange(query.from, query.to, maxRangeDays);
     if (!rangeCheck.valid) {
@@ -169,7 +172,10 @@ export default async function exportRoutes(app: FastifyInstance) {
 
     const format = query.format ?? 'csv';
     const maxRangeDays = await getConfigOrDefault<number>('export.max_range_days', 90);
-    const maxRows = await getConfigOrDefault<number>('export.max_rows', 1000000);
+    const maxRows = Math.min(
+      await getConfigOrDefault<number>('export.max_rows', 100000),
+      100000 // Hard cap regardless of config
+    );
 
     const rangeCheck = validateDateRange(query.from, query.to, maxRangeDays);
     if (!rangeCheck.valid) {
@@ -280,7 +286,10 @@ export default async function exportRoutes(app: FastifyInstance) {
 
     const format = query.format ?? 'csv';
     const maxRangeDays = await getConfigOrDefault<number>('export.max_range_days', 90);
-    const maxRows = await getConfigOrDefault<number>('export.max_rows', 1000000);
+    const maxRows = Math.min(
+      await getConfigOrDefault<number>('export.max_rows', 100000),
+      100000 // Hard cap regardless of config
+    );
 
     const rangeCheck = validateDateRange(query.from, query.to, maxRangeDays);
     if (!rangeCheck.valid) {
@@ -371,7 +380,10 @@ export default async function exportRoutes(app: FastifyInstance) {
 
     const format = query.format ?? 'csv';
     const maxRangeDays = await getConfigOrDefault<number>('export.max_range_days', 90);
-    const maxRows = await getConfigOrDefault<number>('export.max_rows', 1000000);
+    const maxRows = Math.min(
+      await getConfigOrDefault<number>('export.max_rows', 100000),
+      100000 // Hard cap regardless of config
+    );
 
     const rangeCheck = validateDateRange(query.from, query.to, maxRangeDays);
     if (!rangeCheck.valid) {

@@ -10,8 +10,9 @@ import { createNotification } from '../notifications/notification.service.js';
 import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
 
 export const userService = {
-  async list(query: { page: number; limit?: number; role?: string; status?: string; search?: string }) {
+  async list(query: { page: number; limit?: number; role?: string; status?: string; search?: string; organizationId?: string }) {
     const where: Record<string, unknown> = {};
+    if (query.organizationId) where.organizationId = query.organizationId;
     if (query.role) where.role = query.role;
     if (query.status) where.status = query.status;
     if (query.search) {
@@ -25,8 +26,9 @@ export const userService = {
     return { data: users, total, page: query.page, limit: query.limit ?? total, totalPages: query.limit ? Math.ceil(total / query.limit) : 1 };
   },
 
-  async getStats(callerRole: string) {
-    const roleFilter = callerRole === 'ADMIN' ? { role: { not: 'SUPER_ADMIN' as any } } : {};
+  async getStats(callerRole: string, organizationId?: string) {
+    const roleFilter: Record<string, unknown> = callerRole === 'ADMIN' ? { role: { not: 'SUPER_ADMIN' as any } } : {};
+    if (organizationId) roleFilter.organizationId = organizationId;
     return userRepository.countByStatus(roleFilter);
   },
 
@@ -185,6 +187,7 @@ export const userService = {
     const existing = await userRepository.findByIdFull(id);
     if (!existing) throw new NotFoundError('User not found');
     if (id === callerSub) throw new ValidationError('Cannot delete your own account');
+    if ((existing as any).role === 'SUPER_ADMIN') throw new ForbiddenError('Cannot delete SUPER_ADMIN users');
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,

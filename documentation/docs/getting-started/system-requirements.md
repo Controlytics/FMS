@@ -29,9 +29,9 @@ This page lists the hardware, software, and network requirements for running Dig
 | Component | Version | Purpose |
 |-----------|---------|---------|
 | **Node.js** | 20.x or later | API server runtime |
-| **PostgreSQL** | 16.x or later | Primary database (with TimescaleDB extension for hypertables) |
-| **Redis** | 7.x or later | Message queue (BullMQ) and caching |
-| **EMQX** | 5.x | MQTT broker (optional, required for MQTT devices) |
+| **PostgreSQL** | 18.x (with TimescaleDB extension) | Primary database with time-series hypertables |
+| **Redis** | 5.x or later | Message queue (BullMQ) and caching |
+| **EMQX** | 5.x | MQTT broker (required for MQTT devices) |
 | **Nginx** | 1.18+ | Reverse proxy and static file serving |
 | **PM2** | 5.x | Process manager for production deployment |
 
@@ -40,7 +40,17 @@ This page lists the hardware, software, and network requirements for running Dig
 |------|---------|---------|
 | **npm** | 10.x+ | Package management |
 | **TypeScript** | 5.x | Language compiler |
+| **Prisma** | 6.x | ORM and database migrations |
+| **Vite** | 6.x | Frontend build tooling |
 | **Turborepo** | Latest | Monorepo build orchestration |
+
+### Windows Local Development
+| Tool | Version | Purpose |
+|------|---------|---------|
+| **tsx** | Latest | TypeScript execution for API (replaces PM2 locally) |
+| **Redis for Windows** | 5.x | Windows-compatible Redis build |
+| **JDK** | 21 | Required for Android/Capacitor builds |
+| **Android SDK** | Latest | Required for APK builds |
 
 ---
 
@@ -64,8 +74,8 @@ This page lists the hardware, software, and network requirements for running Dig
 ### Firewall Rules
 
 For a production deployment, expose only:
-- Port **80** (or **443** with TLS) — for web interface and API
-- Port **1883** (or **8883**) — for MQTT device connections
+- Port **80** (or **443** with TLS) -- for web interface and API
+- Port **1883** (or **8883**) -- for MQTT device connections
 
 All other ports should be accessible only from localhost or internal network.
 
@@ -84,12 +94,18 @@ All other ports should be accessible only from localhost or internal network.
 
 ---
 
-## Next Steps
+## Database Details
 
-- [What is DigiLog?](what-is-digilog.md) — Platform overview and architecture
-- [Hello World](hello-world.md) — Create your first entity in 15 minutes
+| Database | Name | Purpose |
+|----------|------|---------|
+| PostgreSQL | `digilog_db` | Primary application database (57 Prisma models, 17 enums) |
+| TimescaleDB | `digilog_tsdb` | Time-series telemetry data (hypertables with compression) |
 
+> **Important:** The time-series database is `digilog_tsdb`, NOT `digilog_db`.
 
 ---
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.
+## Next Steps
+
+- [What is DigiLog?](what-is-digilog.md) -- Platform overview and architecture
+- [Hello World](hello-world.md) -- Create your first entity in 15 minutes

@@ -1,4 +1,4 @@
-import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
+import { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 
 /**
@@ -6,18 +6,6 @@ import { prisma } from '../../lib/prisma.js';
  * Prefix: /api/org
  */
 export default async function orgAdminRoutes(app: FastifyInstance) {
-  // All routes require ORG_ADMIN or higher
-  app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
-    const role = req.user?.role;
-    if (!role) return reply.code(401).send({ error: 'UNAUTHORIZED' });
-    if (role === 'SUPER_ADMIN' || role === 'ADMIN') return;
-    if (role !== 'ORG_ADMIN') {
-      return reply.code(403).send({ error: 'FORBIDDEN', message: 'Organization Admin access required' });
-    }
-    if (!req.user?.organizationId) {
-      return reply.code(403).send({ error: 'FORBIDDEN', message: 'No organization context' });
-    }
-  });
 
   // Helper: get effective orgId
   function getOrgId(req: FastifyRequest): string | null {
@@ -27,6 +15,7 @@ export default async function orgAdminRoutes(app: FastifyInstance) {
 
   // ─── LIST ORG MEMBERS ──────────────────────────────────
   app.get('/users', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
     schema: {
       tags: ['Org Admin'],
       summary: 'List users in organization',
@@ -76,6 +65,7 @@ export default async function orgAdminRoutes(app: FastifyInstance) {
 
   // ─── LIST ORG ENTITIES ─────────────────────────────────
   app.get('/entities', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
     schema: {
       tags: ['Org Admin'],
       summary: 'List entities in organization',
@@ -121,6 +111,7 @@ export default async function orgAdminRoutes(app: FastifyInstance) {
 
   // ─── GET MY ORG INFO ───────────────────────────────────
   app.get('/info', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
     schema: {
       tags: ['Org Admin'],
       summary: 'Get current organization info',

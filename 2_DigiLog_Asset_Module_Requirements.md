@@ -2,7 +2,9 @@
 
 > **Scope:** This document covers the Asset Management system within DigiLog. It is a standalone reference for the asset module and can be used independently by an AI assistant or development team to build the asset-related features.
 >
-> **Context:** DigiLog is a 21 CFR Part 11 compliant digital logbook application. Users fill checklists and log records digitally via a web app (React + Node.js) or Android app (Flutter). The data flows to the platform and is digitally recorded with full audit trails, electronic signatures, and approval workflows.
+> **Context:** DigiLog is a 21 CFR Part 11 compliant digital logbook application. Users fill checklists and log records digitally via a web app (React + Vite SPA) or Android app (Capacitor). The data flows to the platform and is digitally recorded with full audit trails, electronic signatures, and approval workflows.
+>
+> **Status (2026-04-04):** Asset module is IMPLEMENTED. The system currently has 57 Prisma models, 34 API modules, and supports the full asset lifecycle including Phase 2 Digital Filter Management System (cleaning profiles, filter operations, PM schedules, equipment groups).
 >
 > **Important distinction:** This document covers TWO separate but related modules:
 > - **Asset Template Management** — Defining reusable blueprints for asset types (Section 2)

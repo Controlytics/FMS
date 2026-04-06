@@ -407,8 +407,8 @@ export function AttributesTab({ entityId, template, attributes, formatDateTime, 
             <h3 className="text-lg font-bold text-slate-800 mb-2">Delete Attribute Data</h3>
             <p className="text-sm text-slate-600 mb-4">This will permanently delete attribute history data within the selected time range for this entity. This action cannot be undone.</p>
             <div className="space-y-2 mb-4 bg-slate-50 rounded-lg p-3">
-              <div className="flex items-center gap-2 text-sm"><span className="text-slate-500 font-medium w-12">From:</span><span className="text-slate-700 font-mono text-xs">{new Date(timeRange.from).toLocaleString()}</span></div>
-              <div className="flex items-center gap-2 text-sm"><span className="text-slate-500 font-medium w-12">To:</span><span className="text-slate-700 font-mono text-xs">{new Date(timeRange.to).toLocaleString()}</span></div>
+              <div className="flex items-center gap-2 text-sm"><span className="text-slate-500 font-medium w-12">From:</span><span className="text-slate-700 font-mono text-xs">{formatDateTime(timeRange.from)}</span></div>
+              <div className="flex items-center gap-2 text-sm"><span className="text-slate-500 font-medium w-12">To:</span><span className="text-slate-700 font-mono text-xs">{formatDateTime(timeRange.to)}</span></div>
             </div>
             <div className="flex justify-end gap-2">
               <button onClick={() => setShowDeleteDialog(false)} className="px-4 py-2 text-sm rounded-lg bg-slate-100 hover:bg-slate-200">Cancel</button>

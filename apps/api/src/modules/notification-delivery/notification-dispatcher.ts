@@ -14,6 +14,7 @@ interface DispatchEvent {
 }
 
 // Cooldown tracking (in-memory, per rule)
+// TODO: Move cooldown tracking to Redis for cross-instance consistency
 const cooldownMap = new Map<string, number>();
 
 /**
@@ -124,6 +125,14 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
       smsTemplate = getDefaultSmsTemplate(eventType);
     }
 
+    // Batch-fetch phone and telegram configs for all recipients
+    const userIds = users.map(u => u.id);
+    const configKeys = userIds.flatMap(id => [`user-phone-${id}`, `user-telegram-${id}`]);
+    const allConfigs = configKeys.length > 0 ? await prisma.systemConfig.findMany({
+      where: { configKey: { in: configKeys } },
+    }) : [];
+    const configMap = new Map(allConfigs.map(c => [c.configKey, c.configValue]));
+
     // Dispatch to each user
     for (const user of users) {
       const userVars = { ...variables, recipientName: user.fullName, recipientEmail: user.email };
@@ -146,9 +155,7 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
 
       // SMS
       if (rule.smsEnabled && smsTemplate) {
-        // Try to get phone from user config or metadata
-        const userConfig = await prisma.systemConfig.findUnique({ where: { configKey: `user-phone-${user.id}` } });
-        const phone = (userConfig?.configValue as any)?.phone;
+        const phone = (configMap.get(`user-phone-${user.id}`) as any)?.phone;
         // [Dispatcher] checking SMS for user
         if (phone) {
           const body = resolveTemplate(smsTemplate.bodyTemplate, userVars);
@@ -166,8 +173,7 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
 
       // Telegram
       if ((rule as any).telegramEnabled) {
-        const userTgConfig = await prisma.systemConfig.findUnique({ where: { configKey: `user-telegram-${user.id}` } });
-        const chatId = (userTgConfig?.configValue as any)?.chatId;
+        const chatId = (configMap.get(`user-telegram-${user.id}`) as any)?.chatId;
         if (chatId) {
           const body = resolveTemplate(smsTemplate?.bodyTemplate ?? getDefaultInAppMessage(eventType), userVars);
           sendNotification({
@@ -225,50 +231,46 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
 async function resolveRecipients(
   recipients: Array<{ recipientType: string; roleValue: string | null; groupId: string | null; userId: string | null }>
 ): Promise<Array<{ id: string; email: string; fullName: string }>> {
-  const userIds = new Set<string>();
-  const resolvedUsers: Array<{ id: string; email: string; fullName: string }> = [];
+  // Collect all user IDs first, then do a single batch fetch
+  const allUserIds = new Set<string>();
+  const roles: string[] = [];
+  const groupIds: string[] = [];
 
   for (const r of recipients) {
     if (r.recipientType === 'USER' && r.userId) {
-      userIds.add(r.userId);
+      allUserIds.add(r.userId);
     } else if (r.recipientType === 'ROLE' && r.roleValue) {
-      const users = await prisma.user.findMany({
-        where: { role: r.roleValue, status: 'ENABLED' },
-        select: { id: true, email: true, fullName: true },
-      });
-      for (const u of users) userIds.add(u.id);
-      resolvedUsers.push(...users);
+      roles.push(r.roleValue);
     } else if (r.recipientType === 'GROUP' && r.groupId) {
-      const members = await prisma.userGroupMember.findMany({
-        where: { groupId: r.groupId },
-        select: { userId: true },
-      });
-      const memberUserIds = members.map(m => m.userId);
-      const users = await prisma.user.findMany({
-        where: { id: { in: memberUserIds }, status: 'ENABLED' },
-        select: { id: true, email: true, fullName: true },
-      });
-      for (const u of users) userIds.add(u.id);
-      resolvedUsers.push(...users);
+      groupIds.push(r.groupId);
     }
   }
 
-  // If we have USER type recipients, fetch them
-  const directUserIds = recipients.filter(r => r.recipientType === 'USER' && r.userId).map(r => r.userId!);
-  if (directUserIds.length) {
-    const users = await prisma.user.findMany({
-      where: { id: { in: directUserIds }, status: 'ENABLED' },
-      select: { id: true, email: true, fullName: true },
-    });
-    resolvedUsers.push(...users);
-  }
+  // Fetch role-based and group-based user IDs in parallel
+  const [roleUsers, groupMembers] = await Promise.all([
+    roles.length > 0
+      ? prisma.user.findMany({
+          where: { role: { in: roles }, status: 'ENABLED' },
+          select: { id: true },
+        })
+      : [],
+    groupIds.length > 0
+      ? prisma.userGroupMember.findMany({
+          where: { groupId: { in: groupIds } },
+          select: { userId: true },
+        })
+      : [],
+  ]);
 
-  // Deduplicate
-  const seen = new Set<string>();
-  return resolvedUsers.filter(u => {
-    if (seen.has(u.id)) return false;
-    seen.add(u.id);
-    return true;
+  for (const u of roleUsers) allUserIds.add(u.id);
+  for (const m of groupMembers) allUserIds.add(m.userId);
+
+  if (allUserIds.size === 0) return [];
+
+  // Single batch fetch for all resolved user IDs
+  return prisma.user.findMany({
+    where: { id: { in: Array.from(allUserIds) }, status: 'ENABLED' },
+    select: { id: true, email: true, fullName: true },
   });
 }
 

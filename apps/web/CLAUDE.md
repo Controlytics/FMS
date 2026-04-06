@@ -1,61 +1,85 @@
 # DigiLog Web — CLAUDE.md
 
 ## Overview
-React SPA built with Vite, served by Nginx from `apps/web/dist/`.
+React SPA built with Vite, served by Nginx from `apps/web/dist/` in production, or via Vite dev server on port 5175 locally.
 
 ## Build & Deploy
 ```bash
+# Production (EC2)
 cd /home/ubuntu/21cfrlogbook/apps/web
 npx vite build   # Output to dist/
 # Nginx serves dist/ automatically
+
+# Local Development (Windows)
+cd apps/web && npx vite   # Dev server on port 5175
 ```
 
 ## Key Paths
 - Source: `apps/web/src/`
 - Entry: `apps/web/src/main.tsx`
 - Routes: `apps/web/src/routes/` (20+ page modules)
-- Hooks: `apps/web/src/hooks/` (auth, branding, datetime, pagination, reauth, session, single-tab, toast)
+- Hooks: `apps/web/src/hooks/` (auth, branding, datetime, pagination, reauth, session, single-tab, toast, field-labels)
 - Components: `apps/web/src/components/` (layout, UI primitives, dialogs)
+- API Client: `apps/web/src/lib/api-client.ts`
 
 ## Architecture
 - React Router v6 with AppLayout wrapper for auth + session management
 - SWR for data fetching with auto-revalidation
-- ReactFlow for rule chain visual editor
-- Tailwind CSS (no component library)
-- Lazy-loaded heavy pages (assets, rule chains, alarms, UNS, checklists, etc.)
+- ReactFlow for rule chain visual editor and cleaning profile pipeline editor
+- Tailwind CSS (no component library) — unified light theme throughout
+- Lazy-loaded heavy pages (assets, rule chains, alarms, UNS, checklists, filter management, etc.)
+- Permission-based route guards via `<RequireRole permissions={[PERMISSIONS.*]}>`
 
 ## Auth Flow
-- Token stored in sessionStorage
-- Auto-redirect to `/` (dashboard) after login
+- Token stored in sessionStorage (not localStorage — for shared workstation security)
+- Auto-redirect to `/` (dashboard) after login, or returnUrl from query param
 - 30-minute JWT refresh cycle
 - Session timeout warning dialog
-- Single-tab enforcement per user
+- Single-tab enforcement per user (BroadcastChannel)
+- Force login (`force: true`) to terminate existing sessions
 
 ## Key Features
 - 23 config pages (auto-discovered from registry)
 - Entity tree with drag-and-drop hierarchy
-- Rule chain editor with 77 node types
-- Alarm dashboard with real-time updates
-- Mobile-optimized checklist at `/checklist/:entityId`
+- Rule chain editor with 77 node types across 8 categories
+- Alarm dashboard with real-time updates and role-based column visibility
+- Mobile-optimized checklist at `/checklist/:entityId` (standalone layout, no sidebar)
+- Notification system (email/SMS/Telegram/Slack)
+- Debug trace page for pipeline visibility
+
+## Theme
+- Unified light theme: bg-white cards, bg-slate-50 sections, border-slate-200
+- Gradient dialog headers are acceptable
+- No dark theme anywhere in the application
+
+## Frontend Pages
+admin-requests, alarms, assets (dialogs/tabs/hooks), audit, auth, checklist, checklists, cleaning-cycles (history/timeline), config (branding/notification-rules/notification-settings/roles), debug, filter-management (operations/profiles/status/scan/traceability/AHU-dashboard/cleaning-profile-editor/retirement/replacement/bulk-upload/equipment), mobile, notifications, pm-schedules, profile, rule-chains, system-health, tenant, users
 
 ## Phase 2 Pages
 - `routes/filter-management/filter-operations.tsx` — Main operations page (8 stages, scan, checklist dialog, reason selection)
 - `routes/filter-management/cleaning-profile-editor.tsx` — Visual pipeline editor (canvas, drag, wire, properties panel)
 - `routes/filter-management/cleaning-profile-list.tsx` — Profile list with status badges
 - `routes/filter-management/filter-profile-list.tsx` — Filter profile management
-- `routes/filter-management/ahu-dashboard.tsx` — AHU filter set view
-- `routes/filter-management/filter-traceability.tsx` — Per-filter history
+- `routes/filter-management/ahu-dashboard.tsx` — AHU filter set view with equipment groups
+- `routes/filter-management/filter-traceability.tsx` — Per-filter history with full event timeline
+- `routes/filter-management/filter-status.tsx` — Filter status overview
+- `routes/filter-management/filter-scan.tsx` — QR/barcode scan for filter identification
+- `routes/filter-management/retirement.tsx` — Filter retirement workflow
+- `routes/filter-management/replacement.tsx` — Filter replacement workflow
+- `routes/filter-management/bulk-upload.tsx` — CSV bulk import for filters
+- `routes/filter-management/equipment.tsx` — Equipment group management
 - `routes/cleaning-cycles/history.tsx` — Expandable cycle history
 - `routes/cleaning-cycles/timeline.tsx` — Cycle event timeline with performer names
 - `routes/checklists/list.tsx` — Checklist profile list
 - `routes/checklists/detail.tsx` — Checklist detail with questions
-- `routes/pm-schedules/` — PM schedule pages
+- `routes/pm-schedules/` — PM schedule pages with monthly entries
 - `routes/config/filter-lifecycle.tsx` — Lifecycle state config
 - `routes/config/filter-cleaning-reasons.tsx` — Cleaning reasons config
 
 ### Phase 2 Patterns
-- All routes wrapped in `<RequireRole permissions={[PERMISSIONS.ASSET_READ]}>`
+- All routes wrapped in `<RequireRole permissions={[PERMISSIONS.ASSET_READ]}>` or more specific permissions
 - SWR for data fetching with refresh intervals
 - Toast notifications for success/error (not alert())
 - Checklist dialog: no skip, no backdrop dismiss, mandatory submission
-
+- Pipeline editor uses ReactFlow with custom node types (START, END, STAGE, CHECKLIST)
+- Stage types: WASH_IN, WASH_OUT, DRY_IN, DRY_OUT, STORAGE_IN, STORAGE_OUT

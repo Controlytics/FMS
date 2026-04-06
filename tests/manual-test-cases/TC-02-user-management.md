@@ -184,8 +184,8 @@
 
 ### TC-02-N01: Create User with Duplicate Username
 - **Priority**: High
-- **Preconditions**: User `admin` exists
-- **Test Data**: `{ "username": "admin", "fullName": "Duplicate", "email": "dup@test.com", "role": "OPERATOR", "password": "DupTest@123", "confirmPassword": "DupTest@123" }`
+- **Preconditions**: User `superadmin` exists
+- **Test Data**: `{ "username": "superadmin", "fullName": "Duplicate", "email": "dup@test.com", "role": "OPERATOR", "password": "DupTest@123", "confirmPassword": "DupTest@123" }`
 - **Steps**:
   1. Attempt to create user with existing username
   2. Verify response is 409 Conflict
@@ -275,5 +275,11 @@
 - **Expected Result**: Error or partial success excluding self
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2 Notes
+
+- User management is unchanged for Phase 2. New FILTER_VIEW, FILTER_MANAGE, and FILTER_OPERATE privileges are available for assignment to roles.
+- When creating users for filter operations testing, assign roles with FILTER_OPERATE permission.
+- Default login: `superadmin` / `Admin@123`.
 

@@ -1,9 +1,28 @@
-# API Reference: users
+# API Reference: Users
 
-See the interactive Swagger UI at /docs for complete endpoint documentation with request/response schemas.
+See the interactive Swagger UI at `/docs` for complete endpoint documentation with request/response schemas.
 
-Refer to the [API Guide](../../API_GUIDE.md) for endpoint summaries and examples.
+## Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/users | List users (paginated, filterable by role/status) |
+| POST | /api/users | Create user |
+| GET | /api/users/:id | Get user detail |
+| PUT | /api/users/:id | Update user |
+| DELETE | /api/users/:id | Soft delete user |
+| POST | /api/users/:id/enable | Enable user |
+| POST | /api/users/:id/disable | Disable user |
+| POST | /api/users/:id/unlock | Unlock locked user |
+| POST | /api/users/:id/reset-password | Reset user password |
 
+## Roles (6 hierarchical)
+SUPER_ADMIN (6), ADMIN (5), SUPERVISOR (4), MAINTENANCE (3), OPERATOR (2), VIEWER (1)
 
-> **Note:** Phase 2 adds filter management endpoints. See API_GUIDE.md for the full Phase 2 API reference including filter operations, cleaning profiles, checklist profiles, and PM schedules.
+## User Status Values
+Active, Disabled, Locked, Expired, Pending Password Change
 
+## Features
+- Users can only manage users at equal or lower hierarchy levels
+- Configurable User ID format via `user-id` config
+- Bulk operations (up to 50 users)
+- Session termination on role/status change

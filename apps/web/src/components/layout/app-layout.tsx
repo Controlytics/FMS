@@ -3,6 +3,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useSession } from '@/hooks/use-session';
 import { useSingleTab } from '@/hooks/use-single-tab';
 import { useBranding } from '@/hooks/use-branding';
+import { useRfidGuard } from '@/hooks/use-rfid-guard';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
@@ -10,6 +11,7 @@ import { Button } from '../ui/button';
 import useSWR from 'swr';
 
 export function AppLayout() {
+  useRfidGuard(); // Block RFID UKB input from going into random fields
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const location = useLocation();
   const { branding } = useBranding();

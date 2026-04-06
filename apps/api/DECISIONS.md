@@ -105,12 +105,12 @@
 **Rationale:** Data ingestion from IoT devices can burst to high volumes. Queueing decouples HTTP acceptance (fast 202 response) from processing (pipeline stages). BullMQ provides job persistence, retry with backoff, dead letter queue, and rate limiting. Redis is already used for rule chain caching, so no additional infrastructure. Two workers: ingestion (processes payloads) and maintenance (DLQ cleanup, connectivity staleness checks).
 
 ## 27. Sandboxed VM for Rule Chain Scripts (not eval/Function)
-**Decision:** Execute user-defined rule chain scripts (48 node types total across 9 categories) in Node.js `vm.runInNewContext()` with a 1-second timeout and restricted global scope (no `process`, `require`, `global`, `Buffer`, `setTimeout`).
+**Decision:** Execute user-defined rule chain scripts (77 node types total across 8 categories) in Node.js `vm.runInNewContext()` with a 1-second timeout and restricted global scope (no `process`, `require`, `global`, `Buffer`, `setTimeout`).
 **Rationale:** Rule chain "script" nodes allow users to write custom transformation/filtering logic. Running untrusted code requires isolation to prevent: infinite loops (1s timeout), file system access (no `require`/`process`), memory exhaustion (restricted scope), and global state pollution (new context per execution). The VM sandbox is lightweight compared to worker threads or child processes.
 
 ## 28. Sub-Chain Delegation with Depth Tracking (not unlimited nesting)
 **Decision:** Rule chains can delegate to other chains via "delegate-chain" nodes. A `depth` counter tracks nesting level and prevents infinite recursion (max depth configurable).
-**Rationale:** Complex rule logic benefits from composition — a "temperature alarm" chain can delegate to a "notification" chain. Without depth tracking, circular delegation (chain A → chain B → chain A) would cause stack overflow. The depth counter increments on each delegation and rejects execution when the limit is reached.
+**Rationale:** Complex rule logic benefits from composition — a "temperature alarm" chain can delegate to a "notification" chain. Without depth tracking, circular delegation (chain A -> chain B -> chain A) would cause stack overflow. The depth counter increments on each delegation and rejects execution when the limit is reached.
 
 ## 29. Atomic SQL for Telemetry Upsert (not Prisma upsert)
 **Decision:** Use raw SQL `INSERT ... ON CONFLICT (entityId, key) DO UPDATE SET value = EXCLUDED.value WHERE ...` for telemetry updates instead of Prisma's `upsert()`.
@@ -130,7 +130,7 @@
 
 ## 33. MANUALLY_CLEARED Alarm Status (separate from CLEARED)
 **Decision:** Alarms have 4 statuses: ACTIVE, ACKNOWLEDGED, CLEARED, MANUALLY_CLEARED. MANUALLY_CLEARED is used when a user clears an alarm that hasn't auto-cleared.
-**Rationale:** Regulatory environments require distinguishing between alarms that cleared naturally (sensor returned to range → CLEARED) and alarms cleared by operator action (MANUALLY_CLEARED). The `clearDetails` JSON field stores the user, timestamp, and reason for manual clears. This distinction is important for root cause analysis and compliance audits.
+**Rationale:** Regulatory environments require distinguishing between alarms that cleared naturally (sensor returned to range -> CLEARED) and alarms cleared by operator action (MANUALLY_CLEARED). The `clearDetails` JSON field stores the user, timestamp, and reason for manual clears. This distinction is important for root cause analysis and compliance audits.
 
 ## 34. Connectivity Tracker with Atomic SQL Upsert
 **Decision:** Device connectivity tracking (firstConnectedAt, lastConnectedAt, lastSourceIp) uses atomic SQL `INSERT ... ON CONFLICT ... DO UPDATE` rather than Prisma upsert.
@@ -138,7 +138,7 @@
 
 ## 35. Default Chain Builder (auto-create from template alarm rules)
 **Decision:** When an entity template has alarm rules defined, the system auto-generates a default rule chain with dual create-alarm/clear-alarm paths per alarm rule.
-**Rationale:** Users shouldn't need to manually build rule chains for standard alarm scenarios. The default chain builder creates a chain with: input → filter (check key match) → threshold check → create-alarm node (if violated) / clear-alarm node (if normal). This covers 90% of use cases. Users can customize by editing the auto-generated chain in the visual editor.
+**Rationale:** Users shouldn't need to manually build rule chains for standard alarm scenarios. The default chain builder creates a chain with: input -> filter (check key match) -> threshold check -> create-alarm node (if violated) / clear-alarm node (if normal). This covers 90% of use cases. Users can customize by editing the auto-generated chain in the visual editor.
 
 ## 36. Static Routes Before Parameterized Routes (Fastify route ordering)
 **Decision:** All static path routes (e.g., `/stats`, `/tree`, `/search`) must be registered before parameterized routes (e.g., `/:id`, `/:entityId`) in the same route prefix.
@@ -173,4 +173,7 @@
 - **Events as immutable log**: filter_events table is append-only with SHA-256 checksums for 21 CFR Part 11 compliance
 - **Auto-complete on last stage**: Cycle auto-completes when the last STAGE node leads to END, eliminating a separate "end cycle" step
 - **Server-side checklist enforcement**: advance() checks for pending checklists and blocks if not completed, preventing API-level bypass
-
+- **Organization scoping**: All filter queries use `orgWhere(ctx)` to scope data to the current organization
+- **Equipment groups for AHU dashboard**: Filters grouped by equipment for operational overview
+- **Retirement/replacement workflow**: Filters can be retired with reason tracking and replaced with new filters preserving traceability
+- **Bulk upload**: CSV-based bulk filter import with validation and error reporting

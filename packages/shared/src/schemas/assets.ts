@@ -54,7 +54,7 @@ const attributeDefinitionSchema = z.object({
   fieldName: z.string().min(1).max(100),
   dataType: z.enum(ATTRIBUTE_DATA_TYPES),
   required: z.boolean().default(false),
-  defaultValue: z.any().optional(),
+  defaultValue: z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.null()]).optional(),
   unit: z.string().max(20).optional(),
   dropdownOptions: z.array(z.string()).optional(),
   numericConstraints: numericConstraintsSchema,
@@ -139,8 +139,8 @@ export const createAssetTemplateSchema = z.object({
   attributeSchema: z.array(attributeDefinitionSchema).default([]),
   telemetrySchema: z.array(telemetryDefinitionSchema).default([]),
   expectedIdentifiers: z.array(expectedIdentifierSchema).default([]),
-  expectedRelationships: z.array(z.record(z.any())).default([]),
-  statusLifecycle: z.array(z.record(z.any())).default([]),
+  expectedRelationships: z.array(z.record(z.unknown())).default([]),
+  statusLifecycle: z.array(z.record(z.unknown())).default([]),
   alarmRules: z.array(alarmRuleSchema).default([]),
   checklistSchema: z.array(checklistItemSchema).default([]),
   maxParentConnections: z.number().int().min(0).optional().default(1), // 0=no parents, 1+=limit
@@ -188,9 +188,9 @@ export const createAssetInstanceSchema = z.object({
   description: z.string().optional(),
   templateId: z.string().uuid(),
   status: z.string().max(50).default('Active'),
-  attributes: z.record(z.any()).default({}),
-  telemetryConfig: z.record(z.any()).default({}),
-  customAttributes: z.record(z.any()).default({}),
+  attributes: z.record(z.unknown()).default({}),
+  telemetryConfig: z.record(z.unknown()).default({}),
+  customAttributes: z.record(z.unknown()).default({}),
   parentId: z.string().uuid().nullable().optional(),
 });
 
@@ -198,9 +198,9 @@ export const updateAssetInstanceSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   description: z.string().optional(),
   status: z.string().max(50).optional(),
-  attributes: z.record(z.any()).optional(),
-  telemetryConfig: z.record(z.any()).optional(),
-  customAttributes: z.record(z.any()).optional(),
+  attributes: z.record(z.unknown()).optional(),
+  telemetryConfig: z.record(z.unknown()).optional(),
+  customAttributes: z.record(z.unknown()).optional(),
   parentId: z.string().uuid().nullable().optional(),
 });
 

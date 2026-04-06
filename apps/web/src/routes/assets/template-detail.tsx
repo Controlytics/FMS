@@ -8,7 +8,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 export function TemplateDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { data: template } = useSWR(id ? `/api/templates/${id}` : null);
+  const { data: template } = useSWR(id ? `/api/assets/templates/${id}` : null);
 
   if (!template) return <div className="text-muted-foreground">Loading...</div>;
 

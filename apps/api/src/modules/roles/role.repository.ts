@@ -71,11 +71,12 @@ export const roleRepository = {
   },
 
   /** Find active roles with hierarchy level at or below the given level. */
-  async findCreatableRoles(hierarchyLevel: number) {
+  async findCreatableRoles(hierarchyLevel: number, includeSuperAdmin: boolean = false) {
     return prisma.role.findMany({
       where: {
         isActive: true,
-        hierarchyLevel: { lt: hierarchyLevel },
+        hierarchyLevel: { lte: hierarchyLevel },
+        ...(includeSuperAdmin ? {} : { name: { not: 'SUPER_ADMIN' } }),
       },
       orderBy: { hierarchyLevel: 'desc' },
       select: {

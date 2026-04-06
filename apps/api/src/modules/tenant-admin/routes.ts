@@ -1,4 +1,4 @@
-import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
+import { type FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 
@@ -7,16 +7,6 @@ import { auditLog } from '../../lib/audit.js';
  * Prefix: /api/tenant
  */
 export default async function tenantAdminRoutes(app: FastifyInstance) {
-  // All routes require at least ADMIN (or SUPER_ADMIN)
-  app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
-    const role = req.user?.role;
-    if (!role) return reply.code(401).send({ error: 'UNAUTHORIZED' });
-    if (role === 'SUPER_ADMIN') return;
-    if (!['ADMIN'].includes(role)) {
-      return reply.code(403).send({ error: 'FORBIDDEN', message: 'Admin access required' });
-    }
-
-  });
 
   // ═══════════════════════════════════════════════════════
   // ORGANIZATION MANAGEMENT
@@ -24,6 +14,7 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
 
   // ─── LIST ORGANIZATIONS ────────────────────────────────
   app.get('/', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
     schema: {
       tags: ['Admin'],
       summary: 'List organizations',
@@ -68,6 +59,7 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
 
   // ─── GET ORGANIZATION ──────────────────────────────────
   app.get('/:id', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
     schema: {
       tags: ['Admin'],
       summary: 'Get organization details',
@@ -85,6 +77,7 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
 
   // ─── CREATE ORGANIZATION ───────────────────────────────
   app.post('/', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
     schema: {
       tags: ['Admin'],
       summary: 'Create organization',
@@ -107,8 +100,9 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
     const existing = await prisma.organization.findFirst({ where: { slug: body.slug } });
     if (existing) return reply.code(409).send({ error: 'CONFLICT', message: 'Organization slug already exists' });
 
+    const { name, slug, description, parentOrgId, metadata } = body;
     const org = await prisma.organization.create({
-      data: { ...body, createdBy: req.user.username },
+      data: { name, slug, description, parentOrgId, metadata, createdBy: req.user.username },
     });
 
     await auditLog({
@@ -124,6 +118,7 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
 
   // ─── UPDATE ORGANIZATION ───────────────────────────────
   app.put('/:id', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
     schema: {
       tags: ['Admin'],
       summary: 'Update organization',
@@ -145,7 +140,8 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
     const existing = await prisma.organization.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'Organization not found' });
 
-    const org = await prisma.organization.update({ where: { id }, data: body });
+    const { name, description, isActive, metadata } = body;
+    const org = await prisma.organization.update({ where: { id }, data: { name, description, isActive, metadata } });
 
     await auditLog({
       userId: req.user.username, userRole: req.user.role,
@@ -161,6 +157,7 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
 
   // ─── DELETE ORGANIZATION ───────────────────────────────
   app.delete('/:id', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
     schema: {
       tags: ['Admin'],
       summary: 'Deactivate or delete organization',
@@ -236,6 +233,7 @@ export default async function tenantAdminRoutes(app: FastifyInstance) {
 
   // ─── GET PLATFORM INFO ─────────────────────────────────
   app.get('/info', {
+    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN')],
     schema: {
       tags: ['Admin'],
       summary: 'Get platform info',

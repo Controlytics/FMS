@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import { ALL_ALARM_COLUMN_IDS } from '@digilog/shared';
@@ -142,6 +144,7 @@ export function AlarmDashboardPage() {
   const { toast } = useToast();
   const { formatDateTime } = useDatetimeFormat();
   const paginationOptions = usePaginationConfig();
+  const reauth = useReauth();
 
   // Filters
   const [page, setPage] = useState(1);
@@ -226,35 +229,43 @@ export function AlarmDashboardPage() {
       return;
     }
 
-    setSubmitting(true);
-    try {
-      const endpoint =
-        actionDialog.type === 'acknowledge'
-          ? `/api/alarms/${actionDialog.alarm.id}/acknowledge`
-          : `/api/alarms/${actionDialog.alarm.id}/clear`;
+    const reauthAction = actionDialog.type === 'acknowledge' ? 'ACKNOWLEDGE_ALARM' : 'CLEAR_ALARM';
+    const alarmId = actionDialog.alarm.id;
+    const alarmType = actionDialog.alarm.alarmType;
+    const actionType = actionDialog.type;
+    const body = {
+      remarks: remarks.trim(),
+      signerFullName: signerName.trim(),
+      meaning: meaning.trim(),
+    };
 
-      await apiClient.post(endpoint, {
-        remarks: remarks.trim(),
-        signerFullName: signerName.trim(),
-        meaning: meaning.trim(),
-      });
+    setSubmitting(true);
+    await reauth.execute(reauthAction, async (password?) => {
+      const endpoint =
+        actionType === 'acknowledge'
+          ? `/api/alarms/${alarmId}/acknowledge`
+          : `/api/alarms/${alarmId}/clear`;
+
+      if (password) await apiClient.postWithReauth(endpoint, body, password);
+      else await apiClient.post(endpoint, body);
 
       toast.success(
-        actionDialog.type === 'acknowledge'
+        actionType === 'acknowledge'
           ? 'Alarm Acknowledged'
           : 'Alarm Cleared',
-        `Alarm ${actionDialog.alarm.alarmType} has been ${actionDialog.type === 'acknowledge' ? 'acknowledged' : 'cleared'} successfully.`,
+        `Alarm ${alarmType} has been ${actionType === 'acknowledge' ? 'acknowledged' : 'cleared'} successfully.`,
       );
       closeActionDialog();
       mutate();
-    } catch (err: any) {
-      toast.error(
-        'Action Failed',
-        err?.message ?? `Failed to ${actionDialog.type} alarm.`,
-      );
-    } finally {
-      setSubmitting(false);
-    }
+    }, {
+      onError: (err) => {
+        toast.error(
+          'Action Failed',
+          (err as any)?.message ?? `Failed to ${actionType} alarm.`,
+        );
+      },
+    });
+    setSubmitting(false);
   };
 
   const clearFilters = () => {
@@ -845,6 +856,18 @@ export function AlarmDashboardPage() {
           </Button>
         </DialogFooter>
       </Dialog>
+
+      {/* Reauth Dialog */}
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Alarm Action"
+      />
     </div>
   );
 }

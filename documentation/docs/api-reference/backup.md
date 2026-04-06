@@ -25,28 +25,30 @@ Generate and download a full database backup.
 
 ```bash
 # Export as JSON
-curl -o backup.json "http://your-server/api/backup/export?format=json" \
+curl -o backup.json "http://34.232.224.0/api/backup/export?format=json" \
   -H "Authorization: Bearer TOKEN" \
   -H "x-reauth-password: YOUR_PASSWORD"
 
 # Export as BAK (smallest file)
-curl -o backup.bak "http://your-server/api/backup/export?format=bak" \
+curl -o backup.bak "http://34.232.224.0/api/backup/export?format=bak" \
   -H "Authorization: Bearer TOKEN" \
   -H "x-reauth-password: YOUR_PASSWORD"
 
 # Export as SQL
-curl -o backup.sql "http://your-server/api/backup/export?format=sql" \
+curl -o backup.sql "http://34.232.224.0/api/backup/export?format=sql" \
   -H "Authorization: Bearer TOKEN" \
   -H "x-reauth-password: YOUR_PASSWORD"
 
 # Export as CSV (ZIP)
-curl -o backup.zip "http://your-server/api/backup/export?format=csv" \
+curl -o backup.zip "http://34.232.224.0/api/backup/export?format=csv" \
   -H "Authorization: Bearer TOKEN" \
   -H "x-reauth-password: YOUR_PASSWORD"
 ```
 
-**Included Tables (11):**
+**Included Tables (11+ core):**
 roles, users, system_config, audit_trail, notifications, password_history, sessions, field_id_config, user_configs, role_configs, password_reset_requests
+
+> **Note:** Phase 2 filter management tables (cleaning_profiles, filter_profiles, filter_events, cleaning_cycles, pm_schedules, checklist_profiles, equipment_groups) are managed by Prisma and backed up through the standard database backup process.
 
 ---
 
@@ -59,7 +61,7 @@ Upload a backup file to validate its structure and integrity without restoring.
 Accepts: `.json`, `.bak`, `.sql`, `.zip` (CSV)
 
 ```bash
-curl -X POST "http://your-server/api/backup/validate" \
+curl -X POST "http://34.232.224.0/api/backup/validate" \
   -H "Authorization: Bearer TOKEN" \
   -F "file=@backup.json"
 ```
@@ -104,7 +106,7 @@ Upload a backup file to restore the entire database. Requires re-authentication.
 Accepts all 4 formats: `.json`, `.bak`, `.sql`, `.zip` (CSV)
 
 ```bash
-curl -X POST "http://your-server/api/backup/restore" \
+curl -X POST "http://34.232.224.0/api/backup/restore" \
   -H "Authorization: Bearer TOKEN" \
   -H "x-reauth-password: YOUR_PASSWORD" \
   -F "file=@backup.json"
@@ -193,9 +195,5 @@ backup.zip/
 
 ## Next Steps
 
-- [System Configuration](configuration.md) — Configuration management
-- [Audit Trail API](audit.md) — Audit log queries
-
-
-> **Note:** Phase 2 adds filter management endpoints. See API_GUIDE.md for the full Phase 2 API reference including filter operations, cleaning profiles, checklist profiles, and PM schedules.
-
+- [System Configuration](../administration/configuration/system-configuration.md) -- Configuration management
+- [Audit Trail](../administration/audit/audit-trail.md) -- Audit log queries

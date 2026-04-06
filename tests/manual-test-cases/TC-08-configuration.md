@@ -5,7 +5,8 @@
 - **API Endpoints**: 36+
 - **Frontend Pages**: /config/* (14+ sub-pages)
 - **Permissions**: CONFIG_READ (read), CONFIG_UPDATE (write), some public endpoints
-- **Config Categories**: Password Policy, Login Security, Session, DateTime, Pagination, User ID, Branding, Role Config, User Config, Field IDs, Action Reauth, Audit Templates, Alarm Columns
+- **Config Categories**: Password Policy, Login Security, Session, DateTime, Pagination, User ID, Branding, Role Config, User Config, Field IDs (78+), Action Reauth, Audit Templates, Alarm Columns
+- **Config Definitions**: 23 system config definitions with auto-discovery
 
 ---
 
@@ -268,5 +269,46 @@
 - **Expected Result**: 401 Unauthorized
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2: Filter Configuration Test Cases
+
+### TC-08-P19: Get Filter-Related Field IDs
+- **Priority**: High
+- **Preconditions**: Logged in as SUPER_ADMIN
+- **Test Data**: None
+- **Steps**:
+  1. Send GET /api/config/field-ids
+  2. Verify response includes filter-related field IDs (78+ total field IDs)
+  3. Verify filter-specific fields: filterType, mediaType, efficiencyRating, cleaningFrequency, etc.
+- **Expected Result**: 200 OK with field IDs including Phase 2 filter management fields
+
+### TC-08-P20: Verify Filter Privileges in Action Reauth Config
+- **Priority**: High
+- **Preconditions**: Logged in as SUPER_ADMIN
+- **Test Data**: None
+- **Steps**:
+  1. Send GET /api/config/action-reauth
+  2. Verify filter-related reauth actions exist: BYPASS_FILTER_STAGE, CREATE_CLEANING_PROFILE, UPDATE_CLEANING_PROFILE, DELETE_CLEANING_PROFILE
+  3. Verify each action maps to appropriate roles
+- **Expected Result**: 200 OK with filter reauth actions configured
+
+### TC-08-P21: Update Filter Reauth Configuration
+- **Priority**: Medium
+- **Preconditions**: Logged in as SUPER_ADMIN
+- **Test Data**: `{ "BYPASS_FILTER_STAGE": ["SUPER_ADMIN", "ADMIN", "SUPERVISOR"] }`
+- **Steps**:
+  1. Send PUT /api/config/action-reauth with updated filter bypass roles
+  2. Verify response includes updated configuration
+  3. Login as SUPERVISOR and verify bypass requires reauth
+- **Expected Result**: 200 OK, filter bypass reauth roles updated
+
+### TC-08-P22: Verify Config Discovery Includes Filter Modules
+- **Priority**: Medium
+- **Preconditions**: Logged in as SUPER_ADMIN
+- **Test Data**: None
+- **Steps**:
+  1. Verify 23 config definitions are returned from the config registry
+  2. Verify filter-related sidebar items appear in role config for roles with filter permissions
+- **Expected Result**: Config registry includes all 23 definitions including Phase 2 filter config
 

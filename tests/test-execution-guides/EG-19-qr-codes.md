@@ -1,7 +1,7 @@
 # EG-19: QR Codes — Execution Guide
 
 ## Prerequisites
-- **Credentials**: SUPER_ADMIN (admin / Admin@123), OPERATOR account for negative tests
+- **Credentials**: SUPER_ADMIN (superadmin / Admin@123), OPERATOR account for negative tests
 - **Tools**: curl, jq, browser
 - **Setup**: At least one entity instance created
 - **Base URL**: http://localhost:3000
@@ -10,7 +10,7 @@
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 ENTITY_ID=$(curl -s -X GET "http://localhost:3000/api/assets/instances?limit=1" \
   -H "Authorization: Bearer $TOKEN" | jq -r '.data[0].id')
@@ -26,7 +26,7 @@ echo "Entity ID: $ENTITY_ID"
 ### Test: TC-19-P01 — Generate QR Code (Default Settings)
 
 **Browser Steps:**
-1. Navigate to http://3.108.185.106/assets
+1. Navigate to http://34.232.224.0/assets
 2. Select an entity from the tree/list
 3. Click the "QR Code" tab
 4. Click "Generate QR Code" button
@@ -46,7 +46,7 @@ curl -s -X POST "http://localhost:3000/api/qr/$ENTITY_ID/generate" \
   {
     "id": "<uuid>",
     "entityId": "<entity-uuid>",
-    "qrData": "http://3.108.185.106/m/<entity-uuid>?action=dashboard",
+    "qrData": "http://34.232.224.0/m/<entity-uuid>?action=dashboard",
     "svgData": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"250\"...",
     "size": "MEDIUM",
     "includeLabel": false
@@ -332,5 +332,5 @@ curl -s -o /dev/null -w "%{http_code}" \
 - [ ] Response status is 401
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+> **Phase 2 (Digital FMS):** QR codes apply to filter instances. QR actions (dashboard, checklist, history) link to mobile-optimized filter detail pages.
 

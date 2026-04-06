@@ -205,5 +205,11 @@
 - **Expected Result**: All requests fail — session termination is immediate and consistent
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2 Notes
+
+- Session management is unchanged for Phase 2. All filter management endpoints use the same session/JWT authentication.
+- Single-session enforcement applies when operating filter controls — if a user's session expires mid-cycle, they must re-authenticate to continue.
+- Default login: `superadmin` / `Admin@123`.
 

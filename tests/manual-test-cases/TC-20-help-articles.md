@@ -14,7 +14,7 @@
 
 ### TC-20-P01: List All Help Articles
 - **Priority**: High
-- **Preconditions**: Logged in (any role), seed data includes 28 help articles
+- **Preconditions**: Logged in (any role), seed data includes 40+ help articles (28 Phase 1 + Phase 2 filter management articles)
 - **Test Data**: None
 - **Steps**:
   1. Send GET /api/help
@@ -237,5 +237,11 @@
 - **Expected Result**: 403 Forbidden — version history requires SUPER_ADMIN or ADMIN role
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2 Notes
+
+- Help articles expanded from 28 to 40+ with Phase 2 content covering cleaning profiles, filter operations, pipeline visual editor, PM schedules, checklist profiles, and equipment groups.
+- New article categories include "Filter Management", "Cleaning Operations", and "Preventive Maintenance".
+- All articles use the same versioning system with changeNotes tracking.
 

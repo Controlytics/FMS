@@ -2,7 +2,7 @@
 
 ## Prerequisites
 - **API Base**: `http://localhost:3000/api`
-- **Credentials**: admin / Admin@123 (SUPER_ADMIN)
+- **Credentials**: superadmin / Admin@123 (SUPER_ADMIN)
 - **Prerequisite**: At least one entity template must exist (run TC-04 first)
 - **Tools**: curl, jq
 
@@ -12,7 +12,7 @@ API="http://localhost:3000/api"
 
 TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123","force":true}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123","force":true}' | jq -r '.token')
 
 get_vtoken() {
   curl -s -X POST "$API/auth/verify" \
@@ -58,7 +58,7 @@ echo "Instance ID: $INST_ID"
 ```
 
 **Browser Steps:**
-1. Navigate to http://3.108.185.106/assets
+1. Navigate to http://34.232.224.0/assets
 2. Click "Add Entity" button
 3. Select template from dropdown
 4. Fill in Name: Sensor-001
@@ -361,5 +361,5 @@ echo "Child instance: $CHILD_ID"
 ```
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+> **Phase 2 (Digital FMS):** Entity instances include filter instances. Test filter operations (cleaning profiles, cycles, checklists, bypass) per TC-05-P11 through TC-05-P22 and TC-05-N09 through TC-05-N12. Key endpoints: POST /api/filters/:id/start-cycle, advance, submit-checklist, bypass; GET /api/filters/:id/current-state, /api/filter/cycles, /api/filter/events.
 

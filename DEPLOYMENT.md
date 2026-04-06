@@ -7,14 +7,14 @@
 | **OS**         | Ubuntu 24.04.3 LTS (Noble)       | AWS AMI               |
 | **Node.js**    | v20.20.0                         | NodeSource apt repo   |
 | **npm**        | 10.8.2                           | Bundled with Node.js  |
-| **PostgreSQL** | 16.13                            | PostgreSQL apt repo   |
-| **TimescaleDB**| 2.25.1 (Community)               | TimescaleDB apt repo  |
-| **Redis**      | 7.0.15                           | Ubuntu apt            |
+| **PostgreSQL** | 18.3                             | PostgreSQL apt repo   |
+| **TimescaleDB**| (extension on PG 18)             | TimescaleDB apt repo  |
+| **Redis**      | 5.0.14.1                         | Windows / Ubuntu apt  |
 | **Nginx**      | 1.24.0                           | Ubuntu apt            |
-| **EMQX**       | 5.8.9                            | EMQX apt repo         |
+| **EMQX**       | 5.0.26                           | EMQX apt repo         |
 | **PM2**        | 6.0.14                           | npm global            |
 | **TypeScript** | 5.9.3                            | npm (project dev dep) |
-| **Turborepo**  | 2.x                              | npm (project dev dep) |
+| **Turborepo**  | 2.8.7                            | npm (project dev dep) |
 
 ## EC2 Instance Requirements
 
@@ -30,6 +30,12 @@
   - `8083` — MQTT over WebSocket (EMQX)
   - `8084` — MQTT over Secure WebSocket (EMQX)
   - `18083` — EMQX Dashboard
+
+## Current EC2 Instance
+
+- **Instance:** i-072fc466f5de8a10a (t3.large, us-east-1)
+- **IP:** 34.232.224.0 (may change on restart)
+- **SSH:** `ssh -i ~/Downloads/21cfrbook.pem ubuntu@34.232.224.0`
 
 ## Quick Setup (Automated)
 
@@ -76,17 +82,17 @@ sudo apt-get install -y nginx
 sudo apt-get install -y redis-server
 sudo systemctl enable redis-server
 
-# PostgreSQL 16
+# PostgreSQL 18
 sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
 curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
 sudo apt-get update
-sudo apt-get install -y postgresql-16
+sudo apt-get install -y postgresql-18
 
-# TimescaleDB
+# TimescaleDB (extension on PG 18)
 echo "deb https://packagecloud.io/timescale/timescaledb/ubuntu/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/timescaledb.list
 curl -fsSL https://packagecloud.io/timescale/timescaledb/gpgkey | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/timescaledb.gpg
 sudo apt-get update
-sudo apt-get install -y timescaledb-2-postgresql-16
+sudo apt-get install -y timescaledb-2-postgresql-18
 sudo timescaledb-tune --quiet --yes
 sudo systemctl restart postgresql
 
@@ -209,29 +215,29 @@ sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u ubuntu --hp /home/ubuntu
 ```
 Browser --> Nginx (80/443)
               |
-              ├── /api/*     --> Fastify (PM2, port 3000)
-              ├── /ws        --> Fastify WebSocket
-              ├── /uploads/* --> Fastify static files
-              ├── /docs      --> Swagger UI
-              ├── /emqx/*    --> EMQX Dashboard (18083)
-              └── /*         --> SPA (apps/web/dist)
+              |-- /api/*     --> Fastify (PM2, port 3000)
+              |-- /ws        --> Fastify WebSocket
+              |-- /uploads/* --> Fastify static files
+              |-- /docs      --> Swagger UI
+              |-- /emqx/*    --> EMQX Dashboard (18083)
+              +-- /*         --> SPA (apps/web/dist)
 
-Fastify --> PostgreSQL 16 (digilog_db, Prisma ORM)
+Fastify --> PostgreSQL 18 (digilog_db, Prisma ORM, 57 models)
         --> TimescaleDB (digilog_tsdb, raw SQL via pg pool)
-        --> Redis (BullMQ job queues, pub/sub)
+        --> Redis 5 (BullMQ job queues, pub/sub)
         --> EMQX (MQTT broker, ports 1883/8883)
 ```
 
 ## Databases
 
 ### digilog_db (Prisma)
-- All application models (users, roles, entities, templates, audit trail, etc.)
+- All application models (users, roles, entities, templates, audit trail, filter management, etc.)
 - Managed by Prisma migrations (`apps/api/prisma/migrations/`)
-- 39 models, all using UUID primary keys
+- 57 models with 17 enums, all using UUID primary keys
 
 ### digilog_tsdb (TimescaleDB)
 - Time-series data: telemetry, attributes, device events, checklist responses, binary metadata, pipeline traces
-- 6 hypertables with compression and continuous aggregates
+- 7 hypertables with compression and continuous aggregates
 - Initialized by `init-tsdb.sql` (not managed by Prisma)
 
 ## Post-Deployment Verification
@@ -304,11 +310,11 @@ pm2 restart digilog-api
 | MQTT not connecting | Check EMQX: `sudo systemctl status emqx`. Check port 1883 |
 | Buttons/features not working | Usually missing `.env` vars or databases not initialized |
 
-
 ## Phase 2 Deployment Notes
 - Branch: DigitalFMS
 - Instance: i-072fc466f5de8a10a (t3.large, us-east-1)
 - IP: 34.232.224.0
-- 9 new database tables migrated via Prisma
+- 11+ new database tables migrated via Prisma (filter management + equipment groups + checklist profiles)
 - 3 new config definitions auto-seeded on startup
-- 17 new permissions seeded across 6 roles
+- 52+ permissions seeded across 6 roles
+- Default login: superadmin / Admin@123

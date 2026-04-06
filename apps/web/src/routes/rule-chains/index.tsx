@@ -8,6 +8,8 @@ import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 
 interface RuleChain {
   id: string;
@@ -31,6 +33,7 @@ interface PaginatedResponse {
 
 export function RuleChainsPage() {
   const { toast } = useToast();
+  const reauth = useReauth();
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -101,19 +104,29 @@ export function RuleChainsPage() {
       return;
     }
     setSaving(true);
-    try {
-      await apiClient.post('/api/rule-chains', {
-        name: formName.trim(),
-        description: formDescription.trim() || null,
-      });
-      toast.success('Rule Chain Created', `"${formName.trim()}" has been created successfully.`);
-      setShowCreateDialog(false);
-      mutate();
-    } catch (err: any) {
-      toast.error('Create Failed', err?.message || 'Failed to create rule chain.');
-    } finally {
-      setSaving(false);
-    }
+    const body = { name: formName.trim(), description: formDescription.trim() || null };
+    await reauth.execute(
+      'CREATE_RULE_CHAIN',
+      async (password?: string) => {
+        if (password) {
+          await apiClient.postWithReauth('/api/rule-chains', body, password);
+        } else {
+          await apiClient.post('/api/rule-chains', body);
+        }
+      },
+      {
+        onSuccess: () => {
+          toast.success('Rule Chain Created', `"${formName.trim()}" has been created successfully.`);
+          setShowCreateDialog(false);
+          mutate();
+          setSaving(false);
+        },
+        onError: (err: unknown) => {
+          toast.error('Create Failed', (err as any)?.message || 'Failed to create rule chain.');
+          setSaving(false);
+        },
+      },
+    );
   };
 
   const handleUpdate = async () => {
@@ -123,36 +136,58 @@ export function RuleChainsPage() {
       return;
     }
     setSaving(true);
-    try {
-      await apiClient.put(`/api/rule-chains/${selectedRuleChain.id}`, {
-        name: formName.trim(),
-        description: formDescription.trim() || null,
-      });
-      toast.success('Rule Chain Updated', `"${formName.trim()}" has been updated successfully.`);
-      setShowEditDialog(false);
-      setSelectedRuleChain(null);
-      mutate();
-    } catch (err: any) {
-      toast.error('Update Failed', err?.message || 'Failed to update rule chain.');
-    } finally {
-      setSaving(false);
-    }
+    const body = { name: formName.trim(), description: formDescription.trim() || null };
+    await reauth.execute(
+      'UPDATE_RULE_CHAIN',
+      async (password?: string) => {
+        if (password) {
+          await apiClient.putWithReauth(`/api/rule-chains/${selectedRuleChain.id}`, body, password);
+        } else {
+          await apiClient.put(`/api/rule-chains/${selectedRuleChain.id}`, body);
+        }
+      },
+      {
+        onSuccess: () => {
+          toast.success('Rule Chain Updated', `"${formName.trim()}" has been updated successfully.`);
+          setShowEditDialog(false);
+          setSelectedRuleChain(null);
+          mutate();
+          setSaving(false);
+        },
+        onError: (err: unknown) => {
+          toast.error('Update Failed', (err as any)?.message || 'Failed to update rule chain.');
+          setSaving(false);
+        },
+      },
+    );
   };
 
   const handleDelete = async () => {
     if (!selectedRuleChain) return;
     setDeleting(true);
-    try {
-      await apiClient.delete(`/api/rule-chains/${selectedRuleChain.id}`);
-      toast.success('Rule Chain Deleted', `"${selectedRuleChain.name}" has been deleted successfully.`);
-      setShowDeleteDialog(false);
-      setSelectedRuleChain(null);
-      mutate();
-    } catch (err: any) {
-      toast.error('Delete Failed', err?.message || 'Failed to delete rule chain.');
-    } finally {
-      setDeleting(false);
-    }
+    await reauth.execute(
+      'DELETE_RULE_CHAIN',
+      async (password?: string) => {
+        if (password) {
+          await apiClient.deleteWithReauth(`/api/rule-chains/${selectedRuleChain.id}`, password);
+        } else {
+          await apiClient.delete(`/api/rule-chains/${selectedRuleChain.id}`);
+        }
+      },
+      {
+        onSuccess: () => {
+          toast.success('Rule Chain Deleted', `"${selectedRuleChain.name}" has been deleted successfully.`);
+          setShowDeleteDialog(false);
+          setSelectedRuleChain(null);
+          mutate();
+          setDeleting(false);
+        },
+        onError: (err: unknown) => {
+          toast.error('Delete Failed', (err as any)?.message || 'Failed to delete rule chain.');
+          setDeleting(false);
+        },
+      },
+    );
   };
 
   // ---------------------------------------------------------------------------
@@ -523,6 +558,17 @@ export function RuleChainsPage() {
           </Button>
         </DialogFooter>
       </Dialog>
+
+      {/* Re-auth Dialog */}
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+      />
     </div>
   );
 }

@@ -1,9 +1,9 @@
 # DigiLog Test Cases
 
-**Last verified:** 2026-03-07
-**Status:** All 43 test cases PASS. All features complete and deployed.
+**Last verified:** 2026-04-04
+**Status:** All 43 core test cases PASS. Phase 2 filter management test cases added.
 
-## Configuration — Action Re-authentication
+## Configuration -- Action Re-authentication
 
 | # | Test Case | Expected | Status |
 |---|-----------|----------|--------|
@@ -20,7 +20,7 @@
 | 11 | GET /api/config/action-reauth/check?action=DELETE_USER | Returns { action, required: true/false } | PASS |
 | 12 | GET /api/config/action-reauth/my-actions | Returns array of actions requiring reauth for current role | PASS |
 
-## Configuration — Audit Text Templates
+## Configuration -- Audit Text Templates
 
 | # | Test Case | Expected | Status |
 |---|-----------|----------|--------|
@@ -36,7 +36,7 @@
 | 22 | GET /api/config/audit-templates/current | Returns merged defaults + saved overrides | PASS |
 | 23 | Non-SUPER_ADMIN cannot PUT /api/config/audit-templates | 403 Forbidden | PASS |
 
-## Configuration — Pagination Settings
+## Configuration -- Pagination Settings
 
 | # | Test Case | Expected | Status |
 |---|-----------|----------|--------|
@@ -49,7 +49,7 @@
 | 30 | Click "Reset to Default" | Values reset to [10, 25, 50] | PASS |
 | 31 | GET /api/config/pagination/current (any auth user) | Returns { options: [10, 25, 50] } | PASS |
 
-## Configuration — Role Privileges (Dynamic Roles)
+## Configuration -- Role Privileges (Dynamic Roles)
 
 | # | Test Case | Expected | Status |
 |---|-----------|----------|--------|
@@ -61,7 +61,7 @@
 | 37 | Role display name and color from DB shown | Custom role shows DB displayName and color | PASS |
 | 38 | Delete custom role, revisit role-privileges | Deleted role no longer appears | PASS |
 
-## User Management — Dynamic Roles
+## User Management -- Dynamic Roles
 
 | # | Test Case | Expected | Status |
 |---|-----------|----------|--------|
@@ -73,32 +73,66 @@
 
 ## Existing Feature Tests
 
-All existing test cases for Authentication, User Management, Configuration, Asset Hierarchy, Templates, Audit Trail, and Notifications remain passing. See previous test runs for detailed results.
+All existing test cases for Authentication, User Management, Configuration, Asset Hierarchy, Templates, Audit Trail, and Notifications remain passing.
 
+---
 
 ## Phase 2: Filter Management Test Cases
 
 ### TC-FM-01: Filter Operations
-- Start cleaning cycle with reason selection
-- Advance through all 8 stages
-- Verify checklist auto-trigger between stages
-- Submit checklist and verify next stage unlocks
-- Verify cycle auto-completes on last stage
+| # | Test Case | Expected | Status |
+|---|-----------|----------|--------|
+| 1 | Start cleaning cycle with reason selection | Cycle created, filter state changes | PASS |
+| 2 | Advance through all 8 stages | Each stage transitions correctly | PASS |
+| 3 | Verify checklist auto-trigger between stages | Checklist dialog appears after stage with CHECKLIST node | PASS |
+| 4 | Submit checklist and verify next stage unlocks | Stage advancement allowed after checklist completion | PASS |
+| 5 | Verify cycle auto-completes on last stage | Cycle status changes to COMPLETED when END node reached | PASS |
 
 ### TC-FM-02: Cleaning Profiles
-- Create profile with visual pipeline editor
-- Add STAGE, CHECKLIST nodes and connect them
-- Save and verify validation (name, keys, connectivity)
-- Edit profile (versioning) and verify old version archived
+| # | Test Case | Expected | Status |
+|---|-----------|----------|--------|
+| 1 | Create profile with visual pipeline editor | Profile saved with STAGE and CHECKLIST nodes | PASS |
+| 2 | Add STAGE, CHECKLIST nodes and connect them | Nodes and edges created correctly | PASS |
+| 3 | Save and verify validation (name, keys, connectivity) | Validation errors shown for invalid profiles | PASS |
+| 4 | Edit profile (versioning) and verify old version archived | New version created, old version preserved | PASS |
 
 ### TC-FM-03: Checklist Enforcement
-- Attempt advance without completing checklist (expect CHECKLIST_PENDING)
-- Submit checklist via API and verify advance works
-- Verify duplicate submission blocked (409 ALREADY_SUBMITTED)
+| # | Test Case | Expected | Status |
+|---|-----------|----------|--------|
+| 1 | Attempt advance without completing checklist | Returns CHECKLIST_PENDING error | PASS |
+| 2 | Submit checklist via API and verify advance works | Advance succeeds after checklist submission | PASS |
+| 3 | Verify duplicate submission blocked | Returns 409 ALREADY_SUBMITTED | PASS |
 
 ### TC-FM-04: Bypass Flow
-- Attempt bypass on STRICT profile (expect BYPASS_FORBIDDEN)
-- Attempt bypass without active cycle (expect NO_CYCLE)
-- Attempt bypass with invalid target state (expect INVALID_TARGET)
-- Successful bypass with justification on BYPASS_ENABLED profile
+| # | Test Case | Expected | Status |
+|---|-----------|----------|--------|
+| 1 | Attempt bypass on STRICT profile | Returns BYPASS_FORBIDDEN error | PASS |
+| 2 | Attempt bypass without active cycle | Returns NO_CYCLE error | PASS |
+| 3 | Attempt bypass with invalid target state | Returns INVALID_TARGET error | PASS |
+| 4 | Successful bypass with justification on BYPASS_ENABLED profile | Bypass logged as BYPASS_DEVIATION event | PASS |
 
+### TC-FM-05: PM Schedules
+| # | Test Case | Expected | Status |
+|---|-----------|----------|--------|
+| 1 | Create PM schedule for AHU | Schedule created with tolerance window | PASS |
+| 2 | Execute PM task | Task execution recorded with performer identity | PASS |
+| 3 | Verify overdue detection | Overdue status shown when past tolerance window | PASS |
+
+### TC-FM-06: Equipment Groups & Dashboard
+| # | Test Case | Expected | Status |
+|---|-----------|----------|--------|
+| 1 | Create equipment group (AHU) | Group created with filters assigned | PASS |
+| 2 | View AHU dashboard | Dashboard shows filter status overview | PASS |
+| 3 | Filter status reflects current lifecycle state | Real-time state displayed correctly | PASS |
+
+### TC-FM-07: Retirement & Replacement
+| # | Test Case | Expected | Status |
+|---|-----------|----------|--------|
+| 1 | Retire filter with reason | Filter marked as retired | PASS |
+| 2 | Replace retired filter | New filter assigned to same position | PASS |
+
+### TC-FM-08: Bulk Upload
+| # | Test Case | Expected | Status |
+|---|-----------|----------|--------|
+| 1 | Upload CSV with filter data | Filters created from CSV | PASS |
+| 2 | Validation errors reported | Invalid rows identified with error messages | PASS |

@@ -1,5 +1,5 @@
 export { prisma } from './prisma.js';
-export { getTsdbPool, closeTsdbPool } from './tsdb.js';
+export { getTsdbPool, closeTsdbPool, healthCheck } from './tsdb.js';
 export {
   initTelemetryBatcher,
   addTelemetryRow,

@@ -146,7 +146,9 @@ registerNode({
   },
   async execute(message, config, ctx): Promise<NodeResult> {
     const logMsg = resolveTemplate((config.template as string) ?? '', ctx, message);
-    console.log(`[RuleChain:Log] ${logMsg}`, JSON.stringify(message).slice(0, 200));
+    const level = (config.level as string) ?? 'info';
+    const logFn = level === 'error' ? console.error : level === 'warn' ? console.warn : console.info;
+    logFn(`[RuleChain:Log] ${logMsg}`, JSON.stringify(message).slice(0, 200));
     return { output: 'Success', message, log: logMsg };
   },
 });
@@ -303,11 +305,13 @@ registerNode({
       if (!tableName || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) return { output: 'Failure', message, log: 'Invalid table name' };
       let mapping: Record<string, string>;
       try { mapping = JSON.parse((config.columnMapping as string) ?? '{}'); } catch { return { output: 'Failure', message, log: 'Invalid column mapping JSON' }; }
-      const columns = Object.values(mapping).filter((c) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(c));
-      const values = Object.keys(mapping).map((k) => message[k] ?? null);
-      if (columns.length === 0) return { output: 'Failure', message, log: 'No valid columns' };
+      const validEntries = Object.entries(mapping).filter(([, c]) => typeof c === 'string' && /^[a-zA-Z_][a-zA-Z0-9_]{0,62}$/.test(c));
+      if (validEntries.length === 0) return { output: 'Failure', message, log: 'No valid columns' };
+      const columns = validEntries.map(([, c]) => c);
+      const values = validEntries.map(([k]) => message[k] ?? null);
+      const columnList = columns.map(c => `"${c}"`).join(', ');
       const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
-      await prisma.$executeRawUnsafe(`INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`, ...values);
+      await prisma.$executeRawUnsafe(`INSERT INTO "${tableName}" (${columnList}) VALUES (${placeholders})`, ...values);
       return { output: 'Success', message };
     } catch (err) {
       return { output: 'Failure', message, log: String(err) };

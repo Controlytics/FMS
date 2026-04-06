@@ -4,6 +4,7 @@ import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
 
 interface LogEntry {
   id: string;
@@ -33,6 +34,7 @@ const CHANNEL_COLORS: Record<string, string> = {
 };
 
 export function NotificationLogsPage() {
+  const { formatDateTime } = useDatetimeFormat();
   const [page, setPage] = useState(1);
   const [channel, setChannel] = useState('');
   const [status, setStatus] = useState('');
@@ -177,7 +179,7 @@ export function NotificationLogsPage() {
                     {log.retryCount > 0 && <span className="ml-1 text-xs text-slate-400">(retry {log.retryCount})</span>}
                   </td>
                   <td className="px-4 py-3 text-slate-500 text-xs">{log.triggeredBy ?? '-'}</td>
-                  <td className="px-4 py-3 text-slate-500 text-xs">{new Date(log.createdAt).toLocaleString()}</td>
+                  <td className="px-4 py-3 text-slate-500 text-xs">{formatDateTime(log.createdAt)}</td>
                   <td className="px-4 py-3">
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDelete(log.id); }}
@@ -194,7 +196,7 @@ export function NotificationLogsPage() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                       <div>
                         <strong className="text-slate-600">Message:</strong>
-                        <div className="mt-1 p-3 bg-white rounded-lg border text-slate-700 max-h-40 overflow-y-auto text-xs" dangerouslySetInnerHTML={{ __html: log.message }} />
+                        <div className="mt-1 p-3 bg-white rounded-lg border text-slate-700 max-h-40 overflow-y-auto text-xs" dangerouslySetInnerHTML={{ __html: log.message?.replace(/</g, '&lt;').replace(/>/g, '&gt;') || '' }} />
                       </div>
                       {log.errorMessage && (
                         <div>
@@ -203,7 +205,7 @@ export function NotificationLogsPage() {
                         </div>
                       )}
                       {log.sentAt && (
-                        <div><strong className="text-slate-600">Sent At:</strong> <span className="text-slate-700">{new Date(log.sentAt).toLocaleString()}</span></div>
+                        <div><strong className="text-slate-600">Sent At:</strong> <span className="text-slate-700">{formatDateTime(log.sentAt)}</span></div>
                       )}
                     </div>
                   </td>

@@ -83,7 +83,7 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
           profileId: { type: 'string', format: 'uuid' },
         },
       },
-      response: { 200: { type: 'object', properties: { reasons: { type: 'array' } } }, ...errorResponses },
+      response: { 200: { type: 'object', properties: { reasons: { type: 'array', items: { type: 'object', additionalProperties: true } } }, additionalProperties: false }, ...errorResponses },
     },
   }, async (req) => {
     const ctx = buildContext(req);

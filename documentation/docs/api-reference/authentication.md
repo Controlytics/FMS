@@ -7,7 +7,7 @@ All API endpoints (except login and health check) require a valid JWT token in t
 ## Base URL
 
 ```
-http://your-server/api/auth
+http://34.232.224.0/api/auth
 ```
 
 ---
@@ -20,10 +20,10 @@ Authenticate a user and create a session.
 
 **Request:**
 ```bash
-curl -X POST "http://your-server/api/auth/login" \
+curl -X POST "http://34.232.224.0/api/auth/login" \
   -H "Content-Type: application/json" \
   -d '{
-    "username": "admin",
+    "username": "superadmin",
     "password": "Admin@123",
     "force": true
   }'
@@ -42,7 +42,7 @@ curl -X POST "http://your-server/api/auth/login" \
   "token": "eyJhbGciOiJIUzI1NiJ9...",
   "user": {
     "id": "abc-123",
-    "username": "admin",
+    "username": "superadmin",
     "fullName": "System Administrator",
     "role": "SUPER_ADMIN",
     "forcePasswordChange": false,
@@ -83,7 +83,7 @@ Terminate the current session.
 
 **Request:**
 ```bash
-curl -X POST "http://your-server/api/auth/logout" \
+curl -X POST "http://34.232.224.0/api/auth/logout" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -100,7 +100,7 @@ Get the current user's profile and permissions.
 
 **Request:**
 ```bash
-curl "http://your-server/api/auth/me" \
+curl "http://34.232.224.0/api/auth/me" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -108,13 +108,13 @@ curl "http://your-server/api/auth/me" \
 ```json
 {
   "id": "abc-123",
-  "username": "admin",
+  "username": "superadmin",
   "fullName": "System Administrator",
   "email": "admin@company.com",
   "department": "IT",
   "role": "SUPER_ADMIN",
   "status": "ENABLED",
-  "permissions": ["ASSET_MANAGE", "USER_MANAGE", "CONFIG_MANAGE", "NODE_CREATE", ...]
+  "permissions": ["ASSET_MANAGE", "USER_MANAGE", "CONFIG_MANAGE", "FILTER_OPERATE", ...]
 }
 ```
 
@@ -126,7 +126,7 @@ Change the current user's password.
 
 **Request:**
 ```bash
-curl -X POST "http://your-server/api/auth/change-password" \
+curl -X POST "http://34.232.224.0/api/auth/change-password" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -159,7 +159,7 @@ Update the current user's profile.
 
 **Request:**
 ```bash
-curl -X PUT "http://your-server/api/auth/profile" \
+curl -X PUT "http://34.232.224.0/api/auth/profile" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -177,7 +177,7 @@ Verify the current user's password (for re-authentication).
 
 **Request:**
 ```bash
-curl -X POST "http://your-server/api/auth/verify" \
+curl -X POST "http://34.232.224.0/api/auth/verify" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"password": "MyPass@123"}'
@@ -198,7 +198,7 @@ Request a password reset (creates a notification for admins).
 
 **Request:**
 ```bash
-curl -X POST "http://your-server/api/auth/forgot-password" \
+curl -X POST "http://34.232.224.0/api/auth/forgot-password" \
   -H "Content-Type: application/json" \
   -d '{"username": "RB0001"}'
 ```
@@ -216,20 +216,33 @@ Authorization: Bearer <jwt_token>
 ```
 
 The JWT token contains:
-- `sub` — User ID
-- `username` — Username
-- `role` — User role
-- `sessionId` — Active session ID
-- `exp` — Token expiry timestamp
+- `sub` -- User ID
+- `username` -- Username
+- `role` -- User role
+- `sessionId` -- Active session ID
+- `exp` -- Token expiry timestamp
+
+---
+
+## Phase 2: Filter Management Authentication
+
+All Phase 2 filter management endpoints require the same JWT authentication. Additionally, filter operations enforce granular permissions:
+
+| Endpoint | Required Permission |
+|----------|-------------------|
+| `POST /api/filters/:id/start-cycle` | FILTER_OPERATE |
+| `POST /api/filters/:id/advance` | FILTER_OPERATE |
+| `POST /api/filters/:id/submit-checklist` | CHECKLIST_SUBMIT |
+| `POST /api/filters/:id/bypass` | FILTER_BYPASS |
+| `GET /api/filter/cycles` | CYCLE_READ |
+| `GET /api/filter/events` | EVENT_READ |
+| `GET /api/cleaning-profiles` | FCP_READ |
+| `GET /api/pm-schedules` | PM_READ |
 
 ---
 
 ## Next Steps
 
-- [Entity API](entities.md) — CRUD operations for entities
-- [Telemetry API](telemetry.md) — Data ingestion endpoints
-- [Security Configuration](../administration/security/security.md) — Auth settings
-
-
-> **Note:** Phase 2 adds filter management endpoints. See API_GUIDE.md for the full Phase 2 API reference including filter operations, cleaning profiles, checklist profiles, and PM schedules.
-
+- [Telemetry API](telemetry.md) -- Data ingestion endpoints
+- [Security Configuration](../administration/security/security.md) -- Auth settings
+- [Backup API](backup.md) -- Database export and restore

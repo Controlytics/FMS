@@ -71,6 +71,111 @@ export default async function notificationRoutes(app: FastifyInstance) {
     return notificationService.getUnreadCount(req.user.role, req.user.username);
   });
 
+  // PUT /api/notifications/mark-all-read — mark all as read
+  app.put('/mark-all-read', {
+    schema: {
+      tags: ['Notifications'],
+      summary: 'Mark all notifications as read',
+      description: 'Mark all visible notifications as read for the current user based on their role.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+          },
+        },
+      },
+    },
+  }, async (req) => {
+    return notificationService.markAllRead(req.user.role, req.user.username);
+  });
+
+  // PUT /api/notifications/bulk-read — mark multiple as read
+  app.put('/bulk-read', {
+    schema: {
+      tags: ['Notifications'],
+      summary: 'Mark selected notifications as read',
+      description: 'Mark multiple notifications as read by their IDs.',
+      body: {
+        type: 'object',
+        required: ['ids'],
+        properties: {
+          ids: { type: 'array', items: { type: 'string' }, minItems: 1 },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            count: { type: 'integer' },
+          },
+        },
+      },
+    },
+  }, async (req) => {
+    const { ids } = req.body as { ids: string[] };
+    return notificationService.bulkRead(ids, req.user.username);
+  });
+
+  // PUT /api/notifications/bulk-unread — mark multiple as unread
+  app.put('/bulk-unread', {
+    schema: {
+      tags: ['Notifications'],
+      summary: 'Mark selected notifications as unread',
+      description: 'Mark multiple notifications as unread by their IDs.',
+      body: {
+        type: 'object',
+        required: ['ids'],
+        properties: {
+          ids: { type: 'array', items: { type: 'string' }, minItems: 1 },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            count: { type: 'integer' },
+          },
+        },
+      },
+    },
+  }, async (req) => {
+    const { ids } = req.body as { ids: string[] };
+    return notificationService.bulkUnread(ids, req.user.username);
+  });
+
+  // POST /api/notifications/bulk-delete — delete multiple (SUPER_ADMIN only)
+  app.post('/bulk-delete', {
+    preHandler: [app.requirePermission('NOTIFICATION_DELETE')],
+    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    schema: {
+      tags: ['Notifications'],
+      summary: 'Delete selected notifications',
+      description: 'Permanently delete multiple notifications by their IDs. Requires NOTIFICATION_DELETE permission.',
+      body: {
+        type: 'object',
+        required: ['ids'],
+        properties: {
+          ids: { type: 'array', items: { type: 'string' }, minItems: 1 },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            count: { type: 'integer' },
+          },
+        },
+      },
+    },
+  }, async (req) => {
+    const { ids } = req.body as { ids: string[] };
+    return notificationService.bulkDelete(ids, req.user.username);
+  });
+
   // PUT /api/notifications/:id/read — mark as read
   app.put('/:id/read', {
     schema: {
@@ -99,25 +204,6 @@ export default async function notificationRoutes(app: FastifyInstance) {
     return notificationService.markRead(id);
   });
 
-  // PUT /api/notifications/mark-all-read — mark all as read
-  app.put('/mark-all-read', {
-    schema: {
-      tags: ['Notifications'],
-      summary: 'Mark all notifications as read',
-      description: 'Mark all visible notifications as read for the current user based on their role.',
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-          },
-        },
-      },
-    },
-  }, async (req) => {
-    return notificationService.markAllRead(req.user.role, req.user.username);
-  });
-
   // PUT /api/notifications/:id/unread — mark as unread
   app.put('/:id/unread', {
     schema: {
@@ -144,91 +230,6 @@ export default async function notificationRoutes(app: FastifyInstance) {
   }, async (req) => {
     const { id } = req.params as { id: string };
     return notificationService.markUnread(id);
-  });
-
-  // PUT /api/notifications/bulk-read — mark multiple as read
-  app.put('/bulk-read', {
-    schema: {
-      tags: ['Notifications'],
-      summary: 'Mark selected notifications as read',
-      description: 'Mark multiple notifications as read by their IDs.',
-      body: {
-        type: 'object',
-        required: ['ids'],
-        properties: {
-          ids: { type: 'array', items: { type: 'string' }, minItems: 1 },
-        },
-      },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            count: { type: 'integer' },
-          },
-        },
-      },
-    },
-  }, async (req) => {
-    const { ids } = req.body as { ids: string[] };
-    return notificationService.bulkRead(ids);
-  });
-
-  // PUT /api/notifications/bulk-unread — mark multiple as unread
-  app.put('/bulk-unread', {
-    schema: {
-      tags: ['Notifications'],
-      summary: 'Mark selected notifications as unread',
-      description: 'Mark multiple notifications as unread by their IDs.',
-      body: {
-        type: 'object',
-        required: ['ids'],
-        properties: {
-          ids: { type: 'array', items: { type: 'string' }, minItems: 1 },
-        },
-      },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            count: { type: 'integer' },
-          },
-        },
-      },
-    },
-  }, async (req) => {
-    const { ids } = req.body as { ids: string[] };
-    return notificationService.bulkUnread(ids);
-  });
-
-  // POST /api/notifications/bulk-delete — delete multiple (SUPER_ADMIN only)
-  app.post('/bulk-delete', {
-    preHandler: [app.requirePermission('NOTIFICATION_DELETE')],
-    schema: {
-      tags: ['Notifications'],
-      summary: 'Delete selected notifications',
-      description: 'Permanently delete multiple notifications by their IDs. Requires NOTIFICATION_DELETE permission.',
-      body: {
-        type: 'object',
-        required: ['ids'],
-        properties: {
-          ids: { type: 'array', items: { type: 'string' }, minItems: 1 },
-        },
-      },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            count: { type: 'integer' },
-          },
-        },
-      },
-    },
-  }, async (req) => {
-    const { ids } = req.body as { ids: string[] };
-    return notificationService.bulkDelete(ids);
   });
 
   // DELETE /api/notifications/:id — delete notification

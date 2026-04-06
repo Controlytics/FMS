@@ -235,22 +235,40 @@ export function CreateUserPage() {
           </div>
 
 
-          {/* Organization Assignment */}
-          <div className="p-6 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-white">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 rounded-lg bg-blue-100">
-                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5" /></svg>
+          {/* Organization Assignment — only show selector for users without an org (e.g. SUPER_ADMIN) */}
+          {user?.organizationId ? (
+            <div className="p-6 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-white">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 rounded-lg bg-blue-100">
+                  <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5" /></svg>
+                </div>
+                <h3 className="text-lg font-semibold text-gray-800">Organization</h3>
               </div>
-              <h3 className="text-lg font-semibold text-gray-800">Organization</h3>
+              <div className="flex items-center gap-2 px-4 py-3 bg-white border border-slate-200 rounded-xl">
+                <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                <span className="text-sm font-medium text-slate-700">
+                  {orgsData?.data?.find((o: any) => o.id === user.organizationId)?.name || 'Your organization'}
+                </span>
+                <span className="text-xs text-slate-400 ml-1">(auto-assigned)</span>
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Assign to Organization</label>
-              <select {...register("organizationId")} className="w-full px-3 py-3 border border-slate-200 rounded-xl text-sm font-medium bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400">
-                <option value="">-- Select an organization --</option>
-                {orgsData?.data?.map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}
-              </select>
+          ) : (
+            <div className="p-6 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-white">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 rounded-lg bg-blue-100">
+                  <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5" /></svg>
+                </div>
+                <h3 className="text-lg font-semibold text-gray-800">Organization</h3>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Assign to Organization</label>
+                <select {...register("organizationId")} className="w-full px-3 py-3 border border-slate-200 rounded-xl text-sm font-medium bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400">
+                  <option value="">-- Select an organization --</option>
+                  {orgsData?.data?.map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Temporary Password Section */}
           <div className="p-6 bg-gradient-to-r from-slate-50 to-white">

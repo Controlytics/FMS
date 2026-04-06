@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PERMISSIONS } from '@digilog/shared';
 import { auditLog } from '../../lib/audit.js';
 import { AppError, NotFoundError, ConflictError, ValidationError } from '../../lib/errors.js';
 import type { RequestContext } from '../../types/context.js';
@@ -27,60 +28,109 @@ const updateRoleSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Static permissions list
+// Permission metadata — labels and categories for each PERMISSIONS key
 // ---------------------------------------------------------------------------
 
-const ALL_PERMISSIONS = [
+const PERMISSION_META: Record<string, { label: string; category: string }> = {
+  // Organization management
+  [PERMISSIONS.ORG_MANAGE]: { label: 'Manage Organizations', category: 'Organization' },
+  [PERMISSIONS.ORG_VIEW]: { label: 'View Organizations', category: 'Organization' },
+  [PERMISSIONS.ORG_CREATE]: { label: 'Create Organizations', category: 'Organization' },
+  [PERMISSIONS.ORG_DELETE]: { label: 'Delete Organizations', category: 'Organization' },
   // User management
-  { key: 'USER_CREATE', label: 'Create Users', category: 'User Management' },
-  { key: 'USER_READ', label: 'View Users', category: 'User Management' },
-  { key: 'USER_UPDATE', label: 'Update Users', category: 'User Management' },
-  { key: 'USER_DELETE', label: 'Delete Users', category: 'User Management' },
-  { key: 'USER_ENABLE_DISABLE', label: 'Enable/Disable Users', category: 'User Management' },
-  { key: 'USER_UNLOCK', label: 'Unlock Users', category: 'User Management' },
-  { key: 'USER_RESET_PASSWORD', label: 'Reset Passwords', category: 'User Management' },
+  [PERMISSIONS.USER_CREATE]: { label: 'Create Users', category: 'User Management' },
+  [PERMISSIONS.USER_READ]: { label: 'View Users', category: 'User Management' },
+  [PERMISSIONS.USER_UPDATE]: { label: 'Update Users', category: 'User Management' },
+  [PERMISSIONS.USER_DELETE]: { label: 'Delete Users', category: 'User Management' },
+  [PERMISSIONS.USER_ENABLE_DISABLE]: { label: 'Enable/Disable Users', category: 'User Management' },
+  [PERMISSIONS.USER_UNLOCK]: { label: 'Unlock Users', category: 'User Management' },
+  [PERMISSIONS.USER_RESET_PASSWORD]: { label: 'Reset Passwords', category: 'User Management' },
   // Configuration
-  { key: 'CONFIG_READ', label: 'View Configuration', category: 'Configuration' },
-  { key: 'CONFIG_UPDATE', label: 'Update Configuration', category: 'Configuration' },
-  { key: 'FIELD_ID_UPDATE', label: 'Update Field Labels', category: 'Configuration' },
-  { key: 'ROLE_MANAGE', label: 'Manage Roles', category: 'Configuration' },
+  [PERMISSIONS.CONFIG_READ]: { label: 'View Configuration', category: 'Configuration' },
+  [PERMISSIONS.CONFIG_UPDATE]: { label: 'Update Configuration', category: 'Configuration' },
+  [PERMISSIONS.FIELD_ID_UPDATE]: { label: 'Update Field Labels', category: 'Configuration' },
+  [PERMISSIONS.ROLE_MANAGE]: { label: 'Manage Roles', category: 'Configuration' },
+  [PERMISSIONS.BACKUP_MANAGE]: { label: 'Manage Backups', category: 'Configuration' },
   // Audit
-  { key: 'AUDIT_READ', label: 'View Audit Trail', category: 'Audit' },
+  [PERMISSIONS.AUDIT_READ]: { label: 'View Audit Trail', category: 'Audit' },
+  [PERMISSIONS.AUDIT_EXPORT]: { label: 'Export Audit Trail', category: 'Audit' },
+  // Filter Events
+  [PERMISSIONS.EVENT_READ]: { label: 'View Filter Events', category: 'Filter Management' },
+  // Notifications
+  [PERMISSIONS.NOTIFICATION_VIEW]: { label: 'View Notifications', category: 'Notifications' },
+  [PERMISSIONS.NOTIFICATION_CREATE]: { label: 'Create Notifications', category: 'Notifications' },
+  [PERMISSIONS.NOTIFICATION_UPDATE]: { label: 'Update Notifications', category: 'Notifications' },
+  [PERMISSIONS.NOTIFICATION_DELETE]: { label: 'Delete Notifications', category: 'Notifications' },
+  [PERMISSIONS.NOTIFICATION_MANAGE]: { label: 'Manage Notifications', category: 'Notifications' },
   // Assets & Entities
-  { key: 'ASSET_READ', label: 'View Assets', category: 'Assets' },
-  { key: 'ASSET_VIEW', label: 'View Asset Details', category: 'Assets' },
-  { key: 'ASSET_CREATE', label: 'Create Assets', category: 'Assets' },
-  { key: 'ASSET_UPDATE', label: 'Update Assets', category: 'Assets' },
-  { key: 'ASSET_DELETE', label: 'Delete Assets', category: 'Assets' },
-  { key: 'ENTITY_ASSIGN', label: 'Assign Entities', category: 'Assets' },
-  // Filter Management
-  { key: 'FILTER_OPERATE', label: 'Operate Filters (Advance/Submit)', category: 'Filter Management' },
-  { key: 'FILTER_BYPASS', label: 'Bypass Filter Stages', category: 'Filter Management' },
-  { key: 'FCP_READ', label: 'View Cleaning Profiles', category: 'Filter Management' },
-  { key: 'FCP_CREATE', label: 'Create Cleaning Profiles', category: 'Filter Management' },
-  { key: 'FCP_UPDATE', label: 'Update Cleaning Profiles', category: 'Filter Management' },
-  { key: 'FP_READ', label: 'View Filter Profiles', category: 'Filter Management' },
-  { key: 'FP_CREATE', label: 'Create Filter Profiles', category: 'Filter Management' },
-  { key: 'CYCLE_READ', label: 'View Cleaning Cycles', category: 'Filter Management' },
-  { key: 'EVENT_READ', label: 'View Filter Events', category: 'Filter Management' },
-  { key: 'CHECKLIST_SUBMIT', label: 'Submit Checklists', category: 'Filter Management' },
-  // PM Scheduling
-  { key: 'PM_READ', label: 'View PM Schedules', category: 'PM Scheduling' },
-  { key: 'PM_CREATE', label: 'Create PM Schedules', category: 'PM Scheduling' },
-  { key: 'PM_UPDATE', label: 'Update PM Schedules', category: 'PM Scheduling' },
-  { key: 'PM_EXECUTE', label: 'Execute PM Tasks', category: 'PM Scheduling' },
+  [PERMISSIONS.ASSET_READ]: { label: 'View Assets', category: 'Assets' },
+  [PERMISSIONS.ASSET_VIEW]: { label: 'View Asset Details', category: 'Assets' },
+  [PERMISSIONS.ASSET_CREATE]: { label: 'Create Assets', category: 'Assets' },
+  [PERMISSIONS.ASSET_UPDATE]: { label: 'Update Assets', category: 'Assets' },
+  [PERMISSIONS.ASSET_DELETE]: { label: 'Delete Assets', category: 'Assets' },
+  [PERMISSIONS.ENTITY_ASSIGN]: { label: 'Assign Entities', category: 'Assets' },
+  // Asset Templates
+  [PERMISSIONS.ASSET_TEMPLATE_CREATE]: { label: 'Create Templates', category: 'Entity Templates' },
+  [PERMISSIONS.ASSET_TEMPLATE_UPDATE]: { label: 'Edit Templates', category: 'Entity Templates' },
+  [PERMISSIONS.ASSET_TEMPLATE_DELETE]: { label: 'Delete Templates', category: 'Entity Templates' },
+  // Asset Relationships
+  [PERMISSIONS.ASSET_RELATIONSHIP_CREATE]: { label: 'Create Relationships', category: 'Entity Relationships' },
+  [PERMISSIONS.ASSET_RELATIONSHIP_DELETE]: { label: 'Delete Relationships', category: 'Entity Relationships' },
+  // Asset Identifiers
+  [PERMISSIONS.ASSET_IDENTIFIER_CREATE]: { label: 'Create Identifiers', category: 'Entity Identifiers' },
+  [PERMISSIONS.ASSET_IDENTIFIER_DELETE]: { label: 'Delete Identifiers', category: 'Entity Identifiers' },
+  // Dashboards
+  [PERMISSIONS.DASHBOARD_CREATE]: { label: 'Create Dashboards', category: 'Dashboards' },
+  [PERMISSIONS.DASHBOARD_MANAGE]: { label: 'Manage Dashboards', category: 'Dashboards' },
+  [PERMISSIONS.DASHBOARD_VIEW]: { label: 'View Dashboards', category: 'Dashboards' },
+  [PERMISSIONS.DASHBOARD_ASSIGN]: { label: 'Assign Dashboards', category: 'Dashboards' },
   // Rule Chains
-  { key: 'RULE_CHAIN_VIEW', label: 'View Rule Chains', category: 'Rule Chains' },
-  { key: 'RULE_CHAIN_CREATE', label: 'Create Rule Chains', category: 'Rule Chains' },
-  { key: 'RULE_CHAIN_UPDATE', label: 'Update Rule Chains', category: 'Rule Chains' },
-  { key: 'RULE_CHAIN_DELETE', label: 'Delete Rule Chains', category: 'Rule Chains' },
+  [PERMISSIONS.RULE_CHAIN_VIEW]: { label: 'View Rule Chains', category: 'Rule Chains' },
+  [PERMISSIONS.RULE_CHAIN_CREATE]: { label: 'Create Rule Chains', category: 'Rule Chains' },
+  [PERMISSIONS.RULE_CHAIN_UPDATE]: { label: 'Update Rule Chains', category: 'Rule Chains' },
+  [PERMISSIONS.RULE_CHAIN_DELETE]: { label: 'Delete Rule Chains', category: 'Rule Chains' },
+  // Alarms
+  [PERMISSIONS.ALARM_VIEW]: { label: 'View Alarms', category: 'Alarms' },
+  [PERMISSIONS.ALARM_ACKNOWLEDGE]: { label: 'Acknowledge Alarms', category: 'Alarms' },
+  [PERMISSIONS.ALARM_CLEAR]: { label: 'Clear Alarms', category: 'Alarms' },
   // UNS
-  { key: 'UNS_VIEW', label: 'View UNS Config', category: 'UNS' },
-  { key: 'UNS_MANAGE', label: 'Manage UNS Config', category: 'UNS' },
+  [PERMISSIONS.UNS_VIEW]: { label: 'View UNS Config', category: 'UNS' },
+  [PERMISSIONS.UNS_MANAGE]: { label: 'Manage UNS Config', category: 'UNS' },
+  // Checklist
+  [PERMISSIONS.CHECKLIST_SUBMIT]: { label: 'Submit Checklists', category: 'Filter Management' },
   // Debug
-  { key: 'READ_DEBUG_TRACE', label: 'View Debug Traces', category: 'Debug' },
-  // Approvals
-];
+  [PERMISSIONS.READ_DEBUG_TRACE]: { label: 'View Debug Traces', category: 'Debug' },
+  [PERMISSIONS.MANAGE_DEBUG_TRACE]: { label: 'Manage Debug Traces', category: 'Debug' },
+  // Filter Operations (Phase 2)
+  [PERMISSIONS.FILTER_OPERATE]: { label: 'Operate Filters (Advance/Submit)', category: 'Filter Management' },
+  [PERMISSIONS.FILTER_BYPASS]: { label: 'Bypass Filter Stages', category: 'Filter Management' },
+  // Filter Cleaning Profiles (Phase 2)
+  [PERMISSIONS.FCP_READ]: { label: 'View Cleaning Profiles', category: 'Filter Management' },
+  [PERMISSIONS.FCP_CREATE]: { label: 'Create Cleaning Profiles', category: 'Filter Management' },
+  [PERMISSIONS.FCP_UPDATE]: { label: 'Update Cleaning Profiles', category: 'Filter Management' },
+  [PERMISSIONS.FCP_DELETE]: { label: 'Delete Cleaning Profiles', category: 'Filter Management' },
+  // Filter Profiles (Phase 2)
+  [PERMISSIONS.FP_READ]: { label: 'View Filter Profiles', category: 'Filter Management' },
+  [PERMISSIONS.FP_CREATE]: { label: 'Create Filter Profiles', category: 'Filter Management' },
+  [PERMISSIONS.FP_UPDATE]: { label: 'Update Filter Profiles', category: 'Filter Management' },
+  [PERMISSIONS.FP_DELETE]: { label: 'Delete Filter Profiles', category: 'Filter Management' },
+  [PERMISSIONS.FP_ASSIGN]: { label: 'Assign Filter Profiles', category: 'Filter Management' },
+  // PM Schedules (Phase 2)
+  [PERMISSIONS.PM_READ]: { label: 'View PM Schedules', category: 'PM Scheduling' },
+  [PERMISSIONS.PM_CREATE]: { label: 'Create PM Schedules', category: 'PM Scheduling' },
+  [PERMISSIONS.PM_UPDATE]: { label: 'Update PM Schedules', category: 'PM Scheduling' },
+  [PERMISSIONS.PM_DELETE]: { label: 'Delete PM Schedules', category: 'PM Scheduling' },
+  [PERMISSIONS.PM_EXECUTE]: { label: 'Execute PM Tasks', category: 'PM Scheduling' },
+  // Cleaning Cycles (Phase 2)
+  [PERMISSIONS.CYCLE_READ]: { label: 'View Cleaning Cycles', category: 'Filter Management' },
+};
+
+// Derive ALL_PERMISSIONS from the shared PERMISSIONS constant (single source of truth)
+const ALL_PERMISSIONS = Object.values(PERMISSIONS).map(key => ({
+  key,
+  label: PERMISSION_META[key]?.label ?? key,
+  category: PERMISSION_META[key]?.category ?? 'Other',
+}));
 
 // ---------------------------------------------------------------------------
 // Service
@@ -244,6 +294,7 @@ export const roleService = {
     if (!currentRole) {
       throw new NotFoundError('Role not found');
     }
-    return roleRepository.findCreatableRoles(currentRole.hierarchyLevel);
+    const isSuperAdmin = name === 'SUPER_ADMIN';
+    return roleRepository.findCreatableRoles(currentRole.hierarchyLevel, isSuperAdmin);
   },
 };

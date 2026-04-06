@@ -49,11 +49,11 @@ async function runRetentionCleanup(): Promise<{
     : defaultConfig;
 
   if (!config.autoEnabled) {
-    console.log('[Maintenance] Retention auto-cleanup is disabled, skipping.');
+    console.info('[Maintenance] Retention auto-cleanup is disabled, skipping.');
     return { enabled: false, results: [] };
   }
 
-  console.log('[Maintenance] Running retention cleanup...');
+  console.info('[Maintenance] Running retention cleanup...');
   const pool = getTsdbPool();
   const results: Array<{ dataType: string; deleted: number; retentionDays: number }> = [];
 
@@ -93,7 +93,7 @@ async function runRetentionCleanup(): Promise<{
       results.push({ dataType, deleted, retentionDays });
 
       if (deleted > 0) {
-        console.log(
+        console.info(
           `[Maintenance] Retention: deleted ${deleted} rows from ${table} (older than ${retentionDays} days)`,
         );
       }
@@ -102,7 +102,7 @@ async function runRetentionCleanup(): Promise<{
     }
   }
 
-  console.log('[Maintenance] Retention cleanup complete.', JSON.stringify(results));
+  console.info('[Maintenance] Retention cleanup complete.', JSON.stringify(results));
   return { enabled: true, results };
 }
 
@@ -171,7 +171,7 @@ export async function startMaintenanceWorker(): Promise<void> {
           return { task: 'retention', ...retentionResult };
         }
         default:
-          console.log(`[Maintenance] Unknown task: ${data.task}`);
+          console.warn(`[Maintenance] Unknown task: ${data.task}`);
           return { task: data.task, skipped: true };
       }
     },
@@ -191,7 +191,7 @@ export async function startMaintenanceWorker(): Promise<void> {
     console.error('[Maintenance] Worker error:', err.message);
   });
 
-  console.log('[Maintenance] Worker started with DLQ check (60s), connectivity check (60s), retention cleanup (24h)');
+  console.info('[Maintenance] Worker started with DLQ check (60s), connectivity check (60s), retention cleanup (24h)');
 }
 
 /**
@@ -206,5 +206,5 @@ export async function stopMaintenanceWorker(): Promise<void> {
     await maintenanceQueue.close();
     maintenanceQueue = null;
   }
-  console.log('[Maintenance] Worker stopped');
+  console.info('[Maintenance] Worker stopped');
 }

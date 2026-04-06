@@ -1,16 +1,16 @@
 # EG-20: Help Articles — Execution Guide
 
 ## Prerequisites
-- **Credentials**: SUPER_ADMIN (admin / Admin@123), secondary non-SUPER_ADMIN account
+- **Credentials**: SUPER_ADMIN (superadmin / Admin@123), secondary non-SUPER_ADMIN account
 - **Tools**: curl, jq, browser
-- **Setup**: Seed data includes 28 default help articles
+- **Setup**: Seed data includes 40+ help articles (28 Phase 1 + Phase 2 filter management)
 - **Base URL**: http://localhost:3000
 
 ## Authentication Setup
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 echo "Token: $TOKEN"
 ```
@@ -22,7 +22,7 @@ echo "Token: $TOKEN"
 ### Test: TC-20-P01 — List All Help Articles
 
 **Browser Steps:**
-1. Navigate to http://3.108.185.106/config/help
+1. Navigate to http://34.232.224.0/config/help
 2. Verify articles are displayed grouped by category
 3. Verify articles appear sorted by category then sort order
 
@@ -433,5 +433,5 @@ curl -s -X DELETE "http://localhost:3000/api/help/$ARTICLE2_ID" \
 ```
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+> **Phase 2 (Digital FMS):** 40+ help articles (expanded from 28). New categories: Filter Management, Cleaning Operations, Preventive Maintenance. Same versioning system.
 

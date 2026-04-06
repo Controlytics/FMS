@@ -1,7 +1,7 @@
 # Phase A: Infrastructure Setup (3-4 days)
 
-> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07.
-> Docker Compose (PostgreSQL, TimescaleDB, EMQX, Redis), Prisma schema (30 models), BullMQ queues, SystemConfig seeded, 7 TimescaleDB hypertables operational.
+> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07. Phase 2 Digital FMS completed 2026-03-27.
+> Docker Compose (PostgreSQL 18, TimescaleDB, EMQX, Redis 5), Prisma schema (57 models, 17 enums), BullMQ queues, SystemConfig seeded (23 config definitions), 7 TimescaleDB hypertables operational.
 
 ## Prompt for Claude Code
 
@@ -126,5 +126,5 @@ Reference these sections in DATA_INGESTION_REQUIREMENTS_v3.md:
 - **Appendix B**: Default help articles seed data
 
 
-> **Update (2026-03-27):** Phase 2 Digital Filter Management System has been completed. See CHANGELOG.md for full details.
+> **Update (2026-03-27):** Phase 2 Digital Filter Management System completed. Added 6 new backend modules (cleaning-profiles, filter-profiles, filter-operations, pm-schedules, checklist-profiles, equipment-groups), 52 new privileges, 78 field IDs, 40 help articles. Total: 34 API modules, 57 Prisma models, 17 enums, 23 config definitions.
 

@@ -6,7 +6,7 @@
 - **Frontend Pages**: /rule-chains (list), /rule-chains/:id (editor)
 - **Permissions**: RULE_CHAIN_MANAGE (all endpoints)
 - **Reauth Actions**: CREATE_RULE_CHAIN, UPDATE_RULE_CHAIN, DELETE_RULE_CHAIN
-- **Key Facts**: 31 node types, sandboxed VM execution (1s timeout, no process/require/global), sub-chain delegation with depth tracking. Categories: INPUT, FILTER, ENRICHMENT, TRANSFORM, ACTION, EXTERNAL, FLOW.
+- **Key Facts**: 77 node types across 8 categories, sandboxed VM execution (1s timeout, no process/require/global), sub-chain delegation with depth tracking. Categories: INPUT, FILTER, ENRICHMENT, TRANSFORM, ACTION, EXTERNAL, FLOW, ANALYTICS.
 
 ---
 
@@ -48,7 +48,7 @@
   1. Send GET /api/rule-chains/node-types.
   2. Verify response is an array of node type definitions.
   3. Verify each has type, category, name, description, outputs, defaultConfig, configSchema.
-- **Expected Result**: Array of 31 node type definitions.
+- **Expected Result**: Array of 77 node type definitions across 8 categories.
 
 ### TC-12-P05: Get Node Types by Category
 - **Priority**: Low
@@ -272,5 +272,12 @@
 - **Expected Result**: 400 validation error for missing required property.
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2 Notes
+
+- Rule chain engine expanded to 77 node types across 8 categories (from 31 in Phase 1).
+- New node category: ANALYTICS for data analysis and aggregation nodes.
+- Rule chains can process filter telemetry data (differential pressure, airflow readings) and trigger alarms on filter entities.
+- Visual editor supports all 77 node types with configSchema for each.
 

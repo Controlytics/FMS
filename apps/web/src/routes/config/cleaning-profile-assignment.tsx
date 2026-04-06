@@ -1,0 +1,413 @@
+import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import useSWR, { mutate } from 'swr';
+import { apiClient } from '../../lib/api-client';
+import { useToast } from '@/hooks/use-toast';
+
+type AssignmentMode = 'BY_FILTER_SIZE' | 'BY_ENTITY' | 'BY_AHU' | 'BY_BLOCK' | 'BY_FILTER_SET';
+
+interface AssignmentRule {
+  matchValue: string;
+  profileId: string;
+}
+
+interface AssignmentConfig {
+  mode: AssignmentMode;
+  rules: AssignmentRule[];
+}
+
+interface CleaningProfile {
+  id: string;
+  name: string;
+}
+
+interface AssetInstance {
+  id: string;
+  name: string | null;
+  templateId: string | null;
+  attributes: Record<string, any> | null;
+  parentId: string | null;
+}
+
+interface AssetTemplate {
+  id: string;
+  name: string;
+  templateType: string | null;
+}
+
+const MODE_OPTIONS: { value: AssignmentMode; label: string; description: string }[] = [
+  { value: 'BY_ENTITY', label: 'By Individual Filter', description: 'Assign a cleaning profile to each filter individually' },
+  { value: 'BY_FILTER_SIZE', label: 'By Filter Size', description: 'Assign based on the filter size attribute' },
+  { value: 'BY_AHU', label: 'By AHU', description: 'Assign based on which AHU the filter belongs to' },
+  { value: 'BY_BLOCK', label: 'By Block / Area', description: 'Assign based on the parent block or area in the hierarchy' },
+  { value: 'BY_FILTER_SET', label: 'By Filter Set (A/B)', description: 'Assign based on filter set designation' },
+];
+
+export function CleaningProfileAssignmentPage() {
+  const navigate = useNavigate();
+  const { toast } = useToast();
+
+  const { data: configData } = useSWR<AssignmentConfig>('/api/config/cleaning-profile-assignment');
+  const { data: profilesData } = useSWR<{ data: CleaningProfile[] }>('/api/filter-cleaning-profiles?limit=100');
+  const { data: instancesData } = useSWR<{ data: AssetInstance[] }>('/api/assets/instances?limit=500');
+  const { data: templatesData } = useSWR<{ data: AssetTemplate[] }>('/api/assets/templates?limit=100');
+
+  const [mode, setMode] = useState<AssignmentMode>('BY_ENTITY');
+  const [rules, setRules] = useState<AssignmentRule[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  const profiles: CleaningProfile[] = profilesData?.data ?? (Array.isArray(profilesData) ? profilesData as any : []);
+  const instances: AssetInstance[] = instancesData?.data ?? (Array.isArray(instancesData) ? instancesData as any : []);
+  const templates: AssetTemplate[] = templatesData?.data ?? (Array.isArray(templatesData) ? templatesData as any : []);
+
+  useEffect(() => {
+    if (configData) {
+      setMode(configData.mode || 'BY_ENTITY');
+      setRules(configData.rules || []);
+    }
+  }, [configData]);
+
+  // Derive filter instances (instances whose template is a filter type)
+  const filterTemplateIds = useMemo(() => {
+    return new Set(
+      templates
+        .filter(t => (t.templateType ?? t.name ?? '').toLowerCase().includes('filter'))
+        .map(t => t.id)
+    );
+  }, [templates]);
+
+  const filterInstances = useMemo(() => {
+    return instances.filter(i => i.templateId && filterTemplateIds.has(i.templateId));
+  }, [instances, filterTemplateIds]);
+
+  const ahuTemplateIds = useMemo(() => {
+    return new Set(
+      templates
+        .filter(t => (t.templateType ?? t.name ?? '').toLowerCase().includes('ahu'))
+        .map(t => t.id)
+    );
+  }, [templates]);
+
+  const ahuInstances = useMemo(() => {
+    return instances.filter(i => i.templateId && ahuTemplateIds.has(i.templateId));
+  }, [instances, ahuTemplateIds]);
+
+  const blockTemplateIds = useMemo(() => {
+    return new Set(
+      templates
+        .filter(t => {
+          const key = (t.templateType ?? t.name ?? '').toLowerCase();
+          return key.includes('block') || key.includes('area') || key.includes('building') || key.includes('zone');
+        })
+        .map(t => t.id)
+    );
+  }, [templates]);
+
+  const blockInstances = useMemo(() => {
+    return instances.filter(i => i.templateId && blockTemplateIds.has(i.templateId));
+  }, [instances, blockTemplateIds]);
+
+  // Unique filter sizes from filter instances
+  const filterSizes = useMemo(() => {
+    const sizes = new Set<string>();
+    filterInstances.forEach(i => {
+      const fs = (i.attributes as any)?.filterSize;
+      if (fs) sizes.add(fs);
+    });
+    return Array.from(sizes).sort();
+  }, [filterInstances]);
+
+  const handleModeChange = (newMode: AssignmentMode) => {
+    setMode(newMode);
+    // Reset rules when mode changes
+    if (newMode === 'BY_FILTER_SET') {
+      setRules([
+        { matchValue: 'A', profileId: '' },
+        { matchValue: 'B', profileId: '' },
+      ]);
+    } else {
+      setRules([]);
+    }
+  };
+
+  const addRule = () => {
+    setRules(prev => [...prev, { matchValue: '', profileId: '' }]);
+  };
+
+  const removeRule = (index: number) => {
+    setRules(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const updateRule = (index: number, field: keyof AssignmentRule, value: string) => {
+    setRules(prev => prev.map((r, i) => i === index ? { ...r, [field]: value } : r));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await apiClient.put('/api/config/cleaning-profile-assignment', { mode, rules });
+      mutate('/api/config/cleaning-profile-assignment');
+      toast.success('Configuration saved', 'Cleaning profile assignment updated successfully.');
+    } catch (e: any) {
+      toast.error('Save failed', e.message || 'Failed to save configuration');
+    }
+    setSaving(false);
+  };
+
+  const getInstanceName = (id: string) => {
+    const inst = instances.find(i => i.id === id);
+    return inst?.name || id;
+  };
+
+  const getProfileName = (id: string) => {
+    const p = profiles.find(pr => pr.id === id);
+    return p?.name || '';
+  };
+
+  const renderMatchDropdown = (rule: AssignmentRule, index: number) => {
+    switch (mode) {
+      case 'BY_FILTER_SIZE':
+        return (
+          <select
+            value={rule.matchValue}
+            onChange={e => updateRule(index, 'matchValue', e.target.value)}
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+          >
+            <option value="">Select filter size...</option>
+            {filterSizes.map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        );
+
+      case 'BY_ENTITY':
+        return (
+          <select
+            value={rule.matchValue}
+            onChange={e => updateRule(index, 'matchValue', e.target.value)}
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+          >
+            <option value="">Select filter...</option>
+            {filterInstances.map(f => (
+              <option key={f.id} value={f.id}>{f.name || f.id}</option>
+            ))}
+          </select>
+        );
+
+      case 'BY_AHU':
+        return (
+          <select
+            value={rule.matchValue}
+            onChange={e => updateRule(index, 'matchValue', e.target.value)}
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+          >
+            <option value="">Select AHU...</option>
+            {ahuInstances.map(a => (
+              <option key={a.id} value={a.id}>{a.name || a.id}</option>
+            ))}
+          </select>
+        );
+
+      case 'BY_BLOCK':
+        return (
+          <select
+            value={rule.matchValue}
+            onChange={e => updateRule(index, 'matchValue', e.target.value)}
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+          >
+            <option value="">Select block / area...</option>
+            {blockInstances.map(b => (
+              <option key={b.id} value={b.id}>{b.name || b.id}</option>
+            ))}
+          </select>
+        );
+
+      case 'BY_FILTER_SET':
+        return (
+          <div className="px-3 py-2 rounded-lg bg-slate-100 border border-slate-200 text-sm font-medium text-slate-700">
+            Set {rule.matchValue}
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  const getMatchColumnLabel = () => {
+    switch (mode) {
+      case 'BY_FILTER_SIZE': return 'Filter Size';
+      case 'BY_ENTITY': return 'Filter';
+      case 'BY_AHU': return 'AHU';
+      case 'BY_BLOCK': return 'Block / Area';
+      case 'BY_FILTER_SET': return 'Filter Set';
+      default: return 'Match';
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <div className="max-w-4xl mx-auto py-8 px-4 sm:px-6 space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => navigate('/config')}
+              className="p-2 rounded-lg hover:bg-slate-200 text-slate-600 transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <div>
+              <h1 className="text-2xl font-bold text-slate-800">Cleaning Profile Assignment</h1>
+              <p className="text-sm text-slate-500 mt-0.5">Configure how cleaning profiles are automatically assigned to filters</p>
+            </div>
+          </div>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm transition-colors shadow-sm"
+          >
+            {saving ? 'Saving...' : 'Save Configuration'}
+          </button>
+        </div>
+
+        {/* Mode Selector */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+          <div className="px-6 py-4 border-b border-slate-100">
+            <h2 className="text-base font-semibold text-slate-800">Assignment Mode</h2>
+            <p className="text-sm text-slate-500 mt-0.5">Choose how cleaning profiles are matched to filters. Direct filter-profile assignments always take priority over config-based rules.</p>
+          </div>
+          <div className="p-6 space-y-3">
+            {MODE_OPTIONS.map(opt => (
+              <label
+                key={opt.value}
+                className={`flex items-start gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                  mode === opt.value
+                    ? 'border-blue-500 bg-blue-50/50'
+                    : 'border-slate-200 hover:border-slate-300 bg-white'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="assignment-mode"
+                  value={opt.value}
+                  checked={mode === opt.value}
+                  onChange={() => handleModeChange(opt.value)}
+                  className="mt-0.5 w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
+                />
+                <div>
+                  <div className="font-medium text-slate-800 text-sm">{opt.label}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">{opt.description}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Rules Table */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-slate-800">Assignment Rules</h2>
+              <p className="text-sm text-slate-500 mt-0.5">
+                {rules.length === 0
+                  ? 'No rules configured. Add rules to map values to cleaning profiles.'
+                  : `${rules.length} rule${rules.length === 1 ? '' : 's'} configured`
+                }
+              </p>
+            </div>
+            {mode !== 'BY_FILTER_SET' && (
+              <button
+                onClick={addRule}
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 font-medium text-sm transition-colors flex items-center gap-1.5"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Add Rule
+              </button>
+            )}
+          </div>
+
+          <div className="p-6">
+            {rules.length === 0 ? (
+              <div className="text-center py-12 text-slate-400">
+                <svg className="w-12 h-12 mx-auto mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+                <p className="text-sm">No assignment rules yet</p>
+                <p className="text-xs mt-1">Click "Add Rule" to create your first mapping</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-slate-200">
+                      <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider pb-3 pr-4">{getMatchColumnLabel()}</th>
+                      <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider pb-3 pr-4">Cleaning Profile</th>
+                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider pb-3 w-16">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {rules.map((rule, index) => (
+                      <tr key={index} className="group">
+                        <td className="py-3 pr-4 w-[45%]">
+                          {renderMatchDropdown(rule, index)}
+                        </td>
+                        <td className="py-3 pr-4 w-[45%]">
+                          <select
+                            value={rule.profileId}
+                            onChange={e => updateRule(index, 'profileId', e.target.value)}
+                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                          >
+                            <option value="">Select profile...</option>
+                            {profiles.map(p => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="py-3 text-right w-16">
+                          {mode !== 'BY_FILTER_SET' && (
+                            <button
+                              onClick={() => removeRule(index)}
+                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Remove rule"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Info Banner */}
+        <div className="bg-blue-50 rounded-xl border border-blue-200 p-5">
+          <div className="flex items-start gap-3">
+            <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div className="text-sm text-blue-800">
+              <p className="font-medium mb-1">How profile assignment works</p>
+              <ul className="space-y-1 text-blue-700 text-xs list-disc list-inside">
+                <li>A filter with a direct profile assignment (via Filter Profiles) always uses that profile, regardless of this config.</li>
+                <li>This config-based assignment is a fallback for filters without a direct profile.</li>
+                <li>When starting a cleaning cycle, the system resolves the profile using this priority: direct assignment, then config rules.</li>
+                <li>If no match is found in the rules, the filter will show "No Profile Assigned".</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

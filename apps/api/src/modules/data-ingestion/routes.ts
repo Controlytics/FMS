@@ -12,8 +12,10 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import path from 'path';
 import { Queue } from 'bullmq';
 import { getRedisConnection, QUEUES, JOB_PRIORITY } from '@digilog/queue';
+import { getTsdbPool } from '@digilog/db';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { prisma } from '../../lib/prisma.js';
 import { resolveEntityByToken } from './entity-resolver.js';
@@ -419,19 +421,11 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { entityId } = req.params as { entityId: string };
-    const { Pool } = await import('pg');
-    const pool = new Pool({
-      host: process.env.TSDB_HOST ?? 'localhost',
-      port: parseInt(process.env.TSDB_PORT ?? '5432', 10),
-      database: process.env.TSDB_DATABASE ?? 'digilog_tsdb',
-      user: process.env.TSDB_USER ?? process.env.DB_USER ?? 'digilog',
-      password: process.env.TSDB_PASSWORD ?? process.env.DB_PASSWORD ?? 'digilog123',
-    });
+    const pool = getTsdbPool();
     const result = await pool.query(
       'SELECT time, data_type, file_path, file_hash, file_size, mime_type, metadata FROM ts_binary_data WHERE entity_id = $1 ORDER BY time DESC LIMIT 100',
       [entityId]
     );
-    await pool.end();
     const data = result.rows.map((r: any) => ({
       time: r.time,
       dataType: r.data_type,
@@ -465,8 +459,10 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const { entityId } = req.params as { entityId: string };
     const filePath = (req.query as any).path as string;
-    if (!filePath || filePath.includes('..') || !filePath.includes(entityId) || !filePath.startsWith('/home/ubuntu/21cfrlogbook/uploads/')) {
-      throw Object.assign(new Error('Invalid file path'), { statusCode: 400 });
+    const uploadsBaseDir = path.resolve(process.cwd(), 'uploads');
+    const resolved = filePath ? path.resolve(filePath) : '';
+    if (!filePath || filePath.includes('..') || !filePath.includes(entityId) || !resolved.startsWith(uploadsBaseDir)) {
+      return reply.code(403).send({ error: 'Access denied' });
     }
     const { existsSync, createReadStream } = await import('fs');
     if (!existsSync(filePath)) {
@@ -508,7 +504,7 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
     const { filePath } = req.query as { filePath: string };
 
     // Security: ensure filePath belongs to this entity
-    if (!filePath || filePath.includes('..') || !filePath.includes(entityId) || !filePath.startsWith('/home/ubuntu/21cfrlogbook/uploads/')) {
+    if (!filePath || filePath.includes('..') || !filePath.includes(entityId) || !filePath.includes('/uploads/')) {
       throw Object.assign(new Error('Invalid file path'), { statusCode: 400 });
     }
 
@@ -519,19 +515,11 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
     }
 
     // Delete from TSDB
-    const { Pool } = await import('pg');
-    const pool = new Pool({
-      host: process.env.TSDB_HOST ?? 'localhost',
-      port: parseInt(process.env.TSDB_PORT ?? '5432', 10),
-      database: process.env.TSDB_DATABASE ?? 'digilog_tsdb',
-      user: process.env.TSDB_USER ?? process.env.DB_USER ?? 'digilog',
-      password: process.env.TSDB_PASSWORD ?? process.env.DB_PASSWORD ?? 'digilog123',
-    });
+    const pool = getTsdbPool();
     await pool.query(
       'DELETE FROM ts_binary_data WHERE entity_id = $1 AND file_path = $2',
       [entityId, filePath]
     );
-    await pool.end();
 
     return { success: true };
   });

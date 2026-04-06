@@ -1,7 +1,7 @@
 # Phase I: Checklist & Mobile (3-4 days)
 
-> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07.
-> Mobile checklist page, 14 field types, signature pad, photo capture, step sequencing, 3-tier approval workflow, electronic signature dialog, checklist response viewer all operational.
+> **STATUS: COMPLETE** -- Deployed to production on 2026-03-07. Phase 2 Digital FMS completed 2026-03-27.
+> Mobile checklist page, 14 field types, signature pad, photo capture, step sequencing, 3-tier approval workflow, electronic signature dialog, checklist response viewer all operational. Phase 2 adds pipeline checklist profiles (10 question types) integrated into cleaning workflows.
 
 ## Prompt for Claude Code
 
@@ -144,5 +144,5 @@ VERIFICATION:
 - Asset Module Requirements v1.2: Checklist field type definitions and validation rules
 
 
-> **Update (2026-03-27):** Phase 2 Digital Filter Management System has been completed. See CHANGELOG.md for full details.
+> **Update (2026-03-27):** Phase 2 Digital FMS completed. Checklist Profiles module adds reusable question templates (10 types: YES_NO, YES_NO_NA, PASS_FAIL, TEXT, NUMERIC, DROPDOWN, MULTI_SELECT, DATE_TIME, PHOTO, SIGNATURE) for pipeline CHECKLIST nodes. Server enforces checklist completion before stage advance.
 

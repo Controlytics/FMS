@@ -195,5 +195,10 @@
 - **Expected Result**: 401 Unauthorized — missing token
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+---
+
+## Phase 2 Notes
+
+- Debug traces apply to filter entity telemetry. When tracing is enabled for a filter entity, telemetry data flows through the 10-stage pipeline and generates trace records.
+- Filter operations (cycle start, advance, etc.) do NOT generate pipeline traces — they use separate API endpoints outside the data ingestion pipeline.
 

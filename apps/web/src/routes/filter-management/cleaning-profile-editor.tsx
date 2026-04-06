@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
+import { CLEANING_STAGES_EDITOR } from '../../lib/filter-constants';
 
 /* ── Constants ─────────────────────────────────────────────── */
 const NODE_W = 160, NODE_H = 64, PORT_R = 6;
@@ -11,14 +12,7 @@ const STAGE_COLORS: Record<string, { bg: string; border: string; text: string }>
   STAGE:     { bg: '#1e40af', border: '#3b82f6', text: '#bfdbfe' },
   CHECKLIST: { bg: '#6b21a8', border: '#a855f7', text: '#e9d5ff' },
 };
-const CLEANING_STAGES = [
-  { key: 'WASH_IN',     name: 'Wash In',     color: '#3B8BD4' },
-  { key: 'WASH_OUT',    name: 'Wash Out',    color: '#3B8BD4' },
-  { key: 'DRY_IN',      name: 'Dry In',      color: '#EF9F27' },
-  { key: 'DRY_OUT',     name: 'Dry Out',     color: '#EF9F27' },
-  { key: 'STORAGE_IN',  name: 'Storage In',  color: '#888780' },
-  { key: 'STORAGE_OUT', name: 'Storage Out', color: '#888780' },
-];
+const CLEANING_STAGES = CLEANING_STAGES_EDITOR;
 
 interface PipelineNode {
   id?: string; stateKey: string | null; nodeType: string; configuration: any;
@@ -143,6 +137,22 @@ export function CleaningProfileEditorPage() {
     setWireFrom(null);
   };
 
+  const addNode = (type: string, stateKey?: string) => {
+    setNodes(prev => [...prev, {
+      stateKey: stateKey ?? null, nodeType: type, configuration: {},
+      positionX: 100 + prev.length * 140, positionY: 220, sortOrder: prev.length,
+    }]);
+  };
+
+  const removeNode = useCallback((idx: number) => {
+    if (!window.confirm("Delete this node? Connected wires will also be removed.")) return;
+    if (nodes[idx].nodeType === 'START' || nodes[idx].nodeType === 'END') return;
+    setNodes(prev => prev.filter((_, i) => i !== idx));
+    setConnections(prev => prev.filter(c => c.fromIndex !== idx && c.toIndex !== idx)
+      .map(c => ({ ...c, fromIndex: c.fromIndex > idx ? c.fromIndex - 1 : c.fromIndex, toIndex: c.toIndex > idx ? c.toIndex - 1 : c.toIndex })));
+    setSelectedNode(null);
+  }, [nodes]);
+
   /* ── Delete key handler ─────────────────────────────────── */
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -162,23 +172,7 @@ export function CleaningProfileEditorPage() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [selectedConn, selectedNode, nodes]);
-
-  const addNode = (type: string, stateKey?: string) => {
-    setNodes(prev => [...prev, {
-      stateKey: stateKey ?? null, nodeType: type, configuration: {},
-      positionX: 100 + prev.length * 140, positionY: 220, sortOrder: prev.length,
-    }]);
-  };
-
-  const removeNode = (idx: number) => {
-    if (!window.confirm("Delete this node? Connected wires will also be removed.")) return;
-    if (nodes[idx].nodeType === 'START' || nodes[idx].nodeType === 'END') return;
-    setNodes(prev => prev.filter((_, i) => i !== idx));
-    setConnections(prev => prev.filter(c => c.fromIndex !== idx && c.toIndex !== idx)
-      .map(c => ({ ...c, fromIndex: c.fromIndex > idx ? c.fromIndex - 1 : c.fromIndex, toIndex: c.toIndex > idx ? c.toIndex - 1 : c.toIndex })));
-    setSelectedNode(null);
-  };
+  }, [selectedConn, selectedNode, nodes, removeNode]);
 
   const save = async () => {
     // Validate before saving
@@ -236,36 +230,36 @@ export function CleaningProfileEditorPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-gray-900">
+    <div className="h-screen flex flex-col bg-slate-50">
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 text-sm font-medium ${toast.type === 'success' ? 'bg-green-900 border border-green-600 text-green-200' : 'bg-red-900 border border-red-600 text-red-200'}`}>
+        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 text-sm font-medium ${toast.type === 'success' ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-red-50 border border-red-200 text-red-700'}`}>
           <span>{toast.type === 'success' ? '\u2713' : '\u2717'}</span>
           <span>{toast.message}</span>
-          <button onClick={() => setToast(null)} className="ml-2 text-white/50 hover:text-white/80">&times;</button>
+          <button onClick={() => setToast(null)} aria-label="Dismiss notification" className="ml-2 text-white/50 hover:text-white/80">&times;</button>
         </div>
       )}
 
       {/* Toolbar */}
-      <div className="bg-gray-800 border-b border-gray-700 px-4 py-2.5 flex items-center gap-4 shrink-0">
-        <button onClick={() => navigate('/filter-cleaning-profiles')} className="text-gray-400 hover:text-gray-200 text-sm">&larr; Back</button>
-        <div className="w-px h-6 bg-gray-700" />
-        <input className="bg-gray-900 border border-gray-600 rounded px-3 py-1.5 text-gray-100 font-semibold w-60 text-sm" value={name}
+      <div className="bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-4 shrink-0">
+        <button onClick={() => navigate('/filter-cleaning-profiles')} className="text-slate-500 hover:text-slate-700 text-sm">&larr; Back</button>
+        <div className="w-px h-6 bg-slate-100" />
+        <input className="bg-slate-50 border border-slate-300 rounded px-3 py-1.5 text-slate-800 font-semibold w-60 text-sm" value={name}
           onChange={e => setName(e.target.value)} placeholder="Profile Name" />
-        <select className="bg-gray-900 border border-gray-600 rounded px-2 py-1.5 text-gray-100 text-xs" value={flowMode}
+        <select className="bg-slate-50 border border-slate-300 rounded px-2 py-1.5 text-slate-800 text-xs" value={flowMode}
           onChange={e => setFlowMode(e.target.value as any)}>
           <option value="STRICT">Strict</option>
           <option value="BYPASS_ENABLED">Bypass Enabled</option>
         </select>
         {flowMode === 'BYPASS_ENABLED' && (
-          <div className="flex gap-3 text-[11px] text-gray-400">
+          <div className="flex gap-3 text-[11px] text-slate-500">
             <label className="flex items-center gap-1"><input type="checkbox" checked={alarmFlags.forwardSkip} onChange={e => setAlarmFlags({ ...alarmFlags, forwardSkip: e.target.checked })} className="w-3 h-3" /> Fwd Skip</label>
             <label className="flex items-center gap-1"><input type="checkbox" checked={alarmFlags.backwardJump} onChange={e => setAlarmFlags({ ...alarmFlags, backwardJump: e.target.checked })} className="w-3 h-3" /> Bwd Jump</label>
             <label className="flex items-center gap-1"><input type="checkbox" checked={alarmFlags.outOfSequence} onChange={e => setAlarmFlags({ ...alarmFlags, outOfSequence: e.target.checked })} className="w-3 h-3" /> Out of Seq</label>
           </div>
         )}
         <div className="flex-1" />
-        {!isNew && profile && <span className="text-[11px] text-gray-500">v{profile.version}</span>}
+        {!isNew && profile && <span className="text-[11px] text-slate-400">v{profile.version}</span>}
         <button onClick={save} disabled={saving} className="px-5 py-1.5 bg-cyan-600 text-white rounded-lg text-sm font-medium hover:bg-cyan-500 disabled:opacity-50">
           {saving ? 'Saving...' : 'Save'}
         </button>
@@ -273,30 +267,30 @@ export function CleaningProfileEditorPage() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* ── Left Sidebar ── */}
-        <div className="w-52 bg-gray-900 border-r border-gray-700/60 p-3 overflow-y-auto shrink-0">
-          <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Cleaning Stages</div>
+        <div className="w-52 bg-slate-50 border-r border-slate-200/60 p-3 overflow-y-auto shrink-0">
+          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Cleaning Stages</div>
           {CLEANING_STAGES.map((s) => (
             <button key={s.key} onClick={() => addNode('STAGE', s.key)}
-              className="w-full text-left px-3 py-2 mb-1 rounded-lg bg-gray-800/60 hover:bg-gray-800 text-sm text-gray-300 transition-colors flex items-center gap-2.5 group">
-              <div className="w-2.5 h-2.5 rounded-full ring-2 ring-offset-1 ring-offset-gray-900" style={{ backgroundColor: s.color }} />
-              <span className="group-hover:text-gray-100">{s.name}</span>
+              className="w-full text-left px-3 py-2 mb-1 rounded-lg bg-white/60 hover:bg-white text-sm text-slate-600 transition-colors flex items-center gap-2.5 group">
+              <div className="w-2.5 h-2.5 rounded-full ring-2 ring-offset-1 ring-offset-white" style={{ backgroundColor: s.color }} />
+              <span className="group-hover:text-slate-800">{s.name}</span>
             </button>
           ))}
-          <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mt-4 mb-2">Additional</div>
+          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-4 mb-2">Additional</div>
           <button onClick={() => addNode('CHECKLIST')}
-            className="w-full text-left px-3 py-2 mb-1 rounded-lg bg-gray-800/60 hover:bg-gray-800 text-sm text-gray-300 transition-colors flex items-center gap-2.5 group">
-            <div className="w-2.5 h-2.5 rounded-full bg-purple-500 ring-2 ring-purple-500 ring-offset-1 ring-offset-gray-900" />
-            <span className="group-hover:text-gray-100">Checklist</span>
+            className="w-full text-left px-3 py-2 mb-1 rounded-lg bg-white/60 hover:bg-white text-sm text-slate-600 transition-colors flex items-center gap-2.5 group">
+            <div className="w-2.5 h-2.5 rounded-full bg-purple-500 ring-2 ring-purple-500 ring-offset-1 ring-offset-white" />
+            <span className="group-hover:text-slate-800">Checklist</span>
           </button>
-          <div className="mt-6 px-1 text-[10px] text-gray-600 leading-relaxed">
-            Drag from <span className="text-cyan-500">output port</span> (right) to <span className="text-cyan-500">input port</span> (left) to connect nodes. Click a connection then press <kbd className="px-1 py-0.5 bg-gray-800 rounded text-gray-400">Del</kbd> to remove.
+          <div className="mt-6 px-1 text-[10px] text-slate-300 leading-relaxed">
+            Drag from <span className="text-cyan-500">output port</span> (right) to <span className="text-cyan-500">input port</span> (left) to connect nodes. Click a connection then press <kbd className="px-1 py-0.5 bg-white rounded text-slate-500">Del</kbd> to remove.
           </div>
         </div>
 
         {/* ── Canvas ── */}
         <div ref={canvasRef}
           className="flex-1 overflow-auto relative select-none"
-          style={{ background: 'radial-gradient(circle, #1a1a2e 1px, transparent 1px)', backgroundSize: '24px 24px', backgroundColor: '#0f0f1a' }}
+          style={{ background: 'radial-gradient(circle, #cbd5e1 1px, transparent 1px)', backgroundSize: '24px 24px', backgroundColor: '#f8fafc' }}
           onMouseMove={onCanvasMouseMove}
           onMouseUp={onCanvasMouseUp}
           onMouseLeave={onCanvasMouseUp}
@@ -368,17 +362,17 @@ export function CleaningProfileEditorPage() {
                   }}>
                   <div className="text-[11px] font-bold tracking-wide" style={{ color: stageColor ?? colors.text }}>{nodeLabel(node)}</div>
                   {node.nodeType === 'CHECKLIST' && node.configuration?.checklistProfileName && (
-                    <div className="text-[9px] text-gray-400 mt-0.5 truncate max-w-[130px]">{node.configuration.checklistProfileName}</div>
+                    <div className="text-[9px] text-slate-500 mt-0.5 truncate max-w-[130px]">{node.configuration.checklistProfileName}</div>
                   )}
                   {node.nodeType !== 'START' && node.nodeType !== 'END' && (
-                    <div className="text-[9px] text-gray-500 mt-0.5 uppercase tracking-wider">{node.nodeType}</div>
+                    <div className="text-[9px] text-slate-400 mt-0.5 uppercase tracking-wider">{node.nodeType}</div>
                   )}
                 </div>
 
                 {/* Input port (left) — not on START */}
                 {node.nodeType !== 'START' && (
                   <div data-port="in"
-                    className="absolute w-3.5 h-3.5 rounded-full border-2 border-gray-500 bg-gray-800 hover:border-cyan-400 hover:bg-cyan-900 transition-colors cursor-crosshair"
+                    className="absolute w-3.5 h-3.5 rounded-full border-2 border-gray-500 bg-white hover:border-cyan-400 hover:bg-cyan-900 transition-colors cursor-crosshair"
                     style={{ left: -PORT_R - 1, top: NODE_H / 2 - PORT_R - 1 }}
                     onMouseUp={(e) => onInputPortUp(idx, e)} />
                 )}
@@ -386,7 +380,7 @@ export function CleaningProfileEditorPage() {
                 {/* Output port (right) — not on END */}
                 {node.nodeType !== 'END' && (
                   <div data-port="out"
-                    className="absolute w-3.5 h-3.5 rounded-full border-2 border-gray-500 bg-gray-800 hover:border-cyan-400 hover:bg-cyan-900 transition-colors cursor-crosshair"
+                    className="absolute w-3.5 h-3.5 rounded-full border-2 border-gray-500 bg-white hover:border-cyan-400 hover:bg-cyan-900 transition-colors cursor-crosshair"
                     style={{ right: -PORT_R - 1, top: NODE_H / 2 - PORT_R - 1 }}
                     onMouseDown={(e) => onOutputPortDown(idx, e)} />
                 )}
@@ -394,7 +388,7 @@ export function CleaningProfileEditorPage() {
                 {/* Delete button (top-right, non-START/END) */}
                 {node.nodeType !== 'START' && node.nodeType !== 'END' && (
                   <button
-                    className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-gray-800 border border-gray-600 text-gray-500 hover:bg-red-900 hover:border-red-500 hover:text-red-400 text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center"
+                    className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-white border border-slate-300 text-slate-400 hover:bg-red-900 hover:border-red-500 hover:text-red-600 text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center"
                     onClick={(e) => { e.stopPropagation(); removeNode(idx); }}>&times;</button>
                 )}
               </div>
@@ -410,21 +404,21 @@ export function CleaningProfileEditorPage() {
           const colors = STAGE_COLORS[node.nodeType] ?? STAGE_COLORS.STAGE;
 
           return (
-            <div className="w-72 bg-gray-900 border-l border-gray-700/60 overflow-y-auto shrink-0">
+            <div className="w-72 bg-slate-50 border-l border-slate-200/60 overflow-y-auto shrink-0">
               {/* Header */}
-              <div className="px-4 py-3 border-b border-gray-700/60 flex items-center justify-between"
+              <div className="px-4 py-3 border-b border-slate-200/60 flex items-center justify-between"
                 style={{ backgroundColor: stageInfo ? `${stageInfo.color}15` : `${colors.bg}30` }}>
                 <div className="flex items-center gap-2.5">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: stageInfo?.color ?? colors.border }} />
-                  <h4 className="text-sm font-bold text-gray-100">{nodeLabel(node)}</h4>
+                  <h4 className="text-sm font-bold text-slate-800">{nodeLabel(node)}</h4>
                 </div>
-                <button onClick={() => setSelectedNode(null)} className="text-gray-500 hover:text-gray-300 w-6 h-6 flex items-center justify-center rounded hover:bg-gray-800">&times;</button>
+                <button onClick={() => setSelectedNode(null)} className="text-slate-400 hover:text-slate-600 w-6 h-6 flex items-center justify-center rounded hover:bg-white">&times;</button>
               </div>
 
               <div className="p-4 space-y-4">
                 {/* Node Type Badge */}
                 <div>
-                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Node Type</div>
+                  <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Node Type</div>
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium"
                     style={{ backgroundColor: `${colors.bg}60`, color: colors.text, border: `1px solid ${colors.border}40` }}>
                     {node.nodeType}
@@ -433,11 +427,11 @@ export function CleaningProfileEditorPage() {
 
                 {/* Position */}
                 <div>
-                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Position</div>
+                  <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Position</div>
                   <div className="flex gap-2">
                     <div className="flex-1">
-                      <label className="text-[10px] text-gray-600">X</label>
-                      <input type="number" className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-200 text-xs"
+                      <label className="text-[10px] text-slate-300">X</label>
+                      <input type="number" className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-slate-700 text-xs"
                         value={Math.round(node.positionX)}
                         onChange={e => {
                           const ns = [...nodes];
@@ -446,8 +440,8 @@ export function CleaningProfileEditorPage() {
                         }} />
                     </div>
                     <div className="flex-1">
-                      <label className="text-[10px] text-gray-600">Y</label>
-                      <input type="number" className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-200 text-xs"
+                      <label className="text-[10px] text-slate-300">Y</label>
+                      <input type="number" className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-slate-700 text-xs"
                         value={Math.round(node.positionY)}
                         onChange={e => {
                           const ns = [...nodes];
@@ -461,8 +455,8 @@ export function CleaningProfileEditorPage() {
                 {/* STAGE: Change stage key */}
                 {node.nodeType === 'STAGE' && (
                   <div>
-                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Stage</div>
-                    <select className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-gray-200 text-sm"
+                    <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Stage</div>
+                    <select className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-slate-700 text-sm"
                       value={node.stateKey ?? ''}
                       onChange={e => {
                         const ns = [...nodes];
@@ -480,8 +474,8 @@ export function CleaningProfileEditorPage() {
                 {/* CHECKLIST: Select checklist profile */}
                 {node.nodeType === 'CHECKLIST' && (
                   <div>
-                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Checklist Profile</div>
-                    <select className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-gray-200 text-sm"
+                    <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Checklist Profile</div>
+                    <select className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-slate-700 text-sm"
                       value={node.configuration?.checklistProfileId ?? ''}
                       onChange={e => {
                         const cpId = e.target.value;
@@ -506,15 +500,15 @@ export function CleaningProfileEditorPage() {
 
                 {/* Connections Info */}
                 <div>
-                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Connections</div>
+                  <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Connections</div>
                   <div className="space-y-1.5">
                     {incoming.length > 0 && (
                       <div>
-                        <div className="text-[10px] text-gray-600 mb-0.5">Incoming ({incoming.length})</div>
+                        <div className="text-[10px] text-slate-300 mb-0.5">Incoming ({incoming.length})</div>
                         {incoming.map((c, i) => {
                           const fromNode = nodes[c.fromIndex];
                           return fromNode ? (
-                            <div key={i} className="flex items-center gap-1.5 text-xs text-gray-400 py-0.5">
+                            <div key={i} className="flex items-center gap-1.5 text-xs text-slate-500 py-0.5">
                               <span className="text-cyan-500">&larr;</span>
                               <span>{nodeLabel(fromNode)}</span>
                             </div>
@@ -524,11 +518,11 @@ export function CleaningProfileEditorPage() {
                     )}
                     {outgoing.length > 0 && (
                       <div>
-                        <div className="text-[10px] text-gray-600 mb-0.5">Outgoing ({outgoing.length})</div>
+                        <div className="text-[10px] text-slate-300 mb-0.5">Outgoing ({outgoing.length})</div>
                         {outgoing.map((c, i) => {
                           const toNode = nodes[c.toIndex];
                           return toNode ? (
-                            <div key={i} className="flex items-center gap-1.5 text-xs text-gray-400 py-0.5">
+                            <div key={i} className="flex items-center gap-1.5 text-xs text-slate-500 py-0.5">
                               <span className="text-cyan-500">&rarr;</span>
                               <span>{nodeLabel(toNode)}</span>
                             </div>
@@ -537,15 +531,15 @@ export function CleaningProfileEditorPage() {
                       </div>
                     )}
                     {incoming.length === 0 && outgoing.length === 0 && (
-                      <div className="text-[10px] text-gray-600 italic">No connections</div>
+                      <div className="text-[10px] text-slate-300 italic">No connections</div>
                     )}
                   </div>
                 </div>
 
                 {/* Sort Order */}
                 <div>
-                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Sort Order</div>
-                  <input type="number" className="w-20 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-200 text-xs"
+                  <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Sort Order</div>
+                  <input type="number" className="w-20 bg-white border border-slate-200 rounded px-2 py-1 text-slate-700 text-xs"
                     value={node.sortOrder}
                     onChange={e => {
                       const ns = [...nodes];
@@ -557,14 +551,14 @@ export function CleaningProfileEditorPage() {
                 {/* ID (for existing nodes) */}
                 {node.id && (
                   <div>
-                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">ID</div>
-                    <div className="text-[10px] text-gray-600 font-mono break-all">{node.id}</div>
+                    <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">ID</div>
+                    <div className="text-[10px] text-slate-300 font-mono break-all">{node.id}</div>
                   </div>
                 )}
 
                 {/* Delete Button */}
                 {node.nodeType !== 'START' && node.nodeType !== 'END' && (
-                  <button onClick={() => removeNode(selectedNode)} className="w-full py-2 bg-red-900/30 border border-red-800/50 text-red-400 rounded-lg text-sm hover:bg-red-900/50 transition-colors mt-2">
+                  <button onClick={() => removeNode(selectedNode)} className="w-full py-2 bg-red-50 border border-red-200/50 text-red-600 rounded-lg text-sm hover:bg-red-900/50 transition-colors mt-2">
                     Delete Node
                   </button>
                 )}

@@ -5,6 +5,9 @@ export function useEntityWebSocket(entityId: string | null) {
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const pongTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const reconnectAttempts = useRef(0);
+  const MAX_RECONNECT_ATTEMPTS = 10;
   const entityIdRef = useRef(entityId);
   entityIdRef.current = entityId;
 
@@ -23,12 +26,15 @@ export function useEntityWebSocket(entityId: string | null) {
     };
 
     ws.onmessage = (event) => {
+      // Clear pong timeout on any message received (connection is alive)
+      clearTimeout(pongTimer.current);
       try {
         const msg = JSON.parse(event.data);
         if (msg.type === 'AUTH_OK') {
           ws.send(JSON.stringify({ type: 'SUBSCRIBE', entityId: entityIdRef.current }));
         } else if (msg.type === 'SUBSCRIBED') {
           setConnected(true);
+          reconnectAttempts.current = 0; // Reset on successful connection
         } else if (msg.type === 'DATA' && msg.entityId === entityIdRef.current) {
           const eid = entityIdRef.current!;
           // Revalidate all SWR keys related to this entity
@@ -49,7 +55,11 @@ export function useEntityWebSocket(entityId: string | null) {
 
     ws.onclose = () => {
       setConnected(false);
-      reconnectTimer.current = setTimeout(connect, 3000);
+      if (reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS) {
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
+        reconnectAttempts.current++;
+        reconnectTimer.current = setTimeout(connect, delay);
+      }
     };
 
     ws.onerror = () => ws.close();
@@ -60,12 +70,17 @@ export function useEntityWebSocket(entityId: string | null) {
     const ping = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: 'PING' }));
+        // Set a pong timeout — if no message received within 10s, connection is likely dead
+        pongTimer.current = setTimeout(() => {
+          wsRef.current?.close();
+        }, 10000);
       }
     }, 25000);
 
     return () => {
       clearInterval(ping);
       clearTimeout(reconnectTimer.current);
+      clearTimeout(pongTimer.current);
       if (wsRef.current) {
         wsRef.current.onclose = null;
         wsRef.current.close();

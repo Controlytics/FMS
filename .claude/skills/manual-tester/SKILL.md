@@ -14,7 +14,7 @@ Before starting any test:
 
 1. Verify services are running on EC2:
    ```bash
-   ssh -i /f/claude/21cfrlogbook/21cfrbook.pem ubuntu@3.108.185.106 \
+   ssh -i ~/Downloads/21cfrbook.pem ubuntu@34.232.224.0 \
      "pm2 list && redis-cli ping && curl -s http://localhost:18083/api/v5/status"
    ```
    - PM2 digilog-api: must be `online`
@@ -28,7 +28,11 @@ Before starting any test:
    pm2 restart digilog-api --update-env
    ```
 
-3. Access the frontend at `http://3.108.185.106` (port 80, nginx serves the SPA).
+3. Access the frontend at `http://34.232.224.0` (port 80, nginx serves the SPA).
+
+4. **Local dev (Windows):** Run `start-digilog.bat` from project root. Frontend at `http://localhost:5175`, API at `http://localhost:3000`.
+
+5. Default login: `superadmin` / `Admin@123`
 
 ## Entity Reference
 
@@ -91,7 +95,7 @@ WebSocket device data ingestion is NOT supported. The `/api/ws` endpoint is for 
 
 To verify data appears in the browser:
 
-1. Navigate to `http://3.108.185.106` → Entities page
+1. Navigate to `http://34.232.224.0` (or `http://localhost:5175` for local dev) → Entities page
 2. Click the target entity in the tree
 3. Click the **Telemetry** or **Attributes** tab
 4. Select a time range (Last 1h, Last 6h, etc.) to see history data
@@ -177,6 +181,49 @@ SELECT id, name FROM asset_instances ORDER BY name;
 - **`scripts/publish-mqtt.js`** — Bulk MQTT publish for Pipeline-Sensor with correct UNS topics
 
 
-## Phase 2 (2026-03-27)
-Digital Filter Management System added with filter operations, cleaning profiles, checklist gates, PM scheduling, and full traceability.
+## Test Workflow 5: Digital Filter Management (Phase 2)
+
+### Filter Operations
+```bash
+# Start a cleaning cycle
+curl -X POST "http://localhost:3000/api/filters/<filterId>/start-cycle" \
+  -H "Authorization: Bearer <JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "Scheduled cleaning", "cleaningReasonId": "scheduled"}'
+
+# Advance to next stage
+curl -X POST "http://localhost:3000/api/filters/<filterId>/advance" \
+  -H "Authorization: Bearer <JWT>"
+
+# Submit checklist answers
+curl -X POST "http://localhost:3000/api/filters/<filterId>/submit-checklist" \
+  -H "Authorization: Bearer <JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{"checklistId": "<id>", "answers": {"q1": true, "q2": "Clean"}}'
+
+# Get current filter state
+curl "http://localhost:3000/api/filters/<filterId>/current-state" \
+  -H "Authorization: Bearer <JWT>"
+```
+
+### UI Verification (Filter Management)
+1. Navigate to **Filter Management > Operations** — verify stage grid with filter counts
+2. Click a filter card → verify current state, stage, and available actions
+3. Start a cycle → verify stage advances through WASH_IN → WASH_OUT → DRY_IN → DRY_OUT → STORAGE_IN → STORAGE_OUT
+4. Verify checklist gates block advancement until submitted
+5. Navigate to **Cleaning Cycles > History** — verify completed cycles appear
+6. Navigate to **Cleaning Cycles > Timeline** — verify event timeline
+7. Navigate to **PM Schedules** — verify schedule entries and execution tracking
+
+### Database Verification (Phase 2)
+```sql
+-- Cleaning cycles
+SELECT id, status, "startedAt", "completedAt" FROM cleaning_cycles ORDER BY "startedAt" DESC;
+
+-- Filter events
+SELECT id, "eventType", "filterId", "createdAt" FROM filter_events ORDER BY "createdAt" DESC;
+
+-- PM executions
+SELECT id, status, "completedAt" FROM pm_executions ORDER BY "createdAt" DESC;
+```
 

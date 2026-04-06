@@ -1,8 +1,9 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import useSWR from 'swr';
+import useSWR, { mutate } from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { BulkUploadFiltersDialog } from '@/routes/filter-management/components/bulk-upload-filters-dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Table,
@@ -87,6 +88,8 @@ export function AssetDetailPanel({
   const attrSchema = (asset.template?.attributeSchema as AttributeDefinition[]) ?? [];
   const { user } = useAuth();
   const { connected: wsConnected } = useEntityWebSocket(asset.id);
+  const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
+  const isAhu = asset.template?.name?.toLowerCase() === 'ahu';
 
   // Inverse relationship map — used to deduplicate bidirectional pairs
   const INVERSE_MAP: Record<string, string> = {
@@ -179,6 +182,12 @@ export function AssetDetailPanel({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {isAhu && canCreate && (
+              <Button size="sm" variant="outline" onClick={() => setBulkUploadOpen(true)} title="Bulk Upload Filters" className="text-xs gap-1">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                Bulk Upload
+              </Button>
+            )}
             {canUpdate && <Button size="sm" variant="ghost" onClick={onEdit} title="Edit">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -694,48 +703,61 @@ export function AssetDetailPanel({
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <button
-                          className="text-cyan-400 hover:text-cyan-300 transition-colors px-2 py-1 text-xs border border-cyan-800 rounded flex items-center gap-1"
-                          onClick={() => {
-                            const val = ident.identifierValue;
-                            const name = asset.name;
-                            const type = ident.identifierType;
-                            const label = ident.label || "";
-                            const qrImgUrl = "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=" + encodeURIComponent(val);
-                            const w = window.open("", "_blank", "width=420,height=600");
-                            if (!w) return;
-                            w.document.write(`<!DOCTYPE html><html><head><title>QR - ${name}</title>
-                            <style>
-                              body{text-align:center;font-family:Arial,sans-serif;padding:30px;background:#0f172a;color:white;margin:0}
-                              .qr-box{background:white;display:inline-block;padding:24px;border-radius:12px;margin:20px 0}
-                              .qr-box img{display:block}
-                              .name{font-size:20px;font-weight:bold;margin:16px 0 4px}
-                              .val{font-size:28px;font-family:monospace;color:#22d3ee;margin:8px 0 4px}
-                              .type{font-size:13px;color:#94a3b8;margin-bottom:20px}
-                              .btns{display:flex;gap:10px;justify-content:center}
-                              button{padding:10px 28px;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600}
-                              .print-btn{background:#0891b2;color:white}
-                              .print-btn:hover{background:#06b6d4}
-                              .close-btn{background:#374151;color:#d1d5db}
-                              .close-btn:hover{background:#4b5563}
-                              @media print{body{background:white;color:black;padding:20px}.val{color:#0891b2}.btns{display:none}}
-                            </style></head><body>
-                            <div class="qr-box"><img src="${qrImgUrl}" width="200" height="200" alt="QR Code"/></div>
-                            <div class="name">${name}</div>
-                            <div class="val">${val}</div>
-                            <div class="type">${type}${label ? " | " + label : ""}</div>
-                            <div class="btns">
-                              <button class="print-btn" onclick="window.print()">Print Label</button>
-                              <button class="close-btn" onclick="window.close()">Close</button>
-                            </div>
-                            </body></html>`);
-                            w.document.close();
-                          }}
-                          title="View & Print QR Code"
-                        >
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" strokeWidth={2} /><rect x="14" y="3" width="7" height="7" rx="1" strokeWidth={2} /><rect x="3" y="14" width="7" height="7" rx="1" strokeWidth={2} /><circle cx="17.5" cy="17.5" r="3.5" strokeWidth={2} /></svg>
-                          View QR
-                        </button>
+                        {ident.identifierType === 'QR' && (
+                          <button
+                            className="text-cyan-400 hover:text-cyan-300 transition-colors px-2 py-1 text-xs border border-cyan-800 rounded flex items-center gap-1"
+                            onClick={() => {
+                              const val = ident.identifierValue;
+                              const name = asset.name;
+                              const label = ident.label || "";
+                              const qrImgUrl = "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=" + encodeURIComponent(val);
+                              const w = window.open("", "_blank", "width=420,height=600");
+                              if (!w) return;
+                              w.document.write(`<!DOCTYPE html><html><head><title>QR - ${name}</title>
+                              <style>body{text-align:center;font-family:Arial,sans-serif;padding:30px;background:#0f172a;color:white;margin:0}.qr-box{background:white;display:inline-block;padding:24px;border-radius:12px;margin:20px 0}.qr-box img{display:block}.name{font-size:20px;font-weight:bold;margin:16px 0 4px}.val{font-size:22px;font-family:monospace;color:#22d3ee;margin:8px 0 4px}.type{font-size:13px;color:#94a3b8;margin-bottom:20px}.btns{display:flex;gap:10px;justify-content:center}button{padding:10px 28px;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600}.print-btn{background:#0891b2;color:white}.close-btn{background:#374151;color:#d1d5db}@media print{body{background:white;color:black;padding:20px}.val{color:#0891b2}.btns{display:none}}</style></head><body>
+                              <div class="qr-box"><img src="${qrImgUrl}" width="200" height="200" alt="QR Code"/></div>
+                              <div class="name">${name}</div><div class="val">${val}</div>
+                              <div class="type">QR Code${label ? " | " + label : ""}</div>
+                              <div class="btns"><button class="print-btn" onclick="window.print()">Print Label</button><button class="close-btn" onclick="window.close()">Close</button></div>
+                              </body></html>`);
+                              w.document.close();
+                            }}
+                            title="View & Print QR Code"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" strokeWidth={2} /><rect x="14" y="3" width="7" height="7" rx="1" strokeWidth={2} /><rect x="3" y="14" width="7" height="7" rx="1" strokeWidth={2} /><circle cx="17.5" cy="17.5" r="3.5" strokeWidth={2} /></svg>
+                            View QR
+                          </button>
+                        )}
+                        {ident.identifierType === 'BARCODE' && (
+                          <button
+                            className="text-cyan-400 hover:text-cyan-300 transition-colors px-2 py-1 text-xs border border-cyan-800 rounded flex items-center gap-1"
+                            onClick={() => {
+                              const val = ident.identifierValue;
+                              const name = asset.name;
+                              const label = ident.label || "";
+                              const w = window.open("", "_blank", "width=420,height=500");
+                              if (!w) return;
+                              w.document.write(`<!DOCTYPE html><html><head><title>Barcode - ${name}</title>
+                              <style>body{text-align:center;font-family:Arial,sans-serif;padding:30px;background:#0f172a;color:white;margin:0}.bc-box{background:white;display:inline-block;padding:24px 32px;border-radius:12px;margin:20px 0}.bars{display:inline-flex;align-items:end;gap:1px;height:70px}.bar{background:black}.space{background:white}.name{font-size:20px;font-weight:bold;margin:16px 0 4px}.val{font-size:22px;font-family:monospace;color:#22d3ee;margin:8px 0;letter-spacing:3px}.type{font-size:13px;color:#94a3b8;margin-bottom:20px}.btns{display:flex;gap:10px;justify-content:center}button{padding:10px 28px;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600}.print-btn{background:#0891b2;color:white}.close-btn{background:#374151;color:#d1d5db}@media print{body{background:white;color:black;padding:20px}.val{color:#0891b2}.btns{display:none}}</style></head><body>
+                              <div class="bc-box"><div class="bars">${val.split('').map((c,i)=>{const w=(c.charCodeAt(0)%3)+1;const cls=i%3===2?'space':'bar';return '<div class="'+cls+'" style="width:'+w+'px;height:100%"></div>';}).join('')}</div><div style="font-family:monospace;font-size:14px;margin-top:8px;color:#333;letter-spacing:3px">${val}</div></div>
+                              <div class="name">${name}</div><div class="val">${val}</div>
+                              <div class="type">Barcode${label ? " | " + label : ""}</div>
+                              <div class="btns"><button class="print-btn" onclick="window.print()">Print Label</button><button class="close-btn" onclick="window.close()">Close</button></div>
+                              </body></html>`);
+                              w.document.close();
+                            }}
+                            title="View & Print Barcode"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h2v12H4zM8 6h1v12H8zM11 6h3v12h-3zM16 6h2v12h-2zM20 6h1v12h-1z" /></svg>
+                            View Barcode
+                          </button>
+                        )}
+                        {(ident.identifierType === 'RFID' || ident.identifierType === 'NFC') && (
+                          <span className="text-slate-500 px-2 py-1 text-xs border border-slate-700 rounded flex items-center gap-1">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0" /></svg>
+                            {ident.identifierType}
+                          </span>
+                        )}
                         <button
                           className="text-slate-400 hover:text-red-500 transition-colors p-1"
                           onClick={() => onDeleteIdentifier(ident.id)}
@@ -821,6 +843,19 @@ export function AssetDetailPanel({
             </Table>
           )}
         </div>
+      )}
+      {/* Bulk Upload Filters Dialog */}
+      {isAhu && (
+        <BulkUploadFiltersDialog
+          open={bulkUploadOpen}
+          onClose={() => setBulkUploadOpen(false)}
+          ahuId={asset.id}
+          ahuName={asset.name}
+          onSuccess={() => {
+            mutate(`/api/assets/instances/${asset.id}`);
+            mutate((key: string) => typeof key === 'string' && key.includes('/api/assets/'), undefined, { revalidate: true });
+          }}
+        />
       )}
     </div>
   );

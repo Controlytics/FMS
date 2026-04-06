@@ -1,9 +1,21 @@
-# API Reference: authentication
+# API Reference: Authentication
 
-See the interactive Swagger UI at /docs for complete endpoint documentation with request/response schemas.
+See the interactive Swagger UI at `/docs` for complete endpoint documentation with request/response schemas.
 
-Refer to the [API Guide](../../API_GUIDE.md) for endpoint summaries and examples.
+## Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | /api/auth/login | Login with username/password, returns JWT |
+| POST | /api/auth/refresh | Refresh JWT token |
+| POST | /api/auth/logout | Invalidate session |
+| POST | /api/auth/reauth | Re-authenticate for sensitive operations |
+| POST | /api/auth/change-password | Change password (force change on first login) |
 
+## Authentication Methods
+- **JWT Tokens** — 30-minute expiry with auto-refresh
+- **Device Access Tokens** — Per-entity tokens for MQTT/HTTP data ingestion
+- **Re-authentication** — Password re-entry for sensitive operations (configured via `action-reauth` config)
 
-> **Note:** Phase 2 adds filter management endpoints. See API_GUIDE.md for the full Phase 2 API reference including filter operations, cleaning profiles, checklist profiles, and PM schedules.
-
+## Default Login
+- **Username:** superadmin
+- **Password:** Admin@123

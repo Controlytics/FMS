@@ -1,6 +1,12 @@
 # DigiLog Documentation
 
-Welcome to the DigiLog documentation — a 21 CFR Part 11 compliant digital logbook for IoT data logging in regulated industries.
+Welcome to the DigiLog documentation — a 21 CFR Part 11 compliant digital logbook and IoT data logging platform for regulated industries, with an integrated Digital Filter Management System (Phase 2).
+
+## Platform Overview
+- **34 API modules**, **57 Prisma models**, **17 enums**
+- **77 rule chain node types** across 8 categories
+- **23 config definitions** with auto-discovery
+- **4 notification channels**: Email, SMS, Telegram, Slack
 
 ## Getting Started
 - [What is DigiLog?](getting-started/what-is-digilog.md)
@@ -49,20 +55,47 @@ Welcome to the DigiLog documentation — a 21 CFR Part 11 compliant digital logb
 ## Compliance
 - [21 CFR Part 11](compliance/21-cfr-part-11.md)
 
+## Development Phases
+- [Phase Overview](phases/README.md)
 
-## Digital Filter Management (Phase 2)
+## Digital Filter Management System (Phase 2)
 
 DigiLog includes a comprehensive Digital Filter Management System for pharmaceutical cleanroom HEPA filter cleaning lifecycle management.
 
-### Features
-- 8-stage cleaning pipeline (To Be Cleaned, Wash In/Out, Dry In/Out, Storage In/Out, Ready For Use)
-- Visual pipeline editor for creating cleaning profiles
-- Checklist gates between stages with 10 question types
+### Modules
+- **Cleaning Profiles** — Visual pipeline editor for multi-stage cleaning workflows
+- **Filter Profiles** — Filter-to-cleaning-profile assignment and configuration
+- **Filter Operations** — Cycle start, stage advance, bypass (with deviation logging), checklist submission
+- **PM Schedules** — Preventive maintenance scheduling per AHU with tolerance windows
+- **Checklist Profiles** — Reusable question templates (10 question types) for pipeline checklist nodes
+- **Equipment Groups** — AHU dashboard with dual-set (SET_A/SET_B) filter management
+
+### Key Capabilities
+- Multi-stage cleaning pipeline (configurable stages via visual editor)
+- CHECKLIST nodes between STAGE nodes trigger automatic question dialogs
+- Server-side enforcement: advance() blocks if pending checklist not completed
+- Cycle auto-completes when last STAGE leads to END node
 - Real-time filter status tracking with QR/barcode scan
 - Cleaning cycle history with full audit trail
-- PM scheduling per AHU with tolerance windows
 - Configurable cleaning reasons with justification support
+- Filter retirement and replacement tracking
+- Bulk upload for filter data import
+
+### Phase 2 API Endpoints
+```
+POST /api/filters/:id/start-cycle       — Start cleaning cycle
+POST /api/filters/:id/advance           — Advance to next stage
+POST /api/filters/:id/submit-checklist  — Submit checklist answers
+POST /api/filters/:id/bypass            — Bypass stage (deviation)
+GET  /api/filters/:id/current-state     — Get filter state + next actions
+GET  /api/filter/cycles                 — List cleaning cycles
+GET  /api/filter/events                 — List filter events
+GET  /api/cleaning-profiles             — List cleaning profiles
+GET  /api/filter-profiles               — List filter profiles
+GET  /api/pm-schedules                  — List PM schedules
+GET  /api/checklist-profiles            — List checklist profiles
+GET  /api/equipment-groups              — List equipment groups
+```
 
 ### Compliance
 All filter operations are recorded as immutable events with SHA-256 checksums, electronic signatures, and deviation tracking per 21 CFR Part 11.
-

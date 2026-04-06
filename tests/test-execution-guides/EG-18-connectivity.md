@@ -1,7 +1,7 @@
 # EG-18: Connectivity — Execution Guide
 
 ## Prerequisites
-- **Credentials**: SUPER_ADMIN (admin / Admin@123), OPERATOR account for negative tests
+- **Credentials**: SUPER_ADMIN (superadmin / Admin@123), OPERATOR account for negative tests
 - **Tools**: curl, jq, browser
 - **Setup**: At least one entity instance created. Know its UUID.
 - **Base URL**: http://localhost:3000
@@ -11,7 +11,7 @@
 # SUPER_ADMIN token
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin@123"}' | jq -r '.token')
+  -d '{"username":"superadmin","password":"Admin@123"}' | jq -r '.token')
 
 # Get first entity ID
 ENTITY_ID=$(curl -s -X GET "http://localhost:3000/api/assets/instances?limit=1" \
@@ -28,7 +28,7 @@ echo "Entity ID: $ENTITY_ID"
 ### Test: TC-18-P01 — Get Entity Connectivity Status
 
 **Browser Steps:**
-1. Navigate to http://3.108.185.106/assets
+1. Navigate to http://34.232.224.0/assets
 2. Select an entity from the tree/list
 3. Click the "Connectivity" tab in the detail panel
 4. Verify it displays status (ONLINE/OFFLINE/UNKNOWN), protocol, last activity, source IP
@@ -476,5 +476,5 @@ curl -s -X POST "http://localhost:3000/api/connectivity/$ENTITY_ID/token" \
 - [ ] Error references minLength
 
 
-> **Phase 2 Update (2026-03-27):** Digital Filter Management System added. See documentation/testing/manual/TEST_CASES.md for Phase 2 test cases covering filter operations, cleaning profiles, checklist enforcement, and bypass flows.
+> **Phase 2 (Digital FMS):** Connectivity applies to filter entities with IoT sensors. Same token generation, MQTT/HTTP transport, and code snippets. AHU dashboard depends on device connectivity.
 

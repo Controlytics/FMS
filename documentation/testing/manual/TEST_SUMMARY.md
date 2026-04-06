@@ -1,9 +1,9 @@
 # DigiLog Test Summary
 
-**Date:** 2026-02-20 (original), last updated 2026-03-09
-**Application:** DigiLog — 21 CFR Part 11 Compliant Digital Logbook
-**Deployment:** EC2 at 3.108.185.106 (port 3000 API, nginx frontend)
-**Status (2026-03-09):** All features COMPLETE and deployed. All development phases (A through K) complete. 1,344 tests (0 failures) across 83 test files. System validation: 87/100 health score, 48 node types validated, 7 open bugs (see tasks/system-validation-report.md).
+**Date:** 2026-02-20 (original), last updated 2026-04-04
+**Application:** DigiLog -- 21 CFR Part 11 Compliant IoT Data Logging Platform with Digital Filter Management
+**Deployment:** EC2 at 34.232.224.0 (port 3000 API, nginx frontend)
+**Status (2026-04-04):** All features COMPLETE and deployed. All development phases (A through K) complete. Phase 2 Digital Filter Management System deployed. 34 API modules, 57 Prisma models, 17 enums, 23 config definitions, 77 rule chain node types.
 
 ---
 
@@ -29,7 +29,6 @@
 - Multi-select target in Link Assets dialog: **PASS**
 - Bulk relationship creation (1 source -> N targets): **PASS**
 - Bidirectional relationship auto-creation: **PASS**
-- ~~Template linking rules~~ *(Feature removed — any asset can link to any other with any type)*
 - All 12 relationship types freely available: **PASS**
 - Tree auto-expand after linking: **PASS**
 - Hierarchical tree diagram (nodes + arrows): **PASS**
@@ -43,9 +42,6 @@
 - Expected Identifiers section: **PASS**
 - Alarm Rules section (7 types + 3 severities): **PASS**
 - Template versioning on update: **PASS**
-
-### ~~Template Linking Rules~~ *(Feature removed 2026-02-20)*
-> Template Linking Rules feature was completely removed. Any asset can link to any other asset with any relationship type — no restrictions.
 
 ### Configuration
 - Password policy settings: **PASS**
@@ -71,6 +67,22 @@
 ### Notifications
 - List / mark read / unread: **PASS**
 - Unread count badge: **PASS**
+- Multi-channel delivery (Email, SMS, Telegram, Slack): **PASS**
+
+### Phase 2: Digital Filter Management
+- Cleaning profile CRUD with visual pipeline editor: **PASS**
+- Filter profile assignment: **PASS**
+- Filter operations (start cycle, advance, submit checklist, bypass): **PASS**
+- Checklist enforcement (blocking advance without completion): **PASS**
+- Cycle auto-completion on last stage: **PASS**
+- PM schedule CRUD and execution: **PASS**
+- Equipment group management: **PASS**
+- AHU dashboard with filter status: **PASS**
+- Filter event log with SHA-256 checksums: **PASS**
+- Cleaning cycle history with traceability: **PASS**
+- Retirement and replacement workflow: **PASS**
+- Bulk upload via CSV: **PASS**
+- Bypass deviation logging with justification: **PASS**
 
 ---
 
@@ -78,55 +90,33 @@
 
 | # | Issue | Severity | Status |
 |---|-------|----------|--------|
-| 1 | Instruments feature not working correctly | HIGH | FIXED — Removed entirely per user request |
-| 2 | Telemetry section missing from Asset Templates UI | FEATURE | FIXED — Added collapsible Telemetry Schema section |
-| 3 | Telemetry tab missing from Asset Explorer detail panel | FEATURE | FIXED — Added Telemetry tab with template schema + instance config |
-| 4 | `telemetrySchema` not in Zod schema or API create/update | BUG | FIXED — Added to schemas and API routes |
-| 5 | API instance detail missing `telemetrySchema` in template select | BUG | FIXED — Added to Prisma select |
-| 6 | Link Assets target was single-select only | FEATURE | FIXED — Multi-select with search, chips, bulk create |
-| 7 | Link Assets source/target dropdowns empty | BUG | FIXED — API `parentId` serialized as `""` instead of `null`; frontend `flatAssetList` only matched `null` |
-| 8 | Asset creation returning 400 for inactive templates | BUG | FIXED — Removed `isActive` check from POST /instances; assets can be created from any template |
-| 9 | ~~Linking rules not blocking other template pairs~~ | ~~BUG~~ | N/A — Feature removed entirely |
-| 10 | ~~Only 7 forward relationship types in linking rules UI~~ | ~~FEATURE~~ | N/A — Feature removed; all 12 types freely available |
+| 1 | Instruments feature not working correctly | HIGH | FIXED -- Removed entirely per user request |
+| 2 | Telemetry section missing from Asset Templates UI | FEATURE | FIXED -- Added collapsible Telemetry Schema section |
+| 3 | Telemetry tab missing from Asset Explorer detail panel | FEATURE | FIXED -- Added Telemetry tab with template schema + instance config |
+| 4 | `telemetrySchema` not in Zod schema or API create/update | BUG | FIXED -- Added to schemas and API routes |
+| 5 | API instance detail missing `telemetrySchema` in template select | BUG | FIXED -- Added to Prisma select |
+| 6 | Link Assets target was single-select only | FEATURE | FIXED -- Multi-select with search, chips, bulk create |
+| 7 | Link Assets source/target dropdowns empty | BUG | FIXED -- API `parentId` serialized as `""` instead of `null`; frontend `flatAssetList` only matched `null` |
+| 8 | Asset creation returning 400 for inactive templates | BUG | FIXED -- Removed `isActive` check from POST /instances |
+| 9 | ~~Linking rules not blocking other template pairs~~ | ~~BUG~~ | N/A -- Feature removed entirely |
+| 10 | ~~Only 7 forward relationship types in linking rules UI~~ | ~~FEATURE~~ | N/A -- Feature removed; all 12 types freely available |
 
 ## Part C: Known Issues
 
 | # | Issue | Severity | Notes |
 |---|-------|----------|-------|
-| — | No known issues | — | All reported issues have been resolved |
+| -- | No known blocking issues | -- | All reported issues have been resolved |
 
 ---
 
 ## Summary
 
-All core features are functional and tested. Asset template telemetry schemas are fully supported end-to-end (create, edit, version, display). Link Assets dialog upgraded to multi-select targets with search and bulk creation. Link Assets dropdown bug fixed -- root cause was Fastify JSON schema coercing `null` parentId to empty string, causing frontend tree walk to find no root nodes. Instruments feature was added then removed per user request. Template Linking Rules feature was added then completely removed -- any asset can now link to any other asset with any of the 12 relationship types, no restrictions. Full API verification passed.
+All core features and Phase 2 Digital Filter Management features are functional and tested. The platform includes 34 API modules, 57 Prisma models, 17 enums, 23 config definitions, and 77 rule chain node types across 8 categories. Multi-channel notifications support Email, SMS, Telegram, and Slack. The default login is `superadmin` / `Admin@123` and the EC2 instance is at 34.232.224.0.
 
-**Update (2026-03-07):** All development phases (A through K) are COMPLETE and deployed to production at 3.108.185.106. System includes 145+ API endpoints, 34+ frontend pages, 30 Prisma models, 7 TimescaleDB hypertables, and 1,344 automated tests with 0 failures. Three additional bugs were found and fixed on 2026-03-07: LatestTelemetry UUID cast (P0), device credential createdAt on token regeneration (P2), and entity resolver cache TTL (P3). Test tools created: push-telemetry.py, push-telemetry.mjs, telemetry-200.csv.
-
-
-## Phase 2: Filter Management Test Cases
-
-### TC-FM-01: Filter Operations
-- Start cleaning cycle with reason selection
-- Advance through all 8 stages
-- Verify checklist auto-trigger between stages
-- Submit checklist and verify next stage unlocks
-- Verify cycle auto-completes on last stage
-
-### TC-FM-02: Cleaning Profiles
-- Create profile with visual pipeline editor
-- Add STAGE, CHECKLIST nodes and connect them
-- Save and verify validation (name, keys, connectivity)
-- Edit profile (versioning) and verify old version archived
-
-### TC-FM-03: Checklist Enforcement
-- Attempt advance without completing checklist (expect CHECKLIST_PENDING)
-- Submit checklist via API and verify advance works
-- Verify duplicate submission blocked (409 ALREADY_SUBMITTED)
-
-### TC-FM-04: Bypass Flow
-- Attempt bypass on STRICT profile (expect BYPASS_FORBIDDEN)
-- Attempt bypass without active cycle (expect NO_CYCLE)
-- Attempt bypass with invalid target state (expect INVALID_TARGET)
-- Successful bypass with justification on BYPASS_ENABLED profile
-
+## Phase 2 Test Results
+- Filter operations: All 8 stages tested, checklist enforcement verified
+- 2 full cycle tests with different cleaning profiles (Profile A: 2 checklists, Profile C: 1 checklist)
+- All cycles auto-completed correctly
+- Audit trail verified: events, timestamps, performer names, checklist answers
+- PM schedules, equipment groups, retirement/replacement, and bulk upload tested
+- 30 GitHub issues created and closed (#36-#65)

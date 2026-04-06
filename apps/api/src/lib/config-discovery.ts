@@ -52,5 +52,5 @@ import('../modules/config/defs/notification-telegram.def.js'),    import('../mod
   // Auto-seed defaults for any newly registered configs
   await configRegistry.seedDefaults();
 
-  console.log(`[config-registry] ${configRegistry.size} modules registered`);
+  console.info(`[config-registry] ${configRegistry.size} modules registered`);
 }
