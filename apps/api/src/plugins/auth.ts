@@ -24,9 +24,9 @@ async function getSessionDurationHours(): Promise<number> {
   return hours;
 }
 
-// Role scope cache (30s TTL) to avoid DB query per request
+// Role scope cache (5s TTL) — short to detect privilege changes quickly
 const roleScopeCache = new Map<string, { scope: string; cachedAt: number }>();
-const ROLE_SCOPE_CACHE_TTL = 30_000;
+const ROLE_SCOPE_CACHE_TTL = 5_000;
 
 async function getRoleScope(roleName: string): Promise<string> {
   const now = Date.now();

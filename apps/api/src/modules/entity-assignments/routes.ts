@@ -26,22 +26,33 @@ export default async function entityAssignmentRoutes(app: FastifyInstance) {
     const assignments = await prisma.entityAssignment.findMany({
       where: { entityId },
       orderBy: { createdAt: 'desc' },
+      take: 500, // Bound the result set
     });
 
-    // Enrich with user/org names
-    const enriched = await Promise.all(assignments.map(async (a) => {
+    // Batch fetch users and orgs to avoid N+1 queries
+    const userIds = [...new Set(assignments.filter(a => a.assigneeType === 'USER' && a.userId).map(a => a.userId!))];
+    const orgIds = [...new Set(assignments.filter(a => a.assigneeType === 'ORGANIZATION' && a.organizationId).map(a => a.organizationId!))];
+
+    const [users, orgs] = await Promise.all([
+      userIds.length > 0 ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, fullName: true, username: true } }) : Promise.resolve([]),
+      orgIds.length > 0 ? prisma.organization.findMany({ where: { id: { in: orgIds } }, select: { id: true, name: true } }) : Promise.resolve([]),
+    ]);
+    const userMap = new Map(users.map(u => [u.id, u]));
+    const orgMap = new Map(orgs.map(o => [o.id, o]));
+
+    const enriched = assignments.map(a => {
       let assigneeName = '';
       if (a.assigneeType === 'USER' && a.userId) {
-        const user = await prisma.user.findUnique({ where: { id: a.userId }, select: { fullName: true, username: true } });
+        const user = userMap.get(a.userId);
         assigneeName = user ? `${user.fullName} (${user.username})` : 'Unknown User';
       } else if (a.assigneeType === 'ORGANIZATION' && a.organizationId) {
-        const org = await prisma.organization.findUnique({ where: { id: a.organizationId }, select: { name: true } });
+        const org = orgMap.get(a.organizationId);
         assigneeName = org?.name || 'Unknown Org';
       } else if (a.assigneeType === 'ROLE' && a.roleValue) {
         assigneeName = `Role: ${a.roleValue}`;
       }
       return { ...a, assigneeName };
-    }));
+    });
 
     return enriched;
   });

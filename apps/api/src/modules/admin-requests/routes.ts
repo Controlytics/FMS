@@ -8,7 +8,14 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
 
   // 1. POST / — Submit a new request (PUBLIC, no auth)
   app.post('/', {
-    config: { skipAuth: true },
+    config: {
+      skipAuth: true,
+      rateLimit: {
+        max: 5,
+        timeWindow: '15 minutes',
+        keyGenerator: (req: any) => req.ip,
+      },
+    },
     schema: {
       tags: ['Admin Requests'],
       summary: 'Submit an admin request',

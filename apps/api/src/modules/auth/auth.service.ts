@@ -177,8 +177,8 @@ export const authService = {
       throw err;
     }
 
-    // Check password expiry (SUPER_ADMIN exempt)
-    if (user.role !== 'SUPER_ADMIN' && user.passwordExpiresAt && user.passwordExpiresAt < new Date() && !user.forcePasswordChange) {
+    // Check password expiry (21 CFR Part 11 — applies to all users including SUPER_ADMIN)
+    if (user.passwordExpiresAt && user.passwordExpiresAt < new Date() && !user.forcePasswordChange) {
       await authRepository.updateUser(user.id, { forcePasswordChange: true });
       user.forcePasswordChange = true;
 

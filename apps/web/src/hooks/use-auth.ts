@@ -55,9 +55,11 @@ export function useAuth() {
     } else {
       await mutate();
       // Navigate to returnUrl if present (e.g., from QR code scan), otherwise home
+      // Validate returnUrl is internal pathname only (prevent open redirect)
       const params = new URLSearchParams(window.location.search);
       const returnUrl = params.get("returnUrl");
-      navigate(returnUrl || "/", { replace: true });
+      const isSafeReturnUrl = returnUrl && returnUrl.startsWith('/') && !returnUrl.startsWith('//') && !returnUrl.includes(':');
+      navigate(isSafeReturnUrl ? returnUrl : "/", { replace: true });
 
     }
 

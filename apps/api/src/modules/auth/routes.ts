@@ -312,8 +312,8 @@ export default async function authRoutes(app: FastifyInstance) {
     config: {
       skipAuth: true,
       rateLimit: {
-        max: 5,
-        timeWindow: '5 minutes',
+        max: 3,
+        timeWindow: '15 minutes',
         keyGenerator: (req: any) => req.ip,
       },
     },

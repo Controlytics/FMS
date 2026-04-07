@@ -132,6 +132,16 @@ export const userService = {
     const existing = await userRepository.findByIdFull(id);
     if (!existing) throw new NotFoundError('User not found');
 
+    // Privilege escalation guard: only SUPER_ADMIN can change organizationId
+    if (data.organizationId !== undefined && ctx.userRole !== 'SUPER_ADMIN') {
+      delete data.organizationId;
+    }
+
+    // Cannot change own role (prevent self-escalation)
+    if (existing.id === ctx.userSub && data.role && data.role !== existing.role) {
+      throw new ForbiddenError('Cannot change your own role');
+    }
+
     if (data.role) {
       const creatorRole = await userRepository.findRole(ctx.userRole);
       const targetRole = await userRepository.findRole(data.role);

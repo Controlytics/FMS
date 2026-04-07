@@ -11,7 +11,6 @@ export const offlineSyncDef: ModuleConfigDefinition = {
   requiredRole: 'ADMIN',
   requiresReauth: false,
   hasCustomPage: false,
-  customPagePath: null,
   settings: [
     {
       key: 'enabled',
@@ -43,14 +42,9 @@ export const offlineSyncDef: ModuleConfigDefinition = {
     },
     {
       key: 'conflictResolution',
-      type: 'enum',
-      label: 'Conflict Resolution',
+      type: 'string',
+      label: 'Conflict Resolution (SKIP | OVERWRITE | PROMPT)',
       default: 'SKIP',
-      options: [
-        { value: 'SKIP', label: 'Skip conflicting operations' },
-        { value: 'OVERWRITE', label: 'Overwrite with offline data' },
-        { value: 'PROMPT', label: 'Prompt user for each conflict' },
-      ],
       group: 'Sync',
     },
     {

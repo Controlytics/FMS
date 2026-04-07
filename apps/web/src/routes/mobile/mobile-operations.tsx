@@ -163,6 +163,22 @@ export function MobileOperationsPage() {
     return { filterId, filterName };
   };
 
+  // Helper: detect network errors (fetch failures)
+  const isNetworkError = (e: any): boolean => {
+    if (!e) return false;
+    const msg = String(e.message || e).toLowerCase();
+    return msg.includes('failed to fetch') || msg.includes('network') || msg.includes('load failed') || e.name === 'TypeError';
+  };
+
+  // Queue the operation offline (used as fallback when network fails mid-operation)
+  const queueOfflineAdvance = async (filterId: string, filterName: string) => {
+    if (!activeStage) return;
+    await executeOrQueue('advance', filterId, filterName, { targetState: activeStage.key, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${activeStage.label} - ${filterName}` }, activeStage.key);
+    setSuccess(`${filterName} → ${activeStage.label} (queued)`);
+    setRecentOps(prev => [{ stage: activeStage.key, filter: filterName, time: formatTime(new Date()), queued: true }, ...prev].slice(0, 20));
+    setScanValue(''); setRemarks('');
+  };
+
   const handleSubmit = async () => {
     if (!scanValue.trim() || !activeStage || loading) return;
     setLoading(true); setError(''); setSuccess('');
@@ -172,20 +188,35 @@ export function MobileOperationsPage() {
       const { filterId, filterName } = resolved;
 
       if (!online) {
-        await executeOrQueue('advance', filterId, filterName, { targetState: activeStage.key, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${activeStage.label} - ${filterName}` }, activeStage.key);
-        setSuccess(`${filterName} → ${activeStage.label} (queued)`);
-        setRecentOps(prev => [{ stage: activeStage.key, filter: filterName, time: formatTime(new Date()), queued: true }, ...prev].slice(0, 20));
-        setScanValue(''); setRemarks(''); setLoading(false); return;
+        await queueOfflineAdvance(filterId, filterName);
+        setLoading(false); return;
       }
 
-      const state = await apiClient.get<any>(`/api/filters/${filterId}/current-state`);
+      // Online path — if any network call fails, fall back to offline queue
+      let state: any;
+      try {
+        state = await apiClient.get<any>(`/api/filters/${filterId}/current-state`);
+      } catch (e: any) {
+        if (isNetworkError(e)) {
+          // Network dropped — queue for later sync
+          await queueOfflineAdvance(filterId, filterName);
+          setLoading(false); return;
+        }
+        throw e;
+      }
       if (state.pendingChecklist?.length > 0) { setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: state.pendingChecklist }); setChecklistAnswers({}); setLoading(false); return; }
       const nextAllowed = state.nextAllowedStages ?? [];
       if (nextAllowed.length > 0 && !nextAllowed.includes(activeStage.key)) { setError(`Next allowed: ${nextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`); setLoading(false); return; }
       if (!state.currentCycle) { setReasonDialog({ filterId, filterName: filterName || state.filterName, stage: activeStage.key }); setSelectedReason(''); setJustification(''); setLoading(false); return; }
       if (activeStage.key === 'DRY_IN' && state.equipmentGroup) { setEquipDialog({ filterId, filterName: filterName || state.filterName, stage: activeStage.key, groups: [], cycleGroup: state.equipmentGroup }); setSelectedEquipGroup(state.equipmentGroup); setReadings({}); setLoading(false); return; }
 
-      const result = await apiClient.post<any>(`/api/filters/${filterId}/advance`, { targetState: activeStage.key, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${activeStage.label} - ${filterName}` });
+      let result: any;
+      try {
+        result = await apiClient.post<any>(`/api/filters/${filterId}/advance`, { targetState: activeStage.key, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${activeStage.label} - ${filterName}` });
+      } catch (e: any) {
+        if (isNetworkError(e)) { await queueOfflineAdvance(filterId, filterName); setLoading(false); return; }
+        throw e;
+      }
       setSuccess(`${filterName || state.filterName} → ${activeStage.label}`);
       setRecentOps(prev => [{ stage: activeStage.key, filter: filterName || state.filterName, time: formatTime(new Date()) }, ...prev].slice(0, 20));
       setScanValue(''); setRemarks(''); mutate('/api/assets/instances?limit=500');

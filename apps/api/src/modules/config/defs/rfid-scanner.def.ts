@@ -11,7 +11,6 @@ export const rfidScannerDef: ModuleConfigDefinition = {
   requiredRole: 'ADMIN',
   requiresReauth: false,
   hasCustomPage: false,
-  customPagePath: null,
   settings: [
     {
       key: 'debounceMs',
