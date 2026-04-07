@@ -37,6 +37,8 @@ import('../modules/config/defs/notification-telegram.def.js'),    import('../mod
     import('../modules/config/defs/filter-cleaning-reasons.def.js'),
     import('../modules/config/defs/filter-lifecycle-states.def.js'),
     import('../modules/config/defs/filter-pm-schedule.def.js'),
+    import('../modules/config/defs/rfid-scanner.def.js'),
+    import('../modules/config/defs/offline-sync.def.js'),
     // ─── Add new module configs below this line ───
   ]);
 
