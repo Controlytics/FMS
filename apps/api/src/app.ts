@@ -85,8 +85,10 @@ await registerSwagger(app);
 
 // Core middleware
 await app.register(cors, {
-  origin: (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173').split(','),
+  origin: (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173,http://localhost:5175,http://192.168.1.22:5175').split(','),
   credentials: true,
+  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-reauth-password'],
 });
 await app.register(helmet, {
   contentSecurityPolicy: false,

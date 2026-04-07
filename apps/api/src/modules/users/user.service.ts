@@ -2,6 +2,7 @@ import { sanitizeStrings } from "../../lib/sanitize.js";
 import type { RequestContext } from '../../types/context.js';
 import { auditLog } from '../../lib/audit.js';
 import { hashPassword } from '../../lib/password.js';
+import { validatePasswordPolicy } from '../../lib/password-validator.js';
 import { validateUserId } from '../../lib/user-id-validator.js';
 import { NotFoundError, ValidationError, ConflictError, ForbiddenError } from '../../lib/errors.js';
 import { userRepository } from './user.repository.js';
@@ -64,6 +65,9 @@ export const userService = {
       const field = existing.username === data.username ? 'username' : 'email';
       throw new ConflictError(`${field} already exists`);
     }
+
+    // Validate password complexity against active policy
+    await validatePasswordPolicy(data.password, data.username);
 
     const passwordHash = await hashPassword(data.password);
     const passwordExpiresAt = await userRepository.getPasswordExpiresAt();

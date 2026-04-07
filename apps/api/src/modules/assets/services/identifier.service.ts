@@ -24,10 +24,10 @@ export const identifierService = {
 
     // Only one identifier per entity
     const existingForAsset = await identifierRepository.findMany({ assetId: data.assetId });
-    if (existingForAsset.length > 0) throw new ConflictError('This entity already has an identifier. Remove the existing one first.');
+    if (existingForAsset.length > 0) throw new ConflictError('This entity already has an identifier. Remove the existing one first.', 'ENTITY_HAS_IDENTIFIER');
 
     const existingIdent = await identifierRepository.findByIdentifierValue(data.identifierValue);
-    if (existingIdent) throw new ConflictError('Identifier value already exists');
+    if (existingIdent) throw new ConflictError('Identifier value already exists on another entity', 'DUPLICATE_IDENTIFIER_VALUE');
 
     const identifier = await identifierRepository.create({
       assetId: data.assetId,
