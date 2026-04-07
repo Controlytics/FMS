@@ -1,5 +1,30 @@
 # Changelog
 
+## Phase 3: RFID & Offline Operations (2026-04-07)
+
+### Added
+- **RFID Scanner App** — Native Android app (`rfid_scan_app/`) for KC-series UHF readers
+- **RFID Input Guard** — Global keyboard interceptor blocks UKB tag input from non-RFID fields
+- **RFID Scan Dialogs** — 300ms debounce tag detection with deduplication, shows filter name + AHU
+- **Offline Sync Infrastructure** — IndexedDB store, sync engine, useOffline hook
+- **Offline Cleaning Operations** — advance, start-cycle, checklist, equipment all work offline
+- **Offline Identifier Lookup** — identifier→filter map cached for RFID scanning without internet
+- **Data Synced Indicator** — mobile header badge shows when data is cached
+- **Error Popup Component** — reusable modal replaces inline error banners
+- **Responsive Layout** — sidebar collapses on mobile with hamburger menu
+
+### Changed
+- **One Identifier Per Entity** — backend enforces single identifier per asset
+- **Contact Admin Roles** — /api/roles/active is now public (no auth required)
+- **User Creation** — admin users auto-assign new users to their organization
+- **Filter Operations List** — shows all Filter template instances (BY_BLOCK profile fix)
+
+### Fixed
+- RFID UKB mode typing tag IDs into random fields
+- Repeated tag scans filling inputs with duplicated values
+- Cleaning operations failing silently offline
+- Background error messages not visible to user
+
 ## Phase 2: Digital Filter Management System (2026-03-27)
 
 ### New Backend Modules
@@ -116,3 +141,21 @@
 - Notification system: email, SMS (Twilio/AWS SNS/Vonage/HTTP), in-app
 - 77 rule chain node types across 8 categories
 - Input sanitization for XSS prevention on all text fields
+
+---
+
+## Phase 3 Update (2026-04-07)
+
+**RFID & Offline Operations:**
+- RFID Scanner Android app (`rfid_scan_app/`) for KC-series UHF readers
+- RFID keyboard guard prevents UKB tag input leaking into random fields
+- Offline cleaning operations via IndexedDB queue + sync engine
+- Cached identifier→filter map for offline RFID lookup
+- "Data Synced" indicator in mobile header
+- One identifier per entity (backend-enforced)
+- Responsive layout with collapsible sidebar
+- Error popups replace inline banners
+- User creation auto-assigns org for admins
+- `/api/roles/active` public endpoint for contact-admin page
+
+See `CHANGELOG.md` for full details.

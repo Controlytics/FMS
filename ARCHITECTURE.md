@@ -73,6 +73,13 @@
 | **checklist-profiles** | `/api/checklist-profiles/*` | Checklist template CRUD (Phase 2) |
 | **equipment-groups** | `/api/equipment-groups/*` | Equipment group management (Phase 2) |
 
+### Phase 3 — Offline & RFID
+- **Offline Store** (`lib/offline-store.ts`) — IndexedDB wrapper with 3 object stores: `operations` (queued ops), `cache` (TTL-based data cache), `filters` (filter snapshot)
+- **Sync Engine** (`lib/sync-engine.ts`) — auto-syncs pending operations on reconnect, FIFO order, skip-on-conflict
+- **useOffline Hook** (`hooks/use-offline.ts`) — `executeOrQueue()` for offline-safe API calls
+- **RFID Guard** (`hooks/use-rfid-guard.ts`) — global keydown interceptor blocks rapid UKB keyboard input from non `data-rfid="true"` fields
+- **Mobile Operations** (`routes/mobile/mobile-operations.tsx`) — all cleaning operations use `executeOrQueue()`, caches templates/reasons/identifiers for offline
+
 ### Data Flow (Telemetry Ingestion)
 
 ```
@@ -212,3 +219,21 @@ START -> STAGE(WASH_IN) -> STAGE(WASH_OUT) -> CHECKLIST(Post-Wash) -> STAGE(DRY_
 │  Browser ──> nginx ──> /api/* ──> Fastify ──> Prisma/TSDB    │
 └──────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Phase 3 Update (2026-04-07)
+
+**RFID & Offline Operations:**
+- RFID Scanner Android app (`rfid_scan_app/`) for KC-series UHF readers
+- RFID keyboard guard prevents UKB tag input leaking into random fields
+- Offline cleaning operations via IndexedDB queue + sync engine
+- Cached identifier→filter map for offline RFID lookup
+- "Data Synced" indicator in mobile header
+- One identifier per entity (backend-enforced)
+- Responsive layout with collapsible sidebar
+- Error popups replace inline banners
+- User creation auto-assigns org for admins
+- `/api/roles/active` public endpoint for contact-admin page
+
+See `CHANGELOG.md` for full details.

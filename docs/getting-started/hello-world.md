@@ -47,3 +47,21 @@ curl -X POST http://34.232.224.0/api/data/telemetry \
 3. Start a cleaning cycle via **Filter Operations**
 4. Advance through stages, submit checklists, and track cycle completion
 5. View cycle history and filter events for full traceability
+
+---
+
+## Phase 3 Update (2026-04-07)
+
+**RFID & Offline Operations:**
+- RFID Scanner Android app (`rfid_scan_app/`) for KC-series UHF readers
+- RFID keyboard guard prevents UKB tag input leaking into random fields
+- Offline cleaning operations via IndexedDB queue + sync engine
+- Cached identifier→filter map for offline RFID lookup
+- "Data Synced" indicator in mobile header
+- One identifier per entity (backend-enforced)
+- Responsive layout with collapsible sidebar
+- Error popups replace inline banners
+- User creation auto-assigns org for admins
+- `/api/roles/active` public endpoint for contact-admin page
+
+See `CHANGELOG.md` for full details.

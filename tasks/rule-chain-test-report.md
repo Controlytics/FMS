@@ -207,3 +207,21 @@ Node count expanded from 28 to **48 node types** across 9 categories. See `tasks
 ---
 
 > **Phase 2 Update (2026-03-27):** Digital Filter Management System added to DigiLog. Includes filter cleaning lifecycle management with 8 stages, visual pipeline editor, checklist gates, PM scheduling, and full 21 CFR Part 11 compliance. See CHANGELOG.md and README.md for details.
+
+---
+
+## Phase 3 Update (2026-04-07)
+
+**RFID & Offline Operations:**
+- RFID Scanner Android app (`rfid_scan_app/`) for KC-series UHF readers
+- RFID keyboard guard prevents UKB tag input leaking into random fields
+- Offline cleaning operations via IndexedDB queue + sync engine
+- Cached identifier→filter map for offline RFID lookup
+- "Data Synced" indicator in mobile header
+- One identifier per entity (backend-enforced)
+- Responsive layout with collapsible sidebar
+- Error popups replace inline banners
+- User creation auto-assigns org for admins
+- `/api/roles/active` public endpoint for contact-admin page
+
+See `CHANGELOG.md` for full details.

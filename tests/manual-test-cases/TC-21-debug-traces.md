@@ -202,3 +202,21 @@
 - Debug traces apply to filter entity telemetry. When tracing is enabled for a filter entity, telemetry data flows through the 10-stage pipeline and generates trace records.
 - Filter operations (cycle start, advance, etc.) do NOT generate pipeline traces — they use separate API endpoints outside the data ingestion pipeline.
 
+
+---
+
+## Phase 3 Update (2026-04-07)
+
+**RFID & Offline Operations:**
+- RFID Scanner Android app (`rfid_scan_app/`) for KC-series UHF readers
+- RFID keyboard guard prevents UKB tag input leaking into random fields
+- Offline cleaning operations via IndexedDB queue + sync engine
+- Cached identifier→filter map for offline RFID lookup
+- "Data Synced" indicator in mobile header
+- One identifier per entity (backend-enforced)
+- Responsive layout with collapsible sidebar
+- Error popups replace inline banners
+- User creation auto-assigns org for admins
+- `/api/roles/active` public endpoint for contact-admin page
+
+See `CHANGELOG.md` for full details.

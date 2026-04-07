@@ -57,3 +57,21 @@ admin-requests, alarms, assets (with dialogs/tabs/hooks), audit, auth, checklist
 - `apps/api/src/modules/cleaning-profiles/cleaning-profile.service.ts` — pipeline validation, transaction
 - `apps/web/src/routes/filter-management/filter-operations.tsx` — cleaning reason dialog, missing stages, double-submit guard
 - `apps/web/src/main.tsx` — permission guards on all Phase 2 routes
+
+---
+
+## Phase 3 Update (2026-04-07)
+
+**RFID & Offline Operations:**
+- RFID Scanner Android app (`rfid_scan_app/`) for KC-series UHF readers
+- RFID keyboard guard prevents UKB tag input leaking into random fields
+- Offline cleaning operations via IndexedDB queue + sync engine
+- Cached identifier→filter map for offline RFID lookup
+- "Data Synced" indicator in mobile header
+- One identifier per entity (backend-enforced)
+- Responsive layout with collapsible sidebar
+- Error popups replace inline banners
+- User creation auto-assigns org for admins
+- `/api/roles/active` public endpoint for contact-admin page
+
+See `CHANGELOG.md` for full details.

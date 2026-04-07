@@ -77,6 +77,36 @@ CHECKLIST nodes between STAGE nodes trigger automatic question dialogs.
 Server-side enforcement: advance() blocks if pending checklist not completed.
 Cycle auto-completes when last STAGE leads to END node.
 
+## Phase 3: RFID & Offline Operations
+
+### RFID Integration
+- **RFID Scanner Android app** (`rfid_scan_app/`) — uses Reader_Usb.jar SDK for KC-series UHF reader
+- **Web-side RFID guard** (`apps/web/src/hooks/use-rfid-guard.ts`) — global keydown interceptor blocks RFID keyboard bursts from non `data-rfid="true"` fields
+- **Tag detection** — 300ms debounce in scan dialogs + deduplication for repeated scans
+- **Entity identifier limit** — one identifier per entity, enforced in `identifier.service.ts`
+- **Filter details on scan** — stage scan dialog looks up filter name and parent AHU after tag detected
+
+### Offline Sync
+- **IndexedDB offline store** (`apps/web/src/lib/offline-store.ts`) — stores: operations queue, cache, filters
+- **Sync engine** (`apps/web/src/lib/sync-engine.ts`) — auto-syncs on reconnect, FIFO, skip conflicts
+- **useOffline hook** (`apps/web/src/hooks/use-offline.ts`) — `executeOrQueue()` for offline-safe API calls
+- **Cached data:** filter instances, templates, cleaning reasons, identifier map (for offline RFID lookup)
+- **"Data Synced" indicator** in mobile header — shows when all data loaded and cached
+- **Mobile operations page** (`routes/mobile/mobile-operations.tsx`) — all cleaning actions wrapped with executeOrQueue
+
+### Responsive Layout
+- Sidebar collapses to hamburger menu on `<lg` screens with slide-in overlay
+- Header hamburger toggle, reduced padding on mobile
+- `AppLayout` uses `useRfidGuard()` globally
+
+### Error Popups
+- `components/ui/error-popup.tsx` — reusable modal for error display
+- Used in `filter-operations.tsx` and `assets/index.tsx` instead of inline banners
+
+### Dev Mode HTTP
+- Capacitor WebView rejects self-signed certs for fetch — use HTTP in dev
+- Production HTTPS: install rootCA.pem on tablet system certificates
+
 
 Workflow Orchestration
 
@@ -128,3 +158,20 @@ Core Principles
 - Simplicity First: Make every change as simple as possible. Impact minimal code.
 - No Laziness: Find root causes. No temporary fixes. Senior developer standards.
 - Minimal Impact: Changes should only touch what's necessary. Avoid introducing bugs.
+---
+
+## Phase 3 Update (2026-04-07)
+
+**RFID & Offline Operations:**
+- RFID Scanner Android app (`rfid_scan_app/`) for KC-series UHF readers
+- RFID keyboard guard prevents UKB tag input leaking into random fields
+- Offline cleaning operations via IndexedDB queue + sync engine
+- Cached identifier→filter map for offline RFID lookup
+- "Data Synced" indicator in mobile header
+- One identifier per entity (backend-enforced)
+- Responsive layout with collapsible sidebar
+- Error popups replace inline banners
+- User creation auto-assigns org for admins
+- `/api/roles/active` public endpoint for contact-admin page
+
+See `CHANGELOG.md` for full details.

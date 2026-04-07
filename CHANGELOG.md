@@ -1,5 +1,33 @@
 # Changelog
 
+## [2.2.0] — 2026-04-07
+
+### Added — RFID & Offline Sync
+- **RFID Scanner Android app** (`rfid_scan_app/`) — KC-series UHF reader via USB-C with 5 screens (Connect, Scan, Read/Write, Settings, UKB)
+- **RFID input guard** (`use-rfid-guard.ts`) — global keydown interceptor blocks rapid RFID keyboard input from entering non-RFID fields
+- **RFID scan dialogs** — 300ms debounce tag detection, deduplication for repeated scans, Continue/Remove flow
+- **Filter details on scan** — after RFID tag detected, looks up and displays filter name + parent AHU
+- **Offline cleaning operations** — all stage operations (advance, start-cycle, submit-checklist, equipment) wrapped with `executeOrQueue()` for offline queuing
+- **Offline identifier lookup** — identifiers cached to IndexedDB `identifier-map` for RFID lookup without internet
+- **"Data Synced" indicator** — mobile header badge shows when all data (instances, templates, reasons, identifiers) is cached and safe to go offline
+- **Error popup component** (`components/ui/error-popup.tsx`) — reusable modal for error display, replaces inline banners in entities and filter operations
+- **Responsive layout** — sidebar collapses to hamburger menu on mobile/tablet with slide-in overlay
+
+### Changed
+- **One identifier per entity** — backend now blocks creating more than one identifier per asset instance
+- **Contact Admin roles** — `/api/roles/active` is now public (no auth) so the contact-admin page can populate the role dropdown
+- **User creation** — admin users auto-assign new users to their own organization (org dropdown hidden)
+- **Filter operations list** — shows all Filter template instances (fixes BY_BLOCK config-based profile assignment)
+- **APK HTTP mode** — Capacitor WebView cannot trust self-signed certs for fetch; dev uses HTTP, production will use system cert install
+
+### Fixed
+- RFID reader in UKB mode typing tag IDs into random input fields
+- Repeated tag scans filling inputs with duplicated EPC values
+- Filter not found errors when scanning offline (identifiers now cached separately)
+- Cleaning operations failing silently offline (start-cycle, checklist, equipment now queue properly)
+- Background error messages not visible to user (now shown as popup dialogs)
+- Fixed width sidebar breaking mobile layout
+
 ## [2.1.0] — 2026-04-04
 
 ### Added — Phase 2 Enhancements
@@ -109,3 +137,21 @@
 - 12 relationship types with cycle detection
 - Notification system (in-app, email, SMS)
 - Backup and restore with SHA-256 integrity verification
+
+---
+
+## Phase 3 Update (2026-04-07)
+
+**RFID & Offline Operations:**
+- RFID Scanner Android app (`rfid_scan_app/`) for KC-series UHF readers
+- RFID keyboard guard prevents UKB tag input leaking into random fields
+- Offline cleaning operations via IndexedDB queue + sync engine
+- Cached identifier→filter map for offline RFID lookup
+- "Data Synced" indicator in mobile header
+- One identifier per entity (backend-enforced)
+- Responsive layout with collapsible sidebar
+- Error popups replace inline banners
+- User creation auto-assigns org for admins
+- `/api/roles/active` public endpoint for contact-admin page
+
+See `CHANGELOG.md` for full details.

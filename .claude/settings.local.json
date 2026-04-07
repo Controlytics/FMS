@@ -324,7 +324,14 @@
       "Bash(findstr \"node\")",
       "Bash(findstr \":6379\")",
       "Bash(WMIC PROCESS WHERE ProcessId=13052 GET Name,ExecutablePath)",
-      "Bash(findstr \":5175\\\\|:3000\")"
+      "Bash(findstr \":5175\\\\|:3000\")",
+      "Bash(openssl x509:*)",
+      "Bash(findstr \":3000\\\\|:5175\")",
+      "Bash(NODE_TLS_REJECT_UNAUTHORIZED=0 npx tsx src/app.ts)",
+      "Bash(kill %1 %2 %3 %4 %5)",
+      "Bash(NODE_TLS_REJECT_UNAUTHORIZED=0 npx vite build)",
+      "Bash(npx:*)",
+      "Read(//tmp/**)"
     ],
     "deny": [],
     "ask": []

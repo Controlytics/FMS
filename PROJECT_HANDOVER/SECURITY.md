@@ -86,3 +86,21 @@ Sensitive actions (user delete, config change) require password re-entry:
 - Single-server deployment (no secrets rotation automation)
 - Filter bypass does not require electronic signature (deviation is logged but not signed)
 - EC2 IP (34.232.224.0) may change on restart -- consider Elastic IP
+
+---
+
+## Phase 3 Update (2026-04-07)
+
+**RFID & Offline Operations:**
+- RFID Scanner Android app (`rfid_scan_app/`) for KC-series UHF readers
+- RFID keyboard guard prevents UKB tag input leaking into random fields
+- Offline cleaning operations via IndexedDB queue + sync engine
+- Cached identifier→filter map for offline RFID lookup
+- "Data Synced" indicator in mobile header
+- One identifier per entity (backend-enforced)
+- Responsive layout with collapsible sidebar
+- Error popups replace inline banners
+- User creation auto-assigns org for admins
+- `/api/roles/active` public endpoint for contact-admin page
+
+See `CHANGELOG.md` for full details.

@@ -32,6 +32,16 @@ DigiLog is an IoT data logging platform designed for regulated industries requir
 - **Bulk Upload** — CSV-based bulk filter import
 - **Retirement & Replacement** — Filter lifecycle end management
 
+### Phase 3 — RFID & Offline Operations
+- **RFID Scanner App** — Native Android app (`rfid_scan_app/`) for KC-series UHF readers via USB-C
+- **RFID Integration** — Global keyboard guard prevents UKB tag input leaking into random fields; scan dialogs detect tags with deduplication and show filter name + AHU
+- **Offline Cleaning Operations** — Mobile APK caches templates, instances, cleaning reasons, and identifiers to IndexedDB; all operations (advance, start-cycle, checklist, equipment) queue when offline and auto-sync on reconnect
+- **Offline RFID Lookup** — Cached identifier→filter map enables tag scanning without internet
+- **Data Synced Indicator** — Visual badge in mobile header confirms when data is safe to go offline
+- **Responsive Layout** — Sidebar collapses to hamburger menu on mobile/tablet screens
+- **Error Popups** — Errors displayed as modal dialogs instead of background banners
+- **One Identifier Per Entity** — Enforced at backend service layer
+
 ## Tech Stack
 
 | Component | Technology |
@@ -146,3 +156,21 @@ GET  /api/equipment-groups           — List equipment groups
 ## License
 
 Proprietary — Pankaj Exa Technologies
+
+---
+
+## Phase 3 Update (2026-04-07)
+
+**RFID & Offline Operations:**
+- RFID Scanner Android app (`rfid_scan_app/`) for KC-series UHF readers
+- RFID keyboard guard prevents UKB tag input leaking into random fields
+- Offline cleaning operations via IndexedDB queue + sync engine
+- Cached identifier→filter map for offline RFID lookup
+- "Data Synced" indicator in mobile header
+- One identifier per entity (backend-enforced)
+- Responsive layout with collapsible sidebar
+- Error popups replace inline banners
+- User creation auto-assigns org for admins
+- `/api/roles/active` public endpoint for contact-admin page
+
+See `CHANGELOG.md` for full details.
