@@ -61,9 +61,18 @@ export default async function mqttAuthRoutes(app: FastifyInstance) {
 
     // Allow server client (internal DigiLog server)
     if (username.startsWith(SERVER_PREFIX)) {
-      const expectedPassword = process.env.EMQX_ADMIN_PASSWORD ?? '';
+      const expectedPassword = process.env.EMQX_ADMIN_PASSWORD;
+      if (!expectedPassword) {
+        return reply.code(500).send({ result: 'deny', message: 'EMQX_ADMIN_PASSWORD not configured' });
+      }
       const { password } = req.body as { password?: string };
-      if (password === expectedPassword) {
+      if (!password) {
+        return reply.code(401).send({ result: 'deny', message: 'Missing server password' });
+      }
+      // Constant-time comparison to prevent timing attacks
+      const expected = Buffer.from(expectedPassword, 'utf8');
+      const actual = Buffer.from(password, 'utf8');
+      if (expected.length === actual.length && require('crypto').timingSafeEqual(expected, actual)) {
         return { result: 'allow' };
       }
       return reply.code(401).send({ result: 'deny', message: 'Invalid server credentials' });

@@ -5,6 +5,9 @@ import { DB_TABLES, type BackupData } from './backup.helpers.js';
 // Raw SQL fetch (used for SQL and CSV exports — returns actual DB column names)
 // ---------------------------------------------------------------------------
 
+// Columns to strip from backup exports (sensitive data)
+const SENSITIVE_COLUMNS = ['password_hash', 'passwordHash', 'password_history'];
+
 export async function fetchAllTablesRaw(): Promise<Record<string, Record<string, any>[]>> {
   const result: Record<string, Record<string, any>[]> = {};
   for (const table of DB_TABLES) {
@@ -12,7 +15,12 @@ export async function fetchAllTablesRaw(): Promise<Record<string, Record<string,
     const rows = await prisma.$queryRawUnsafe(
       `SELECT * FROM "${table}"${orderClause}`,
     ) as Record<string, any>[];
-    result[table] = rows;
+    // Strip sensitive columns from export
+    result[table] = rows.map(row => {
+      const clean = { ...row };
+      for (const col of SENSITIVE_COLUMNS) { delete clean[col]; }
+      return clean;
+    });
   }
   return result;
 }

@@ -303,6 +303,11 @@ registerNode({
     try {
       const tableName = (config.tableName as string) ?? '';
       if (!tableName || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) return { output: 'Failure', message, log: 'Invalid table name' };
+      // Security: only allow telemetry/timeseries tables — block access to application tables
+      const ALLOWED_TABLE_PREFIXES = ['ts_', 'telemetry_', 'timeseries_', 'custom_'];
+      if (!ALLOWED_TABLE_PREFIXES.some(p => tableName.startsWith(p))) {
+        return { output: 'Failure', message, log: `Table "${tableName}" not allowed. Only tables starting with: ${ALLOWED_TABLE_PREFIXES.join(', ')}` };
+      }
       let mapping: Record<string, string>;
       try { mapping = JSON.parse((config.columnMapping as string) ?? '{}'); } catch { return { output: 'Failure', message, log: 'Invalid column mapping JSON' }; }
       const validEntries = Object.entries(mapping).filter(([, c]) => typeof c === 'string' && /^[a-zA-Z_][a-zA-Z0-9_]{0,62}$/.test(c));

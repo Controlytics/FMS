@@ -24,8 +24,9 @@ export default async function uploadRoutes(app: FastifyInstance) {
   // Ensure directories exist on startup
   await ensureDirectories();
 
-  // POST /api/uploads/photo - Upload profile photo
+  // POST /api/uploads/photo - Upload profile photo (authenticated users only)
   app.post('/photo', {
+    preHandler: [app.requirePermission('USER_UPDATE')],
     schema: {
       tags: ['Uploads'],
       summary: 'Upload a profile photo',

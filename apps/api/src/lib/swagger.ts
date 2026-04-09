@@ -19,8 +19,7 @@ export async function registerSwagger(app: FastifyInstance) {
 3. All subsequent requests will include the token
 
 ## Default Credentials
-- **Username:** \`admin\`
-- **Password:** \`Admin@123\`
+- Contact your system administrator for initial credentials
 - First login will require password change
 
 ## Roles & Permissions

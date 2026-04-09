@@ -162,7 +162,10 @@ async function main() {
   console.log('  Created default roles');
 
   // 2. Create default SUPER_ADMIN
-  const defaultPassword = process.env.INITIAL_ADMIN_PASSWORD ?? 'Admin@123';
+  const defaultPassword = process.env.INITIAL_ADMIN_PASSWORD;
+  if (!defaultPassword) {
+    throw new Error('FATAL: INITIAL_ADMIN_PASSWORD env var must be set for seeding. Cannot use hardcoded default.');
+  }
   const passwordHash = await bcrypt.hash(defaultPassword, 12);
 
   await prisma.user.upsert({

@@ -66,6 +66,13 @@ import adminRequestRoutes from './modules/admin-requests/routes.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const httpsOptions = process.env.API_HTTPS === 'true'
+  ? {
+      key: fs.readFileSync(path.resolve(__dirname, '../../../certs/server.key')),
+      cert: fs.readFileSync(path.resolve(__dirname, '../../../certs/server.crt')),
+    }
+  : null;
+
 const app = Fastify({
   logger: {
     level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
@@ -77,15 +84,19 @@ const app = Fastify({
       keywords: ['example'],
     },
   },
-  // API runs on HTTP — Vite HTTPS proxy handles browser→API connection
+  ...(httpsOptions ? { https: httpsOptions } : {}),
 });
 
 // Swagger API docs (register before routes)
 await registerSwagger(app);
 
 // Core middleware
+const corsOrigins = process.env.ALLOWED_ORIGINS;
+if (!corsOrigins && process.env.NODE_ENV === 'production') {
+  throw new Error('FATAL: ALLOWED_ORIGINS env var must be set in production');
+}
 await app.register(cors, {
-  origin: (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173,http://localhost:5175,http://192.168.1.22:5175').split(','),
+  origin: (corsOrigins ?? 'http://localhost:5173,http://localhost:5175,https://localhost').split(','),
   credentials: true,
   methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-reauth-password'],
@@ -173,7 +184,7 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
   }
   return reply.code(err.statusCode ?? 500).send({
     error: 'INTERNAL_ERROR',
-    message: process.env.NODE_ENV === 'production' ? 'Internal server error' : (err.message || 'Internal server error').substring(0, 200),
+    message: process.env.NODE_ENV === 'development' ? (err.message || 'Internal server error').substring(0, 200) : 'Internal server error',
   });
 });
 

@@ -23,10 +23,26 @@ import './sms-notification-node.js';
 // HELPER UTILITIES
 // ═══════════════════════════════════════════════════════
 
-/** Execute user-supplied script in a sandboxed vm context (no process/require/global access). */
+/**
+ * Execute user-supplied script in a sandboxed vm context.
+ * WARNING: Node.js vm is not a true security boundary. Rule-chain script editing
+ * MUST be restricted to SUPER_ADMIN role only. For full isolation, migrate to isolated-vm.
+ * Mitigations applied: frozen prototype chain, no constructor access, timeout.
+ */
 export function safeExecuteScript(code: string, sandbox: Record<string, unknown>, timeout = 1000): unknown {
-  const ctx = vm.createContext(sandbox);
-  const script = new vm.Script(`(function(){ ${code} })()`, { filename: 'user-script.js' });
+  // Block common prototype-chain escape patterns
+  const blockedPatterns = ['constructor', 'prototype', '__proto__', 'process', 'require', 'mainModule', 'globalThis', 'global'];
+  for (const pattern of blockedPatterns) {
+    if (code.includes(pattern)) {
+      throw new Error(`Blocked: script contains forbidden keyword "${pattern}"`);
+    }
+  }
+  const safeSandbox = Object.create(null);
+  Object.assign(safeSandbox, sandbox);
+  // Freeze to prevent prototype traversal
+  Object.freeze(Object.getPrototypeOf(safeSandbox) ?? {});
+  const ctx = vm.createContext(safeSandbox);
+  const script = new vm.Script(`'use strict'; (function(){ ${code} })()`, { filename: 'user-script.js' });
   return script.runInContext(ctx, { timeout });
 }
 

@@ -25,8 +25,8 @@ export default async function authRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['username', 'password'],
         properties: {
-          username: { type: 'string', example: 'admin' },
-          password: { type: 'string', example: 'Admin@123' },
+          username: { type: 'string', example: 'your-username' },
+          password: { type: 'string', example: 'your-password' },
           force: { type: 'boolean', description: 'Force login by terminating existing sessions' },
         },
       },

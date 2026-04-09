@@ -38,9 +38,11 @@ async function getRoleScope(roleName: string): Promise<string> {
   return scope;
 }
 
+const isProduction = process.env.NODE_ENV === 'production';
 const PUBLIC_PATHS = [
   '/api/auth/login', '/api/auth/forgot-password', '/api/auth/beacon-logout',
-  '/api/health', '/docs', '/docs/',
+  '/api/health',
+  ...(isProduction ? [] : ['/docs', '/docs/']),  // Swagger only public in non-production
   '/api/internal/mqtt',  // EMQX auth callbacks (no JWT)
   '/api/ws',             // WebSocket (authenticates via message flow)
   '/api/notification-settings/email/oauth2/code', // OAuth2 callback (no JWT - redirect from Microsoft/Google)

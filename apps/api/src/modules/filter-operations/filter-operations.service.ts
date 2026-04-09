@@ -48,17 +48,23 @@ function collectChecklistsAfterStage(
  * Resolve checklist questions for CHECKLIST pipeline nodes.
  */
 async function resolveChecklistQuestions(checklistNodes: any[]): Promise<any[]> {
+  // Batch: collect all profile IDs, query once
+  const profileIds = [...new Set(
+    checklistNodes.map(n => (n.configuration as any)?.checklistProfileId).filter(Boolean),
+  )];
+  if (profileIds.length === 0) return [];
+
+  const profiles = await prisma.checklistProfile.findMany({
+    where: { id: { in: profileIds }, isActive: true },
+    include: { questions: { orderBy: { sortOrder: 'asc' } } },
+  });
+  const profileMap = new Map(profiles.map(p => [p.id, p]));
+
   const result: any[] = [];
   for (const node of checklistNodes) {
-    const config = node.configuration as any; // Prisma Json type
-    const checklistProfileId = config?.checklistProfileId;
-    if (!checklistProfileId) continue;
-
-    const profile = await prisma.checklistProfile.findUnique({
-      where: { id: checklistProfileId },
-      include: { questions: { orderBy: { sortOrder: 'asc' } } },
-    });
-    if (!profile || !profile.isActive) continue;
+    const checklistProfileId = (node.configuration as any)?.checklistProfileId;
+    const profile = checklistProfileId ? profileMap.get(checklistProfileId) : undefined;
+    if (!profile) continue;
 
     result.push({
       pipelineNodeId: node.id,
@@ -531,15 +537,13 @@ export class FilterOperationsService {
         const pendingCLNodes = collectChecklistsAfterStage(currentStageForCL, cp.stages, cp.connections)
           .filter(n => n.configuration?.checklistProfileId);
 
-        // Only enforce checklists whose profiles are still active
-        const activeCLNodes: typeof pendingCLNodes = [];
-        for (const node of pendingCLNodes) {
-          const clProfile = await prisma.checklistProfile.findUnique({
-            where: { id: (node.configuration as any).checklistProfileId },
-            select: { isActive: true },
-          });
-          if (clProfile?.isActive) activeCLNodes.push(node);
-        }
+        // Only enforce checklists whose profiles are still active (batch query)
+        const clProfileIds = [...new Set(pendingCLNodes.map(n => (n.configuration as any).checklistProfileId).filter(Boolean))];
+        const activeProfiles = clProfileIds.length > 0
+          ? await prisma.checklistProfile.findMany({ where: { id: { in: clProfileIds }, isActive: true }, select: { id: true } })
+          : [];
+        const activeProfileIds = new Set(activeProfiles.map(p => p.id));
+        const activeCLNodes = pendingCLNodes.filter(n => activeProfileIds.has((n.configuration as any).checklistProfileId));
 
         if (activeCLNodes.length > 0) {
           const answered = await prisma.filterEvent.findFirst({
@@ -963,9 +967,19 @@ export class FilterOperationsService {
       if (row.currentLifecycleState) stageCounts[row.currentLifecycleState] = row._count;
     }
 
+    // Org-scoped filter IDs for cycle queries (prevents cross-tenant data leak)
+    const orgFilterIds = ctx.organizationId
+      ? (await prisma.assetInstance.findMany({
+          where: { organizationId: ctx.organizationId, template: { name: 'Filter' } },
+          select: { id: true },
+        })).map(f => f.id)
+      : null;
+    const cycleOrgWhere = orgFilterIds ? { filterId: { in: orgFilterIds } } : {};
+
     // 2. Cycle status breakdown
     const statusCountsRaw = await prisma.cleaningCycle.groupBy({
       by: ['status'],
+      where: cycleOrgWhere,
       _count: true,
     });
     const statusCounts: Record<string, number> = {};
@@ -973,33 +987,45 @@ export class FilterOperationsService {
 
     // 3. Daily cycle counts (last 30 days)
     const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const dailyRaw: any[] = await prisma.$queryRawUnsafe(`
-      SELECT DATE(started_at) as day, COUNT(*)::int as count
-      FROM cleaning_cycles
-      WHERE started_at >= $1
-      GROUP BY DATE(started_at)
-      ORDER BY day
-    `, thirtyDaysAgo);
+    const dailyRaw: any[] = orgFilterIds
+      ? await prisma.$queryRawUnsafe(`
+          SELECT DATE(started_at) as day, COUNT(*)::int as count
+          FROM cleaning_cycles
+          WHERE started_at >= $1 AND filter_id = ANY($2::uuid[])
+          GROUP BY DATE(started_at) ORDER BY day
+        `, thirtyDaysAgo, orgFilterIds)
+      : await prisma.$queryRawUnsafe(`
+          SELECT DATE(started_at) as day, COUNT(*)::int as count
+          FROM cleaning_cycles
+          WHERE started_at >= $1
+          GROUP BY DATE(started_at) ORDER BY day
+        `, thirtyDaysAgo);
     const dailyCycles = dailyRaw.map(r => ({ day: r.day, count: r.count }));
 
     // 4. Monthly cycle counts (last 12 months)
     const twelveMonthsAgo = new Date(); twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
-    const monthlyRaw: any[] = await prisma.$queryRawUnsafe(`
-      SELECT TO_CHAR(started_at, 'YYYY-MM') as month, COUNT(*)::int as count
-      FROM cleaning_cycles
-      WHERE started_at >= $1
-      GROUP BY TO_CHAR(started_at, 'YYYY-MM')
-      ORDER BY month
-    `, twelveMonthsAgo);
+    const monthlyRaw: any[] = orgFilterIds
+      ? await prisma.$queryRawUnsafe(`
+          SELECT TO_CHAR(started_at, 'YYYY-MM') as month, COUNT(*)::int as count
+          FROM cleaning_cycles
+          WHERE started_at >= $1 AND filter_id = ANY($2::uuid[])
+          GROUP BY TO_CHAR(started_at, 'YYYY-MM') ORDER BY month
+        `, twelveMonthsAgo, orgFilterIds)
+      : await prisma.$queryRawUnsafe(`
+          SELECT TO_CHAR(started_at, 'YYYY-MM') as month, COUNT(*)::int as count
+          FROM cleaning_cycles
+          WHERE started_at >= $1
+          GROUP BY TO_CHAR(started_at, 'YYYY-MM') ORDER BY month
+        `, twelveMonthsAgo);
     const monthlyCycles = monthlyRaw.map(r => ({ month: r.month, count: r.count }));
 
     // 5. Total filters + active cycles
     const totalFilters = await prisma.assetInstance.count({
       where: { isActive: true, ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}), template: { name: 'Filter' } },
     });
-    const activeCycles = await prisma.cleaningCycle.count({ where: { status: 'IN_PROGRESS' } });
+    const activeCycles = await prisma.cleaningCycle.count({ where: { status: 'IN_PROGRESS', ...cycleOrgWhere } });
     const completedToday = await prisma.cleaningCycle.count({
-      where: { status: 'COMPLETED', completedAt: { gte: new Date(new Date().toISOString().slice(0, 10)) } },
+      where: { status: 'COMPLETED', completedAt: { gte: new Date(new Date().toISOString().slice(0, 10)) }, ...cycleOrgWhere },
     });
 
     return { stageCounts, statusCounts, dailyCycles, monthlyCycles, totalFilters, activeCycles, completedToday };
@@ -1062,8 +1088,8 @@ export class FilterOperationsService {
       filterName: assetMap.get(c.filterId)?.name ?? null,
       filterSet: assetMap.get(c.filterId)?.filterSet ?? null,
       cleaningAreaName: c.cleaningAreaId ? (assetMap.get(c.cleaningAreaId)?.name ?? null) : null,
-      ...(c.events ? {
-        events: c.events.map((e: any) => ({
+      ...((c as any).events ? {
+        events: (c as any).events.map((e: any) => ({
           ...e,
           performedByName: e.performedBy ? userMap.get(e.performedBy) ?? null : null,
         })),
@@ -1192,16 +1218,16 @@ export class FilterOperationsService {
       throw new AppError(400, 'ALREADY_RETIRED', 'Filter is already retired');
     }
 
-    // Terminate active cycle if any
-    if (filter.currentCycleId) {
-      await prisma.cleaningCycle.updateMany({
-        where: { id: filter.currentCycleId, status: 'IN_PROGRESS' },
-        data: { status: 'TERMINATED', completedAt: new Date() },
-      });
-    }
-
-    // Retire the filter and remove from entity tree
+    // Retire the filter, terminate cycle, and remove from tree — all in one transaction
     await prisma.$transaction(async (tx) => {
+      // Terminate active cycle if any
+      if (filter.currentCycleId) {
+        await tx.cleaningCycle.updateMany({
+          where: { id: filter.currentCycleId, status: 'IN_PROGRESS' },
+          data: { status: 'TERMINATED', completedAt: new Date() },
+        });
+      }
+
       await tx.assetInstance.update({
         where: { id: filterId },
         data: {

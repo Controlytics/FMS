@@ -6,9 +6,11 @@ import * as backupService from './backup.service.js';
 
 export default async function backupRoutes(app: FastifyInstance) {
 
-  // GET /api/backup/export — Generate and download backup
+  // GET /api/backup/export — Generate and download backup (SUPER_ADMIN only)
   app.get('/export', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    preHandler: [app.requirePermission('CONFIG_UPDATE'), async (req, reply) => {
+      if (req.user?.role !== 'SUPER_ADMIN') return reply.code(403).send({ error: 'FORBIDDEN', message: 'Only SUPER_ADMIN can export backups' });
+    }],
     schema: {
       tags: ['Backup'],
       summary: 'Export database backup',

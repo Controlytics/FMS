@@ -514,6 +514,7 @@ model AssetInstance {
   @@index([parentId])
   @@index([name])
   @@index([isActive])
+  @@index([organizationId, currentLifecycleState])
   @@map("asset_instances")
 }
 
