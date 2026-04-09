@@ -272,6 +272,25 @@ export class FilterOperationsService {
         include: { instruments: { orderBy: { sortOrder: 'asc' } } },
       });
     }
+    // Fallback: if cycle has no equipment group but has a cleaning area (block),
+    // return the first active equipment group for that block so the UI can surface
+    // instrument operating ranges (e.g. dryer temperature dropdown).
+    if (!equipmentGroup && currentCycle?.cleaningAreaId) {
+      equipmentGroup = await prisma.equipmentGroup.findFirst({
+        where: { blockId: currentCycle.cleaningAreaId, isActive: true },
+        include: { instruments: { orderBy: { sortOrder: 'asc' } } },
+      });
+    }
+
+    // If no equipment group resolved but block is known, return all active groups
+    // for that block so the frontend can offer a selector (or auto-pick the only one).
+    let blockEquipmentGroups: any[] = [];
+    if (!equipmentGroup && currentCycle?.cleaningAreaId) {
+      blockEquipmentGroups = await prisma.equipmentGroup.findMany({
+        where: { blockId: currentCycle.cleaningAreaId, isActive: true },
+        include: { instruments: { orderBy: { sortOrder: 'asc' } } },
+      });
+    }
 
     return {
       filterId: filter.id,
@@ -286,6 +305,7 @@ export class FilterOperationsService {
       filterSet: filter.filterSet,
       totalCycles,
       equipmentGroup,
+      blockEquipmentGroups,
     };
   }
 
@@ -487,7 +507,7 @@ export class FilterOperationsService {
 
   /** @param data - Validated by Fastify JSON schema before reaching this method */
   async advance(ctx: RequestContext, filterId: string, data: any) {
-    const { targetState, parameters, equipmentId, cleaningAreaId, instrumentReadings, equipmentGroupId } = data;
+    const { targetState, parameters, equipmentId, cleaningAreaId, instrumentReadings, equipmentGroupId, dryerAction, dryerDurationMinutes } = data;
     const remarks = typeof data.remarks === "string" ? data.remarks.replace(/</g, "&lt;").replace(/>/g, "&gt;") : data.remarks;
 
     const filter = await this.getFilter(filterId, ctx);
@@ -607,10 +627,56 @@ export class FilterOperationsService {
       if (!eqGroup) throw new AppError(400, 'INVALID_EQUIPMENT_GROUP', 'Equipment group not found or inactive');
     }
 
+    // Dryer SET_DURATION: must be advancing INTO DRY_IN, no readings expected
+    if (dryerAction === 'SET_DURATION') {
+      if (targetState !== 'DRY_IN') throw new AppError(400, 'INVALID_DRYER_ACTION', 'SET_DURATION only valid for DRY_IN');
+      if (!dryerDurationMinutes || dryerDurationMinutes < 1) throw new AppError(400, 'INVALID_DURATION', 'dryerDurationMinutes required');
+    }
+
+    // Dryer SUBMIT_READINGS: validate half-time elapsed
+    if (dryerAction === 'SUBMIT_READINGS') {
+      if (filter.currentLifecycleState !== 'DRY_IN') throw new AppError(400, 'NOT_IN_DRY_IN', 'Filter is not in DRY_IN');
+      if (!cycle.dryerStartedAt || !cycle.dryerDurationMinutes) {
+        throw new AppError(400, 'DRYER_NOT_STARTED', 'Dryer duration not set');
+      }
+      const halfMs = (cycle.dryerDurationMinutes * 60_000) / 2;
+      const elapsedMs = Date.now() - new Date(cycle.dryerStartedAt).getTime();
+      if (elapsedMs < halfMs) {
+        const remainingMin = Math.ceil((halfMs - elapsedMs) / 60_000);
+        throw new AppError(400, 'DRYER_NOT_READY', `Dryer still running. Wait ${remainingMin} more minute(s).`);
+      }
+    }
+
+    // Guard: leaving DRY_IN requires the dryer to have run at least half its duration
+    if (filter.currentLifecycleState === 'DRY_IN' && targetState !== 'DRY_IN') {
+      if (cycle.dryerStartedAt && cycle.dryerDurationMinutes) {
+        const halfMs = (cycle.dryerDurationMinutes * 60_000) / 2;
+        const elapsedMs = Date.now() - new Date(cycle.dryerStartedAt).getTime();
+        if (elapsedMs < halfMs) {
+          const remainingMin = Math.ceil((halfMs - elapsedMs) / 60_000);
+          throw new AppError(400, 'DRYER_NOT_READY', `Dryer still running. Wait ${remainingMin} more minute(s) before leaving DRY_IN.`);
+        }
+      }
+    }
+
     // Validate instrument readings if provided
     let validatedReadings: any = null;
     if (instrumentReadings && typeof instrumentReadings === 'object' && Object.keys(instrumentReadings).length > 0) {
-      const cycleGroupId = equipmentGroupId ?? cycle.equipmentGroupId;
+      let cycleGroupId = equipmentGroupId ?? cycle.equipmentGroupId;
+      // Auto-resolve: if no group on cycle but block is known, pick the block's active group
+      if (!cycleGroupId && cycle.cleaningAreaId) {
+        const blockGroups = await prisma.equipmentGroup.findMany({
+          where: { blockId: cycle.cleaningAreaId, isActive: true },
+          select: { id: true },
+        });
+        if (blockGroups.length === 1) {
+          cycleGroupId = blockGroups[0].id;
+          // Persist on cycle so future requests don't need to re-resolve
+          await prisma.cleaningCycle.update({ where: { id: cycle.id }, data: { equipmentGroupId: cycleGroupId } });
+        } else if (blockGroups.length > 1) {
+          throw new AppError(400, 'MULTIPLE_EQUIPMENT_GROUPS', 'Multiple equipment groups found for this block. Please select one.');
+        }
+      }
       if (!cycleGroupId) throw new AppError(400, 'NO_EQUIPMENT_GROUP', 'Equipment group must be selected before submitting readings');
 
       const eqGroup = await prisma.equipmentGroup.findUnique({
@@ -619,8 +685,9 @@ export class FilterOperationsService {
       });
       if (!eqGroup) throw new AppError(400, 'INVALID_EQUIPMENT_GROUP', 'Equipment group not found');
 
-      // Filter instruments for the target stage
-      const stageInstruments = eqGroup.instruments.filter(i => i.stageKey === targetState);
+      // Filter instruments for the target stage (or DRY_IN when submitting dryer readings)
+      const readingsStageKey = dryerAction === 'SUBMIT_READINGS' ? 'DRY_IN' : targetState;
+      const stageInstruments = eqGroup.instruments.filter(i => i.stageKey === readingsStageKey);
 
       validatedReadings = [];
       for (const inst of stageInstruments) {
@@ -699,6 +766,30 @@ export class FilterOperationsService {
         await tx.cleaningCycle.update({
           where: { id: cycle.id },
           data: { equipmentGroupId },
+        });
+      }
+
+      // Dryer SET_DURATION: persist duration + start time, emit DRYER_STARTED event
+      if (dryerAction === 'SET_DURATION') {
+        const startedAt = new Date();
+        await tx.cleaningCycle.update({
+          where: { id: cycle.id },
+          data: { dryerDurationMinutes, dryerStartedAt: startedAt },
+        });
+        const dryerEvent = {
+          filterId, cycleId: cycle.id, eventType: 'STATE_TRANSITION' as const,
+          fromState: filter.currentLifecycleState, toState: targetState,
+          performedBy: ctx.userSub,
+          attributes: { dryerDurationMinutes, dryerStartedAt: startedAt.toISOString(), action: 'DRYER_STARTED' },
+          remarks: `Dryer started for ${dryerDurationMinutes} minute(s)`,
+        };
+        await tx.filterEvent.create({
+          data: {
+            ...dryerEvent,
+            checksum: computeChecksum(dryerEvent),
+            ipAddress: ctx.ipAddress,
+            telemetrySnapshot: {},
+          },
         });
       }
 
@@ -858,6 +949,62 @@ export class FilterOperationsService {
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
+  async getDashboardStats(ctx: RequestContext) {
+    const orgWhere = ctx.organizationId ? { filter: { organizationId: ctx.organizationId } } : {};
+
+    // 1. Filters by current lifecycle stage
+    const stageCountsRaw = await prisma.assetInstance.groupBy({
+      by: ['currentLifecycleState'],
+      where: { isActive: true, currentLifecycleState: { not: null }, ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}) },
+      _count: true,
+    });
+    const stageCounts: Record<string, number> = {};
+    for (const row of stageCountsRaw) {
+      if (row.currentLifecycleState) stageCounts[row.currentLifecycleState] = row._count;
+    }
+
+    // 2. Cycle status breakdown
+    const statusCountsRaw = await prisma.cleaningCycle.groupBy({
+      by: ['status'],
+      _count: true,
+    });
+    const statusCounts: Record<string, number> = {};
+    for (const row of statusCountsRaw) statusCounts[row.status] = row._count;
+
+    // 3. Daily cycle counts (last 30 days)
+    const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const dailyRaw: any[] = await prisma.$queryRawUnsafe(`
+      SELECT DATE(started_at) as day, COUNT(*)::int as count
+      FROM cleaning_cycles
+      WHERE started_at >= $1
+      GROUP BY DATE(started_at)
+      ORDER BY day
+    `, thirtyDaysAgo);
+    const dailyCycles = dailyRaw.map(r => ({ day: r.day, count: r.count }));
+
+    // 4. Monthly cycle counts (last 12 months)
+    const twelveMonthsAgo = new Date(); twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+    const monthlyRaw: any[] = await prisma.$queryRawUnsafe(`
+      SELECT TO_CHAR(started_at, 'YYYY-MM') as month, COUNT(*)::int as count
+      FROM cleaning_cycles
+      WHERE started_at >= $1
+      GROUP BY TO_CHAR(started_at, 'YYYY-MM')
+      ORDER BY month
+    `, twelveMonthsAgo);
+    const monthlyCycles = monthlyRaw.map(r => ({ month: r.month, count: r.count }));
+
+    // 5. Total filters + active cycles
+    const totalFilters = await prisma.assetInstance.count({
+      where: { isActive: true, ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}), template: { name: 'Filter' } },
+    });
+    const activeCycles = await prisma.cleaningCycle.count({ where: { status: 'IN_PROGRESS' } });
+    const completedToday = await prisma.cleaningCycle.count({
+      where: { status: 'COMPLETED', completedAt: { gte: new Date(new Date().toISOString().slice(0, 10)) } },
+    });
+
+    return { stageCounts, statusCounts, dailyCycles, monthlyCycles, totalFilters, activeCycles, completedToday };
+  }
+
   /** @param query - Validated by Fastify JSON schema before reaching this method */
   async getCycles(ctx: RequestContext, query: any) {
     // Verify filterId belongs to user's org if provided
@@ -900,11 +1047,27 @@ export class FilterOperationsService {
     }) : [];
     const assetMap = new Map(allAssets.map(a => [a.id, a]));
 
+    // Resolve performedBy UUIDs to user display names
+    const allPerformerIds = [...new Set(
+      data.flatMap((c: any) => (c.events ?? []).map((e: any) => e.performedBy).filter(Boolean)),
+    )] as string[];
+    const performers = allPerformerIds.length > 0 ? await prisma.user.findMany({
+      where: { id: { in: allPerformerIds } },
+      select: { id: true, username: true, fullName: true },
+    }) : [];
+    const userMap = new Map(performers.map(u => [u.id, u.fullName || u.username]));
+
     const enriched = data.map(c => ({
       ...c,
       filterName: assetMap.get(c.filterId)?.name ?? null,
       filterSet: assetMap.get(c.filterId)?.filterSet ?? null,
       cleaningAreaName: c.cleaningAreaId ? (assetMap.get(c.cleaningAreaId)?.name ?? null) : null,
+      ...(c.events ? {
+        events: c.events.map((e: any) => ({
+          ...e,
+          performedByName: e.performedBy ? userMap.get(e.performedBy) ?? null : null,
+        })),
+      } : {}),
     }));
 
     return { data: enriched, total, page, limit, totalPages: Math.ceil(total / limit) };
@@ -922,11 +1085,15 @@ export class FilterOperationsService {
       await this.getFilter(cycle.filterId, ctx);
     }
 
-    // Enrich with filter name
+    // Enrich with filter name and AHU (parent) name
     const filter = await prisma.assetInstance.findUnique({
       where: { id: cycle.filterId },
-      select: { id: true, name: true, filterSet: true },
+      select: { id: true, name: true, filterSet: true, parentId: true },
     });
+    const ahu = filter?.parentId ? await prisma.assetInstance.findUnique({
+      where: { id: filter.parentId },
+      select: { name: true },
+    }) : null;
 
     // Resolve performedBy UUIDs to user names
     const performerIds = [...new Set(cycle.events.map(e => e.performedBy).filter(Boolean) as string[])];
@@ -936,10 +1103,29 @@ export class FilterOperationsService {
     }) : [];
     const userMap = Object.fromEntries(users.map(u => [u.id, u.fullName || u.username]));
 
-    const enrichedEvents = cycle.events.map(e => ({
-      ...e,
-      performedByName: e.performedBy ? userMap[e.performedBy] ?? null : null,
-    }));
+    // Resolve checklist question IDs to question text
+    const allQuestionIds = cycle.events
+      .filter(e => e.eventType === 'CHECKLIST_COMPLETED' && (e.attributes as any)?.answers)
+      .flatMap(e => Object.keys((e.attributes as any).answers));
+    const uniqueQuestionIds = [...new Set(allQuestionIds)];
+    const questions = uniqueQuestionIds.length > 0 ? await prisma.checklistQuestion.findMany({
+      where: { id: { in: uniqueQuestionIds } },
+      select: { id: true, question: true },
+    }) : [];
+    const questionMap = new Map(questions.map(q => [q.id, q.question]));
+
+    const enrichedEvents = cycle.events.map(e => {
+      const enriched: any = { ...e, performedByName: e.performedBy ? userMap[e.performedBy] ?? null : null };
+      if (e.eventType === 'CHECKLIST_COMPLETED' && (e.attributes as any)?.answers) {
+        const answers = (e.attributes as any).answers;
+        enriched.enrichedAnswers = Object.entries(answers).map(([qId, answer]) => ({
+          questionId: qId,
+          question: questionMap.get(qId) ?? qId,
+          answer,
+        }));
+      }
+      return enriched;
+    });
 
     // Resolve cleaning area name
     const area = cycle.cleaningAreaId ? await prisma.assetInstance.findUnique({
@@ -952,6 +1138,7 @@ export class FilterOperationsService {
       events: enrichedEvents,
       filterName: filter?.name ?? null,
       filterSet: filter?.filterSet ?? null,
+      ahuName: ahu?.name ?? null,
       cleaningAreaName: area?.name ?? null,
     };
   }

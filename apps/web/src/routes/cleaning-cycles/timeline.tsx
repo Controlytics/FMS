@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
+import { createReport } from '../../lib/pdf-report';
 
 const EVENT_ICONS: Record<string, { icon: string; color: string; border: string; bg: string }> = {
   CYCLE_STARTED: { icon: '▶', color: 'text-cyan-600', border: 'border-cyan-500', bg: 'bg-cyan-50' },
@@ -38,6 +40,7 @@ export function CleaningCycleTimelinePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { formatDateTime, formatDate, formatTime } = useDatetimeFormat();
+  const [downloading, setDownloading] = useState(false);
   const { data: cycle, isLoading } = useSWR(id ? `/api/filters/cycles/${id}` : null);
 
   if (isLoading) return (
@@ -55,6 +58,91 @@ export function CleaningCycleTimelinePage() {
 
   const events = cycle.events ?? [];
 
+  const handleExportPDF = async () => {
+    setDownloading(true);
+    try {
+      const infoLine = [
+        `Filter: ${cycle.filterName ?? '-'}`,
+        cycle.ahuName ? `AHU: ${cycle.ahuName}` : '',
+        cycle.filterSet ? `Set ${cycle.filterSet.replace('SET_', '')}` : '',
+        `Status: ${cycle.status}`,
+      ].filter(Boolean).join('  |  ');
+
+      const report = await createReport({
+        title: 'Cleaning Cycle Detail',
+        subtitle: infoLine,
+        orientation: 'portrait',
+        formatDateTime,
+      });
+
+      // Summary key-values
+      report.addKeyValue([
+        ['Cleaning Reason', cycle.cleaningReasonLabel || cycle.cleaningReasonKey || '-'],
+        ['Block', cycle.cleaningAreaName ?? '-'],
+        ['Duration', durationStr],
+        ['Started', formatDateTime(cycle.startedAt)],
+        ['Completed', cycle.completedAt ? formatDateTime(cycle.completedAt) : 'In Progress'],
+        ['Events', `${events.length} event(s)`],
+      ]);
+
+      // Stage progress
+      report.addSectionTitle('Stage Progress');
+      const allStages = ['WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN', 'STORAGE_OUT'];
+      report.addTable({
+        head: allStages.map(s => STAGE_LABELS[s] ?? s),
+        body: [allStages.map(s => completedStages.includes(s) ? 'Done' : '-')],
+        headColor: [59, 130, 246],
+      });
+
+      // Events
+      report.addSectionTitle('Event Timeline');
+      const eventRows: string[][] = [];
+      const checklistRows: { eventIdx: number; qa: { question: string; answer: any }[] }[] = [];
+
+      events.forEach((ev: any, idx: number) => {
+        const attrs = ev.attributes ?? {};
+        const readings: any[] = attrs.instrumentReadings ?? [];
+        const readingsStr = readings.map((r: any) => `${r.description ?? ''}: ${r.value} ${r.uom ?? ''}`).join(', ');
+        eventRows.push([
+          String(idx + 1),
+          ev.eventType.replace(/_/g, ' '),
+          ev.fromState ? (STAGE_LABELS[ev.fromState] ?? ev.fromState) : '-',
+          ev.toState ? (STAGE_LABELS[ev.toState] ?? ev.toState) : '-',
+          ev.performedByName ?? '-',
+          formatDateTime(ev.performedAt),
+          readingsStr || ev.remarks || '-',
+        ]);
+        if (ev.enrichedAnswers?.length > 0) {
+          checklistRows.push({ eventIdx: idx + 1, qa: ev.enrichedAnswers });
+        }
+      });
+
+      report.addTable({
+        head: ['#', 'Event', 'From', 'To', 'Performed By', 'Time', 'Details'],
+        body: eventRows,
+        columnStyles: { 0: { cellWidth: 8, halign: 'center' }, 6: { cellWidth: 50 } },
+      });
+
+      // Checklist answers
+      for (const cl of checklistRows) {
+        report.addSectionTitle(`Checklist Responses (Event #${cl.eventIdx})`);
+        const qaRows = cl.qa.map((qa, i) => [
+          String(i + 1),
+          qa.question,
+          typeof qa.answer === 'boolean' ? (qa.answer ? 'Yes' : 'No') : String(qa.answer),
+        ]);
+        report.addTable({
+          head: ['#', 'Question', 'Answer'],
+          body: qaRows,
+          headColor: [21, 128, 61],
+          columnStyles: { 0: { cellWidth: 8, halign: 'center' }, 2: { cellWidth: 30 } },
+        });
+      }
+
+      report.save(`cycle-${cycle.filterName ?? 'filter'}-${formatDate(cycle.startedAt)}.pdf`);
+    } finally { setDownloading(false); }
+  };
+
   // Extract stage progress
   const completedStages = events
     .filter((e: any) => e.eventType === 'STATE_TRANSITION' && e.toState)
@@ -64,10 +152,23 @@ export function CleaningCycleTimelinePage() {
     <div className="h-full flex flex-col">
       {/* Header */}
       <div className="px-6 pt-6 pb-4 shrink-0 space-y-4">
-        <button onClick={() => navigate('/cleaning-cycles')} className="text-slate-500 hover:text-slate-700 text-sm flex items-center gap-1.5 transition-colors">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-          Back to History
-        </button>
+        <div className="flex items-center justify-between">
+          <button onClick={() => navigate('/cleaning-cycles')} className="text-slate-500 hover:text-slate-700 text-sm flex items-center gap-1.5 transition-colors">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+            Back to History
+          </button>
+          <button onClick={handleExportPDF} disabled={downloading}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+            {downloading ? (
+              <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            )}
+            Export PDF
+          </button>
+        </div>
 
         {/* Cycle Info Card */}
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -75,7 +176,17 @@ export function CleaningCycleTimelinePage() {
             <div className="flex items-start justify-between gap-4 mb-4">
               <div>
                 <div className="flex items-center gap-3">
-                  <h1 className="text-xl font-bold text-slate-800 font-mono">{cycle.cycleCode}</h1>
+                  <h1 className="text-xl font-bold text-slate-800">{cycle.filterName ?? 'Filter'}</h1>
+                  {cycle.ahuName && (
+                    <span className="px-2 py-0.5 text-[11px] rounded-full font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                      AHU: {cycle.ahuName}
+                    </span>
+                  )}
+                  {cycle.filterSet && (
+                    <span className={`px-2 py-0.5 text-[10px] rounded-full font-medium ${cycle.filterSet === 'SET_A' ? 'bg-indigo-50 text-indigo-700' : 'bg-purple-50 text-purple-700'}`}>
+                      Set {cycle.filterSet.replace('SET_', '')}
+                    </span>
+                  )}
                   <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full ${
                     cycle.status === 'COMPLETED' ? 'bg-green-50 text-green-700 border border-green-200'
                     : cycle.status === 'IN_PROGRESS' ? 'bg-blue-50 text-blue-700 border border-blue-200'
@@ -85,16 +196,6 @@ export function CleaningCycleTimelinePage() {
                     {cycle.status}
                   </span>
                 </div>
-                {cycle.filterName && (
-                  <div className="flex items-center gap-2 mt-1.5">
-                    <span className="text-sm text-slate-600 font-medium">{cycle.filterName}</span>
-                    {cycle.filterSet && (
-                      <span className={`px-2 py-0.5 text-[10px] rounded-full font-medium ${cycle.filterSet === 'SET_A' ? 'bg-indigo-50 text-indigo-700' : 'bg-purple-50 text-purple-700'}`}>
-                        Set {cycle.filterSet.replace('SET_', '')}
-                      </span>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
 
@@ -167,8 +268,9 @@ export function CleaningCycleTimelinePage() {
 
             // Filter out internal keys from attributes display
             const displayAttrs = Object.entries(attrs).filter(
-              ([k]) => !['cleaningReasonKey', 'cleaningReasonLabel', 'instrumentReadings', 'sequenceNumber'].includes(k)
+              ([k]) => !['cleaningReasonKey', 'cleaningReasonLabel', 'instrumentReadings', 'sequenceNumber', 'answers', 'afterStage'].includes(k)
             );
+            const enrichedAnswers: { questionId: string; question: string; answer: any }[] = event.enrichedAnswers ?? [];
 
             return (
               <div key={event.id} className="flex gap-4">
@@ -249,6 +351,26 @@ export function CleaningCycleTimelinePage() {
                             {reading.instrumentCode && reading.description && (
                               <div className="text-[10px] text-slate-300 mt-0.5 font-mono">{reading.instrumentCode}</div>
                             )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Checklist Answers */}
+                  {enrichedAnswers.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      <div className="text-xs text-slate-400 uppercase tracking-wider font-medium">Checklist Responses</div>
+                      <div className="space-y-1.5">
+                        {enrichedAnswers.map((qa, qi) => (
+                          <div key={qa.questionId} className="bg-white border border-slate-200 rounded-lg px-3 py-2.5 flex items-start gap-3">
+                            <span className="text-[11px] text-slate-400 font-medium mt-0.5 shrink-0">{qi + 1}.</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[13px] text-slate-700">{qa.question}</div>
+                              <div className="text-[13px] font-semibold text-slate-900 mt-0.5">
+                                {typeof qa.answer === 'boolean' ? (qa.answer ? 'Yes' : 'No') : String(qa.answer)}
+                              </div>
+                            </div>
                           </div>
                         ))}
                       </div>

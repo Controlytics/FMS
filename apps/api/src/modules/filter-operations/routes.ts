@@ -102,6 +102,8 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           checklistData: { type: 'object' },
           equipmentGroupId: { type: 'string', format: 'uuid' },
           instrumentReadings: { type: 'object', additionalProperties: { type: 'number' } },
+          dryerAction: { type: 'string', enum: ['SET_DURATION', 'SUBMIT_READINGS'] },
+          dryerDurationMinutes: { type: 'integer', minimum: 1, maximum: 1440 },
         },
       },
       response: {

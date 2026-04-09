@@ -1333,6 +1333,10 @@ model CleaningCycle {
 
   equipmentGroupId String? @map("equipment_group_id") @db.Uuid
 
+  // Dryer timing — tracks the dryer duration and start time for DRY_IN stage
+  dryerDurationMinutes Int?       @map("dryer_duration_minutes")
+  dryerStartedAt       DateTime?  @map("dryer_started_at") @db.Timestamptz
+
   events          FilterEvent[]
   equipmentGroup  EquipmentGroup?        @relation(fields: [equipmentGroupId], references: [id])
   profile         FilterCleaningProfile? @relation(fields: [profileId], references: [id])

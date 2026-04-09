@@ -1,6 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { apiClient } from '@/lib/api-client';
 
+interface QueueItem {
+  filterId: string;
+  filterName: string;
+  tagId: string;
+}
+
 interface StageScanDialogProps {
   activeStage: {
     key: string;
@@ -17,13 +23,18 @@ interface StageScanDialogProps {
   remarks: string;
   error: string;
   loading: boolean;
+  queue: QueueItem[];
+  addingToQueue: boolean;
   onScanValueChange: (value: string) => void;
   onRemarksChange: (value: string) => void;
   onClearError: () => void;
   onBlockSelect: (block: any) => void;
   onChangeBlock: () => void;
-  onSubmit: () => void;
+  onAddToQueue: (tagOrName: string) => void;
+  onRemoveFromQueue: (filterId: string) => void;
+  onSubmitBatch: () => void;
   onClose: () => void;
+  fullPage?: boolean;
 }
 
 export function StageScanDialog({
@@ -35,13 +46,18 @@ export function StageScanDialog({
   remarks,
   error,
   loading,
+  queue,
+  addingToQueue,
   onScanValueChange,
   onRemarksChange,
   onClearError,
   onBlockSelect,
   onChangeBlock,
-  onSubmit,
+  onAddToQueue,
+  onRemoveFromQueue,
+  onSubmitBatch,
   onClose,
+  fullPage = false,
 }: StageScanDialogProps) {
   // RFID: detected tag waiting for Continue/Remove
   const [rfidDetected, setRfidDetected] = useState<string | null>(null);
@@ -114,8 +130,20 @@ export function StageScanDialog({
 
   const handleContinue = () => {
     if (rfidDetected) {
-      onScanValueChange(rfidDetected);
-      onSubmit();
+      onAddToQueue(rfidDetected);
+      // Reset local scanner state for next scan
+      setRfidDetected(null);
+      setFilterInfo(null);
+      onScanValueChange('');
+    }
+  };
+
+  const handleManualAdd = () => {
+    if (scanValue.trim()) {
+      onAddToQueue(scanValue.trim());
+      setRfidDetected(null);
+      setFilterInfo(null);
+      onScanValueChange('');
     }
   };
 
@@ -128,9 +156,16 @@ export function StageScanDialog({
 
   if (!activeStage) return null;
 
+  const wrapperClass = fullPage
+    ? 'w-full'
+    : 'fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4';
+  const cardClass = fullPage
+    ? 'bg-white border border-slate-200 rounded-2xl w-full max-w-2xl mx-auto overflow-hidden'
+    : 'bg-white border border-slate-200 rounded-2xl w-full max-w-md overflow-hidden';
+
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+    <div className={wrapperClass} onClick={fullPage ? undefined : onClose}>
+      <div className={cardClass} onClick={e => e.stopPropagation()}>
         <div className={`bg-gradient-to-r ${activeStage.color} px-6 py-4 flex items-center gap-3`}>
           <span className="text-3xl">{activeStage.icon}</span>
           <div>
@@ -202,14 +237,14 @@ export function StageScanDialog({
                       className="flex-1 py-2.5 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-xl hover:bg-red-50">
                       Remove
                     </button>
-                    <button onClick={handleContinue} disabled={loading}
+                    <button onClick={handleContinue} disabled={addingToQueue}
                       className="flex-1 py-2.5 text-sm font-medium text-white bg-green-600 rounded-xl hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2">
-                      {loading ? (
+                      {addingToQueue ? (
                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                       ) : (
                         <>
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
-                          Continue
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
+                          Add to Queue
                         </>
                       )}
                     </button>
@@ -241,17 +276,45 @@ export function StageScanDialog({
 
               {error && <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
 
-              {/* Manual submit — only when no RFID tag detected */}
+              {/* Manual add to queue — only when no RFID tag detected */}
               {!rfidDetected && (
-                <div className="flex gap-3">
-                  <button onClick={onClose} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl">Cancel</button>
-                  <button onClick={onSubmit} disabled={loading || !scanValue.trim()}
-                    className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold disabled:opacity-40 flex items-center justify-center gap-2 hover:bg-green-500 transition-colors">
-                    {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> :
-                      <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>Submit</>}
-                  </button>
+                <button onClick={handleManualAdd} disabled={addingToQueue || !scanValue.trim()}
+                  className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium disabled:opacity-40 flex items-center justify-center gap-2 transition-colors">
+                  {addingToQueue ? <div className="w-5 h-5 border-2 border-slate-500 border-t-transparent rounded-full animate-spin" /> :
+                    <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>Add to Queue</>}
+                </button>
+              )}
+
+              {/* Queue display */}
+              {queue.length > 0 && (
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Queue ({queue.length})</span>
+                  </div>
+                  <div className="max-h-40 overflow-y-auto divide-y divide-slate-100">
+                    {queue.map((item, idx) => (
+                      <div key={item.filterId} className="px-4 py-2 flex items-center gap-2 text-sm">
+                        <span className="text-slate-400 text-xs w-5">{idx + 1}.</span>
+                        <span className="flex-1 font-medium text-slate-700 truncate">{item.filterName}</span>
+                        <button onClick={() => onRemoveFromQueue(item.filterId)}
+                          className="text-red-500 hover:text-red-700 text-xs font-medium px-2 py-1 rounded hover:bg-red-50">
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
+
+              {/* Action buttons */}
+              <div className="flex gap-3">
+                <button onClick={onClose} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl">Close</button>
+                <button onClick={onSubmitBatch} disabled={loading || queue.length === 0}
+                  className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold disabled:opacity-40 flex items-center justify-center gap-2 hover:bg-green-500 transition-colors">
+                  {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> :
+                    <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>Submit All ({queue.length})</>}
+                </button>
+              </div>
             </>
           )}
         </div>

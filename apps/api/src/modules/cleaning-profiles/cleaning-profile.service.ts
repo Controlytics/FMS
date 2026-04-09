@@ -176,17 +176,37 @@ export class CleaningProfileService {
       include: { stages: { orderBy: { sortOrder: 'asc' } } },
     });
 
-    // Create connections for new version
+    // Create connections for new version.
+    // IMPORTANT: old stage IDs from `existing.connections` (or payload echoing them)
+    // no longer exist — they belong to the archived version. Remap everything to
+    // new stage IDs via sortOrder (the stable index used when creating new stages).
     const conns = data.connections ?? existing.connections;
     if (conns && conns.length > 0) {
-      const stageMap = new Map<number, string>();
-      newProfile.stages.forEach((s, i) => stageMap.set(i, s.id));
+      // index → new stage id
+      const indexToNewId = new Map<number, string>();
+      newProfile.stages.forEach((s) => indexToNewId.set(s.sortOrder, s.id));
+
+      // old stage id → sortOrder (so we can translate payloads that still carry old IDs)
+      const oldIdToIndex = new Map<string, number>();
+      existing.stages.forEach((s) => oldIdToIndex.set(s.id, s.sortOrder));
+
+      const resolve = (stageId: string | undefined, idx: number | undefined): string | undefined => {
+        if (idx !== undefined && indexToNewId.has(idx)) return indexToNewId.get(idx);
+        if (stageId) {
+          // If the payload still references an old (archived) stage id, translate via sortOrder
+          const mappedIdx = oldIdToIndex.get(stageId);
+          if (mappedIdx !== undefined) return indexToNewId.get(mappedIdx);
+          // If it already matches a new stage id, use it as-is
+          if (newProfile.stages.some((s) => s.id === stageId)) return stageId;
+        }
+        return undefined;
+      };
 
       await tx.filterPipelineConnection.createMany({
         data: conns.map((c: any) => {
-          const fromId = c.fromStageId ?? stageMap.get(c.fromIndex);
+          const fromId = resolve(c.fromStageId, c.fromIndex);
           if (!fromId) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid connection: could not resolve source stage');
-          const toId = c.toStageId ?? stageMap.get(c.toIndex);
+          const toId = resolve(c.toStageId, c.toIndex);
           if (!toId) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid connection: could not resolve target stage');
           return {
             profileId: newProfile.id,
@@ -203,6 +223,19 @@ export class CleaningProfileService {
       where: { cleaningProfileId: id },
       data: { cleaningProfileId: newProfile.id },
     });
+
+    // Migrate config-based cleaning-profile assignment rules from old id → new id
+    const assignCfg = await tx.systemConfig.findUnique({ where: { configKey: 'cleaning-profile-assignment' } });
+    if (assignCfg?.configValue) {
+      const cfg = assignCfg.configValue as { mode: string; rules?: Array<{ matchValue: string; profileId: string }> };
+      if (Array.isArray(cfg.rules) && cfg.rules.some(r => r.profileId === id)) {
+        const nextRules = cfg.rules.map(r => r.profileId === id ? { ...r, profileId: newProfile.id } : r);
+        await tx.systemConfig.update({
+          where: { configKey: 'cleaning-profile-assignment' },
+          data: { configValue: { ...cfg, rules: nextRules } },
+        });
+      }
+    }
 
     return newProfile;
     }); // end transaction

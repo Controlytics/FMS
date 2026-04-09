@@ -44,6 +44,19 @@ const configCards = [
     gradient: 'from-emerald-500 to-teal-600',
     shadowColor: 'shadow-emerald-500/25',
   },
+  {
+    title: 'Dashboard Cards',
+    description: 'Configure which dashboard cards are visible per role',
+    href: '/config/dashboard-cards',
+    reauth: false,
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 5a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-3zm10-2a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1h-4a1 1 0 01-1-1v-5z" />
+      </svg>
+    ),
+    gradient: 'from-cyan-500 to-blue-600',
+    shadowColor: 'shadow-cyan-500/25',
+  },
 ];
 
 const superAdminCards = [

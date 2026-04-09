@@ -49,9 +49,10 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
           to: { type: 'string', format: 'date-time' },
           page: { type: 'integer', default: 1 },
           limit: { type: 'integer', default: 20 },
+          includeEvents: { type: 'string' },
         },
       },
-      response: { 200: { type: 'object', properties: { data: { type: 'array' }, total: { type: 'integer' } } }, ...errorResponses },
+      response: { 200: { type: 'object', properties: { data: { type: 'array' }, total: { type: 'integer' }, page: { type: 'integer' }, limit: { type: 'integer' }, totalPages: { type: 'integer' } } }, ...errorResponses },
     },
   }, async (req) => {
     const ctx = buildContext(req);
@@ -70,6 +71,19 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     return service.getCycleById(ctx, id);
+  });
+
+  // ─── Dashboard Analytics ───
+  app.get('/dashboard-stats', {
+    preHandler: [app.requirePermission('CYCLE_READ')],
+    schema: {
+      tags: ['Cleaning Cycles'],
+      summary: 'Dashboard analytics for cleaning operations',
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    return service.getDashboardStats(ctx);
   });
 
   app.get('/reasons', {

@@ -110,6 +110,37 @@ export default async function configRoutes(app: FastifyInstance) {
     return configService.getConfig('pagination', paginationConfigSchema);
   });
 
+  // Dashboard cards config — read for all authenticated users, write for admins
+  app.get('/dashboard-cards/current', {
+    schema: {
+      tags: ['Config'],
+      summary: 'Get dashboard card visibility settings',
+      response: { 200: { type: 'object', additionalProperties: true } },
+    },
+  }, async () => {
+    const row = await prisma.systemConfig.findUnique({ where: { configKey: 'dashboard-cards' } });
+    return row?.configValue ?? {};
+  });
+
+  app.put('/dashboard-cards', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Config'],
+      summary: 'Update dashboard card visibility per role',
+      body: { type: 'object', properties: { configValue: { type: 'object', additionalProperties: true } }, required: ['configValue'] },
+      response: { 200: { type: 'object', additionalProperties: true } },
+    },
+  }, async (req) => {
+    const { configValue } = req.body as { configValue: any };
+    const ctx = buildContext(req);
+    await prisma.systemConfig.upsert({
+      where: { configKey: 'dashboard-cards' },
+      update: { configValue, updatedBy: ctx.userSub },
+      create: { configKey: 'dashboard-cards', configValue, configType: 'display', requiresReauth: false, updatedBy: ctx.userSub },
+    });
+    return { success: true };
+  });
+
   // Public datetime config for all authenticated users (no admin role required)
   app.get('/datetime/current', {
     schema: {

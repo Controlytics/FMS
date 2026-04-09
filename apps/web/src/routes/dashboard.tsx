@@ -4,6 +4,7 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
+import { useMemo } from 'react';
 
 const statCardIcons = {
   users: (
@@ -73,6 +74,17 @@ export function DashboardPage() {
   const { data: userStats } = useSWR(isAdmin ? '/api/users/stats' : null, swrOpts);
   const { data: auditStats } = useSWR('/api/audit?limit=1', swrOpts);
   const { data: notifStats } = useSWR('/api/notifications?limit=1', swrOpts);
+  const { data: dashStats } = useSWR<any>('/api/filters/dashboard-stats', { ...swrOpts, refreshInterval: 60000 });
+  const { data: cardConfig } = useSWR<any>('/api/config/dashboard-cards/current', { revalidateOnFocus: false, dedupingInterval: 10000 });
+
+  // Resolve visible cards for current user's role
+  const visibleCards = useMemo(() => {
+    const roleName = user?.role ?? '';
+    const rolesMap: Record<string, string[]> = cardConfig?.roles ?? {};
+    // If no config exists yet, show all cards
+    return rolesMap[roleName] ?? null;
+  }, [cardConfig, user?.role]);
+  const showCard = (key: string) => visibleCards === null || visibleCards.includes(key);
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -114,7 +126,7 @@ export function DashboardPage() {
       <div>
         <h2 className="text-lg font-semibold text-slate-800 mb-4">Quick Overview</h2>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {isAdmin && (
+          {isAdmin && showCard('total_users') && (
             <StatCard
               title="Total Users"
               value={userStats?.total ?? '-'}
@@ -125,28 +137,35 @@ export function DashboardPage() {
             />
           )}
 
-          <StatCard
-            title="Audit Trail"
-            value={auditStats?.total ?? '-'}
-            icon={statCardIcons.audit}
-            href="/audit"
-            gradient="bg-gradient-to-r from-purple-500 to-pink-600"
-            delay="50ms"
-          />
+          {showCard('audit_trail') && (
+            <StatCard
+              title="Audit Trail"
+              value={auditStats?.total ?? '-'}
+              icon={statCardIcons.audit}
+              href="/audit"
+              gradient="bg-gradient-to-r from-purple-500 to-pink-600"
+              delay="50ms"
+            />
+          )}
 
-          <StatCard
-            title="Notifications"
-            value={notifStats?.total ?? '-'}
-            icon={statCardIcons.notifications}
-            href="/notifications"
-            gradient="bg-gradient-to-r from-amber-500 to-orange-600"
-            delay="100ms"
-          />
+          {showCard('notifications') && (
+            <StatCard
+              title="Notifications"
+              value={notifStats?.total ?? '-'}
+              icon={statCardIcons.notifications}
+              href="/notifications"
+              gradient="bg-gradient-to-r from-amber-500 to-orange-600"
+              delay="100ms"
+            />
+          )}
         </div>
       </div>
 
+      {/* Filter Cleaning Analytics */}
+      {dashStats && showCard('filter_analytics') && <FilterAnalytics stats={dashStats} showCard={showCard} />}
+
       {/* Quick Actions */}
-      <div>
+      {showCard('quick_actions') && <div>
         <h2 className="text-lg font-semibold text-slate-800 mb-4">Quick Actions</h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {isAdmin && (
@@ -202,7 +221,7 @@ export function DashboardPage() {
             </Link>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* Compliance Badge */}
       <div className="flex items-center justify-center py-4">
@@ -217,6 +236,184 @@ export function DashboardPage() {
             <p className="text-xs text-slate-500">{branding.companyName}</p>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Filter Cleaning Analytics ──────────────────────────────────────
+const STAGE_CFG: Record<string, { label: string; color: string; bg: string }> = {
+  WASH_IN: { label: 'Wash In', color: 'bg-sky-500', bg: 'bg-sky-50 text-sky-700' },
+  WASH_OUT: { label: 'Wash Out', color: 'bg-sky-400', bg: 'bg-sky-50 text-sky-600' },
+  DRY_IN: { label: 'Dry In', color: 'bg-amber-500', bg: 'bg-amber-50 text-amber-700' },
+  DRY_OUT: { label: 'Dry Out', color: 'bg-amber-400', bg: 'bg-amber-50 text-amber-600' },
+  STORAGE_IN: { label: 'Storage In', color: 'bg-slate-400', bg: 'bg-slate-100 text-slate-600' },
+  STORAGE_OUT: { label: 'Storage Out', color: 'bg-slate-300', bg: 'bg-slate-100 text-slate-500' },
+};
+
+const STATUS_CFG: Record<string, { label: string; color: string }> = {
+  IN_PROGRESS: { label: 'In Progress', color: 'bg-blue-500' },
+  COMPLETED: { label: 'Completed', color: 'bg-green-500' },
+  TERMINATED: { label: 'Terminated', color: 'bg-red-500' },
+};
+
+function BarChart({ data, labelKey, valueKey, color }: { data: any[]; labelKey: string; valueKey: string; color: string }) {
+  const max = Math.max(...data.map(d => d[valueKey] ?? 0), 1);
+  return (
+    <div className="flex items-end gap-1 h-32">
+      {data.map((d, i) => {
+        const val = d[valueKey] ?? 0;
+        const pct = (val / max) * 100;
+        return (
+          <div key={i} className="flex flex-col items-center flex-1 min-w-0 group">
+            <span className="text-[9px] text-slate-500 font-medium mb-1 opacity-0 group-hover:opacity-100 transition-opacity">{val}</span>
+            <div className={`w-full ${color} rounded-t-sm transition-all hover:opacity-80`} style={{ height: `${Math.max(pct, 2)}%` }} />
+            <span className="text-[8px] text-slate-400 mt-1 truncate w-full text-center">{d[labelKey]}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function FilterAnalytics({ stats, showCard }: { stats: any; showCard: (key: string) => boolean }) {
+  const { stageCounts = {}, statusCounts = {}, dailyCycles = [], monthlyCycles = [], totalFilters = 0, activeCycles = 0, completedToday = 0 } = stats;
+
+  const totalStageFilters = Object.values(stageCounts).reduce((a: number, b: any) => a + (b ?? 0), 0) as number;
+  const totalCyclesAll = Object.values(statusCounts).reduce((a: number, b: any) => a + (b ?? 0), 0) as number;
+
+  // Format daily labels as short day
+  const dailyFormatted = useMemo(() => dailyCycles.map((d: any) => ({
+    ...d,
+    label: new Date(d.day).toLocaleDateString('en', { month: 'short', day: 'numeric' }),
+  })), [dailyCycles]);
+
+  // Format monthly labels
+  const monthlyFormatted = useMemo(() => monthlyCycles.map((d: any) => ({
+    ...d,
+    label: new Date(d.month + '-01').toLocaleDateString('en', { month: 'short', year: '2-digit' }),
+  })), [monthlyCycles]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-slate-800">Filter Cleaning Analytics</h2>
+        <Link to="/filters" className="text-sm text-cyan-600 hover:text-cyan-700 font-medium flex items-center gap-1">
+          Go to Operations
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+        </Link>
+      </div>
+
+      {/* Summary cards row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {showCard('total_filters') && <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Total Filters</div>
+          <div className="text-2xl font-bold text-slate-800 mt-1">{totalFilters}</div>
+        </div>}
+        {showCard('active_cycles') && <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Active Cycles</div>
+          <div className="text-2xl font-bold text-blue-600 mt-1">{activeCycles}</div>
+        </div>}
+        {showCard('completed_today') && <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Completed Today</div>
+          <div className="text-2xl font-bold text-green-600 mt-1">{completedToday}</div>
+        </div>}
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Total Cycles</div>
+          <div className="text-2xl font-bold text-slate-800 mt-1">{totalCyclesAll}</div>
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-4">
+        {/* Stage distribution */}
+        {showCard('stage_distribution') && <div className="bg-white border border-slate-200 rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-slate-700 mb-4">Filters by Current Stage</h3>
+          {totalStageFilters === 0 ? (
+            <div className="text-center py-8 text-sm text-slate-400">No filters in cleaning stages</div>
+          ) : (
+            <div className="space-y-2.5">
+              {Object.entries(STAGE_CFG).map(([key, cfg]) => {
+                const count = stageCounts[key] ?? 0;
+                const pct = totalStageFilters > 0 ? (count / totalStageFilters) * 100 : 0;
+                return (
+                  <div key={key} className="flex items-center gap-3">
+                    <span className="text-[12px] font-medium text-slate-600 w-24 shrink-0">{cfg.label}</span>
+                    <div className="flex-1 bg-slate-100 rounded-full h-5 overflow-hidden">
+                      <div className={`h-full ${cfg.color} rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-[12px] font-bold text-slate-700 w-8 text-right">{count}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>}
+
+        {/* Cycle status breakdown */}
+        {showCard('cycle_status') && <div className="bg-white border border-slate-200 rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-slate-700 mb-4">Cycle Status Breakdown</h3>
+          {totalCyclesAll === 0 ? (
+            <div className="text-center py-8 text-sm text-slate-400">No cycles yet</div>
+          ) : (
+            <>
+              {/* Donut-style summary */}
+              <div className="flex items-center justify-center gap-6 mb-4">
+                <div className="relative w-28 h-28">
+                  <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+                    {(() => {
+                      let offset = 0;
+                      const entries = Object.entries(STATUS_CFG);
+                      const colors: Record<string, string> = { IN_PROGRESS: '#3b82f6', COMPLETED: '#22c55e', TERMINATED: '#ef4444' };
+                      return entries.map(([key]) => {
+                        const count = statusCounts[key] ?? 0;
+                        const pct = (count / totalCyclesAll) * 100;
+                        const dashArray = `${pct * 2.51} ${251 - pct * 2.51}`;
+                        const el = <circle key={key} cx="50" cy="50" r="40" fill="none" stroke={colors[key] ?? '#94a3b8'} strokeWidth="12" strokeDasharray={dashArray} strokeDashoffset={-offset * 2.51} />;
+                        offset += pct;
+                        return el;
+                      });
+                    })()}
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-xl font-bold text-slate-800">{totalCyclesAll}</span>
+                    <span className="text-[9px] text-slate-400">total</span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {Object.entries(STATUS_CFG).map(([key, cfg]) => (
+                    <div key={key} className="flex items-center gap-2">
+                      <span className={`w-3 h-3 rounded-full ${cfg.color}`} />
+                      <span className="text-[12px] text-slate-600">{cfg.label}</span>
+                      <span className="text-[12px] font-bold text-slate-800">{statusCounts[key] ?? 0}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>}
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-4">
+        {/* Daily chart */}
+        {showCard('daily_chart') && <div className="bg-white border border-slate-200 rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-slate-700 mb-4">Daily Cycles (Last 30 Days)</h3>
+          {dailyFormatted.length === 0 ? (
+            <div className="text-center py-8 text-sm text-slate-400">No data</div>
+          ) : (
+            <BarChart data={dailyFormatted} labelKey="label" valueKey="count" color="bg-sky-500" />
+          )}
+        </div>}
+
+        {/* Monthly chart */}
+        {showCard('monthly_chart') && <div className="bg-white border border-slate-200 rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-slate-700 mb-4">Monthly Cycles (Last 12 Months)</h3>
+          {monthlyFormatted.length === 0 ? (
+            <div className="text-center py-8 text-sm text-slate-400">No data</div>
+          ) : (
+            <BarChart data={monthlyFormatted} labelKey="label" valueKey="count" color="bg-indigo-500" />
+          )}
+        </div>}
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
 import { useReauth } from '../../hooks/use-reauth';
@@ -7,6 +8,7 @@ import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { StageScanDialog } from './components/stage-scan-dialog';
 import { CleaningReasonDialog } from './components/cleaning-reason-dialog';
 import { EquipmentDialog } from './components/equipment-dialog';
+import { DryerDurationDialog } from './components/dryer-duration-dialog';
 import { ChecklistDialog } from './components/checklist-dialog';
 import { CLEANING_STAGES_OPS } from '../../lib/filter-constants';
 import { ErrorPopup } from '../../components/ui/error-popup';
@@ -31,6 +33,8 @@ interface PendingChecklist {
 }
 
 export function FilterOperationsPage() {
+  const navigate = useNavigate();
+  const { stageKey: urlStageKey } = useParams<{ stageKey?: string }>();
   const { data: instancesData } = useSWR<PaginatedResponse<FilterInstance>>('/api/assets/instances?limit=200', { refreshInterval: 30000 });
   const { data: templatesData } = useSWR<PaginatedResponse<{ id: string; name: string }>>('/api/assets/templates?limit=100');
   const { formatDateTime, formatDate, formatTime } = useDatetimeFormat();
@@ -48,6 +52,12 @@ export function FilterOperationsPage() {
   const [popupError, setPopupError] = useState('');
   const [recentSubmissions, setRecentSubmissions] = useState<Array<{stage: string; filter: string; block?: string; time: string}>>([]);
   const [submitting, setSubmitting] = useState(false); // double-submit guard
+
+  // Scan queue (batch mode)
+  const [scanQueue, setScanQueue] = useState<Array<{ filterId: string; filterName: string; tagId: string }>>([]);
+  const [addingToQueue, setAddingToQueue] = useState(false);
+  // Snapshot of queue while a shared dialog (reason/duration/equipment/checklist) is open
+  const [pendingBatch, setPendingBatch] = useState<Array<{ filterId: string; filterName: string }> | null>(null);
 
   // Cleaning reason dialog state
   const [reasonDialog, setReasonDialog] = useState<{ filterId: string; filterName: string; stage: typeof CLEANING_STAGES[0]; block?: { id: string; name: string } } | null>(null);
@@ -77,6 +87,16 @@ export function FilterOperationsPage() {
   } | null>(null);
   const [equipmentError, setEquipmentError] = useState('');
   const [equipmentLoading, setEquipmentLoading] = useState(false);
+
+  // Dryer duration state
+  const [dryerDialog, setDryerDialog] = useState<{
+    filterId: string;
+    filterName: string;
+    stage: typeof CLEANING_STAGES[0];
+    block?: { id: string; name: string };
+  } | null>(null);
+  const [dryerLoading, setDryerLoading] = useState(false);
+  const [dryerError, setDryerError] = useState('');
 
   const isLoading = !instancesData || !templatesData;
 
@@ -117,124 +137,206 @@ export function FilterOperationsPage() {
   const blocks = (instancesData?.data ?? []).filter((e) => e.templateId === blockTemplateId);
 
   const handleStageClick = (stage: typeof CLEANING_STAGES[0]) => {
-    setActiveStage(stage);
-    setError(''); setScanValue(''); setRemarks('');
-    if (stage.needsBlock) { setStep('block'); setSelectedBlock(null); }
-    else { setStep('scan'); }
+    navigate(`/filters/stage/${stage.key}`);
   };
 
   const handleBlockSelect = (block: any) => { setSelectedBlock(block); setStep('scan'); };
 
+  // Clear scan state without navigating (used when handing off to sub-dialogs)
+  const clearScanState = () => {
+    setScanValue(''); setRemarks(''); setError(''); setScanQueue([]);
+  };
+  // Close stage screen and go back to landing
   const closeDialog = () => {
-    setActiveStage(null); setSelectedBlock(null); setScanValue(''); setRemarks(''); setError('');
+    setActiveStage(null); setSelectedBlock(null); setScanValue(''); setRemarks(''); setError(''); setScanQueue([]);
+    navigate('/filters');
   };
 
-  const handleSubmit = async () => {
-    if (!scanValue.trim() || !activeStage || submitting) return;
-    setLoading(true); setError(''); setSubmitting(true);
+  // Sync URL stageKey → activeStage
+  useEffect(() => {
+    if (!urlStageKey) {
+      setActiveStage(null);
+      return;
+    }
+    const stage = CLEANING_STAGES.find(s => s.key === urlStageKey);
+    if (!stage) { navigate('/filters'); return; }
+    setActiveStage(stage);
+    setError(''); setScanValue(''); setRemarks('');
+    if (stage.needsBlock) { setStep('block'); setSelectedBlock(null); }
+    else { setStep('scan'); setSelectedBlock(null); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlStageKey]);
 
+  // Resolve a tag/name → filterId+name
+  const resolveFilter = async (tagOrName: string): Promise<{ filterId: string; filterName: string } | null> => {
+    const trimmed = tagOrName.trim();
+    if (!trimmed) return null;
     try {
-      // Step 1: Resolve filter
-      let filterId = '';
-      let filterName = '';
+      const lookup = await apiClient.get<any>(`/api/assets/identifiers/lookup/${encodeURIComponent(trimmed)}`);
+      if (lookup?.asset?.id) return { filterId: lookup.asset.id, filterName: lookup.asset.name };
+    } catch { /* fall through */ }
+    const allInstances = instancesData?.data ?? [];
+    const match = allInstances.find((a: any) => a.name?.toLowerCase() === trimmed.toLowerCase());
+    if (match) return { filterId: match.id, filterName: match.name };
+    return null;
+  };
 
+  const handleAddToQueue = async (tagOrName: string) => {
+    if (addingToQueue) return;
+    setAddingToQueue(true); setError('');
+    try {
+      const resolved = await resolveFilter(tagOrName);
+      if (!resolved) {
+        setError(`Filter not found: ${tagOrName}`);
+        setAddingToQueue(false);
+        return;
+      }
+      if (scanQueue.some(q => q.filterId === resolved.filterId)) {
+        setError(`${resolved.filterName} already in queue`);
+        setAddingToQueue(false);
+        return;
+      }
+      setScanQueue(prev => [...prev, { ...resolved, tagId: tagOrName }]);
+    } catch (e: any) {
+      setError(e.message ?? 'Failed to add to queue');
+    }
+    setAddingToQueue(false);
+  };
+
+  const handleRemoveFromQueue = (filterId: string) => {
+    setScanQueue(prev => prev.filter(q => q.filterId !== filterId));
+  };
+
+  // Loop the batch advancing each filter with shared params
+  const advanceBatch = async (
+    batch: Array<{ filterId: string; filterName: string }>,
+    extraBody: Record<string, any>,
+    overrideTargetState?: string,
+  ) => {
+    if (!activeStage) return;
+    const stageLabel = activeStage.label;
+    const blockId = selectedBlock?.id;
+    const blockName = selectedBlock?.name;
+    let success = 0;
+    const failed: string[] = [];
+    const newSubmissions: Array<{stage: string; filter: string; block?: string; time: string}> = [];
+    for (const item of batch) {
       try {
-        const lookup = await apiClient.get<any>(`/api/assets/identifiers/lookup/${encodeURIComponent(scanValue.trim())}`);
-        if (lookup?.asset?.id) { filterId = lookup.asset.id; filterName = lookup.asset.name; }
-      } catch { /* identifier not found, try name */ }
-
-      if (!filterId) {
-        const allInstances = instancesData?.data ?? [];
-        const match = allInstances.find((a: any) => a.name?.toLowerCase() === scanValue.trim().toLowerCase());
-        if (match) { filterId = match.id; filterName = match.name; }
-      }
-
-      if (!filterId) {
-        if (scanValue.match(/^[0-9a-f]{8}-/i)) { filterId = scanValue.trim(); filterName = scanValue.slice(0, 8); }
-        else { setError('Filter not found. Try entering the filter name (e.g. HEPA-A-001)'); setLoading(false); setSubmitting(false); return; }
-      }
-
-      // Step 2: Get current state
-      const state = await apiClient.get<any>(`/api/filters/${filterId}/current-state`);
-
-      // Check if there's a pending checklist to fill first
-      if (state.pendingChecklist && state.pendingChecklist.length > 0) {
-        // Close the stage dialog, open checklist
-        closeDialog();
-        setChecklistDialog({
-          filterId,
-          filterName: filterName || state.filterName,
-          checklists: state.pendingChecklist,
+        await apiClient.post(`/api/filters/${item.filterId}/advance`, {
+          targetState: overrideTargetState ?? activeStage.key,
+          cleaningAreaId: blockId,
+          remarks: remarks || `${stageLabel} - Batch - ${item.filterName}`,
+          ...extraBody,
         });
+        success++;
+        newSubmissions.push({ stage: stageLabel, filter: item.filterName, block: blockName, time: formatTime(new Date()) });
+      } catch (e: any) {
+        failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
+      }
+    }
+    setRecentSubmissions(prev => [...newSubmissions, ...prev].slice(0, 10));
+    refreshFilters();
+    if (failed.length > 0) {
+      setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
+    } else {
+      setToast({ type: 'success', message: `${success} filter(s) → ${stageLabel}` });
+    }
+  };
+
+  const handleSubmitBatch = async () => {
+    if (scanQueue.length === 0 || !activeStage || submitting) return;
+    setLoading(true); setSubmitting(true); setError('');
+    try {
+      // Inspect first filter to decide which shared dialog (if any) is needed
+      const first = scanQueue[0];
+      const state = await apiClient.get<any>(`/api/filters/${first.filterId}/current-state`);
+
+      const nextAllowed = state.nextAllowedStages ?? [];
+      if (nextAllowed.length > 0 && !nextAllowed.includes(activeStage.key)) {
+        const allowedLabels = nextAllowed.map((k: string) => CLEANING_STAGES.find(s => s.key === k)?.label ?? k).join(', ');
+        setError(`${first.filterName} is at "${(state.currentState ?? 'START').replace(/_/g, ' ')}". Next allowed: ${allowedLabels}`);
+        setLoading(false); setSubmitting(false);
+        return;
+      }
+
+      // If there is a pending checklist already pending → batch checklist dialog
+      if (state.pendingChecklist && state.pendingChecklist.length > 0) {
+        const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+        setPendingBatch(batch);
+        clearScanState();
+        setChecklistDialog({ filterId: first.filterId, filterName: `${batch.length} filter(s)`, checklists: state.pendingChecklist });
         setChecklistError('');
         setLoading(false); setSubmitting(false);
         return;
       }
 
-      const nextAllowed = state.nextAllowedStages ?? [];
-      if (nextAllowed.length > 0 && !nextAllowed.includes(activeStage.key)) {
-        const allowedLabels = nextAllowed.map((k: string) => CLEANING_STAGES.find(s => s.key === k)?.label ?? k).join(', ');
-        setError(`${filterName || state.filterName} is at "${(state.currentState ?? 'START').replace(/_/g, ' ')}". Next allowed: ${allowedLabels}`);
-        setLoading(false); setSubmitting(false);
-        return;
-      }
-
-      // Step 3: Start cycle if needed — show reason dialog
+      // Need cycle start → reason dialog (one-for-all)
       if (!state.currentCycle) {
+        const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+        setPendingBatch(batch);
         const blockForReason = selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined;
-        closeDialog();
-        setReasonDialog({ filterId, filterName: filterName || state.filterName, stage: activeStage, block: blockForReason });
+        clearScanState();
+        setReasonDialog({ filterId: first.filterId, filterName: `${batch.length} filter(s)`, stage: activeStage, block: blockForReason });
         setReasonError('');
         setLoading(false); setSubmitting(false);
         return;
       }
 
-      // Step 3b: For DRY_IN with existing cycle — show equipment readings (Dryer Temperature)
-      if (activeStage.key === 'DRY_IN' && state.equipmentGroup) {
-        closeDialog();
-        setEquipmentDialog({
-          filterId,
-          filterName: filterName || state.filterName,
-          stage: activeStage,
-          groups: [],
-          cycleEquipmentGroup: state.equipmentGroup,
-        });
-        setEquipmentError('');
-        setLoading(false); setSubmitting(false);
-        return;
+      // DRY_IN special two-step dryer flow
+      if (activeStage.key === 'DRY_IN') {
+        const cyc = state.currentCycle ?? {};
+        const startedAt = cyc.dryerStartedAt ? new Date(cyc.dryerStartedAt).getTime() : null;
+        const durationMin: number | null = cyc.dryerDurationMinutes ?? null;
+
+        if (!startedAt || !durationMin) {
+          // Step 1: ask for duration (shared)
+          const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+          setPendingBatch(batch);
+          clearScanState();
+          setDryerDialog({
+            filterId: first.filterId,
+            filterName: `${batch.length} filter(s)`,
+            stage: activeStage,
+            block: selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined,
+          });
+          setDryerError('');
+          setLoading(false); setSubmitting(false);
+          return;
+        }
+
+        const halfMs = (durationMin * 60_000) / 2;
+        const elapsedMs = Date.now() - startedAt;
+        if (elapsedMs < halfMs) {
+          const remainingMin = Math.ceil((halfMs - elapsedMs) / 60_000);
+          setPopupError(`Dryer still running. Wait ${remainingMin} more minute(s) before entering temperature readings.`);
+          setLoading(false); setSubmitting(false);
+          return;
+        }
+
+        if (state.equipmentGroup) {
+          // Step 2: shared temperature/readings dialog
+          const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+          setPendingBatch(batch);
+          clearScanState();
+          setEquipmentDialog({
+            filterId: first.filterId,
+            filterName: `${batch.length} filter(s)`,
+            stage: activeStage,
+            groups: [],
+            cycleEquipmentGroup: state.equipmentGroup,
+            block: selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined,
+          });
+          setEquipmentError('');
+          setLoading(false); setSubmitting(false);
+          return;
+        }
       }
 
-      // Step 4: Advance (wrapped with reauth)
-      const advanceBody = {
-        targetState: activeStage.key,
-        cleaningAreaId: selectedBlock?.id,
-        remarks: remarks || `${activeStage.label} - Block: ${selectedBlock?.name ?? 'N/A'} - ${scanValue}`,
-      };
-      const displayName = filterName || state.filterName || filterId.slice(0, 8);
-      const stageLabelCapture = activeStage.label;
-      const blockNameCapture = selectedBlock?.name;
-
-      const advanceResult = await apiClient.post<any>(`/api/filters/${filterId}/advance`, advanceBody);
-
-      // Add to recent submissions
-      setRecentSubmissions(prev => [{ stage: stageLabelCapture, filter: displayName, block: blockNameCapture, time: formatTime(new Date()) }, ...prev].slice(0, 10));
-      refreshFilters();
-
-      // Close stage dialog immediately
-      closeDialog();
-
-      // Show success toast
-      setToast({ type: 'success', message: `${displayName} \u2192 ${stageLabelCapture}` });
-
-      // If there's a pending checklist after this stage, open it
-      if (advanceResult?.pendingChecklist && advanceResult.pendingChecklist.length > 0) {
-        setChecklistDialog({
-          filterId,
-          filterName: displayName,
-          checklists: advanceResult.pendingChecklist,
-        });
-        setChecklistError('');
-      }
+      // No dialog needed → advance the whole batch
+      const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+      await advanceBatch(batch, {});
+      // Stay on the stage screen; clear queue so user can scan more
+      clearScanState();
     } catch (e: any) {
       setPopupError(e.message ?? 'Failed');
     }
@@ -254,6 +356,89 @@ export function FilterOperationsPage() {
       setReasonError('Justification required (min 10 characters)');
       return;
     }
+
+    // BATCH MODE: start cycle for every filter in the snapshot.
+    // For WASH_IN with equipment groups on the block, pause after start-cycle
+    // and hand off to the equipment-group / limits dialog (which will run the
+    // batch advance). For every other stage, advance immediately.
+    if (pendingBatch && pendingBatch.length > 0 && reasonDialog.stage) {
+      const batch = pendingBatch;
+      const stage = reasonDialog.stage;
+      const blockId = reasonDialog.block?.id;
+      const blockName = reasonDialog.block?.name;
+      const block = reasonDialog.block;
+      setLoading(true); setReasonError(''); setSubmitting(true);
+      await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
+        const startBody = { cleaningReasonKey: reasonKey, cleaningJustification: justification || undefined, cleaningAreaId: blockId };
+
+        // 1) Start cycle for every filter in the batch
+        let started = 0; const startFailed: string[] = [];
+        for (const item of batch) {
+          try {
+            if (password) await apiClient.postWithReauth(`/api/filters/${item.filterId}/start-cycle`, startBody, password);
+            else await apiClient.post(`/api/filters/${item.filterId}/start-cycle`, startBody);
+            started++;
+          } catch (e: any) {
+            startFailed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
+          }
+        }
+        if (startFailed.length > 0) {
+          setPopupError(`${started} cycle(s) started, ${startFailed.length} failed:\n${startFailed.join('\n')}`);
+          setReasonDialog(null);
+          setPendingBatch(null);
+          refreshFilters();
+          return;
+        }
+
+        // 2) WASH_IN + block selected → check for equipment groups; if any,
+        //    hand off to equipment/limits dialog (keeps pendingBatch set).
+        if (stage.key === 'WASH_IN' && blockId && block) {
+          try {
+            const groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${blockId}`);
+            if (groups && groups.length > 0) {
+              setReasonDialog(null);
+              setEquipmentDialog({
+                filterId: batch[0].filterId,
+                filterName: `${batch.length} filter(s)`,
+                stage,
+                groups,
+                block,
+              });
+              setEquipmentError('');
+              return; // pendingBatch stays set — equipment dialog handles advance
+            }
+          } catch { /* fall through to plain advance */ }
+        }
+
+        // 3) No equipment dialog needed → advance the whole batch now
+        let success = 0; const failed: string[] = [];
+        const newSubs: typeof recentSubmissions = [];
+        for (const item of batch) {
+          try {
+            await apiClient.post(`/api/filters/${item.filterId}/advance`, {
+              targetState: stage.key,
+              cleaningAreaId: blockId,
+              remarks: remarks || `${stage.label} - Batch - ${item.filterName}`,
+            });
+            success++;
+            newSubs.push({ stage: stage.label, filter: item.filterName, block: blockName, time: formatTime(new Date()) });
+          } catch (e: any) {
+            failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
+          }
+        }
+        setRecentSubmissions(prev => [...newSubs, ...prev].slice(0, 10));
+        refreshFilters();
+        setReasonDialog(null);
+        setPendingBatch(null);
+        if (failed.length > 0) setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
+        else setToast({ type: 'success', message: `${success} filter(s) → ${stage.label}` });
+      }, {
+        onError: (e: unknown) => { setReasonError((e as any)?.message ?? 'Failed'); setPopupError((e as any)?.message ?? 'Failed'); },
+      });
+      setLoading(false); setSubmitting(false);
+      return;
+    }
+
     const reasonBlock = reasonDialog.block;
     const dialogCapture = { ...reasonDialog, block: reasonBlock };
     setLoading(true); setReasonError(''); setSubmitting(true);
@@ -309,15 +494,107 @@ export function FilterOperationsPage() {
     setLoading(false); setSubmitting(false);
   };
 
+  const handleDryerDurationSubmit = async (minutes: number) => {
+    if (!dryerDialog || dryerLoading) return;
+    setDryerLoading(true); setDryerError('');
+    const blockId = dryerDialog.block?.id;
+    const blockName = dryerDialog.block?.name;
+
+    // BATCH MODE
+    if (pendingBatch && pendingBatch.length > 0) {
+      const batch = pendingBatch;
+      let success = 0; const failed: string[] = [];
+      const newSubs: typeof recentSubmissions = [];
+      for (const item of batch) {
+        try {
+          await apiClient.post(`/api/filters/${item.filterId}/advance`, {
+            targetState: 'DRY_IN',
+            cleaningAreaId: blockId,
+            dryerAction: 'SET_DURATION',
+            dryerDurationMinutes: minutes,
+            remarks: remarks || `Dryer started (${minutes} min) - Batch`,
+          });
+          success++;
+          newSubs.push({ stage: 'Dryer Started', filter: item.filterName, block: blockName, time: formatTime(new Date()) });
+        } catch (e: any) {
+          failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
+        }
+      }
+      setRecentSubmissions(prev => [...newSubs, ...prev].slice(0, 10));
+      refreshFilters();
+      setDryerDialog(null);
+      setPendingBatch(null);
+      if (failed.length > 0) setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
+      else setToast({ type: 'success', message: `${success} filter(s) → Dryer running (${minutes} min)` });
+      setDryerLoading(false);
+      return;
+    }
+
+    try {
+      await apiClient.post<any>(`/api/filters/${dryerDialog.filterId}/advance`, {
+        targetState: 'DRY_IN',
+        cleaningAreaId: blockId,
+        dryerAction: 'SET_DURATION',
+        dryerDurationMinutes: minutes,
+        remarks: remarks || `Dryer started (${minutes} min) - ${dryerDialog.filterName}`,
+      });
+      setRecentSubmissions(prev => [{ stage: 'Dryer Started', filter: dryerDialog.filterName, block: blockName, time: formatTime(new Date()) }, ...prev].slice(0, 10));
+      refreshFilters();
+      setDryerDialog(null);
+      setToast({ type: 'success', message: `${dryerDialog.filterName} → Dryer running (${minutes} min)` });
+    } catch (e: any) {
+      setDryerError(e.message ?? 'Failed to start dryer');
+      setPopupError(e.message ?? 'Failed to start dryer');
+    }
+    setDryerLoading(false);
+  };
+
   const handleEquipmentSubmit = async (groupId: string, readings: Record<string, number>) => {
     if (!equipmentDialog || equipmentLoading) return;
     setEquipmentLoading(true); setEquipmentError('');
+    const isDryerReadings = equipmentDialog.stage.key === 'DRY_IN';
+    const blockId = equipmentDialog.block?.id;
+    const blockName = equipmentDialog.block?.name;
+    const stage = equipmentDialog.stage;
+
+    // BATCH MODE: same readings applied to every filter in the snapshot
+    if (pendingBatch && pendingBatch.length > 0) {
+      const batch = pendingBatch;
+      let success = 0; const failed: string[] = [];
+      const newSubs: typeof recentSubmissions = [];
+      for (const item of batch) {
+        try {
+          await apiClient.post(`/api/filters/${item.filterId}/advance`, {
+            targetState: isDryerReadings ? 'DRY_OUT' : stage.key,
+            cleaningAreaId: blockId,
+            equipmentGroupId: groupId,
+            instrumentReadings: readings,
+            ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}),
+            remarks: remarks || `${stage.label} - Batch - ${item.filterName}`,
+          });
+          success++;
+          newSubs.push({ stage: stage.label, filter: item.filterName, block: blockName, time: formatTime(new Date()) });
+        } catch (e: any) {
+          failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
+        }
+      }
+      setRecentSubmissions(prev => [...newSubs, ...prev].slice(0, 10));
+      refreshFilters();
+      setEquipmentDialog(null);
+      setPendingBatch(null);
+      if (failed.length > 0) setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
+      else setToast({ type: 'success', message: `${success} filter(s) → ${stage.label}` });
+      setEquipmentLoading(false);
+      return;
+    }
+
     try {
       const advanceResult = await apiClient.post<any>(`/api/filters/${equipmentDialog.filterId}/advance`, {
-        targetState: equipmentDialog.stage.key,
+        targetState: isDryerReadings ? 'DRY_OUT' : equipmentDialog.stage.key,
         cleaningAreaId: equipmentDialog.block?.id,
         equipmentGroupId: groupId,
         instrumentReadings: readings,
+        ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}),
         remarks: remarks || `${equipmentDialog.stage.label} - ${equipmentDialog.filterName}`,
       });
 
@@ -337,6 +614,27 @@ export function FilterOperationsPage() {
   const handleChecklistSubmit = async (answers: Record<string, any>) => {
     if (!checklistDialog) return;
     setChecklistLoading(true); setChecklistError('');
+
+    // BATCH MODE: submit same answers for every filter in the snapshot
+    if (pendingBatch && pendingBatch.length > 0) {
+      const batch = pendingBatch;
+      let success = 0; const failed: string[] = [];
+      for (const item of batch) {
+        try {
+          await apiClient.post(`/api/filters/${item.filterId}/submit-checklist`, { answers });
+          success++;
+        } catch (e: any) {
+          failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
+        }
+      }
+      setChecklistDialog(null);
+      setPendingBatch(null);
+      refreshFilters();
+      if (failed.length > 0) setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
+      else setToast({ type: 'success', message: `Checklist submitted for ${success} filter(s)` });
+      setChecklistLoading(false);
+      return;
+    }
 
     try {
       await apiClient.post(`/api/filters/${checklistDialog.filterId}/submit-checklist`, {
@@ -358,6 +656,59 @@ export function FilterOperationsPage() {
     return (
       <div className="flex items-center justify-center p-8">
         <div className="animate-spin h-8 w-8 border-2 border-blue-500 border-t-transparent rounded-full" />
+      </div>
+    );
+  }
+
+  // Stage screen mode: dedicated page for one stage
+  if (urlStageKey && activeStage) {
+    return (
+      <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-4">
+        {toast && (
+          <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 text-sm font-medium ${toast.type === 'success' ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-red-50 border border-red-200 text-red-700'}`}>
+            <span>{toast.type === 'success' ? '\u2713' : '\u2717'}</span>
+            <span>{toast.message}</span>
+          </div>
+        )}
+        <button onClick={closeDialog} className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
+          <span>←</span> Back to Stages
+        </button>
+        <StageScanDialog
+          fullPage
+          activeStage={activeStage}
+          step={step}
+          blocks={blocks}
+          selectedBlock={selectedBlock}
+          scanValue={scanValue}
+          remarks={remarks}
+          error={error}
+          loading={loading}
+          queue={scanQueue}
+          addingToQueue={addingToQueue}
+          onScanValueChange={setScanValue}
+          onRemarksChange={setRemarks}
+          onClearError={() => setError('')}
+          onBlockSelect={handleBlockSelect}
+          onChangeBlock={() => setStep('block')}
+          onAddToQueue={handleAddToQueue}
+          onRemoveFromQueue={handleRemoveFromQueue}
+          onSubmitBatch={handleSubmitBatch}
+          onClose={closeDialog}
+        />
+        {activeStage.key === 'DRY_IN' && (
+          <DryingFiltersPanel
+            filters={allFilters.filter((f: any) => f.currentLifecycleState === 'DRY_IN')}
+            refreshFilters={refreshFilters}
+            setToast={setToast}
+            setPopupError={setPopupError}
+          />
+        )}
+        <CleaningReasonDialog dialog={reasonDialog} onClose={() => { setReasonDialog(null); setReasonError(''); }} onSubmit={handleReasonSubmit} loading={loading} error={reasonError} onClearError={() => setReasonError('')} />
+        <EquipmentDialog dialog={equipmentDialog} onClose={() => { setEquipmentDialog(null); }} onSubmit={handleEquipmentSubmit} loading={equipmentLoading} error={equipmentError} />
+        <DryerDurationDialog open={!!dryerDialog} filterName={dryerDialog?.filterName ?? ''} loading={dryerLoading} error={dryerError} onClose={() => { setDryerDialog(null); setDryerError(''); }} onSubmit={handleDryerDurationSubmit} />
+        <ChecklistDialog dialog={checklistDialog} onClose={() => { setChecklistDialog(null); }} onSubmit={handleChecklistSubmit} loading={checklistLoading} error={checklistError} />
+        <ReauthDialog open={reauth.isOpen} password={reauth.password} error={reauth.error} isVerifying={reauth.isVerifying} onPasswordChange={reauth.setPassword} onConfirm={reauth.confirm} onCancel={reauth.cancel} actionLabel="Filter Operation" />
+        <ErrorPopup error={popupError} onClose={() => setPopupError('')} />
       </div>
     );
   }
@@ -483,12 +834,16 @@ export function FilterOperationsPage() {
         remarks={remarks}
         error={error}
         loading={loading}
+        queue={scanQueue}
+        addingToQueue={addingToQueue}
         onScanValueChange={setScanValue}
         onRemarksChange={setRemarks}
         onClearError={() => setError('')}
         onBlockSelect={handleBlockSelect}
         onChangeBlock={() => setStep('block')}
-        onSubmit={handleSubmit}
+        onAddToQueue={handleAddToQueue}
+        onRemoveFromQueue={handleRemoveFromQueue}
+        onSubmitBatch={handleSubmitBatch}
         onClose={closeDialog}
       />
 
@@ -509,6 +864,16 @@ export function FilterOperationsPage() {
         onSubmit={handleEquipmentSubmit}
         loading={equipmentLoading}
         error={equipmentError}
+      />
+
+      {/* Dryer Duration Dialog */}
+      <DryerDurationDialog
+        open={!!dryerDialog}
+        filterName={dryerDialog?.filterName ?? ''}
+        loading={dryerLoading}
+        error={dryerError}
+        onClose={() => { setDryerDialog(null); setDryerError(''); }}
+        onSubmit={handleDryerDurationSubmit}
       />
 
       {/* Checklist Dialog */}
@@ -534,6 +899,199 @@ export function FilterOperationsPage() {
 
       {/* Error Popup */}
       <ErrorPopup error={popupError} onClose={() => setPopupError('')} />
+    </div>
+  );
+}
+
+// ─── Drying Filters Panel (DRY_IN stage screen) ─────────────────────
+function buildTempOptions(min: number, max: number, step: number): number[] {
+  if (!(step > 0) || max <= min) return [];
+  const opts: number[] = [];
+  const decimals = (String(step).split('.')[1] || '').length;
+  // Start at the first multiple of step >= min
+  const first = Math.ceil(min / step) * step;
+  for (let v = first; v <= max + 1e-9; v += step) {
+    opts.push(Number(v.toFixed(decimals)));
+    if (opts.length > 500) break; // safety
+  }
+  return opts;
+}
+
+function DryingFiltersPanel({
+  filters,
+  refreshFilters,
+  setToast,
+  setPopupError,
+}: {
+  filters: any[];
+  refreshFilters: () => void;
+  setToast: (t: { type: 'success' | 'error'; message: string } | null) => void;
+  setPopupError: (msg: string) => void;
+}) {
+  if (filters.length === 0) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 text-center text-sm text-slate-400">
+        No filters currently drying
+      </div>
+    );
+  }
+  return (
+    <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
+      <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Currently Drying</h3>
+      {filters.map((f: any) => (
+        <DryingFilterRow
+          key={f.id}
+          filterId={f.id}
+          filterName={f.name}
+          refreshFilters={refreshFilters}
+          setToast={setToast}
+          setPopupError={setPopupError}
+        />
+      ))}
+    </div>
+  );
+}
+
+function DryingFilterRow({
+  filterId,
+  filterName,
+  refreshFilters,
+  setToast,
+  setPopupError,
+}: {
+  filterId: string;
+  filterName: string;
+  refreshFilters: () => void;
+  setToast: (t: { type: 'success' | 'error'; message: string } | null) => void;
+  setPopupError: (msg: string) => void;
+}) {
+  const { data: state, mutate: refreshState } = useSWR<any>(`/api/filters/${filterId}/current-state`, { refreshInterval: 15000 });
+  const [temp, setTemp] = useState<number | ''>('');
+  const [submitting, setSubmitting] = useState(false);
+  const [selectedGroupId, setSelectedGroupId] = useState<string>('');
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const cyc = state?.currentCycle;
+  const startedAt = cyc?.dryerStartedAt ? new Date(cyc.dryerStartedAt).getTime() : null;
+  const durationMin: number | null = cyc?.dryerDurationMinutes ?? null;
+
+  // Equipment group from cycle or block fallback
+  const stateGroup = state?.equipmentGroup;
+  const blockGroups: any[] = state?.blockEquipmentGroups ?? [];
+
+  // Resolve which group to use: cycle's group > single block group > user-selected
+  const resolvedGroup = stateGroup
+    ?? (blockGroups.length === 1 ? blockGroups[0] : null)
+    ?? (selectedGroupId ? blockGroups.find((g: any) => g.id === selectedGroupId) : null);
+
+  // Find the dryer temperature instrument
+  const dryerInstrument = (resolvedGroup?.instruments ?? []).find(
+    (i: any) => i.stageKey === 'DRY_IN' && /temp/i.test(i.description ?? ''),
+  );
+  const tempOptions = dryerInstrument
+    ? buildTempOptions(dryerInstrument.operatingMin, dryerInstrument.operatingMax, dryerInstrument.leastCount)
+    : [];
+  const tempUom = dryerInstrument?.uom ?? '°C';
+
+  if (!startedAt || !durationMin) {
+    return (
+      <div className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0 text-sm">
+        <span className="font-medium text-slate-700">{filterName}</span>
+        <span className="text-xs text-slate-400">waiting for dryer start…</span>
+      </div>
+    );
+  }
+
+  const halfMs = (durationMin * 60_000) / 2;
+  const elapsedMs = now - startedAt;
+  const halfElapsed = elapsedMs >= halfMs;
+  const remainingToHalfMin = Math.max(0, Math.ceil((halfMs - elapsedMs) / 60_000));
+
+  const handleSubmit = async () => {
+    if (!temp || submitting || !resolvedGroup) return;
+    setSubmitting(true);
+    try {
+      const dryInInstruments = (resolvedGroup.instruments ?? []).filter((i: any) => i.stageKey === 'DRY_IN');
+      const readings: Record<string, number> = {};
+      for (const inst of dryInInstruments) {
+        if (dryerInstrument && inst.id === dryerInstrument.id) readings[inst.id] = Number(temp);
+        else readings[inst.id] = inst.operatingMin;
+      }
+      await apiClient.post(`/api/filters/${filterId}/advance`, {
+        targetState: 'DRY_OUT',
+        dryerAction: 'SUBMIT_READINGS',
+        equipmentGroupId: resolvedGroup.id,
+        instrumentReadings: readings,
+        remarks: `Dryer temperature ${temp}${tempUom} - ${filterName}`,
+      });
+      setToast({ type: 'success', message: `${filterName} → DRY_OUT (${temp}${tempUom})` });
+      refreshFilters();
+      refreshState();
+    } catch (e: any) {
+      setPopupError(e.message ?? 'Failed to submit dryer reading');
+    }
+    setSubmitting(false);
+  };
+
+  // Need user to pick equipment group
+  const needsGroupSelect = !stateGroup && blockGroups.length > 1 && !selectedGroupId;
+
+  return (
+    <div className="flex flex-col gap-2 py-2 border-b border-slate-100 last:border-0 text-sm">
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-slate-800 truncate">{filterName}</div>
+          <div className="text-xs text-slate-500">
+            {durationMin} min total{' '}
+            {halfElapsed ? (
+              <span className="text-green-600">• ready for reading</span>
+            ) : (
+              <span className="text-amber-600">• {remainingToHalfMin} min until reading</span>
+            )}
+          </div>
+        </div>
+        {needsGroupSelect ? (
+          <select
+            value={selectedGroupId}
+            onChange={(e) => setSelectedGroupId(e.target.value)}
+            className="rounded border border-slate-300 px-2 py-1 text-slate-800 text-sm"
+          >
+            <option value="">Select Equipment Group</option>
+            {blockGroups.map((g: any) => (
+              <option key={g.id} value={g.id}>{g.name}</option>
+            ))}
+          </select>
+        ) : tempOptions.length === 0 ? (
+          <span className="text-xs text-red-600">No dryer temperature instrument configured</span>
+        ) : (
+          <>
+            <select
+              value={temp}
+              onChange={(e) => setTemp(e.target.value ? Number(e.target.value) : '')}
+              disabled={!halfElapsed || submitting}
+              className="rounded border border-slate-300 px-2 py-1 text-slate-800 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              title={dryerInstrument ? `${dryerInstrument.operatingMin}–${dryerInstrument.operatingMax} ${tempUom} (step ${dryerInstrument.leastCount})` : ''}
+            >
+              <option value="">{tempUom}</option>
+              {tempOptions.map((v) => (
+                <option key={v} value={v}>{v}{tempUom}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={!halfElapsed || !temp || submitting}
+              className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {submitting ? '…' : 'Submit'}
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }

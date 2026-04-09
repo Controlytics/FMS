@@ -13,8 +13,7 @@ import { AuditTable } from './components/audit-table';
 import { AuditDetailModal } from './components/audit-detail-modal';
 import { AuditPagination } from './components/audit-pagination';
 import { AuditDeleteDialog } from './components/audit-delete-dialog';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { createReport } from '../../lib/pdf-report';
 
 export function AuditTrailPage() {
   const { user } = useAuth();
@@ -138,28 +137,22 @@ export function AuditTrailPage() {
     return formatDateTime(datetime);
   };
 
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
     const records = data?.data;
     if (!records || records.length === 0) return;
     setDownloading(true);
 
     try {
-      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-
       const period = fromDateTime || toDateTime
         ? `${fromDateTime ? formatDateTime(fromDateTime) : 'Start'} to ${toDateTime ? formatDateTime(toDateTime) : 'Now'}`
         : 'All Time';
 
-      // Title
-      doc.setFontSize(16);
-      doc.setTextColor(30, 41, 59);
-      doc.text('Audit Trail Report', 14, 15);
-
-      // Subtitle
-      doc.setFontSize(9);
-      doc.setTextColor(100, 116, 139);
-      doc.text(`Period: ${period}${search ? `  |  Search: "${search}"` : ''}`, 14, 22);
-      doc.text(`Generated: ${formatDateTime(new Date().toISOString())}  |  Total: ${records.length} record(s)  |  21 CFR Part 11 Compliant`, 14, 27);
+      const report = await createReport({
+        title: 'Audit Trail Report',
+        subtitle: `Period: ${period}${search ? `  |  Search: "${search}"` : ''}  |  Total: ${records.length} record(s)  |  21 CFR Part 11 Compliant`,
+        orientation: 'landscape',
+        formatDateTime,
+      });
 
       const tableRows = records.map((r: any) => [
         formatDateTime(r.timestamp),
@@ -172,32 +165,13 @@ export function AuditTrailPage() {
         r.ipAddress ?? '-',
       ]);
 
-      autoTable(doc, {
-        startY: 32,
-        head: [['Timestamp', 'Action', 'User', 'Role', 'Target Type', 'Target ID', 'Description', 'IP Address']],
+      report.addTable({
+        head: ['Timestamp', 'Action', 'User', 'Role', 'Target Type', 'Target ID', 'Description', 'IP Address'],
         body: tableRows,
-        theme: 'grid',
-        styles: { fontSize: 7, cellPadding: 2, lineColor: [226, 232, 240], lineWidth: 0.2 },
-        headStyles: { fillColor: [241, 245, 249], textColor: [71, 85, 105], fontStyle: 'bold', fontSize: 7 },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
-        columnStyles: {
-          0: { cellWidth: 35 },
-          6: { cellWidth: 50 },
-        },
+        columnStyles: { 0: { cellWidth: 35 }, 6: { cellWidth: 50 } },
       });
 
-      // Footer on every page
-      const pageCount = doc.getNumberOfPages();
-      for (let i = 1; i <= pageCount; i++) {
-        doc.setPage(i);
-        doc.setFontSize(7);
-        doc.setTextColor(148, 163, 184);
-        doc.text('DigiLog - 21 CFR Part 11 Audit Trail', 14, doc.internal.pageSize.height - 7);
-        doc.text(`Page ${i} of ${pageCount}`, doc.internal.pageSize.width - 30, doc.internal.pageSize.height - 7);
-      }
-
-      const fileName = `audit-trail-${new Date().toISOString().slice(0, 10)}.pdf`;
-      doc.save(fileName);
+      report.save(`audit-trail-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally {
       setDownloading(false);
     }

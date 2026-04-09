@@ -88,9 +88,13 @@ export class ChecklistProfileService {
 
   async delete(ctx: RequestContext, id: string) {
     await this.getById(ctx, id);
-    // Check if referenced by any pipeline CHECKLIST nodes
+    // Check if referenced by any pipeline CHECKLIST nodes in non-archived cleaning profiles
     const usedInPipelines = await prisma.filterPipelineStage.count({
-      where: { nodeType: 'CHECKLIST', configuration: { path: ['checklistProfileId'], equals: id } },
+      where: {
+        nodeType: 'CHECKLIST',
+        configuration: { path: ['checklistProfileId'], equals: id },
+        profile: { status: { not: 'ARCHIVED' } },
+      },
     });
     if (usedInPipelines > 0) {
       throw new AppError(409, 'IN_USE', 'Cannot delete: checklist is referenced by ' + usedInPipelines + ' pipeline node(s)');
