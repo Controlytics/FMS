@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { CleaningProfileService } from './cleaning-profile.service.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 
 export default async function cleaningProfileRoutes(app: FastifyInstance) {
   const service = new CleaningProfileService();
@@ -118,6 +119,8 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('CREATE_CLEANING_PROFILE', req, reply);
+    if (!ok) return;
     const ctx = buildContext(req);
     const result = await service.create(ctx, req.body);
     return reply.code(201).send(result);
@@ -153,7 +156,9 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_CLEANING_PROFILE', req, reply);
+    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     return service.update(ctx, id, req.body);
@@ -198,7 +203,9 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('DELETE_CLEANING_PROFILE', req, reply);
+    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     return service.archive(ctx, id);

@@ -53,6 +53,7 @@ export const REAUTH_ACTIONS = {
   IMPORT_RULE_CHAIN: { label: 'Import Rule Chain', category: 'Rule Chain' },
   REGENERATE_CREDENTIALS: { label: 'Regenerate Device Credentials', category: 'Connectivity' },
   OVERRIDE_UNS_PATH: { label: 'Override UNS Path', category: 'UNS' },
+  DELETE_UNS_MAPPING: { label: 'Delete UNS Mapping', category: 'UNS' },
   UPDATE_UNS_CONFIG: { label: 'Update UNS Config', category: 'UNS' },
   CREATE_HELP_ARTICLE: { label: 'Create Help Article', category: 'Help' },
   UPDATE_HELP_ARTICLE: { label: 'Update Help Article', category: 'Help' },

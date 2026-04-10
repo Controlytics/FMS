@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { EquipmentGroupsService } from './equipment-groups.service.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 
 const instrumentSchema = {
   type: 'object' as const,
@@ -86,6 +87,8 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
       response: { 201: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('CREATE_EQUIPMENT_GROUP', req, reply);
+    if (!ok) return;
     const ctx = buildContext(req);
     const result = await service.create(ctx, req.body);
     return reply.code(201).send(result);
@@ -107,7 +110,9 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
       },
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_EQUIPMENT_GROUP', req, reply);
+    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     return service.update(ctx, id, req.body);
@@ -121,7 +126,9 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
       params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
       response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('DELETE_EQUIPMENT_GROUP', req, reply);
+    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     return service.delete(ctx, id);
