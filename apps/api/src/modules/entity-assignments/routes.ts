@@ -321,7 +321,7 @@ export default async function entityAssignmentRoutes(app: FastifyInstance) {
       return { data, total, page, limit };
     }
 
-    // ORG_ADMIN+ sees org entities + directly assigned
+    // Other roles: see org entities + directly assigned
     const entityIdsFromAssignment = await prisma.entityAssignment.findMany({
       where: {
         OR: [
@@ -335,13 +335,14 @@ export default async function entityAssignmentRoutes(app: FastifyInstance) {
 
     const assignedIds = entityIdsFromAssignment.map(a => a.entityId);
 
-    const where: any = {
-      isActive: true,
-      OR: [
-        { organizationId: orgId }, // entities in user's org
-        ...(assignedIds.length > 0 ? [{ id: { in: assignedIds } }] : []),
-      ],
-    };
+    const orConditions: any[] = [];
+    if (orgId) orConditions.push({ organizationId: orgId });
+    if (assignedIds.length > 0) orConditions.push({ id: { in: assignedIds } });
+
+    // If no org and no assignments, show all (user passed permission check)
+    const where: any = orConditions.length > 0
+      ? { isActive: true, OR: orConditions }
+      : { isActive: true };
 
     const [data, total] = await Promise.all([
       prisma.assetInstance.findMany({ where, skip: (page - 1) * limit, take: limit, select: { id: true, name: true, status: true, templateId: true, organizationId: true } }),

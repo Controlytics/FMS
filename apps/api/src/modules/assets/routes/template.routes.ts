@@ -82,8 +82,9 @@ export default async function templateRoutes(app: FastifyInstance) {
     let visibilityFilter: Record<string, unknown> | undefined;
 
     if (role === "SUPER_ADMIN" || role === "ADMIN") {
-      // No filter
+      // No filter — see all templates
     } else {
+      // Check if user has explicit template assignments
       const { prisma } = await import("../../../lib/prisma.js");
       const templateAssignments = await prisma.templateAssignment.findMany({
         where: {
@@ -96,12 +97,12 @@ export default async function templateRoutes(app: FastifyInstance) {
       });
 
       const assignedIds = templateAssignments.map((a: any) => a.templateId);
-      if (assignedIds.length === 0) {
-        return { data: [], total: 0, page: query.page, limit: query.limit ?? 0, totalPages: 0 };
+      if (assignedIds.length > 0) {
+        // User has explicit assignments — show only those
+        visibilityFilter = { id: { in: assignedIds } };
       }
-      visibilityFilter = {
-        id: { in: assignedIds },
-      };
+      // If no assignments exist, show all templates (user already passed permission check)
+      // Templates are blueprints — visibility is gated by permissions, not assignments
     }
     return templateService.list(query, visibilityFilter);
   });

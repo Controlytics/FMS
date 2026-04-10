@@ -80,7 +80,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
     let visibilityFilter: Record<string, unknown> | undefined;
 
     if (role === "SUPER_ADMIN" || role === "ADMIN") {
-      // No filter
+      // No filter — see all instances
     } else {
       const { prisma } = await import("../../../lib/prisma.js");
 
@@ -110,17 +110,15 @@ export default async function instanceRoutes(app: FastifyInstance) {
       const assignedEntityIds = entityAssignments.map((a: any) => a.entityId);
       const assignedTemplateIds = templateAssignments.map((a: any) => a.templateId);
 
-      visibilityFilter = {
-        OR: [
-          ...(orgId ? [{ organizationId: orgId }] : []),
-          ...(assignedEntityIds.length > 0 ? [{ id: { in: assignedEntityIds } }] : []),
-          ...(assignedTemplateIds.length > 0 ? [{ templateId: { in: assignedTemplateIds } }] : []),
-        ],
-      };
+      const orConditions: any[] = [];
+      if (orgId) orConditions.push({ organizationId: orgId });
+      if (assignedEntityIds.length > 0) orConditions.push({ id: { in: assignedEntityIds } });
+      if (assignedTemplateIds.length > 0) orConditions.push({ templateId: { in: assignedTemplateIds } });
 
-      if (!orgId && assignedEntityIds.length === 0 && assignedTemplateIds.length === 0) {
-        return { data: [], total: 0, page: query.page, limit: query.limit ?? 0, totalPages: 0 };
+      if (orConditions.length > 0) {
+        visibilityFilter = { OR: orConditions };
       }
+      // If no org, no assignments — user passed permission check, show all instances
     }
     return instanceService.list(query, visibilityFilter);
   });
@@ -187,7 +185,10 @@ export default async function instanceRoutes(app: FastifyInstance) {
       if (orgId) orConditions.push({ organizationId: orgId });
       if (eIds.length) orConditions.push({ id: { in: eIds } });
       if (tIds.length) orConditions.push({ templateId: { in: tIds } });
-      if (orConditions.length === 0) return [];
+      if (orConditions.length === 0) {
+        // No org or assignments — user passed permission check, show all
+        return instanceService.getTree();
+      }
       return instanceService.getTree({ OR: orConditions });
     }
   });

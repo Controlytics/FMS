@@ -53,9 +53,9 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     let where: any = { isActive: true };
 
     if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
-      // No filter
+      // No filter — see all dashboards
     } else {
-      // Org-scoped users: only assigned dashboards
+      // Check for explicit dashboard assignments
       const assignments = await prisma.dashboardAssignment.findMany({
         where: {
           OR: [
@@ -67,7 +67,11 @@ export default async function dashboardRoutes(app: FastifyInstance) {
         select: { dashboardId: true },
       });
       const ids = assignments.map(a => a.dashboardId);
-      where = { id: { in: ids }, isActive: true };
+      if (ids.length > 0) {
+        // User has explicit assignments — show only those
+        where = { id: { in: ids }, isActive: true };
+      }
+      // If no assignments — user passed permission check, show all active dashboards
     }
 
     const [data, total] = await Promise.all([
