@@ -178,6 +178,13 @@ export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
     description: "Preventive maintenance scheduling",
     privilegeIds: ["pm.view", "pm.create", "pm.edit", "pm.delete"],
   },
+  {
+    sidebarId: "approvals",
+    label: "Approvals",
+    icon: "\u2705",
+    description: "Block change approval requests",
+    privilegeIds: ["block_change.request", "block_change.approve"],
+  },
 ];
 
 /** Look up FeaturePrivilege objects for a given sidebar section */

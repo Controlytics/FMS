@@ -62,6 +62,7 @@ import pmScheduleRoutes from './modules/pm-schedules/routes.js';import pmExecuti
 import equipmentGroupRoutes from './modules/equipment-groups/routes.js';
 import deploymentCheckRoutes from './modules/deployment-check/routes.js';
 import adminRequestRoutes from './modules/admin-requests/routes.js';
+import blockChangeRoutes from './modules/block-change-requests/routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -96,7 +97,7 @@ if (!corsOrigins && process.env.NODE_ENV === 'production') {
   throw new Error('FATAL: ALLOWED_ORIGINS env var must be set in production');
 }
 await app.register(cors, {
-  origin: (corsOrigins ?? 'http://localhost:5173,http://localhost:5175,https://localhost').split(','),
+  origin: (corsOrigins ?? 'http://localhost:5173,http://localhost:5175,https://localhost,capacitor://localhost,http://localhost').split(','),
   credentials: true,
   methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-reauth-password'],
@@ -266,6 +267,7 @@ await app.register(pmScheduleRoutes, { prefix: '/api/pm-schedules' });await app.
 await app.register(equipmentGroupRoutes, { prefix: '/api/equipment-groups' });
 await app.register(deploymentCheckRoutes, { prefix: '/api/deployment-check' });
 await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
+await app.register(blockChangeRoutes, { prefix: '/api/block-change-requests' });
 await app.register(wsHandler);
 
 // Initialize rule chain node registry
@@ -275,8 +277,9 @@ initializeNodes();
 const port = parseInt(process.env.PORT ?? '3000', 10);
 try {
   await app.listen({ port, host: '0.0.0.0' });
-  app.log.info(`DigiLog API running on http://localhost:${port}`);
-  app.log.info(`Swagger UI: http://localhost:${port}/docs`);
+  const proto = httpsOptions ? 'https' : 'http';
+  app.log.info(`DigiLog API running on ${proto}://localhost:${port}`);
+  app.log.info(`Swagger UI: ${proto}://localhost:${port}/docs`);
 
   // Initialize MQTT client after server is listening
   try {

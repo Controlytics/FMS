@@ -116,6 +116,10 @@ export const PERMISSIONS = {
 
   // Backup
   BACKUP_MANAGE: 'BACKUP_MANAGE',
+
+  // Block Change Requests
+  BLOCK_CHANGE_REQUEST: 'BLOCK_CHANGE_REQUEST',
+  BLOCK_CHANGE_APPROVE: 'BLOCK_CHANGE_APPROVE',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

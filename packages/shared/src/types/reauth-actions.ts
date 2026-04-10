@@ -81,6 +81,10 @@ export const REAUTH_ACTIONS = {
   CREATE_EQUIPMENT_GROUP: { label: 'Create Equipment Group', category: 'Equipment Groups' },
   UPDATE_EQUIPMENT_GROUP: { label: 'Update Equipment Group', category: 'Equipment Groups' },
   DELETE_EQUIPMENT_GROUP: { label: 'Delete Equipment Group', category: 'Equipment Groups' },
+
+  // Block Change
+  APPROVE_BLOCK_CHANGE: { label: 'Approve Block Change', category: 'Filter Management' },
+  REJECT_BLOCK_CHANGE: { label: 'Reject Block Change', category: 'Filter Management' },
 } as const;
 
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;

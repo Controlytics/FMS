@@ -82,6 +82,10 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'filters.bypass', label: 'Bypass Filter Stages (Deviation)', category: 'Filter Management', icon: 'alert-circle' },
   { id: 'filters.events', label: 'View Filter Events', category: 'Filter Management', icon: 'list' },
 
+  // Block Change
+  { id: 'block_change.request', label: 'Request Block Change', category: 'Filter Management', icon: 'refresh' },
+  { id: 'block_change.approve', label: 'Approve Block Change', category: 'Filter Management', icon: 'check-circle' },
+
   // Cleaning Profiles
   { id: 'cleaning_profiles.view', label: 'View Cleaning Profiles', category: 'Cleaning Profiles', icon: 'eye' },
   { id: 'cleaning_profiles.create', label: 'Create Cleaning Profiles', category: 'Cleaning Profiles', icon: 'plus' },
@@ -202,6 +206,10 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'filters.operate': ['FILTER_OPERATE', 'ASSET_READ'],
   'filters.bypass': ['FILTER_BYPASS', 'ASSET_READ'],
   'filters.events': ['EVENT_READ', 'ASSET_READ'],
+
+  // Block Change
+  'block_change.request': ['BLOCK_CHANGE_REQUEST'],
+  'block_change.approve': ['BLOCK_CHANGE_APPROVE'],
 
   // Cleaning Profiles
   'cleaning_profiles.view': ['FCP_READ'],

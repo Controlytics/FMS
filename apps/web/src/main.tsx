@@ -82,6 +82,8 @@ const RetirementListPage = lazy(() => import("./routes/filter-management/retirem
 const AdminRequestsPage = lazy(() => import("./routes/admin-requests/index").then(m => ({ default: m.AdminRequestsPage })));
 const ReplacementListPage = lazy(() => import("./routes/filter-management/replacement-list").then(m => ({ default: m.ReplacementListPage })));
 
+const ApprovalsPage = lazy(() => import("./routes/approvals/index").then(m => ({ default: m.ApprovalsPage })));
+
 // Mobile
 const MobileOperationsPage = lazy(() => import("./routes/mobile/mobile-operations").then(m => ({ default: m.MobileOperationsPage })));
 const MobileLoginPage = lazy(() => import("./routes/mobile/mobile-login").then(m => ({ default: m.MobileLoginPage })));
@@ -95,6 +97,11 @@ function LazyFallback() {
       </svg>
     </div>
   );
+}
+
+// Auto-redirect to mobile UI when running inside Capacitor APK
+if ((window as any).Capacitor?.isNativePlatform?.() && !window.location.pathname.startsWith('/m')) {
+  window.location.href = '/m/login';
 }
 
 createRoot(document.getElementById('root')!).render(
@@ -207,6 +214,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/ahus/:id" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AhuDashboardPage /></Suspense></RequireRole>} />
             <Route path="/audit" element={<RequireRole permissions={[PERMISSIONS.AUDIT_READ]}><AuditTrailPage /></RequireRole>} />
             <Route path="/admin-requests" element={<RequireRole permissions={[PERMISSIONS.USER_CREATE]}><Suspense fallback={<LazyFallback />}><AdminRequestsPage /></Suspense></RequireRole>} />
+            <Route path="/approvals" element={<Suspense fallback={<LazyFallback />}><ApprovalsPage /></Suspense>} />
 
           </Route>
 

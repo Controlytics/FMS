@@ -98,6 +98,52 @@ export class FilterOperationsService {
     return filter as { id: string; name: string | null; filterProfileId: string | null; currentLifecycleState: string | null; currentCycleId: string | null; filterSet: string | null; organizationId: string | null };
   }
 
+  async getFilterHomeBlock(filterId: string): Promise<{ blockId: string; blockName: string } | null> {
+    let currentId: string | null = filterId;
+    const visited = new Set<string>();
+    while (currentId) {
+      if (visited.has(currentId)) break;
+      visited.add(currentId);
+      const inst: { id: string; name: string; parentId: string | null; template: { name: string } | null } | null = await prisma.assetInstance.findUnique({
+        where: { id: currentId },
+        select: { id: true, name: true, parentId: true, template: { select: { name: true } } },
+      });
+      if (!inst) break;
+      if (inst.template?.name === 'Block') {
+        return { blockId: inst.id, blockName: inst.name };
+      }
+      currentId = inst.parentId;
+    }
+    return null;
+  }
+
+  async validateBlockChange(filterId: string, cleaningAreaId: string | undefined, ctx: RequestContext) {
+    if (!cleaningAreaId) return;
+    const homeBlock = await this.getFilterHomeBlock(filterId);
+    if (!homeBlock) return;
+    if (homeBlock.blockId === cleaningAreaId) return;
+
+    const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
+    const hasApproval = await blockChangeService.hasApproval(filterId, cleaningAreaId);
+    if (!hasApproval) {
+      const targetBlock = await prisma.assetInstance.findUnique({
+        where: { id: cleaningAreaId },
+        select: { name: true },
+      });
+      throw new AppError(409, 'BLOCK_CHANGE_REQUIRED',
+        `Filter belongs to ${homeBlock.blockName}. Request approval to clean in ${targetBlock?.name ?? 'another block'}.`,
+        {
+          filterId,
+          homeBlockId: homeBlock.blockId,
+          homeBlockName: homeBlock.blockName,
+          requestedBlockId: cleaningAreaId,
+          requestedBlockName: targetBlock?.name ?? '',
+        }
+      );
+    }
+    await blockChangeService.consumeApproval(filterId, cleaningAreaId);
+  }
+
   private getNextStageKeys(fromNodeId: string, stages: any[], connections: any[]): string[] {
     const outConns = connections.filter((c: any) => c.fromStageId === fromNodeId);
     const nextStageIds = outConns.map((c: any) => c.toStageId);
@@ -423,6 +469,9 @@ export class FilterOperationsService {
       });
       if (activeCycle) throw new AppError(409, 'CYCLE_ACTIVE', 'Filter already has an active cleaning cycle');
     }
+
+    // Validate block change (must be before cycle creation)
+    await this.validateBlockChange(filterId, cleaningAreaId, ctx);
 
     const reasons = await this.getCleaningReasons(resolvedProfileIdForCycle);
     if (!cleaningReasonKey) {

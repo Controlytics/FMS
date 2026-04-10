@@ -5,6 +5,7 @@ import { apiClient } from '../../lib/api-client';
 import { useAuth } from '../../hooks/use-auth';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { useOffline } from '../../hooks/use-offline';
+import { DryerDurationDialog } from '../filter-management/components/dryer-duration-dialog';
 
 const STAGES = [
   { key: 'WASH_IN', label: 'Wash In', icon: '🚿', gradient: 'from-sky-500 to-sky-600', bg: 'bg-sky-50', border: 'border-sky-200', text: 'text-sky-700', needsBlock: true },
@@ -50,6 +51,9 @@ export function MobileOperationsPage() {
   const [selectedBlock, setSelectedBlock] = useState<any>(null);
   const [scanValue, setScanValue] = useState('');
   const [remarks, setRemarks] = useState('');
+  const [blockChangeDialog, setBlockChangeDialog] = useState<{ filterId: string; filterName: string; homeBlockId: string; homeBlockName: string; requestedBlockId: string; requestedBlockName: string } | null>(null);
+  const [blockChangeReason, setBlockChangeReason] = useState('');
+  const [blockChangeSubmitting, setBlockChangeSubmitting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -62,6 +66,9 @@ export function MobileOperationsPage() {
   const [equipDialog, setEquipDialog] = useState<{ filterId: string; filterName: string; stage: string; groups: any[]; cycleGroup?: any } | null>(null);
   const [selectedEquipGroup, setSelectedEquipGroup] = useState<any>(null);
   const [readings, setReadings] = useState<Record<string, number>>({});
+  const [dryerDialog, setDryerDialog] = useState<{ filterId: string; filterName: string } | null>(null);
+  const [dryerLoading, setDryerLoading] = useState(false);
+  const [dryerError, setDryerError] = useState('');
   const [checklistDialog, setChecklistDialog] = useState<{ filterId: string; filterName: string; checklists: any[] } | null>(null);
   const [checklistAnswers, setChecklistAnswers] = useState<Record<string, any>>({});
 
@@ -163,11 +170,14 @@ export function MobileOperationsPage() {
     return { filterId, filterName };
   };
 
-  // Helper: detect network errors (fetch failures)
+  // Helper: detect network errors (fetch failures + CapacitorHttp native errors)
   const isNetworkError = (e: any): boolean => {
     if (!e) return false;
     const msg = String(e.message || e).toLowerCase();
-    return msg.includes('failed to fetch') || msg.includes('network') || msg.includes('load failed') || e.name === 'TypeError';
+    return msg.includes('failed to fetch') || msg.includes('network') || msg.includes('load failed')
+      || msg.includes('failed to connect') || msg.includes('unable to resolve host')
+      || msg.includes('timeout') || msg.includes('econnrefused') || msg.includes('enetunreach')
+      || e.name === 'TypeError';
   };
 
   // Queue the operation offline (used as fallback when network fails mid-operation)
@@ -208,7 +218,26 @@ export function MobileOperationsPage() {
       const nextAllowed = state.nextAllowedStages ?? [];
       if (nextAllowed.length > 0 && !nextAllowed.includes(activeStage.key)) { setError(`Next allowed: ${nextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`); setLoading(false); return; }
       if (!state.currentCycle) { setReasonDialog({ filterId, filterName: filterName || state.filterName, stage: activeStage.key }); setSelectedReason(''); setJustification(''); setLoading(false); return; }
-      if (activeStage.key === 'DRY_IN' && state.equipmentGroup) { setEquipDialog({ filterId, filterName: filterName || state.filterName, stage: activeStage.key, groups: [], cycleGroup: state.equipmentGroup }); setSelectedEquipGroup(state.equipmentGroup); setReadings({}); setLoading(false); return; }
+      if (activeStage.key === 'DRY_IN') {
+        const cyc = state.currentCycle ?? {};
+        const startedAt = cyc.dryerStartedAt ? new Date(cyc.dryerStartedAt).getTime() : null;
+        const durationMin: number | null = cyc.dryerDurationMinutes ?? null;
+        if (!startedAt || !durationMin) {
+          setDryerDialog({ filterId, filterName: filterName || state.filterName });
+          setLoading(false); return;
+        }
+        const halfMs = (durationMin * 60_000) / 2;
+        const elapsedMs = Date.now() - startedAt;
+        if (elapsedMs < halfMs) {
+          const remainingMin = Math.ceil((halfMs - elapsedMs) / 60_000);
+          setError(`Dryer still running. Wait ${remainingMin} more minute(s).`);
+          setLoading(false); return;
+        }
+        if (state.equipmentGroup) {
+          setEquipDialog({ filterId, filterName: filterName || state.filterName, stage: activeStage.key, groups: [], cycleGroup: state.equipmentGroup });
+          setSelectedEquipGroup(state.equipmentGroup); setReadings({}); setLoading(false); return;
+        }
+      }
 
       let result: any;
       try {
@@ -221,7 +250,13 @@ export function MobileOperationsPage() {
       setRecentOps(prev => [{ stage: activeStage.key, filter: filterName || state.filterName, time: formatTime(new Date()) }, ...prev].slice(0, 20));
       setScanValue(''); setRemarks(''); mutate('/api/assets/instances?limit=500');
       if (result?.pendingChecklist?.length > 0) { setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: result.pendingChecklist }); setChecklistAnswers({}); }
-    } catch (e: any) { setError(e.message ?? 'Failed'); }
+    } catch (e: any) {
+      if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
+        setBlockChangeDialog({ filterId: e.connectionInfo.filterId, filterName: scanValue, homeBlockId: e.connectionInfo.homeBlockId, homeBlockName: e.connectionInfo.homeBlockName, requestedBlockId: e.connectionInfo.requestedBlockId, requestedBlockName: e.connectionInfo.requestedBlockName });
+        setBlockChangeReason(''); setLoading(false); return;
+      }
+      setError(e.message ?? 'Failed');
+    }
     setLoading(false);
   };
 
@@ -248,15 +283,44 @@ export function MobileOperationsPage() {
       setRecentOps(prev => [{ stage: reasonDialog.stage, filter: reasonDialog.filterName, time: formatTime(new Date()) }, ...prev].slice(0, 20));
       setScanValue(''); setRemarks(''); setReasonDialog(null); mutate('/api/assets/instances?limit=500');
       if (result?.pendingChecklist?.length > 0) { setChecklistDialog({ filterId: reasonDialog.filterId, filterName: reasonDialog.filterName, checklists: result.pendingChecklist }); setChecklistAnswers({}); }
-    } catch (e: any) { setError(e.message ?? 'Failed'); }
+    } catch (e: any) {
+      if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
+        setBlockChangeDialog({ filterId: e.connectionInfo.filterId, filterName: reasonDialog?.filterName ?? '', homeBlockId: e.connectionInfo.homeBlockId, homeBlockName: e.connectionInfo.homeBlockName, requestedBlockId: e.connectionInfo.requestedBlockId, requestedBlockName: e.connectionInfo.requestedBlockName });
+        setBlockChangeReason(''); setReasonDialog(null); setLoading(false); return;
+      }
+      setError(e.message ?? 'Failed');
+    }
     setLoading(false);
+  };
+
+  const handleDryerDurationSubmit = async (minutes: number) => {
+    if (!dryerDialog || dryerLoading) return;
+    setDryerLoading(true); setDryerError('');
+    try {
+      const payload = {
+        targetState: 'DRY_IN',
+        cleaningAreaId: selectedBlock?.id,
+        dryerAction: 'SET_DURATION',
+        dryerDurationMinutes: minutes,
+        remarks: remarks || `Dryer started (${minutes} min) - ${dryerDialog.filterName}`,
+      };
+      const { executed } = await executeOrQueue('advance', dryerDialog.filterId, dryerDialog.filterName, payload, 'DRY_IN');
+      setSuccess(`${dryerDialog.filterName} → Dryer running (${minutes} min)${executed ? '' : ' (queued)'}`);
+      setRecentOps(prev => [{ stage: 'Dryer Started', filter: dryerDialog.filterName, time: formatTime(new Date()), queued: !executed }, ...prev].slice(0, 20));
+      setScanValue(''); setRemarks(''); setDryerDialog(null);
+      if (executed) mutate('/api/assets/instances?limit=500');
+    } catch (e: any) {
+      setDryerError(e.message ?? 'Failed to start dryer');
+    }
+    setDryerLoading(false);
   };
 
   const handleEquipSubmit = async () => {
     if (!equipDialog || !selectedEquipGroup) return;
     setLoading(true); setError('');
     try {
-      const advancePayload = { targetState: equipDialog.stage, cleaningAreaId: selectedBlock?.id, equipmentGroupId: selectedEquipGroup.id, instrumentReadings: readings, remarks: remarks || `${equipDialog.stage.replace(/_/g, ' ')} - ${equipDialog.filterName}` };
+      const isDryerReadings = equipDialog.stage === 'DRY_IN';
+      const advancePayload = { targetState: isDryerReadings ? 'DRY_OUT' : equipDialog.stage, cleaningAreaId: selectedBlock?.id, equipmentGroupId: selectedEquipGroup.id, instrumentReadings: readings, ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}), remarks: remarks || `${equipDialog.stage.replace(/_/g, ' ')} - ${equipDialog.filterName}` };
       const { executed, result } = await executeOrQueue('advance', equipDialog.filterId, equipDialog.filterName, advancePayload, equipDialog.stage);
       const queued = !executed;
       setSuccess(`${equipDialog.filterName} → ${equipDialog.stage.replace(/_/g, ' ')}${queued ? ' (queued)' : ''}`);
@@ -279,6 +343,22 @@ export function MobileOperationsPage() {
       if (executed) mutate('/api/assets/instances?limit=500');
     } catch (e: any) { setError(e.message ?? 'Failed'); }
     setLoading(false);
+  };
+
+  const handleBlockChangeRequest = async () => {
+    if (!blockChangeDialog) return;
+    setBlockChangeSubmitting(true);
+    try {
+      await apiClient.post('/api/block-change-requests', {
+        filterId: blockChangeDialog.filterId, filterName: blockChangeDialog.filterName,
+        fromBlockId: blockChangeDialog.homeBlockId, fromBlockName: blockChangeDialog.homeBlockName,
+        toBlockId: blockChangeDialog.requestedBlockId, toBlockName: blockChangeDialog.requestedBlockName,
+        reason: blockChangeReason || undefined,
+      });
+      setSuccess('Block change request submitted. Waiting for approval.');
+      setBlockChangeDialog(null); setScanValue('');
+    } catch (e: any) { setError(e.message ?? 'Failed to submit request'); }
+    setBlockChangeSubmitting(false);
   };
 
   const genOpts = (min: number, max: number, step: number): number[] => { const o: number[] = []; if (step <= 0) return o; for (let v = min, i = 0; v <= max + 1e-9 && i < 10000; v = Math.round((v + step) * 1e10) / 1e10, i++) o.push(v); return o; };
@@ -547,6 +627,15 @@ export function MobileOperationsPage() {
         </div>
       )}
 
+      <DryerDurationDialog
+        open={!!dryerDialog}
+        filterName={dryerDialog?.filterName ?? ''}
+        loading={dryerLoading}
+        error={dryerError}
+        onClose={() => { setDryerDialog(null); setDryerError(''); }}
+        onSubmit={handleDryerDurationSubmit}
+      />
+
       {/* Checklist */}
       {checklistDialog && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end justify-center z-50">
@@ -564,6 +653,49 @@ export function MobileOperationsPage() {
               </div>))}
             </div>
             <div className="p-4 border-t border-slate-200 flex gap-3"><button onClick={() => setChecklistDialog(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium">Cancel</button><button onClick={handleChecklistSubmit} disabled={loading} className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold disabled:opacity-40">{loading ? 'Submitting...' : 'Submit'}</button></div>
+          </div>
+        </div>
+      )}
+
+      {/* Block Change Request Dialog */}
+      {blockChangeDialog && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+            <div className="h-1.5 bg-gradient-to-r from-amber-500 to-orange-500" />
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">Block Change Required</h3>
+                  <p className="text-xs text-slate-400">This filter belongs to a different block</p>
+                </div>
+              </div>
+              <div className="space-y-3 mb-5">
+                <div className="bg-slate-50 rounded-xl p-3 text-sm">
+                  <div className="text-slate-500">Filter: <span className="font-semibold text-slate-800">{blockChangeDialog.filterName}</span></div>
+                  <div className="text-slate-500 mt-1">Home Block: <span className="font-semibold text-slate-800">{blockChangeDialog.homeBlockName}</span></div>
+                  <div className="text-slate-500 mt-1">Requested Block: <span className="font-semibold text-amber-700">{blockChangeDialog.requestedBlockName}</span></div>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Reason</label>
+                  <textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none" rows={2}
+                    value={blockChangeReason} onChange={e => setBlockChangeReason(e.target.value)}
+                    placeholder="Why does this filter need to be cleaned in a different block?" />
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => { setBlockChangeDialog(null); setScanValue(''); }}
+                  className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium">Cancel</button>
+                <button onClick={handleBlockChangeRequest} disabled={blockChangeSubmitting}
+                  className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg shadow-cyan-500/25">
+                  {blockChangeSubmitting ? 'Submitting...' : 'Request Change'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
