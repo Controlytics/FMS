@@ -59,17 +59,20 @@ export function CleaningProfileListPage() {
                 <span>v{p.version}</span>
                 <span>{p.stageCount} stages</span>
                 <span>{p.connectionCount} connections</span>
+                {p.status === 'DRAFT' && <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded-full font-medium">Draft</span>}
               </div>
               <div className="flex items-center justify-between pt-3 border-t border-slate-200">
                 <div className="flex items-center gap-3">
-                  <span className={`text-xs font-medium ${p.status === 'ACTIVE' ? 'text-green-600' : 'text-slate-400'}`}>
-                    {p.status === 'ACTIVE' ? 'Active' : 'Inactive'}
+                  <span className={`text-xs font-medium ${p.status === 'ACTIVE' ? 'text-green-600' : p.status === 'DRAFT' ? 'text-amber-600' : 'text-slate-400'}`}>
+                    {p.status === 'ACTIVE' ? 'Active' : p.status === 'DRAFT' ? 'Draft' : 'Inactive'}
                   </span>
-                  <button
-                    onClick={(e) => toggleStatus(p.id, e)}
-                    className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${p.status === 'ACTIVE' ? 'bg-green-500' : 'bg-slate-300'}`}>
-                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${p.status === 'ACTIVE' ? 'translate-x-5' : 'translate-x-0'}`} />
-                  </button>
+                  {p.status !== 'DRAFT' && (
+                    <button
+                      onClick={(e) => toggleStatus(p.id, e)}
+                      className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${p.status === 'ACTIVE' ? 'bg-green-500' : 'bg-slate-300'}`}>
+                      <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${p.status === 'ACTIVE' ? 'translate-x-5' : 'translate-x-0'}`} />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

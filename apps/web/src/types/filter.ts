@@ -25,7 +25,7 @@ export interface CleaningProfile {
   description?: string | null;
   flowMode: string;
   version: number;
-  status: 'ACTIVE' | 'INACTIVE';
+  status: 'ACTIVE' | 'INACTIVE' | 'DRAFT' | 'ARCHIVED';
   stageCount: number;
   connectionCount: number;
   createdAt: string;

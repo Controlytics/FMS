@@ -17,7 +17,11 @@ export class CleaningProfileService {
 
     // Map frontend status to DB status
     if (query.status === 'ACTIVE') where.status = 'ACTIVE';
-    else if (query.status === 'INACTIVE') where.status = 'ARCHIVED';
+    else if (query.status === 'INACTIVE') where.status = { in: ['ARCHIVED', 'DRAFT'] };
+    else {
+      // "All" — exclude old archived versions, show latest per name only
+      // (DRAFT and ARCHIVED are both considered inactive)
+    }
 
     // Get latest version per profile name using distinct + orderBy
     const latestPerName = await prisma.filterCleaningProfile.findMany({
@@ -45,7 +49,7 @@ export class CleaningProfileService {
         description: p.description,
         flowMode: p.flowMode,
         version: p.version,
-        status: p.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE',
+        status: p.status,
         stageCount: p.stages.filter(s => s.nodeType !== 'START' && s.nodeType !== 'END').length,
         connectionCount: p._count.connections,
         createdAt: p.createdAt,
