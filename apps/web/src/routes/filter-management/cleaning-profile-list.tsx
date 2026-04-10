@@ -70,8 +70,8 @@ export function CleaningProfileListPage() {
         </div>
         <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
-              <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101" /></svg>
+            <div className="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center">
+              <svg className="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101" /></svg>
             </div>
             <div>
               <div className="text-lg font-bold text-slate-800">{profiles.reduce((s, p) => s + p.connectionCount, 0)}</div>
@@ -152,9 +152,9 @@ export function CleaningProfileListPage() {
                       <div className="text-lg font-bold text-blue-700">{p.stageCount}</div>
                       <div className="text-[10px] text-blue-500 font-medium">Stages</div>
                     </div>
-                    <div className="flex-1 bg-purple-50 rounded-xl p-2.5 text-center">
-                      <div className="text-lg font-bold text-purple-700">{p.connectionCount}</div>
-                      <div className="text-[10px] text-purple-500 font-medium">Connections</div>
+                    <div className="flex-1 bg-teal-50 rounded-xl p-2.5 text-center">
+                      <div className="text-lg font-bold text-teal-700">{p.connectionCount}</div>
+                      <div className="text-[10px] text-teal-500 font-medium">Connections</div>
                     </div>
                   </div>
 

@@ -139,7 +139,7 @@ export function EquipmentGroupsConfigPage() {
             className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-700 transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </button>
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/25">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center text-white shadow-lg shadow-cyan-500/25">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
           </div>
           <div>
@@ -148,7 +148,7 @@ export function EquipmentGroupsConfigPage() {
           </div>
         </div>
         <button onClick={handleCreate} disabled={!selectedBlockId}
-          className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-xl hover:from-indigo-500 hover:to-blue-500 disabled:opacity-40 transition-all text-sm font-semibold shadow-lg shadow-indigo-500/25 flex items-center gap-2">
+          className="px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl hover:from-cyan-500 hover:to-teal-500 disabled:opacity-40 transition-all text-sm font-semibold shadow-lg shadow-cyan-500/25 flex items-center gap-2">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
           Add Equipment Group
         </button>
@@ -159,20 +159,20 @@ export function EquipmentGroupsConfigPage() {
         <div className="md:col-span-2 bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
           <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">Select Block</label>
           <select value={selectedBlockId} onChange={e => setSelectedBlockId(e.target.value)}
-            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none">
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none">
             <option value="">-- Select Block --</option>
             {blocks.map((b: any) => (
               <option key={b.id} value={b.id}>{b.name}</option>
             ))}
           </select>
         </div>
-        <div className="bg-gradient-to-br from-indigo-500 to-blue-600 rounded-2xl p-4 text-white shadow-lg shadow-indigo-500/20">
+        <div className="bg-gradient-to-br from-cyan-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg shadow-cyan-500/20">
           <div className="text-2xl font-bold">{groups.length}</div>
-          <div className="text-indigo-100 text-sm font-medium">Equipment Groups</div>
+          <div className="text-cyan-100 text-sm font-medium">Equipment Groups</div>
         </div>
-        <div className="bg-gradient-to-br from-violet-500 to-purple-600 rounded-2xl p-4 text-white shadow-lg shadow-violet-500/20">
+        <div className="bg-gradient-to-br from-teal-500 to-cyan-600 rounded-2xl p-4 text-white shadow-lg shadow-teal-500/20">
           <div className="text-2xl font-bold">{groups.reduce((s, g) => s + g.instruments.length, 0)}</div>
-          <div className="text-violet-100 text-sm font-medium">Total Instruments</div>
+          <div className="text-teal-100 text-sm font-medium">Total Instruments</div>
         </div>
       </div>
 
@@ -185,8 +185,8 @@ export function EquipmentGroupsConfigPage() {
 
       {!selectedBlockId && (
         <div className="text-center py-20">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-indigo-50 flex items-center justify-center">
-            <svg className="w-8 h-8 text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5" /></svg>
+          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-cyan-50 flex items-center justify-center">
+            <svg className="w-8 h-8 text-cyan-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5" /></svg>
           </div>
           <p className="text-slate-500 font-medium">Select a block to view its equipment groups</p>
         </div>
@@ -206,11 +206,11 @@ export function EquipmentGroupsConfigPage() {
       <div className="space-y-5">
         {groups.map(g => (
           <div key={g.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-shadow">
-            <div className="h-1.5 bg-gradient-to-r from-indigo-400 to-blue-500" />
+            <div className="h-1.5 bg-gradient-to-r from-cyan-400 to-teal-500" />
             <div className="flex items-center justify-between px-6 py-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-100 to-blue-100 flex items-center justify-center">
-                  <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-100 to-teal-100 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-slate-800">{g.name}</h3>
@@ -219,7 +219,7 @@ export function EquipmentGroupsConfigPage() {
               </div>
               <div className="flex gap-2">
                 <button onClick={() => handleEdit(g)}
-                  className="px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors">
+                  className="px-4 py-2 text-sm font-medium text-cyan-600 bg-cyan-50 hover:bg-cyan-100 rounded-xl transition-colors">
                   Edit
                 </button>
                 <button onClick={() => handleDelete(g)}
@@ -271,10 +271,10 @@ export function EquipmentGroupsConfigPage() {
       {editing && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setEditing(null)}>
           <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="h-1.5 bg-gradient-to-r from-indigo-500 via-blue-500 to-cyan-500" />
+            <div className="h-1.5 bg-gradient-to-r from-cyan-500 via-teal-500 to-emerald-500" />
             <div className="px-6 py-4 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center text-white">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center text-white">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={editing.isNew ? "M12 4v16m8-8H4" : "M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"} /></svg>
                 </div>
                 <div>
@@ -287,14 +287,14 @@ export function EquipmentGroupsConfigPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Group Name *</label>
-                  <input className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none" placeholder="e.g. Equipment Group 1"
+                  <input className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none" placeholder="e.g. Equipment Group 1"
                     value={editing.group.name ?? ''} onChange={e => setEditing({ ...editing, group: { ...editing.group, name: e.target.value } })} />
                 </div>
                 {editing.isNew && (
                   <div>
                     <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Block</label>
                     <select value={editing.group.blockId ?? ''} onChange={e => setEditing({ ...editing, group: { ...editing.group, blockId: e.target.value } })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none">
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none">
                       {blocks.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
                   </div>
@@ -312,7 +312,7 @@ export function EquipmentGroupsConfigPage() {
                         <span className={`px-2 py-0.5 text-[10px] rounded-full border ${sc.border} bg-white/60`}>{inst.stageKey.replace('_', ' ')}</span>
                       </h3>
                       <button onClick={() => setPreviewInst(previewInst === idx ? null : idx)}
-                        className="text-xs text-indigo-600 hover:text-indigo-700 font-semibold bg-white/80 px-3 py-1 rounded-lg">
+                        className="text-xs text-cyan-600 hover:text-cyan-700 font-semibold bg-white/80 px-3 py-1 rounded-lg">
                         {previewInst === idx ? 'Hide' : 'Preview'}
                       </button>
                     </div>
@@ -320,44 +320,44 @@ export function EquipmentGroupsConfigPage() {
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div>
                           <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">S.No</label>
-                          <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-indigo-400 outline-none"
+                          <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none"
                             value={inst.serialNumber} onChange={e => updateInstrument(idx, 'serialNumber', e.target.value)} />
                         </div>
                         <div>
                           <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Instrument ID *</label>
-                          <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-indigo-400 outline-none"
+                          <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none"
                             value={inst.instrumentId} onChange={e => updateInstrument(idx, 'instrumentId', e.target.value)} placeholder="e.g. CAP-001" />
                         </div>
                         <div>
                           <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">UOM *</label>
-                          <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-indigo-400 outline-none"
+                          <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none"
                             value={inst.uom} onChange={e => updateInstrument(idx, 'uom', e.target.value)} />
                         </div>
                         <div>
                           <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Least Count *</label>
-                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-indigo-400 outline-none"
+                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none"
                             value={inst.leastCount} onChange={e => updateInstrument(idx, 'leastCount', parseFloat(e.target.value) || 0)} />
                         </div>
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div>
                           <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Instrument Min *</label>
-                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-indigo-400 outline-none"
+                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none"
                             value={inst.instrumentMin} onChange={e => updateInstrument(idx, 'instrumentMin', parseFloat(e.target.value) || 0)} />
                         </div>
                         <div>
                           <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Instrument Max *</label>
-                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-indigo-400 outline-none"
+                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none"
                             value={inst.instrumentMax} onChange={e => updateInstrument(idx, 'instrumentMax', parseFloat(e.target.value) || 0)} />
                         </div>
                         <div>
                           <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Operating Min *</label>
-                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-indigo-400 outline-none"
+                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none"
                             value={inst.operatingMin} onChange={e => updateInstrument(idx, 'operatingMin', parseFloat(e.target.value) || 0)} />
                         </div>
                         <div>
                           <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Operating Max *</label>
-                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-indigo-400 outline-none"
+                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none"
                             value={inst.operatingMax} onChange={e => updateInstrument(idx, 'operatingMax', parseFloat(e.target.value) || 0)} />
                         </div>
                       </div>
@@ -390,7 +390,7 @@ export function EquipmentGroupsConfigPage() {
               <button onClick={() => setEditing(null)}
                 className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">Cancel</button>
               <button onClick={handleSave} disabled={saving}
-                className="flex-1 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-indigo-500 hover:to-blue-500 shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2">
+                className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-cyan-500 hover:to-teal-500 shadow-lg shadow-cyan-500/25 flex items-center justify-center gap-2">
                 {saving && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
                 {saving ? 'Saving...' : 'Save Equipment Group'}
               </button>
