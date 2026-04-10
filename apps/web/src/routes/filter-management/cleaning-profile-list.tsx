@@ -8,9 +8,9 @@ import type { CleaningProfile, PaginatedResponse } from '../../types/filter';
 export function CleaningProfileListPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState('ACTIVE');
   const [page, setPage] = useState(1);
-  const swrKey = `/api/filter-cleaning-profiles?page=${page}&limit=20${status ? `&status=${status}` : ''}`;
+  const swrKey = `/api/filter-cleaning-profiles?page=${page}&limit=20&status=${status}`;
   const { data, isLoading } = useSWR<PaginatedResponse<CleaningProfile>>(swrKey);
 
   const toggleStatus = async (id: string, e: React.MouseEvent) => {
@@ -34,7 +34,6 @@ export function CleaningProfileListPage() {
 
       <div className="flex gap-2">
         {[
-          { key: '', label: 'All' },
           { key: 'ACTIVE', label: 'Active' },
           { key: 'INACTIVE', label: 'Inactive' },
         ].map(s => (
