@@ -3,7 +3,7 @@ import { auditLog } from '../../lib/audit.js';
 import { NotFoundError, ValidationError } from '../../lib/errors.js';
 import { configRepository } from './config.repository.js';
 import { getActionReauthConfig, invalidateReauthCache, isReauthRequired } from '../../lib/reauth-check.js';
-import { getDefaultTemplates, FEATURE_TO_PERMISSION_MAP, FEATURE_PRIVILEGES, ALL_ALARM_COLUMN_IDS } from '@digilog/shared';
+import { getDefaultTemplates, FEATURE_TO_PERMISSION_MAP, FEATURE_PRIVILEGES, ALL_ALARM_COLUMN_IDS, SIDEBAR_PRIVILEGE_MAP } from '@digilog/shared';
 import { validateUserId } from '../../lib/user-id-validator.js';
 import { prisma } from '../../lib/prisma.js';
 
@@ -118,6 +118,29 @@ export const configService = {
         where: { name: role },
         data: { permissions: permissionsArray },
       });
+
+      // Auto-sync sidebar items: when permissions are enabled, ensure corresponding
+      // sidebar items are also added so features are visible to users.
+      // Only runs if a sidebar config already exists with items (otherwise sidebar
+      // shows all items by default based on permissions alone).
+      const effectiveSidebarItems = (config.sidebarItems as string[]) ?? [];
+      if (effectiveSidebarItems.length > 0) {
+        const currentSidebarItems = new Set<string>(effectiveSidebarItems);
+        let sidebarChanged = false;
+        for (const section of SIDEBAR_PRIVILEGE_MAP) {
+          if (section.privilegeIds.length === 0) continue;
+          const hasEnabledPrivilege = section.privilegeIds.some(privId => data.permissions![privId] === true);
+          if (hasEnabledPrivilege && !currentSidebarItems.has(section.sidebarId)) {
+            currentSidebarItems.add(section.sidebarId);
+            sidebarChanged = true;
+          }
+        }
+        if (sidebarChanged) {
+          const updatedSidebarItems = Array.from(currentSidebarItems);
+          await configRepository.upsertRoleConfig(role, { sidebarItems: updatedSidebarItems }, config, ctx.userId);
+          (config as any).sidebarItems = updatedSidebarItems;
+        }
+      }
     }
 
     await auditLog({
@@ -160,12 +183,24 @@ export const configService = {
     const user = await configRepository.findUserByUsername(username);
     if (!user) return { sidebarItems: [], homeWidgets: [], permissions: {} };
 
+    const roleConfig = await configRepository.findRoleConfig(user.role);
+    const rolePerms = (roleConfig?.permissions as Record<string, boolean>) ?? {};
+    const roleSidebar = (roleConfig?.sidebarItems as string[]) ?? [];
+
     const userConfig = await configRepository.findUserConfig(user.id);
-    if (userConfig && ((userConfig.sidebarItems as any[]).length > 0 || Object.keys(userConfig.permissions as any).length > 0)) {
-      return userConfig;
+    const userSidebar = (userConfig?.sidebarItems as any[]) ?? [];
+    const userPerms = (userConfig?.permissions as Record<string, boolean>) ?? {};
+    const hasUserOverride = userSidebar.length > 0 || Object.keys(userPerms).length > 0;
+
+    if (hasUserOverride) {
+      // Merge: user sidebar items + role permissions (role permissions are authoritative)
+      return {
+        sidebarItems: userSidebar.length > 0 ? userSidebar : roleSidebar,
+        homeWidgets: (userConfig?.homeWidgets as string[]) ?? (roleConfig?.homeWidgets as string[]) ?? [],
+        permissions: { ...rolePerms, ...userPerms },
+      };
     }
 
-    const roleConfig = await configRepository.findRoleConfig(user.role);
     return roleConfig ?? { sidebarItems: [], homeWidgets: [], permissions: {} };
   },
 

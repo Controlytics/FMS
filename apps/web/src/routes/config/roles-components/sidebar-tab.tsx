@@ -87,7 +87,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
     const handleSaveSidebarRole = useCallback(async () => {
       setSidebarSaving(true);
       try {
-        await api.put(`/api/config/roles/${sidebarSelectedRole}`, { sidebarItems: enabledItems, homeWidgets: sidebarRoleConfig?.homeWidgets || [], permissions: sidebarRoleConfig?.permissions || {} });
+        await api.put(`/api/config/roles/${sidebarSelectedRole}`, { sidebarItems: enabledItems });
         setSidebarDirty(false);
       } catch (error: any) { toast.error('Save Failed', error.message || 'Failed to save sidebar configuration'); console.error('Failed to save:', error); } finally { setSidebarSaving(false); }
     }, [sidebarSelectedRole, enabledItems, sidebarRoleConfig, toast]);
@@ -96,7 +96,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
       if (!selectedUser) return;
       setSidebarSaving(true);
       try {
-        await api.put(`/api/config/users/${selectedUser.id}`, { sidebarItems: enabledItems, homeWidgets: userConfig?.homeWidgets || [], permissions: userConfig?.permissions || {} });
+        await api.put(`/api/config/users/${selectedUser.id}`, { sidebarItems: enabledItems });
         setSidebarDirty(false);
       } catch (error: any) { toast.error('Save Failed', error.message || 'Failed to save user sidebar configuration'); console.error('Failed to save:', error); } finally { setSidebarSaving(false); }
     }, [selectedUser, enabledItems, userConfig, toast]);
@@ -105,7 +105,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
       if (!selectedUser) return;
       setSidebarSaving(true);
       try {
-        await api.put(`/api/config/users/${selectedUser.id}`, { sidebarItems: [], homeWidgets: [], permissions: {} });
+        await api.put(`/api/config/users/${selectedUser.id}`, { sidebarItems: [] });
         setEnabledItems([]); setSidebarDirty(false);
       } catch (error: any) { toast.error('Reset Failed', error.message || 'Failed to reset user to role defaults'); console.error('Failed to clear:', error); } finally { setSidebarSaving(false); }
     };

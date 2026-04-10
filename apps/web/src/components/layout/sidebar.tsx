@@ -211,16 +211,20 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
   // Check if a sidebar item is allowed by user's permissions
   const hasPermissionForItem = (itemId: string): boolean => {
     const userPerms = user?.permissions ?? [];
-    if (userPerms.length === 0) return false;
+    const configPerms = (config?.permissions ?? {}) as Record<string, boolean>;
 
     const section = SIDEBAR_PRIVILEGE_MAP.find(s => s.sidebarId === itemId);
     if (!section || section.privilegeIds.length === 0) return true; // no privileges required = always visible
 
-    // User needs at least one of the section's privileges
+    // Check config-based feature privileges (from Roles & Privileges config page)
+    const hasConfigPerm = section.privilegeIds.some(privId => configPerms[privId] === true);
+    if (hasConfigPerm) return true;
+
+    // Fallback: check role-based backend permissions
+    if (userPerms.length === 0) return false;
     return section.privilegeIds.some(privId => {
       const requiredPerms = FEATURE_TO_PERMISSION_MAP[privId];
       if (!requiredPerms) return false;
-      // User has this privilege if they have at least one of its mapped permissions
       return requiredPerms.some(p => userPerms.includes(p));
     });
   };

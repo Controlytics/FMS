@@ -51,7 +51,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
     const handlePermSave = useCallback(async () => {
       setPermSaving(true);
       try {
-        await api.put(`/api/config/roles/${permSelectedRole}`, { permissions, sidebarItems: roleConfig?.sidebarItems || [], homeWidgets: roleConfig?.homeWidgets || [] });
+        await api.put(`/api/config/roles/${permSelectedRole}`, { permissions });
         setPermDirty(false);
       } catch (error: any) { toast.error('Save Failed', error.message || 'Failed to save permissions'); console.error('Failed to save:', error); } finally { setPermSaving(false); }
     }, [permSelectedRole, permissions, roleConfig, toast]);

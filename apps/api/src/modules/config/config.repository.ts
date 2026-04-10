@@ -23,22 +23,23 @@ export const configRepository = {
   },
 
   async upsertRoleConfig(role: string, data: { sidebarItems?: string[]; homeWidgets?: string[]; permissions?: Record<string, boolean> }, existing: any, updatedBy: string) {
+    // Build update object — only include fields that are explicitly provided,
+    // otherwise preserve existing values (supports partial saves from different tabs)
+    const updateData: Record<string, any> = { updatedAt: new Date(), updatedBy };
+    if (data.sidebarItems !== undefined) updateData.sidebarItems = data.sidebarItems;
+    if (data.homeWidgets !== undefined) updateData.homeWidgets = data.homeWidgets;
+    if (data.permissions !== undefined) updateData.permissions = data.permissions;
+
     return prisma.roleConfig.upsert({
       where: { role: role as any },
       create: {
         role: role as any,
-        sidebarItems: data.sidebarItems ?? [],
-        homeWidgets: data.homeWidgets ?? [],
-        permissions: data.permissions ?? {},
-        updatedBy,
-      },
-      update: {
         sidebarItems: data.sidebarItems ?? existing?.sidebarItems ?? [],
         homeWidgets: data.homeWidgets ?? existing?.homeWidgets ?? [],
         permissions: data.permissions ?? existing?.permissions ?? {},
-        updatedAt: new Date(),
         updatedBy,
       },
+      update: updateData,
     });
   },
 
@@ -48,22 +49,21 @@ export const configRepository = {
   },
 
   async upsertUserConfig(userId: string, data: { sidebarItems?: string[]; homeWidgets?: string[]; permissions?: Record<string, boolean> }, existing: any, updatedBy: string) {
+    const updateData: Record<string, any> = { updatedAt: new Date(), updatedBy };
+    if (data.sidebarItems !== undefined) updateData.sidebarItems = data.sidebarItems;
+    if (data.homeWidgets !== undefined) updateData.homeWidgets = data.homeWidgets;
+    if (data.permissions !== undefined) updateData.permissions = data.permissions;
+
     return prisma.userConfig.upsert({
       where: { userId },
       create: {
         userId,
-        sidebarItems: data.sidebarItems ?? [],
-        homeWidgets: data.homeWidgets ?? [],
-        permissions: data.permissions ?? {},
-        updatedBy,
-      },
-      update: {
         sidebarItems: data.sidebarItems ?? existing?.sidebarItems ?? [],
         homeWidgets: data.homeWidgets ?? existing?.homeWidgets ?? [],
         permissions: data.permissions ?? existing?.permissions ?? {},
-        updatedAt: new Date(),
         updatedBy,
       },
+      update: updateData,
     });
   },
 
