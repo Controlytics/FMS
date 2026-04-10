@@ -15,15 +15,25 @@ export class CleaningProfileService {
     const limit = Math.min(query.limit ?? 20, 100);
     const where: any = { ...orgFilter(ctx) };
 
-    // Map frontend status to DB status
-    if (query.status === 'ACTIVE') where.status = 'ACTIVE';
-    else if (query.status === 'INACTIVE') where.status = { in: ['ARCHIVED', 'DRAFT'] };
-    else {
-      // "All" — exclude old archived versions, show latest per name only
-      // (DRAFT and ARCHIVED are both considered inactive)
+    if (query.status === 'ACTIVE') {
+      // Show only profiles with ACTIVE status (latest version per name)
+      where.status = 'ACTIVE';
+    } else if (query.status === 'INACTIVE') {
+      // Show only profiles that have NO active version at all
+      // (i.e. the profile was explicitly disabled, not just an old version)
+      const activeNames = await prisma.filterCleaningProfile.findMany({
+        where: { ...orgFilter(ctx), status: 'ACTIVE' },
+        select: { name: true },
+        distinct: ['name'],
+      });
+      const activeNameSet = activeNames.map(n => n.name);
+      where.status = { in: ['ARCHIVED', 'DRAFT'] };
+      if (activeNameSet.length > 0) {
+        where.name = { notIn: activeNameSet };
+      }
     }
 
-    // Get latest version per profile name using distinct + orderBy
+    // Get latest version per profile name
     const latestPerName = await prisma.filterCleaningProfile.findMany({
       where,
       distinct: ['name'],
