@@ -35,18 +35,16 @@ const DEFAULT_INSTRUMENTS: Instrument[] = [
 function generateValues(opMin: number, opMax: number, leastCount: number): number[] {
   const values: number[] = [];
   if (leastCount <= 0 || opMin >= opMax) return values;
-  const maxSteps = 10000;
-  for (let v = opMin, i = 0; v <= opMax + 1e-9 && i < maxSteps; v = Math.round((v + leastCount) * 1e10) / 1e10, i++) {
+  for (let v = opMin, i = 0; v <= opMax + 1e-9 && i < 10000; v = Math.round((v + leastCount) * 1e10) / 1e10, i++) {
     values.push(v);
   }
   return values;
 }
 
-function stageBadgeClass(stageKey: string): string {
-  if (stageKey === 'WASH_IN') return 'bg-sky-50 text-sky-700 border border-sky-200';
-  if (stageKey === 'DRY_IN') return 'bg-amber-50 text-amber-700 border border-amber-200';
-  return 'bg-slate-50 text-slate-600 border border-slate-200';
-}
+const STAGE_CONFIG: Record<string, { bg: string; text: string; border: string; icon: string }> = {
+  WASH_IN: { bg: 'bg-sky-50', text: 'text-sky-700', border: 'border-sky-200', icon: 'M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z' },
+  DRY_IN: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: 'M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z' },
+};
 
 export function EquipmentGroupsConfigPage() {
   const navigate = useNavigate();
@@ -71,25 +69,12 @@ export function EquipmentGroupsConfigPage() {
   const groups: EquipmentGroup[] = Array.isArray(groupsData) ? groupsData : [];
 
   const handleCreate = () => {
-    setEditing({
-      group: {
-        name: '',
-        blockId: selectedBlockId,
-        instruments: DEFAULT_INSTRUMENTS.map(d => ({ ...d })),
-      },
-      isNew: true,
-    });
+    setEditing({ group: { name: '', blockId: selectedBlockId, instruments: DEFAULT_INSTRUMENTS.map(d => ({ ...d })) }, isNew: true });
     setError('');
   };
 
   const handleEdit = (g: EquipmentGroup) => {
-    setEditing({
-      group: {
-        ...g,
-        instruments: g.instruments.map(i => ({ ...i })),
-      },
-      isNew: false,
-    });
+    setEditing({ group: { ...g, instruments: g.instruments.map(i => ({ ...i })) }, isNew: false });
     setError('');
   };
 
@@ -99,9 +84,7 @@ export function EquipmentGroupsConfigPage() {
     try {
       await apiClient.delete(`/api/equipment-groups/${g.id}`);
       mutate(`/api/equipment-groups?blockId=${selectedBlockId}`);
-    } catch (e: any) {
-      setDeleteError(e.message || 'Failed to delete');
-    }
+    } catch (e: any) { setDeleteError(e.message || 'Failed to delete'); }
   };
 
   const updateInstrument = (idx: number, field: string, value: any) => {
@@ -131,26 +114,21 @@ export function EquipmentGroupsConfigPage() {
         name: group.name!.trim(),
         blockId: group.blockId,
         instruments: group.instruments!.map(i => ({
-          serialNumber: i.serialNumber,
-          instrumentId: i.instrumentId,
-          uom: i.uom,
-          instrumentMin: Number(i.instrumentMin),
-          instrumentMax: Number(i.instrumentMax),
-          operatingMin: Number(i.operatingMin),
-          operatingMax: Number(i.operatingMax),
+          serialNumber: i.serialNumber, instrumentId: i.instrumentId, uom: i.uom,
+          instrumentMin: Number(i.instrumentMin), instrumentMax: Number(i.instrumentMax),
+          operatingMin: Number(i.operatingMin), operatingMax: Number(i.operatingMax),
           leastCount: Number(i.leastCount),
         })),
       };
-      if (isNew) {
-        await apiClient.post('/api/equipment-groups', payload);
-      } else {
-        await apiClient.put(`/api/equipment-groups/${group.id}`, payload);
-      }
+      if (isNew) await apiClient.post('/api/equipment-groups', payload);
+      else await apiClient.put(`/api/equipment-groups/${group.id}`, payload);
       mutate(`/api/equipment-groups?blockId=${selectedBlockId}`);
       setEditing(null);
     } catch (e: any) { setError(e.message || 'Failed to save'); }
     setSaving(false);
   };
+
+  const getStageConfig = (key: string) => STAGE_CONFIG[key] ?? { bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', icon: '' };
 
   return (
     <div className="p-6 space-y-6">
@@ -158,110 +136,137 @@ export function EquipmentGroupsConfigPage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <button onClick={() => navigate('/config')}
-            className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            </svg>
+            className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-700 transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </button>
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
-              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-slate-800">Equipment Groups</h1>
-              <p className="text-sm text-slate-500">Configure instrument groups per block</p>
-            </div>
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/25">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">Equipment Groups</h1>
+            <p className="text-sm text-slate-500">Configure instrument groups per cleaning block</p>
           </div>
         </div>
         <button onClick={handleCreate} disabled={!selectedBlockId}
-          className="px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 disabled:opacity-40 transition-colors shadow-sm">
+          className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-xl hover:from-indigo-500 hover:to-blue-500 disabled:opacity-40 transition-all text-sm font-semibold shadow-lg shadow-indigo-500/25 flex items-center gap-2">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
           Add Equipment Group
         </button>
       </div>
 
-      {/* Block selector */}
-      <div className="flex items-center gap-3">
-        <label className="text-sm font-medium text-slate-500">Block:</label>
-        <select value={selectedBlockId} onChange={e => setSelectedBlockId(e.target.value)}
-          className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm min-w-[200px] focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400">
-          <option value="">Select Block</option>
-          {blocks.map((b: any) => (
-            <option key={b.id} value={b.id}>{b.name}</option>
-          ))}
-        </select>
+      {/* Stats + Block Selector */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="md:col-span-2 bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">Select Block</label>
+          <div className="flex flex-wrap gap-2">
+            {blocks.length === 0 ? (
+              <span className="text-sm text-slate-400">No blocks found</span>
+            ) : blocks.map((b: any) => (
+              <button key={b.id} onClick={() => setSelectedBlockId(b.id)}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${selectedBlockId === b.id
+                  ? 'bg-gradient-to-r from-indigo-500 to-blue-600 text-white shadow-md'
+                  : 'bg-slate-50 text-slate-600 border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50'}`}>
+                {b.name}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="bg-gradient-to-br from-indigo-500 to-blue-600 rounded-2xl p-4 text-white shadow-lg shadow-indigo-500/20">
+          <div className="text-2xl font-bold">{groups.length}</div>
+          <div className="text-indigo-100 text-sm font-medium">Equipment Groups</div>
+        </div>
+        <div className="bg-gradient-to-br from-violet-500 to-purple-600 rounded-2xl p-4 text-white shadow-lg shadow-violet-500/20">
+          <div className="text-2xl font-bold">{groups.reduce((s, g) => s + g.instruments.length, 0)}</div>
+          <div className="text-violet-100 text-sm font-medium">Total Instruments</div>
+        </div>
       </div>
 
-      {/* Delete error inline */}
       {deleteError && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm flex items-center justify-between">
           <span>{deleteError}</span>
-          <button onClick={() => setDeleteError('')} className="text-red-400 hover:text-red-600 ml-4 font-bold">&times;</button>
+          <button onClick={() => setDeleteError('')} className="text-red-400 hover:text-red-600 ml-4">&times;</button>
         </div>
       )}
 
       {!selectedBlockId && (
-        <div className="text-center py-12 text-slate-400">Select a block to view its equipment groups</div>
+        <div className="text-center py-20">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-indigo-50 flex items-center justify-center">
+            <svg className="w-8 h-8 text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5" /></svg>
+          </div>
+          <p className="text-slate-500 font-medium">Select a block to view its equipment groups</p>
+        </div>
       )}
 
       {selectedBlockId && groups.length === 0 && (
-        <div className="text-center py-12 text-slate-400">No equipment groups for this block. Click "Add Equipment Group" to create one.</div>
+        <div className="text-center py-20">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-slate-100 flex items-center justify-center">
+            <svg className="w-8 h-8 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37" /></svg>
+          </div>
+          <p className="text-slate-500 font-medium">No equipment groups for this block</p>
+          <p className="text-sm text-slate-400 mt-1">Click "Add Equipment Group" to create one</p>
+        </div>
       )}
 
-      {/* Group cards */}
-      <div className="space-y-4">
+      {/* Group Cards */}
+      <div className="space-y-5">
         {groups.map(g => (
-          <div key={g.id} className="bg-white border border-slate-200/60 rounded-2xl overflow-hidden shadow-xl">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200/60">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-800">{g.name}</h3>
-                <p className="text-xs text-slate-400 mt-0.5">3 instruments</p>
+          <div key={g.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-shadow">
+            <div className="h-1.5 bg-gradient-to-r from-indigo-400 to-blue-500" />
+            <div className="flex items-center justify-between px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-100 to-blue-100 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">{g.name}</h3>
+                  <p className="text-xs text-slate-400">{g.instruments.length} instruments configured</p>
+                </div>
               </div>
               <div className="flex gap-2">
                 <button onClick={() => handleEdit(g)}
-                  className="px-3 py-1.5 text-sm bg-slate-50 text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors">
+                  className="px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors">
                   Edit
                 </button>
                 <button onClick={() => handleDelete(g)}
-                  className="px-3 py-1.5 text-sm bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-colors">
+                  className="px-4 py-2 text-sm font-medium text-red-500 bg-red-50 hover:bg-red-100 rounded-xl transition-colors">
                   Delete
                 </button>
               </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-slate-500 text-xs uppercase tracking-wider bg-slate-50">
-                    <th className="px-4 py-2 text-left">S.No</th>
-                    <th className="px-4 py-2 text-left">Description</th>
-                    <th className="px-4 py-2 text-left">Stage</th>
-                    <th className="px-4 py-2 text-left">Instrument ID</th>
-                    <th className="px-4 py-2 text-left">Range</th>
-                    <th className="px-4 py-2 text-left">Operating Range</th>
-                    <th className="px-4 py-2 text-left">UOM</th>
-                    <th className="px-4 py-2 text-left">Least Count</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {g.instruments.map((inst, idx) => (
-                    <tr key={inst.id ?? idx} className="border-t border-slate-100 text-slate-600">
-                      <td className="px-4 py-2">{inst.serialNumber || (idx + 1)}</td>
-                      <td className="px-4 py-2 font-medium text-slate-800">{inst.description}</td>
-                      <td className="px-4 py-2">
-                        <span className={`px-2 py-0.5 text-xs rounded-full ${stageBadgeClass(inst.stageKey)}`}>
+            <div className="px-6 pb-5">
+              <div className="grid gap-3 md:grid-cols-3">
+                {g.instruments.map((inst, idx) => {
+                  const sc = getStageConfig(inst.stageKey);
+                  return (
+                    <div key={inst.id ?? idx} className={`rounded-xl border p-4 ${sc.border} ${sc.bg}`}>
+                      <div className="flex items-center justify-between mb-3">
+                        <span className={`text-sm font-bold ${sc.text}`}>{inst.description}</span>
+                        <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full border ${sc.border} ${sc.text} bg-white/60`}>
                           {inst.stageKey.replace('_', ' ')}
                         </span>
-                      </td>
-                      <td className="px-4 py-2 font-mono text-xs">{inst.instrumentId}</td>
-                      <td className="px-4 py-2">{inst.instrumentMin} – {inst.instrumentMax}</td>
-                      <td className="px-4 py-2">{inst.operatingMin} – {inst.operatingMax}</td>
-                      <td className="px-4 py-2">{inst.uom}</td>
-                      <td className="px-4 py-2">{inst.leastCount}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="bg-white/70 rounded-lg p-2">
+                          <div className="text-slate-400 mb-0.5">Instrument ID</div>
+                          <div className="font-mono font-semibold text-slate-700">{inst.instrumentId || '—'}</div>
+                        </div>
+                        <div className="bg-white/70 rounded-lg p-2">
+                          <div className="text-slate-400 mb-0.5">UOM</div>
+                          <div className="font-semibold text-slate-700">{inst.uom}</div>
+                        </div>
+                        <div className="bg-white/70 rounded-lg p-2">
+                          <div className="text-slate-400 mb-0.5">Range</div>
+                          <div className="font-semibold text-slate-700">{inst.instrumentMin} – {inst.instrumentMax}</div>
+                        </div>
+                        <div className="bg-white/70 rounded-lg p-2">
+                          <div className="text-slate-400 mb-0.5">Operating</div>
+                          <div className="font-semibold text-slate-700">{inst.operatingMin} – {inst.operatingMax}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         ))}
@@ -269,121 +274,130 @@ export function EquipmentGroupsConfigPage() {
 
       {/* Create / Edit Dialog */}
       {editing && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setEditing(null)}>
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="bg-gradient-to-r from-cyan-500 to-blue-600 px-6 py-4 shrink-0">
-              <h2 className="text-lg font-bold text-white">{editing.isNew ? 'Add Equipment Group' : 'Edit Equipment Group'}</h2>
-              {!editing.isNew && <p className="text-cyan-100/80 text-sm">{editing.group.name}</p>}
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setEditing(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="h-1.5 bg-gradient-to-r from-indigo-500 via-blue-500 to-cyan-500" />
+            <div className="px-6 py-4 border-b border-slate-100 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center text-white">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={editing.isNew ? "M12 4v16m8-8H4" : "M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"} /></svg>
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-800">{editing.isNew ? 'Add Equipment Group' : 'Edit Equipment Group'}</h2>
+                  <p className="text-xs text-slate-400">Configure instruments and their operating parameters</p>
+                </div>
+              </div>
             </div>
             <div className="p-6 space-y-5 overflow-y-auto flex-1">
-              <div>
-                <label className="text-sm font-medium text-slate-600 mb-1 block">Group Name</label>
-                <input className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400" placeholder="e.g. Equipment Group 1"
-                  value={editing.group.name ?? ''} onChange={e => setEditing({ ...editing, group: { ...editing.group, name: e.target.value } })} />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Group Name *</label>
+                  <input className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none" placeholder="e.g. Equipment Group 1"
+                    value={editing.group.name ?? ''} onChange={e => setEditing({ ...editing, group: { ...editing.group, name: e.target.value } })} />
+                </div>
+                {editing.isNew && (
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Block</label>
+                    <select value={editing.group.blockId ?? ''} onChange={e => setEditing({ ...editing, group: { ...editing.group, blockId: e.target.value } })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none">
+                      {blocks.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
 
-              {editing.isNew && (
-                <div>
-                  <label className="text-sm font-medium text-slate-600 mb-1 block">Block</label>
-                  <select value={editing.group.blockId ?? ''} onChange={e => setEditing({ ...editing, group: { ...editing.group, blockId: e.target.value } })}
-                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400">
-                    {blocks.map((b: any) => (
-                      <option key={b.id} value={b.id}>{b.name}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {editing.group.instruments?.map((inst, idx) => (
-                <div key={idx} className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-slate-700">
-                      {idx + 1}. {inst.description}
-                      <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${stageBadgeClass(inst.stageKey)}`}>
-                        {inst.stageKey.replace('_', ' ')}
-                      </span>
-                    </h3>
-                    <button onClick={() => setPreviewInst(previewInst === idx ? null : idx)}
-                      className="text-xs text-cyan-600 hover:text-cyan-700 font-medium">
-                      {previewInst === idx ? 'Hide Preview' : 'Preview Values'}
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div>
-                      <label className="text-xs text-slate-500 block mb-1">S.No</label>
-                      <input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
-                        value={inst.serialNumber} onChange={e => updateInstrument(idx, 'serialNumber', e.target.value)} />
+              {editing.group.instruments?.map((inst, idx) => {
+                const sc = getStageConfig(inst.stageKey);
+                return (
+                  <div key={idx} className={`rounded-2xl border-2 ${sc.border} overflow-hidden`}>
+                    <div className={`px-4 py-3 ${sc.bg} flex items-center justify-between`}>
+                      <h3 className={`text-sm font-bold ${sc.text} flex items-center gap-2`}>
+                        <span className={`w-6 h-6 rounded-lg bg-white/60 flex items-center justify-center text-xs font-bold`}>{idx + 1}</span>
+                        {inst.description}
+                        <span className={`px-2 py-0.5 text-[10px] rounded-full border ${sc.border} bg-white/60`}>{inst.stageKey.replace('_', ' ')}</span>
+                      </h3>
+                      <button onClick={() => setPreviewInst(previewInst === idx ? null : idx)}
+                        className="text-xs text-indigo-600 hover:text-indigo-700 font-semibold bg-white/80 px-3 py-1 rounded-lg">
+                        {previewInst === idx ? 'Hide' : 'Preview'}
+                      </button>
                     </div>
-                    <div>
-                      <label className="text-xs text-slate-500 block mb-1">Instrument ID *</label>
-                      <input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
-                        value={inst.instrumentId} onChange={e => updateInstrument(idx, 'instrumentId', e.target.value)} placeholder="e.g. CAP-001" />
-                    </div>
-                    <div>
-                      <label className="text-xs text-slate-500 block mb-1">UOM *</label>
-                      <input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
-                        value={inst.uom} onChange={e => updateInstrument(idx, 'uom', e.target.value)} />
-                    </div>
-                    <div>
-                      <label className="text-xs text-slate-500 block mb-1">Least Count *</label>
-                      <input type="number" step="any" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
-                        value={inst.leastCount} onChange={e => updateInstrument(idx, 'leastCount', parseFloat(e.target.value) || 0)} />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div>
-                      <label className="text-xs text-slate-500 block mb-1">Instrument Min *</label>
-                      <input type="number" step="any" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
-                        value={inst.instrumentMin} onChange={e => updateInstrument(idx, 'instrumentMin', parseFloat(e.target.value) || 0)} />
-                    </div>
-                    <div>
-                      <label className="text-xs text-slate-500 block mb-1">Instrument Max *</label>
-                      <input type="number" step="any" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
-                        value={inst.instrumentMax} onChange={e => updateInstrument(idx, 'instrumentMax', parseFloat(e.target.value) || 0)} />
-                    </div>
-                    <div>
-                      <label className="text-xs text-slate-500 block mb-1">Operating Min *</label>
-                      <input type="number" step="any" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
-                        value={inst.operatingMin} onChange={e => updateInstrument(idx, 'operatingMin', parseFloat(e.target.value) || 0)} />
-                    </div>
-                    <div>
-                      <label className="text-xs text-slate-500 block mb-1">Operating Max *</label>
-                      <input type="number" step="any" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
-                        value={inst.operatingMax} onChange={e => updateInstrument(idx, 'operatingMax', parseFloat(e.target.value) || 0)} />
-                    </div>
-                  </div>
-                  {previewInst === idx && (
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                      <p className="text-xs text-slate-500 mb-2">Dropdown values ({inst.operatingMin} to {inst.operatingMax}, step {inst.leastCount}):</p>
-                      <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
-                        {generateValues(inst.operatingMin, inst.operatingMax, inst.leastCount).slice(0, 100).map((v, i) => (
-                          <span key={i} className="px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-xs">{v} {inst.uom}</span>
-                        ))}
-                        {generateValues(inst.operatingMin, inst.operatingMax, inst.leastCount).length > 100 && (
-                          <span className="text-xs text-slate-400">...and more</span>
-                        )}
+                    <div className="p-4 bg-white space-y-3">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div>
+                          <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">S.No</label>
+                          <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-indigo-400 outline-none"
+                            value={inst.serialNumber} onChange={e => updateInstrument(idx, 'serialNumber', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Instrument ID *</label>
+                          <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-indigo-400 outline-none"
+                            value={inst.instrumentId} onChange={e => updateInstrument(idx, 'instrumentId', e.target.value)} placeholder="e.g. CAP-001" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">UOM *</label>
+                          <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-indigo-400 outline-none"
+                            value={inst.uom} onChange={e => updateInstrument(idx, 'uom', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Least Count *</label>
+                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-indigo-400 outline-none"
+                            value={inst.leastCount} onChange={e => updateInstrument(idx, 'leastCount', parseFloat(e.target.value) || 0)} />
+                        </div>
                       </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div>
+                          <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Instrument Min *</label>
+                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-indigo-400 outline-none"
+                            value={inst.instrumentMin} onChange={e => updateInstrument(idx, 'instrumentMin', parseFloat(e.target.value) || 0)} />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Instrument Max *</label>
+                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-indigo-400 outline-none"
+                            value={inst.instrumentMax} onChange={e => updateInstrument(idx, 'instrumentMax', parseFloat(e.target.value) || 0)} />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Operating Min *</label>
+                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-indigo-400 outline-none"
+                            value={inst.operatingMin} onChange={e => updateInstrument(idx, 'operatingMin', parseFloat(e.target.value) || 0)} />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Operating Max *</label>
+                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-indigo-400 outline-none"
+                            value={inst.operatingMax} onChange={e => updateInstrument(idx, 'operatingMax', parseFloat(e.target.value) || 0)} />
+                        </div>
+                      </div>
+                      {previewInst === idx && (
+                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                          <p className="text-xs text-slate-500 mb-2 font-medium">Dropdown values ({inst.operatingMin} to {inst.operatingMax}, step {inst.leastCount}):</p>
+                          <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                            {generateValues(inst.operatingMin, inst.operatingMax, inst.leastCount).slice(0, 100).map((v, i) => (
+                              <span key={i} className="px-2 py-0.5 bg-white text-slate-600 border border-slate-200 rounded-md text-xs font-mono">{v} {inst.uom}</span>
+                            ))}
+                            {generateValues(inst.operatingMin, inst.operatingMax, inst.leastCount).length > 100 && (
+                              <span className="text-xs text-slate-400 px-2 py-0.5">...and more</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              ))}
+                  </div>
+                );
+              })}
 
               {error && (
                 <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-center justify-between">
                   <span>{error}</span>
-                  <button onClick={() => setError('')} className="text-red-400 hover:text-red-600 ml-4 font-bold">&times;</button>
+                  <button onClick={() => setError('')} className="text-red-400 hover:text-red-600 ml-4">&times;</button>
                 </div>
               )}
             </div>
-            <div className="px-6 py-4 border-t border-slate-200 flex gap-3 shrink-0">
+            <div className="px-6 py-4 border-t border-slate-100 flex gap-3 shrink-0">
               <button onClick={() => setEditing(null)}
-                className="flex-1 py-2.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-200 transition-colors">
-                Cancel
-              </button>
+                className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">Cancel</button>
               <button onClick={handleSave} disabled={saving}
-                className="flex-1 py-2.5 bg-cyan-600 text-white rounded-xl font-bold disabled:opacity-40 hover:bg-cyan-700 transition-colors flex items-center justify-center gap-2 shadow-sm">
-                {saving ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : null}
-                {saving ? 'Saving...' : 'Save'}
+                className="flex-1 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-indigo-500 hover:to-blue-500 shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2">
+                {saving && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                {saving ? 'Saving...' : 'Save Equipment Group'}
               </button>
             </div>
           </div>
