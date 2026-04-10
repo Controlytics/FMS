@@ -158,18 +158,13 @@ export function EquipmentGroupsConfigPage() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="md:col-span-2 bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
           <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">Select Block</label>
-          <div className="flex flex-wrap gap-2">
-            {blocks.length === 0 ? (
-              <span className="text-sm text-slate-400">No blocks found</span>
-            ) : blocks.map((b: any) => (
-              <button key={b.id} onClick={() => setSelectedBlockId(b.id)}
-                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${selectedBlockId === b.id
-                  ? 'bg-gradient-to-r from-indigo-500 to-blue-600 text-white shadow-md'
-                  : 'bg-slate-50 text-slate-600 border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50'}`}>
-                {b.name}
-              </button>
+          <select value={selectedBlockId} onChange={e => setSelectedBlockId(e.target.value)}
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none">
+            <option value="">-- Select Block --</option>
+            {blocks.map((b: any) => (
+              <option key={b.id} value={b.id}>{b.name}</option>
             ))}
-          </div>
+          </select>
         </div>
         <div className="bg-gradient-to-br from-indigo-500 to-blue-600 rounded-2xl p-4 text-white shadow-lg shadow-indigo-500/20">
           <div className="text-2xl font-bold">{groups.length}</div>
