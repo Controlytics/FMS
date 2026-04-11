@@ -16,12 +16,23 @@ export const blockChangeService = {
     });
     if (existing) throw new AppError(409, 'DUPLICATE_REQUEST', 'A pending request already exists for this filter and block');
 
+    // The request semantically belongs to the filter's organization — not
+    // the requester's. This matters because SUPER_ADMIN (GLOBAL scope) has
+    // no org of their own, which previously made this endpoint crash with
+    // "invalid input syntax for type uuid: ''". We prefer the filter's org,
+    // then fall back to the requester's org.
+    const filterRow = await prisma.assetInstance.findUnique({
+      where: { id: data.filterId },
+      select: { organizationId: true },
+    });
+    const orgForRequest = filterRow?.organizationId ?? ctx.organizationId ?? null;
+
     const request = await prisma.blockChangeRequest.create({
       data: {
         ...data,
         requestedBy: ctx.userSub,
         requestedByName: ctx.userId,
-        organizationId: ctx.organizationId ?? '',
+        organizationId: orgForRequest,
       },
     });
 

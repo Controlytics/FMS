@@ -231,12 +231,29 @@ export class FilterOperationsService {
     return cp;
   }
 
-  async getCurrentState(ctx: RequestContext, filterId: string) {
+  async getCurrentState(ctx: RequestContext, filterId: string, cleaningAreaId?: string) {
     const filter = await this.getFilter(filterId, ctx);
 
     let currentCycle = null;
     if (filter.currentCycleId) {
       currentCycle = await prisma.cleaningCycle.findUnique({ where: { id: filter.currentCycleId } });
+    }
+
+    // Pre-compute block-change state so the mobile UI can show the request
+    // popup BEFORE asking for a wash-in reason, not as a background error
+    // after submission. This is purely informational — validateBlockChange()
+    // remains the authoritative enforcement point inside startCycle.
+    const homeBlockRaw = await this.getFilterHomeBlock(filterId);
+    const homeBlock = homeBlockRaw ? { id: homeBlockRaw.blockId, name: homeBlockRaw.blockName } : null;
+    let blockChangeStatus: 'MATCH' | 'APPROVED' | 'REQUIRED' | null = null;
+    if (!filter.currentCycleId && cleaningAreaId && homeBlock) {
+      if (homeBlock.id === cleaningAreaId) {
+        blockChangeStatus = 'MATCH';
+      } else {
+        const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
+        const approved = await blockChangeService.hasApproval(filterId, cleaningAreaId);
+        blockChangeStatus = approved ? 'APPROVED' : 'REQUIRED';
+      }
     }
 
     let profile = null;
@@ -358,6 +375,8 @@ export class FilterOperationsService {
       totalCycles,
       equipmentGroup,
       blockEquipmentGroups,
+      homeBlock,
+      blockChangeStatus,
     };
   }
 

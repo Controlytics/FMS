@@ -21,7 +21,12 @@ export function ApprovalsPage() {
   const [processComment, setProcessComment] = useState('');
   const [processingId, setProcessingId] = useState<string | null>(null);
 
-  const isApprover = user?.permissions?.includes('BLOCK_CHANGE_APPROVE');
+  // SUPER_ADMIN mirrors the backend permission bypass (apps/api/src/plugins/rbac.ts:22).
+  // Without this clause, a super admin landing here would see "your requests" mode
+  // (mine=true, no pending count, no approve/reject buttons) because the seed file
+  // doesn't list BLOCK_CHANGE_APPROVE in the permissions array — even though the
+  // backend lets them through unconditionally.
+  const isApprover = user?.role === 'SUPER_ADMIN' || user?.permissions?.includes('BLOCK_CHANGE_APPROVE');
   const swrKey = `/api/block-change-requests?page=${page}&limit=20&status=${filter}${!isApprover ? '&mine=true' : ''}`;
   const { data, isLoading } = useSWR(swrKey);
   const { data: pendingData } = useSWR(isApprover ? '/api/block-change-requests/pending-count' : null);

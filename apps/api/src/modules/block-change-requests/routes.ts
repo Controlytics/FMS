@@ -3,6 +3,31 @@ import { blockChangeService } from './block-change.service.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
+import { prisma } from '../../lib/prisma.js';
+import { AppError } from '../../lib/errors.js';
+
+/**
+ * Verify the current user is allowed to approve/reject block change requests
+ * according to the `block-change-approval.approvalRole` config setting.
+ *
+ * SUPER_ADMIN can always approve, even if the configured role points to a role
+ * that was later deleted — this prevents the approval flow from locking up.
+ * If no role is configured (empty string), the permission gate alone is used,
+ * which is the sensible fail-open default.
+ */
+async function assertApprovalRoleAllowed(userRole: string | undefined): Promise<void> {
+  if (userRole === 'SUPER_ADMIN') return;
+  const cfg = await prisma.systemConfig.findUnique({ where: { configKey: 'block-change-approval' } });
+  const configured = (cfg?.configValue as any)?.approvalRole as string | undefined;
+  if (!configured || configured.trim() === '') return; // no role configured → permission check alone
+  if (userRole !== configured) {
+    throw new AppError(
+      403,
+      'FORBIDDEN_ROLE',
+      `Only users with role "${configured}" can approve block change requests`
+    );
+  }
+}
 
 export default async function blockChangeRoutes(app: FastifyInstance) {
   app.post('/', {
@@ -79,6 +104,7 @@ export default async function blockChangeRoutes(app: FastifyInstance) {
     const { ok } = await enforceReauth('APPROVE_BLOCK_CHANGE', req, reply);
     if (!ok) return;
     const ctx = buildContext(req);
+    await assertApprovalRoleAllowed(ctx.userRole);
     const { id } = req.params as { id: string };
     const { comment } = (req.body as any) ?? {};
     return blockChangeService.process(ctx, id, 'approve', comment);
@@ -97,6 +123,7 @@ export default async function blockChangeRoutes(app: FastifyInstance) {
     const { ok } = await enforceReauth('REJECT_BLOCK_CHANGE', req, reply);
     if (!ok) return;
     const ctx = buildContext(req);
+    await assertApprovalRoleAllowed(ctx.userRole);
     const { id } = req.params as { id: string };
     const { comment } = (req.body as any) ?? {};
     return blockChangeService.process(ctx, id, 'reject', comment);

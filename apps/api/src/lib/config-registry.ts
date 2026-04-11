@@ -32,6 +32,15 @@ export interface SettingDefinition {
 
   // Type-specific
   options?: SelectOption[];
+  /**
+   * Relative API URL that returns an array of option-like objects. The frontend
+   * config renderer will fetch this and merge the result into `options` at
+   * render time. Useful for dropdowns that need a live list from the DB
+   * (e.g. roles, users) instead of a hard-coded enum. Supported field mapping:
+   *   value ← item.value ?? item.name ?? item.id
+   *   label ← item.label ?? item.displayName ?? item.name ?? item.id
+   */
+  dynamicOptionsSource?: string;
   min?: number;
   max?: number;
   minLength?: number;

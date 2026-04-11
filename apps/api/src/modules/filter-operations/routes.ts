@@ -16,6 +16,12 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
       tags: ['Filter Operations'],
       summary: 'Get filter current state and next actions',
       params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      querystring: {
+        type: 'object',
+        properties: {
+          cleaningAreaId: { type: 'string', format: 'uuid' },
+        },
+      },
       response: {
         200: {
           type: 'object',
@@ -32,6 +38,12 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
             filterSet: { type: 'string', nullable: true },
             totalCycles: { type: 'integer' },
             equipmentGroup: { type: 'object', nullable: true, additionalProperties: true },
+            homeBlock: {
+              type: 'object',
+              nullable: true,
+              properties: { id: { type: 'string' }, name: { type: 'string' } },
+            },
+            blockChangeStatus: { type: 'string', nullable: true, enum: ['MATCH', 'APPROVED', 'REQUIRED'] },
           },
         },
         ...errorResponses,
@@ -40,7 +52,8 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
   }, async (req) => {
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
-    return service.getCurrentState(ctx, id);
+    const { cleaningAreaId } = (req.query ?? {}) as { cleaningAreaId?: string };
+    return service.getCurrentState(ctx, id, cleaningAreaId);
   });
 
   app.post('/:id/start-cycle', {

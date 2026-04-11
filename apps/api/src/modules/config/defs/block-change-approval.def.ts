@@ -5,7 +5,7 @@ export const blockChangeApprovalDef: ModuleConfigDefinition = {
   moduleName: 'Block Change Approval',
   description: 'Configure which role can approve block change requests for filter cleaning',
   icon: 'shield-check',
-  category: 'filter',
+  category: 'filter-management',
   sortOrder: 60,
   permissions: { read: 'CONFIG_READ', write: 'CONFIG_UPDATE' },
   requiredRole: 'SUPER_ADMIN',
@@ -14,11 +14,14 @@ export const blockChangeApprovalDef: ModuleConfigDefinition = {
   settings: [
     {
       key: 'approvalRole',
-      type: 'string',
+      type: 'select',
       label: 'Approval Role',
-      description: 'The role that can approve block change requests (selected by Super Admin)',
+      description: 'Only users with this role can approve block change requests. Super Admin can always approve regardless of this setting.',
       group: 'Approval',
       default: 'ADMIN',
+      // Loaded live from the roles table so newly created roles appear immediately
+      dynamicOptionsSource: '/api/roles/active',
+      options: [],
     },
     {
       key: 'requireReason',

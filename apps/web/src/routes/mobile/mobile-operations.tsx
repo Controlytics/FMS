@@ -205,7 +205,12 @@ export function MobileOperationsPage() {
       // Online path — if any network call fails, fall back to offline queue
       let state: any;
       try {
-        state = await apiClient.get<any>(`/api/filters/${filterId}/current-state`);
+        // Pass the selected cleaning area so the backend can pre-compute the
+        // block-change status. This lets us show the "request block change"
+        // popup up-front, before the wash-in reason dialog — instead of
+        // surfacing it as a background error after the user already picked a reason.
+        const csUrl = `/api/filters/${filterId}/current-state${selectedBlock?.id ? `?cleaningAreaId=${encodeURIComponent(selectedBlock.id)}` : ''}`;
+        state = await apiClient.get<any>(csUrl);
       } catch (e: any) {
         if (isNetworkError(e)) {
           // Network dropped — queue for later sync
@@ -214,6 +219,25 @@ export function MobileOperationsPage() {
         }
         throw e;
       }
+
+      // Up-front block verification. If the filter belongs to a different
+      // block and there is no standing approval, show the request-block-change
+      // popup now and stop — the user should never reach the reason dialog in
+      // that case.
+      if (state.blockChangeStatus === 'REQUIRED' && state.homeBlock && selectedBlock?.id) {
+        setBlockChangeDialog({
+          filterId,
+          filterName: filterName || state.filterName || scanValue,
+          homeBlockId: state.homeBlock.id,
+          homeBlockName: state.homeBlock.name,
+          requestedBlockId: selectedBlock.id,
+          requestedBlockName: selectedBlock.name,
+        });
+        setBlockChangeReason('');
+        setLoading(false);
+        return;
+      }
+
       if (state.pendingChecklist?.length > 0) { setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: state.pendingChecklist }); setChecklistAnswers({}); setLoading(false); return; }
       const nextAllowed = state.nextAllowedStages ?? [];
       if (nextAllowed.length > 0 && !nextAllowed.includes(activeStage.key)) { setError(`Next allowed: ${nextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`); setLoading(false); return; }

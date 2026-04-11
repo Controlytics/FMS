@@ -18,6 +18,7 @@ interface SettingDef {
   placeholder?: string;
   group?: string;
   options?: { value: string | number; label: string }[];
+  dynamicOptionsSource?: string;
   min?: number;
   max?: number;
   maskedInApi?: boolean;
@@ -77,6 +78,42 @@ export function DynamicConfigPage() {
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+  // Cache of dynamically loaded options, keyed by dynamicOptionsSource URL.
+  const [dynamicOptions, setDynamicOptions] = useState<Record<string, { value: string | number; label: string }[]>>({});
+
+  // Fetch options for any settings that declare a dynamicOptionsSource. Each
+  // unique URL is fetched once per module view. The response is expected to
+  // be an array of objects; field mapping is resilient:
+  //   value ← item.value ?? item.name ?? item.id
+  //   label ← item.label ?? item.displayName ?? item.name ?? item.id
+  useEffect(() => {
+    if (!moduleDef) return;
+    const urls = Array.from(new Set(
+      moduleDef.settings
+        .map(s => s.dynamicOptionsSource)
+        .filter((u): u is string => !!u && !(u in dynamicOptions))
+    ));
+    if (urls.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const results: Record<string, { value: string | number; label: string }[]> = {};
+      for (const url of urls) {
+        try {
+          const data = await apiClient.get<any>(url);
+          const list = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+          results[url] = list.map((item: any) => ({
+            value: item.value ?? item.name ?? item.id,
+            label: item.label ?? item.displayName ?? item.name ?? String(item.id ?? ''),
+          }));
+        } catch {
+          results[url] = [];
+        }
+      }
+      if (!cancelled) setDynamicOptions(prev => ({ ...prev, ...results }));
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moduleDef]);
 
   useEffect(() => {
     if (savedValues) {
@@ -199,16 +236,38 @@ export function DynamicConfigPage() {
                       <span className="text-sm text-slate-600">{setting.description || `Enable ${setting.label.toLowerCase()}`}</span>
                     </label>
                   ) : setting.type === 'select' ? (
-                    <select
-                      value={values[setting.key] ?? ''}
-                      onChange={e => handleChange(setting.key, e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">Select...</option>
-                      {setting.options?.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
+                    (() => {
+                      const liveOptions = setting.dynamicOptionsSource ? (dynamicOptions[setting.dynamicOptionsSource] ?? []) : [];
+                      const staticOptions = setting.options ?? [];
+                      const combined = [...staticOptions, ...liveOptions];
+                      // Deduplicate by value (string-compared), keeping the first occurrence
+                      const seen = new Set<string>();
+                      const finalOptions = combined.filter(o => {
+                        const k = String(o.value);
+                        if (seen.has(k)) return false;
+                        seen.add(k);
+                        return true;
+                      });
+                      const currentValue = values[setting.key] ?? '';
+                      const loading = setting.dynamicOptionsSource && !(setting.dynamicOptionsSource in dynamicOptions);
+                      return (
+                        <select
+                          value={currentValue}
+                          onChange={e => handleChange(setting.key, e.target.value)}
+                          disabled={!!loading}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-60 disabled:cursor-wait"
+                        >
+                          <option value="">{loading ? 'Loading…' : 'Select...'}</option>
+                          {finalOptions.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                          {/* If the saved value isn't in the loaded list, still render it so the user sees what's stored */}
+                          {currentValue && !finalOptions.some(o => String(o.value) === String(currentValue)) && !loading && (
+                            <option key={`stale-${currentValue}`} value={currentValue}>{currentValue} (not found)</option>
+                          )}
+                        </select>
+                      );
+                    })()
                   ) : setting.type === 'number' ? (
                     <input
                       type="number"
