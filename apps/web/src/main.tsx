@@ -72,6 +72,7 @@ const LifecycleStateConfigPage = lazy(() => import("./routes/config/filter-lifec
 const CleaningReasonsConfigPage = lazy(() => import("./routes/config/filter-cleaning-reasons").then(m => ({ default: m.CleaningReasonsConfigPage })));
 const EquipmentGroupsConfigPage = lazy(() => import("./routes/config/equipment-groups").then(m => ({ default: m.EquipmentGroupsConfigPage })));
 const CleaningProfileAssignmentPage = lazy(() => import('./routes/config/cleaning-profile-assignment').then(m => ({ default: m.CleaningProfileAssignmentPage })));
+const AhuFilterSetConfigPage = lazy(() => import('./routes/config/ahu-filter-set-config').then(m => ({ default: m.AhuFilterSetConfigPage })));
 const PmScheduleListPage = lazy(() => import("./routes/pm-schedules/index").then(m => ({ default: m.PmScheduleListPage })));
 const PmScheduleDetailPage = lazy(() => import("./routes/pm-schedules/detail").then(m => ({ default: m.PmScheduleDetailPage })));
 const MyTasksPage = lazy(() => import("./routes/my-tasks/index").then(m => ({ default: m.MyTasksPage })));
@@ -210,6 +211,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/filter-cleaning-reasons" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><CleaningReasonsConfigPage /></Suspense></RequireRole>} />
             <Route path="/config/equipment-groups" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><EquipmentGroupsConfigPage /></Suspense></RequireRole>} />
             <Route path="/config/cleaning-profile-assignment" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><CleaningProfileAssignmentPage /></Suspense></RequireRole>} />
+            <Route path="/config/ahu-filter-set-config" element={<RequireRole permissions={[PERMISSIONS.PM_READ]}><Suspense fallback={<LazyFallback />}><AhuFilterSetConfigPage /></Suspense></RequireRole>} />
             <Route path="/pm-schedules" element={<RequireRole permissions={[PERMISSIONS.PM_READ]}><Suspense fallback={<LazyFallback />}><PmScheduleListPage /></Suspense></RequireRole>} />
             <Route path="/pm-schedules/:entityId" element={<RequireRole permissions={[PERMISSIONS.PM_READ]}><Suspense fallback={<LazyFallback />}><PmScheduleDetailPage /></Suspense></RequireRole>} />
             <Route path="/my-tasks" element={<RequireRole permissions={[PERMISSIONS.PM_READ]}><Suspense fallback={<LazyFallback />}><MyTasksPage /></Suspense></RequireRole>} />

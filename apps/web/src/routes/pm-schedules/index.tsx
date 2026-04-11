@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import useSWR, { mutate as globalMutate } from 'swr';
+import useSWR from 'swr';
 import { apiClient } from '../../lib/api-client';
 
 interface UploadResult {
@@ -11,25 +11,6 @@ interface UploadResult {
   };
 }
 
-type AhuMode = 'BOTH' | 'SET_A' | 'SET_B' | 'DISABLED';
-
-interface AhuConfigRow {
-  ahuId: string;
-  ahuName: string;
-  mode: AhuMode;
-  setACount: number;
-  setBCount: number;
-  noSetCount: number;
-  totalFilters: number;
-  hasActiveSchedule: boolean;
-}
-
-const MODE_META: Record<AhuMode, { label: string; bg: string; text: string; border: string; dot: string }> = {
-  BOTH:     { label: 'Both Sets',  bg: 'bg-cyan-50',    text: 'text-cyan-700',    border: 'border-cyan-200',    dot: 'bg-cyan-500' },
-  SET_A:    { label: 'Only Set A', bg: 'bg-blue-50',    text: 'text-blue-700',    border: 'border-blue-200',    dot: 'bg-blue-500' },
-  SET_B:    { label: 'Only Set B', bg: 'bg-purple-50',  text: 'text-purple-700',  border: 'border-purple-200',  dot: 'bg-purple-500' },
-  DISABLED: { label: 'Disabled',   bg: 'bg-slate-100',  text: 'text-slate-600',   border: 'border-slate-200',   dot: 'bg-slate-400' },
-};
 
 export function PmScheduleListPage() {
   const { data: pmConfig } = useSWR('/api/config/dynamic/filter-pm-schedule');
@@ -40,33 +21,6 @@ export function PmScheduleListPage() {
   const [result, setResult] = useState<UploadResult | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // AHU filter-set config table — per-AHU mode controlling which filters
-  // count toward PM completion in My Tasks.
-  const { data: ahuConfigs, mutate: mutateAhuConfigs, isLoading: ahuConfigsLoading } =
-    useSWR<{ ahus: AhuConfigRow[] }>('/api/pm-schedules/ahu-configs');
-  const [ahuSearch, setAhuSearch] = useState('');
-  const [savingAhuId, setSavingAhuId] = useState<string | null>(null);
-  const [ahuConfigError, setAhuConfigError] = useState('');
-
-  const handleAhuModeChange = async (ahuId: string, newMode: AhuMode) => {
-    setSavingAhuId(ahuId);
-    setAhuConfigError('');
-    try {
-      await apiClient.put(`/api/pm-schedules/ahu-configs/${ahuId}`, { mode: newMode });
-      // Refresh both the config table and any My Tasks view listening
-      await mutateAhuConfigs();
-      globalMutate('/api/pm-schedules/due');
-    } catch (e: any) {
-      setAhuConfigError(e.message ?? 'Failed to save AHU mode');
-    }
-    setSavingAhuId(null);
-  };
-
-  const visibleAhus = ((ahuConfigs?.ahus ?? []) as AhuConfigRow[]).filter(a => {
-    if (!ahuSearch.trim()) return true;
-    return a.ahuName.toLowerCase().includes(ahuSearch.trim().toLowerCase());
-  });
 
   // PM module disabled — short-circuit
   if (pmConfig && !(pmConfig as any)?.enabled && !((pmConfig as any)?.value?.enabled)) {
@@ -211,136 +165,6 @@ export function PmScheduleListPage() {
             AHU-02,2026-04-20,5<br />
             AHU-03,2026-05-10,3
           </div>
-        </div>
-      </div>
-
-      {/* ─── AHU Filter-Set Configuration ─── */}
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-        <div className="h-1.5 bg-gradient-to-r from-teal-400 to-cyan-500" />
-        <div className="p-6 space-y-4">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div>
-              <h2 className="text-base font-semibold text-slate-800">AHU Filter Set Configuration</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Control which set of filters counts toward PM completion in <strong>My Tasks</strong> for each AHU.
-                Changes apply immediately.
-              </p>
-            </div>
-            <div className="relative w-full sm:w-64">
-              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <input
-                type="text"
-                value={ahuSearch}
-                onChange={e => setAhuSearch(e.target.value)}
-                placeholder="Search AHU..."
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none"
-              />
-            </div>
-          </div>
-
-          {ahuConfigError && (
-            <div className="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm">
-              {ahuConfigError}
-            </div>
-          )}
-
-          {ahuConfigsLoading && !ahuConfigs ? (
-            <div className="space-y-2">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="h-12 bg-slate-100 rounded-xl animate-pulse" />
-              ))}
-            </div>
-          ) : visibleAhus.length === 0 ? (
-            <div className="text-center py-10 text-sm text-slate-500">
-              {ahuSearch ? 'No AHUs match your search' : 'No AHUs found in your organization'}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-slate-200">
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">AHU</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Filter Counts</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Schedule</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-64">Mode</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {visibleAhus.map(a => {
-                    const isSaving = savingAhuId === a.ahuId;
-                    return (
-                      <tr key={a.ahuId} className="hover:bg-slate-50/60 transition-colors">
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center shrink-0">
-                              <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                              </svg>
-                            </div>
-                            <span className="text-sm font-semibold text-slate-800">{a.ahuName}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {a.setACount > 0 && (
-                              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-semibold bg-blue-50 text-blue-700 border border-blue-100">
-                                <span className="w-1 h-1 rounded-full bg-blue-500" />
-                                Set A · {a.setACount}
-                              </span>
-                            )}
-                            {a.setBCount > 0 && (
-                              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-semibold bg-purple-50 text-purple-700 border border-purple-100">
-                                <span className="w-1 h-1 rounded-full bg-purple-500" />
-                                Set B · {a.setBCount}
-                              </span>
-                            )}
-                            {a.noSetCount > 0 && (
-                              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-                                Unclassified · {a.noSetCount}
-                              </span>
-                            )}
-                            {a.totalFilters === 0 && (
-                              <span className="text-[11px] text-slate-400 italic">No filters</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          {a.hasActiveSchedule ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
-                              <span className="w-1 h-1 rounded-full bg-emerald-500" />
-                              Scheduled
-                            </span>
-                          ) : (
-                            <span className="text-[11px] text-slate-400">—</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <select
-                              value={a.mode}
-                              disabled={isSaving}
-                              onChange={e => handleAhuModeChange(a.ahuId, e.target.value as AhuMode)}
-                              className={`flex-1 px-3 py-2 border rounded-xl text-sm font-semibold outline-none transition-colors disabled:opacity-60 disabled:cursor-wait ${MODE_META[a.mode].bg} ${MODE_META[a.mode].text} ${MODE_META[a.mode].border} focus:ring-2 focus:ring-cyan-100`}
-                            >
-                              <option value="BOTH">Both Sets (A + B)</option>
-                              <option value="SET_A">Only Set A</option>
-                              <option value="SET_B">Only Set B</option>
-                              <option value="DISABLED">Disabled (skip PM)</option>
-                            </select>
-                            {isSaving && (
-                              <div className="w-4 h-4 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
         </div>
       </div>
 
