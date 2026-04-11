@@ -34,7 +34,6 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/help.def.js'),
     import('../modules/config/defs/uns.def.js'),
     import('../modules/config/defs/filter-cleaning-reasons.def.js'),
-    import('../modules/config/defs/filter-lifecycle-states.def.js'),
     import('../modules/config/defs/filter-pm-schedule.def.js'),
     import('../modules/config/defs/rfid-scanner.def.js'),
     import('../modules/config/defs/offline-sync.def.js'),
