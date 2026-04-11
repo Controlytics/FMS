@@ -44,6 +44,8 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
               properties: { id: { type: 'string' }, name: { type: 'string' } },
             },
             blockChangeStatus: { type: 'string', nullable: true, enum: ['MATCH', 'APPROVED', 'REQUIRED'] },
+            isPmDue: { type: 'boolean' },
+            pmReasonKey: { type: 'string', nullable: true },
           },
         },
         ...errorResponses,

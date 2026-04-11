@@ -259,7 +259,56 @@ export function MobileOperationsPage() {
       if (state.pendingChecklist?.length > 0) { setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: state.pendingChecklist }); setChecklistAnswers({}); setLoading(false); return; }
       const nextAllowed = state.nextAllowedStages ?? [];
       if (nextAllowed.length > 0 && !nextAllowed.includes(activeStage.key)) { setError(`Next allowed: ${nextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`); setLoading(false); return; }
-      if (!state.currentCycle) { setReasonDialog({ filterId, filterName: filterName || state.filterName, stage: activeStage.key }); setSelectedReason(''); setJustification(''); setLoading(false); return; }
+      if (!state.currentCycle) {
+        // PM auto-start: if the filter's AHU is currently in a PM schedule
+        // window and a "PM" cleaning reason is configured, skip the reason
+        // dialog and start the cycle with PM as the reason. Falls through
+        // to the normal equipment-group / advance flow below.
+        if (state.isPmDue && state.pmReasonKey) {
+          try {
+            await apiClient.post(`/api/filters/${filterId}/start-cycle`, {
+              cleaningReasonKey: state.pmReasonKey,
+              cleaningAreaId: selectedBlock?.id,
+            });
+
+            // If WASH_IN and a block is selected, the equipment-group dialog
+            // may be required before advance — mirror handleReasonSubmit.
+            if (activeStage.key === 'WASH_IN' && selectedBlock?.id) {
+              try {
+                const groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${selectedBlock.id}`);
+                if (groups?.length) {
+                  setEquipDialog({ filterId, filterName: filterName || state.filterName, stage: activeStage.key, groups });
+                  setSelectedEquipGroup(null); setReadings({});
+                  setLoading(false); return;
+                }
+              } catch {}
+            }
+
+            // No equipment dialog needed — advance directly
+            const result = await apiClient.post<any>(`/api/filters/${filterId}/advance`, {
+              targetState: activeStage.key,
+              cleaningAreaId: selectedBlock?.id,
+              remarks: remarks || `${activeStage.label} - ${filterName || state.filterName} (PM auto)`,
+            });
+            setSuccess(`${filterName || state.filterName} → ${activeStage.label} (PM auto)`);
+            setRecentOps(prev => [{ stage: activeStage.key, filter: filterName || state.filterName, time: formatTime(new Date()) }, ...prev].slice(0, 20));
+            setScanValue(''); setRemarks(''); mutate('/api/assets/instances?limit=500');
+            if (result?.pendingChecklist?.length > 0) { setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: result.pendingChecklist }); setChecklistAnswers({}); }
+            setLoading(false); return;
+          } catch (e: any) {
+            if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
+              setBlockChangeDialog({ filterId: e.connectionInfo.filterId, filterName: filterName || state.filterName, homeBlockId: e.connectionInfo.homeBlockId, homeBlockName: e.connectionInfo.homeBlockName, requestedBlockId: e.connectionInfo.requestedBlockId, requestedBlockName: e.connectionInfo.requestedBlockName });
+              setBlockChangeReason(''); setLoading(false); return;
+            }
+            setError(e.message ?? 'Failed to auto-start PM cycle');
+            setLoading(false); return;
+          }
+        }
+
+        // No PM match — ask for a wash-in reason as before
+        setReasonDialog({ filterId, filterName: filterName || state.filterName, stage: activeStage.key });
+        setSelectedReason(''); setJustification(''); setLoading(false); return;
+      }
       if (activeStage.key === 'DRY_IN') {
         const cyc = state.currentCycle ?? {};
         const startedAt = cyc.dryerStartedAt ? new Date(cyc.dryerStartedAt).getTime() : null;

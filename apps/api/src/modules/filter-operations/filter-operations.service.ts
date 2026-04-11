@@ -256,6 +256,47 @@ export class FilterOperationsService {
       }
     }
 
+    // PM auto-reason check: if this filter's AHU currently has a PM schedule
+    // entry whose tolerance window contains `now`, the mobile/desktop UI can
+    // skip the wash-in reason dialog and auto-fill "PM" as the cleaning reason.
+    // Pure read — no writes. Only computed for new cycles (skipping when a
+    // cycle is already in progress).
+    let isPmDue = false;
+    let pmReasonKey: string | null = null;
+    if (!filter.currentCycleId) {
+      const filterRow = await prisma.assetInstance.findUnique({
+        where: { id: filterId },
+        select: { parentId: true },
+      });
+      if (filterRow?.parentId) {
+        const now = new Date();
+        const dueEntry = await prisma.pmScheduleEntry.findFirst({
+          where: {
+            schedule: { entityId: filterRow.parentId, status: 'ACTIVE' },
+            windowStart: { lte: now },
+            windowEnd: { gte: now },
+          },
+          orderBy: { plannedDate: 'asc' },
+          select: { id: true },
+        });
+        if (dueEntry) {
+          isPmDue = true;
+          // Look up the configured PM reason — must be active, and match
+          // either key === 'PM' (exact), or name === 'PM', case-insensitive.
+          const reasonsCfg = await prisma.systemConfig.findUnique({ where: { configKey: 'filter-cleaning-reasons' } });
+          const raw = reasonsCfg?.configValue as any;
+          const reasons: any[] = Array.isArray(raw) ? raw : (Array.isArray(raw?.value) ? raw.value : []);
+          const pmReason = reasons.find(r =>
+            r && r.isActive !== false && (
+              (typeof r.key === 'string' && r.key.toUpperCase() === 'PM') ||
+              (typeof r.name === 'string' && r.name.toUpperCase() === 'PM')
+            )
+          );
+          if (pmReason?.key) pmReasonKey = pmReason.key;
+        }
+      }
+    }
+
     let profile = null;
     let nextAllowedStages: string[] = [];
     let nextBlocks: any[] = [];
@@ -377,6 +418,8 @@ export class FilterOperationsService {
       blockEquipmentGroups,
       homeBlock,
       blockChangeStatus,
+      isPmDue,
+      pmReasonKey,
     };
   }
 
