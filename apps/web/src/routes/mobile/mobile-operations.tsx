@@ -756,12 +756,21 @@ export function MobileOperationsPage() {
                       </div>
                     )}
 
-                    <button
-                      onClick={() => performTask(task)}
-                      className="mt-3 w-full py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-xl text-sm font-semibold shadow-lg shadow-cyan-500/25 active:shadow-none"
-                    >
-                      Perform →
-                    </button>
+                    {task.overallStatus === 'complete' ? (
+                      <div className="mt-3 w-full py-2.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl text-sm font-semibold text-center flex items-center justify-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Completed
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => performTask(task)}
+                        className="mt-3 w-full py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-xl text-sm font-semibold shadow-lg shadow-cyan-500/25 active:shadow-none"
+                      >
+                        Perform →
+                      </button>
+                    )}
                   </div>
                 </div>
               );
