@@ -16,7 +16,7 @@ const STAGES = [
   { key: 'STORAGE_OUT', label: 'Storage Out', icon: '📤', gradient: 'from-slate-400 to-slate-500', bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-500', needsBlock: false },
 ];
 
-type View = 'home' | 'status' | 'stage';
+type View = 'home' | 'status' | 'stage' | 'my-tasks' | 'approvals';
 
 // Build identifier→filter map from identifiers list
 function buildIdentifierMap(identifiers: any[]): Record<string, { filterId: string; filterName: string }> {
@@ -77,6 +77,24 @@ export function MobileOperationsPage() {
   const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=100' : null);
   const { data: reasonsData } = useSWR(online ? '/api/filters/reasons' : null);
   const { data: identifiersData } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null);
+
+  // My Tasks + Approvals — only fetch when the user actually opens those views.
+  // SWR key flips to null otherwise, skipping the request entirely.
+  const { data: dueTasksData, mutate: mutateDueTasks, isLoading: dueTasksLoading } =
+    useSWR(online && view === 'my-tasks' ? '/api/pm-schedules/due' : null, { refreshInterval: 30000 });
+
+  // Approvers see all pending; non-approvers see only their own submitted requests.
+  const isApprover = user?.role === 'SUPER_ADMIN' || (user?.permissions ?? []).includes('BLOCK_CHANGE_APPROVE');
+  const approvalsKey = (online && view === 'approvals')
+    ? `/api/block-change-requests?page=1&limit=50&status=PENDING${!isApprover ? '&mine=true' : ''}`
+    : null;
+  const { data: approvalsData, mutate: mutateApprovals, isLoading: approvalsLoading } =
+    useSWR<any>(approvalsKey, { refreshInterval: 30000 });
+  const approvals: any[] = approvalsData?.data ?? [];
+
+  // Expand state for My Tasks cards + processing state for Approve/Reject
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
+  const [processingApproval, setProcessingApproval] = useState<string | null>(null);
   const [offlineFilters, setOfflineFilters] = useState<any[]>([]);
   const [offlineTemplates, setOfflineTemplates] = useState<any[]>([]);
   const [offlineReasons, setOfflineReasons] = useState<any[]>([]);
@@ -369,6 +387,49 @@ export function MobileOperationsPage() {
     setLoading(false);
   };
 
+  // ─── My Tasks handlers ───────────────────────────────
+  const toggleTaskExpand = (entryId: string) => {
+    setExpandedTasks(prev => {
+      const next = new Set(prev);
+      if (next.has(entryId)) next.delete(entryId);
+      else next.add(entryId);
+      return next;
+    });
+  };
+
+  /**
+   * Mobile "Perform" flow — unlike desktop (which deep-links into a filter
+   * list), mobile operators scan physical RFID tags. So "Perform" just tells
+   * them "go clean filters from AHU X now", auto-opens the Wash In stage,
+   * and pre-fills the selected block to whatever block the AHU belongs to.
+   * The existing scan flow takes over from there — backend block-change
+   * validation still applies, so a mis-scan from a wrong AHU surfaces
+   * normally.
+   */
+  const performTask = (task: any) => {
+    // Jump straight into the Wash In stage scan view
+    const washIn = STAGES.find(s => s.key === 'WASH_IN');
+    if (!washIn) return;
+    setActiveStage(washIn);
+    setView('stage');
+    setScanValue(''); setRemarks(''); setError(''); setSelectedBlock(null);
+    setSuccess(`Ready to clean filters from ${task.ahuName}. Scan each filter now.`);
+  };
+
+  // ─── Approvals handlers ──────────────────────────────
+  const handleApprovalAction = async (requestId: string, action: 'approve' | 'reject') => {
+    setProcessingApproval(requestId);
+    setError('');
+    try {
+      await apiClient.post(`/api/block-change-requests/${requestId}/${action}`, {});
+      setSuccess(`Request ${action === 'approve' ? 'approved' : 'rejected'}`);
+      await mutateApprovals();
+    } catch (e: any) {
+      setError(e.message ?? `Failed to ${action} request`);
+    }
+    setProcessingApproval(null);
+  };
+
   const handleBlockChangeRequest = async () => {
     if (!blockChangeDialog) return;
     setBlockChangeSubmitting(true);
@@ -459,6 +520,24 @@ export function MobileOperationsPage() {
               </div>
             </button>
 
+            {/* Quick access: My Tasks + Approvals */}
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => setView('my-tasks')} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm active:shadow-none active:scale-[0.98] transition-all text-left">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 flex items-center justify-center mb-3 shadow-lg shadow-cyan-500/20">
+                  <span className="text-2xl">🎯</span>
+                </div>
+                <div className="text-sm font-bold text-slate-800">My Tasks</div>
+                <div className="text-xs text-slate-400 mt-0.5">Filters due for cleaning</div>
+              </button>
+              <button onClick={() => setView('approvals')} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm active:shadow-none active:scale-[0.98] transition-all text-left">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center mb-3 shadow-lg shadow-amber-500/20">
+                  <span className="text-2xl">✅</span>
+                </div>
+                <div className="text-sm font-bold text-slate-800">Approvals</div>
+                <div className="text-xs text-slate-400 mt-0.5">{isApprover ? 'Review requests' : 'Track your requests'}</div>
+              </button>
+            </div>
+
             {/* Stage Cards Grid */}
             <div className="grid grid-cols-2 gap-3">
               {STAGES.map(stage => (
@@ -529,6 +608,248 @@ export function MobileOperationsPage() {
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {/* ═══ MY TASKS VIEW ═══ */}
+        {view === 'my-tasks' && (
+          <div className="p-4 space-y-4">
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">My Tasks</h2>
+              <p className="text-xs text-slate-500 mt-0.5">AHUs currently due for cleaning based on PM schedules</p>
+            </div>
+
+            {!online && (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center text-xs text-slate-500">
+                My Tasks requires an internet connection.
+              </div>
+            )}
+
+            {online && dueTasksLoading && (
+              <div className="space-y-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="bg-white border border-slate-200 rounded-2xl h-24 animate-pulse" />
+                ))}
+              </div>
+            )}
+
+            {online && !dueTasksLoading && (!dueTasksData?.tasks?.length && !dueTasksData?.overdue?.length) && (
+              <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                <div className="h-1.5 bg-gradient-to-r from-teal-400 to-cyan-500" />
+                <div className="p-10 text-center">
+                  <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-teal-50 to-cyan-50 flex items-center justify-center">
+                    <span className="text-3xl">🎯</span>
+                  </div>
+                  <div className="text-sm font-semibold text-slate-700">Nothing due right now</div>
+                  <div className="text-xs text-slate-400 mt-1">Tasks appear when a schedule window opens</div>
+                </div>
+              </div>
+            )}
+
+            {online && (dueTasksData?.tasks ?? []).map((task: any) => {
+              const expanded = expandedTasks.has(task.entryId);
+              const statusColor =
+                task.overallStatus === 'complete' ? { bar: 'from-emerald-400 to-emerald-500', badge: 'bg-emerald-50 text-emerald-700 border-emerald-100', dot: 'bg-emerald-500' }
+                : task.overallStatus === 'in_progress' ? { bar: 'from-cyan-400 to-cyan-500', badge: 'bg-cyan-50 text-cyan-700 border-cyan-100', dot: 'bg-cyan-500' }
+                : { bar: 'from-amber-400 to-amber-500', badge: 'bg-amber-50 text-amber-700 border-amber-100', dot: 'bg-amber-500' };
+              const progressPct = task.totalFilters > 0 ? Math.round((task.cleanedCount / task.totalFilters) * 100) : 0;
+              return (
+                <div key={task.entryId} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                  <div className={`h-1.5 bg-gradient-to-r ${statusColor.bar}`} />
+                  <div className="p-4">
+                    <button onClick={() => toggleTaskExpand(task.entryId)} className="w-full text-left">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="text-base font-bold text-slate-800 truncate">{task.ahuName}</h3>
+                            <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold border ${statusColor.badge}`}>
+                              <span className={`w-1 h-1 rounded-full ${statusColor.dot}`} />
+                              {task.overallStatus === 'complete' ? 'Complete' : task.overallStatus === 'in_progress' ? 'In Progress' : 'Pending'}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-1">
+                            {formatTime(new Date(task.plannedDate))} • {task.cleanedCount}/{task.totalFilters} cleaned
+                          </div>
+                          {task.totalFilters > 0 && (
+                            <div className="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-gradient-to-r from-teal-400 to-cyan-500 transition-all" style={{ width: `${progressPct}%` }} />
+                            </div>
+                          )}
+                        </div>
+                        <svg className={`w-5 h-5 text-slate-400 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </div>
+                    </button>
+
+                    {expanded && (
+                      <div className="mt-3 pt-3 border-t border-slate-100">
+                        {task.filters.length === 0 ? (
+                          <p className="text-[11px] text-slate-400 italic">No active child filters.</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {task.filters.map((f: any) => {
+                              const cls =
+                                f.status === 'cleaned_in_window' ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                : f.status === 'in_progress' ? 'bg-cyan-50 text-cyan-700 border-cyan-100'
+                                : 'bg-amber-50 text-amber-700 border-amber-100';
+                              return (
+                                <span key={f.filterId} className={`inline-flex text-[10px] px-2 py-1 rounded-md border font-semibold ${cls}`}>
+                                  {f.filterName}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <button
+                      onClick={() => performTask(task)}
+                      className="mt-3 w-full py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-xl text-sm font-semibold shadow-lg shadow-cyan-500/25 active:shadow-none"
+                    >
+                      Perform →
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+
+            {online && (dueTasksData?.overdue ?? []).length > 0 && (
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-rose-600 text-sm">⚠</span>
+                  <h3 className="text-sm font-bold text-slate-800">Overdue</h3>
+                </div>
+                {(dueTasksData.overdue as any[]).map((task: any) => (
+                  <div key={task.entryId} className="bg-white border border-rose-200 rounded-2xl overflow-hidden shadow-sm">
+                    <div className="h-1.5 bg-gradient-to-r from-rose-400 to-rose-500" />
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="text-base font-bold text-slate-800 truncate">{task.ahuName}</h3>
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            Window closed {formatTime(new Date(task.windowEnd))} • {task.cleanedCount}/{task.totalFilters} cleaned
+                          </div>
+                        </div>
+                        <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold border bg-rose-50 text-rose-700 border-rose-100">
+                          <span className="w-1 h-1 rounded-full bg-rose-500" />
+                          Overdue
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => performTask(task)}
+                        className="mt-3 w-full py-2.5 bg-gradient-to-r from-rose-600 to-rose-700 text-white rounded-xl text-sm font-semibold shadow-lg shadow-rose-500/25 active:shadow-none"
+                      >
+                        Perform (overdue) →
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ═══ APPROVALS VIEW ═══ */}
+        {view === 'approvals' && (
+          <div className="p-4 space-y-4">
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">Approvals</h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {isApprover ? 'Review and act on pending block change requests' : 'Track the status of requests you submitted'}
+              </p>
+            </div>
+
+            {!online && (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center text-xs text-slate-500">
+                Approvals requires an internet connection.
+              </div>
+            )}
+
+            {online && approvalsLoading && (
+              <div className="space-y-3">
+                {Array.from({ length: 2 }).map((_, i) => (
+                  <div key={i} className="bg-white border border-slate-200 rounded-2xl h-32 animate-pulse" />
+                ))}
+              </div>
+            )}
+
+            {online && !approvalsLoading && approvals.length === 0 && (
+              <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                <div className="h-1.5 bg-gradient-to-r from-amber-400 to-orange-500" />
+                <div className="p-10 text-center">
+                  <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 flex items-center justify-center">
+                    <span className="text-3xl">✅</span>
+                  </div>
+                  <div className="text-sm font-semibold text-slate-700">
+                    {isApprover ? 'No pending requests' : 'No open requests from you'}
+                  </div>
+                  <div className="text-xs text-slate-400 mt-1">
+                    {isApprover ? 'Everything is up to date' : 'Block change requests you submit will appear here'}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {online && approvals.map((req: any) => {
+              const processing = processingApproval === req.id;
+              return (
+                <div key={req.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                  <div className="h-1.5 bg-gradient-to-r from-amber-400 to-orange-500" />
+                  <div className="p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-base font-bold text-slate-800 truncate">{req.filterName}</h3>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          Requested by {req.requestedByName ?? req.requestedBy} • {req.createdAt ? formatTime(new Date(req.createdAt)) : ''}
+                        </div>
+                      </div>
+                      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold border bg-amber-50 text-amber-700 border-amber-100">
+                        <span className="w-1 h-1 rounded-full bg-amber-500" />
+                        Pending
+                      </span>
+                    </div>
+
+                    <div className="bg-slate-50 rounded-xl p-3 text-xs space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-500 w-16">From:</span>
+                        <span className="font-semibold text-slate-700">{req.fromBlockName}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-500 w-16">To:</span>
+                        <span className="font-semibold text-cyan-700">{req.toBlockName}</span>
+                      </div>
+                      {req.reason && (
+                        <div className="flex items-start gap-2 pt-1">
+                          <span className="text-slate-500 w-16">Reason:</span>
+                          <span className="text-slate-600 flex-1">{req.reason}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {isApprover && (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleApprovalAction(req.id, 'reject')}
+                          disabled={processing}
+                          className="flex-1 py-2.5 bg-white border border-rose-200 text-rose-700 rounded-xl text-sm font-semibold active:bg-rose-50 disabled:opacity-50"
+                        >
+                          {processing ? '…' : 'Reject'}
+                        </button>
+                        <button
+                          onClick={() => handleApprovalAction(req.id, 'approve')}
+                          disabled={processing}
+                          className="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl text-sm font-semibold shadow-lg shadow-emerald-500/25 active:shadow-none disabled:opacity-50"
+                        >
+                          {processing ? '…' : 'Approve'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 
