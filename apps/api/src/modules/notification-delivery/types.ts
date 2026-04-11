@@ -63,7 +63,7 @@ export interface SmsConfig {
 }
 
 export interface NotificationPayload {
-  channel: 'EMAIL' | 'SMS' | 'TELEGRAM' | 'SLACK';
+  channel: 'EMAIL' | 'SMS';
   recipient: string;           // email address or phone number
   subject?: string;            // for email
   message: string;             // plain text or HTML
