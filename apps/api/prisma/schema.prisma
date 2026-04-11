@@ -1507,7 +1507,7 @@ model BlockChangeRequest {
   processedByName String?           @map("processed_by_name") @db.VarChar(255)
   processedComment String?          @map("processed_comment")
   processedAt     DateTime?         @map("processed_at") @db.Timestamptz
-  organizationId  String            @map("organization_id") @db.Uuid
+  organizationId  String?           @map("organization_id") @db.Uuid
   createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz
 
