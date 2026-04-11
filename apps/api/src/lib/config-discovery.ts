@@ -40,6 +40,7 @@ import('../modules/config/defs/notification-telegram.def.js'),    import('../mod
     import('../modules/config/defs/rfid-scanner.def.js'),
     import('../modules/config/defs/offline-sync.def.js'),
     import('../modules/config/defs/block-change-approval.def.js'),
+    import('../modules/config/defs/pm-schedule-settings.def.js'),
     // ─── Add new module configs below this line ───
   ]);
 
