@@ -83,10 +83,13 @@ export function MobileOperationsPage() {
   const { data: dueTasksData, mutate: mutateDueTasks, isLoading: dueTasksLoading } =
     useSWR(online && view === 'my-tasks' ? '/api/pm-schedules/due' : null, { refreshInterval: 30000 });
 
-  // Approvers see all pending; non-approvers see only their own submitted requests.
+  // Approvers see all pending by default (they want to act on open requests);
+  // non-approvers default to ALL so they can see the status of every request
+  // they've submitted — pending, approved, rejected, expired — not just pending.
   const isApprover = user?.role === 'SUPER_ADMIN' || (user?.permissions ?? []).includes('BLOCK_CHANGE_APPROVE');
+  const [approvalsFilter, setApprovalsFilter] = useState<'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL'>(isApprover ? 'PENDING' : 'ALL');
   const approvalsKey = (online && view === 'approvals')
-    ? `/api/block-change-requests?page=1&limit=50&status=PENDING${!isApprover ? '&mine=true' : ''}`
+    ? `/api/block-change-requests?page=1&limit=50&status=${approvalsFilter}${!isApprover ? '&mine=true' : ''}`
     : null;
   const { data: approvalsData, mutate: mutateApprovals, isLoading: approvalsLoading } =
     useSWR<any>(approvalsKey, { refreshInterval: 30000 });
@@ -810,6 +813,25 @@ export function MobileOperationsPage() {
               </p>
             </div>
 
+            {/* Status filter pills */}
+            {online && (
+              <div className="bg-slate-100 rounded-xl p-1 flex gap-1 overflow-x-auto">
+                {(['ALL', 'PENDING', 'APPROVED', 'REJECTED'] as const).map(opt => (
+                  <button
+                    key={opt}
+                    onClick={() => setApprovalsFilter(opt)}
+                    className={`flex-1 min-w-[70px] px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${
+                      approvalsFilter === opt
+                        ? 'bg-white text-cyan-700 shadow-sm'
+                        : 'text-slate-500 active:bg-slate-200'
+                    }`}
+                  >
+                    {opt === 'ALL' ? 'All' : opt[0] + opt.slice(1).toLowerCase()}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {!online && (
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center text-xs text-slate-500">
                 Approvals requires an internet connection.
@@ -832,10 +854,12 @@ export function MobileOperationsPage() {
                     <span className="text-3xl">✅</span>
                   </div>
                   <div className="text-sm font-semibold text-slate-700">
-                    {isApprover ? 'No pending requests' : 'No open requests from you'}
+                    {approvalsFilter === 'ALL'
+                      ? (isApprover ? 'No requests' : 'No requests submitted yet')
+                      : `No ${approvalsFilter.toLowerCase()} requests`}
                   </div>
                   <div className="text-xs text-slate-400 mt-1">
-                    {isApprover ? 'Everything is up to date' : 'Block change requests you submit will appear here'}
+                    {isApprover ? 'Change the filter above to see other statuses' : 'Block change requests you submit will appear here'}
                   </div>
                 </div>
               </div>
@@ -843,9 +867,18 @@ export function MobileOperationsPage() {
 
             {online && approvals.map((req: any) => {
               const processing = processingApproval === req.id;
+              // Per-status styling — each DB status gets its own badge + accent
+              const statusMeta =
+                req.status === 'APPROVED'
+                  ? { label: 'Approved', badge: 'bg-emerald-50 text-emerald-700 border-emerald-100', dot: 'bg-emerald-500', bar: 'from-emerald-400 to-emerald-500' }
+                : req.status === 'REJECTED'
+                  ? { label: 'Rejected', badge: 'bg-rose-50 text-rose-700 border-rose-100',        dot: 'bg-rose-500',    bar: 'from-rose-400 to-rose-500' }
+                : req.status === 'EXPIRED'
+                  ? { label: 'Used',     badge: 'bg-slate-100 text-slate-600 border-slate-200',    dot: 'bg-slate-400',   bar: 'from-slate-400 to-slate-500' }
+                  : { label: 'Pending',  badge: 'bg-amber-50 text-amber-700 border-amber-100',     dot: 'bg-amber-500',   bar: 'from-amber-400 to-orange-500' };
               return (
                 <div key={req.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                  <div className="h-1.5 bg-gradient-to-r from-amber-400 to-orange-500" />
+                  <div className={`h-1.5 bg-gradient-to-r ${statusMeta.bar}`} />
                   <div className="p-4 space-y-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
@@ -854,9 +887,9 @@ export function MobileOperationsPage() {
                           Requested by {req.requestedByName ?? req.requestedBy} • {req.createdAt ? formatTime(new Date(req.createdAt)) : ''}
                         </div>
                       </div>
-                      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold border bg-amber-50 text-amber-700 border-amber-100">
-                        <span className="w-1 h-1 rounded-full bg-amber-500" />
-                        Pending
+                      <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold border ${statusMeta.badge}`}>
+                        <span className={`w-1 h-1 rounded-full ${statusMeta.dot}`} />
+                        {statusMeta.label}
                       </span>
                     </div>
 
@@ -875,9 +908,26 @@ export function MobileOperationsPage() {
                           <span className="text-slate-600 flex-1">{req.reason}</span>
                         </div>
                       )}
+                      {/* Surface approval/rejection metadata when present */}
+                      {(req.status === 'APPROVED' || req.status === 'REJECTED') && (req.processedByName || req.processedAt) && (
+                        <div className="flex items-start gap-2 pt-1 border-t border-slate-200 mt-2">
+                          <span className="text-slate-500 w-16">{req.status === 'APPROVED' ? 'Approved by:' : 'Rejected by:'}</span>
+                          <span className="text-slate-600 flex-1">
+                            {req.processedByName ?? '—'}
+                            {req.processedAt ? ` • ${formatTime(new Date(req.processedAt))}` : ''}
+                          </span>
+                        </div>
+                      )}
+                      {req.processedComment && (
+                        <div className="flex items-start gap-2 pt-1">
+                          <span className="text-slate-500 w-16">Comment:</span>
+                          <span className="text-slate-600 flex-1 italic">{req.processedComment}</span>
+                        </div>
+                      )}
                     </div>
 
-                    {isApprover && (
+                    {/* Only show Approve/Reject for rows that are still pending */}
+                    {isApprover && req.status === 'PENDING' && (
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleApprovalAction(req.id, 'reject')}
