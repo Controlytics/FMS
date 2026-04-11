@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
 import { useReauth } from '../../hooks/use-reauth';
@@ -35,6 +35,10 @@ interface PendingChecklist {
 export function FilterOperationsPage() {
   const navigate = useNavigate();
   const { stageKey: urlStageKey } = useParams<{ stageKey?: string }>();
+  // Optional ?ahuId= query param lets other pages (e.g. My Tasks) deep-link
+  // here with the list pre-filtered to an AHU's child filters.
+  const [searchParams] = useSearchParams();
+  const ahuIdFilter = searchParams.get('ahuId');
   const { data: instancesData } = useSWR<PaginatedResponse<FilterInstance>>('/api/assets/instances?limit=200', { refreshInterval: 30000 });
   const { data: templatesData } = useSWR<PaginatedResponse<{ id: string; name: string }>>('/api/assets/templates?limit=100');
   const { formatDateTime, formatDate, formatTime } = useDatetimeFormat();
@@ -101,8 +105,13 @@ export function FilterOperationsPage() {
   const isLoading = !instancesData || !templatesData;
 
   // Include all active filter instances — profile may be assigned directly (filterProfileId)
-  // or via config-based rules (BY_BLOCK, BY_AHU, etc.) which resolve server-side
-  const allFilters = (instancesData?.data ?? []).filter((f: any) => f.template?.name === 'Filter' && f.isActive !== false && f.status !== 'Retired');
+  // or via config-based rules (BY_BLOCK, BY_AHU, etc.) which resolve server-side.
+  // When ?ahuId=X is present (deep-link from My Tasks), narrow to filters whose parentId matches.
+  const allFilters = (instancesData?.data ?? []).filter((f: any) => {
+    if (f.template?.name !== 'Filter' || f.isActive === false || f.status === 'Retired') return false;
+    if (ahuIdFilter && f.parentId !== ahuIdFilter) return false;
+    return true;
+  });
 
   const filterStateMap = useMemo(() => {
     const map: Record<string, { state: string; name: string; set: string; id: string }> = {};

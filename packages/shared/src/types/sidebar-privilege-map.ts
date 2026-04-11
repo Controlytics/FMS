@@ -179,6 +179,13 @@ export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
     privilegeIds: ["pm.view", "pm.create", "pm.edit", "pm.delete"],
   },
   {
+    sidebarId: "my-tasks",
+    label: "My Tasks",
+    icon: "\u{1F3AF}",
+    description: "Filters due for cleaning based on PM schedules",
+    privilegeIds: ["pm.view", "pm.execute"],
+  },
+  {
     sidebarId: "approvals",
     label: "Approvals",
     icon: "\u2705",

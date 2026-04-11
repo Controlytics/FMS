@@ -33,6 +33,7 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'cleaning-profiles', label: 'Cleaning Profiles', icon: '\u{1F9F9}', description: 'Cleaning pipeline profiles' },
   { id: 'equipment-groups', label: 'Equipment Groups', icon: '\u2699\uFE0F', description: 'Equipment group configuration' },
   { id: 'pm-schedules', label: 'PM Schedules', icon: '\u{1F4C5}', description: 'Preventive maintenance scheduling' },
+  { id: 'my-tasks', label: 'My Tasks', icon: '\u{1F3AF}', description: 'Filters due for cleaning based on PM schedules' },
   { id: 'organizations', label: 'Organizations', icon: '\u{1F3E2}', description: 'Organization management' },
   { id: 'approvals', label: 'Approvals', icon: '\u2705', description: 'Block change approval requests' },
 ];
