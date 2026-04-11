@@ -107,6 +107,44 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
     }
   });
 
+  // ─── AHU filter-set mode config ───
+  // Per-AHU setting controlling which filters count toward PM completion.
+  // Stored in AssetInstance.customAttributes.pmFilterSetMode.
+  // Listed before the parametric /:entityId route.
+  app.get('/ahu-configs', {
+    preHandler: [app.requirePermission('PM_READ')],
+    schema: {
+      tags: ['PM Schedules'],
+      summary: 'List AHUs with their current PM filter-set mode and filter counts',
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    return service.listAhuFilterSetConfigs(ctx);
+  });
+
+  app.put('/ahu-configs/:ahuId', {
+    preHandler: [app.requirePermission('PM_UPDATE')],
+    schema: {
+      tags: ['PM Schedules'],
+      summary: "Update an AHU's PM filter-set mode",
+      params: { type: 'object', required: ['ahuId'], properties: { ahuId: { type: 'string', format: 'uuid' } } },
+      body: {
+        type: 'object',
+        required: ['mode'],
+        properties: {
+          mode: { type: 'string', enum: ['BOTH', 'SET_A', 'SET_B', 'DISABLED'] },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const { ahuId } = req.params as { ahuId: string };
+    const { mode } = req.body as { mode: 'BOTH' | 'SET_A' | 'SET_B' | 'DISABLED' };
+    return service.updateAhuFilterSetMode(ctx, ahuId, mode);
+  });
+
   // ─── My Tasks: list due entries ───
   // Registered BEFORE the parametric /:entityId route so /due is matched as a
   // literal path rather than interpreted as an entityId.

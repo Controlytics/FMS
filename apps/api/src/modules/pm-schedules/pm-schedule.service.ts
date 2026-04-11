@@ -303,22 +303,25 @@ export class PmScheduleService {
       return { tasks: [], overdue: [], settings: { showOverdueSeparately } };
     }
 
-    // Deduplicate AHU lookups — multiple entries can share the same AHU
+    // Deduplicate AHU lookups — multiple entries can share the same AHU.
+    // customAttributes.pmFilterSetMode is the per-AHU knob added in the
+    // filter-set config UI: BOTH / SET_A / SET_B / DISABLED (default BOTH).
     const ahuIds = Array.from(new Set(entries.map(e => e.schedule.entityId)));
     const ahus = await prisma.assetInstance.findMany({
       where: { id: { in: ahuIds }, ...orgScope(ctx) },
-      select: { id: true, name: true, organizationId: true },
+      select: { id: true, name: true, organizationId: true, customAttributes: true },
     });
     const ahuById = new Map(ahus.map(a => [a.id, a]));
 
-    // Bulk-fetch all child filters for all AHUs in one query
+    // Bulk-fetch all child filters for all AHUs in one query.
+    // filterSet is needed so we can apply per-AHU Set A / Set B filtering.
     const allChildFilters = await prisma.assetInstance.findMany({
       where: {
         parentId: { in: ahus.map(a => a.id) },
         isActive: true,
         status: { not: 'Retired' },
       },
-      select: { id: true, name: true, parentId: true },
+      select: { id: true, name: true, parentId: true, filterSet: true },
     });
     const filtersByAhu = new Map<string, typeof allChildFilters>();
     for (const f of allChildFilters) {
@@ -351,7 +354,28 @@ export class PmScheduleService {
       const ahu = ahuById.get(entry.schedule.entityId);
       if (!ahu) continue; // filtered out by orgScope
 
-      const childFilters = filtersByAhu.get(ahu.id) ?? [];
+      // Read the per-AHU filter-set mode. Default is BOTH (count everything).
+      const ahuAttrs = (ahu.customAttributes as any) ?? {};
+      const mode: 'BOTH' | 'SET_A' | 'SET_B' | 'DISABLED' = (
+        ahuAttrs.pmFilterSetMode === 'SET_A' || ahuAttrs.pmFilterSetMode === 'SET_B' || ahuAttrs.pmFilterSetMode === 'DISABLED'
+          ? ahuAttrs.pmFilterSetMode
+          : 'BOTH'
+      );
+
+      // DISABLED: skip this AHU entirely — the task does not appear in My Tasks
+      // or in the Overdue section, even if its window is open.
+      if (mode === 'DISABLED') continue;
+
+      let childFilters = filtersByAhu.get(ahu.id) ?? [];
+
+      // SET_A / SET_B: narrow the filter list to that set. Filters with a null
+      // filterSet are excluded in this mode — they explicitly belong to no set.
+      if (mode === 'SET_A') {
+        childFilters = childFilters.filter(f => f.filterSet === 'SET_A');
+      } else if (mode === 'SET_B') {
+        childFilters = childFilters.filter(f => f.filterSet === 'SET_B');
+      }
+
       const inWindow = now >= entry.windowStart && now <= entry.windowEnd;
 
       const filterStatuses: DueFilterRow[] = childFilters.map(f => {
@@ -573,6 +597,114 @@ export class PmScheduleService {
       skipped: skipped.length,
       details: { imported, skipped },
     };
+  }
+
+  /**
+   * List every AHU with its current pmFilterSetMode, per-set filter counts,
+   * and whether it has a PM schedule. Used by the AHU config table on the
+   * PM Schedules page. Org-scoped.
+   */
+  async listAhuFilterSetConfigs(ctx: RequestContext) {
+    await checkPmEnabled();
+
+    const ahuTemplate = await prisma.assetTemplate.findFirst({ where: { name: 'AHU' }, select: { id: true } });
+    if (!ahuTemplate) return { ahus: [] };
+
+    const ahus = await prisma.assetInstance.findMany({
+      where: {
+        templateId: ahuTemplate.id,
+        ...orgScope(ctx),
+        isActive: true,
+      },
+      select: { id: true, name: true, customAttributes: true },
+      orderBy: { name: 'asc' },
+    });
+
+    // Bulk-count child filters per AHU grouped by filterSet (one query)
+    const ahuIds = ahus.map(a => a.id);
+    const childFilters = ahuIds.length
+      ? await prisma.assetInstance.findMany({
+          where: {
+            parentId: { in: ahuIds },
+            template: { name: 'Filter' },
+            isActive: true,
+            status: { not: 'Retired' },
+          },
+          select: { parentId: true, filterSet: true },
+        })
+      : [];
+
+    const countsByAhu = new Map<string, { setA: number; setB: number; noSet: number }>();
+    for (const f of childFilters) {
+      if (!f.parentId) continue;
+      if (!countsByAhu.has(f.parentId)) countsByAhu.set(f.parentId, { setA: 0, setB: 0, noSet: 0 });
+      const c = countsByAhu.get(f.parentId)!;
+      if (f.filterSet === 'SET_A') c.setA++;
+      else if (f.filterSet === 'SET_B') c.setB++;
+      else c.noSet++;
+    }
+
+    // Which AHUs have an active PM schedule right now? Convenience flag
+    // so the UI can surface "no schedule yet" rows distinctly if it wants.
+    const scheduledAhuRows = await prisma.pmSchedule.findMany({
+      where: { entityId: { in: ahuIds }, status: 'ACTIVE' },
+      select: { entityId: true },
+      distinct: ['entityId'],
+    });
+    const scheduledAhus = new Set(scheduledAhuRows.map(r => r.entityId));
+
+    return {
+      ahus: ahus.map(a => {
+        const attrs = (a.customAttributes as any) ?? {};
+        const mode = (attrs.pmFilterSetMode === 'SET_A' || attrs.pmFilterSetMode === 'SET_B' || attrs.pmFilterSetMode === 'DISABLED')
+          ? attrs.pmFilterSetMode
+          : 'BOTH';
+        const counts = countsByAhu.get(a.id) ?? { setA: 0, setB: 0, noSet: 0 };
+        return {
+          ahuId: a.id,
+          ahuName: a.name,
+          mode: mode as 'BOTH' | 'SET_A' | 'SET_B' | 'DISABLED',
+          setACount: counts.setA,
+          setBCount: counts.setB,
+          noSetCount: counts.noSet,
+          totalFilters: counts.setA + counts.setB + counts.noSet,
+          hasActiveSchedule: scheduledAhus.has(a.id),
+        };
+      }),
+    };
+  }
+
+  /**
+   * Update the pmFilterSetMode on an AHU's customAttributes. Uses a read +
+   * merge + write to preserve other keys inside customAttributes.
+   */
+  async updateAhuFilterSetMode(ctx: RequestContext, ahuId: string, mode: 'BOTH' | 'SET_A' | 'SET_B' | 'DISABLED') {
+    await checkPmEnabled();
+
+    // Verify the AHU exists in the user's org
+    const ahu = await prisma.assetInstance.findFirst({
+      where: { id: ahuId, ...orgScope(ctx) },
+      select: { id: true, name: true, customAttributes: true },
+    });
+    if (!ahu) throw new AppError(404, 'NOT_FOUND', 'AHU not found in your organization');
+
+    const currentAttrs = (ahu.customAttributes as any) ?? {};
+    const newAttrs = { ...currentAttrs, pmFilterSetMode: mode };
+
+    await prisma.assetInstance.update({
+      where: { id: ahuId },
+      data: { customAttributes: newAttrs },
+    });
+
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'AHU_PM_FILTER_SET_MODE_UPDATED',
+      targetType: 'asset_instance', targetId: ahuId,
+      beforeValue: { pmFilterSetMode: currentAttrs.pmFilterSetMode ?? 'BOTH' },
+      afterValue: { pmFilterSetMode: mode, ahuName: ahu.name },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    });
+
+    return { ahuId, ahuName: ahu.name, mode };
   }
 
   /** Generate the CSV template string shown to users. */
