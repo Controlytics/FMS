@@ -4,9 +4,11 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
+import { useReportConfig } from '@/hooks/use-report-config';
 import { useRoleColors } from '@/hooks/use-role-colors';
 import { apiClient } from '@/lib/api-client';
 import { getDefaultTemplates } from '@digilog/shared';
+import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { ACTION_COLORS, getAuditStatus, getAuditSummary } from './audit-helpers';
 import { AuditFilters } from './components/audit-filters';
 import { AuditTable } from './components/audit-table';
@@ -19,9 +21,10 @@ export function AuditTrailPage() {
   const { user } = useAuth();
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
   const paginationOptions = usePaginationConfig();
+  const { config: reportConfig } = useReportConfig();
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(paginationOptions[0]);
+  const [perPage, setPerPage] = useState(reportConfig.recordsPerPage);
 
   // Fetch configurable audit text templates (cached for 5 min)
   const { data: templatesData } = useSWR<Record<string, string>>('/api/config/audit-templates/current', {
@@ -251,26 +254,33 @@ export function AuditTrailPage() {
       )}
 
       {/* Table Card */}
-      <AuditTable
-        data={data}
-        isLoading={isLoading}
-        isSuperAdmin={isSuperAdmin}
-        selectedIds={selectedIds}
-        toggleSelect={toggleSelect}
-        toggleSelectAll={toggleSelectAll}
-        isAllSelected={isAllSelected}
-        sortBy={sortBy}
-        sortOrder={sortOrder}
-        toggleSort={toggleSort}
-        formatDate={formatDate}
-        formatTime={formatTime}
-        getAuditSummary={getAuditSummary}
-        getAuditStatus={getAuditStatus}
-        templates={templates}
-        ACTION_COLORS={ACTION_COLORS}
-        onViewRecord={setSelectedRecord}
-        onDeleteRecord={deleteSingleAudit}
-      />
+      <ReportPageWrapper
+        title="Audit Trail"
+        totalRecords={data?.total ?? 0}
+        page={page}
+        totalPages={data?.totalPages ?? 1}
+      >
+        <AuditTable
+          data={data}
+          isLoading={isLoading}
+          isSuperAdmin={isSuperAdmin}
+          selectedIds={selectedIds}
+          toggleSelect={toggleSelect}
+          toggleSelectAll={toggleSelectAll}
+          isAllSelected={isAllSelected}
+          sortBy={sortBy}
+          sortOrder={sortOrder}
+          toggleSort={toggleSort}
+          formatDate={formatDate}
+          formatTime={formatTime}
+          getAuditSummary={getAuditSummary}
+          getAuditStatus={getAuditStatus}
+          templates={templates}
+          ACTION_COLORS={ACTION_COLORS}
+          onViewRecord={setSelectedRecord}
+          onDeleteRecord={deleteSingleAudit}
+        />
+      </ReportPageWrapper>
 
       {/* Pagination */}
       <AuditPagination

@@ -16,7 +16,7 @@ apps/api/src/
 |   +-- build-context.ts     # Extract RequestContext from Fastify request
 |   +-- reauth-check.ts      # Re-authentication enforcement
 |   +-- config-registry.ts   # Dynamic config module registry
-|   +-- config-discovery.ts  # Auto-discover config definitions (23 modules)
+|   +-- config-discovery.ts  # Auto-discover config definitions (24 modules)
 |   +-- user-id-validator.ts # Username format validation
 +-- plugins/                  # Fastify plugins (run on every request)
 |   +-- auth.ts              # JWT validation, session check, org-active check
@@ -187,5 +187,14 @@ Located in `pm-schedule.service.ts`:
 - Error popups replace inline banners
 - User creation auto-assigns org for admins
 - `/api/roles/active` public endpoint for contact-admin page
+
+## Phase 4 Update (2026-04-14)
+
+**Permissions, Themes & Reports:**
+- Config discovery: 24 definitions (added `report-settings.def.ts`)
+- Public config endpoints: `GET /api/config/report-settings/current`, `GET /api/config/password-policy/current` -- no auth required, used by login and printable pages
+- Permission counts: 95 total permissions, 82 feature privileges, 69 reauth actions across 16 categories
+- `FEATURE_TO_PERMISSION_MAP` in shared package now maps features to both frontend visibility flags and backend route permission strings
+- SUPER_ADMIN bypasses all backend permission checks via `plugins/rbac.ts` (unchanged) and all frontend checks via `isSuperAdmin` guard
 
 See `CHANGELOG.md` for full details.

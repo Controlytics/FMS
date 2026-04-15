@@ -77,8 +77,8 @@ const PERMISSION_META: Record<string, { label: string; category: string }> = {
   [PERMISSIONS.ASSET_RELATIONSHIP_CREATE]: { label: 'Create Relationships', category: 'Entity Relationships' },
   [PERMISSIONS.ASSET_RELATIONSHIP_DELETE]: { label: 'Delete Relationships', category: 'Entity Relationships' },
   // Asset Identifiers
-  [PERMISSIONS.ASSET_IDENTIFIER_CREATE]: { label: 'Create Identifiers', category: 'Entity Identifiers' },
-  [PERMISSIONS.ASSET_IDENTIFIER_DELETE]: { label: 'Delete Identifiers', category: 'Entity Identifiers' },
+  [PERMISSIONS.ASSET_IDENTIFIER_CREATE]: { label: 'Assign RFID Tags / Create Identifiers', category: 'RFID & Identifiers' },
+  [PERMISSIONS.ASSET_IDENTIFIER_DELETE]: { label: 'Unassign RFID Tags / Delete Identifiers', category: 'RFID & Identifiers' },
   // Dashboards
   [PERMISSIONS.DASHBOARD_CREATE]: { label: 'Create Dashboards', category: 'Dashboards' },
   [PERMISSIONS.DASHBOARD_MANAGE]: { label: 'Manage Dashboards', category: 'Dashboards' },
@@ -104,6 +104,27 @@ const PERMISSION_META: Record<string, { label: string; category: string }> = {
   // Filter Operations (Phase 2)
   [PERMISSIONS.FILTER_OPERATE]: { label: 'Operate Filters (Advance/Submit)', category: 'Filter Management' },
   [PERMISSIONS.FILTER_BYPASS]: { label: 'Bypass Filter Stages', category: 'Filter Management' },
+  [PERMISSIONS.FILTER_BULK_UPLOAD]: { label: 'Bulk Upload Filters', category: 'Filters Page Controls' },
+  [PERMISSIONS.FILTER_RETIRE]: { label: 'Retire Filters', category: 'Filters Page Controls' },
+  [PERMISSIONS.FILTER_REPLACE]: { label: 'Replace Filters', category: 'Filters Page Controls' },
+  [PERMISSIONS.FILTER_STATUS_UPDATE]: { label: 'Update Filter Status', category: 'Filters Page Controls' },
+  [PERMISSIONS.FILTER_HIERARCHY_CREATE]: { label: 'Create Block / Area / AHU', category: 'Filters Page Controls' },
+  [PERMISSIONS.FILTER_RFID_MANAGE]: { label: 'Assign / Unassign RFID Tags', category: 'Filters Page Controls' },
+  // Checklist Page Controls
+  [PERMISSIONS.CHECKLIST_CREATE]: { label: 'Create Checklist Profiles', category: 'Checklist Page Controls' },
+  [PERMISSIONS.CHECKLIST_EDIT]: { label: 'Edit Checklist Profiles', category: 'Checklist Page Controls' },
+  [PERMISSIONS.CHECKLIST_DELETE]: { label: 'Delete Checklist Profiles', category: 'Checklist Page Controls' },
+  [PERMISSIONS.CHECKLIST_TOGGLE]: { label: 'Enable / Disable Checklists', category: 'Checklist Page Controls' },
+  // Cleaning Profile Page Controls
+  [PERMISSIONS.CP_PAGE_CREATE]: { label: 'Create Cleaning Profiles', category: 'Cleaning Profile Page Controls' },
+  [PERMISSIONS.CP_PAGE_EDIT]: { label: 'Edit Cleaning Profiles', category: 'Cleaning Profile Page Controls' },
+  [PERMISSIONS.CP_PAGE_DELETE]: { label: 'Delete Cleaning Profiles', category: 'Cleaning Profile Page Controls' },
+  [PERMISSIONS.CP_TOGGLE]: { label: 'Enable / Disable Cleaning Profiles', category: 'Cleaning Profile Page Controls' },
+  // Equipment Group Controls
+  [PERMISSIONS.EG_VIEW]: { label: 'View Equipment Groups', category: 'Equipment Group Controls' },
+  [PERMISSIONS.EG_CREATE]: { label: 'Create Equipment Groups', category: 'Equipment Group Controls' },
+  [PERMISSIONS.EG_EDIT]: { label: 'Edit Equipment Groups', category: 'Equipment Group Controls' },
+  [PERMISSIONS.EG_DELETE]: { label: 'Delete Equipment Groups', category: 'Equipment Group Controls' },
   // Filter Cleaning Profiles (Phase 2)
   [PERMISSIONS.FCP_READ]: { label: 'View Cleaning Profiles', category: 'Filter Management' },
   [PERMISSIONS.FCP_CREATE]: { label: 'Create Cleaning Profiles', category: 'Filter Management' },
@@ -121,8 +142,16 @@ const PERMISSION_META: Record<string, { label: string; category: string }> = {
   [PERMISSIONS.PM_UPDATE]: { label: 'Update PM Schedules', category: 'PM Scheduling' },
   [PERMISSIONS.PM_DELETE]: { label: 'Delete PM Schedules', category: 'PM Scheduling' },
   [PERMISSIONS.PM_EXECUTE]: { label: 'Execute PM Tasks', category: 'PM Scheduling' },
+  [PERMISSIONS.PM_APPROVE]: { label: 'Approve PM Schedules', category: 'PM Scheduling' },
+  [PERMISSIONS.PM_DOWNLOAD_TEMPLATE]: { label: 'Download PM Template', category: 'PM Page Controls' },
+  [PERMISSIONS.PM_UPLOAD]: { label: 'Upload PM Schedules', category: 'PM Page Controls' },
+  [PERMISSIONS.PM_EDIT_ENTRY]: { label: 'Edit PM Entries', category: 'PM Page Controls' },
+  [PERMISSIONS.PM_RESUBMIT]: { label: 'Resubmit Rejected Entries', category: 'PM Page Controls' },
   // Cleaning Cycles (Phase 2)
   [PERMISSIONS.CYCLE_READ]: { label: 'View Cleaning Cycles', category: 'Filter Management' },
+  // Block Change Approval (Phase 3)
+  [PERMISSIONS.BLOCK_CHANGE_REQUEST]: { label: 'Request Block Change', category: 'Filter Management' },
+  [PERMISSIONS.BLOCK_CHANGE_APPROVE]: { label: 'Approve Block Changes', category: 'Filter Management' },
 };
 
 // Derive ALL_PERMISSIONS from the shared PERMISSIONS constant (single source of truth)

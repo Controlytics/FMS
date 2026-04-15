@@ -54,14 +54,23 @@ class ApiClient {
         throw new Error(err.message ?? 'Invalid credentials');
       }
       const error = new Error(err.message ?? err.error ?? `Request failed: ${res.status}`);
+      (error as any).status = res.status;
       (error as any).code = err.error;
-      (error as any).connectionInfo = err.connectionInfo;
+      (error as any).connectionInfo = err.details ?? err.connectionInfo;
       (error as any).activeSession = err.activeSession;
       throw error;
     }
 
     if (res.status === 204) return undefined as T;
-    return res.json();
+    // Guard against empty bodies (e.g. proxy hiccup on cold start) —
+    // res.json() throws "Unexpected end of JSON input" on empty text.
+    const text = await res.text();
+    if (!text) return undefined as T;
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      throw new Error('Failed to parse server response');
+    }
   }
 
   get<T>(url: string) { return this.request<T>(url); }

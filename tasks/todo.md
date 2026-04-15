@@ -69,3 +69,19 @@ Replace inline dialog-based stage flow in `filter-operations.tsx` with a dedicat
 
 ## Review section
 _To be filled after implementation._
+
+---
+
+## Remaining Work (2026-04-14)
+
+### Theme Migration
+- [ ] Apply centralized theme (`lib/themes.ts`, `lib/theme-styles.ts`) to mobile operations page (`routes/mobile/mobile-operations.tsx`)
+- [ ] Apply theme to alarms page (`routes/alarms/`)
+- [ ] Apply theme to rule chains pages (`routes/rule-chains/`)
+- [ ] Apply theme to assets pages (`routes/assets/`)
+- [ ] Apply theme to users pages (`routes/users/`)
+- [ ] Remove hardcoded gradient classes from config card grid in `routes/config/index.tsx`
+
+### Cleanup
+- [ ] Verify all config cards in `config/index.tsx` use theme tokens instead of inline gradient strings
+- [ ] Audit remaining pages for hardcoded color classes (bg-blue-*, bg-indigo-*, etc.)

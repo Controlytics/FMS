@@ -24,7 +24,7 @@ Provide a secure platform for regulated industries (pharmaceutical, manufacturin
 - **Notification System** - Email, SMS (Twilio/AWS SNS/Vonage/HTTP), in-app delivery channels
 - **Audit Trail** - Immutable logs for all mutations with IP tracking and checksums
 - **Dashboard System** - Configurable widgets with real-time data
-- **Configuration System** - 23 auto-discovered configuration modules
+- **Configuration System** - 24 auto-discovered configuration modules
 
 ### Digital Filter Management System (Phase 2)
 - **Cleaning Profiles** - Visual pipeline editor with 8 stage types (WASH_IN/OUT, DRY_IN/OUT, STORAGE_IN/OUT) + checklist gates
@@ -39,6 +39,12 @@ Provide a secure platform for regulated industries (pharmaceutical, manufacturin
 - **Mobile Support** - PWA/APK via Capacitor for tablet use
 - **Unified Light Theme** - Consistent UI across all pages
 - **Windows Local Development** - Batch scripts for local dev environment
+
+### Permissions, Themes & Reports (Phase 4)
+- **Color Themes** - 10 configurable themes applied globally via CSS variables
+- **Report Settings** - Header/footer/layout config with live preview, ReportPageWrapper component
+- **Granular Permissions** - 95 permissions, 82 feature privileges, 69 reauth actions
+- **PM Redesign** - Date range filter, summary cards, AHU inline with expandable filters
 
 ## Target Users
 - **Super Admin** - Platform-wide management, organization creation
@@ -69,8 +75,8 @@ Provide a secure platform for regulated industries (pharmaceutical, manufacturin
 - **34 backend API modules**
 - **57 Prisma models** with 17 enums
 - **77 rule chain node types** across 8 categories
-- **23 auto-discovered config definitions**
-- **52+ role privileges**
+- **24 auto-discovered config definitions**
+- **95 role permissions** with 82 feature privileges
 - **40+ help articles** with version history
 - **10-stage data ingestion pipeline**
 - **4 SMS providers** (Twilio, AWS SNS, Vonage, HTTP Gateway)

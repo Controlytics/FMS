@@ -2,18 +2,22 @@ import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import useSWR from 'swr';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
+import { useReportConfig } from '@/hooks/use-report-config';
+import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import type { CleaningCycle, FilterEvent, PaginatedResponse } from '../../types/filter';
 
 export function FilterTraceabilityPage() {
   const { id } = useParams<{ id: string }>();
   const { formatDateTime, formatDate, formatTime } = useDatetimeFormat();
+  const { config: reportConfig } = useReportConfig();
   const [tab, setTab] = useState<'events' | 'cycles' | 'deviations'>('events');
   const [page, setPage] = useState(1);
+  const perPage = reportConfig.recordsPerPage;
 
   const { data: filterState } = useSWR(id ? `/api/filters/${id}/current-state` : null);
-  const { data: events } = useSWR<PaginatedResponse<FilterEvent>>(tab === 'events' && id ? `/api/filters/events?filterId=${id}&page=${page}&limit=20` : null);
-  const { data: cycles } = useSWR<PaginatedResponse<CleaningCycle>>(tab === 'cycles' && id ? `/api/filters/cycles?filterId=${id}&page=${page}&limit=20` : null);
-  const { data: deviations } = useSWR<PaginatedResponse<FilterEvent>>(tab === 'deviations' && id ? `/api/filters/events?filterId=${id}&eventType=BYPASS_DEVIATION&page=${page}&limit=20` : null);
+  const { data: events } = useSWR<PaginatedResponse<FilterEvent>>(tab === 'events' && id ? `/api/filters/events?filterId=${id}&page=${page}&limit=${perPage}` : null);
+  const { data: cycles } = useSWR<PaginatedResponse<CleaningCycle>>(tab === 'cycles' && id ? `/api/filters/cycles?filterId=${id}&page=${page}&limit=${perPage}` : null);
+  const { data: deviations } = useSWR<PaginatedResponse<FilterEvent>>(tab === 'deviations' && id ? `/api/filters/events?filterId=${id}&eventType=BYPASS_DEVIATION&page=${page}&limit=${perPage}` : null);
 
   const currentData = tab === 'events' ? events : tab === 'cycles' ? cycles : deviations;
 
@@ -42,6 +46,12 @@ export function FilterTraceabilityPage() {
       </div>
 
       {/* Content */}
+      <ReportPageWrapper
+        title="Filter Events"
+        totalRecords={currentData?.total ?? 0}
+        page={page}
+        totalPages={currentData?.totalPages ?? 1}
+      >
       {tab === 'events' && (
         <div className="space-y-2">
           {(events?.data ?? []).map((e) => (
@@ -119,6 +129,7 @@ export function FilterTraceabilityPage() {
           {(deviations?.data ?? []).length === 0 && <div className="text-center py-8 text-slate-400">No deviations recorded</div>}
         </div>
       )}
+      </ReportPageWrapper>
 
       {/* Pagination */}
       {(currentData?.totalPages ?? 0) > 1 && (

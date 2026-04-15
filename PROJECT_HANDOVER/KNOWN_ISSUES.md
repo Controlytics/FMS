@@ -48,6 +48,11 @@
 | Filter stuck in cycle | Admin can view cycle events in traceability to diagnose |
 | PM execution missed | Manually mark as MISSED and create new execution |
 
+### 3. Theme Colors Not Applied to All Pages
+- **Affected pages:** Mobile operations, alarms, rule chains, assets pages still use hardcoded colors instead of the centralized theme system
+- **Impact:** Visual inconsistency -- these pages ignore `lib/themes.ts` and `lib/theme-styles.ts`
+- **Status:** Open -- requires migrating hardcoded Tailwind classes to theme utilities on each page
+
 ## Pending Fixes
 - [x] Fix telemetry batcher column mismatch -- FIXED
 - [x] Add pagination to organization list endpoint -- FIXED
@@ -56,8 +61,7 @@
 - [ ] Implement automated retention jobs (autoEnabled flag currently has no effect)
 - [ ] Add electronic signatures to filter bypass operations
 - [ ] Add PM schedule overdue notifications
-- [ ] Complete Telegram notification channel implementation
-- [ ] Add Slack/Telegram to notification delivery channels (currently only email/SMS)
+- [ ] Apply centralized theme colors to mobile, alarms, rule chains, and assets pages
 
 ---
 

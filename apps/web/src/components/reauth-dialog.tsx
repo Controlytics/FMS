@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,10 +25,25 @@ export function ReauthDialog({
   actionLabel,
 }: ReauthDialogProps) {
   const [showPassword, setShowPassword] = useState(false);
+  const [ready, setReady] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Reset visibility when dialog opens/closes
   useEffect(() => {
-    if (!open) setShowPassword(false);
+    if (open) {
+      // Render as text first, then switch to password after a tick to defeat autofill
+      setReady(false);
+      const t = setTimeout(() => {
+        setReady(true);
+        inputRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(t);
+    } else {
+      setShowPassword(false);
+      setReady(false);
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+    }
   }, [open]);
 
   return (
@@ -69,14 +84,16 @@ export function ReauthDialog({
           <label className="text-sm font-medium text-slate-700">Current Password</label>
           <div className="relative">
             <Input
-              type={showPassword ? 'text' : 'password'}
+              ref={inputRef}
+              type={!ready ? 'text' : showPassword ? 'text' : 'password'}
               secureField
               value={password}
               onChange={(e) => onPasswordChange(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && password && onConfirm()}
               placeholder="Enter your password"
               className="pr-11"
-              autoFocus
+              autoComplete="one-time-code"
+              name={'reauth-' + Date.now()}
             />
             <button
               type="button"
@@ -99,7 +116,7 @@ export function ReauthDialog({
         </div>
       </div>
       <DialogFooter>
-        <Button variant="outline" onClick={onCancel}>
+        <Button type="button" variant="outline" onClick={(e) => { e.preventDefault(); e.stopPropagation(); onCancel(); }}>
           Cancel
         </Button>
         <Button

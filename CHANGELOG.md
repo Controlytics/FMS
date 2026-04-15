@@ -1,5 +1,37 @@
 # Changelog
 
+## [2.3.0] — 2026-04-14 — Permissions, Themes & Reports
+
+### Added
+- Granular role-based permissions: 18 new feature toggles across Filters Page Controls, Checklist Page Controls, Cleaning Profile Page Controls, Equipment Group Controls, PM Page Controls
+- 10 configurable color themes: Ocean, Sapphire, Emerald, Amethyst, Sunset, Slate, Ruby, Forest, Midnight, Coral
+- Report Settings configuration page with header/footer/layout controls and live preview
+- ReportPageWrapper component applied to Audit Trail, Cleaning Cycles, Filter Traceability
+- Dynamic bulk upload CSV template generated from Filter entity template attributeSchema
+- PM Schedules page redesign: date range filter, summary cards, AHU inline with expandable filters, S.No, pagination
+- AHU Type column on filters table
+- Public endpoints: /api/config/password-policy/current, /api/config/report-settings/current
+- Block change test data (PENDING, APPROVED, REJECTED, EXPIRED)
+
+### Fixed
+- SUPER_ADMIN now bypasses all frontend permission checks (was hidden from new features)
+- Backup export 403 for non-superadmin (removed hardcoded role check)
+- Backup restore failing for SQL/CSV formats (password_hash was stripped)
+- Block change requests not visible to approvers (endpoint required wrong permission)
+- "Load Error" toast on every page for non-admins (password-policy 403)
+- api-client.ts missing .status on thrown errors (SWR couldn't suppress 403 toasts)
+- Reauth popup password autofilling from browser saved credentials
+- Reauth popup focus jumping to search bar on cancel/confirm
+- Reauth popup not opening for checklist and cleaning profile actions
+- Filter status update 403 (permission mapping missing backend permission)
+
+### Changed
+- Feature privilege mappings now include both frontend visibility and backend route permissions
+- Reauth actions: 69 total across 16 categories (removed 8 dead, added 6 missing)
+- Org-admin routes changed from requireRole to requirePermission
+- PM Schedules: removed Month column, added AHU/S.No/Approved By columns
+- Filters Page Controls permissions are separate from Entity Management permissions
+
 ## [2.2.0] — 2026-04-07
 
 ### Added — RFID & Offline Sync

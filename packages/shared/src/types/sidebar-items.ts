@@ -36,4 +36,6 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'my-tasks', label: 'My Tasks', icon: '\u{1F3AF}', description: 'Filters due for cleaning based on PM schedules' },
   { id: 'organizations', label: 'Organizations', icon: '\u{1F3E2}', description: 'Organization management' },
   { id: 'approvals', label: 'Approvals', icon: '\u2705', description: 'Block change approval requests' },
+  { id: 'report-templates', label: 'Report Templates', icon: '\u{1F4C4}', description: 'Report template management' },
+  { id: 'reports', label: 'Reports', icon: '\u{1F4CA}', description: 'Generated reports and PDF export' },
 ];

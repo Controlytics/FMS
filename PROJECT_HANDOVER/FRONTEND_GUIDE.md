@@ -85,6 +85,26 @@ apps/web/src/
         +-- reset-requests.tsx
 ```
 
+## Color Themes
+
+10 configurable color themes are available, selected via Configuration page:
+- **Theme definitions:** `lib/themes.ts` -- theme name, primary/secondary/accent colors
+- **CSS variable mapping:** `lib/theme-styles.ts` -- applies theme colors as CSS custom properties
+- **Themes:** Ocean, Sapphire, Emerald, Amethyst, Sunset, Slate, Ruby, Forest, Midnight, Coral
+- **Report config hook:** `hooks/use-report-config.ts` -- fetches report-settings/current for printable pages
+- **Report wrapper:** `components/report-page-wrapper.tsx` -- adds header/footer to Audit, Cycles, Traceability
+- **Report settings page:** `routes/config/report-settings.tsx` -- header/footer/layout config with live preview
+
+## Permission Pattern
+
+Frontend permission guards use the SUPER_ADMIN bypass pattern:
+```typescript
+const visible = isSuperAdmin || perms.includes('FEATURE_NAME');
+```
+- `isSuperAdmin` is derived from `user.role === 'SUPER_ADMIN'` in auth context
+- Feature privileges defined in `packages/shared/src/types/feature-privileges.ts` (82 entries)
+- `FEATURE_TO_PERMISSION_MAP` in `packages/shared/src/types/permissions.ts` maps features to both frontend visibility and backend route permissions
+
 ## Theme
 All pages use a unified **light theme** -- no dark theme anywhere:
 - **Cards:** bg-white with border-slate-200

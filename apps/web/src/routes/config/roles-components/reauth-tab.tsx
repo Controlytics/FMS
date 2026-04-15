@@ -55,12 +55,6 @@ const REAUTH_CATEGORY_META: Record<ReauthActionCategory, { gradient: string; bgL
     icon: 'M13 10V3L4 14h7v7l9-11h-7z',
     description: 'Rule chain automation management',
   },
-  'Connectivity': {
-    gradient: 'from-sky-500 to-cyan-600',
-    bgLight: 'bg-sky-50 border-sky-200 text-sky-700',
-    icon: 'M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0',
-    description: 'Device credential management',
-  },
   'UNS': {
     gradient: 'from-slate-500 to-gray-600',
     bgLight: 'bg-slate-50 border-slate-200 text-slate-700',
@@ -78,12 +72,6 @@ const REAUTH_CATEGORY_META: Record<ReauthActionCategory, { gradient: string; bgL
     bgLight: 'bg-orange-50 border-orange-200 text-orange-700',
     icon: 'M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16',
     description: 'Data retention policies and execution',
-  },
-  'System Config': {
-    gradient: 'from-fuchsia-500 to-pink-600',
-    bgLight: 'bg-fuchsia-50 border-fuchsia-200 text-fuchsia-700',
-    icon: 'M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01',
-    description: 'Server and system-level configuration',
   },
   'Filter Management': {
     gradient: 'from-sky-500 to-blue-600',
@@ -114,6 +102,12 @@ const REAUTH_CATEGORY_META: Record<ReauthActionCategory, { gradient: string; bgL
     bgLight: 'bg-amber-50 border-amber-200 text-amber-700',
     icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z',
     description: 'Equipment group and instrument configuration',
+  },
+  'Reports': {
+    gradient: 'from-sky-500 to-blue-600',
+    bgLight: 'bg-sky-50 border-sky-200 text-sky-700',
+    icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+    description: 'Report template and generation management',
   },
 };
 

@@ -183,3 +183,30 @@ action-reauth, alarm-columns, audit-templates, backup, branding, datetime, field
 - `/api/roles/active` public endpoint for contact-admin page
 
 See `CHANGELOG.md` for full details.
+
+---
+
+## Phase 4 Update (2026-04-14)
+
+**Permissions Expansion:**
+- 95 permission constants (up from 52) in `packages/shared/src/types/permissions.ts`
+- Granular per-module permissions covering all CRUD operations and special actions
+- SUPER_ADMIN bypass logic in RBAC plugin
+
+**New Config Definitions:**
+- `report-settings.def.ts` — report layout settings (logo, company name, header/footer)
+- Report settings and password policy expose public `/current` endpoints (no auth required)
+
+**Public Endpoints:**
+- `GET /api/config/report-settings/current` — returns report settings without authentication
+- `GET /api/config/password-policy/current` — returns password policy without authentication
+
+**Block Change Requests Fix:**
+- `GET /api/block-change-requests` now accepts either `BLOCK_CHANGE_REQUEST` or `BLOCK_CHANGE_APPROVE` permission
+
+**Backup Restore Fix:**
+- Fixed restore endpoint to handle schema migrations correctly
+
+**Re-authentication:**
+- 69 re-authentication actions defined in action-reauth config
+- Covers checklist profiles, cleaning profiles, and other sensitive operations

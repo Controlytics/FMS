@@ -15,6 +15,7 @@ import { LogoUploadSection } from './branding-components/logo-upload-section';
 import { ColorSettingsSection } from './branding-components/color-settings-section';
 import { BrandingPreview } from './branding-components/branding-preview';
 import { LoginBgSection } from './branding-components/login-bg-section';
+import { THEMES, getThemeById } from '@/lib/themes';
 
 export function BrandingConfigPage() {
   const navigate = useNavigate();
@@ -201,6 +202,64 @@ export function BrandingConfigPage() {
                     <Input {...register('version')} placeholder="1.0" className="rounded-xl h-11" />
                     {errors.version && <p className="text-xs text-red-500">{errors.version.message}</p>}
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Theme Selector */}
+            <Card className="border-0 shadow-xl overflow-hidden">
+              <div className="h-1 bg-gradient-to-r from-cyan-500 via-blue-500 to-violet-500" />
+              <CardContent className="p-6">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-800">Color Theme</h3>
+                    <p className="text-xs text-slate-500">Select a preset theme for the entire application</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  {THEMES.map(theme => {
+                    const isSelected = (watchedValues as any).colorTheme === theme.id || (!((watchedValues as any).colorTheme) && theme.id === 'ocean');
+                    return (
+                      <button key={theme.id} type="button"
+                        onClick={() => {
+                          setValue('colorTheme' as any, theme.id, { shouldDirty: true });
+                          // Fill color pickers with theme values
+                          setValue('primaryColor', theme.colors.primary, { shouldDirty: true });
+                          setValue('secondaryColor', theme.colors.accent, { shouldDirty: true });
+                          setValue('accentColor', theme.colors.gradientTo, { shouldDirty: true });
+                          setValue('gradientStart', theme.colors.gradientFrom, { shouldDirty: true });
+                          setValue('gradientMiddle', theme.colors.accent, { shouldDirty: true });
+                          setValue('gradientEnd', theme.colors.gradientTo, { shouldDirty: true });
+                          setValue('loginBgStart', theme.colors.loginBgStart, { shouldDirty: true });
+                          setValue('loginBgEnd', theme.colors.loginBgEnd, { shouldDirty: true });
+                        }}
+                        className={`relative rounded-xl p-3 text-center transition-all ${isSelected
+                          ? 'ring-2 ring-offset-2 shadow-lg scale-[1.02]'
+                          : 'border border-slate-200 hover:border-slate-300 hover:shadow-md'}`}
+                        style={isSelected ? { borderColor: theme.colors.primary, '--tw-ring-color': theme.colors.primary } as React.CSSProperties : {}}>
+                        {/* Color swatches */}
+                        <div className="flex justify-center gap-1 mb-2">
+                          <div className="w-6 h-6 rounded-full shadow-inner" style={{ backgroundColor: theme.colors.primary }} />
+                          <div className="w-6 h-6 rounded-full shadow-inner" style={{ backgroundColor: theme.colors.accent }} />
+                          <div className="w-6 h-6 rounded-full shadow-inner" style={{ backgroundColor: theme.colors.gradientTo }} />
+                        </div>
+                        {/* Gradient bar */}
+                        <div className="h-1.5 rounded-full mb-2" style={{ background: `linear-gradient(to right, ${theme.colors.gradientFrom}, ${theme.colors.gradientTo})` }} />
+                        <p className="text-xs font-semibold text-slate-700">{theme.name}</p>
+                        <p className="text-[10px] text-slate-400 leading-tight mt-0.5">{theme.description.split('—')[1]?.trim() || theme.description}</p>
+                        {isSelected && (
+                          <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: theme.colors.primary }}>
+                            <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>

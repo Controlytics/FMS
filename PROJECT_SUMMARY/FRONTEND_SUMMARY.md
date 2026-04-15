@@ -182,3 +182,29 @@ All heavy pages lazy-loaded with `React.lazy()` + `Suspense`.
 - `/api/roles/active` public endpoint for contact-admin page
 
 See `CHANGELOG.md` for full details.
+
+---
+
+## Phase 4 Update (2026-04-14)
+
+**Theme System:**
+- `themes.ts` — 10 preset color themes (cyan, teal, blue, indigo, etc.) with CSS variable mappings
+- CSS variables drive all theme colors (primary, accent, sidebar, header)
+- `use-branding` hook reads branding config and applies selected theme globally
+
+**Report Infrastructure:**
+- `report-page-wrapper.tsx` — shared wrapper for all report/print pages with consistent header, footer, and layout
+- `use-report-config` hook — reads report settings (logo, title, footer text) from `/api/config/report-settings/current`
+
+**Granular Permission Checks:**
+- 95 permission constants used for route guards and UI element visibility
+- SUPER_ADMIN role bypasses all permission checks automatically
+- 82 toggleable permission checkboxes in role editing UI
+
+**Re-authentication:**
+- Re-auth required on checklist profile edits and cleaning profile modifications
+- 69 total re-authentication actions configured via action-reauth config
+
+**Report Settings Config Page:**
+- New config page for report settings (logo, company name, header/footer text)
+- Accessible via Configuration sidebar menu

@@ -147,6 +147,14 @@ PmSchedule 1--* PmScheduleEntry
 PmScheduleEntry 1--* PmExecution
 ```
 
+### SystemConfig Entries for Branding & Reports
+| configKey | configType | Purpose |
+|-----------|------------|---------|
+| `branding` | `SYSTEM` | Company name, logo, primary/secondary colors; includes `colorTheme` sub-key for centralized UI theme tokens |
+| `report-settings` | `SYSTEM` | Report page layout: header text, footer text, logo toggle, page orientation, font size |
+
+These entries live in the `system_config` table as JSONB values and are read by the frontend via `/api/config/branding` and `/api/config/report-settings`.
+
 ## Data Isolation
 - Queries filter by `organizationId` from JWT
 - SUPER_ADMIN can query across all organizations

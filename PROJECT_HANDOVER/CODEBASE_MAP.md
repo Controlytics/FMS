@@ -76,6 +76,11 @@
 | `apps/web/src/routes/filter-management/` | Phase 2 filter management pages |
 | `apps/web/src/routes/cleaning-cycles/` | Cycle history and timeline views |
 | `apps/web/src/routes/pm-schedules/` | PM schedule management |
+| `apps/web/src/lib/themes.ts` | Centralized color theme definitions and tokens |
+| `apps/web/src/lib/theme-styles.ts` | Theme-aware Tailwind class helpers |
+| `apps/web/src/hooks/use-report-config.ts` | Hook to read report-settings config for page wrappers |
+| `apps/web/src/components/report-page-wrapper.tsx` | Wrapper component applying report branding (logo, header, footer) |
+| `apps/web/src/routes/config/report-settings.tsx` | Report settings configuration page |
 | `apps/web/src/routes/checklists/` | Checklist profile management |
 
 ## Frontend Route Areas
@@ -112,6 +117,7 @@ backup.def.ts           notification-rules.def.ts  session.def.ts
 branding.def.ts         notification-sms.def.ts    sidebar-config.def.ts
 datetime.def.ts         pagination.def.ts          uns.def.ts
 field-ids.def.ts        password-policy.def.ts     user-id.def.ts
+report-settings.def.ts
                         [+ additional Phase 2 defs]
 ```
 

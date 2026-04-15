@@ -101,3 +101,27 @@ admin-requests, alarms, assets (dialogs/tabs/hooks), audit, auth, checklist, che
 - `/api/roles/active` public endpoint for contact-admin page
 
 See `CHANGELOG.md` for full details.
+
+---
+
+## Phase 4 Update (2026-04-14)
+
+**Configurable Color Themes:**
+- 10 presets in `lib/themes.ts`, applied via CSS custom properties
+- Theme selector on Branding page, `use-branding` hook applies on load
+- Replaced hardcoded cyan/teal with CSS vars on: filter-list, PM schedules, dashboard, approvals, checklists, cleaning profiles
+
+**Granular Permissions:**
+- SUPER_ADMIN bypasses all frontend permission checks
+- 7 pages have `isSuperAdmin || perms.includes()` pattern
+- Feature toggles: Filters Page Controls, Checklist/Cleaning Profile/Equipment Group/PM Page Controls
+
+**Report Settings:**
+- `hooks/use-report-config.ts` — fetches report layout settings
+- `components/report-page-wrapper.tsx` — wraps report tables with header/footer
+- Applied to: Audit Trail, Cleaning Cycle History, Filter Traceability
+- Config page: `routes/config/report-settings.tsx`
+
+**Reauth Fixes:**
+- Added `useReauth` + `ReauthDialog` to checklists (list + detail) and cleaning profiles (list + editor)
+- Reauth dialog: password autofill prevention, focus management on close

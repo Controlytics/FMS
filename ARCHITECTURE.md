@@ -35,7 +35,7 @@
 | auth | `/api/auth/*` | Login, logout, profile, password, sessions |
 | users | `/api/users/*` | User CRUD, stats, enable/disable, unlock |
 | roles | `/api/roles/*` | Role CRUD with hierarchy and permissions |
-| config | `/api/config/*` | 23 config definitions with auto-discovery |
+| config | `/api/config/*` | 24 config definitions with auto-discovery |
 | audit | `/api/audit/*` | Immutable audit trail with hash-chain |
 | notifications | `/api/notifications/*` | In-app notifications and badges |
 | notification-delivery | `/api/notification-settings/*` | Email/SMS/Telegram/Slack delivery config |
@@ -219,6 +219,61 @@ START -> STAGE(WASH_IN) -> STAGE(WASH_OUT) -> CHECKLIST(Post-Wash) -> STAGE(DRY_
 │  Browser ──> nginx ──> /api/* ──> Fastify ──> Prisma/TSDB    │
 └──────────────────────────────────────────────────────────────┘
 ```
+
+## Permission System Architecture
+
+The permission system is built from five interconnected layers:
+
+```
+PERMISSIONS (permissions.ts)
+  └─ 95 granular permission strings (e.g. "filter:operations:advance")
+      │
+FEATURE_PRIVILEGES (feature-privileges.ts)
+  └─ 82 feature toggles grouped by module (e.g. "Show PM Schedules Tab")
+      │
+FEATURE_TO_PERMISSION_MAP (feature-privileges.ts)
+  └─ Maps each feature toggle to its required permission(s)
+      │
+SIDEBAR_PRIVILEGE_MAP (sidebar-privilege-map.ts)
+  └─ Controls which sidebar items appear based on feature toggles
+      │
+REAUTH_ACTIONS (reauth-actions constant in config)
+  └─ 69 sensitive actions requiring re-authentication before execution
+```
+
+Roles store both `permissions[]` and `featurePrivileges[]`. The frontend checks feature privileges to show/hide UI elements, and the backend checks permissions for API authorization. Re-authentication is enforced by the `reauth` plugin on tagged routes.
+
+## Theme System
+
+```
+themes.ts (10 preset color palettes)
+  └─ CSS variables (--primary, --accent, --sidebar-bg, etc.)
+      └─ use-branding hook (reads org config, applies CSS vars)
+          └─ All pages consume via Tailwind classes / CSS var references
+```
+
+Theme selection is stored in the `branding` config definition. The `use-branding` hook loads the active theme on mount and injects CSS custom properties into `:root`.
+
+## Report Configuration
+
+```
+use-report-config hook (fetches report-settings config)
+  └─ ReportPageWrapper component (applies header/footer/layout)
+      └─ 3 report pages: Cleaning Cycle, PM Schedule, Filter Traceability
+```
+
+Report settings (logo, header text, footer text, page size, orientation) are stored as a config definition and applied at render time by the wrapper component.
+
+## Config Auto-Discovery
+
+```
+apps/api/src/modules/config/defs/*.def.ts (24 definition files)
+  └─ config-discovery.ts (scans defs/ folder, builds registry)
+      └─ GET /api/config/manifest (returns all discovered definitions)
+          └─ Frontend config page renders cards from manifest
+```
+
+Each `.def.ts` file exports a config definition object (key, label, schema, defaults). The discovery module auto-imports all files in the `defs/` directory at startup, eliminating manual registration.
 
 ---
 

@@ -71,6 +71,16 @@
 | Android Build (Capacitor) | Done | JDK21 + Android SDK, HTTP config for tablet |
 | Mobile PWA Views | Done | Mobile-optimized filter operations |
 
+### Phase 4: Permissions, Themes & Reports
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Color Themes | Done | 10 configurable themes (Ocean, Sapphire, Emerald, Amethyst, Sunset, Slate, Ruby, Forest, Midnight, Coral) |
+| Report Settings | Done | Header/footer/layout config with live preview, ReportPageWrapper on Audit/Cycles/Traceability |
+| Granular Permissions | Done | 95 permissions, 82 feature privileges, FEATURE_TO_PERMISSION_MAP includes backend perms |
+| PM Redesign | Done | Date range filter, summary cards, AHU inline with expandable filters, S.No, pagination |
+| Reauth Overhaul | Done | 69 actions across 16 categories, removed 8 dead, added 6 missing |
+
 ## Partially Completed
 
 | Feature | Status | Missing |

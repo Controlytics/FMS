@@ -44,7 +44,8 @@ export function Dialog({ open, onClose, children, className, priority }: DialogP
     <div className={cn('fixed inset-0 flex items-center justify-center p-4', zWrapper)}>
       <div
         className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade-in"
-        onClick={onClose}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
+        onMouseDown={(e) => e.preventDefault()}
       />
       <div
         className={cn(

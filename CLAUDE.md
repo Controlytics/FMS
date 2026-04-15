@@ -49,7 +49,7 @@ npx nx build shared && npx nx build db && npx nx build queue
 - TimescaleDB is `digilog_tsdb`, NOT `digilog_db`
 - Input sanitization strips HTML from all text fields (lib/sanitize.ts)
 - 77 rule chain node types across 8 categories
-- 23 config definitions with auto-discovery
+- 24 config definitions with auto-discovery
 - 28 help articles with version history
 
 ## Phase 2: Digital Filter Management System
@@ -70,6 +70,8 @@ POST /api/filters/:id/bypass         — Bypass stage (deviation)
 GET  /api/filters/:id/current-state  — Get filter state + next actions
 GET  /api/filter/cycles              — List cleaning cycles
 GET  /api/filter/events              — List filter events
+GET  /api/config/report-settings/current — Report layout settings
+GET  /api/config/password-policy/current — Password policy (public)
 ```
 
 ### Pipeline Flow
@@ -175,3 +177,36 @@ Core Principles
 - `/api/roles/active` public endpoint for contact-admin page
 
 See `CHANGELOG.md` for full details.
+
+---
+
+## Phase 4 Update (2026-04-14)
+
+**Granular Permissions System:**
+- 18 new feature toggles: Filters Page Controls (6), Checklist Page Controls (4), Cleaning Profile Page Controls (4), Equipment Group Controls (4)
+- PM Page Controls (4): Download Template, Upload, Edit Entry, Resubmit
+- All toggles include frontend visibility + backend route permissions in FEATURE_TO_PERMISSION_MAP
+- SUPER_ADMIN bypasses all frontend permission checks (isSuperAdmin || perms.includes)
+- 95 total permission constants, 82 feature privileges, 69 reauth actions
+
+**Configurable Color Themes:**
+- 10 preset themes: Ocean, Sapphire, Emerald, Amethyst, Sunset, Slate, Ruby, Forest, Midnight, Coral
+- CSS variables: --theme-primary, --theme-gradient-from/to, --theme-focus-ring
+- Theme selector on Branding config page, auto-fills color pickers
+- themes.ts defines colors, applyTheme() sets CSS vars on :root, use-branding hook applies on load
+
+**Report Settings:**
+- Configurable report header (logo, company, title, date, user), footer (pages, records, custom text), records per page, compact mode
+- ReportPageWrapper component wraps Audit Trail, Cleaning Cycles, Filter Traceability
+- Config page at /config/report-settings with live preview
+
+**Dynamic Bulk Upload:**
+- CSV template columns generated from Filter entity template attributeSchema
+- Backend validates dynamic fields (dropdown, required, numeric)
+
+**Key Bug Fixes:**
+- Backup export/restore for non-superadmin
+- Password-policy public endpoint for non-admin page loads
+- api-client.ts .status on errors for SWR 403 suppression
+- Block change requests visible to approvers
+- Reauth popup autofill/focus fixes

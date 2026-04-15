@@ -15,7 +15,7 @@ export default async function orgAdminRoutes(app: FastifyInstance) {
 
   // ─── LIST ORG MEMBERS ──────────────────────────────────
   app.get('/users', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
+    preHandler: [app.requirePermission('ORG_VIEW')],
     schema: {
       tags: ['Org Admin'],
       summary: 'List users in organization',
@@ -65,7 +65,7 @@ export default async function orgAdminRoutes(app: FastifyInstance) {
 
   // ─── LIST ORG ENTITIES ─────────────────────────────────
   app.get('/entities', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
+    preHandler: [app.requirePermission('ORG_VIEW')],
     schema: {
       tags: ['Org Admin'],
       summary: 'List entities in organization',
@@ -111,7 +111,7 @@ export default async function orgAdminRoutes(app: FastifyInstance) {
 
   // ─── GET MY ORG INFO ───────────────────────────────────
   app.get('/info', {
-    preHandler: [app.requireRole('SUPER_ADMIN', 'ADMIN', 'ORG_ADMIN')],
+    preHandler: [app.requirePermission('ORG_VIEW')],
     schema: {
       tags: ['Org Admin'],
       summary: 'Get current organization info',

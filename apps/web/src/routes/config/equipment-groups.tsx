@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
+import { useAuth } from '@/hooks/use-auth';
 
 interface Instrument {
   id?: string;
@@ -48,6 +49,12 @@ const STAGE_CONFIG: Record<string, { bg: string; text: string; border: string; i
 
 export function EquipmentGroupsConfigPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const perms = user?.permissions ?? [];
+  const canCreate = isSuperAdmin || perms.includes('EG_CREATE');
+  const canEdit = isSuperAdmin || perms.includes('EG_EDIT');
+  const canDelete = isSuperAdmin || perms.includes('EG_DELETE');
   const { data: instancesData } = useSWR('/api/assets/instances?limit=200');
   const { data: templatesData } = useSWR('/api/assets/templates?limit=100');
   const [selectedBlockId, setSelectedBlockId] = useState<string>('');
@@ -147,11 +154,13 @@ export function EquipmentGroupsConfigPage() {
             <p className="text-sm text-slate-500">Configure instrument groups per cleaning block</p>
           </div>
         </div>
-        <button onClick={handleCreate} disabled={!selectedBlockId}
-          className="px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl hover:from-cyan-500 hover:to-teal-500 disabled:opacity-40 transition-all text-sm font-semibold shadow-lg shadow-cyan-500/25 flex items-center gap-2">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-          Add Equipment Group
-        </button>
+        {canCreate && (
+          <button onClick={handleCreate} disabled={!selectedBlockId}
+            className="px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl hover:from-cyan-500 hover:to-teal-500 disabled:opacity-40 transition-all text-sm font-semibold shadow-lg shadow-cyan-500/25 flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            Add Equipment Group
+          </button>
+        )}
       </div>
 
       {/* Stats + Block Selector */}
@@ -218,14 +227,18 @@ export function EquipmentGroupsConfigPage() {
                 </div>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => handleEdit(g)}
-                  className="px-4 py-2 text-sm font-medium text-cyan-600 bg-cyan-50 hover:bg-cyan-100 rounded-xl transition-colors">
-                  Edit
-                </button>
-                <button onClick={() => handleDelete(g)}
-                  className="px-4 py-2 text-sm font-medium text-red-500 bg-red-50 hover:bg-red-100 rounded-xl transition-colors">
-                  Delete
-                </button>
+                {canEdit && (
+                  <button onClick={() => handleEdit(g)}
+                    className="px-4 py-2 text-sm font-medium text-cyan-600 bg-cyan-50 hover:bg-cyan-100 rounded-xl transition-colors">
+                    Edit
+                  </button>
+                )}
+                {canDelete && (
+                  <button onClick={() => handleDelete(g)}
+                    className="px-4 py-2 text-sm font-medium text-red-500 bg-red-50 hover:bg-red-100 rounded-xl transition-colors">
+                    Delete
+                  </button>
+                )}
               </div>
             </div>
             <div className="px-6 pb-5">

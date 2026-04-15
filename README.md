@@ -15,7 +15,9 @@ DigiLog is an IoT data logging platform designed for regulated industries requir
 - **Notifications** — Multi-channel alerts (in-app, email via SMTP/OAuth2, SMS via AWS SNS/Twilio, Telegram, Slack)
 - **Data Retention** — Configurable per-table retention with TimescaleDB compression
 - **Backup & Restore** — Full database export (JSON/SQL/CSV) with SHA-256 integrity verification
-- **Role-Based Access Control** — 6 hierarchical roles with 52+ granular permissions
+- **Role-Based Access Control** — 6 hierarchical roles with 95 granular permissions, 82 feature toggles, and 69 re-authentication actions
+- **Configurable Color Themes** — 10 preset color themes applied via CSS variables and use-branding hook
+- **Report Settings** — Configurable report header/footer/layout per organization
 - **Help Articles** — Versioned in-app documentation with 40+ articles across 8 categories
 - **LDAP Integration** — Active Directory / OpenLDAP authentication with group-to-role mapping
 
@@ -25,11 +27,11 @@ DigiLog is an IoT data logging platform designed for regulated industries requir
 - **Checklist Integration** — Configurable checklists (YES_NO, PASS_FAIL, NUMERIC, DROPDOWN, MULTI_SELECT, TEXT) triggered between pipeline stages
 - **Filter Profiles** — Assign cleaning profiles to filters with block restrictions and max cycle limits
 - **Cleaning Cycles** — Full audit trail with stage timestamps, remarks, performer names, checklist answers
-- **PM Scheduling** — Preventive maintenance schedules per AHU with tolerance windows
+- **PM Scheduling** — Preventive maintenance schedules per AHU with tolerance windows and QA approval workflow
 - **AHU Dashboard** — Filter set management (Set A/B swap), lifecycle state visualization
 - **Filter Traceability** — Complete event history, cycle timeline, deviation tracking per filter
 - **Equipment Groups** — Instrument tracking for filters and AHUs
-- **Bulk Upload** — CSV-based bulk filter import
+- **Bulk Upload** — Dynamic CSV-based bulk filter import with template-driven columns
 - **Retirement & Replacement** — Filter lifecycle end management
 
 ### Phase 3 — RFID & Offline Operations
@@ -126,7 +128,7 @@ stop-digilog.bat     # Stop all services
 ## Database
 
 ### PostgreSQL (digilog_db — Prisma ORM)
-57 Prisma models covering users, roles, sessions, entities, templates, relationships, identifiers, rule chains, alarms, audit trail, notifications, config, help articles, electronic signatures, filter cleaning profiles, filter profiles, cleaning cycles, filter events, PM schedules, checklist profiles, equipment groups, and more.
+57 Prisma models covering users, roles, sessions, entities, templates, relationships, identifiers, rule chains, alarms, audit trail, notifications, config, help articles, electronic signatures, filter cleaning profiles, filter profiles, cleaning cycles, filter events, PM schedules, checklist profiles, equipment groups, and more. 95 granular permissions, 82 feature toggles, 69 re-authentication actions.
 
 ### TimescaleDB (digilog_tsdb)
 7 hypertables: ts_telemetry, ts_attributes, ts_checklist_responses, ts_device_events, ts_binary_data, ts_pipeline_traces, ts_alarm_history.

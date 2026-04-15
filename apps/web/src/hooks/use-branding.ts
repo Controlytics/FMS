@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import useSWR from 'swr';
 import { type BrandingConfig } from '@digilog/shared';
+import { getThemeById, applyTheme, DEFAULT_THEME_ID } from '@/lib/themes';
 
 // Default branding values
 export const defaultBranding: BrandingConfig = {
@@ -17,6 +19,7 @@ export const defaultBranding: BrandingConfig = {
   gradientEnd: '#ec4899',
   loginBgStart: '#0f172a',
   loginBgEnd: '#1e3a5f',
+  colorTheme: 'ocean',
 };
 
 export function useBranding() {
@@ -39,6 +42,13 @@ export function useBranding() {
   } else {
     branding = defaultBranding;
   }
+
+  // Apply theme CSS variables whenever branding loads or changes
+  const themeId = (branding as any).colorTheme || DEFAULT_THEME_ID;
+  useEffect(() => {
+    const theme = getThemeById(themeId);
+    applyTheme(theme.colors);
+  }, [themeId]);
 
   return {
     branding,

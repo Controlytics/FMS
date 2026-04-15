@@ -30,8 +30,6 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'notifications.delete', label: 'Delete Notifications', category: 'System', icon: 'bell' },
   { id: 'audit.view', label: 'View Audit Trail', category: 'System', icon: 'clipboard' },
   { id: 'audit.export', label: 'Export Audit Trail', category: 'System', icon: 'clipboard' },
-  { id: 'backup.manage', label: 'Manage Backups', category: 'System', icon: 'archive' },
-
 
   // Organization Management
   { id: 'org.view', label: 'View Organizations', category: 'System', icon: 'building' },
@@ -54,8 +52,8 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'assets.relationships.delete', label: 'Delete Relationships', category: 'Entity Relationships', icon: 'link' },
 
   // Entity Identifiers
-  { id: 'assets.identifiers.create', label: 'Create Identifiers', category: 'Entity Identifiers', icon: 'qrcode' },
-  { id: 'assets.identifiers.delete', label: 'Delete Identifiers', category: 'Entity Identifiers', icon: 'qrcode' },
+  { id: 'assets.identifiers.create', label: 'Assign RFID Tags / Create Identifiers', category: 'RFID & Identifiers', icon: 'wifi' },
+  { id: 'assets.identifiers.delete', label: 'Unassign RFID Tags / Delete Identifiers', category: 'RFID & Identifiers', icon: 'wifi' },
 
   // Dashboards
   { id: 'dashboard.view', label: 'View Dashboards', category: 'Dashboards', icon: 'layout' },
@@ -76,11 +74,21 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
 
   // Checklists
   { id: 'checklists.submit', label: 'Submit Checklists', category: 'Checklists', icon: 'clipboard-check' },
+  { id: 'checklists.create', label: 'Create Checklist Profiles', category: 'Checklist Page Controls', icon: 'plus' },
+  { id: 'checklists.edit', label: 'Edit Checklist Profiles', category: 'Checklist Page Controls', icon: 'edit' },
+  { id: 'checklists.delete', label: 'Delete Checklist Profiles', category: 'Checklist Page Controls', icon: 'trash' },
+  { id: 'checklists.toggle', label: 'Enable / Disable Checklists', category: 'Checklist Page Controls', icon: 'toggle' },
 
   // Filter Management
   { id: 'filters.operate', label: 'Operate Filters (Start/Advance Cycles)', category: 'Filter Management', icon: 'filter' },
   { id: 'filters.bypass', label: 'Bypass Filter Stages (Deviation)', category: 'Filter Management', icon: 'alert-circle' },
   { id: 'filters.events', label: 'View Filter Events', category: 'Filter Management', icon: 'list' },
+  { id: 'filters.bulk_upload', label: 'Bulk Upload Filters', category: 'Filters Page Controls', icon: 'upload' },
+  { id: 'filters.retire', label: 'Retire Filters', category: 'Filters Page Controls', icon: 'archive' },
+  { id: 'filters.replace', label: 'Replace Filters', category: 'Filters Page Controls', icon: 'refresh' },
+  { id: 'filters.status_update', label: 'Update Filter Status', category: 'Filters Page Controls', icon: 'edit' },
+  { id: 'filters.hierarchy_create', label: 'Create Block / Area / AHU', category: 'Filters Page Controls', icon: 'plus' },
+  { id: 'filters.rfid_manage', label: 'Assign / Unassign RFID Tags', category: 'Filters Page Controls', icon: 'wifi' },
 
   // Block Change
   { id: 'block_change.request', label: 'Request Block Change', category: 'Filter Management', icon: 'refresh' },
@@ -88,16 +96,11 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
 
   // Cleaning Profiles
   { id: 'cleaning_profiles.view', label: 'View Cleaning Profiles', category: 'Cleaning Profiles', icon: 'eye' },
-  { id: 'cleaning_profiles.create', label: 'Create Cleaning Profiles', category: 'Cleaning Profiles', icon: 'plus' },
-  { id: 'cleaning_profiles.edit', label: 'Edit Cleaning Profiles', category: 'Cleaning Profiles', icon: 'edit' },
-  { id: 'cleaning_profiles.delete', label: 'Delete Cleaning Profiles', category: 'Cleaning Profiles', icon: 'trash' },
+  { id: 'cleaning_profiles.create', label: 'Create Cleaning Profiles', category: 'Cleaning Profile Page Controls', icon: 'plus' },
+  { id: 'cleaning_profiles.edit', label: 'Edit Cleaning Profiles', category: 'Cleaning Profile Page Controls', icon: 'edit' },
+  { id: 'cleaning_profiles.delete', label: 'Delete Cleaning Profiles', category: 'Cleaning Profile Page Controls', icon: 'trash' },
+  { id: 'cleaning_profiles.toggle', label: 'Enable / Disable Cleaning Profiles', category: 'Cleaning Profile Page Controls', icon: 'toggle' },
 
-  // Filter Profiles
-  { id: 'filter_profiles.view', label: 'View Filter Profiles', category: 'Filter Profiles', icon: 'eye' },
-  { id: 'filter_profiles.create', label: 'Create Filter Profiles', category: 'Filter Profiles', icon: 'plus' },
-  { id: 'filter_profiles.edit', label: 'Edit Filter Profiles', category: 'Filter Profiles', icon: 'edit' },
-  { id: 'filter_profiles.delete', label: 'Delete Filter Profiles', category: 'Filter Profiles', icon: 'trash' },
-  { id: 'filter_profiles.assign', label: 'Assign Filter Profiles', category: 'Filter Profiles', icon: 'link' },
 
   // Cleaning Cycles
   { id: 'cycles.view', label: 'View Cleaning Cycles', category: 'Cleaning Cycles', icon: 'refresh' },
@@ -108,6 +111,17 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'pm.edit', label: 'Edit PM Schedules', category: 'PM Schedules', icon: 'edit' },
   { id: 'pm.delete', label: 'Delete PM Schedules', category: 'PM Schedules', icon: 'trash' },
   { id: 'pm.execute', label: 'Execute PM Tasks', category: 'PM Schedules', icon: 'play' },
+  { id: 'pm.approve', label: 'Approve PM Schedules', category: 'PM Schedules', icon: 'check-circle' },
+  { id: 'pm.download_template', label: 'Download PM Template', category: 'PM Page Controls', icon: 'download' },
+  { id: 'pm.upload', label: 'Upload PM Schedules', category: 'PM Page Controls', icon: 'upload' },
+  { id: 'pm.edit_entry', label: 'Edit PM Entries', category: 'PM Page Controls', icon: 'edit' },
+  { id: 'pm.resubmit', label: 'Resubmit Rejected Entries', category: 'PM Page Controls', icon: 'refresh' },
+
+  // Equipment Groups
+  { id: 'equipment_groups.view', label: 'View Equipment Groups', category: 'Equipment Group Controls', icon: 'eye' },
+  { id: 'equipment_groups.create', label: 'Create Equipment Groups', category: 'Equipment Group Controls', icon: 'plus' },
+  { id: 'equipment_groups.edit', label: 'Edit Equipment Groups', category: 'Equipment Group Controls', icon: 'edit' },
+  { id: 'equipment_groups.delete', label: 'Delete Equipment Groups', category: 'Equipment Group Controls', icon: 'trash' },
 
   // UNS
   { id: 'uns.view', label: 'View UNS', category: 'UNS', icon: 'network' },
@@ -119,6 +133,19 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   // Debug Traces
   { id: 'debug.view', label: 'View Debug Traces', category: 'Debug Traces', icon: 'terminal' },
   { id: 'debug.manage', label: 'Manage Debug Traces', category: 'Debug Traces', icon: 'terminal' },
+
+  // Report Templates
+  { id: 'report_templates.view', label: 'View Report Templates', category: 'Reports', icon: 'file-text' },
+  { id: 'report_templates.create', label: 'Create Report Templates', category: 'Reports', icon: 'plus' },
+  { id: 'report_templates.edit', label: 'Edit Report Templates', category: 'Reports', icon: 'edit' },
+  { id: 'report_templates.delete', label: 'Delete Report Templates', category: 'Reports', icon: 'trash' },
+
+  // Report Instances
+  { id: 'reports.generate', label: 'Generate Reports', category: 'Reports', icon: 'play' },
+  { id: 'reports.view', label: 'View Generated Reports', category: 'Reports', icon: 'eye' },
+  { id: 'reports.sign', label: 'Sign Reports', category: 'Reports', icon: 'pen-tool' },
+  { id: 'reports.delete', label: 'Delete Reports', category: 'Reports', icon: 'trash' },
+  { id: 'reports.export', label: 'Export Report PDFs', category: 'Reports', icon: 'download' },
 ];
 
 /**
@@ -155,8 +182,6 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'notifications.delete': ['NOTIFICATION_DELETE'],
   'audit.view': ['AUDIT_READ'],
   'audit.export': ['AUDIT_EXPORT', 'AUDIT_READ'],
-  'backup.manage': ['BACKUP_MANAGE'],
-
 
   // Organization Management
   'org.view': ['ORG_VIEW'],
@@ -201,11 +226,23 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
 
   // Checklists
   'checklists.submit': ['CHECKLIST_SUBMIT'],
+  'checklists.create': ['CHECKLIST_CREATE', 'FCP_CREATE'],
+  'checklists.edit': ['CHECKLIST_EDIT', 'FCP_UPDATE'],
+  'checklists.delete': ['CHECKLIST_DELETE', 'FCP_DELETE'],
+  'checklists.toggle': ['CHECKLIST_TOGGLE', 'FCP_UPDATE'],
 
   // Filter Management
   'filters.operate': ['FILTER_OPERATE', 'ASSET_READ'],
   'filters.bypass': ['FILTER_BYPASS', 'ASSET_READ'],
   'filters.events': ['EVENT_READ', 'ASSET_READ'],
+
+  // Filters Page Controls
+  'filters.bulk_upload': ['FILTER_BULK_UPLOAD', 'ASSET_CREATE', 'ASSET_READ'],
+  'filters.retire': ['FILTER_RETIRE', 'FILTER_OPERATE', 'ASSET_READ'],
+  'filters.replace': ['FILTER_REPLACE', 'FILTER_OPERATE', 'ASSET_READ'],
+  'filters.status_update': ['FILTER_STATUS_UPDATE', 'ASSET_UPDATE', 'ASSET_READ'],
+  'filters.hierarchy_create': ['FILTER_HIERARCHY_CREATE', 'ASSET_CREATE', 'ASSET_READ'],
+  'filters.rfid_manage': ['FILTER_RFID_MANAGE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_READ'],
 
   // Block Change
   'block_change.request': ['BLOCK_CHANGE_REQUEST'],
@@ -213,16 +250,16 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
 
   // Cleaning Profiles
   'cleaning_profiles.view': ['FCP_READ'],
-  'cleaning_profiles.create': ['FCP_CREATE', 'FCP_READ'],
-  'cleaning_profiles.edit': ['FCP_UPDATE', 'FCP_READ'],
-  'cleaning_profiles.delete': ['FCP_DELETE', 'FCP_READ'],
+  'cleaning_profiles.create': ['CP_PAGE_CREATE', 'FCP_CREATE', 'FCP_READ'],
+  'cleaning_profiles.edit': ['CP_PAGE_EDIT', 'FCP_UPDATE', 'FCP_READ'],
+  'cleaning_profiles.delete': ['CP_PAGE_DELETE', 'FCP_DELETE', 'FCP_READ'],
+  'cleaning_profiles.toggle': ['CP_TOGGLE', 'FCP_UPDATE', 'FCP_READ'],
 
-  // Filter Profiles
-  'filter_profiles.view': ['FP_READ'],
-  'filter_profiles.create': ['FP_CREATE', 'FP_READ'],
-  'filter_profiles.edit': ['FP_UPDATE', 'FP_READ'],
-  'filter_profiles.delete': ['FP_DELETE', 'FP_READ'],
-  'filter_profiles.assign': ['FP_ASSIGN', 'FP_READ'],
+  // Equipment Groups
+  'equipment_groups.view': ['EG_VIEW', 'ASSET_READ'],
+  'equipment_groups.create': ['EG_CREATE', 'ASSET_CREATE', 'ASSET_READ'],
+  'equipment_groups.edit': ['EG_EDIT', 'ASSET_UPDATE', 'ASSET_READ'],
+  'equipment_groups.delete': ['EG_DELETE', 'ASSET_DELETE', 'ASSET_READ'],
 
   // Cleaning Cycles
   'cycles.view': ['CYCLE_READ'],
@@ -233,6 +270,11 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'pm.edit': ['PM_UPDATE', 'PM_READ'],
   'pm.delete': ['PM_DELETE', 'PM_READ'],
   'pm.execute': ['PM_EXECUTE', 'PM_READ'],
+  'pm.approve': ['PM_APPROVE', 'PM_READ'],
+  'pm.download_template': ['PM_DOWNLOAD_TEMPLATE', 'PM_READ'],
+  'pm.upload': ['PM_UPLOAD', 'PM_CREATE', 'PM_READ'],
+  'pm.edit_entry': ['PM_EDIT_ENTRY', 'PM_UPDATE', 'PM_READ'],
+  'pm.resubmit': ['PM_RESUBMIT', 'PM_CREATE', 'PM_READ'],
 
   // UNS
   'uns.view': ['UNS_VIEW'],
@@ -244,4 +286,17 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   // Debug Traces
   'debug.view': ['READ_DEBUG_TRACE'],
   'debug.manage': ['MANAGE_DEBUG_TRACE'],
+
+  // Report Templates
+  'report_templates.view': ['REPORT_TEMPLATE_READ'],
+  'report_templates.create': ['REPORT_TEMPLATE_CREATE', 'REPORT_TEMPLATE_READ'],
+  'report_templates.edit': ['REPORT_TEMPLATE_UPDATE', 'REPORT_TEMPLATE_READ'],
+  'report_templates.delete': ['REPORT_TEMPLATE_DELETE', 'REPORT_TEMPLATE_READ'],
+
+  // Report Instances
+  'reports.generate': ['REPORT_GENERATE', 'REPORT_VIEW'],
+  'reports.view': ['REPORT_VIEW'],
+  'reports.sign': ['REPORT_SIGN', 'REPORT_VIEW'],
+  'reports.delete': ['REPORT_DELETE', 'REPORT_VIEW'],
+  'reports.export': ['REPORT_EXPORT', 'REPORT_VIEW'],
 };

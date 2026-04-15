@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
 import { CLEANING_STAGES_EDITOR } from '../../lib/filter-constants';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 
 /* ── Constants ─────────────────────────────────────────────── */
 const NODE_W = 160, NODE_H = 64, PORT_R = 6;
@@ -42,6 +44,7 @@ function nodeLabel(n: PipelineNode) {
 export function CleaningProfileEditorPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const reauth = useReauth();
   const isNew = id === 'new';
   const { data: profile } = useSWR(!isNew && id ? `/api/filter-cleaning-profiles/${id}` : null);
   const { data: checklistsData } = useSWR('/api/checklist-profiles?limit=500&isActive=true');
@@ -197,24 +200,32 @@ export function CleaningProfileEditorPage() {
     if (disconnected.length > 0) { setToast({ type: 'error', message: `${disconnected.length} disconnected node(s) found. Connect all nodes.` }); return; }
 
     setSaving(true);
-    try {
-      const body = {
-        name, flowMode,
-        alarmOnForwardSkip: alarmFlags.forwardSkip, alarmOnBackwardJump: alarmFlags.backwardJump, alarmOnOutOfSequence: alarmFlags.outOfSequence,
-        stages: nodes.map((n, i) => ({ ...n, sortOrder: i })),
-        connections: connections.map(c => ({ fromIndex: c.fromIndex, toIndex: c.toIndex, label: c.label })),
-      };
-      if (isNew) {
-        const result = await apiClient.post('/api/filter-cleaning-profiles', body);
-        navigate(`/filter-cleaning-profiles/${(result as any).id}/edit`, { replace: true });
-      } else {
-        const result = await apiClient.put(`/api/filter-cleaning-profiles/${id}`, body);
-        const newId = (result as any).id;
-        if (newId && newId !== id) navigate(`/filter-cleaning-profiles/${newId}/edit`, { replace: true });
-        else mutate(`/api/filter-cleaning-profiles/${id}`);
-      }
-      setToast({ type: 'success', message: 'Cleaning profile saved successfully' });
-    } catch (e: any) { setToast({ type: 'error', message: e.message || 'Failed to save profile' }); }
+    const action = isNew ? 'CREATE_CLEANING_PROFILE' : 'UPDATE_CLEANING_PROFILE';
+    reauth.execute(action, async (password?: string) => {
+      try {
+        const body = {
+          name, flowMode,
+          alarmOnForwardSkip: alarmFlags.forwardSkip, alarmOnBackwardJump: alarmFlags.backwardJump, alarmOnOutOfSequence: alarmFlags.outOfSequence,
+          stages: nodes.map((n, i) => ({ ...n, sortOrder: i })),
+          connections: connections.map(c => ({ fromIndex: c.fromIndex, toIndex: c.toIndex, label: c.label })),
+        };
+        if (isNew) {
+          const result = password
+            ? await apiClient.postWithReauth('/api/filter-cleaning-profiles', body, password)
+            : await apiClient.post('/api/filter-cleaning-profiles', body);
+          navigate(`/filter-cleaning-profiles/${(result as any).id}/edit`, { replace: true });
+        } else {
+          const result = password
+            ? await apiClient.putWithReauth(`/api/filter-cleaning-profiles/${id}`, body, password)
+            : await apiClient.put(`/api/filter-cleaning-profiles/${id}`, body);
+          const newId = (result as any).id;
+          if (newId && newId !== id) navigate(`/filter-cleaning-profiles/${newId}/edit`, { replace: true });
+          else mutate(`/api/filter-cleaning-profiles/${id}`);
+        }
+        setToast({ type: 'success', message: 'Cleaning profile saved successfully' });
+      } catch (e: any) { setToast({ type: 'error', message: e.message || 'Failed to save profile' }); throw e; }
+      finally { setSaving(false); }
+    });
     setSaving(false);
   };
 
@@ -567,6 +578,8 @@ export function CleaningProfileEditorPage() {
           );
         })()}
       </div>
+      <ReauthDialog open={reauth.isOpen} password={reauth.password} error={reauth.error} isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword} onConfirm={reauth.confirm} onCancel={reauth.cancel} />
     </div>
   );
 }

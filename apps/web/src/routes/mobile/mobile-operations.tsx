@@ -41,6 +41,16 @@ export function MobileOperationsPage() {
 
   if (!authLoading && !user) return <Navigate to="/m/login" replace />;
 
+  // Tablet access control — which features are allowed for this role
+  const { data: tabletAccess } = useSWR(user ? '/api/config/tablet-access/my-features' : null);
+  const allowedFeatures: string[] = (tabletAccess as any)?.allowed ?? [];
+  const hasFeature = (f: string) => allowedFeatures.length === 0 || allowedFeatures.includes(f); // empty = all allowed (backwards compat)
+
+  // If login is disabled for this role, redirect to login
+  if (tabletAccess && allowedFeatures.length > 0 && !hasFeature('login')) {
+    return <Navigate to="/m/login" replace />;
+  }
+
   const logout = async () => {
     await authLogout();
     mobileNav('/m/login', { replace: true });
@@ -98,6 +108,7 @@ export function MobileOperationsPage() {
   // Expand state for My Tasks cards + processing state for Approve/Reject
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
   const [processingApproval, setProcessingApproval] = useState<string | null>(null);
+  const [approvalComment, setApprovalComment] = useState('');
   const [offlineFilters, setOfflineFilters] = useState<any[]>([]);
   const [offlineTemplates, setOfflineTemplates] = useState<any[]>([]);
   const [offlineReasons, setOfflineReasons] = useState<any[]>([]);
@@ -473,8 +484,9 @@ export function MobileOperationsPage() {
     setProcessingApproval(requestId);
     setError('');
     try {
-      await apiClient.post(`/api/block-change-requests/${requestId}/${action}`, {});
+      await apiClient.post(`/api/block-change-requests/${requestId}/${action}`, { comment: approvalComment.trim() || undefined });
       setSuccess(`Request ${action === 'approve' ? 'approved' : 'rejected'}`);
+      setApprovalComment('');
       await mutateApprovals();
     } catch (e: any) {
       setError(e.message ?? `Failed to ${action} request`);
@@ -549,7 +561,7 @@ export function MobileOperationsPage() {
         {view === 'home' && !reasonDialog && !equipDialog && !checklistDialog && (
           <div className="p-4 space-y-4">
             {/* Status Card */}
-            <button onClick={() => setView('status')} className="w-full bg-white rounded-2xl border border-slate-200 p-5 shadow-sm active:shadow-none active:bg-slate-50 transition-all">
+            {hasFeature('filter_status') && <button onClick={() => setView('status')} className="w-full bg-white rounded-2xl border border-slate-200 p-5 shadow-sm active:shadow-none active:bg-slate-50 transition-all">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
@@ -570,10 +582,12 @@ export function MobileOperationsPage() {
                   </div>
                 ))}
               </div>
-            </button>
+            </button>}
 
             {/* Quick access: My Tasks + Approvals */}
+            {(hasFeature('my_tasks') || hasFeature('approvals')) && (
             <div className="grid grid-cols-2 gap-3">
+              {hasFeature('my_tasks') && (
               <button onClick={() => setView('my-tasks')} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm active:shadow-none active:scale-[0.98] transition-all text-left">
                 <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 flex items-center justify-center mb-3 shadow-lg shadow-cyan-500/20">
                   <span className="text-2xl">🎯</span>
@@ -581,6 +595,8 @@ export function MobileOperationsPage() {
                 <div className="text-sm font-bold text-slate-800">My Tasks</div>
                 <div className="text-xs text-slate-400 mt-0.5">Filters due for cleaning</div>
               </button>
+              )}
+              {hasFeature('approvals') && (
               <button onClick={() => setView('approvals')} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm active:shadow-none active:scale-[0.98] transition-all text-left">
                 <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center mb-3 shadow-lg shadow-amber-500/20">
                   <span className="text-2xl">✅</span>
@@ -588,9 +604,12 @@ export function MobileOperationsPage() {
                 <div className="text-sm font-bold text-slate-800">Approvals</div>
                 <div className="text-xs text-slate-400 mt-0.5">{isApprover ? 'Review requests' : 'Track your requests'}</div>
               </button>
+              )}
             </div>
+            )}
 
             {/* Stage Cards Grid */}
+            {hasFeature('filter_cleaning') && (
             <div className="grid grid-cols-2 gap-3">
               {STAGES.map(stage => (
                 <button key={stage.key} onClick={() => openStage(stage)}
@@ -603,12 +622,15 @@ export function MobileOperationsPage() {
                 </button>
               ))}
             </div>
+            )}
 
             {/* Logout */}
+            {hasFeature('logout') && (
             <button onClick={logout} className="w-full py-3 bg-white border border-red-200 rounded-2xl text-sm font-medium text-red-600 active:bg-red-50 flex items-center justify-center gap-2">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
               Logout
             </button>
+            )}
 
             {/* Recent */}
             {recentOps.length > 0 && (
@@ -937,21 +959,29 @@ export function MobileOperationsPage() {
 
                     {/* Only show Approve/Reject for rows that are still pending */}
                     {isApprover && req.status === 'PENDING' && (
-                      <div className="flex gap-2">
+                      <div className="space-y-2">
+                        <input
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 placeholder:text-slate-400 focus:border-cyan-400 outline-none"
+                          placeholder="Comment (required) *"
+                          value={processingApproval === req.id ? approvalComment : ''}
+                          onChange={e => { setProcessingApproval(req.id); setApprovalComment(e.target.value); }}
+                        />
+                        <div className="flex gap-2">
                         <button
                           onClick={() => handleApprovalAction(req.id, 'reject')}
-                          disabled={processing}
+                          disabled={processing || !(processingApproval === req.id && approvalComment.trim())}
                           className="flex-1 py-2.5 bg-white border border-rose-200 text-rose-700 rounded-xl text-sm font-semibold active:bg-rose-50 disabled:opacity-50"
                         >
                           {processing ? '…' : 'Reject'}
                         </button>
                         <button
                           onClick={() => handleApprovalAction(req.id, 'approve')}
-                          disabled={processing}
+                          disabled={processing || !(processingApproval === req.id && approvalComment.trim())}
                           className="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl text-sm font-semibold shadow-lg shadow-emerald-500/25 active:shadow-none disabled:opacity-50"
                         >
                           {processing ? '…' : 'Approve'}
                         </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1134,16 +1164,16 @@ export function MobileOperationsPage() {
                   <div className="text-slate-500 mt-1">Requested Block: <span className="font-semibold text-amber-700">{blockChangeDialog.requestedBlockName}</span></div>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Reason</label>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Reason <span className="text-red-500">*</span></label>
                   <textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none" rows={2}
                     value={blockChangeReason} onChange={e => setBlockChangeReason(e.target.value)}
-                    placeholder="Why does this filter need to be cleaned in a different block?" />
+                    placeholder="Why does this filter need to be cleaned in a different block? (required)" />
                 </div>
               </div>
               <div className="flex gap-3">
                 <button onClick={() => { setBlockChangeDialog(null); setScanValue(''); }}
                   className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium">Cancel</button>
-                <button onClick={handleBlockChangeRequest} disabled={blockChangeSubmitting}
+                <button onClick={handleBlockChangeRequest} disabled={blockChangeSubmitting || !blockChangeReason.trim()}
                   className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg shadow-cyan-500/25">
                   {blockChangeSubmitting ? 'Submitting...' : 'Request Change'}
                 </button>

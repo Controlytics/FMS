@@ -24,6 +24,8 @@ export const brandingConfigSchema = z.object({
   // Background colors
   loginBgStart: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default('#0f172a'),
   loginBgEnd: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default('#1e3a5f'),
+  // Color theme preset
+  colorTheme: z.string().default('ocean'),
 });
 
 export const passwordPolicySchema = z.object({

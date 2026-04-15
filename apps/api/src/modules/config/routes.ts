@@ -96,6 +96,33 @@ export default async function configRoutes(app: FastifyInstance) {
   configEndpoint('datetime', datetimeConfigSchema, false);
   configEndpoint('pagination', paginationConfigSchema, false);
 
+  // Public password-policy for all authenticated users (session timeout, expiry checks)
+  app.get('/password-policy/current', {
+    schema: {
+      tags: ['Config'],
+      summary: 'Get current password policy settings',
+      description: 'Retrieve the current password policy (session timeout, expiry). Available to all authenticated users.',
+      response: {
+        200: { type: 'object', additionalProperties: true, description: 'Password policy configuration object' },
+      },
+    },
+  }, async () => {
+    return configService.getConfig('password-policy', passwordPolicySchema);
+  });
+
+  // Public report settings for all authenticated users
+  app.get('/report-settings/current', {
+    schema: {
+      tags: ['Config'],
+      summary: 'Get current report settings',
+      description: 'Retrieve report layout settings (header, footer, records per page). Available to all authenticated users.',
+      response: { 200: { type: 'object', additionalProperties: true } },
+    },
+  }, async () => {
+    const row = await prisma.systemConfig.findUnique({ where: { configKey: 'report-settings' } });
+    return row?.configValue ?? {};
+  });
+
   // Public pagination config for all authenticated users (no admin role required)
   app.get('/pagination/current', {
     schema: {
@@ -855,5 +882,49 @@ export default async function configRoutes(app: FastifyInstance) {
     });
 
     return { success: true };
+  });
+
+  // ─── Tablet App Access Control ───────────────────────────
+  app.get('/tablet-access', {
+    preHandler: [app.requirePermission('CONFIG_READ')],
+    schema: { tags: ['Config'], summary: 'Get tablet app access configuration' },
+  }, async () => {
+    const row = await prisma.systemConfig.findUnique({ where: { configKey: 'tablet-access' } });
+    return (row?.configValue as any) ?? {};
+  });
+
+  app.put('/tablet-access', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Config'],
+      summary: 'Update tablet app access configuration',
+      body: { type: 'object', additionalProperties: true },
+    },
+  }, async (req) => {
+    const body = req.body as any;
+    const ctx = buildContext(req);
+    await prisma.systemConfig.upsert({
+      where: { configKey: 'tablet-access' },
+      update: { configValue: body },
+      create: { configKey: 'tablet-access', configValue: body, configType: 'security' },
+    });
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'CONFIG_CHANGED',
+      targetType: 'system_config', targetId: 'tablet-access',
+      afterValue: body,
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+    return { success: true };
+  });
+
+  // Public endpoint for mobile app to check tablet access (authenticated but no specific permission)
+  app.get('/tablet-access/my-features', {
+    schema: { tags: ['Config'], summary: 'Get allowed tablet features for the current user' },
+  }, async (req) => {
+    const role = req.user?.role;
+    if (!role) return { allowed: [] };
+    const row = await prisma.systemConfig.findUnique({ where: { configKey: 'tablet-access' } });
+    const config = (row?.configValue as any) ?? {};
+    return { role, allowed: config[role] ?? [] };
   });
 }

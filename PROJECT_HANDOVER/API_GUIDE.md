@@ -123,6 +123,8 @@ GET    /api/ldap/status                  # Quick enabled/disabled check
 ```
 GET    /api/config/branding              # Public - organization branding
 GET    /api/config/password-policy       # Password policy settings
+GET    /api/config/password-policy/current # Public - password policy for login/change-password pages
+GET    /api/config/report-settings/current # Public - report settings for printable pages
 GET    /api/config/{key}                 # Get any config by key
 PUT    /api/config/{key}                 # Update config
 ```

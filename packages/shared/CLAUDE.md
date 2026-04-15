@@ -57,7 +57,7 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 - Prisma schema extended with Phase 2 models (57 total models, 17 enums) in `apps/api/prisma/schema.prisma`
 - Known issue: Phase 2 types (filter operations, cleaning profiles, etc.) should be extracted to shared package for frontend type safety
 - 78 field IDs across all modules (including filter management fields)
-- 52+ privileges covering all Phase 1 and Phase 2 operations
+- 95 permission constants, 82 feature privileges, 69 reauth actions
 
 ---
 
@@ -74,5 +74,19 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 - Error popups replace inline banners
 - User creation auto-assigns org for admins
 - `/api/roles/active` public endpoint for contact-admin page
+
+See `CHANGELOG.md` for full details.
+
+---
+
+## Phase 4 Update (2026-04-14)
+
+**Permissions & Privileges:**
+- 95 permission constants in `types/permissions.ts`
+- 82 feature privileges in `types/feature-privileges.ts` with FEATURE_TO_PERMISSION_MAP
+- Each mapping includes both frontend visibility permission + backend route permission
+- 69 reauth actions in `types/reauth-actions.ts` across 16 categories
+- `colorTheme` field added to `brandingConfigSchema` in `schemas/config.ts`
+- Sidebar privilege map updated with new toggle IDs for Filters/Checklist/Cleaning Profile/Equipment Group/PM page controls
 
 See `CHANGELOG.md` for full details.

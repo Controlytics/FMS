@@ -1,25 +1,30 @@
 import { useState } from 'react';
 import useSWR, { mutate } from 'swr';
+import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api-client';
 
-const TYPE_LABELS: Record<string, { label: string; color: string }> = {
-  CREATE_USER: { label: 'Create User', color: 'bg-blue-50 text-blue-700 border-blue-200' },
-  MODIFY_USER: { label: 'Modify User', color: 'bg-amber-50 text-amber-700 border-amber-200' },
-  UNLOCK: { label: 'Unlock Account', color: 'bg-red-50 text-red-700 border-red-200' },
-  FORGOT_PASSWORD: { label: 'Forgot Password', color: 'bg-purple-50 text-purple-700 border-purple-200' },
+const TYPE_CFG: Record<string, { label: string; bg: string; text: string; border: string; icon: string }> = {
+  CREATE_USER: { label: 'Create User', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', icon: '+' },
+  MODIFY_USER: { label: 'Modify User', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: '~' },
+  UNLOCK: { label: 'Unlock Account', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', icon: '!' },
+  FORGOT_PASSWORD: { label: 'Forgot Password', bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200', icon: '?' },
 };
 
-const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  PENDING: { label: 'Pending', color: 'bg-amber-50 text-amber-700 border-amber-200' },
-  APPROVED: { label: 'Approved', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  REJECTED: { label: 'Rejected', color: 'bg-red-50 text-red-700 border-red-200' },
+const STATUS_CFG: Record<string, { label: string; bg: string; text: string; border: string; dot: string }> = {
+  PENDING: { label: 'Pending', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', dot: 'bg-amber-400 animate-pulse' },
+  APPROVED: { label: 'Approved', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', dot: 'bg-emerald-400' },
+  REJECTED: { label: 'Rejected', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', dot: 'bg-red-400' },
 };
 
 export function AdminRequestsPage() {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const perms = user?.permissions ?? [];
+  const canApprove = isSuperAdmin || perms.includes('USER_CREATE');
   const { formatDateTime } = useDatetimeFormat();
   const { toast } = useToast();
   const reauth = useReauth();
@@ -36,7 +41,6 @@ export function AdminRequestsPage() {
   const handleProcess = (action: 'approve' | 'reject') => {
     if (!selectedRequest) return;
     setProcessing(true);
-
     reauth.execute(
       'CREATE_USER',
       async (password?: string) => {
@@ -51,7 +55,7 @@ export function AdminRequestsPage() {
         onSuccess: () => {
           toast.success(
             action === 'approve' ? 'Request Approved' : 'Request Rejected',
-            `${TYPE_LABELS[selectedRequest.requestType]?.label} request has been ${action === 'approve' ? 'approved' : 'rejected'}.`,
+            `${TYPE_CFG[selectedRequest.requestType]?.label} request has been ${action === 'approve' ? 'approved' : 'rejected'}.`,
           );
           setSelectedRequest(null);
           setAdminRemarks('');
@@ -65,243 +69,285 @@ export function AdminRequestsPage() {
     );
   };
 
+  const timeAgo = (date: string) => {
+    const ms = Date.now() - new Date(date).getTime();
+    const mins = Math.floor(ms / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    return `${days}d ago`;
+  };
+
   const renderRequestDetails = (req: any) => {
     const rd = req.requestData ?? {};
+    const fields: [string, string][] = [];
     switch (req.requestType) {
       case 'CREATE_USER':
-        return (
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><span className="text-slate-400">Full Name:</span> <span className="font-medium text-slate-700">{rd.fullName}</span></div>
-            <div><span className="text-slate-400">Email:</span> <span className="font-medium text-slate-700">{rd.email}</span></div>
-            <div><span className="text-slate-400">Department:</span> <span className="font-medium text-slate-700">{rd.department || '-'}</span></div>
-            <div><span className="text-slate-400">Requested Role:</span> <span className="font-medium text-slate-700">{rd.requestedRole}</span></div>
-          </div>
-        );
+        fields.push(['Full Name', rd.fullName], ['Email', rd.email], ['Department', rd.department || '-'], ['Requested Role', rd.requestedRole]);
+        break;
       case 'MODIFY_USER':
-        return (
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><span className="text-slate-400">Username:</span> <span className="font-medium text-slate-700">{rd.username}</span></div>
-            <div><span className="text-slate-400">Modify:</span> <span className="font-medium text-slate-700">{rd.modifyField}</span></div>
-            <div className="col-span-2"><span className="text-slate-400">New Value:</span> <span className="font-medium text-slate-700">{rd.newValue}</span></div>
-          </div>
-        );
+        fields.push(['Username', rd.username], ['Modify Field', rd.modifyField], ['New Value', rd.newValue]);
+        break;
       case 'UNLOCK':
-        return (
-          <div className="text-sm">
-            <span className="text-slate-400">Username:</span> <span className="font-medium text-slate-700">{rd.username}</span>
-          </div>
-        );
       case 'FORGOT_PASSWORD':
-        return (
-          <div className="text-sm">
-            <span className="text-slate-400">Username:</span> <span className="font-medium text-slate-700">{rd.username}</span>
-          </div>
-        );
+        fields.push(['Username', rd.username]);
+        break;
       default:
-        return <pre className="text-xs text-slate-500">{JSON.stringify(rd, null, 2)}</pre>;
+        return <pre className="text-xs text-slate-500 bg-slate-50 rounded-lg p-3">{JSON.stringify(rd, null, 2)}</pre>;
     }
+    return (
+      <div className="grid grid-cols-2 gap-3">
+        {fields.map(([label, value]) => (
+          <div key={label} className="space-y-0.5">
+            <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">{label}</div>
+            <div className="text-[13px] font-medium text-slate-800">{value}</div>
+          </div>
+        ))}
+      </div>
+    );
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="p-3 rounded-2xl bg-gradient-to-br from-indigo-600 to-purple-700 shadow-lg shadow-indigo-600/20">
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800">Admin Requests</h1>
-            <p className="text-sm text-slate-500">
-              {pendingCount > 0 ? `${pendingCount} pending request(s)` : 'No pending requests'}
-            </p>
+      <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-white shrink-0">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-cyan-600 to-teal-700 shadow-lg shadow-cyan-600/10">
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-slate-800 tracking-tight">Admin Requests</h1>
+              <p className="text-[13px] text-slate-400 mt-0.5">
+                {pendingCount > 0 ? (
+                  <><span className="text-amber-600 font-semibold">{pendingCount} pending</span> request{pendingCount !== 1 ? 's' : ''} awaiting review</>
+                ) : 'All requests have been processed'}
+              </p>
+            </div>
           </div>
         </div>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-          className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500">
-          <option value="">All Requests</option>
-          <option value="PENDING">Pending</option>
-          <option value="APPROVED">Approved</option>
-          <option value="REJECTED">Rejected</option>
-        </select>
+
+        {/* Status pills */}
+        <div className="flex gap-2">
+          {[
+            { key: '', label: 'All', count: requests.length },
+            ...Object.entries(STATUS_CFG).map(([key, cfg]) => ({
+              key,
+              label: cfg.label,
+              count: requests.filter((r: any) => r.status === key).length,
+              dot: cfg.dot,
+            })),
+          ].map(s => (
+            <button key={s.key} onClick={() => setStatusFilter(s.key)}
+              className={`px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-all flex items-center gap-1.5 ${
+                statusFilter === s.key ? 'bg-cyan-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+              }`}>
+              {'dot' in s && s.dot && <span className={`w-1.5 h-1.5 rounded-full ${statusFilter === s.key ? 'bg-white' : s.dot}`} />}
+              {s.label}
+              {s.count > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${statusFilter === s.key ? 'bg-white/20' : 'bg-slate-200'}`}>{s.count}</span>}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Table */}
-      {isLoading ? (
-        <div className="bg-white border border-slate-200 rounded-2xl p-16 text-center">
-          <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-slate-400">Loading requests...</p>
-        </div>
-      ) : requests.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-2xl p-16 text-center">
-          <svg className="w-10 h-10 text-slate-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-          </svg>
-          <p className="text-slate-500 font-medium">No requests found</p>
-        </div>
-      ) : (
-        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-slate-50/50 border-b border-slate-200">
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Requester</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Submitted</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {requests.map((req: any) => {
-                  const typeInfo = TYPE_LABELS[req.requestType] ?? { label: req.requestType, color: 'bg-slate-100 text-slate-500 border-slate-300' };
-                  const statusInfo = STATUS_LABELS[req.status] ?? { label: req.status, color: 'bg-slate-100 text-slate-500 border-slate-300' };
-                  return (
-                    <tr key={req.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-3">
-                        <div>
-                          <p className="text-sm font-medium text-slate-700">{req.requesterName}</p>
-                          {req.requesterEmployeeId && <p className="text-xs text-slate-400">{req.requesterEmployeeId}</p>}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${typeInfo.color}`}>{typeInfo.label}</span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${statusInfo.color}`}>{statusInfo.label}</span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-500">{formatDateTime(req.requestedAt)}</td>
-                      <td className="px-4 py-3">
-                        <button
-                          onClick={() => { setSelectedRequest(req); setAdminRemarks(''); setProcessing(false); }}
-                          className="text-sm text-indigo-600 hover:text-indigo-700 font-medium hover:underline"
-                        >
-                          View Details
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+      {/* Content */}
+      <div className="flex-1 overflow-auto">
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+            <span className="text-[13px] text-slate-400">Loading requests...</span>
           </div>
-        </div>
-      )}
+        ) : requests.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <svg className="w-14 h-14 text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+            <span className="text-slate-400 font-medium text-[14px]">No requests found</span>
+            <span className="text-[13px] text-slate-300">Requests will appear when users submit them</span>
+          </div>
+        ) : (
+          <table className="w-full">
+            <thead className="sticky top-0 z-10">
+              <tr className="bg-slate-50 border-b border-slate-200">
+                {['Requester', 'Type', 'Status', 'Submitted', 'Time', ''].map((h, i) => (
+                  <th key={i} className="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {requests.map((req: any) => {
+                const tc = TYPE_CFG[req.requestType] ?? { label: req.requestType, bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', icon: '?' };
+                const sc = STATUS_CFG[req.status] ?? { label: req.status, bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', dot: 'bg-slate-400' };
+                const isPending = req.status === 'PENDING';
 
-      {/* Detail / Process Panel */}
+                return (
+                  <tr key={req.id} className={`hover:bg-cyan-50/30 transition-colors group cursor-pointer ${isPending ? 'bg-amber-50/20' : ''}`}
+                    onClick={() => { setSelectedRequest(req); setAdminRemarks(''); setProcessing(false); }}>
+                    <td className="px-5 py-3.5">
+                      <div className="text-[13px] font-semibold text-slate-800">{req.requesterName}</div>
+                      {req.requesterEmployeeId && <div className="text-[11px] text-slate-400 mt-0.5">{req.requesterEmployeeId}</div>}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <span className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border font-bold ${tc.bg} ${tc.text} ${tc.border}`}>
+                        {tc.label}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <span className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border font-bold ${sc.bg} ${sc.text} ${sc.border}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
+                        {sc.label}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(req.requestedAt)}</td>
+                    <td className="px-5 py-3.5 text-[12px] text-slate-400">{timeAgo(req.requestedAt)}</td>
+                    <td className="px-5 py-3.5">
+                      <span className="text-[12px] font-semibold text-cyan-600 opacity-60 group-hover:opacity-100 transition-opacity">
+                        View
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Slide-over panel */}
       {selectedRequest && (
         <>
-          <div className="fixed inset-0 bg-black/20 z-40" onClick={() => setSelectedRequest(null)} />
-          <div className="fixed top-0 right-0 h-full w-[480px] bg-white shadow-2xl z-50 flex flex-col border-l border-slate-200 animate-in slide-in-from-right">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
-              <h3 className="text-lg font-semibold text-slate-800">Request Details</h3>
-              <button onClick={() => setSelectedRequest(null)} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+          <div className="fixed inset-0 bg-black/30 z-40 transition-opacity" onClick={() => setSelectedRequest(null)} />
+          <div className="fixed top-0 right-0 h-full w-[480px] bg-white shadow-2xl z-50 flex flex-col border-l border-slate-200">
+            {/* Panel header */}
+            <div className="px-6 py-4 border-b border-slate-100">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold ${TYPE_CFG[selectedRequest.requestType]?.bg ?? 'bg-slate-50'} ${TYPE_CFG[selectedRequest.requestType]?.text ?? 'text-slate-600'}`}>
+                    {TYPE_CFG[selectedRequest.requestType]?.icon ?? '?'}
+                  </div>
+                  <div>
+                    <h3 className="text-[15px] font-bold text-slate-800">
+                      {TYPE_CFG[selectedRequest.requestType]?.label ?? selectedRequest.requestType}
+                    </h3>
+                    <p className="text-[11px] text-slate-400">{timeAgo(selectedRequest.requestedAt)}</p>
+                  </div>
+                </div>
+                <button onClick={() => setSelectedRequest(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              {/* Status badge */}
+              <span className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border font-bold ${STATUS_CFG[selectedRequest.status]?.bg ?? ''} ${STATUS_CFG[selectedRequest.status]?.text ?? ''} ${STATUS_CFG[selectedRequest.status]?.border ?? ''}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${STATUS_CFG[selectedRequest.status]?.dot ?? ''}`} />
+                {STATUS_CFG[selectedRequest.status]?.label ?? selectedRequest.status}
+              </span>
             </div>
+
+            {/* Panel body */}
             <div className="flex-1 overflow-y-auto p-6 space-y-5">
-              {/* Requester Info */}
-              <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Requester</h4>
-                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
-                  <p className="text-sm font-medium text-slate-700">{selectedRequest.requesterName}</p>
-                  {selectedRequest.requesterEmployeeId && <p className="text-xs text-slate-500">Employee ID: {selectedRequest.requesterEmployeeId}</p>}
-                  {selectedRequest.requesterEmail && <p className="text-xs text-slate-500">Email: {selectedRequest.requesterEmail}</p>}
+              {/* Requester */}
+              <div>
+                <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Requester</h4>
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <div className="w-10 h-10 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-600 font-bold text-sm">
+                    {(selectedRequest.requesterName ?? '?')[0].toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="text-[13px] font-semibold text-slate-800">{selectedRequest.requesterName}</div>
+                    {selectedRequest.requesterEmployeeId && <div className="text-[11px] text-slate-400">{selectedRequest.requesterEmployeeId}</div>}
+                    {selectedRequest.requesterEmail && <div className="text-[11px] text-slate-400">{selectedRequest.requesterEmail}</div>}
+                  </div>
                 </div>
               </div>
 
-              {/* Request Type & Status */}
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Type</h4>
-                  <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${TYPE_LABELS[selectedRequest.requestType]?.color ?? ''}`}>
-                    {TYPE_LABELS[selectedRequest.requestType]?.label ?? selectedRequest.requestType}
-                  </span>
-                </div>
-                <div className="flex-1">
-                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Status</h4>
-                  <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${STATUS_LABELS[selectedRequest.status]?.color ?? ''}`}>
-                    {STATUS_LABELS[selectedRequest.status]?.label ?? selectedRequest.status}
-                  </span>
-                </div>
-              </div>
-
-              {/* Request Data */}
-              <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Request Details</h4>
-                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
+              {/* Request data */}
+              <div>
+                <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Details</h4>
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
                   {renderRequestDetails(selectedRequest)}
                 </div>
               </div>
 
-              {/* Requester Remarks */}
+              {/* Timestamps */}
+              <div>
+                <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Timeline</h4>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3 text-[13px]">
+                    <div className="w-2 h-2 rounded-full bg-blue-400" />
+                    <span className="text-slate-500">Submitted</span>
+                    <span className="text-slate-700 font-medium ml-auto tabular-nums">{formatDateTime(selectedRequest.requestedAt)}</span>
+                  </div>
+                  {selectedRequest.processedAt && (
+                    <div className="flex items-center gap-3 text-[13px]">
+                      <div className={`w-2 h-2 rounded-full ${selectedRequest.status === 'APPROVED' ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                      <span className="text-slate-500">{selectedRequest.status === 'APPROVED' ? 'Approved' : 'Rejected'}</span>
+                      <span className="text-slate-700 font-medium ml-auto tabular-nums">{formatDateTime(selectedRequest.processedAt)}</span>
+                    </div>
+                  )}
+                  {selectedRequest.processedBy && (
+                    <div className="flex items-center gap-3 text-[13px]">
+                      <div className="w-2 h-2 rounded-full bg-slate-300" />
+                      <span className="text-slate-500">Processed by</span>
+                      <span className="text-slate-700 font-medium ml-auto">{selectedRequest.processedBy}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Requester remarks */}
               {selectedRequest.remarks && (
-                <div className="space-y-2">
-                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Reason</h4>
-                  <p className="text-sm text-slate-600 p-3 rounded-lg bg-slate-50 border border-slate-200">{selectedRequest.remarks}</p>
+                <div>
+                  <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Requester's Reason</h4>
+                  <p className="text-[13px] text-slate-600 p-3 rounded-xl bg-slate-50 border border-slate-100 italic">{selectedRequest.remarks}</p>
                 </div>
               )}
 
-              {/* Admin Remarks (if already processed) */}
+              {/* Admin remarks (processed) */}
               {selectedRequest.adminRemarks && (
-                <div className="space-y-2">
-                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Admin Notes</h4>
-                  <p className="text-sm text-slate-600 p-3 rounded-lg bg-slate-50 border border-slate-200">{selectedRequest.adminRemarks}</p>
+                <div>
+                  <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Admin Notes</h4>
+                  <p className="text-[13px] text-slate-600 p-3 rounded-xl bg-slate-50 border border-slate-100">{selectedRequest.adminRemarks}</p>
                 </div>
               )}
 
-              {/* Process Actions (only if PENDING) */}
-              {selectedRequest.status === 'PENDING' && (
-                <div className="space-y-3 pt-2">
-                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Admin Response</h4>
+              {/* Admin response textarea */}
+              {canApprove && selectedRequest.status === 'PENDING' && (
+                <div>
+                  <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Your Response <span className="text-red-500">*</span></h4>
                   <textarea
                     value={adminRemarks}
                     onChange={e => setAdminRemarks(e.target.value)}
-                    placeholder="Enter notes about your decision..."
+                    placeholder="Enter notes about your decision (required)..."
                     rows={3}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-[13px] text-slate-700 resize-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 bg-white"
                   />
                 </div>
               )}
             </div>
 
-            {/* Footer with Approve/Reject buttons */}
-            {selectedRequest.status === 'PENDING' && (
-              <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
-                <button
-                  onClick={() => handleProcess('reject')}
-                  disabled={processing}
-                  className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
+            {/* Footer actions */}
+            {canApprove && selectedRequest.status === 'PENDING' && (
+              <div className="px-6 py-4 border-t border-slate-100 bg-white flex items-center gap-3">
+                <button onClick={() => handleProcess('reject')} disabled={processing || !adminRemarks.trim()}
+                  className="flex-1 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 shadow-sm">
                   {processing ? 'Processing...' : 'Reject'}
                 </button>
-                <button
-                  onClick={() => handleProcess('approve')}
-                  disabled={processing}
-                  className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
+                <button onClick={() => handleProcess('approve')} disabled={processing || !adminRemarks.trim()}
+                  className="flex-1 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-50 shadow-sm">
                   {processing ? 'Processing...' : 'Approve'}
                 </button>
-              </div>
-            )}
-
-            {/* Processed info */}
-            {selectedRequest.status !== 'PENDING' && (
-              <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
-                <p className="text-xs text-slate-400">
-                  Processed {selectedRequest.processedAt ? `on ${formatDateTime(selectedRequest.processedAt)}` : ''} {selectedRequest.processedBy ? `by ${selectedRequest.processedBy}` : ''}
-                </p>
               </div>
             )}
           </div>
         </>
       )}
 
-      {/* Reauth Dialog */}
       <ReauthDialog
         open={reauth.isOpen}
         password={reauth.password}

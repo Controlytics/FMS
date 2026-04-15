@@ -119,3 +119,24 @@ Stage types: WASH_IN, WASH_OUT, DRY_IN, DRY_OUT, STORAGE_IN, STORAGE_OUT
 - `/api/roles/active` public endpoint for contact-admin page
 
 See `CHANGELOG.md` for full details.
+
+---
+
+## Phase 4 Update (2026-04-14)
+
+**New Config Definitions:**
+- `report-settings.def.ts` — Report header/footer/layout configuration
+- Public endpoint: `GET /api/config/report-settings/current`
+- Public endpoint: `GET /api/config/password-policy/current`
+
+**Permissions Updates:**
+- 95 total permission constants (was ~60)
+- 69 reauth actions across 16 categories
+- FEATURE_TO_PERMISSION_MAP entries include both frontend + backend permissions
+- Block change requests GET endpoint accepts BLOCK_CHANGE_REQUEST OR BLOCK_CHANGE_APPROVE
+- Backup export uses CONFIG_UPDATE (removed hardcoded SUPER_ADMIN check)
+- Org-admin routes changed from requireRole to requirePermission(ORG_VIEW)
+
+**Backend Fixes:**
+- Backup restore: SQL/CSV formats now include password_hash
+- enforceReauth added to: retention PUT, retention execute POST, submit-checklist POST

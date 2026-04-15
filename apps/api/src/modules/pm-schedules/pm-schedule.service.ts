@@ -286,10 +286,11 @@ export class PmScheduleService {
     // 30 days ago — avoids serving years of stale history on every request.
     const overdueHorizon = new Date(now.getTime() - 30 * 86400000);
 
-    // Fetch candidate entries (in window OR recently overdue)
+    // Fetch candidate entries (in window OR recently overdue) — only APPROVED entries
     const entries = await prisma.pmScheduleEntry.findMany({
       where: {
         schedule: { status: 'ACTIVE' },
+        approvalStatus: 'APPROVED',
         OR: [
           { AND: [{ windowStart: { lte: now } }, { windowEnd: { gte: now } }] },
           { AND: [{ windowEnd: { lt: now } }, { windowEnd: { gte: overdueHorizon } }] },
@@ -520,15 +521,21 @@ export class PmScheduleService {
         plannedDate = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
       } else {
         const rawDateStr = String(rawDateRaw).trim();
+        // YYYY-MM-DD or YYYY/MM/DD (ISO-like)
         const isoMatch = rawDateStr.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+        // DD-MM-YYYY or DD/MM/YYYY (day-first, common in India/Europe)
+        const dmyMatch = !isoMatch ? rawDateStr.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/) : null;
         if (isoMatch) {
           const [, y, m, d] = isoMatch;
+          plannedDate = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
+        } else if (dmyMatch) {
+          const [, d, m, y] = dmyMatch;
           plannedDate = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
         } else {
           plannedDate = new Date(rawDateStr); // fallback — may drift in local TZ
         }
         if (isNaN(plannedDate.getTime())) {
-          skipped.push({ row: rowNum, reason: `Invalid scheduled_date "${rawDateStr}" — expected YYYY-MM-DD`, data: row });
+          skipped.push({ row: rowNum, reason: `Invalid scheduled_date "${rawDateStr}" — expected YYYY-MM-DD or DD-MM-YYYY`, data: row });
           continue;
         }
       }
@@ -567,17 +574,34 @@ export class PmScheduleService {
           });
         }
 
-        // Create the entry
-        const entry = await prisma.pmScheduleEntry.create({
-          data: {
-            scheduleId: schedule.id,
-            month,
-            plannedDate,
-            toleranceDays,
-            windowStart,
-            windowEnd,
-          },
+        // Upsert the entry — if same (schedule, month) exists, update date/tolerance.
+        // SUPER_ADMIN uploads are auto-approved; others go to PENDING for QA review.
+        const isSuperAdmin = ctx.userRole === 'SUPER_ADMIN';
+        const approvalFields = {
+          approvalStatus: isSuperAdmin ? 'APPROVED' as const : 'PENDING' as const,
+          submittedBy: ctx.userSub,
+          submittedByName: ctx.userId,
+          ...(isSuperAdmin ? { approvedBy: ctx.userSub, approvedByName: ctx.userId, approvedAt: new Date() } : {}),
+        };
+        const existing = await prisma.pmScheduleEntry.findFirst({
+          where: { scheduleId: schedule.id, month },
         });
+        const entry = existing
+          ? await prisma.pmScheduleEntry.update({
+              where: { id: existing.id },
+              data: { plannedDate, toleranceDays, windowStart, windowEnd, approvalRemarks: null, ...approvalFields },
+            })
+          : await prisma.pmScheduleEntry.create({
+              data: {
+                scheduleId: schedule.id,
+                month,
+                plannedDate,
+                toleranceDays,
+                windowStart,
+                windowEnd,
+                ...approvalFields,
+              },
+            });
 
         imported.push({ row: rowNum, ahuName: ahu.name, plannedDate: plannedDate.toISOString().slice(0, 10), scheduleId: schedule.id, entryId: entry.id });
       } catch (e: any) {
@@ -711,9 +735,10 @@ export class PmScheduleService {
   getTemplateCsv(): string {
     return [
       'ahu_name,scheduled_date,tolerance_days',
-      '# Example rows — delete these two lines before uploading:',
+      '# Dates accepted: YYYY-MM-DD or DD-MM-YYYY. Tolerance blank = default from config.',
+      '# Example rows — delete these lines before uploading:',
       'AHU-01,2026-04-15,',
-      'AHU-02,2026-04-20,5',
+      'AHU-02,20-04-2026,5',
     ].join('\n') + '\n';
   }
 
@@ -745,5 +770,273 @@ export class PmScheduleService {
     });
 
     return updated;
+  }
+
+  // ─── QA Approval Workflow ──────────────────────────────────
+
+  /** Check if the current user's role is allowed to approve PM schedules. */
+  private async assertPmApprovalRole(userRole: string | undefined) {
+    if (userRole === 'SUPER_ADMIN') return;
+    const cfg = await prisma.systemConfig.findUnique({ where: { configKey: 'pm-schedule-approval' } });
+    const configured = (cfg?.configValue as any)?.approvalRole;
+    if (!configured || configured.trim() === '') return;
+    if (userRole !== configured) {
+      throw new AppError(403, 'FORBIDDEN_ROLE', `Only users with role "${configured}" can approve PM schedules`);
+    }
+  }
+
+  /** List schedule entries with approval status for the PM Schedules table. */
+  async listEntries(ctx: RequestContext, query: { approvalStatus?: string; year?: number; page?: number; limit?: number }) {
+    await checkPmEnabled();
+    const page = query.page ?? 1;
+    const limit = Math.min(query.limit ?? 50, 200);
+    const year = query.year ?? new Date().getFullYear();
+
+    // Org-scope by fetching visible AHU IDs first (same pattern as getDueTasks)
+    const orgWhere = orgFilter(ctx);
+    const visibleAhus = await prisma.assetInstance.findMany({
+      where: { ...orgWhere, isActive: true },
+      select: { id: true },
+    });
+    const visibleAhuIds = visibleAhus.map(a => a.id);
+
+    const where: any = {
+      schedule: { status: 'ACTIVE', year, entityId: { in: visibleAhuIds } },
+    };
+    if (query.approvalStatus && query.approvalStatus !== 'ALL') {
+      where.approvalStatus = query.approvalStatus;
+    }
+
+    const [entries, total] = await Promise.all([
+      prisma.pmScheduleEntry.findMany({
+        where,
+        include: { schedule: true },
+        orderBy: { plannedDate: 'asc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.pmScheduleEntry.count({ where }),
+    ]);
+
+    // Resolve AHU names from entityIds
+    const entityIds = [...new Set(entries.map((e: any) => e.schedule?.entityId).filter(Boolean))];
+    const ahus = entityIds.length > 0
+      ? await prisma.assetInstance.findMany({ where: { id: { in: entityIds } }, select: { id: true, name: true } })
+      : [];
+    const ahuMap = new Map(ahus.map(a => [a.id, a.name]));
+
+    const data = entries.map((e: any) => ({
+      id: e.id,
+      scheduleId: e.scheduleId,
+      ahuId: e.schedule?.entityId,
+      ahuName: ahuMap.get(e.schedule?.entityId) ?? '?',
+      month: e.month,
+      plannedDate: e.plannedDate,
+      toleranceDays: e.toleranceDays,
+      windowStart: e.windowStart,
+      windowEnd: e.windowEnd,
+      approvalStatus: e.approvalStatus,
+      approvalRemarks: e.approvalRemarks,
+      approvedByName: e.approvedByName,
+      approvedAt: e.approvedAt,
+      submittedByName: e.submittedByName,
+      pendingPlannedDate: e.pendingPlannedDate,
+      pendingToleranceDays: e.pendingToleranceDays,
+    }));
+
+    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  /** Approve selected entries. If an entry has a pending edit, apply it. */
+  async approveEntries(ctx: RequestContext, entryIds: string[], comment?: string) {
+    await checkPmEnabled();
+    await this.assertPmApprovalRole(ctx.userRole);
+
+    const entries = await prisma.pmScheduleEntry.findMany({
+      where: { id: { in: entryIds } },
+    });
+    if (entries.length === 0) throw new AppError(404, 'NOT_FOUND', 'No entries found');
+
+    const results: string[] = [];
+    for (const entry of entries) {
+      if (entry.approvalStatus !== 'PENDING') {
+        results.push(`${entry.id}: already ${entry.approvalStatus}`);
+        continue;
+      }
+
+      // If there's a pending edit, apply it
+      const hasPendingEdit = entry.pendingPlannedDate != null;
+      const newPlannedDate = hasPendingEdit ? entry.pendingPlannedDate! : entry.plannedDate;
+      const newTolerance = hasPendingEdit && entry.pendingToleranceDays != null ? entry.pendingToleranceDays : entry.toleranceDays;
+      const windowStart = new Date(newPlannedDate.getTime() - newTolerance * 86400000);
+      const windowEnd = new Date(newPlannedDate.getTime() + newTolerance * 86400000);
+
+      await prisma.pmScheduleEntry.update({
+        where: { id: entry.id },
+        data: {
+          approvalStatus: 'APPROVED',
+          approvalRemarks: comment ?? null,
+          approvedBy: ctx.userSub,
+          approvedByName: ctx.userId,
+          approvedAt: new Date(),
+          // Apply pending edit if present
+          ...(hasPendingEdit ? {
+            plannedDate: newPlannedDate,
+            toleranceDays: newTolerance,
+            windowStart,
+            windowEnd,
+            pendingPlannedDate: null,
+            pendingToleranceDays: null,
+            pendingEditBy: null,
+            pendingEditAt: null,
+          } : {}),
+        },
+      });
+
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_APPROVED',
+        targetType: 'pm_schedule_entry', targetId: entry.id,
+        afterValue: { comment, hasPendingEdit },
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+      });
+      results.push(`${entry.id}: approved`);
+    }
+
+    return { processed: results.length, results };
+  }
+
+  /** Reject selected entries with mandatory remarks. */
+  async rejectEntries(ctx: RequestContext, entryIds: string[], remarks: string) {
+    await checkPmEnabled();
+    await this.assertPmApprovalRole(ctx.userRole);
+    if (!remarks || remarks.trim().length < 3) {
+      throw new AppError(400, 'REMARKS_REQUIRED', 'Remarks are required when rejecting (min 3 characters)');
+    }
+
+    const entries = await prisma.pmScheduleEntry.findMany({
+      where: { id: { in: entryIds } },
+    });
+    if (entries.length === 0) throw new AppError(404, 'NOT_FOUND', 'No entries found');
+
+    for (const entry of entries) {
+      if (entry.approvalStatus !== 'PENDING') continue;
+      await prisma.pmScheduleEntry.update({
+        where: { id: entry.id },
+        data: {
+          approvalStatus: 'REJECTED',
+          approvalRemarks: remarks.trim(),
+          approvedBy: ctx.userSub,
+          approvedByName: ctx.userId,
+          approvedAt: new Date(),
+          // Clear pending edit if any
+          pendingPlannedDate: null,
+          pendingToleranceDays: null,
+          pendingEditBy: null,
+          pendingEditAt: null,
+        },
+      });
+
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_REJECTED',
+        targetType: 'pm_schedule_entry', targetId: entry.id,
+        afterValue: { remarks: remarks.trim() },
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+      });
+    }
+
+    return { processed: entries.length };
+  }
+
+  /** Re-submit a rejected entry with corrected data. Resets to PENDING. */
+  async resubmitEntry(ctx: RequestContext, entryId: string, data: { plannedDate: string; toleranceDays?: number }) {
+    await checkPmEnabled();
+    const entry = await prisma.pmScheduleEntry.findUnique({ where: { id: entryId } });
+    if (!entry) throw new AppError(404, 'NOT_FOUND', 'Entry not found');
+    if (entry.approvalStatus !== 'REJECTED') {
+      throw new AppError(400, 'INVALID_STATUS', 'Only rejected entries can be re-submitted');
+    }
+
+    const planned = new Date(data.plannedDate);
+    if (isNaN(planned.getTime())) throw new AppError(400, 'INVALID_DATE', 'Invalid date');
+    const tol = data.toleranceDays ?? entry.toleranceDays;
+    const windowStart = new Date(planned.getTime() - tol * 86400000);
+    const windowEnd = new Date(planned.getTime() + tol * 86400000);
+
+    const updated = await prisma.pmScheduleEntry.update({
+      where: { id: entryId },
+      data: {
+        plannedDate: planned,
+        toleranceDays: tol,
+        windowStart,
+        windowEnd,
+        approvalStatus: 'PENDING',
+        approvalRemarks: null,
+        approvedBy: null,
+        approvedByName: null,
+        approvedAt: null,
+        submittedBy: ctx.userSub,
+        submittedByName: ctx.userId,
+      },
+    });
+
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_RESUBMITTED',
+      targetType: 'pm_schedule_entry', targetId: entryId,
+      afterValue: { plannedDate: data.plannedDate, toleranceDays: tol },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    });
+
+    return updated;
+  }
+
+  /** Edit an approved entry — stores proposed values in pending columns, sets status to PENDING. */
+  async editApprovedEntry(ctx: RequestContext, entryId: string, data: { plannedDate: string; toleranceDays?: number }) {
+    await checkPmEnabled();
+    const entry = await prisma.pmScheduleEntry.findUnique({ where: { id: entryId } });
+    if (!entry) throw new AppError(404, 'NOT_FOUND', 'Entry not found');
+    if (entry.approvalStatus !== 'APPROVED') {
+      throw new AppError(400, 'INVALID_STATUS', 'Only approved entries can be edited (pending changes require approval)');
+    }
+
+    const planned = new Date(data.plannedDate);
+    if (isNaN(planned.getTime())) throw new AppError(400, 'INVALID_DATE', 'Invalid date');
+
+    const updated = await prisma.pmScheduleEntry.update({
+      where: { id: entryId },
+      data: {
+        pendingPlannedDate: planned,
+        pendingToleranceDays: data.toleranceDays ?? entry.toleranceDays,
+        pendingEditBy: ctx.userSub,
+        pendingEditAt: new Date(),
+        approvalStatus: 'PENDING',
+        approvalRemarks: null,
+        approvedBy: null,
+        approvedByName: null,
+        approvedAt: null,
+        submittedBy: ctx.userSub,
+        submittedByName: ctx.userId,
+      },
+    });
+
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_EDIT_REQUESTED',
+      targetType: 'pm_schedule_entry', targetId: entryId,
+      beforeValue: { plannedDate: entry.plannedDate, toleranceDays: entry.toleranceDays },
+      afterValue: { pendingPlannedDate: data.plannedDate, pendingToleranceDays: data.toleranceDays ?? entry.toleranceDays },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    });
+
+    return updated;
+  }
+
+  /** Get counts of PENDING and REJECTED entries for the status badge. */
+  async pendingCounts(ctx: RequestContext) {
+    await checkPmEnabled();
+    const baseWhere = { schedule: { status: 'ACTIVE' as const } };
+    const [pending, rejected] = await Promise.all([
+      prisma.pmScheduleEntry.count({ where: { ...baseWhere, approvalStatus: 'PENDING' } }),
+      prisma.pmScheduleEntry.count({ where: { ...baseWhere, approvalStatus: 'REJECTED' } }),
+    ]);
+    return { pending, rejected };
   }
 }

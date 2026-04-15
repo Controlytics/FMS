@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { usePaginationDefaults } from '../../hooks/use-pagination-config';
+import { useReportConfig } from '@/hooks/use-report-config';
+import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { createReport } from '../../lib/pdf-report';
 import type { CleaningCycle, FilterEvent, FilterInstance, PaginatedResponse } from '../../types/filter';
 
@@ -16,16 +18,17 @@ export function CleaningCycleHistoryPage() {
   const navigate = useNavigate();
   const { formatDateTime } = useDatetimeFormat();
   const { options: paginationOptions, defaultLimit } = usePaginationDefaults();
+  const { config: reportConfig } = useReportConfig();
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(20);
+  const [perPage, setPerPage] = useState(reportConfig.recordsPerPage);
   const [perPageSynced, setPerPageSynced] = useState(false);
   useEffect(() => {
-    if (!perPageSynced && defaultLimit && defaultLimit !== 20) {
+    if (!perPageSynced && defaultLimit && defaultLimit !== reportConfig.recordsPerPage) {
       setPerPage(defaultLimit);
       setPerPageSynced(true);
       setPage(1);
     }
-  }, [defaultLimit, perPageSynced]);
+  }, [defaultLimit, perPageSynced, reportConfig.recordsPerPage]);
   const [status, setStatus] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('');
   const [fromDate, setFromDate] = useState('');
@@ -212,6 +215,12 @@ export function CleaningCycleHistoryPage() {
       </div>
 
       {/* Table — fills remaining space */}
+      <ReportPageWrapper
+        title="Cleaning Cycle History"
+        totalRecords={total}
+        page={page}
+        totalPages={totalPages}
+      >
       <div className="flex-1 overflow-auto">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3">
@@ -289,6 +298,7 @@ export function CleaningCycleHistoryPage() {
           </table>
         )}
       </div>
+      </ReportPageWrapper>
 
       {/* Pagination — fixed bottom */}
       {cycles.length > 0 && (

@@ -384,6 +384,20 @@ Fix Fastify stripping `checklistSchema` from GET-by-ID responses due to missing 
 - **7 bugs found** — see `tasks/system-validation-report.md`
 - **Open bugs**: BUG-V002 (TimescaleDB write gap), BUG-V003/V004 (route conflicts), BUG-V005 (missing connectivity list), BUG-V007 (export params)
 
+## 2026-04-14 Updates
+
+### Completed Tasks
+| Task | Details |
+|------|---------|
+| Permissions overhaul | Expanded to 95 permission constants and 82 feature privileges with FEATURE_TO_PERMISSION_MAP |
+| Color themes | Centralized theme system via `lib/themes.ts` and `lib/theme-styles.ts`; applied to most pages |
+| Report settings | New config definition (`report-settings.def.ts`), hook (`use-report-config.ts`), wrapper (`report-page-wrapper.tsx`), and config page (`report-settings.tsx`) |
+| PM redesign | PM schedule UI overhaul with improved filter-set modes and past-date validation |
+| Reauth fixes | Fixed reauth popup issues; removed stale reauth entries |
+| SUPER_ADMIN bypass | RBAC plugin short-circuits all permission checks for SUPER_ADMIN role |
+| Bulk upload template | Template download added for bulk filter CSV/Excel uploads |
+| Bug fixes | Various fixes across config, filter operations, and mobile pages |
+
 ### Next Priority
 1. HTTPS/TLS certificates for production
 2. Multi-tenant isolation improvements

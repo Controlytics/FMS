@@ -145,6 +145,136 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
     return service.updateAhuFilterSetMode(ctx, ahuId, mode);
   });
 
+  // ─── Entry-level approval workflow ───
+
+  app.get('/entries', {
+    preHandler: [app.requirePermission('PM_READ')],
+    schema: {
+      tags: ['PM Schedules'],
+      summary: 'List schedule entries with approval status',
+      querystring: {
+        type: 'object',
+        properties: {
+          approvalStatus: { type: 'string', enum: ['ALL', 'PENDING', 'APPROVED', 'REJECTED'] },
+          year: { type: 'integer' },
+          page: { type: 'integer', minimum: 1 },
+          limit: { type: 'integer', minimum: 1, maximum: 200 },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const query = req.query as any;
+    return service.listEntries(ctx, query);
+  });
+
+  app.get('/entries/pending-counts', {
+    preHandler: [app.requirePermission('PM_READ')],
+    schema: {
+      tags: ['PM Schedules'],
+      summary: 'Get counts of pending and rejected entries',
+      response: { 200: { type: 'object', properties: { pending: { type: 'integer' }, rejected: { type: 'integer' } } }, ...errorResponses },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    return service.pendingCounts(ctx);
+  });
+
+  app.post('/entries/approve', {
+    preHandler: [app.requirePermission('PM_APPROVE')],
+    schema: {
+      tags: ['PM Schedules'],
+      summary: 'Approve selected schedule entries',
+      body: {
+        type: 'object',
+        required: ['entryIds'],
+        properties: {
+          entryIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
+          comment: { type: 'string' },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('APPROVE_PM_SCHEDULE', req, reply);
+    if (!ok) return;
+    const ctx = buildContext(req);
+    const { entryIds, comment } = req.body as { entryIds: string[]; comment?: string };
+    return service.approveEntries(ctx, entryIds, comment);
+  });
+
+  app.post('/entries/reject', {
+    preHandler: [app.requirePermission('PM_APPROVE')],
+    schema: {
+      tags: ['PM Schedules'],
+      summary: 'Reject selected schedule entries with remarks',
+      body: {
+        type: 'object',
+        required: ['entryIds', 'remarks'],
+        properties: {
+          entryIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
+          remarks: { type: 'string', minLength: 3 },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('REJECT_PM_SCHEDULE', req, reply);
+    if (!ok) return;
+    const ctx = buildContext(req);
+    const { entryIds, remarks } = req.body as { entryIds: string[]; remarks: string };
+    return service.rejectEntries(ctx, entryIds, remarks);
+  });
+
+  app.post('/entries/:id/resubmit', {
+    preHandler: [app.requirePermission('PM_CREATE')],
+    schema: {
+      tags: ['PM Schedules'],
+      summary: 'Re-submit a rejected entry with corrected data',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      body: {
+        type: 'object',
+        required: ['plannedDate'],
+        properties: {
+          plannedDate: { type: 'string' },
+          toleranceDays: { type: 'integer', minimum: 0, maximum: 365 },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const { id } = req.params as { id: string };
+    const body = req.body as { plannedDate: string; toleranceDays?: number };
+    return service.resubmitEntry(ctx, id, body);
+  });
+
+  app.put('/entries/:id/edit', {
+    preHandler: [app.requirePermission('PM_UPDATE')],
+    schema: {
+      tags: ['PM Schedules'],
+      summary: 'Edit an approved entry (creates pending change for QA review)',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      body: {
+        type: 'object',
+        required: ['plannedDate'],
+        properties: {
+          plannedDate: { type: 'string' },
+          toleranceDays: { type: 'integer', minimum: 0, maximum: 365 },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('EDIT_PM_SCHEDULE', req, reply);
+    if (!ok) return;
+    const ctx = buildContext(req);
+    const { id } = req.params as { id: string };
+    const body = req.body as { plannedDate: string; toleranceDays?: number };
+    return service.editApprovedEntry(ctx, id, body);
+  });
+
   // ─── My Tasks: list due entries ───
   // Registered BEFORE the parametric /:entityId route so /due is matched as a
   // literal path rather than interpreted as an entityId.

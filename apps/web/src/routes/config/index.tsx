@@ -44,11 +44,13 @@ const configCards = [
     gradient: 'from-emerald-500 to-teal-600',
     shadowColor: 'shadow-emerald-500/25',
   },
+];
+
+const superAdminCards = [
   {
     title: 'Dashboard Cards',
     description: 'Configure which dashboard cards are visible per role',
     href: '/config/dashboard-cards',
-    reauth: false,
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 5a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-3zm10-2a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1h-4a1 1 0 01-1-1v-5z" />
@@ -57,9 +59,30 @@ const configCards = [
     gradient: 'from-cyan-500 to-blue-600',
     shadowColor: 'shadow-cyan-500/25',
   },
-];
-
-const superAdminCards = [
+  {
+    title: 'Report Settings',
+    description: 'Configure report headers, footers, layout, and records per page',
+    href: '/config/report-settings',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      </svg>
+    ),
+    gradient: 'from-indigo-500 to-purple-600',
+    shadowColor: 'shadow-indigo-500/25',
+  },
+  {
+    title: 'Tablet App Access',
+    description: 'Control which roles can login and access features on the tablet app',
+    href: '/config/tablet-access',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 18h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+      </svg>
+    ),
+    gradient: 'from-cyan-500 to-teal-600',
+    shadowColor: 'shadow-cyan-500/25',
+  },
   {
     title: 'User ID Format',
     description: 'Configure User ID format and rules',
@@ -217,6 +240,18 @@ const superAdminCards = [
     shadowColor: "shadow-blue-500/25",
   },
   {
+    title: 'Filter Data Management',
+    description: 'Edit, delete, or unretire retirement and replacement records (no audit trail)',
+    href: '/config/filter-data-management',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+      </svg>
+    ),
+    gradient: 'from-red-500 to-rose-600',
+    shadowColor: 'shadow-red-500/25',
+  },
+  {
     title: "Cleaning Profile Assignment",
     description: "Configure how cleaning profiles are automatically assigned to filters",
     href: "/config/cleaning-profile-assignment",
@@ -227,6 +262,78 @@ const superAdminCards = [
     ),
     gradient: "from-teal-500 to-cyan-600",
     shadowColor: "shadow-teal-500/25",
+  },
+  {
+    title: 'RFID Scanner Settings',
+    description: 'Configure scan debounce, deduplication, input guard, and identifier cache',
+    href: '/config/dynamic/rfid-scanner',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0" />
+      </svg>
+    ),
+    gradient: 'from-violet-500 to-indigo-600',
+    shadowColor: 'shadow-violet-500/25',
+  },
+  {
+    title: 'Offline Sync Settings',
+    description: 'Configure offline queue behavior and sync settings for tablet operations',
+    href: '/config/dynamic/offline-sync',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+      </svg>
+    ),
+    gradient: 'from-sky-500 to-cyan-600',
+    shadowColor: 'shadow-sky-500/25',
+  },
+  {
+    title: 'Filter Cleaning Reasons',
+    description: 'Configure cleaning reason codes and justification requirements',
+    href: '/config/filter-cleaning-reasons',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+      </svg>
+    ),
+    gradient: 'from-amber-500 to-orange-600',
+    shadowColor: 'shadow-amber-500/25',
+  },
+  {
+    title: 'PM Schedule Settings',
+    description: 'Configure default tolerance, task visibility, and overdue display settings',
+    href: '/config/dynamic/pm-schedule-settings',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+      </svg>
+    ),
+    gradient: 'from-teal-500 to-emerald-600',
+    shadowColor: 'shadow-teal-500/25',
+  },
+  {
+    title: 'PM Schedule Approval',
+    description: 'Configure which role can approve PM schedule uploads and edits',
+    href: '/config/dynamic/pm-schedule-approval',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+      </svg>
+    ),
+    gradient: 'from-emerald-500 to-green-600',
+    shadowColor: 'shadow-emerald-500/25',
+  },
+  {
+    title: 'Block Change Approval',
+    description: 'Configure which role can approve cross-block filter cleaning requests',
+    href: '/config/dynamic/block-change-approval',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+      </svg>
+    ),
+    gradient: 'from-orange-500 to-red-600',
+    shadowColor: 'shadow-orange-500/25',
   },
 ];
 
@@ -260,7 +367,7 @@ export function ConfigIndexPage() {
         </div>
       </div>
 
-      {/* Security Settings */}
+      {/* Security & General Settings */}
       <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
           <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-3">
@@ -397,8 +504,8 @@ export function ConfigIndexPage() {
           </div>
         </div>
       </div>
-      {/* Dynamic Config Modules (auto-discovered) */}
-      {dynamicModules && dynamicModules.length > 0 && (
+      {/* Dynamic Config Modules (auto-discovered) — Super Admin only */}
+      {user?.role === 'SUPER_ADMIN' && dynamicModules && dynamicModules.length > 0 && (
         <section>
           <div className="mb-6">
             <h2 className="text-lg font-semibold text-slate-800">Additional Modules</h2>

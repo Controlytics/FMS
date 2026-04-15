@@ -80,19 +80,20 @@ export default defineConfig({
     port: 5175,
     strictPort: true,
     host: true,
-    // HTTPS disabled for dev — install rootCA on tablet for production HTTPS
-    // https: {
-    //   key: fs.readFileSync(path.resolve(__dirname, '../../certs/server.key')),
-    //   cert: fs.readFileSync(path.resolve(__dirname, '../../certs/server.crt')),
-    // },
+    https: {
+      key: fs.readFileSync(path.resolve(__dirname, '../../certs/server.key')),
+      cert: fs.readFileSync(path.resolve(__dirname, '../../certs/server.crt')),
+    },
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        target: 'https://localhost:3000',
         changeOrigin: true,
+        secure: false,
       },
       '/uploads': {
-        target: 'http://localhost:3000',
+        target: 'https://localhost:3000',
         changeOrigin: true,
+        secure: false,
       },
     },
   },

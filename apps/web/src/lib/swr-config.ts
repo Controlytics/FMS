@@ -21,7 +21,7 @@ export const swrConfig: SWRConfiguration = {
     if (error?.status === 401 || error?.error === 'UNAUTHORIZED') return;
     // Silently ignore network errors (offline mode)
     const msg = String(error?.message || error || '').toLowerCase();
-    if (msg.includes('failed to fetch') || msg.includes('network') || msg.includes('load failed') || error?.name === 'TypeError') return;
+    if (msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('network request failed') || msg.includes('load failed') || msg.includes('failed to connect') || msg.includes('unable to resolve host') || error?.name === 'TypeError') return;
     console.error('[SWR Error]', error?.message || error);
     if (error?.status !== 401 && error?.status !== 403) {
       _toastError?.('Load Error', error?.message || 'Failed to load data. Please try again.');

@@ -1339,6 +1339,8 @@ export class FilterOperationsService {
         });
       }
 
+      // Save original parentId in customAttributes so unretire can restore it
+      const existingCustom = (filter as any).customAttributes ?? {};
       await tx.assetInstance.update({
         where: { id: filterId },
         data: {
@@ -1347,6 +1349,7 @@ export class FilterOperationsService {
           currentCycleId: null,
           isActive: false,
           parentId: null,
+          customAttributes: { ...existingCustom, _preRetireParentId: filter.parentId },
         },
       });
 
@@ -1467,13 +1470,32 @@ export class FilterOperationsService {
    * Get all retired filters.
    */
   async getRetirements(ctx: RequestContext) {
-    return prisma.assetInstance.findMany({
+    const retirements = await prisma.assetInstance.findMany({
       where: { status: 'Retired', isActive: false, ...orgWhere(ctx) },
       select: {
         id: true, name: true, updatedAt: true, attributes: true,
-        filterSet: true, parentId: true,
+        filterSet: true, parentId: true, customAttributes: true,
       },
       orderBy: { updatedAt: 'desc' },
+    });
+
+    // Resolve original parent names for display
+    const parentIds = retirements
+      .map((r: any) => (r.customAttributes as any)?._preRetireParentId)
+      .filter(Boolean) as string[];
+    const parents = parentIds.length > 0
+      ? await prisma.assetInstance.findMany({ where: { id: { in: parentIds } }, select: { id: true, name: true } })
+      : [];
+    const parentMap = new Map(parents.map(p => [p.id, p.name]));
+
+    return retirements.map((r: any) => {
+      const preRetireParentId = (r.customAttributes as any)?._preRetireParentId ?? null;
+      return {
+        id: r.id, name: r.name, updatedAt: r.updatedAt,
+        attributes: r.attributes, filterSet: r.filterSet, parentId: r.parentId,
+        preRetireParentId,
+        preRetireParentName: preRetireParentId ? parentMap.get(preRetireParentId) ?? null : null,
+      };
     });
   }
 

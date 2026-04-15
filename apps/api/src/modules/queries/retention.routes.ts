@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma.js';
 import { Prisma } from '@prisma/client';
 import { getTsdbPool } from '@digilog/db';
 import { errorResponses } from '../../lib/error-schemas.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 
 const DEFAULT_RETENTION_CONFIG = {
   telemetry: { retentionDays: 365, compressionAfterDays: 7 },
@@ -179,7 +180,10 @@ export default async function retentionRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_RETENTION_POLICY', req, reply);
+    if (!ok) return;
+
     const body = req.body as Record<string, unknown>;
 
     await prisma.systemConfig.upsert({
@@ -221,6 +225,9 @@ export default async function retentionRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('EXECUTE_RETENTION', req, reply);
+    if (!ok) return;
+
     const { dataType, olderThanDays, confirmed } = req.body as {
       dataType: string;
       olderThanDays: number;

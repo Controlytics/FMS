@@ -103,4 +103,14 @@ Sensitive actions (user delete, config change) require password re-entry:
 - User creation auto-assigns org for admins
 - `/api/roles/active` public endpoint for contact-admin page
 
+## Phase 4 Update (2026-04-14)
+
+**Permissions & Access Control Enhancements:**
+- **SUPER_ADMIN frontend bypass**: All frontend permission guards use `isSuperAdmin || perms.includes(...)` pattern -- SUPER_ADMIN sees all features regardless of privilege configuration
+- **Reauth actions**: 69 total across 16 categories (removed 8 dead actions, added 6 missing); configured per-role in `action-reauth` system config
+- **FEATURE_TO_PERMISSION_MAP**: Now includes both frontend visibility flags and backend route permission strings (in `packages/shared/src/types/permissions.ts`)
+- **api-client.ts .status**: Thrown errors now include `.status` property so SWR error handlers can suppress 403 toasts for expected permission denials (e.g., non-admin loading password-policy)
+- **Public config endpoints**: `/api/config/password-policy/current` and `/api/config/report-settings/current` require no auth -- prevents 403 errors for non-privileged users on login and report pages
+- **Permission scale**: 95 total permissions, 82 feature privileges, 24 config definitions
+
 See `CHANGELOG.md` for full details.

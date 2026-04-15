@@ -26,7 +26,7 @@ DigiLog is an enterprise IoT data logging and filter management platform built f
 | **Config Definitions** | 27 |
 | **Rule Chain Node Types** | 79 (8 categories) |
 | **Ingestion Pipeline Stages** | 11 |
-| **Permissions** | 52+ |
+| **Permissions** | 95 |
 | **Test Files** | 74 |
 | **Notification Channels** | 4 (Email, SMS, Telegram, Slack) |
 | **Help Articles** | 40+ (versioned) |
@@ -167,7 +167,7 @@ DigiLog is an enterprise IoT data logging and filter management platform built f
 |---------|---------------|
 | Electronic signatures | Electronic signature model with meaning |
 | Audit trail | SHA-256 hash-chained, immutable records |
-| Access control | RBAC with 52+ permissions, org isolation |
+| Access control | RBAC with 95 permissions, org isolation |
 | Session management | JWT + session table, idle timeout, single-tab |
 | Password policy | Configurable complexity, history, expiry, lockout |
 | Re-authentication | Password required for sensitive operations |
@@ -230,3 +230,29 @@ DigiLog is an enterprise IoT data logging and filter management platform built f
 - `/api/roles/active` public endpoint for contact-admin page
 
 See `CHANGELOG.md` for full details.
+
+---
+
+## Phase 4 Update (2026-04-14)
+
+**Permissions & Access Control:**
+- 95 permission constants (up from 52) covering all modules
+- 82 toggleable permission checkboxes in role management UI
+- 69 re-authentication actions for sensitive operations
+- SUPER_ADMIN bypass on all permission checks
+
+**Color Themes:**
+- 10 preset color themes (themes.ts) with CSS variable integration
+- Branding config page for theme selection
+- use-branding hook applies theme globally
+
+**Report Settings:**
+- Report settings config definition with public `/current` endpoint
+- report-page-wrapper component for consistent report layout
+- use-report-config hook for report formatting options
+
+**PM Redesign:**
+- Redesigned PM schedule management with improved UX
+- Per-AHU filter set selection for PM cleaning
+- CSV upload with past-date validation
+- My Tasks system with due date tracking

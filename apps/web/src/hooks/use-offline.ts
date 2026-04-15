@@ -91,13 +91,18 @@ export function useOffline() {
             break;
         }
         return { executed: true, result };
-      } catch (e) {
+      } catch (e: any) {
         // If network error (not API error), queue it
-        if (e instanceof TypeError && e.message.includes('fetch')) {
-          // Network error — queue
-        } else {
+        const msg = String(e?.message || '').toLowerCase();
+        const isNetErr = (e instanceof TypeError && msg.includes('fetch'))
+          || msg.includes('failed to connect') || msg.includes('failed to fetch')
+          || msg.includes('networkerror') || msg.includes('network request failed')
+          || msg.includes('unable to resolve host') || msg.includes('econnrefused')
+          || msg.includes('load failed');
+        if (!isNetErr) {
           throw e; // API error — throw as-is
         }
+        // Network error — fall through to queue below
       }
     }
 

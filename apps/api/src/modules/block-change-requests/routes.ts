@@ -57,7 +57,15 @@ export default async function blockChangeRoutes(app: FastifyInstance) {
   });
 
   app.get('/', {
-    preHandler: [app.requirePermission('BLOCK_CHANGE_REQUEST')],
+    preHandler: [async (req, reply) => {
+      // Allow both requesters and approvers to list block change requests
+      const userRole = req.user?.role;
+      if (userRole === 'SUPER_ADMIN') return;
+      const role = await (await import('../../lib/prisma.js')).prisma.role.findFirst({ where: { name: userRole }, select: { permissions: true } });
+      const perms = (role?.permissions as string[]) || [];
+      if (perms.includes('BLOCK_CHANGE_REQUEST') || perms.includes('BLOCK_CHANGE_APPROVE')) return;
+      return reply.code(403).send({ error: 'FORBIDDEN', message: 'Permission denied' });
+    }],
     schema: {
       tags: ['Block Change Requests'],
       summary: 'List block change requests',

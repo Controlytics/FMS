@@ -43,6 +43,10 @@ model Organization {
   templateAssignments TemplateAssignment[]
   entityAssignments   EntityAssignment[]
 
+  // Report relations
+  reportTemplates ReportTemplate[]
+  reportInstances ReportInstance[]
+
   @@unique([slug])
   @@index([isActive])
   @@index([parentOrgId])
@@ -211,6 +215,12 @@ model User {
   sessions            Session[]
   templateAssignments TemplateAssignment[] @relation("UserTemplateAssignments")
   entityAssignments   EntityAssignment[]   @relation("UserEntityAssignments")
+
+  // Report relations
+  reportTemplatesCreated  ReportTemplate[]        @relation("ReportTemplateCreator")
+  templateVersionsCreated ReportTemplateVersion[] @relation("TemplateVersionCreator")
+  reportsGenerated        ReportInstance[]        @relation("ReportGenerator")
+  reportSignatures        ReportSignature[]       @relation("ReportSigner")
 
   @@index([role])
   @@index([organizationId])
@@ -1090,6 +1100,14 @@ enum PmScheduleStatus {
   @@map("pm_schedule_status")
 }
 
+enum PmEntryApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+
+  @@map("pm_entry_approval_status")
+}
+
 enum CleaningProfileStatus {
   DRAFT
   ACTIVE
@@ -1198,12 +1216,28 @@ model PmScheduleEntry {
   windowEnd     DateTime @map("window_end") @db.Date
   notes         String?
 
+  // QA approval workflow
+  approvalStatus  PmEntryApprovalStatus @default(PENDING) @map("approval_status")
+  approvalRemarks String?               @map("approval_remarks")
+  approvedBy      String?               @map("approved_by") @db.Uuid
+  approvedByName  String?               @map("approved_by_name") @db.VarChar(255)
+  approvedAt      DateTime?             @map("approved_at") @db.Timestamptz
+  submittedBy     String?               @map("submitted_by") @db.Uuid
+  submittedByName String?               @map("submitted_by_name") @db.VarChar(255)
+
+  // Pending edit (approved value stays active while edit awaits QA)
+  pendingPlannedDate   DateTime? @map("pending_planned_date") @db.Date
+  pendingToleranceDays Int?      @map("pending_tolerance_days")
+  pendingEditBy        String?   @map("pending_edit_by") @db.Uuid
+  pendingEditAt        DateTime? @map("pending_edit_at") @db.Timestamptz
+
   schedule   PmSchedule    @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
   executions PmExecution[]
 
   @@unique([scheduleId, month])
   @@index([scheduleId])
   @@index([windowStart, windowEnd])
+  @@index([approvalStatus])
   @@map("pm_schedule_entries")
 }
 
@@ -1335,8 +1369,8 @@ model CleaningCycle {
   equipmentGroupId String? @map("equipment_group_id") @db.Uuid
 
   // Dryer timing — tracks the dryer duration and start time for DRY_IN stage
-  dryerDurationMinutes Int?       @map("dryer_duration_minutes")
-  dryerStartedAt       DateTime?  @map("dryer_started_at") @db.Timestamptz
+  dryerDurationMinutes Int?      @map("dryer_duration_minutes")
+  dryerStartedAt       DateTime? @map("dryer_started_at") @db.Timestamptz
 
   events          FilterEvent[]
   equipmentGroup  EquipmentGroup?        @relation(fields: [equipmentGroupId], references: [id])
@@ -1488,31 +1522,139 @@ enum BlockChangeStatus {
   APPROVED
   REJECTED
   EXPIRED
+
   @@map("block_change_status")
 }
 
 model BlockChangeRequest {
-  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  filterId        String            @map("filter_id") @db.Uuid
-  filterName      String            @map("filter_name") @db.VarChar(255)
-  fromBlockId     String            @map("from_block_id") @db.Uuid
-  fromBlockName   String            @map("from_block_name") @db.VarChar(255)
-  toBlockId       String            @map("to_block_id") @db.Uuid
-  toBlockName     String            @map("to_block_name") @db.VarChar(255)
-  reason          String?
-  status          BlockChangeStatus @default(PENDING)
-  requestedBy     String            @map("requested_by") @db.Uuid
-  requestedByName String            @map("requested_by_name") @db.VarChar(255)
-  processedBy     String?           @map("processed_by") @db.Uuid
-  processedByName String?           @map("processed_by_name") @db.VarChar(255)
-  processedComment String?          @map("processed_comment")
-  processedAt     DateTime?         @map("processed_at") @db.Timestamptz
-  organizationId  String?           @map("organization_id") @db.Uuid
-  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  filterId         String            @map("filter_id") @db.Uuid
+  filterName       String            @map("filter_name") @db.VarChar(255)
+  fromBlockId      String            @map("from_block_id") @db.Uuid
+  fromBlockName    String            @map("from_block_name") @db.VarChar(255)
+  toBlockId        String            @map("to_block_id") @db.Uuid
+  toBlockName      String            @map("to_block_name") @db.VarChar(255)
+  reason           String?
+  status           BlockChangeStatus @default(PENDING)
+  requestedBy      String            @map("requested_by") @db.Uuid
+  requestedByName  String            @map("requested_by_name") @db.VarChar(255)
+  processedBy      String?           @map("processed_by") @db.Uuid
+  processedByName  String?           @map("processed_by_name") @db.VarChar(255)
+  processedComment String?           @map("processed_comment")
+  processedAt      DateTime?         @map("processed_at") @db.Timestamptz
+  organizationId   String?           @map("organization_id") @db.Uuid
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz
 
   @@index([filterId, toBlockId, status])
   @@index([status, organizationId])
   @@index([requestedBy])
   @@map("block_change_requests")
+}
+
+// ─── Report Template Status ────────────────────────────────
+
+enum ReportTemplateStatus {
+  ACTIVE
+  ARCHIVED
+  DRAFT
+}
+
+enum ReportStatus {
+  DRAFT
+  PENDING_SIGNATURE
+  SIGNED
+  REJECTED
+  EXPIRED
+}
+
+// ─── Report Templates ──────────────────────────────────────
+
+model ReportTemplate {
+  id             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String               @db.VarChar(200)
+  description    String?              @db.VarChar(2000)
+  status         ReportTemplateStatus @default(ACTIVE)
+  currentVersion Int                  @default(1) @map("current_version")
+  orgId          String               @map("org_id") @db.Uuid
+  org            Organization         @relation(fields: [orgId], references: [id])
+  createdBy      String               @map("created_by") @db.Uuid
+  creator        User                 @relation("ReportTemplateCreator", fields: [createdBy], references: [id])
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime             @updatedAt @map("updated_at") @db.Timestamptz
+
+  versions        ReportTemplateVersion[]
+  reportInstances ReportInstance[]
+
+  @@index([orgId])
+  @@index([status])
+  @@map("report_templates")
+}
+
+model ReportTemplateVersion {
+  id         String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  templateId String         @map("template_id") @db.Uuid
+  template   ReportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  version    Int
+  config     Json           @db.JsonB
+  changelog  String?
+  createdBy  String         @map("created_by") @db.Uuid
+  creator    User           @relation("TemplateVersionCreator", fields: [createdBy], references: [id])
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([templateId, version])
+  @@index([templateId])
+  @@map("report_template_versions")
+}
+
+// ─── Report Instances ──────────────────────────────────────
+
+model ReportInstance {
+  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  templateId      String         @map("template_id") @db.Uuid
+  template        ReportTemplate @relation(fields: [templateId], references: [id])
+  templateVersion Int            @map("template_version")
+  name            String         @db.VarChar(500)
+  status          ReportStatus   @default(DRAFT)
+  timeRangeStart  DateTime?      @map("time_range_start") @db.Timestamptz
+  timeRangeEnd    DateTime?      @map("time_range_end") @db.Timestamptz
+  entitySlots     Json?          @map("entity_slots") @db.JsonB
+  resolvedData    Json?          @map("resolved_data") @db.JsonB
+  pdfPath         String?        @map("pdf_path") @db.VarChar(1000)
+  pdfSize         Int?           @map("pdf_size")
+  pageCount       Int?           @map("page_count")
+  generatedBy     String         @map("generated_by") @db.Uuid
+  generator       User           @relation("ReportGenerator", fields: [generatedBy], references: [id])
+  orgId           String         @map("org_id") @db.Uuid
+  org             Organization   @relation(fields: [orgId], references: [id])
+  generatedAt     DateTime       @default(now()) @map("generated_at") @db.Timestamptz
+  signedAt        DateTime?      @map("signed_at") @db.Timestamptz
+  expiresAt       DateTime?      @map("expires_at") @db.Timestamptz
+
+  signatures ReportSignature[]
+
+  @@index([orgId])
+  @@index([templateId])
+  @@index([status])
+  @@index([generatedAt])
+  @@map("report_instances")
+}
+
+model ReportSignature {
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reportId    String         @map("report_id") @db.Uuid
+  report      ReportInstance @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  signerRole  String         @map("signer_role") @db.VarChar(50)
+  signerLabel String         @map("signer_label") @db.VarChar(100)
+  userId      String         @map("user_id") @db.Uuid
+  user        User           @relation("ReportSigner", fields: [userId], references: [id])
+  meaning     String         @db.VarChar(500)
+  signedAt    DateTime       @default(now()) @map("signed_at") @db.Timestamptz
+  ipAddress   String?        @map("ip_address") @db.VarChar(45)
+  userAgent   String?        @map("user_agent") @db.VarChar(500)
+
+  @@unique([reportId, signerRole])
+  @@index([reportId])
+  @@index([userId])
+  @@map("report_signatures")
 }

@@ -186,7 +186,7 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
   }
   return reply.code(err.statusCode ?? 500).send({
     error: 'INTERNAL_ERROR',
-    message: process.env.NODE_ENV === 'development' ? (err.message || 'Internal server error').substring(0, 200) : 'Internal server error',
+    message: process.env.NODE_ENV === 'development' ? (err.message || 'Internal server error').substring(0, 500) : 'Internal server error',
   });
 });
 

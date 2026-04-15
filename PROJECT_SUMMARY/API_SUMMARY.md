@@ -15,7 +15,7 @@
 | Modules | 34 |
 | Public Endpoints | 6 |
 | Protected Endpoints | ~163 |
-| Permissions Required | 52+ unique |
+| Permissions Required | 95 unique |
 
 ---
 
@@ -253,3 +253,24 @@
 - `/api/roles/active` public endpoint for contact-admin page
 
 See `CHANGELOG.md` for full details.
+
+---
+
+## Phase 4 Update (2026-04-14)
+
+**New Public Endpoints:**
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | /api/config/report-settings/current | Public | Get report settings (no auth) |
+| GET | /api/config/password-policy/current | Public | Get password policy (no auth) |
+
+**Updated Endpoints:**
+
+| Method | Path | Permission | Change |
+|--------|------|------------|--------|
+| GET | /api/block-change-requests | BLOCK_CHANGE_REQUEST or BLOCK_CHANGE_APPROVE | Now accepts either permission (was single permission) |
+
+**Permission Count:** 95 unique permissions (up from 52)
+**Re-auth Actions:** 69 sensitive operations require re-authentication
+**Config Keys:** Added `report-settings` to config definitions

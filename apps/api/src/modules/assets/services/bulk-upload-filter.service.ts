@@ -4,8 +4,12 @@ import { auditLog } from '../../../lib/audit.js';
 import { prisma } from '../../../lib/prisma.js';
 import { sanitizeStrings } from '../../../lib/sanitize.js';
 
-const VALID_FILTER_TYPES = ['Pre', 'HEPA', 'Fine', 'ULPA', 'Carbon', 'Bag'];
-const VALID_AHU_TYPES = ['Process', 'Non Process'];
+interface TemplateField {
+  fieldName: string;
+  dataType?: string;
+  required?: boolean;
+  dropdownOptions?: string[];
+}
 
 interface BulkResult {
   row: number;
@@ -67,10 +71,10 @@ export async function bulkUploadFilters(
     }
   }
 
-  // 4. Find Filter template
+  // 4. Find Filter template (include attributeSchema for dynamic CSV columns)
   const filterTemplate = await prisma.assetTemplate.findFirst({
     where: { name: { equals: 'Filter', mode: 'insensitive' }, isActive: true },
-    select: { id: true, version: true },
+    select: { id: true, version: true, attributeSchema: true },
   });
   if (!filterTemplate) {
     return { results: [{ row: 1, name: '', status: 'error', error: 'No "Filter" template found.' }], created: 0, failed: 1 };
@@ -114,20 +118,6 @@ export async function bulkUploadFilters(
       continue;
     }
 
-    // AHU Type
-    const ahuType = (row.ahuType ?? '').trim();
-    if (ahuType && !VALID_AHU_TYPES.some(t => t.toLowerCase() === ahuType.toLowerCase())) {
-      results.push({ row: rowNum, name, status: 'error', error: `ahuType must be: ${VALID_AHU_TYPES.join(', ')}` });
-      continue;
-    }
-
-    // Filter Type
-    const filterType = (row.filterType ?? '').trim();
-    if (filterType && !VALID_FILTER_TYPES.some(t => t.toLowerCase() === filterType.toLowerCase())) {
-      results.push({ row: rowNum, name, status: 'error', error: `filterType must be: ${VALID_FILTER_TYPES.join(', ')}` });
-      continue;
-    }
-
     // Duplicate in batch
     const nameKey = name.toLowerCase();
     if (namesInBatch.has(nameKey)) {
@@ -147,15 +137,50 @@ export async function bulkUploadFilters(
       fpId = rawFpId;
     }
 
-    // Build attributes from CSV columns
+    // Build attributes dynamically from Filter template attributeSchema
+    const templateFields: TemplateField[] = Array.isArray(filterTemplate.attributeSchema) ? filterTemplate.attributeSchema as unknown as TemplateField[] : [];
     const attributes: Record<string, any> = {};
     attributes.filterCode = name;
-    if (ahuType) attributes.ahuType = VALID_AHU_TYPES.find(t => t.toLowerCase() === ahuType.toLowerCase()) ?? ahuType;
-    if (filterType) attributes.filterType = VALID_FILTER_TYPES.find(t => t.toLowerCase() === filterType.toLowerCase()) ?? filterType;
-    if ((row.filterSize ?? '').trim()) attributes.filterSize = row.filterSize.trim();
-    if ((row.filterDimensions ?? '').trim()) attributes.filterDimensions = row.filterDimensions.trim();
-    if ((row.cleaningFrequencyTolerance ?? '').trim()) attributes.cleaningFrequencyTolerance = row.cleaningFrequencyTolerance.trim();
-    if ((row.lastCleaningDate ?? '').trim()) attributes.lastCleaningDate = row.lastCleaningDate.trim();
+
+    // Map CSV columns to template fields (case-insensitive matching)
+    let fieldError = false;
+    for (const field of templateFields) {
+      // Find matching CSV column (case-insensitive, stripped spaces)
+      const fieldKey = field.fieldName.toLowerCase().replace(/\s+/g, '');
+      const csvValue = Object.entries(row).find(([k]) => k.toLowerCase().replace(/\s+/g, '') === fieldKey)?.[1]?.toString().trim() ?? '';
+
+      if (field.required && !csvValue) {
+        results.push({ row: rowNum, name, status: 'error', error: `"${field.fieldName}" is required` });
+        fieldError = true;
+        break;
+      }
+
+      if (!csvValue) continue;
+
+      // Validate dropdown values
+      if (field.dropdownOptions?.length) {
+        const match = field.dropdownOptions.find(o => o.toLowerCase() === csvValue.toLowerCase());
+        if (!match) {
+          results.push({ row: rowNum, name, status: 'error', error: `"${field.fieldName}" must be one of: ${field.dropdownOptions.join(', ')}` });
+          fieldError = true;
+          break;
+        }
+        attributes[field.fieldName] = match;
+      } else if (field.dataType === 'INTEGER') {
+        const num = parseInt(csvValue, 10);
+        if (isNaN(num)) { results.push({ row: rowNum, name, status: 'error', error: `"${field.fieldName}" must be a whole number` }); fieldError = true; break; }
+        attributes[field.fieldName] = num;
+      } else if (field.dataType === 'FLOAT') {
+        const num = parseFloat(csvValue);
+        if (isNaN(num)) { results.push({ row: rowNum, name, status: 'error', error: `"${field.fieldName}" must be a number` }); fieldError = true; break; }
+        attributes[field.fieldName] = num;
+      } else if (field.dataType === 'BOOLEAN') {
+        attributes[field.fieldName] = csvValue.toLowerCase() === 'true' || csvValue === '1';
+      } else {
+        attributes[field.fieldName] = csvValue;
+      }
+    }
+    if (fieldError) continue;
 
     validRows.push({ idx: i, name, filterSet, filterProfileId: fpId, attributes });
   }

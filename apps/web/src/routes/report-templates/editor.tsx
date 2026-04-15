@@ -46,9 +46,17 @@ export function ReportTemplateEditorPage() {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
 
-  // Initialize config from fetched data
+  // Initialize config from fetched data, merging with defaults for missing fields
   if (templateData && !config) {
-    const fetched = templateData.latestConfig ?? DEFAULT_CONFIG;
+    const raw = templateData.latestConfig ?? {};
+    const fetched: TemplateConfig = {
+      pageSettings: raw.pageSettings ?? DEFAULT_CONFIG.pageSettings,
+      header: raw.header ?? DEFAULT_CONFIG.header,
+      footer: raw.footer ?? DEFAULT_CONFIG.footer,
+      entitySlots: raw.entitySlots ?? DEFAULT_CONFIG.entitySlots,
+      sections: raw.sections ?? DEFAULT_CONFIG.sections,
+      signatureConfig: raw.signatureConfig ?? DEFAULT_CONFIG.signatureConfig,
+    };
     setConfig(fetched);
     setTemplateName(templateData.name ?? '');
     setTemplateDescription(templateData.description ?? '');

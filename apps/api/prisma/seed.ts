@@ -32,8 +32,12 @@ async function main() {
         'FILTER_OPERATE', 'FILTER_BYPASS', 'CHECKLIST_SUBMIT', 'EVENT_READ',
         'FCP_READ', 'FCP_CREATE', 'FCP_UPDATE', 'FCP_DELETE',
         'FP_READ', 'FP_CREATE', 'FP_UPDATE', 'FP_DELETE', 'FP_ASSIGN',
-        'PM_READ', 'PM_CREATE', 'PM_UPDATE', 'PM_DELETE', 'PM_EXECUTE',
+        'PM_READ', 'PM_CREATE', 'PM_UPDATE', 'PM_DELETE', 'PM_EXECUTE', 'PM_APPROVE',
         'CYCLE_READ', 'READ_DEBUG_TRACE', 'MANAGE_DEBUG_TRACE',
+        'BLOCK_CHANGE_REQUEST', 'BLOCK_CHANGE_APPROVE',
+        // Reports
+        'REPORT_TEMPLATE_READ', 'REPORT_TEMPLATE_CREATE', 'REPORT_TEMPLATE_UPDATE', 'REPORT_TEMPLATE_DELETE',
+        'REPORT_GENERATE', 'REPORT_VIEW', 'REPORT_SIGN', 'REPORT_DELETE', 'REPORT_EXPORT',
       ],
       color: 'bg-gradient-to-r from-red-500 to-pink-500',
       isSystem: true,
@@ -61,8 +65,12 @@ async function main() {
         'FILTER_OPERATE', 'FILTER_BYPASS', 'CHECKLIST_SUBMIT', 'EVENT_READ',
         'FCP_READ', 'FCP_CREATE', 'FCP_UPDATE', 'FCP_DELETE',
         'FP_READ', 'FP_CREATE', 'FP_UPDATE', 'FP_DELETE', 'FP_ASSIGN',
-        'PM_READ', 'PM_CREATE', 'PM_UPDATE', 'PM_DELETE', 'PM_EXECUTE',
+        'PM_READ', 'PM_CREATE', 'PM_UPDATE', 'PM_DELETE', 'PM_EXECUTE', 'PM_APPROVE',
         'CYCLE_READ', 'READ_DEBUG_TRACE', 'MANAGE_DEBUG_TRACE',
+        'BLOCK_CHANGE_REQUEST', 'BLOCK_CHANGE_APPROVE',
+        // Reports
+        'REPORT_TEMPLATE_READ', 'REPORT_TEMPLATE_CREATE', 'REPORT_TEMPLATE_UPDATE', 'REPORT_TEMPLATE_DELETE',
+        'REPORT_GENERATE', 'REPORT_VIEW', 'REPORT_SIGN', 'REPORT_DELETE', 'REPORT_EXPORT',
       ],
       color: 'bg-gradient-to-r from-purple-500 to-indigo-500',
       isSystem: true,
@@ -80,6 +88,9 @@ async function main() {
         // Phase 2: Filter operations + read access
         'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'EVENT_READ',
         'FCP_READ', 'FP_READ', 'PM_READ', 'CYCLE_READ',
+        'BLOCK_CHANGE_REQUEST',
+        // Reports
+        'REPORT_TEMPLATE_READ', 'REPORT_GENERATE', 'REPORT_VIEW', 'REPORT_SIGN', 'REPORT_EXPORT',
       ],
       color: 'bg-gradient-to-r from-blue-500 to-cyan-500',
       isSystem: true,
@@ -97,6 +108,9 @@ async function main() {
         // Phase 2: Filter operations + checklist
         'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'EVENT_READ',
         'FCP_READ', 'FP_READ', 'PM_READ', 'CYCLE_READ',
+        'BLOCK_CHANGE_REQUEST',
+        // Reports
+        'REPORT_TEMPLATE_READ', 'REPORT_GENERATE', 'REPORT_VIEW', 'REPORT_EXPORT',
       ],
       color: 'bg-gradient-to-r from-amber-500 to-orange-500',
       isSystem: true,
@@ -114,6 +128,9 @@ async function main() {
         // Phase 2: Filter operations + checklist
         'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'EVENT_READ',
         'FCP_READ', 'FP_READ', 'PM_READ', 'CYCLE_READ',
+        'BLOCK_CHANGE_REQUEST',
+        // Reports
+        'REPORT_VIEW',
       ],
       color: 'bg-gradient-to-r from-emerald-500 to-green-500',
       isSystem: true,
@@ -307,6 +324,34 @@ async function main() {
           // Backup
           { action: 'EXPORT_BACKUP', roles: ['SUPER_ADMIN'] },
           { action: 'RESTORE_BACKUP', roles: ['SUPER_ADMIN'] },
+          // Block change approval
+          { action: 'APPROVE_BLOCK_CHANGE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'REJECT_BLOCK_CHANGE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          // PM schedule approval
+          { action: 'APPROVE_PM_SCHEDULE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'REJECT_PM_SCHEDULE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'EDIT_PM_SCHEDULE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          // Equipment groups
+          { action: 'CREATE_EQUIPMENT_GROUP', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'UPDATE_EQUIPMENT_GROUP', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'DELETE_EQUIPMENT_GROUP', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          // Filter profiles
+          { action: 'CREATE_FILTER_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'UPDATE_FILTER_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'DELETE_FILTER_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'ASSIGN_FILTER_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          // Cleaning profiles
+          { action: 'CREATE_CLEANING_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'UPDATE_CLEANING_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'DELETE_CLEANING_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          // Checklist profiles
+          { action: 'CREATE_CHECKLIST_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'UPDATE_CHECKLIST_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'DELETE_CHECKLIST_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          // PM schedule CRUD
+          { action: 'CREATE_PM_SCHEDULE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'UPDATE_PM_SCHEDULE', roles: ['SUPER_ADMIN', 'ADMIN'] },
+          { action: 'DELETE_PM_SCHEDULE', roles: ['SUPER_ADMIN', 'ADMIN'] },
         ],
       },
       configType: 'security',

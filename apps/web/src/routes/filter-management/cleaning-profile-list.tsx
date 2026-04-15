@@ -3,6 +3,9 @@ import useSWR, { mutate } from 'swr';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../../lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/use-auth';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import type { CleaningProfile, PaginatedResponse } from '../../types/filter';
 
 const FLOW_COLORS: Record<string, { bg: string; text: string }> = {
@@ -14,20 +17,33 @@ const FLOW_COLORS: Record<string, { bg: string; text: string }> = {
 export function CleaningProfileListPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const perms = user?.permissions ?? [];
+  const canCreate = isSuperAdmin || perms.includes('CP_PAGE_CREATE');
+  const canUpdate = isSuperAdmin || perms.includes('CP_PAGE_EDIT');
+  const canDelete = isSuperAdmin || perms.includes('CP_PAGE_DELETE');
+  const canToggle = isSuperAdmin || perms.includes('CP_TOGGLE');
+  const reauth = useReauth();
   const [status, setStatus] = useState('ACTIVE');
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const swrKey = `/api/filter-cleaning-profiles?page=${page}&limit=20&status=${status}`;
   const { data, isLoading } = useSWR<PaginatedResponse<CleaningProfile>>(swrKey);
 
-  const toggleStatus = async (id: string, e: React.MouseEvent) => {
+  const toggleStatus = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    try {
-      await apiClient.patch(`/api/filter-cleaning-profiles/${id}/toggle-status`, { toggle: true });
-      mutate(swrKey);
-    } catch (err: any) {
-      toast.error('Error', err.message || 'Failed to toggle status');
-    }
+    e.preventDefault();
+    reauth.execute('UPDATE_CLEANING_PROFILE', async (password?: string) => {
+      try {
+        if (password) await apiClient.patchWithReauth(`/api/filter-cleaning-profiles/${id}/toggle-status`, { toggle: true }, password);
+        else await apiClient.patch(`/api/filter-cleaning-profiles/${id}/toggle-status`, { toggle: true });
+        mutate(swrKey);
+      } catch (err: any) {
+        toast.error('Error', err.message || 'Failed to toggle status');
+        throw err;
+      }
+    });
   };
 
   const profiles = (data?.data ?? []).filter(p =>
@@ -42,18 +58,21 @@ export function CleaningProfileListPage() {
           <h1 className="text-2xl font-bold text-slate-800">Cleaning Profiles</h1>
           <p className="text-sm text-slate-500 mt-1">Pipeline cleaning configurations for filter management</p>
         </div>
-        <button onClick={() => navigate('/filter-cleaning-profiles/new/edit')}
-          className="px-5 py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-xl hover:from-teal-500 hover:to-cyan-500 transition-all text-sm font-semibold shadow-lg shadow-teal-500/25 flex items-center gap-2">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-          Create Profile
-        </button>
+        {canCreate && (
+          <button onClick={() => navigate('/filter-cleaning-profiles/new/edit')}
+            className="px-5 py-2.5 text-white rounded-xl transition-all text-sm font-semibold shadow-lg flex items-center gap-2"
+            style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            Create Profile
+          </button>
+        )}
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-br from-teal-500 to-cyan-600 rounded-2xl p-4 text-white shadow-lg shadow-teal-500/20">
+        <div className="rounded-2xl p-4 text-white shadow-lg" style={{ background: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
           <div className="text-2xl font-bold">{data?.total ?? 0}</div>
-          <div className="text-teal-100 text-sm font-medium">
+          <div className="text-white/80 text-sm font-medium">
             {status === 'ACTIVE' ? 'Active Profiles' : 'Inactive Profiles'}
           </div>
         </div>
@@ -98,7 +117,10 @@ export function CleaningProfileListPage() {
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
-          <input className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-teal-400 focus:ring-2 focus:ring-teal-100 outline-none"
+          <input className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:ring-2"
+            style={{ '--tw-ring-color': 'color-mix(in srgb, var(--theme-primary) 20%, transparent)' } as React.CSSProperties}
+            onFocus={e => e.currentTarget.style.borderColor = 'var(--theme-primary-light)'}
+            onBlur={e => e.currentTarget.style.borderColor = ''}
             placeholder="Search profiles..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
@@ -108,8 +130,9 @@ export function CleaningProfileListPage() {
           ].map(s => (
             <button key={s.key} onClick={() => { setStatus(s.key); setPage(1); }}
               className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${status === s.key
-                ? 'bg-white text-teal-700 shadow-sm'
-                : 'text-slate-500 hover:text-slate-700'}`}>
+                ? 'bg-white shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'}`}
+              style={status === s.key ? { color: 'var(--theme-primary)' } : undefined}>
               {s.label}
             </button>
           ))}
@@ -119,7 +142,7 @@ export function CleaningProfileListPage() {
       {/* Grid */}
       {isLoading ? (
         <div className="flex justify-center py-20">
-          <div className="w-8 h-8 border-3 border-teal-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-3 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--theme-primary)', borderTopColor: 'transparent' }} />
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -127,13 +150,17 @@ export function CleaningProfileListPage() {
             const flowColor = FLOW_COLORS[p.flowMode] ?? { bg: 'bg-slate-50', text: 'text-slate-600' };
             return (
               <div key={p.id}
-                className="bg-white border border-slate-200 rounded-2xl overflow-hidden hover:shadow-xl hover:border-teal-300 transition-all duration-300 cursor-pointer group"
-                onClick={() => navigate(`/filter-cleaning-profiles/${p.id}/edit`)}>
-                <div className={`h-1.5 ${p.status === 'ACTIVE' ? 'bg-gradient-to-r from-teal-400 to-cyan-500' : 'bg-gradient-to-r from-slate-300 to-slate-400'}`} />
+                className={`bg-white border border-slate-200 rounded-2xl overflow-hidden transition-all duration-300 group ${canUpdate ? 'hover:shadow-xl cursor-pointer' : ''}`}
+                onMouseEnter={e => canUpdate && (e.currentTarget.style.borderColor = 'var(--theme-primary-light)')}
+                onMouseLeave={e => canUpdate && (e.currentTarget.style.borderColor = '')}
+                onClick={() => canUpdate && navigate(`/filter-cleaning-profiles/${p.id}/edit`)}>
+                <div className={`h-1.5 ${p.status === 'ACTIVE' ? '' : 'bg-gradient-to-r from-slate-300 to-slate-400'}`}
+                  style={p.status === 'ACTIVE' ? { background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' } : undefined} />
                 <div className="p-5">
                   <div className="flex items-start gap-3 mb-3">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm ${p.status === 'ACTIVE' ? 'bg-gradient-to-br from-teal-100 to-cyan-100' : 'bg-slate-100'}`}>
-                      <svg className={`w-5 h-5 ${p.status === 'ACTIVE' ? 'text-teal-600' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm ${p.status === 'ACTIVE' ? '' : 'bg-slate-100'}`}
+                      style={p.status === 'ACTIVE' ? { background: 'color-mix(in srgb, var(--theme-primary) 15%, white)' } : undefined}>
+                      <svg className={`w-5 h-5 ${p.status === 'ACTIVE' ? '' : 'text-slate-400'}`} style={p.status === 'ACTIVE' ? { color: 'var(--theme-primary)' } : undefined} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                       </svg>
                     </div>
@@ -165,7 +192,7 @@ export function CleaningProfileListPage() {
                       <span className={`w-1.5 h-1.5 rounded-full ${p.status === 'ACTIVE' ? 'bg-emerald-500' : p.status === 'DRAFT' ? 'bg-amber-500' : 'bg-slate-400'}`} />
                       {p.status === 'ACTIVE' ? 'Active' : p.status === 'DRAFT' ? 'Draft' : 'Inactive'}
                     </span>
-                    {p.status !== 'DRAFT' && (
+                    {canToggle && p.status !== 'DRAFT' && (
                       <button onClick={(e) => toggleStatus(p.id, e)}
                         className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${p.status === 'ACTIVE' ? 'bg-emerald-500' : 'bg-slate-300'}`}>
                         <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-transform duration-200 ${p.status === 'ACTIVE' ? 'translate-x-5' : 'translate-x-0'}`} />
@@ -197,7 +224,8 @@ export function CleaningProfileListPage() {
           <div className="flex items-center gap-1">
             {Array.from({ length: Math.min(data?.totalPages ?? 1, 5) }, (_, i) => i + 1).map(p => (
               <button key={p} onClick={() => setPage(p)}
-                className={`w-9 h-9 rounded-lg text-sm font-medium transition-all ${page === p ? 'bg-teal-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}>
+                className={`w-9 h-9 rounded-lg text-sm font-medium transition-all ${page === p ? 'text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}
+                style={page === p ? { backgroundColor: 'var(--theme-primary)' } : undefined}>
                 {p}
               </button>
             ))}
@@ -208,6 +236,8 @@ export function CleaningProfileListPage() {
           </button>
         </div>
       )}
+      <ReauthDialog open={reauth.isOpen} password={reauth.password} error={reauth.error} isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword} onConfirm={reauth.confirm} onCancel={reauth.cancel} />
     </div>
   );
 }
