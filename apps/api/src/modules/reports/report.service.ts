@@ -192,4 +192,94 @@ export class ReportService {
 
     return { success: true };
   }
+
+  async sign(ctx: RequestContext, id: string, body: { signerRole: string; meaning: string }) {
+    const report = await prisma.reportInstance.findUnique({
+      where: { id },
+      include: { template: { include: { versions: { orderBy: { version: 'desc' }, take: 1 } } }, signatures: true },
+    });
+    if (!report) throw { statusCode: 404, message: 'Report not found' };
+    if (report.status !== 'DRAFT' && report.status !== 'PENDING_SIGNATURE') {
+      throw { statusCode: 400, message: `Cannot sign report in ${report.status} status` };
+    }
+
+    // Check if this role already signed
+    const existing = report.signatures.find(s => s.signerRole === body.signerRole);
+    if (existing) throw { statusCode: 409, message: `Role "${body.signerRole}" has already signed` };
+
+    // Create signature
+    const config = (report.template.versions[0]?.config as any) ?? {};
+    const signerDef = (config.signatureConfig?.signers ?? []).find((s: any) => s.role === body.signerRole);
+
+    const signature = await prisma.reportSignature.create({
+      data: {
+        reportId: id,
+        signerRole: body.signerRole,
+        signerLabel: signerDef?.label ?? body.signerRole,
+        userId: ctx.userSub,
+        meaning: body.meaning || config.signatureConfig?.meaning || 'Signed',
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+      },
+    });
+
+    // Check if all required signers have signed
+    const requiredSigners = (config.signatureConfig?.signers ?? []).filter((s: any) => s.required);
+    const allSignatures = [...report.signatures, signature];
+    const allRequiredSigned = requiredSigners.every((s: any) => allSignatures.some(sig => sig.signerRole === s.role));
+
+    if (allRequiredSigned && requiredSigners.length > 0) {
+      await prisma.reportInstance.update({
+        where: { id },
+        data: { status: 'SIGNED', signedAt: new Date() },
+      });
+    } else {
+      await prisma.reportInstance.update({
+        where: { id },
+        data: { status: 'PENDING_SIGNATURE' },
+      });
+    }
+
+    await auditLog({
+      userId: ctx.userId,
+      userRole: ctx.userRole,
+      action: 'REPORT_SIGNED',
+      targetType: 'report_instance',
+      targetId: id,
+      afterValue: { signerRole: body.signerRole, meaning: body.meaning },
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      sessionId: ctx.sessionId,
+      signatureMeaning: body.meaning,
+    });
+
+    return signature;
+  }
+
+  async reject(ctx: RequestContext, id: string, body: { reason: string }) {
+    const report = await prisma.reportInstance.findUnique({ where: { id } });
+    if (!report) throw { statusCode: 404, message: 'Report not found' };
+    if (report.status !== 'DRAFT' && report.status !== 'PENDING_SIGNATURE') {
+      throw { statusCode: 400, message: `Cannot reject report in ${report.status} status` };
+    }
+
+    await prisma.reportInstance.update({
+      where: { id },
+      data: { status: 'REJECTED' },
+    });
+
+    await auditLog({
+      userId: ctx.userId,
+      userRole: ctx.userRole,
+      action: 'REPORT_REJECTED',
+      targetType: 'report_instance',
+      targetId: id,
+      afterValue: { reason: body.reason },
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      sessionId: ctx.sessionId,
+    });
+
+    return { success: true, status: 'REJECTED' };
+  }
 }

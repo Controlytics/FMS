@@ -88,6 +88,9 @@ const ReplacementListPage = lazy(() => import("./routes/filter-management/replac
 const ApprovalsPage = lazy(() => import("./routes/approvals/index").then(m => ({ default: m.ApprovalsPage })));
 const ReportTemplateListPage = lazy(() => import("./routes/report-templates/index").then(m => ({ default: m.ReportTemplateListPage })));
 const ReportTemplateEditorPage = lazy(() => import("./routes/report-templates/editor").then(m => ({ default: m.ReportTemplateEditorPage })));
+const ReportListPage = lazy(() => import("./routes/reports/index").then(m => ({ default: m.ReportListPage })));
+const ReportGeneratePage = lazy(() => import("./routes/reports/generate").then(m => ({ default: m.ReportGeneratePage })));
+const ReportDetailPage = lazy(() => import("./routes/reports/detail").then(m => ({ default: m.ReportDetailPage })));
 const FilterDataManagementPage = lazy(() => import("./routes/config/filter-data-management").then(m => ({ default: m.FilterDataManagementPage })));
 const TabletAccessConfigPage = lazy(() => import("./routes/config/tablet-access").then(m => ({ default: m.TabletAccessConfigPage })));
 
@@ -232,6 +235,9 @@ createRoot(document.getElementById('root')!).render(
             {/* Reports */}
             <Route path="/report-templates" element={<RequireRole permissions={[PERMISSIONS.REPORT_TEMPLATE_READ]}><Suspense fallback={<LazyFallback />}><ReportTemplateListPage /></Suspense></RequireRole>} />
             <Route path="/report-templates/:id/edit" element={<RequireRole permissions={[PERMISSIONS.REPORT_TEMPLATE_UPDATE]}><Suspense fallback={<LazyFallback />}><ReportTemplateEditorPage /></Suspense></RequireRole>} />
+            <Route path="/reports" element={<RequireRole permissions={[PERMISSIONS.REPORT_VIEW]}><Suspense fallback={<LazyFallback />}><ReportListPage /></Suspense></RequireRole>} />
+            <Route path="/reports/generate" element={<RequireRole permissions={[PERMISSIONS.REPORT_GENERATE]}><Suspense fallback={<LazyFallback />}><ReportGeneratePage /></Suspense></RequireRole>} />
+            <Route path="/reports/:id" element={<RequireRole permissions={[PERMISSIONS.REPORT_VIEW]}><Suspense fallback={<LazyFallback />}><ReportDetailPage /></Suspense></RequireRole>} />
 
           </Route>
 

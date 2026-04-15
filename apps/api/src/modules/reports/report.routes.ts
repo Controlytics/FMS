@@ -102,4 +102,45 @@ export default async function reportRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     return service.delete(ctx, id);
   });
+
+  // POST /api/reports/:id/sign — Sign report
+  app.post('/:id/sign', {
+    preHandler: [app.requirePermission('REPORT_SIGN')],
+    schema: {
+      body: {
+        type: 'object',
+        required: ['signerRole'],
+        properties: {
+          signerRole: { type: 'string' },
+          meaning: { type: 'string' },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('SIGN_REPORT', req, reply);
+    if (!ok) return;
+    const ctx = buildContext(req);
+    const { id } = req.params as { id: string };
+    return service.sign(ctx, id, req.body as any);
+  });
+
+  // POST /api/reports/:id/reject — Reject report
+  app.post('/:id/reject', {
+    preHandler: [app.requirePermission('REPORT_SIGN')],
+    schema: {
+      body: {
+        type: 'object',
+        required: ['reason'],
+        properties: {
+          reason: { type: 'string' },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('REJECT_REPORT', req, reply);
+    if (!ok) return;
+    const ctx = buildContext(req);
+    const { id } = req.params as { id: string };
+    return service.reject(ctx, id, req.body as any);
+  });
 }

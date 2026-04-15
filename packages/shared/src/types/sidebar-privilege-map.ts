@@ -113,7 +113,7 @@ export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
     label: "Filters",
     icon: "\u{1F50D}",
     description: "Filter inventory by block",
-    privilegeIds: ["assets.view", "filters.operate", "filters.events"],
+    privilegeIds: ["assets.view", "filters.operate", "filters.events", "assets.identifiers.create", "assets.identifiers.delete", "filters.bulk_upload", "filters.retire", "filters.replace", "filters.status_update", "filters.hierarchy_create", "filters.rfid_manage"],
   },
   {
     sidebarId: "filter-retirements",
@@ -176,7 +176,7 @@ export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
     label: "PM Schedules",
     icon: "\u{1F4C5}",
     description: "Preventive maintenance scheduling",
-    privilegeIds: ["pm.view", "pm.create", "pm.edit", "pm.delete"],
+    privilegeIds: ["pm.view", "pm.create", "pm.edit", "pm.delete", "pm.approve"],
   },
   {
     sidebarId: "my-tasks",
@@ -191,6 +191,20 @@ export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
     icon: "\u2705",
     description: "Block change approval requests",
     privilegeIds: ["block_change.request", "block_change.approve"],
+  },
+  {
+    sidebarId: "report-templates",
+    label: "Report Templates",
+    icon: "\u{1F4C4}",
+    description: "Report template management",
+    privilegeIds: ["report_templates.view", "report_templates.create", "report_templates.edit", "report_templates.delete"],
+  },
+  {
+    sidebarId: "reports",
+    label: "Generated Reports",
+    icon: "\u{1F4CA}",
+    description: "View and manage generated reports",
+    privilegeIds: ["reports.view", "reports.generate"],
   },
 ];
 

@@ -43,15 +43,13 @@ export const REAUTH_ACTIONS = {
   // Data Ingestion & Integration (Phase A)
   ACKNOWLEDGE_ALARM: { label: 'Acknowledge Alarm', category: 'Alarms' },
   CLEAR_ALARM: { label: 'Clear Alarm', category: 'Alarms' },
+  CREATE_CHECKLIST_PROFILE: { label: 'Create Checklist Profile', category: 'Checklist' },
+  UPDATE_CHECKLIST_PROFILE: { label: 'Update Checklist Profile', category: 'Checklist' },
+  DELETE_CHECKLIST_PROFILE: { label: 'Delete Checklist Profile', category: 'Checklist' },
   SUBMIT_CHECKLIST_WITH_SIGNATURE: { label: 'Submit Checklist with Signature', category: 'Checklist' },
-  REVIEW_CHECKLIST: { label: 'Review Checklist', category: 'Checklist' },
-  APPROVE_CHECKLIST: { label: 'Approve Checklist', category: 'Checklist' },
   CREATE_RULE_CHAIN: { label: 'Create Rule Chain', category: 'Rule Chain' },
   UPDATE_RULE_CHAIN: { label: 'Update Rule Chain', category: 'Rule Chain' },
   DELETE_RULE_CHAIN: { label: 'Delete Rule Chain', category: 'Rule Chain' },
-  SET_ROOT_RULE_CHAIN: { label: 'Set Root Rule Chain', category: 'Rule Chain' },
-  IMPORT_RULE_CHAIN: { label: 'Import Rule Chain', category: 'Rule Chain' },
-  REGENERATE_CREDENTIALS: { label: 'Regenerate Device Credentials', category: 'Connectivity' },
   OVERRIDE_UNS_PATH: { label: 'Override UNS Path', category: 'UNS' },
   DELETE_UNS_MAPPING: { label: 'Delete UNS Mapping', category: 'UNS' },
   UPDATE_UNS_CONFIG: { label: 'Update UNS Config', category: 'UNS' },
@@ -59,10 +57,7 @@ export const REAUTH_ACTIONS = {
   UPDATE_HELP_ARTICLE: { label: 'Update Help Article', category: 'Help' },
   DELETE_HELP_ARTICLE: { label: 'Delete Help Article', category: 'Help' },
   UPDATE_RETENTION_POLICY: { label: 'Update Retention Policy', category: 'Retention' },
-  ARCHIVE_DATA: { label: 'Archive Data', category: 'Retention' },
   EXECUTE_RETENTION: { label: 'Execute Retention', category: 'Retention' },
-  UPDATE_SYSTEM_CONFIG: { label: 'Update System Config', category: 'System Config' },
-  RESTART_SERVER: { label: 'Restart Server', category: 'System Config' },
 
   // Phase 2: Filter Management
   START_CLEANING_CYCLE: { label: 'Start Cleaning Cycle', category: 'Filter Management' },
@@ -78,6 +73,9 @@ export const REAUTH_ACTIONS = {
   CREATE_PM_SCHEDULE: { label: 'Create PM Schedule', category: 'PM Schedules' },
   UPDATE_PM_SCHEDULE: { label: 'Update PM Schedule', category: 'PM Schedules' },
   DELETE_PM_SCHEDULE: { label: 'Delete PM Schedule', category: 'PM Schedules' },
+  EDIT_PM_SCHEDULE: { label: 'Edit PM Entry', category: 'PM Schedules' },
+  APPROVE_PM_SCHEDULE: { label: 'Approve PM Schedule', category: 'PM Schedules' },
+  REJECT_PM_SCHEDULE: { label: 'Reject PM Schedule', category: 'PM Schedules' },
   CREATE_EQUIPMENT_GROUP: { label: 'Create Equipment Group', category: 'Equipment Groups' },
   UPDATE_EQUIPMENT_GROUP: { label: 'Update Equipment Group', category: 'Equipment Groups' },
   DELETE_EQUIPMENT_GROUP: { label: 'Delete Equipment Group', category: 'Equipment Groups' },
@@ -85,6 +83,15 @@ export const REAUTH_ACTIONS = {
   // Block Change
   APPROVE_BLOCK_CHANGE: { label: 'Approve Block Change', category: 'Filter Management' },
   REJECT_BLOCK_CHANGE: { label: 'Reject Block Change', category: 'Filter Management' },
+
+  // Reports
+  CREATE_REPORT_TEMPLATE: { label: 'Create Report Template', category: 'Reports' },
+  UPDATE_REPORT_TEMPLATE: { label: 'Update Report Template', category: 'Reports' },
+  DELETE_REPORT_TEMPLATE: { label: 'Delete Report Template', category: 'Reports' },
+  GENERATE_REPORT: { label: 'Generate Report', category: 'Reports' },
+  SIGN_REPORT: { label: 'Sign Report', category: 'Reports' },
+  REJECT_REPORT: { label: 'Reject Report', category: 'Reports' },
+  DELETE_REPORT: { label: 'Delete Report', category: 'Reports' },
 } as const;
 
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;
@@ -98,16 +105,15 @@ export const REAUTH_ACTION_CATEGORIES = [
   'Alarms',
   'Checklist',
   'Rule Chain',
-  'Connectivity',
   'UNS',
   'Help',
   'Retention',
-  'System Config',
   'Filter Management',
   'Cleaning Profiles',
   'Filter Profiles',
   'PM Schedules',
   'Equipment Groups',
+  'Reports',
 ] as const;
 
 export type ReauthActionCategory = (typeof REAUTH_ACTION_CATEGORIES)[number];
