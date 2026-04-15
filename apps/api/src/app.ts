@@ -63,7 +63,7 @@ import deploymentCheckRoutes from './modules/deployment-check/routes.js';
 import adminRequestRoutes from './modules/admin-requests/routes.js';
 import blockChangeRoutes from './modules/block-change-requests/routes.js';
 import reportTemplateRoutes from './modules/report-templates/routes.js';
-import reportRoutes from './modules/reports/report.routes.js';
+// reportRoutes imported dynamically below
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -269,7 +269,7 @@ await app.register(deploymentCheckRoutes, { prefix: '/api/deployment-check' });
 await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
 await app.register(blockChangeRoutes, { prefix: '/api/block-change-requests' });
 await app.register(reportTemplateRoutes, { prefix: '/api/report-templates' });
-await app.register(reportRoutes, { prefix: '/api/reports' });
+await app.register((await import('./modules/reports/routes.js')).default, { prefix: '/api/reports' });
 await app.register(wsHandler);
 
 // Initialize rule chain node registry
