@@ -17,7 +17,6 @@ import superAdminRoutes from "./modules/super-admin/routes.js";
 import ldapRoutes from "./modules/ldap/routes.js";
 import tenantAdminRoutes from "./modules/tenant-admin/routes.js";
 import orgDetailRoutes from "./modules/tenant-admin/org-detail-routes.js";
-import orgAdminRoutes from "./modules/org-admin/routes.js";
 import entityAssignmentRoutes from "./modules/entity-assignments/routes.js";
 import dashboardRoutes from "./modules/dashboards/routes.js";
 import authRoutes from './modules/auth/routes.js';
@@ -63,6 +62,8 @@ import equipmentGroupRoutes from './modules/equipment-groups/routes.js';
 import deploymentCheckRoutes from './modules/deployment-check/routes.js';
 import adminRequestRoutes from './modules/admin-requests/routes.js';
 import blockChangeRoutes from './modules/block-change-requests/routes.js';
+import reportTemplateRoutes from './modules/report-templates/routes.js';
+import reportRoutes from './modules/reports/report.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -259,7 +260,6 @@ await app.register(superAdminRoutes, { prefix: "/api/super-admin" });
 await app.register(ldapRoutes, { prefix: "/api/ldap" });
 await app.register(tenantAdminRoutes, { prefix: "/api/organizations" });
 await app.register(orgDetailRoutes, { prefix: "/api/organizations" });
-await app.register(orgAdminRoutes, { prefix: "/api/org" });
 await app.register(entityAssignmentRoutes, { prefix: "/api/entity-assignments" });
 await app.register(dashboardRoutes, { prefix: "/api/dashboards" });
 await app.register(cleaningProfileRoutes, { prefix: '/api/filter-cleaning-profiles' });await app.register(checklistProfileRoutes, { prefix: '/api/checklist-profiles' });await app.register(filterProfileRoutes, { prefix: '/api/filter-profiles' });
@@ -268,6 +268,8 @@ await app.register(equipmentGroupRoutes, { prefix: '/api/equipment-groups' });
 await app.register(deploymentCheckRoutes, { prefix: '/api/deployment-check' });
 await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
 await app.register(blockChangeRoutes, { prefix: '/api/block-change-requests' });
+await app.register(reportTemplateRoutes, { prefix: '/api/report-templates' });
+await app.register(reportRoutes, { prefix: '/api/reports' });
 await app.register(wsHandler);
 
 // Initialize rule chain node registry
