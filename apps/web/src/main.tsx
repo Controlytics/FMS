@@ -57,6 +57,7 @@ const EmailSettingsPage = lazy(() => import('./routes/config/notification-settin
 const SmsSettingsPage = lazy(() => import('./routes/config/notification-settings/sms-settings').then(m => ({ default: m.SmsSettingsPage })));
 const NotificationRulesPage = lazy(() => import('./routes/config/notification-rules/index').then(m => ({ default: m.NotificationRulesPage })));
 const NotificationLogsPage = lazy(() => import('./routes/config/notification-settings/notification-logs').then(m => ({ default: m.NotificationLogsPage })));
+
 const OrganizationsPage = lazy(() => import("./routes/tenant/organizations"));
 const OrgDetailPage = lazy(() => import("./routes/tenant/org-detail"));
 
@@ -72,6 +73,7 @@ const CleaningReasonsConfigPage = lazy(() => import("./routes/config/filter-clea
 const EquipmentGroupsConfigPage = lazy(() => import("./routes/config/equipment-groups").then(m => ({ default: m.EquipmentGroupsConfigPage })));
 const CleaningProfileAssignmentPage = lazy(() => import('./routes/config/cleaning-profile-assignment').then(m => ({ default: m.CleaningProfileAssignmentPage })));
 const AhuFilterSetConfigPage = lazy(() => import('./routes/config/ahu-filter-set-config').then(m => ({ default: m.AhuFilterSetConfigPage })));
+const ReportSettingsPage = lazy(() => import("./routes/config/report-settings").then(m => ({ default: m.ReportSettingsPage })));
 const PmScheduleListPage = lazy(() => import("./routes/pm-schedules/index").then(m => ({ default: m.PmScheduleListPage })));
 const PmScheduleDetailPage = lazy(() => import("./routes/pm-schedules/detail").then(m => ({ default: m.PmScheduleDetailPage })));
 const MyTasksPage = lazy(() => import("./routes/my-tasks/index").then(m => ({ default: m.MyTasksPage })));
@@ -84,6 +86,10 @@ const AdminRequestsPage = lazy(() => import("./routes/admin-requests/index").the
 const ReplacementListPage = lazy(() => import("./routes/filter-management/replacement-list").then(m => ({ default: m.ReplacementListPage })));
 
 const ApprovalsPage = lazy(() => import("./routes/approvals/index").then(m => ({ default: m.ApprovalsPage })));
+const ReportTemplateListPage = lazy(() => import("./routes/report-templates/index").then(m => ({ default: m.ReportTemplateListPage })));
+const ReportTemplateEditorPage = lazy(() => import("./routes/report-templates/editor").then(m => ({ default: m.ReportTemplateEditorPage })));
+const FilterDataManagementPage = lazy(() => import("./routes/config/filter-data-management").then(m => ({ default: m.FilterDataManagementPage })));
+const TabletAccessConfigPage = lazy(() => import("./routes/config/tablet-access").then(m => ({ default: m.TabletAccessConfigPage })));
 
 // Mobile
 const MobileOperationsPage = lazy(() => import("./routes/mobile/mobile-operations").then(m => ({ default: m.MobileOperationsPage })));
@@ -142,6 +148,7 @@ createRoot(document.getElementById('root')!).render(
 
             {/* Super Admin Settings — SUPER_ADMIN role only */}
             <Route path="/config/branding" element={<RequireRole roles={['SUPER_ADMIN']}><BrandingConfigPage /></RequireRole>} />
+            <Route path="/config/report-settings" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><ReportSettingsPage /></Suspense></RequireRole>} />
             <Route path="/config/roles" element={<RequireRole permissions={[PERMISSIONS.ROLE_MANAGE]}><RoleAccessPage /></RequireRole>} />
             <Route path="/config/field-ids" element={<RequireRole permissions={[PERMISSIONS.FIELD_ID_UPDATE]}><FieldIdsPage /></RequireRole>} />
             <Route path="/config/user-id" element={<RequireRole roles={['SUPER_ADMIN']}><UserIdConfigPage /></RequireRole>} />
@@ -157,8 +164,10 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/dynamic/:moduleKey" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><DynamicConfigPage /></RequireRole>} />
 
             {/* Multi-Tenant Management */}
+            {/* Organizations */}
             <Route path="/organizations" element={<RequireRole permissions={[PERMISSIONS.ORG_VIEW, PERMISSIONS.ORG_MANAGE]}><Suspense fallback={<LazyFallback />}><OrganizationsPage /></Suspense></RequireRole>} />
             <Route path="/organizations/:id" element={<RequireRole permissions={[PERMISSIONS.ORG_VIEW, PERMISSIONS.ORG_MANAGE]}><Suspense fallback={<LazyFallback />}><OrgDetailPage /></Suspense></RequireRole>} />
+
             {/* Entity Management (lazy-loaded) — permission-based */}
             <Route path="/assets" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AssetsPage /></Suspense></RequireRole>} />
             <Route path="/assets/templates" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AssetTemplatesPage /></Suspense></RequireRole>} />
@@ -195,6 +204,8 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/filter-list" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><FilterListPage /></Suspense></RequireRole>} />
             <Route path="/filter-retirements" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><RetirementListPage /></Suspense></RequireRole>} />
             <Route path="/filter-replacements" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><ReplacementListPage /></Suspense></RequireRole>} />
+            <Route path="/config/filter-data-management" element={<RequireRole permissions={[PERMISSIONS.ORG_MANAGE]}><Suspense fallback={<LazyFallback />}><FilterDataManagementPage /></Suspense></RequireRole>} />
+            <Route path="/config/tablet-access" element={<RequireRole permissions={[PERMISSIONS.CONFIG_UPDATE]}><Suspense fallback={<LazyFallback />}><TabletAccessConfigPage /></Suspense></RequireRole>} />
             <Route path="/filters" element={<RequireRole permissions={[PERMISSIONS.FILTER_OPERATE, PERMISSIONS.ASSET_READ]}><FilterOperationsPage /></RequireRole>} />
             <Route path="/filters/stage/:stageKey" element={<RequireRole permissions={[PERMISSIONS.FILTER_OPERATE, PERMISSIONS.ASSET_READ]}><FilterOperationsPage /></RequireRole>} />
             <Route path="/checklists" element={<RequireRole permissions={[PERMISSIONS.FCP_READ]}><Suspense fallback={<LazyFallback />}><ChecklistProfileListPage /></Suspense></RequireRole>} />
@@ -216,7 +227,11 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/ahus/:id" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AhuDashboardPage /></Suspense></RequireRole>} />
             <Route path="/audit" element={<RequireRole permissions={[PERMISSIONS.AUDIT_READ]}><AuditTrailPage /></RequireRole>} />
             <Route path="/admin-requests" element={<RequireRole permissions={[PERMISSIONS.USER_CREATE]}><Suspense fallback={<LazyFallback />}><AdminRequestsPage /></Suspense></RequireRole>} />
-            <Route path="/approvals" element={<Suspense fallback={<LazyFallback />}><ApprovalsPage /></Suspense>} />
+            <Route path="/approvals" element={<RequireRole permissions={[PERMISSIONS.BLOCK_CHANGE_APPROVE, PERMISSIONS.BLOCK_CHANGE_REQUEST, PERMISSIONS.PM_APPROVE]}><Suspense fallback={<LazyFallback />}><ApprovalsPage /></Suspense></RequireRole>} />
+
+            {/* Reports */}
+            <Route path="/report-templates" element={<RequireRole permissions={[PERMISSIONS.REPORT_TEMPLATE_READ]}><Suspense fallback={<LazyFallback />}><ReportTemplateListPage /></Suspense></RequireRole>} />
+            <Route path="/report-templates/:id/edit" element={<RequireRole permissions={[PERMISSIONS.REPORT_TEMPLATE_UPDATE]}><Suspense fallback={<LazyFallback />}><ReportTemplateEditorPage /></Suspense></RequireRole>} />
 
           </Route>
 
