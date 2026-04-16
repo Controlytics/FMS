@@ -18,11 +18,11 @@
     "test": "echo \"No tests yet\""
   },
   "dependencies": {
-    "bullmq": "^5.70.1",
-    "ioredis": "^5.9.3",
+    "pg-boss": "^10.1.5",
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@types/node": "^22.19.11",
     "typescript": "^5.7.0"
   }
 }

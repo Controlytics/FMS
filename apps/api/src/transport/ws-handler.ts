@@ -6,13 +6,14 @@
  *   2. Must send AUTH { type: "AUTH", token: "JWT" } within 5 seconds
  *   3. Server validates JWT → AUTH_OK or close 4001
  *   4. SUBSCRIBE { type: "SUBSCRIBE", entityId, keys } / UNSUBSCRIBE { type: "UNSUBSCRIBE", entityId }
- *   5. Server subscribes to Redis pub/sub channel `ws:events` for broadcasting
+ *   5. Server listens to PostgreSQL NOTIFY channel `ws_events` for broadcasting
  *   6. Track connections per user, max from SystemConfig (default 5)
  */
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type WebSocket from 'ws';
-import IORedis from 'ioredis';
+import type { PoolClient } from 'pg';
+import { getTsdbPool } from '@digilog/db';
 import { verifyToken } from '../lib/jwt.js';
 import { prisma } from '../lib/prisma.js';
 
@@ -32,7 +33,7 @@ const allClients = new Set<WsClient>();
 // Default max connections per user
 const DEFAULT_MAX_CONNECTIONS = 5;
 
-let redisSub: IORedis | null = null;
+let pgListener: PoolClient | null = null;
 
 async function getMaxConnectionsPerUser(): Promise<number> {
   try {
@@ -51,27 +52,17 @@ async function getMaxConnectionsPerUser(): Promise<number> {
   return DEFAULT_MAX_CONNECTIONS;
 }
 
-function initRedisSubscriber(): IORedis {
-  if (!redisSub) {
-    redisSub = new IORedis({
-      host: process.env.REDIS_HOST ?? 'localhost',
-      port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
-      password: process.env.REDIS_PASSWORD || undefined,
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
-    });
+async function initPgListener(): Promise<void> {
+  if (pgListener) return;
 
-    redisSub.subscribe('ws:events', (err) => {
-      if (err) {
-        console.error('[WS] Failed to subscribe to ws:events:', err.message);
-      } else {
-        console.info('[WS] Subscribed to Redis channel ws:events');
-      }
-    });
+  try {
+    const pool = getTsdbPool();
+    pgListener = await pool.connect();
 
-    redisSub.on('message', (_channel: string, message: string) => {
+    pgListener.on('notification', (msg) => {
+      if (!msg.payload) return;
       try {
-        const event = JSON.parse(message) as {
+        const event = JSON.parse(msg.payload) as {
           entityId: string;
           type: string;
           data: Record<string, unknown>;
@@ -102,8 +93,12 @@ function initRedisSubscriber(): IORedis {
         // Invalid JSON — ignore
       }
     });
+
+    await pgListener.query('LISTEN ws_events');
+    console.info('[WS] Subscribed to PostgreSQL NOTIFY channel ws_events');
+  } catch (err: any) {
+    console.error('[WS] Failed to subscribe to ws_events:', err.message);
   }
-  return redisSub;
 }
 
 function addConnection(client: WsClient): boolean {
@@ -126,8 +121,8 @@ function removeConnection(client: WsClient): void {
 }
 
 export default async function wsHandler(app: FastifyInstance) {
-  // Initialize Redis subscriber for broadcasting
-  initRedisSubscriber();
+  // Initialize PostgreSQL LISTEN for broadcasting
+  await initPgListener();
 
   app.get('/api/ws', {
     websocket: true,
@@ -285,11 +280,11 @@ export default async function wsHandler(app: FastifyInstance) {
 }
 
 /**
- * Close the Redis subscriber on shutdown.
+ * Close the PostgreSQL listener on shutdown.
  */
-export async function closeWsRedis(): Promise<void> {
-  if (redisSub) {
-    await redisSub.quit();
-    redisSub = null;
+export async function closeWsListener(): Promise<void> {
+  if (pgListener) {
+    pgListener.release();
+    pgListener = null;
   }
 }

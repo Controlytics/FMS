@@ -42,11 +42,9 @@ import systemHealthRoutes, { trackRequest } from './modules/system-health/routes
 import debugTraceRoutes from './modules/data-ingestion/debug-trace.routes.js';
 import wsHandler from './transport/ws-handler.js';
 import { initMqttClient, closeMqttClient } from './transport/mqtt-client.js';
-import { closeWsRedis } from './transport/ws-handler.js';
-import { closeRpcRedis } from './modules/data-ingestion/rpc-handler.js';
-import { closePipelineRedis } from './modules/data-ingestion/ingestion.service.js';
-import { closeTracerRedis } from './modules/data-ingestion/pipeline-tracer.js';
-import { closeDebugRedis } from './modules/rule-chain/debug-recorder.js';
+import { closeWsListener } from './transport/ws-handler.js';
+import { closeRpcHandler } from './modules/data-ingestion/rpc-handler.js';
+import { closePipelineResources } from './modules/data-ingestion/ingestion.service.js';
 import { initializeNodes } from './modules/rule-chain/nodes/index.js';
 import notificationDeliveryRoutes from './modules/notification-delivery/routes.js';
 import userGroupRoutes from './modules/user-groups/routes.js';
@@ -311,9 +309,9 @@ try {
     app.log.warn(workerErr);
   }
 
-  // Start maintenance worker (Phase C)
+  // Start maintenance worker (Phase C) — node-cron, synchronous
   try {
-    await startMaintenanceWorker();
+    startMaintenanceWorker();
     app.log.info('Maintenance worker started');
   } catch (maintErr) {
     app.log.warn('Maintenance worker failed to start — server continuing');
@@ -335,17 +333,15 @@ const shutdown = async (signal: string) => {
 
   try {
     await stopIngestionWorker();
-    await stopMaintenanceWorker();
+    stopMaintenanceWorker();
     await closeTelemetryBatcher();
     await closeMqttClient();
-    await closeWsRedis();
-    await closeRpcRedis();
-    await closePipelineRedis();
-    await closeTracerRedis();
-    await closeDebugRedis();
+    await closeWsListener();
+    await closeRpcHandler();
+    await closePipelineResources();
     await app.close();
     try { const { closeTsdbPool } = await import('@digilog/db'); await closeTsdbPool(); } catch {}
-    try { const { closeRedisConnection } = await import('@digilog/queue'); await closeRedisConnection(); } catch {}
+    try { const { closePgBoss } = await import('@digilog/queue'); await closePgBoss(); } catch {}
   } catch (err) {
     app.log.error(err as Error, 'Error during shutdown');
   }

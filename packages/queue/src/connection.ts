@@ -1,42 +1,31 @@
-import IORedis from 'ioredis';
+/**
+ * PgBoss Connection — Singleton instance backed by PostgreSQL.
+ * Replaces BullMQ + Redis with pg-boss for job queue management.
+ */
 
-// TODO: BullMQ recommends separate connections for workers vs queue producers.
-// Consider providing getWorkerConnection() and getQueueConnection() factories.
+import PgBoss from 'pg-boss';
 
-let connection: IORedis | null = null;
+let boss: PgBoss | null = null;
 
-export function getRedisConnection(): IORedis {
-  if (!connection) {
-    connection = new IORedis({
-      host: process.env.REDIS_HOST ?? 'localhost',
-      port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
-      password: process.env.REDIS_PASSWORD || undefined,
-      maxRetriesPerRequest: null, // Required by BullMQ
-      enableReadyCheck: false,
-      retryStrategy(times) {
-        if (times > 10) {
-          console.error('[Redis] Max retries exceeded, giving up');
-          return null; // stop retrying
-        }
-        return Math.min(times * 200, 5000); // retry with backoff, max 5s
-      },
+export async function getBoss(): Promise<PgBoss> {
+  if (!boss) {
+    boss = new PgBoss({
+      connectionString: process.env.DATABASE_URL!,
+      schema: 'pgboss',
+      retryLimit: 3,
+      retryDelay: 5,
+      expireInHours: 24,
+      archiveCompletedAfterSeconds: 86400,
+      deleteAfterDays: 7,
     });
-
-    connection.on('error', (err) => {
-      console.error('[Redis] Connection error:', err.message);
-    });
+    await boss.start();
   }
-  return connection;
+  return boss;
 }
 
-export async function closeRedisConnection(): Promise<void> {
-  if (connection) {
-    try {
-      await connection.quit();
-    } catch (err) {
-      console.error('[Redis] Error closing connection:', err);
-    } finally {
-      connection = null;
-    }
+export async function closePgBoss(): Promise<void> {
+  if (boss) {
+    await boss.stop();
+    boss = null;
   }
 }

@@ -1,4 +1,4 @@
-export { QUEUES } from './queues.js';
+export { QUEUES, QUEUE_OPTIONS } from './queues.js';
 export type { QueueName } from './queues.js';
 
 export { JOB_PRIORITY } from './priorities.js';
@@ -17,4 +17,4 @@ export type {
   MaintenanceJob,
 } from './schemas.js';
 
-export { getRedisConnection, closeRedisConnection } from './connection.js';
+export { getBoss, closePgBoss } from './connection.js';

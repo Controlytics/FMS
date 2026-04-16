@@ -13,8 +13,7 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import path from 'path';
-import { Queue } from 'bullmq';
-import { getRedisConnection, QUEUES, JOB_PRIORITY } from '@digilog/queue';
+import { getBoss, QUEUES, QUEUE_OPTIONS, JOB_PRIORITY } from '@digilog/queue';
 import { getTsdbPool } from '@digilog/db';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { prisma } from '../../lib/prisma.js';
@@ -22,18 +21,6 @@ import { resolveEntityByToken } from './entity-resolver.js';
 import { normalizeMessage, normalizeBatch } from './message-normalizer.js';
 import type { MessageType } from './message-normalizer.js';
 import { publishRpcRequest, getRpcResponse } from './rpc-handler.js';
-
-let ingestionQueue: Queue | null = null;
-
-function getIngestionQueue(): Queue {
-  if (!ingestionQueue) {
-    ingestionQueue = new Queue(QUEUES.INGESTION.name, {
-      connection: getRedisConnection(),
-      defaultJobOptions: QUEUES.INGESTION.defaultJobOptions,
-    });
-  }
-  return ingestionQueue;
-}
 
 // ─── Device Token Auth Middleware ─────────────────────────
 
@@ -104,10 +91,14 @@ async function enqueueMessage(
     ruleChainId: device.ruleChainId,
   });
 
-  const queue = getIngestionQueue();
+  const boss = await getBoss();
   const priority = priorityOverride ?? JOB_PRIORITY.TELEMETRY;
 
-  await queue.add(messageType, msg, { priority, jobId: msg.messageId });
+  await boss.send(QUEUES.INGESTION, msg, {
+    ...QUEUE_OPTIONS[QUEUES.INGESTION],
+    singletonKey: msg.messageId,
+    priority,
+  });
 
   return { messageId: msg.messageId };
 }
@@ -135,11 +126,15 @@ async function enqueueBatch(
     ruleChainId: device.ruleChainId,
   });
 
-  const queue = getIngestionQueue();
+  const boss = await getBoss();
   const messageIds: string[] = [];
 
   for (const msg of messages) {
-    await queue.add(messageType, msg, { priority, jobId: msg.messageId });
+    await boss.send(QUEUES.INGESTION, msg, {
+      ...QUEUE_OPTIONS[QUEUES.INGESTION],
+      singletonKey: msg.messageId,
+      priority,
+    });
     messageIds.push(msg.messageId);
   }
 
@@ -326,10 +321,11 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
       },
     });
 
-    const queue = getIngestionQueue();
-    await queue.add('POST_CHECKLIST', msg, {
+    const boss = await getBoss();
+    await boss.send(QUEUES.INGESTION, msg, {
+      ...QUEUE_OPTIONS[QUEUES.INGESTION],
+      singletonKey: msg.messageId,
       priority: JOB_PRIORITY.CHECKLIST_SUBMISSION,
-      jobId: msg.messageId,
     });
 
     return { success: true, messageId: msg.messageId };

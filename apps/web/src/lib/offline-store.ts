@@ -95,7 +95,7 @@ export async function cacheData(key: string, data: any, ttlMs: number = 5 * 60 *
   return new Promise((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); });
 }
 
-export async function getCachedData<T>(key: string): Promise<T | null> {
+export async function getCachedData<T>(key: string, ignoreExpiry = false): Promise<T | null> {
   const db = await openDB();
   const tx = db.transaction('cache', 'readonly');
   const req = tx.objectStore('cache').get(key);
@@ -104,7 +104,7 @@ export async function getCachedData<T>(key: string): Promise<T | null> {
       const result = req.result as CachedData | undefined;
       if (!result) { resolve(null); return; }
       // When offline, always return cached data regardless of expiry
-      if (navigator.onLine && new Date(result.expiresAt) < new Date()) { resolve(null); return; }
+      if (!ignoreExpiry && navigator.onLine && new Date(result.expiresAt) < new Date()) { resolve(null); return; }
       resolve(result.data as T);
     };
     req.onerror = () => reject(req.error);

@@ -6,7 +6,7 @@ import os from 'node:os';
 import { prisma } from '../../lib/prisma.js';
 import { getTsdbPool } from '@digilog/db';
 import { getMqttClient } from '../../transport/mqtt-client.js';
-import IORedis from 'ioredis';
+import { getBoss } from '@digilog/queue';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -193,42 +193,26 @@ async function checkTimescaledb(): Promise<SubCheck[]> {
   return checks;
 }
 
-// ── Check 3: Redis ────────────────────────────────────────────────────
-async function checkRedis(): Promise<SubCheck[]> {
+// ── Check 3: PgBoss (Job Queue) ──────────────────────────────────────
+async function checkPgBoss(): Promise<SubCheck[]> {
   const checks: SubCheck[] = [];
-  const redis = new IORedis({
-    host: process.env.REDIS_HOST ?? 'localhost',
-    port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
-    password: process.env.REDIS_PASSWORD || undefined,
-    connectTimeout: 5000,
-    lazyConnect: true,
-  });
 
   try {
-    await redis.connect();
-    const pong = await redis.ping();
-    checks.push(
-      pong === 'PONG'
-        ? { name: 'connection', status: 'PASS', message: 'PONG' }
-        : { name: 'connection', status: 'FAIL', found: pong },
-    );
+    const boss = await getBoss();
+    checks.push({ name: 'connection', status: 'PASS', message: 'pgboss started and connected to PostgreSQL' });
 
-    // Version
-    const info = await redis.info('server');
-    const versionMatch = info.match(/redis_version:(\S+)/);
-    if (versionMatch) {
-      const ver = versionMatch[1];
-      const major = parseInt(ver.split('.')[0]);
-      checks.push(
-        major >= 6
-          ? { name: 'version', status: 'PASS', found: ver }
-          : { name: 'version', status: 'WARN', expected: '>=6.0', found: ver, message: 'Recommended: Redis 6.2+' },
-      );
-    }
+    // Check if pgboss schema exists
+    const pool = getTsdbPool();
+    const { rows } = await pool.query(
+      `SELECT schema_name FROM information_schema.schemata WHERE schema_name = 'pgboss'`,
+    );
+    checks.push(
+      rows.length > 0
+        ? { name: 'schema', status: 'PASS', message: 'pgboss schema exists' }
+        : { name: 'schema', status: 'WARN', message: 'pgboss schema not found — will be auto-created on first use' },
+    );
   } catch (e: any) {
     checks.push({ name: 'connection', status: 'FAIL', message: e.message });
-  } finally {
-    try { redis.disconnect(); } catch {}
   }
 
   return checks;
@@ -436,7 +420,6 @@ function checkEnvironment(): SubCheck[] {
   const required: Array<{ key: string; warn?: boolean }> = [
     { key: 'DATABASE_URL' },
     { key: 'TSDB_HOST' },
-    { key: 'REDIS_HOST' },
     { key: 'API_PORT', warn: true },
   ];
 
@@ -534,7 +517,7 @@ const deploymentCheckRoutes: FastifyPluginAsync = async (app) => {
       const results = await Promise.allSettled([
         runCheck('database', 'PostgreSQL', checkPostgresql),
         runCheck('database', 'TimescaleDB', checkTimescaledb),
-        runCheck('service', 'Redis', checkRedis),
+        runCheck('service', 'PgBoss (Job Queue)', checkPgBoss),
         runCheck('service', 'MQTT/EMQX', checkMqtt),
         runCheck('database', 'Prisma Models', checkPrismaModels),
         Promise.resolve(runCheck('api', 'API Routes', async () => checkApiRoutes(app))),

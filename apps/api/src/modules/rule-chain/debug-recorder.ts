@@ -1,10 +1,10 @@
 /**
  * Debug Recorder — Per-chain ring buffer for debug records.
  * Records node execution details when debug is enabled.
- * Streams to Redis pub/sub for real-time debug panel.
+ * Streams to PostgreSQL NOTIFY for real-time debug panel.
  */
 
-import IORedis from 'ioredis';
+import { getTsdbPool } from '@digilog/db';
 import type { DebugRecord } from './types.js';
 import { getConfigOrDefault } from '../data-ingestion/ingestion-config.service.js';
 
@@ -13,20 +13,6 @@ const debugBuffers = new Map<string, DebugRecord[]>();
 const chainLastAccess = new Map<string, number>();
 const MAX_CHAINS = 1000;
 let maxBufferSize = 100;
-let redisPub: IORedis | null = null;
-
-function getRedisPublisher(): IORedis {
-  if (!redisPub) {
-    redisPub = new IORedis({
-      host: process.env.REDIS_HOST ?? 'localhost',
-      port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
-      password: process.env.REDIS_PASSWORD || undefined,
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
-    });
-  }
-  return redisPub;
-}
 
 /** Initialize the debug recorder with config. */
 export async function initDebugRecorder(): Promise<void> {
@@ -64,12 +50,16 @@ export function recordDebug(chainId: string, record: DebugRecord): void {
     buffer.shift();
   }
 
-  // Publish to Redis for real-time streaming
+  // Publish to PostgreSQL NOTIFY for real-time streaming
   try {
-    const redis = getRedisPublisher();
-    redis.publish(`debug:rulechain:${chainId}`, JSON.stringify(record)).catch(() => {
-      // Non-critical
-    });
+    const pool = getTsdbPool();
+    const payload = JSON.stringify(record);
+    // pg_notify payload max is 8000 bytes — truncate if needed
+    if (payload.length < 7500) {
+      pool.query(`SELECT pg_notify($1, $2)`, [`debug_rulechain_${chainId}`, payload]).catch(() => {
+        // Non-critical
+      });
+    }
   } catch {
     // Non-critical
   }
@@ -102,13 +92,5 @@ export async function isChainDebugEnabled(chainId: string): Promise<boolean> {
     return config.debugEnabled === true;
   } catch {
     return false;
-  }
-}
-
-/** Close the Redis publisher. */
-export async function closeDebugRedis(): Promise<void> {
-  if (redisPub) {
-    await redisPub.quit();
-    redisPub = null;
   }
 }
