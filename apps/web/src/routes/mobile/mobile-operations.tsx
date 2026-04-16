@@ -110,11 +110,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const [offlineApprovals, setOfflineApprovals] = useState<any[]>([]);
   useEffect(() => { if (dueTasksData) { cache('due-tasks', dueTasksData); } }, [dueTasksData, cache]);
   useEffect(() => { if (approvalsData?.data) { cache('approvals', approvalsData.data); } }, [approvalsData, cache]);
+  // Load cached tasks/approvals on mount AND when going offline
   useEffect(() => {
-    if (!online) {
-      getCache<any>('due-tasks').then(t => setOfflineTasks(t));
-      getCache<any[]>('approvals').then(a => setOfflineApprovals(a ?? []));
-    }
+    getCache<any>('due-tasks').then(t => setOfflineTasks(t));
+    getCache<any[]>('approvals').then(a => setOfflineApprovals(a ?? []));
   }, [online, view]);
 
   const approvals: any[] = online ? (approvalsData?.data ?? []) : offlineApprovals;
@@ -1096,13 +1095,18 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               <p className="text-xs text-slate-500 mt-0.5">AHUs currently due for cleaning based on PM schedules</p>
             </div>
 
-            {!online && (
+            {!online && !offlineTasks && (
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center text-xs text-slate-500">
-                My Tasks requires an internet connection.
+                No cached tasks available. Open My Tasks while online first.
+              </div>
+            )}
+            {!online && offlineTasks && (
+              <div className="mx-0 mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-700 flex items-center gap-2">
+                Showing cached tasks — may not reflect latest schedules
               </div>
             )}
 
-            {online && dueTasksLoading && (
+            {online && dueTasksLoading && !offlineTasks && (
               <div className="space-y-3">
                 {Array.from({ length: 3 }).map((_, i) => (
                   <div key={i} className="bg-white border border-slate-200 rounded-2xl h-24 animate-pulse" />
