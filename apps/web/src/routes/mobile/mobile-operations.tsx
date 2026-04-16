@@ -1328,6 +1328,34 @@ export function MobileOperationsPage() {
               </div>
             )}
 
+            {/* Currently Drying Panel — shows filters with active dryer timers */}
+            {activeStage.key === 'DRY_IN' && (() => {
+              const dryingFilters = allFilters.filter((f: any) => f.currentLifecycleState === 'DRY_IN');
+              if (dryingFilters.length === 0) return null;
+              return (
+                <div className="bg-white border border-amber-200 rounded-2xl overflow-hidden">
+                  <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2.5">
+                    <h3 className="text-sm font-bold text-white">Currently Drying ({dryingFilters.length})</h3>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {dryingFilters.map((f: any) => (
+                      <DryingFilterCard
+                        key={f.id}
+                        filterId={f.id}
+                        filterName={f.name}
+                        online={online}
+                        getCache={getCache}
+                        executeOrQueue={executeOrQueue}
+                        updateOfflineState={updateOfflineState}
+                        onSuccess={(msg) => { setSuccess(msg); mutate('/api/assets/instances?limit=500'); refreshOfflineData(); }}
+                        onError={setError}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Stage Recent */}
             {recentOps.filter(op => op.stage === activeStage.key).length > 0 && (
               <div className="space-y-1 mt-2">
@@ -1544,6 +1572,158 @@ export function MobileOperationsPage() {
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * DryingFilterCard — Shows a single filter's dryer status with countdown + temperature selection.
+ * Works both online (SWR polling) and offline (cached state).
+ */
+function DryingFilterCard({
+  filterId, filterName, online, getCache, executeOrQueue, updateOfflineState, onSuccess, onError,
+}: {
+  filterId: string; filterName: string; online: boolean;
+  getCache: <T>(key: string) => Promise<T | null>;
+  executeOrQueue: any; updateOfflineState: any;
+  onSuccess: (msg: string) => void; onError: (msg: string) => void;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  const [temp, setTemp] = useState<number | ''>('');
+  const [submitting, setSubmitting] = useState(false);
+  const [cycleData, setCycleData] = useState<any>(null);
+  const [equipGroup, setEquipGroup] = useState<any>(null);
+
+  // Live timer — tick every second
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Load dryer data from API (online) or cache (offline)
+  useEffect(() => {
+    const load = async () => {
+      if (online) {
+        try {
+          const st = await import('../../lib/api-client').then(m => m.apiClient.get<any>(`/api/filters/${filterId}/current-state`));
+          setCycleData(st?.currentCycle);
+          setEquipGroup(st?.equipmentGroup);
+          return;
+        } catch { /* fall through to cache */ }
+      }
+      // Offline: use cached state
+      const cached = await getCache<any>(`filter-state-${filterId}`);
+      setCycleData(cached?.currentCycle);
+      setEquipGroup(cached?.equipmentGroup);
+    };
+    load();
+    // Refresh every 15s when online
+    if (online) {
+      const interval = setInterval(load, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [filterId, online]);
+
+  const startedAt = cycleData?.dryerStartedAt ? new Date(cycleData.dryerStartedAt).getTime() : null;
+  const durationMin: number | null = cycleData?.dryerDurationMinutes ?? null;
+
+  if (!startedAt || !durationMin) {
+    return (
+      <div className="px-4 py-3 flex items-center justify-between">
+        <span className="text-sm font-medium text-slate-700">{filterName}</span>
+        <span className="text-[10px] text-slate-400">waiting for dryer start...</span>
+      </div>
+    );
+  }
+
+  const halfMs = (durationMin * 60_000) / 2;
+  const totalMs = durationMin * 60_000;
+  const elapsedMs = now - startedAt;
+  const halfReached = elapsedMs >= halfMs;
+  const remainingSec = Math.max(0, Math.ceil((halfMs - elapsedMs) / 1000));
+  const remainingMin = Math.floor(remainingSec / 60);
+  const remainingSecPart = remainingSec % 60;
+  const progressPct = Math.min(100, (elapsedMs / totalMs) * 100);
+
+  // Find dryer temperature instrument
+  const dryerInstrument = (equipGroup?.instruments ?? []).find(
+    (i: any) => i.stageKey === 'DRY_IN' && /temp/i.test(i.description ?? ''),
+  );
+  const tempOptions: number[] = [];
+  if (dryerInstrument) {
+    const { operatingMin, operatingMax, leastCount } = dryerInstrument;
+    const step = leastCount > 0 ? leastCount : 1;
+    for (let v = operatingMin; v <= operatingMax + 0.001; v = Math.round((v + step) * 100) / 100) {
+      tempOptions.push(v);
+    }
+  }
+  const tempUom = dryerInstrument?.uom ?? '°C';
+
+  const handleTempSubmit = async () => {
+    if (!temp || submitting || !equipGroup) return;
+    setSubmitting(true);
+    try {
+      const dryInInstruments = (equipGroup.instruments ?? []).filter((i: any) => i.stageKey === 'DRY_IN');
+      const readings: Record<string, number> = {};
+      for (const inst of dryInInstruments) {
+        readings[inst.id] = (dryerInstrument && inst.id === dryerInstrument.id) ? Number(temp) : inst.operatingMin;
+      }
+      const { executed } = await executeOrQueue('advance', filterId, filterName, {
+        targetState: 'DRY_OUT',
+        dryerAction: 'SUBMIT_READINGS',
+        equipmentGroupId: equipGroup.id,
+        instrumentReadings: readings,
+        remarks: `Dryer temperature ${temp}${tempUom} - ${filterName}`,
+      }, 'DRY_OUT');
+      if (!executed) await updateOfflineState(filterId, 'DRY_OUT', false);
+      onSuccess(`${filterName} → Dry Out (${temp}${tempUom})${executed ? '' : ' (queued)'}`);
+    } catch (e: any) {
+      onError(e.message ?? 'Failed');
+    }
+    setSubmitting(false);
+  };
+
+  return (
+    <div className="px-4 py-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-sm font-semibold text-slate-800">{filterName}</div>
+          <div className="text-[10px] text-slate-500">{durationMin} min total</div>
+        </div>
+        <div className={`text-xs font-bold px-2.5 py-1 rounded-full ${halfReached ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+          {halfReached ? 'Ready' : `${remainingMin}:${String(remainingSecPart).padStart(2, '0')}`}
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all ${halfReached ? 'bg-green-500' : 'bg-amber-500'}`} style={{ width: `${progressPct}%` }} />
+      </div>
+
+      {/* Temperature selection — only when half-time reached */}
+      {halfReached && tempOptions.length > 0 && (
+        <div className="flex items-center gap-2 pt-1">
+          <select
+            value={temp}
+            onChange={e => setTemp(e.target.value ? Number(e.target.value) : '')}
+            disabled={submitting}
+            className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:border-amber-400 outline-none"
+          >
+            <option value="">Select {tempUom}...</option>
+            {tempOptions.map(v => <option key={v} value={v}>{v} {tempUom}</option>)}
+          </select>
+          <button
+            onClick={handleTempSubmit}
+            disabled={!temp || submitting}
+            className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl text-sm font-bold disabled:opacity-40 active:opacity-90"
+          >
+            {submitting ? '...' : 'Submit'}
+          </button>
+        </div>
+      )}
+      {halfReached && tempOptions.length === 0 && (
+        <div className="text-[10px] text-red-500">No temperature instrument configured for this equipment group</div>
       )}
     </div>
   );

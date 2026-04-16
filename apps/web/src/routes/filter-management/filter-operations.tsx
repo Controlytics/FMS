@@ -1585,16 +1585,34 @@ function DryingFilterRow({
         if (dryerInstrument && inst.id === dryerInstrument.id) readings[inst.id] = Number(temp);
         else readings[inst.id] = inst.operatingMin;
       }
-      await apiClient.post(`/api/filters/${filterId}/advance`, {
+      const { executeOrQueue: eOrQ } = await import('@/hooks/use-offline').then(() => {
+        // Use apiClient for online, queue for offline
+        return { executeOrQueue: async (type: any, fId: string, fName: string, payload: any, optState?: string) => {
+          try {
+            await apiClient.post(`/api/filters/${fId}/advance`, payload);
+            return { executed: true };
+          } catch (e: any) {
+            const msg = String(e?.message || '').toLowerCase();
+            if (msg.includes('fetch') || msg.includes('network') || msg.includes('load failed')) {
+              const { queueOperation, updateFilterStateLocally } = await import('@/lib/offline-store');
+              await queueOperation({ type: 'advance', filterId: fId, filterName: fName, payload });
+              if (optState) await updateFilterStateLocally(fId, optState);
+              return { executed: false };
+            }
+            throw e;
+          }
+        }};
+      });
+      const { executed } = await eOrQ('advance', filterId, filterName, {
         targetState: 'DRY_OUT',
         dryerAction: 'SUBMIT_READINGS',
         equipmentGroupId: resolvedGroup.id,
         instrumentReadings: readings,
         remarks: `Dryer temperature ${temp}${tempUom} - ${filterName}`,
-      });
-      setToast({ type: 'success', message: `${filterName} → DRY_OUT (${temp}${tempUom})` });
+      }, 'DRY_OUT');
+      setToast({ type: 'success', message: `${filterName} → DRY_OUT (${temp}${tempUom})${executed ? '' : ' (queued)'}` });
       refreshFilters();
-      refreshState();
+      if (executed) refreshState();
     } catch (e: any) {
       setPopupError(e.message ?? 'Failed to submit dryer reading');
     }
