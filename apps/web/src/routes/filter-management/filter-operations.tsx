@@ -12,6 +12,8 @@ import { DryerDurationDialog } from './components/dryer-duration-dialog';
 import { ChecklistDialog } from './components/checklist-dialog';
 import { CLEANING_STAGES_OPS } from '../../lib/filter-constants';
 import { ErrorPopup } from '../../components/ui/error-popup';
+import { useOffline } from '../../hooks/use-offline';
+import { onSyncEvent } from '../../lib/sync-engine';
 import type { FilterInstance, PaginatedResponse } from '../../types/filter';
 
 const CLEANING_STAGES = CLEANING_STAGES_OPS;
@@ -39,10 +41,101 @@ export function FilterOperationsPage() {
   // here with the list pre-filtered to an AHU's child filters.
   const [searchParams] = useSearchParams();
   const ahuIdFilter = searchParams.get('ahuId');
-  const { data: instancesData } = useSWR<PaginatedResponse<FilterInstance>>('/api/assets/instances?limit=200', { refreshInterval: 30000 });
-  const { data: templatesData } = useSWR<PaginatedResponse<{ id: string; name: string }>>('/api/assets/templates?limit=100');
   const { formatDateTime, formatDate, formatTime } = useDatetimeFormat();
   const reauth = useReauth();
+  const { online, pendingCount, syncing, executeOrQueue, manualSync, clearQueue, cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
+  const { data: instancesData, error: instancesError } = useSWR<PaginatedResponse<FilterInstance>>('/api/assets/instances?limit=500', { refreshInterval: online ? 30000 : 0 });
+  const { data: templatesData, error: templatesError } = useSWR<PaginatedResponse<{ id: string; name: string }>>('/api/assets/templates?limit=100');
+  const { data: identifiersData } = useSWR<any[]>(online ? '/api/assets/identifiers?limit=1000' : null);
+  const { data: reasonsData } = useSWR<any>(online ? '/api/filters/reasons' : null);
+  const { data: equipGroupsData } = useSWR<any>(online ? '/api/equipment-groups' : null);
+  const isMobile = typeof window !== 'undefined' && !!(window as any).Capacitor?.isNativePlatform?.();
+
+  // Offline fallback data
+  const [offlineInstances, setOfflineInstances] = useState<any[]>([]);
+  const [offlineTemplates, setOfflineTemplates] = useState<any[]>([]);
+  const [offlineDataLoaded, setOfflineDataLoaded] = useState(false);
+
+  // Cache filter data for offline use
+  useEffect(() => { if (instancesData?.data) cacheFilterData(instancesData.data); }, [instancesData]);
+  useEffect(() => { if (templatesData?.data) cache('templates', templatesData.data); }, [templatesData]);
+  // Cache cleaning reasons for offline cycle start
+  useEffect(() => { const r = (reasonsData as any)?.reasons ?? reasonsData; if (r) cache('cleaning-reasons', r); }, [reasonsData]);
+  // Cache equipment groups for offline equipment/limits selection
+  useEffect(() => { if (equipGroupsData) cache('equipment-groups', Array.isArray(equipGroupsData) ? equipGroupsData : equipGroupsData?.data ?? []); }, [equipGroupsData]);
+  // Pre-cache current-state for all filters while online (so offline has full state)
+  // Runs on page load and whenever instances data refreshes
+  useEffect(() => {
+    if (!online || !instancesData?.data) return;
+    const filters = instancesData.data.filter((f: any) => {
+      const isFilter = f.template?.name === 'Filter' || (filterTemplateId && f.templateId === filterTemplateId);
+      return isFilter && f.isActive !== false && f.status !== 'Retired';
+    });
+    const cacheFilterStates = async () => {
+      for (const f of filters) {
+        try {
+          const st = await apiClient.get<any>(`/api/filters/${f.id}/current-state`);
+          cache(`filter-state-${f.id}`, {
+            currentState: st.currentState ?? null,
+            equipmentGroup: st.equipmentGroup ?? null,
+            blockEquipmentGroups: st.blockEquipmentGroups ?? [],
+            pendingChecklist: st.pendingChecklist ?? [],
+            pipelineStages: st.pipelineStages ?? [],
+            nextAllowedStages: st.nextAllowedStages ?? [],
+            isPmDue: st.isPmDue ?? false,
+            pmReasonKey: st.pmReasonKey ?? null,
+            currentCycle: st.currentCycle ?? null,
+            homeBlock: st.homeBlock ?? null,
+            blockChangeStatus: st.blockChangeStatus ?? null,
+          });
+        } catch { break; } // stop on first failure
+      }
+    };
+    const timer = setTimeout(cacheFilterStates, 2000);
+    return () => clearTimeout(timer);
+  }, [online, instancesData]);
+  // Cache identifier map for offline RFID/tag lookup
+  useEffect(() => {
+    if (identifiersData) {
+      const list = Array.isArray(identifiersData) ? identifiersData : [];
+      const map: Record<string, { filterId: string; filterName: string }> = {};
+      for (const ident of list) {
+        if (ident.identifierValue && ident.assetId) {
+          const entry = { filterId: ident.assetId, filterName: ident.asset?.name || ident.assetId };
+          map[ident.identifierValue] = entry;
+          map[ident.identifierValue.toUpperCase()] = entry;
+          map[ident.identifierValue.toLowerCase()] = entry;
+        }
+      }
+      if (Object.keys(map).length > 0) cache('identifier-map', map);
+    }
+  }, [identifiersData]);
+
+  // Load cached data on mount + when going offline
+  useEffect(() => {
+    Promise.all([
+      getOfflineFilters().then(setOfflineInstances),
+      getCache<any[]>('templates').then(t => setOfflineTemplates(t ?? [])),
+    ]).finally(() => setOfflineDataLoaded(true));
+  }, []);
+  useEffect(() => {
+    if (!online) {
+      Promise.all([
+        getOfflineFilters().then(setOfflineInstances),
+        getCache<any[]>('templates').then(t => setOfflineTemplates(t ?? [])),
+      ]).finally(() => setOfflineDataLoaded(true));
+    }
+  }, [online]);
+
+  // Refresh data after sync completes
+  useEffect(() => {
+    const cleanup = onSyncEvent((event) => {
+      if (event.type === 'complete' && event.synced && event.synced > 0) {
+        mutate('/api/assets/instances?limit=500');
+      }
+    });
+    return cleanup;
+  }, []);
 
   const [mode, setMode] = useState<'operations' | 'status'>('operations');
   const [activeStage, setActiveStage] = useState<typeof CLEANING_STAGES[0] | null>(null);
@@ -110,14 +203,29 @@ export function FilterOperationsPage() {
   } | null>(null);
   const [blockChangeReason, setBlockChangeReason] = useState('');
   const [blockChangeSubmitting, setBlockChangeSubmitting] = useState(false);
+  // Saved cycle-start payload when equipment dialog is opened before cycle is started (offline flow)
+  const [pendingCyclePayload, setPendingCyclePayload] = useState<Record<string, any> | null>(null);
 
-  const isLoading = !instancesData || !templatesData;
+  // If SWR fetch failed (network error), treat as offline — use cached data
+  const swrFailed = !!(instancesError || templatesError);
+  // When online and SWR hasn't failed, wait for server data.
+  // When offline or SWR failed, wait for IndexedDB cache load to complete.
+  const isLoading = (!swrFailed && online) ? (!instancesData || !templatesData) : !offlineDataLoaded;
 
   // Include all active filter instances — profile may be assigned directly (filterProfileId)
   // or via config-based rules (BY_BLOCK, BY_AHU, etc.) which resolve server-side.
   // When ?ahuId=X is present (deep-link from My Tasks), narrow to filters whose parentId matches.
-  const allFilters = (instancesData?.data ?? []).filter((f: any) => {
-    if (f.template?.name !== 'Filter' || f.isActive === false || f.status === 'Retired') return false;
+  // Use SWR data when online, cached data when offline
+  const instances = (instancesData?.data ?? offlineInstances) as any[];
+  const templates = (templatesData?.data ?? offlineTemplates) as any[];
+
+  // Find the Filter template ID — works with both online (template.name) and offline (templateId) data
+  const filterTemplateId = templates.find((t: any) => t.name === 'Filter')?.id;
+
+  const allFilters = instances.filter((f: any) => {
+    // Match by template object (online) OR by templateId (offline cached data)
+    const isFilter = f.template?.name === 'Filter' || (filterTemplateId && f.templateId === filterTemplateId);
+    if (!isFilter || f.isActive === false || f.status === 'Retired') return false;
     if (ahuIdFilter && f.parentId !== ahuIdFilter) return false;
     return true;
   });
@@ -148,11 +256,11 @@ export function FilterOperationsPage() {
   );
 
   const refreshFilters = useCallback(() => {
-    mutate('/api/assets/instances?limit=200');
+    mutate('/api/assets/instances?limit=500');
   }, []);
 
-  const blockTemplateId = (templatesData?.data ?? []).find((t) => t.name === 'Block')?.id;
-  const blocks = (instancesData?.data ?? []).filter((e) => e.templateId === blockTemplateId);
+  const blockTemplateId = templates.find((t: any) => t.name === 'Block')?.id;
+  const blocks = instances.filter((e: any) => e.templateId === blockTemplateId);
 
   const handleStageClick = (stage: typeof CLEANING_STAGES[0]) => {
     navigate(`/filters/stage/${stage.key}`);
@@ -186,15 +294,37 @@ export function FilterOperationsPage() {
   }, [urlStageKey]);
 
   // Resolve a tag/name → filterId+name
+  // Uses API when online, cached identifier map when offline
   const resolveFilter = async (tagOrName: string): Promise<{ filterId: string; filterName: string } | null> => {
-    const trimmed = tagOrName.trim();
+    let trimmed = tagOrName.trim().toUpperCase();
+    // RFID dedup: reader may send the same tag 2x or 3x concatenated
+    if (trimmed.length >= 6 && trimmed.length % 2 === 0) {
+      const half = trimmed.length / 2;
+      if (trimmed.substring(0, half) === trimmed.substring(half)) trimmed = trimmed.substring(0, half);
+    }
+    if (trimmed.length >= 9 && trimmed.length % 3 === 0) {
+      const third = trimmed.length / 3;
+      if (trimmed.substring(0, third) === trimmed.substring(third, third * 2) && trimmed.substring(0, third) === trimmed.substring(third * 2)) trimmed = trimmed.substring(0, third);
+    }
     if (!trimmed) return null;
+
+    // 1. Try API lookup (works when online)
     try {
       const lookup = await apiClient.get<any>(`/api/assets/identifiers/lookup/${encodeURIComponent(trimmed)}`);
       if (lookup?.asset?.id) return { filterId: lookup.asset.id, filterName: lookup.asset.name };
-    } catch { /* fall through */ }
-    const allInstances = instancesData?.data ?? [];
-    const match = allInstances.find((a: any) => a.name?.toLowerCase() === trimmed.toLowerCase());
+    } catch { /* offline or network error — fall through */ }
+
+    // 2. Try cached identifier map (works offline — built from identifiers API and stored in IndexedDB)
+    try {
+      const identifierMap = await getCache<Record<string, { filterId: string; filterName: string }>>('identifier-map');
+      if (identifierMap) {
+        const entry = identifierMap[trimmed] || identifierMap[trimmed.toUpperCase()] || identifierMap[trimmed.toLowerCase()];
+        if (entry) return entry;
+      }
+    } catch { /* IndexedDB error — fall through */ }
+
+    // 3. Try matching by filter name
+    const match = instances.find((a: any) => a.name?.toLowerCase() === trimmed.toLowerCase());
     if (match) return { filterId: match.id, filterName: match.name };
     return null;
   };
@@ -240,14 +370,16 @@ export function FilterOperationsPage() {
     const newSubmissions: Array<{stage: string; filter: string; block?: string; time: string}> = [];
     for (const item of batch) {
       try {
-        await apiClient.post(`/api/filters/${item.filterId}/advance`, {
+        const { executed } = await executeOrQueue('advance', item.filterId, item.filterName, {
           targetState: overrideTargetState ?? activeStage.key,
           cleaningAreaId: blockId,
           remarks: remarks || `${stageLabel} - Batch - ${item.filterName}`,
           ...extraBody,
-        });
+        }, overrideTargetState ?? activeStage.key);
         success++;
-        newSubmissions.push({ stage: stageLabel, filter: item.filterName, block: blockName, time: formatTime(new Date()) });
+        // Update cached pipeline state after offline advance
+        if (!executed) await updateCachedStateAfterAdvance(item.filterId, overrideTargetState ?? activeStage.key, false);
+        newSubmissions.push({ stage: stageLabel + (executed ? '' : ' (queued)'), filter: item.filterName, block: blockName, time: formatTime(new Date()) });
       } catch (e: any) {
         if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
           setBlockChangeDialog({
@@ -267,6 +399,10 @@ export function FilterOperationsPage() {
     }
     setRecentSubmissions(prev => [...newSubmissions, ...prev].slice(0, 10));
     refreshFilters();
+    // Gap 20: Refresh offline cached data after queued operations
+    if (newSubmissions.some(s => s.stage.includes('queued'))) {
+      getOfflineFilters().then(setOfflineInstances);
+    }
     if (failed.length > 0 && !blockChangeDialog) {
       setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
     } else if (failed.length === 0) {
@@ -274,13 +410,117 @@ export function FilterOperationsPage() {
     }
   };
 
+  // After an offline advance, update cached filter state to reflect new stage
+  const updateCachedStateAfterAdvance = async (filterId: string, newStageKey: string, cycleStarted?: boolean) => {
+    try {
+      const cachedState = await getCache<any>(`filter-state-${filterId}`) ?? {};
+      const pipeline: any[] = (cachedState.pipelineStages ?? [])
+        .filter((s: any) => s.stateKey)
+        .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+
+      // Compute new nextAllowedStages from sorted pipeline
+      const currentIdx = pipeline.findIndex((s: any) => s.stateKey === newStageKey);
+      const nextAllowed = (currentIdx >= 0 && currentIdx < pipeline.length - 1)
+        ? [pipeline[currentIdx + 1].stateKey] : [];
+
+      cache(`filter-state-${filterId}`, {
+        ...cachedState,
+        currentState: newStageKey,
+        nextAllowedStages: nextAllowed,
+        pendingChecklist: [], // cleared after advance — server recomputes on sync
+        currentCycle: cachedState.currentCycle ?? (cycleStarted ? { id: `offline-cycle-${Date.now()}` } : null),
+      });
+
+      // Also update the filter instance's local state
+      const { updateFilterStateLocally } = await import('@/lib/offline-store');
+      await updateFilterStateLocally(filterId, newStageKey, cycleStarted);
+    } catch { /* ignore cache update errors */ }
+  };
+
   const handleSubmitBatch = async () => {
     if (scanQueue.length === 0 || !activeStage || submitting) return;
     setLoading(true); setSubmitting(true); setError('');
     try {
-      // Inspect first filter to decide which shared dialog (if any) is needed
+      // Try to inspect first filter's state to decide which dialog to show.
+      // When offline, skip state inspection and queue the advance directly.
       const first = scanQueue[0];
-      const state = await apiClient.get<any>(`/api/filters/${first.filterId}/current-state`);
+      // Try to get filter state from API; if offline, build from cached data
+      let state: any = null;
+      const csQuery = selectedBlock?.id ? `?cleaningAreaId=${encodeURIComponent(selectedBlock.id)}` : '';
+      try {
+        state = await apiClient.get<any>(`/api/filters/${first.filterId}/current-state${csQuery}`);
+        // Cache the state for offline use (match mobile's cache shape)
+        cache(`filter-state-${first.filterId}`, {
+          equipmentGroup: state.equipmentGroup ?? null,
+          pendingChecklist: state.pendingChecklist ?? [],
+          pipelineStages: state.pipelineStages ?? [],
+          isPmDue: state.isPmDue ?? false,
+          pmReasonKey: state.pmReasonKey ?? null,
+          currentCycle: state.currentCycle ?? null,
+        });
+      } catch (fetchErr: any) {
+        const msg = String(fetchErr?.message || '').toLowerCase();
+        const isNetErr = (fetchErr instanceof TypeError && msg.includes('fetch'))
+          || msg.includes('failed to fetch') || msg.includes('networkerror')
+          || msg.includes('load failed') || msg.includes('econnrefused');
+        if (!isNetErr) throw fetchErr;
+
+        // ===== OFFLINE PATH =====
+        // Use the LAST CACHED current-state response for this filter.
+        // This was cached during the previous online session when handleSubmitBatch
+        // or the pre-cache loop fetched /current-state successfully.
+        const cachedFilter = instances.find((f: any) => f.id === first.filterId);
+        const cachedState = await getCache<any>(`filter-state-${first.filterId}`);
+
+        if (cachedState) {
+          // We have a full cached state from a previous online fetch — use it directly
+          state = {
+            ...cachedState,
+            currentState: cachedFilter?.currentLifecycleState ?? cachedState.currentState ?? null,
+            currentCycle: cachedState.currentCycle ?? (cachedFilter?.currentCycleId ? { id: cachedFilter.currentCycleId } : null),
+            blockChangeStatus: null,
+          };
+        } else {
+          // No cached state at all — we CANNOT safely determine the pipeline.
+          // Use minimal state: check if filter has a cycle, and let the server
+          // validate everything on sync.
+          const hasCycle = !!cachedFilter?.currentCycleId;
+          state = {
+            currentState: cachedFilter?.currentLifecycleState || null,
+            currentCycle: hasCycle ? { id: cachedFilter.currentCycleId } : null,
+            nextAllowedStages: [],
+            pendingChecklist: [],
+            equipmentGroup: null,
+            isPmDue: false,
+            pmReasonKey: null,
+            blockChangeStatus: null,
+          };
+
+          // Try to resolve equipment group from cached groups for this block
+          if (selectedBlock?.id) {
+            try {
+              const cachedGroups = await getCache<any[]>('equipment-groups') ?? [];
+              const blockGroups = cachedGroups.filter((g: any) => g.blockId === selectedBlock.id);
+              if (blockGroups.length === 1) state.equipmentGroup = blockGroups[0];
+            } catch { /* ignore */ }
+          }
+        }
+      }
+
+      // Gap 9: Proactive block change check (before any dialogs)
+      if (state.blockChangeStatus === 'REQUIRED' && state.homeBlock && selectedBlock?.id) {
+        setBlockChangeDialog({
+          filterId: first.filterId,
+          filterName: first.filterName,
+          homeBlockId: state.homeBlock.id,
+          homeBlockName: state.homeBlock.name,
+          requestedBlockId: selectedBlock.id,
+          requestedBlockName: selectedBlock.name,
+        });
+        setBlockChangeReason('');
+        setLoading(false); setSubmitting(false);
+        return;
+      }
 
       const nextAllowed = state.nextAllowedStages ?? [];
       if (nextAllowed.length > 0 && !nextAllowed.includes(activeStage.key)) {
@@ -301,8 +541,25 @@ export function FilterOperationsPage() {
         return;
       }
 
-      // Need cycle start → reason dialog (one-for-all)
+      // Need cycle start
       if (!state.currentCycle) {
+        // Gap 7: PM auto-start — if filter's AHU has an active PM schedule, auto-start with PM reason
+        if (state.isPmDue && state.pmReasonKey) {
+          const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+          const blockId = selectedBlock?.id;
+          for (const item of batch) {
+            const cyclePayload = { cleaningReasonKey: state.pmReasonKey, cleaningAreaId: blockId };
+            const advancePayload = { targetState: activeStage.key, cleaningAreaId: blockId, remarks: remarks || `${activeStage.label} - ${item.filterName} (PM auto)` };
+            await executeOrQueue('start-and-advance', item.filterId, item.filterName, { cyclePayload, advancePayload } as any, activeStage.key);
+          }
+          setToast({ type: 'success', message: `${batch.length} filter(s) → ${activeStage.label} (PM auto)` });
+          clearScanState();
+          refreshFilters();
+          setLoading(false); setSubmitting(false);
+          return;
+        }
+
+        // No PM — show reason dialog
         const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
         setPendingBatch(batch);
         const blockForReason = selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined;
@@ -363,6 +620,28 @@ export function FilterOperationsPage() {
         }
       }
 
+      // Check if equipment group has instruments for this stage — show readings dialog if so
+      if (state.equipmentGroup && selectedBlock?.id) {
+        const instruments = state.equipmentGroup.instruments ?? [];
+        const stageInstruments = instruments.filter((i: any) => i.stageKey === activeStage.key);
+        if (stageInstruments.length > 0) {
+          const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+          setPendingBatch(batch);
+          clearScanState();
+          setEquipmentDialog({
+            filterId: first.filterId,
+            filterName: `${batch.length} filter(s)`,
+            stage: activeStage,
+            groups: [],
+            cycleEquipmentGroup: state.equipmentGroup,
+            block: selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined,
+          });
+          setEquipmentError('');
+          setLoading(false); setSubmitting(false);
+          return;
+        }
+      }
+
       // No dialog needed → advance the whole batch
       const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
       await advanceBatch(batch, {});
@@ -406,8 +685,7 @@ export function FilterOperationsPage() {
         let started = 0; const startFailed: string[] = [];
         for (const item of batch) {
           try {
-            if (password) await apiClient.postWithReauth(`/api/filters/${item.filterId}/start-cycle`, startBody, password);
-            else await apiClient.post(`/api/filters/${item.filterId}/start-cycle`, startBody);
+            await executeOrQueue('start-cycle', item.filterId, item.filterName, startBody);
             started++;
           } catch (e: any) {
             if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
@@ -440,21 +718,28 @@ export function FilterOperationsPage() {
         // 2) WASH_IN + block selected → check for equipment groups; if any,
         //    hand off to equipment/limits dialog (keeps pendingBatch set).
         if (stage.key === 'WASH_IN' && blockId && block) {
+          let groups: any[] = [];
           try {
-            const groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${blockId}`);
-            if (groups && groups.length > 0) {
-              setReasonDialog(null);
-              setEquipmentDialog({
-                filterId: batch[0].filterId,
-                filterName: `${batch.length} filter(s)`,
-                stage,
-                groups,
-                block,
-              });
-              setEquipmentError('');
-              return; // pendingBatch stays set — equipment dialog handles advance
-            }
-          } catch { /* fall through to plain advance */ }
+            groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${blockId}`) ?? [];
+          } catch {
+            // Offline: use cached equipment groups filtered by block
+            try {
+              const cachedGroups = await getCache<any[]>('equipment-groups') ?? [];
+              groups = cachedGroups.filter((g: any) => g.blockId === blockId);
+            } catch { /* no cached groups */ }
+          }
+          if (groups.length > 0) {
+            setReasonDialog(null);
+            setEquipmentDialog({
+              filterId: batch[0].filterId,
+              filterName: `${batch.length} filter(s)`,
+              stage,
+              groups,
+              block,
+            });
+            setEquipmentError('');
+            return; // pendingBatch stays set — equipment dialog handles advance
+          }
         }
 
         // 3) No equipment dialog needed → advance the whole batch now
@@ -462,13 +747,13 @@ export function FilterOperationsPage() {
         const newSubs: typeof recentSubmissions = [];
         for (const item of batch) {
           try {
-            await apiClient.post(`/api/filters/${item.filterId}/advance`, {
+            const { executed } = await executeOrQueue('advance', item.filterId, item.filterName, {
               targetState: stage.key,
               cleaningAreaId: blockId,
               remarks: remarks || `${stage.label} - Batch - ${item.filterName}`,
-            });
+            }, stage.key);
             success++;
-            newSubs.push({ stage: stage.label, filter: item.filterName, block: blockName, time: formatTime(new Date()) });
+            newSubs.push({ stage: stage.label + (executed ? '' : ' (queued)'), filter: item.filterName, block: blockName, time: formatTime(new Date()) });
           } catch (e: any) {
             if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
               setBlockChangeDialog({
@@ -502,20 +787,76 @@ export function FilterOperationsPage() {
     const reasonBlock = reasonDialog.block;
     const dialogCapture = { ...reasonDialog, block: reasonBlock };
     setLoading(true); setReasonError(''); setSubmitting(true);
-    await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
-      const startBody = {
-        cleaningReasonKey: reasonKey,
-        cleaningJustification: justification || undefined,
-        cleaningAreaId: reasonBlock?.id,
-      };
-      if (password) await apiClient.postWithReauth(`/api/filters/${dialogCapture.filterId}/start-cycle`, startBody, password);
-      else await apiClient.post(`/api/filters/${dialogCapture.filterId}/start-cycle`, startBody);
 
-      // For WASH_IN: show equipment group selection before advancing
-      if (dialogCapture.stage.key === 'WASH_IN' && reasonBlock?.id) {
-        try {
-          const groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${reasonBlock.id}`);
-          if (groups && groups.length > 0) {
+    try {
+      const cycleBody = { cleaningReasonKey: reasonKey, cleaningJustification: justification || undefined, cleaningAreaId: reasonBlock?.id };
+      const advBody = { targetState: dialogCapture.stage.key, cleaningAreaId: reasonBlock?.id, remarks: remarks || `${dialogCapture.stage.label} - ${dialogCapture.filterName}` };
+
+      // For WASH_IN: check equipment groups before advancing (online only)
+      if (dialogCapture.stage.key === 'WASH_IN' && reasonBlock?.id && online) {
+        await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
+          const startBody = { ...cycleBody };
+          if (password) await apiClient.postWithReauth(`/api/filters/${dialogCapture.filterId}/start-cycle`, startBody, password);
+          else await apiClient.post(`/api/filters/${dialogCapture.filterId}/start-cycle`, startBody);
+
+          try {
+            const groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${reasonBlock.id}`);
+            if (groups && groups.length > 0) {
+              setReasonDialog(null);
+              setEquipmentDialog({
+                filterId: dialogCapture.filterId,
+                filterName: dialogCapture.filterName,
+                stage: dialogCapture.stage,
+                groups,
+                block: reasonBlock,
+              });
+              setEquipmentError('');
+              setLoading(false); setSubmitting(false);
+              return;
+            }
+          } catch { /* no groups -- proceed normally */ }
+
+          const advanceResult = password
+            ? await apiClient.postWithReauth<any>(`/api/filters/${dialogCapture.filterId}/advance`, advBody, password)
+            : await apiClient.post<any>(`/api/filters/${dialogCapture.filterId}/advance`, advBody);
+          setRecentSubmissions(prev => [{ stage: dialogCapture.stage.label, filter: dialogCapture.filterName, block: reasonBlock?.name, time: formatTime(new Date()) }, ...prev].slice(0, 10));
+          refreshFilters();
+          setReasonDialog(null);
+          setToast({ type: 'success', message: `${dialogCapture.filterName} \u2192 ${dialogCapture.stage.label}` });
+          if (advanceResult?.pendingChecklist?.length > 0) {
+            setChecklistDialog({ filterId: dialogCapture.filterId, filterName: dialogCapture.filterName, checklists: advanceResult.pendingChecklist });
+            setChecklistError('');
+          }
+        }, {
+          onError: (e: unknown) => {
+            const err = e as any;
+            if (err?.code === 'BLOCK_CHANGE_REQUIRED' && err?.connectionInfo) {
+              setBlockChangeDialog({
+                filterId: err.connectionInfo.filterId ?? dialogCapture.filterId,
+                filterName: dialogCapture.filterName,
+                homeBlockId: err.connectionInfo.homeBlockId,
+                homeBlockName: err.connectionInfo.homeBlockName,
+                requestedBlockId: err.connectionInfo.requestedBlockId,
+                requestedBlockName: err.connectionInfo.requestedBlockName,
+              });
+              setBlockChangeReason('');
+              setReasonDialog(null);
+              return;
+            }
+            setReasonError(err?.message ?? 'Failed'); setPopupError(err?.message ?? 'Failed');
+          },
+        });
+      } else {
+        // Non-WASH_IN or offline: check equipment groups (offline uses cache), then start-and-advance
+        if (dialogCapture.stage.key === 'WASH_IN' && reasonBlock?.id) {
+          let groups: any[] = [];
+          try {
+            const cachedGroups = await getCache<any[]>('equipment-groups') ?? [];
+            groups = cachedGroups.filter((g: any) => g.blockId === reasonBlock.id);
+          } catch { /* no cached groups */ }
+          if (groups.length > 0) {
+            // Save cycle payload — equipment dialog will use it for compound start-and-advance
+            setPendingCyclePayload(cycleBody);
             setReasonDialog(null);
             setEquipmentDialog({
               filterId: dialogCapture.filterId,
@@ -528,45 +869,34 @@ export function FilterOperationsPage() {
             setLoading(false); setSubmitting(false);
             return;
           }
-        } catch { /* no groups -- proceed normally */ }
-      }
-
-      // No equipment groups or not WASH_IN -- advance directly
-      const advanceBody = {
-        targetState: dialogCapture.stage.key,
-        cleaningAreaId: reasonBlock?.id,
-        remarks: remarks || `${dialogCapture.stage.label} - ${dialogCapture.filterName}`,
-      };
-      const advanceResult = password
-        ? await apiClient.postWithReauth<any>(`/api/filters/${dialogCapture.filterId}/advance`, advanceBody, password)
-        : await apiClient.post<any>(`/api/filters/${dialogCapture.filterId}/advance`, advanceBody);
-      setRecentSubmissions(prev => [{ stage: dialogCapture.stage.label, filter: dialogCapture.filterName, block: reasonBlock?.name, time: formatTime(new Date()) }, ...prev].slice(0, 10));
-      refreshFilters();
-      setReasonDialog(null);
-      setToast({ type: 'success', message: `${dialogCapture.filterName} \u2192 ${dialogCapture.stage.label}` });
-      if (advanceResult?.pendingChecklist?.length > 0) {
-        setChecklistDialog({ filterId: dialogCapture.filterId, filterName: dialogCapture.filterName, checklists: advanceResult.pendingChecklist });
-        setChecklistError('');
-      }
-    }, {
-      onError: (e: unknown) => {
-        const err = e as any;
-        if (err?.code === 'BLOCK_CHANGE_REQUIRED' && err?.connectionInfo) {
-          setBlockChangeDialog({
-            filterId: err.connectionInfo.filterId ?? dialogCapture.filterId,
-            filterName: dialogCapture.filterName,
-            homeBlockId: err.connectionInfo.homeBlockId,
-            homeBlockName: err.connectionInfo.homeBlockName,
-            requestedBlockId: err.connectionInfo.requestedBlockId,
-            requestedBlockName: err.connectionInfo.requestedBlockName,
-          });
-          setBlockChangeReason('');
-          setReasonDialog(null);
-          return;
         }
-        setReasonError(err?.message ?? 'Failed'); setPopupError(err?.message ?? 'Failed');
-      },
-    });
+
+        const { executed, result } = await executeOrQueue('start-and-advance', dialogCapture.filterId, dialogCapture.filterName, { cyclePayload: cycleBody, advancePayload: advBody } as any, dialogCapture.stage.key);
+        setRecentSubmissions(prev => [{ stage: dialogCapture.stage.label + (executed ? '' : ' (queued)'), filter: dialogCapture.filterName, block: reasonBlock?.name, time: formatTime(new Date()) }, ...prev].slice(0, 10));
+        refreshFilters();
+        setReasonDialog(null);
+        setToast({ type: 'success', message: `${dialogCapture.filterName} \u2192 ${dialogCapture.stage.label}${executed ? '' : ' (queued)'}` });
+        if (executed && result?.pendingChecklist?.length > 0) {
+          setChecklistDialog({ filterId: dialogCapture.filterId, filterName: dialogCapture.filterName, checklists: result.pendingChecklist });
+          setChecklistError('');
+        }
+      }
+    } catch (e: any) {
+      if (e?.code === 'BLOCK_CHANGE_REQUIRED' && e?.connectionInfo) {
+        setBlockChangeDialog({
+          filterId: e.connectionInfo.filterId ?? dialogCapture.filterId,
+          filterName: dialogCapture.filterName,
+          homeBlockId: e.connectionInfo.homeBlockId,
+          homeBlockName: e.connectionInfo.homeBlockName,
+          requestedBlockId: e.connectionInfo.requestedBlockId,
+          requestedBlockName: e.connectionInfo.requestedBlockName,
+        });
+        setBlockChangeReason('');
+        setReasonDialog(null);
+      } else {
+        setReasonError(e?.message ?? 'Failed'); setPopupError(e?.message ?? 'Failed');
+      }
+    }
     setLoading(false); setSubmitting(false);
   };
 
@@ -583,15 +913,15 @@ export function FilterOperationsPage() {
       const newSubs: typeof recentSubmissions = [];
       for (const item of batch) {
         try {
-          await apiClient.post(`/api/filters/${item.filterId}/advance`, {
+          const { executed } = await executeOrQueue('advance', item.filterId, item.filterName, {
             targetState: 'DRY_IN',
             cleaningAreaId: blockId,
             dryerAction: 'SET_DURATION',
             dryerDurationMinutes: minutes,
             remarks: remarks || `Dryer started (${minutes} min) - Batch`,
-          });
+          }, 'DRY_IN');
           success++;
-          newSubs.push({ stage: 'Dryer Started', filter: item.filterName, block: blockName, time: formatTime(new Date()) });
+          newSubs.push({ stage: 'Dryer Started' + (executed ? '' : ' (queued)'), filter: item.filterName, block: blockName, time: formatTime(new Date()) });
         } catch (e: any) {
           failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
         }
@@ -607,17 +937,17 @@ export function FilterOperationsPage() {
     }
 
     try {
-      await apiClient.post<any>(`/api/filters/${dryerDialog.filterId}/advance`, {
+      const { executed } = await executeOrQueue('advance', dryerDialog.filterId, dryerDialog.filterName, {
         targetState: 'DRY_IN',
         cleaningAreaId: blockId,
         dryerAction: 'SET_DURATION',
         dryerDurationMinutes: minutes,
         remarks: remarks || `Dryer started (${minutes} min) - ${dryerDialog.filterName}`,
-      });
-      setRecentSubmissions(prev => [{ stage: 'Dryer Started', filter: dryerDialog.filterName, block: blockName, time: formatTime(new Date()) }, ...prev].slice(0, 10));
+      }, 'DRY_IN');
+      setRecentSubmissions(prev => [{ stage: 'Dryer Started' + (executed ? '' : ' (queued)'), filter: dryerDialog.filterName, block: blockName, time: formatTime(new Date()) }, ...prev].slice(0, 10));
       refreshFilters();
       setDryerDialog(null);
-      setToast({ type: 'success', message: `${dryerDialog.filterName} → Dryer running (${minutes} min)` });
+      setToast({ type: 'success', message: `${dryerDialog.filterName} → Dryer running (${minutes} min)${executed ? '' : ' (queued)'}` });
     } catch (e: any) {
       setDryerError(e.message ?? 'Failed to start dryer');
       setPopupError(e.message ?? 'Failed to start dryer');
@@ -636,28 +966,45 @@ export function FilterOperationsPage() {
     // BATCH MODE: same readings applied to every filter in the snapshot
     if (pendingBatch && pendingBatch.length > 0) {
       const batch = pendingBatch;
+      const savedCyclePayload = pendingCyclePayload;
       let success = 0; const failed: string[] = [];
       const newSubs: typeof recentSubmissions = [];
       for (const item of batch) {
         try {
-          await apiClient.post(`/api/filters/${item.filterId}/advance`, {
+          const advPayload = {
             targetState: isDryerReadings ? 'DRY_OUT' : stage.key,
             cleaningAreaId: blockId,
             equipmentGroupId: groupId,
             instrumentReadings: readings,
             ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}),
             remarks: remarks || `${stage.label} - Batch - ${item.filterName}`,
-          });
+          };
+          let executed: boolean;
+          if (savedCyclePayload) {
+            // Cycle not started yet — compound start-and-advance with readings
+            const res = await executeOrQueue('start-and-advance', item.filterId, item.filterName, {
+              cyclePayload: { ...savedCyclePayload, equipmentGroupId: groupId },
+              advancePayload: advPayload,
+            } as any, isDryerReadings ? 'DRY_OUT' : stage.key);
+            executed = res.executed;
+          } else {
+            const res = await executeOrQueue('advance', item.filterId, item.filterName, advPayload, isDryerReadings ? 'DRY_OUT' : stage.key);
+            executed = res.executed;
+          }
           success++;
-          newSubs.push({ stage: stage.label, filter: item.filterName, block: blockName, time: formatTime(new Date()) });
+          // Update cached state after offline operation
+          if (!executed) await updateCachedStateAfterAdvance(item.filterId, isDryerReadings ? 'DRY_OUT' : stage.key, !!savedCyclePayload);
+          newSubs.push({ stage: stage.label + (executed ? '' : ' (queued)'), filter: item.filterName, block: blockName, time: formatTime(new Date()) });
         } catch (e: any) {
           failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
         }
       }
       setRecentSubmissions(prev => [...newSubs, ...prev].slice(0, 10));
       refreshFilters();
+      getOfflineFilters().then(setOfflineInstances); // refresh cached data
       setEquipmentDialog(null);
       setPendingBatch(null);
+      setPendingCyclePayload(null);
       if (failed.length > 0) setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
       else setToast({ type: 'success', message: `${success} filter(s) → ${stage.label}` });
       setEquipmentLoading(false);
@@ -665,21 +1012,37 @@ export function FilterOperationsPage() {
     }
 
     try {
-      const advanceResult = await apiClient.post<any>(`/api/filters/${equipmentDialog.filterId}/advance`, {
+      const advPayload = {
         targetState: isDryerReadings ? 'DRY_OUT' : equipmentDialog.stage.key,
         cleaningAreaId: equipmentDialog.block?.id,
         equipmentGroupId: groupId,
         instrumentReadings: readings,
         ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}),
         remarks: remarks || `${equipmentDialog.stage.label} - ${equipmentDialog.filterName}`,
-      });
+      };
+      let executed: boolean;
+      let advanceResult: any;
+      if (pendingCyclePayload) {
+        // Cycle not started yet — compound start-and-advance with readings
+        const res = await executeOrQueue('start-and-advance', equipmentDialog.filterId, equipmentDialog.filterName, {
+          cyclePayload: { ...pendingCyclePayload, equipmentGroupId: groupId },
+          advancePayload: advPayload,
+        } as any, isDryerReadings ? 'DRY_OUT' : equipmentDialog.stage.key);
+        executed = res.executed;
+        advanceResult = res.result;
+        setPendingCyclePayload(null);
+      } else {
+        const res = await executeOrQueue('advance', equipmentDialog.filterId, equipmentDialog.filterName, advPayload, isDryerReadings ? 'DRY_OUT' : equipmentDialog.stage.key);
+        executed = res.executed;
+        advanceResult = res.result;
+      }
 
-      setRecentSubmissions(prev => [{ stage: equipmentDialog.stage.label, filter: equipmentDialog.filterName, block: equipmentDialog.block?.name, time: formatTime(new Date()) }, ...prev].slice(0, 10));
+      setRecentSubmissions(prev => [{ stage: equipmentDialog.stage.label + (executed ? '' : ' (queued)'), filter: equipmentDialog.filterName, block: equipmentDialog.block?.name, time: formatTime(new Date()) }, ...prev].slice(0, 10));
       refreshFilters();
       setEquipmentDialog(null);
-      setToast({ type: 'success', message: `${equipmentDialog.filterName} \u2192 ${equipmentDialog.stage.label}` });
+      setToast({ type: 'success', message: `${equipmentDialog.filterName} \u2192 ${equipmentDialog.stage.label}${executed ? '' : ' (queued)'}` });
 
-      if (advanceResult?.pendingChecklist?.length > 0) {
+      if (executed && advanceResult?.pendingChecklist?.length > 0) {
         setChecklistDialog({ filterId: equipmentDialog.filterId, filterName: equipmentDialog.filterName, checklists: advanceResult.pendingChecklist });
         setChecklistError('');
       }
@@ -697,8 +1060,9 @@ export function FilterOperationsPage() {
       let success = 0; const failed: string[] = [];
       for (const item of batch) {
         try {
-          await apiClient.post(`/api/filters/${item.filterId}/submit-checklist`, { answers });
+          const { executed } = await executeOrQueue('submit-checklist', item.filterId, item.filterName, { answers });
           success++;
+          if (!executed) failed.push(`${item.filterName}: queued for sync`);
         } catch (e: any) {
           failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
         }
@@ -713,11 +1077,9 @@ export function FilterOperationsPage() {
     }
 
     try {
-      await apiClient.post(`/api/filters/${checklistDialog.filterId}/submit-checklist`, {
-        answers,
-      });
+      const { executed } = await executeOrQueue('submit-checklist', checklistDialog.filterId, checklistDialog.filterName, { answers });
       setChecklistDialog(null);
-      setToast({ type: 'success', message: 'Checklist submitted successfully' });
+      setToast({ type: 'success', message: executed ? 'Checklist submitted successfully' : 'Checklist queued for sync' });
       refreshFilters();
     } catch (e: any) {
       setChecklistError(e.message ?? 'Failed to submit checklist');
@@ -728,6 +1090,11 @@ export function FilterOperationsPage() {
 
   const handleBlockChangeRequest = async () => {
     if (!blockChangeDialog || blockChangeSubmitting) return;
+    // Gap 4: Block change requests require internet
+    if (!online) {
+      setPopupError('Block change requests require an internet connection. Please connect to WiFi and try again.');
+      return;
+    }
     setBlockChangeSubmitting(true);
     try {
       await apiClient.post('/api/block-change-requests', {
@@ -768,6 +1135,15 @@ export function FilterOperationsPage() {
             <span>{toast.message}</span>
           </div>
         )}
+        {pendingCount > 0 && (
+          <div className="mx-4 mb-2 px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
+            <span className="text-sm text-amber-700 font-medium">{pendingCount} operation(s) pending sync</span>
+            <div className="flex gap-2">
+              <button onClick={manualSync} disabled={syncing} className="px-3 py-1 bg-amber-100 text-amber-800 rounded-lg text-xs font-medium">{syncing ? 'Syncing...' : 'Sync Now'}</button>
+              <button onClick={() => { if (confirm('Clear all pending?')) clearQueue(); }} className="px-2 py-1 bg-red-50 text-red-600 rounded-lg text-xs">Clear</button>
+            </div>
+          </div>
+        )}
         <button onClick={closeDialog} className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
           <span>←</span> Back to Stages
         </button>
@@ -792,6 +1168,7 @@ export function FilterOperationsPage() {
           onRemoveFromQueue={handleRemoveFromQueue}
           onSubmitBatch={handleSubmitBatch}
           onClose={closeDialog}
+          instances={instances}
         />
         {activeStage.key === 'DRY_IN' && (
           <DryingFiltersPanel
@@ -856,6 +1233,16 @@ export function FilterOperationsPage() {
         <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 text-sm font-medium transition-all animate-in ${toast.type === 'success' ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-red-50 border border-red-200 text-red-700'}`}>
           <span>{toast.type === 'success' ? '\u2713' : '\u2717'}</span>
           <span>{toast.message}</span>
+        </div>
+      )}
+
+      {pendingCount > 0 && (
+        <div className="mx-4 mb-2 px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
+          <span className="text-sm text-amber-700 font-medium">{pendingCount} operation(s) pending sync</span>
+          <div className="flex gap-2">
+            <button onClick={manualSync} disabled={syncing} className="px-3 py-1 bg-amber-100 text-amber-800 rounded-lg text-xs font-medium">{syncing ? 'Syncing...' : 'Sync Now'}</button>
+            <button onClick={() => { if (confirm('Clear all pending?')) clearQueue(); }} className="px-2 py-1 bg-red-50 text-red-600 rounded-lg text-xs">Clear</button>
+          </div>
         </div>
       )}
 
@@ -981,6 +1368,7 @@ export function FilterOperationsPage() {
         onRemoveFromQueue={handleRemoveFromQueue}
         onSubmitBatch={handleSubmitBatch}
         onClose={closeDialog}
+        instances={instances}
       />
 
       {/* Cleaning Reason Dialog */}
@@ -1055,7 +1443,7 @@ export function FilterOperationsPage() {
                   <div className="text-slate-500 mt-1">Requested Block: <span className="font-semibold text-amber-700">{blockChangeDialog.requestedBlockName}</span></div>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Reason</label>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Reason *</label>
                   <textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none" rows={2}
                     value={blockChangeReason} onChange={e => setBlockChangeReason(e.target.value)}
                     placeholder="Why does this filter need to be cleaned in a different block?" />
@@ -1063,7 +1451,7 @@ export function FilterOperationsPage() {
               </div>
               <div className="flex gap-3">
                 <button onClick={() => { setBlockChangeDialog(null); }} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium">Cancel</button>
-                <button onClick={handleBlockChangeRequest} disabled={blockChangeSubmitting}
+                <button onClick={handleBlockChangeRequest} disabled={blockChangeSubmitting || !blockChangeReason.trim()}
                   className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg shadow-cyan-500/25">
                   {blockChangeSubmitting ? 'Submitting...' : 'Request Change'}
                 </button>

@@ -34,10 +34,12 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
             nextBlocks: { type: 'array', items: { type: 'object', additionalProperties: true } },
             pendingChecklist: { type: 'array', items: { type: 'object', additionalProperties: true } },
             pipelineStages: { type: 'array', items: { type: 'object', additionalProperties: true } },
+            pipelineGraph: { type: 'object', nullable: true, additionalProperties: true },
             profile: { type: 'object', nullable: true, additionalProperties: true },
             filterSet: { type: 'string', nullable: true },
             totalCycles: { type: 'integer' },
             equipmentGroup: { type: 'object', nullable: true, additionalProperties: true },
+            blockEquipmentGroups: { type: 'array', items: { type: 'object', additionalProperties: true } },
             homeBlock: {
               type: 'object',
               nullable: true,
@@ -58,6 +60,26 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
     return service.getCurrentState(ctx, id, cleaningAreaId);
   });
 
+  // Batch: get current-state for all filters in one call (for offline caching)
+  app.get('/batch-states', {
+    preHandler: [app.requirePermission('ASSET_READ')],
+    schema: {
+      tags: ['Filter Operations'],
+      summary: 'Get current state for all filters (for offline caching)',
+      querystring: {
+        type: 'object',
+        properties: {
+          cleaningAreaId: { type: 'string', format: 'uuid' },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true } },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const { cleaningAreaId } = (req.query ?? {}) as { cleaningAreaId?: string };
+    return service.getBatchStates(ctx, cleaningAreaId);
+  });
+
   app.post('/:id/start-cycle', {
     preHandler: [app.requirePermission('FILTER_OPERATE')],
     schema: {
@@ -72,6 +94,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           cleaningJustification: { type: 'string' },
           cleaningAreaId: { type: 'string', format: 'uuid' },
           equipmentGroupId: { type: 'string', format: 'uuid' },
+          offlinePerformedAt: { type: 'string', format: 'date-time' },
         },
       },
       response: {
@@ -119,6 +142,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           instrumentReadings: { type: 'object', additionalProperties: { type: 'number' } },
           dryerAction: { type: 'string', enum: ['SET_DURATION', 'SUBMIT_READINGS'] },
           dryerDurationMinutes: { type: 'integer', minimum: 1, maximum: 1440 },
+          offlinePerformedAt: { type: 'string', format: 'date-time' },
         },
       },
       response: {

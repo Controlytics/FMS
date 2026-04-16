@@ -101,6 +101,8 @@ export const instanceService = {
           customAttributes: data.customAttributes as any,
           parentId: data.parentId ?? null,
           createdBy: ctx.userId,
+          // Auto-assign creator's organization so org-scoped users can see it
+          organizationId: data.organizationId ?? ctx.organizationId ?? null,
         } as any,
       });
 

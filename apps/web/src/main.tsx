@@ -95,7 +95,7 @@ const FilterDataManagementPage = lazy(() => import("./routes/config/filter-data-
 const TabletAccessConfigPage = lazy(() => import("./routes/config/tablet-access").then(m => ({ default: m.TabletAccessConfigPage })));
 
 // Mobile
-const MobileOperationsPage = lazy(() => import("./routes/mobile/mobile-operations").then(m => ({ default: m.MobileOperationsPage })));
+const MobileWrapperPage = lazy(() => import("./routes/mobile/mobile-wrapper").then(m => ({ default: m.MobileWrapperPage })));
 const MobileLoginPage = lazy(() => import("./routes/mobile/mobile-login").then(m => ({ default: m.MobileLoginPage })));
 
 function LazyFallback() {
@@ -123,7 +123,7 @@ createRoot(document.getElementById('root')!).render(
         <Routes>
           {/* Mobile routes — standalone, no sidebar */}
           <Route path="/m/login" element={<Suspense fallback={<LazyFallback />}><MobileLoginPage /></Suspense>} />
-          <Route path="/m" element={<Suspense fallback={<LazyFallback />}><MobileOperationsPage /></Suspense>} />
+          <Route path="/m" element={<Suspense fallback={<LazyFallback />}><MobileWrapperPage /></Suspense>} />
 
           {/* Public routes */}
           <Route path="/login" element={<LoginPage />} />
@@ -172,8 +172,8 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/organizations/:id" element={<RequireRole permissions={[PERMISSIONS.ORG_VIEW, PERMISSIONS.ORG_MANAGE]}><Suspense fallback={<LazyFallback />}><OrgDetailPage /></Suspense></RequireRole>} />
 
             {/* Entity Management (lazy-loaded) — permission-based */}
-            <Route path="/assets" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AssetsPage /></Suspense></RequireRole>} />
-            <Route path="/assets/templates" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AssetTemplatesPage /></Suspense></RequireRole>} />
+            <Route path="/assets" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW, PERMISSIONS.ASSET_READ]}><Suspense fallback={<LazyFallback />}><AssetsPage /></Suspense></RequireRole>} />
+            <Route path="/assets/templates" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW, PERMISSIONS.ASSET_READ]}><Suspense fallback={<LazyFallback />}><AssetTemplatesPage /></Suspense></RequireRole>} />
 
             {/* Rule Chains — Admin only (lazy-loaded) */}
             <Route path="/rule-chains" element={<RequireRole permissions={[PERMISSIONS.RULE_CHAIN_VIEW]}><Suspense fallback={<LazyFallback />}><RuleChainsPage /></Suspense></RequireRole>} />

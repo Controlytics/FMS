@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import useSWR from 'swr';
+import { getCachedData } from '@/lib/offline-store';
 
 interface CleaningReasonDialogProps {
   dialog: {
@@ -20,7 +21,14 @@ export function CleaningReasonDialog({ dialog, onClose, onSubmit, loading, error
   const [justification, setJustification] = useState('');
 
   const { data: reasonsData } = useSWR('/api/filters/reasons');
-  const cleaningReasons = (reasonsData as any)?.reasons ?? reasonsData ?? [];
+  const [offlineReasons, setOfflineReasons] = useState<any[]>([]);
+  const onlineReasons = (reasonsData as any)?.reasons ?? reasonsData ?? [];
+  const cleaningReasons = onlineReasons.length > 0 ? onlineReasons : offlineReasons;
+
+  // Load cached reasons for offline use
+  useEffect(() => {
+    getCachedData<any[]>('cleaning-reasons').then(r => { if (r) setOfflineReasons(r); }).catch(() => {});
+  }, []);
 
   // Reset internal state when dialog opens/closes
   useEffect(() => {

@@ -231,6 +231,33 @@ export class FilterOperationsService {
     return cp;
   }
 
+  /**
+   * Batch: get current-state for all active filters in the user's org.
+   * Returns { states: { [filterId]: stateObject } } for offline caching.
+   */
+  async getBatchStates(ctx: RequestContext, cleaningAreaId?: string) {
+    const orgWhere = ctx.organizationId ? { organizationId: ctx.organizationId } : {};
+    const filters = await prisma.assetInstance.findMany({
+      where: {
+        ...orgWhere,
+        isActive: true,
+        status: { not: 'Retired' },
+        template: { name: 'Filter' },
+      },
+      select: { id: true },
+    });
+
+    const states: Record<string, any> = {};
+    for (const f of filters) {
+      try {
+        states[f.id] = await this.getCurrentState(ctx, f.id, cleaningAreaId);
+      } catch {
+        // Skip filters that error (e.g., no profile assigned)
+      }
+    }
+    return { states, cachedAt: new Date().toISOString() };
+  }
+
   async getCurrentState(ctx: RequestContext, filterId: string, cleaningAreaId?: string) {
     const filter = await this.getFilter(filterId, ctx);
 
@@ -374,6 +401,15 @@ export class FilterOperationsService {
       ? cp.stages.filter(s => s.nodeType === "STAGE").map(s => ({ stateKey: s.stateKey, nodeType: s.nodeType, sortOrder: s.sortOrder, configuration: s.configuration }))
       : [];
 
+    // Full pipeline graph for offline nextAllowedStages computation
+    const pipelineGraph = cp
+      ? {
+          stages: cp.stages.map(s => ({ id: s.id, stateKey: s.stateKey, nodeType: s.nodeType, sortOrder: s.sortOrder, configuration: s.configuration })),
+          connections: cp.connections.map(c => ({ fromStageId: c.fromStageId, toStageId: c.toStageId })),
+          flowMode: cp.flowMode,
+        }
+      : null;
+
     // Include equipment group info if cycle has one selected
     let equipmentGroup = null;
     if (currentCycle?.equipmentGroupId) {
@@ -411,6 +447,7 @@ export class FilterOperationsService {
       nextBlocks,
       pendingChecklist,
       pipelineStages,
+      pipelineGraph,
       profile,
       filterSet: filter.filterSet,
       totalCycles,
@@ -519,6 +556,8 @@ export class FilterOperationsService {
   /** @param data - Validated by Fastify JSON schema before reaching this method */
   async startCycle(ctx: RequestContext, filterId: string, data: any) {
     const { cleaningReasonKey, cleaningAreaId, equipmentGroupId } = data;
+    // offlinePerformedAt: original timestamp from when the user performed the action offline
+    const offlineTime = data.offlinePerformedAt ? new Date(data.offlinePerformedAt) : undefined;
     const cleaningJustification = typeof data.cleaningJustification === "string" ? data.cleaningJustification.replace(/</g, "&lt;").replace(/>/g, "&gt;") : data.cleaningJustification;
 
     const filter = await this.getFilter(filterId, ctx);
@@ -590,6 +629,7 @@ export class FilterOperationsService {
           cleaningJustification: cleaningJustification ?? null,
           cleaningAreaId: cleaningAreaId ?? null,
           equipmentGroupId: equipmentGroupId ?? null,
+          ...(offlineTime && { startedAt: offlineTime }),
         },
       });
 
@@ -601,6 +641,7 @@ export class FilterOperationsService {
           remarks: cleaningJustification ?? null,
           checksum: computeChecksum({ filterId, cycleId: newCycle.id, eventType: 'CYCLE_STARTED', performedBy: ctx.userSub }),
           ipAddress: ctx.ipAddress, telemetrySnapshot: {},
+          ...(offlineTime && { performedAt: offlineTime }),
         },
       });
 
@@ -625,6 +666,7 @@ export class FilterOperationsService {
   /** @param data - Validated by Fastify JSON schema before reaching this method */
   async advance(ctx: RequestContext, filterId: string, data: any) {
     const { targetState, parameters, equipmentId, cleaningAreaId, instrumentReadings, equipmentGroupId, dryerAction, dryerDurationMinutes } = data;
+    const offlineTime = data.offlinePerformedAt ? new Date(data.offlinePerformedAt) : undefined;
     const remarks = typeof data.remarks === "string" ? data.remarks.replace(/</g, "&lt;").replace(/>/g, "&gt;") : data.remarks;
 
     const filter = await this.getFilter(filterId, ctx);
@@ -914,6 +956,7 @@ export class FilterOperationsService {
           checksum,
           ipAddress: ctx.ipAddress,
           telemetrySnapshot: {},
+          ...(offlineTime && { performedAt: offlineTime }),
         },
       });
 

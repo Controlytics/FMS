@@ -44,6 +44,10 @@ export async function enforceReauth(
   req: FastifyRequest,
   reply: FastifyReply,
 ): Promise<{ ok: boolean }> {
+  // Offline-replayed operations: the user was already authenticated when they
+  // performed the action on the tablet. Skip reauth for these requests.
+  if (req.headers['x-offline-replay'] === 'true') return { ok: true };
+
   const role = req.user.role;
   const needed = await isReauthRequired(action, role);
   if (!needed) return { ok: true };

@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { apiClient } from '@/lib/api-client';
+import { getCachedData } from '@/lib/offline-store';
 
 interface QueueItem {
   filterId: string;
@@ -35,6 +36,7 @@ interface StageScanDialogProps {
   onSubmitBatch: () => void;
   onClose: () => void;
   fullPage?: boolean;
+  instances?: any[]; // cached instances for offline parent name lookup
 }
 
 export function StageScanDialog({
@@ -58,6 +60,7 @@ export function StageScanDialog({
   onSubmitBatch,
   onClose,
   fullPage = false,
+  instances = [],
 }: StageScanDialogProps) {
   // RFID: detected tag waiting for Continue/Remove
   const [rfidDetected, setRfidDetected] = useState<string | null>(null);
@@ -73,10 +76,11 @@ export function StageScanDialog({
     }
   }, [activeStage]);
 
-  // When tag is detected, look up filter details
+  // When tag is detected, look up filter details (API first, then cached identifier map)
   const lookupFilter = useCallback(async (tagId: string) => {
     setLookingUp(true);
     setFilterInfo(null);
+    // 1. Try API
     try {
       const lookup = await apiClient.get<any>(`/api/assets/identifiers/lookup/${encodeURIComponent(tagId)}`);
       if (lookup?.asset) {
@@ -84,13 +88,44 @@ export function StageScanDialog({
           name: lookup.asset.name || 'Unknown',
           parentName: lookup.asset.parent?.name || '—',
         });
+        setLookingUp(false);
+        return;
       }
-    } catch {
-      // Not found by identifier — try name match (won't have parent info)
-      setFilterInfo(null);
+    } catch { /* offline or network error — fall through */ }
+    // 2. Try cached identifier map from IndexedDB
+    try {
+      const identifierMap = await getCachedData<Record<string, { filterId: string; filterName: string }>>('identifier-map');
+      if (identifierMap) {
+        const entry = identifierMap[tagId] || identifierMap[tagId.toUpperCase()] || identifierMap[tagId.toLowerCase()];
+        if (entry) {
+          // Look up parent (AHU) name from cached instances
+          let parentName = '—';
+          const filterInstance = instances.find((i: any) => i.id === entry.filterId);
+          if (filterInstance?.parentId) {
+            const parent = instances.find((i: any) => i.id === filterInstance.parentId);
+            if (parent) parentName = parent.name;
+          }
+          setFilterInfo({ name: entry.filterName, parentName });
+          setLookingUp(false);
+          return;
+        }
+      }
+    } catch { /* IndexedDB error — fall through */ }
+    // 3. Try matching by filter name in cached instances
+    const match = instances.find((i: any) => i.name?.toLowerCase() === tagId.toLowerCase());
+    if (match) {
+      let parentName = '—';
+      if (match.parentId) {
+        const parent = instances.find((i: any) => i.id === match.parentId);
+        if (parent) parentName = parent.name;
+      }
+      setFilterInfo({ name: match.name, parentName });
+      setLookingUp(false);
+      return;
     }
+    setFilterInfo(null);
     setLookingUp(false);
-  }, []);
+  }, [instances]);
 
   // Handle input — detect RFID burst (input stops for 300ms = one tag complete)
   const handleScanInput = useCallback((value: string) => {

@@ -34,12 +34,40 @@ interface LoginResponse {
   };
 }
 
+/** Check if an error is a network failure (not a real API error like 401) */
+function isNetworkError(err: any): boolean {
+  if (!err) return false;
+  const msg = String(err?.message || '').toLowerCase();
+  return (err instanceof TypeError && msg.includes('fetch'))
+    || msg.includes('failed to fetch') || msg.includes('networkerror')
+    || msg.includes('network request failed') || msg.includes('load failed')
+    || msg.includes('econnrefused') || msg.includes('unable to resolve host');
+}
+
 export function useAuth() {
   const navigate = useNavigate();
   const getToken = () => sessionStorage.getItem('access_token') || localStorage.getItem('access_token_backup');
-  const { data: user, error, isLoading, mutate } = useSWR<User>(
+
+  // Cache user data for offline use
+  const getCachedUser = (): User | undefined => {
+    try {
+      const cached = localStorage.getItem('digilog_cached_user');
+      return cached ? JSON.parse(cached) : undefined;
+    } catch { return undefined; }
+  };
+
+  const { data: fetchedUser, error, isLoading, mutate } = useSWR<User>(
     getToken() ? '/api/auth/me' : null,
+    {
+      fallbackData: getCachedUser(),
+      onSuccess: (data) => {
+        if (data) localStorage.setItem('digilog_cached_user', JSON.stringify(data));
+      },
+    },
   );
+
+  // Use fetched user when online, cached user as fallback when offline
+  const user = fetchedUser ?? (getToken() ? getCachedUser() : undefined);
 
   const login = async (username: string, password: string, force?: boolean) => {
     const res = await apiClient.post<LoginResponse>('/api/auth/login', {
@@ -74,6 +102,7 @@ export function useAuth() {
     }
     sessionStorage.removeItem('access_token');
     localStorage.removeItem('access_token_backup');
+    localStorage.removeItem('digilog_cached_user');
     // Clean up single-tab localStorage keys
     const myTabId = sessionStorage.getItem('digilog_tab_id');
     if (myTabId && localStorage.getItem('digilog_active_tab_id') === myTabId) {
@@ -151,7 +180,10 @@ export function useAuth() {
   return {
     user,
     isLoading,
-    isAuthenticated: !!user && !error,
+    // Network errors should NOT log the user out — only real 401s should.
+    // When offline, SWR sets `error` to a TypeError("Failed to fetch"), but
+    // we still have a cached user + token, so the user stays authenticated.
+    isAuthenticated: !!user && (!error || isNetworkError(error)),
     login,
     logout,
     mutate,

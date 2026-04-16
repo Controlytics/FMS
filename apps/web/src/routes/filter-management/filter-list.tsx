@@ -92,6 +92,9 @@ export function FilterListPage() {
   const [createName, setCreateName] = useState('');
   const [createAttrs, setCreateAttrs] = useState<Record<string, string>>({});
   const [creating, setCreating] = useState(false);
+  // Block deletion
+  const [deleteBlockDialog, setDeleteBlockDialog] = useState<{ id: string; name: string } | null>(null);
+  const [deletingBlock, setDeletingBlock] = useState(false);
 
   const { data: templatesData } = useSWR('/api/assets/templates?limit=100');
   const { data: instancesData, isLoading } = useSWR('/api/assets/instances?limit=500', { refreshInterval: 30000 });
@@ -206,6 +209,32 @@ export function FilterListPage() {
       mutate('/api/assets/instances?limit=500');
     } catch (e: any) { toast.error('Error', e?.message ?? 'Failed'); }
     setCreating(false);
+  };
+
+  const handleDeleteBlock = async () => {
+    if (!deleteBlockDialog || deletingBlock) return;
+    setDeletingBlock(true);
+    try {
+      await reauth.execute('DELETE_ASSET', async (password?) => {
+        if (password) await api.deleteWithReauth(`/api/assets/instances/${deleteBlockDialog.id}`, password);
+        else await api.delete(`/api/assets/instances/${deleteBlockDialog.id}`);
+      }, {
+        onSuccess: () => {
+          toast.success('Deleted', `Block "${deleteBlockDialog.name}" deleted`);
+          setDeleteBlockDialog(null);
+          if (selectedBlock === deleteBlockDialog.id) setSelectedBlock(null);
+          mutate('/api/assets/instances?limit=500');
+          setDeletingBlock(false);
+        },
+        onError: (err: unknown) => {
+          toast.error('Error', (err as any)?.message ?? 'Failed to delete block');
+          setDeletingBlock(false);
+        },
+      });
+    } catch (e: any) {
+      toast.error('Error', e?.message ?? 'Failed to delete block');
+      setDeletingBlock(false);
+    }
   };
 
   // Walk up parent chain to find Block, Area and AHU ancestors
@@ -905,6 +934,15 @@ export function FilterListPage() {
                         </svg>
                       </div>
                       <h3 className="text-sm font-semibold text-slate-800 truncate flex-1">{block.name}</h3>
+                      {hasPerm('ASSET_DELETE') && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeleteBlockDialog({ id: block.id, name: block.name }); }}
+                          className="w-7 h-7 rounded-lg bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"
+                          title="Delete block"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
+                      )}
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="flex-1">
@@ -1318,6 +1356,36 @@ export function FilterListPage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* Delete Block Confirmation Dialog */}
+      {deleteBlockDialog && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setDeleteBlockDialog(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="h-1.5 bg-gradient-to-r from-red-500 to-rose-500" />
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                </div>
+                <div>
+                  <h3 className="text-[15px] font-bold text-slate-800">Delete Block</h3>
+                  <p className="text-[12px] text-slate-400">This action cannot be undone</p>
+                </div>
+              </div>
+              <p className="text-sm text-slate-600 mb-5">
+                Are you sure you want to delete <strong>{deleteBlockDialog.name}</strong>? All child areas, AHUs, and filters under this block will also be removed.
+              </p>
+              <div className="flex gap-3">
+                <button onClick={() => setDeleteBlockDialog(null)} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium">Cancel</button>
+                <button onClick={handleDeleteBlock} disabled={deletingBlock}
+                  className="flex-1 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg shadow-red-500/25">
+                  {deletingBlock ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Reauth Dialog */}

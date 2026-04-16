@@ -14,6 +14,8 @@ import {
   getCachedFilters,
   cacheData,
   getCachedData,
+  clearAllOperations,
+  getAllOperations,
 } from '@/lib/offline-store';
 import { syncPendingOperations, onSyncEvent, startAutoSync } from '@/lib/sync-engine';
 
@@ -23,9 +25,21 @@ export function useOffline() {
   const [syncing, setSyncing] = useState(false);
   const [lastSyncMessage, setLastSyncMessage] = useState('');
 
-  // Track online/offline
+  // Track online/offline — also verify with a real connectivity check on mount
+  // because navigator.onLine can lie on Android/Capacitor WebViews
   useEffect(() => {
     const cleanup = onOnlineStatusChange(setOnline);
+
+    // Real connectivity check: try to reach the API
+    if (checkOnline()) {
+      const baseUrl = import.meta.env.VITE_API_URL ?? '';
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      fetch(`${baseUrl}/api/health`, { method: 'GET', signal: controller.signal })
+        .then(() => { clearTimeout(timer); setOnline(true); })
+        .catch(() => { clearTimeout(timer); setOnline(false); });
+    }
+
     return cleanup;
   }, []);
 
@@ -34,19 +48,25 @@ export function useOffline() {
     startAutoSync();
   }, []);
 
+  // Callback that pages can set to be notified when sync completes (for SWR revalidation)
+  const [onSyncComplete, setOnSyncComplete] = useState<(() => void) | null>(null);
+
   // Track sync events
   useEffect(() => {
     const cleanup = onSyncEvent((event) => {
       if (event.type === 'start') setSyncing(true);
       if (event.type === 'complete') {
         setSyncing(false);
-        if (event.synced) setLastSyncMessage(`Synced ${event.synced} operation(s)`);
+        if (event.synced) {
+          setLastSyncMessage(`Synced ${event.synced} operation(s)`);
+          if (onSyncComplete) onSyncComplete();
+        }
         refreshPendingCount();
       }
       if (event.type === 'error') setLastSyncMessage(event.error ?? 'Sync error');
     });
     return cleanup;
-  }, []);
+  }, [onSyncComplete]);
 
   // Refresh pending count
   const refreshPendingCount = useCallback(async () => {
@@ -63,53 +83,67 @@ export function useOffline() {
    * Returns true if executed immediately, false if queued.
    */
   const executeOrQueue = useCallback(async (
-    type: 'advance' | 'start-cycle' | 'submit-checklist' | 'bypass' | 'terminate',
+    type: 'advance' | 'start-cycle' | 'submit-checklist' | 'bypass' | 'terminate' | 'start-and-advance',
     filterId: string,
     filterName: string,
     payload: Record<string, any>,
     optimisticState?: string, // Update local state immediately
   ): Promise<{ executed: boolean; result?: any }> => {
-    if (checkOnline()) {
-      // Online: execute directly
-      try {
-        let result: any;
-        switch (type) {
-          case 'advance':
-            result = await apiClient.post(`/api/filters/${filterId}/advance`, payload);
-            break;
-          case 'start-cycle':
-            result = await apiClient.post(`/api/filters/${filterId}/start-cycle`, payload);
-            break;
-          case 'submit-checklist':
-            result = await apiClient.post(`/api/filters/${filterId}/submit-checklist`, payload);
-            break;
-          case 'bypass':
-            result = await apiClient.post(`/api/filters/${filterId}/bypass`, payload);
-            break;
-          case 'terminate':
-            result = await apiClient.post(`/api/filters/${filterId}/terminate-cycle`, payload);
-            break;
+    // Try executing online first
+    try {
+      let result: any;
+      switch (type) {
+        case 'advance':
+          result = await apiClient.post(`/api/filters/${filterId}/advance`, payload);
+          break;
+        case 'start-cycle':
+          result = await apiClient.post(`/api/filters/${filterId}/start-cycle`, payload);
+          break;
+        case 'start-and-advance': {
+          const { cyclePayload, advancePayload } = payload as any;
+          try {
+            await apiClient.post(`/api/filters/${filterId}/start-cycle`, cyclePayload);
+          } catch (startErr: any) {
+            const code = startErr?.code || startErr?.error || '';
+            if (code !== 'CYCLE_ACTIVE') throw startErr;
+          }
+          result = await apiClient.post(`/api/filters/${filterId}/advance`, advancePayload);
+          break;
         }
-        return { executed: true, result };
-      } catch (e: any) {
-        // If network error (not API error), queue it
-        const msg = String(e?.message || '').toLowerCase();
-        const isNetErr = (e instanceof TypeError && msg.includes('fetch'))
-          || msg.includes('failed to connect') || msg.includes('failed to fetch')
-          || msg.includes('networkerror') || msg.includes('network request failed')
-          || msg.includes('unable to resolve host') || msg.includes('econnrefused')
-          || msg.includes('load failed');
-        if (!isNetErr) {
-          throw e; // API error — throw as-is
-        }
-        // Network error — fall through to queue below
+        case 'submit-checklist':
+          result = await apiClient.post(`/api/filters/${filterId}/submit-checklist`, payload);
+          break;
+        case 'bypass':
+          result = await apiClient.post(`/api/filters/${filterId}/bypass`, payload);
+          break;
+        case 'terminate':
+          result = await apiClient.post(`/api/filters/${filterId}/terminate-cycle`, payload);
+          break;
       }
+      return { executed: true, result };
+    } catch (e: any) {
+      // Determine if this is a network error (should queue) or API error (should throw)
+      const msg = String(e?.message || '').toLowerCase();
+      const code = e?.code || e?.error || '';
+      const isNetErr = (e instanceof TypeError && msg.includes('fetch'))
+        || msg.includes('failed to connect') || msg.includes('failed to fetch')
+        || msg.includes('networkerror') || msg.includes('network request failed')
+        || msg.includes('unable to resolve host') || msg.includes('econnrefused')
+        || msg.includes('load failed') || msg.includes('tls') || msg.includes('ssl');
+      // Reauth errors should also queue (sync engine sends x-offline-replay to skip reauth)
+      const isReauthErr = code === 'REAUTH_REQUIRED' || code === 'REAUTH_FAILED';
+      if (!isNetErr && !isReauthErr) {
+        throw e; // Real API error (validation, conflict, etc.) — throw as-is
+      }
+      // Network error or reauth block — fall through to queue below
     }
 
     // Offline or network error: queue the operation
     await queueOperation({ type, filterId, filterName, payload });
     if (optimisticState) {
-      await updateFilterStateLocally(filterId, optimisticState);
+      // When starting a cycle offline, also mark the filter as having an active cycle
+      const markCycleActive = type === 'start-and-advance' || type === 'start-cycle';
+      await updateFilterStateLocally(filterId, optimisticState, markCycleActive);
     }
     await refreshPendingCount();
     return { executed: false };
@@ -140,6 +174,17 @@ export function useOffline() {
     return getCachedData<T>(key);
   }, []);
 
+  // Clear all stuck/failed operations from the queue
+  const clearQueue = useCallback(async () => {
+    await clearAllOperations();
+    await refreshPendingCount();
+  }, [refreshPendingCount]);
+
+  // Get all operations for debugging
+  const getQueueDetails = useCallback(async () => {
+    return getAllOperations();
+  }, []);
+
   return {
     online,
     pendingCount,
@@ -147,6 +192,9 @@ export function useOffline() {
     lastSyncMessage,
     executeOrQueue,
     manualSync,
+    clearQueue,
+    getQueueDetails,
+    setOnSyncComplete,
     cacheFilterData,
     getOfflineFilters,
     cache,

@@ -32,6 +32,12 @@ async function rbacPlugin(app: FastifyInstance) {
       // Check direct permission match first
       let hasPermission = perms.includes(permission);
 
+      // Fallback: ASSET_VIEW can be satisfied by ASSET_READ (read-only access)
+      if (!hasPermission && permission.endsWith('_VIEW')) {
+        const readVariant = permission.slice(0, -'_VIEW'.length) + '_READ';
+        if (perms.includes(readVariant)) hasPermission = true;
+      }
+
       // Fallback: check if user has the *_MANAGE parent permission
       if (!hasPermission) {
         const manageVariants = ['_CREATE', '_UPDATE', '_DELETE', '_VIEW', '_READ', '_EXPORT'];

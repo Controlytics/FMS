@@ -6,7 +6,6 @@ import {
   getPendingOperations,
   updateOperationStatus,
   clearSyncedOperations,
-  isOnline,
   onOnlineStatusChange,
 } from './offline-store';
 
@@ -24,33 +23,57 @@ function notify(event: Parameters<SyncListener>[0]) {
   listeners.forEach(l => l(event));
 }
 
-async function executeOperation(op: { type: string; filterId: string; payload: Record<string, any> }): Promise<void> {
-  switch (op.type) {
-    case 'advance':
-      await apiClient.post(`/api/filters/${op.filterId}/advance`, op.payload);
-      break;
-    case 'start-cycle':
-      await apiClient.post(`/api/filters/${op.filterId}/start-cycle`, op.payload);
-      break;
-    case 'submit-checklist':
-      await apiClient.post(`/api/filters/${op.filterId}/submit-checklist`, op.payload);
-      break;
-    case 'bypass':
-      await apiClient.post(`/api/filters/${op.filterId}/bypass`, op.payload);
-      break;
-    case 'terminate':
-      await apiClient.post(`/api/filters/${op.filterId}/terminate-cycle`, op.payload);
-      break;
-    default:
-      throw new Error(`Unknown operation type: ${op.type}`);
+/**
+ * Execute a single queued operation.
+ * Sends x-offline-replay header so the backend skips re-authentication.
+ * For 'start-and-advance' compound ops: runs start-cycle first, then advance.
+ */
+async function executeOperation(op: { type: string; filterId: string; payload: Record<string, any>; createdAt: string }): Promise<void> {
+  const headers: Record<string, string> = { 'x-offline-replay': 'true' };
+  // Inject the original offline timestamp so the backend records the correct time
+  const offlineTime = op.createdAt;
+
+  if (op.type === 'start-and-advance') {
+    const { cyclePayload, advancePayload } = op.payload as { cyclePayload: Record<string, any>; advancePayload: Record<string, any> };
+    try {
+      await apiClient.post(`/api/filters/${op.filterId}/start-cycle`, { ...cyclePayload, offlinePerformedAt: offlineTime }, headers);
+    } catch (e: any) {
+      const code = e?.code || e?.error || '';
+      if (code !== 'CYCLE_ACTIVE') throw e;
+    }
+    await apiClient.post(`/api/filters/${op.filterId}/advance`, { ...advancePayload, offlinePerformedAt: offlineTime }, headers);
+    return;
   }
+
+  const url = op.type === 'terminate'
+    ? `/api/filters/${op.filterId}/terminate-cycle`
+    : `/api/filters/${op.filterId}/${op.type}`;
+
+  await apiClient.post(url, { ...op.payload, offlinePerformedAt: offlineTime }, headers);
 }
 
 export async function syncPendingOperations(): Promise<{ synced: number; failed: number }> {
-  if (syncing || !isOnline()) return { synced: 0, failed: 0 };
+  if (syncing) return { synced: 0, failed: 0 };
 
-  const pending = await getPendingOperations();
+  let pending: any[];
+  try {
+    pending = await getPendingOperations();
+  } catch {
+    return { synced: 0, failed: 0 };
+  }
   if (pending.length === 0) return { synced: 0, failed: 0 };
+
+  // Quick connectivity test: try a lightweight API call
+  try {
+    const baseUrl = import.meta.env.VITE_API_URL ?? '';
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    await fetch(`${baseUrl}/api/health`, { method: 'GET', signal: controller.signal });
+    clearTimeout(timer);
+  } catch {
+    // Server not reachable — skip sync
+    return { synced: 0, failed: 0 };
+  }
 
   syncing = true;
   notify({ type: 'start', total: pending.length });
@@ -58,10 +81,7 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
   let synced = 0;
   let failed = 0;
 
-  // Execute in order (chronological)
   for (const op of pending) {
-    if (!isOnline()) break; // Stop if went offline again
-
     try {
       await updateOperationStatus(op.id, 'syncing');
       await executeOperation(op);
@@ -69,15 +89,28 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
       synced++;
       notify({ type: 'progress', synced, total: pending.length });
     } catch (e: any) {
-      const errMsg = e?.message ?? 'Sync failed';
+      // Extract error message — apiClient throws plain objects for API errors
+      const errMsg = e?.message ?? e?.error ?? 'Sync failed';
+      const msg = String(errMsg).toLowerCase();
+
+      // Network error: server went away mid-sync, stop trying
+      const isNetErr = msg.includes('fetch') || msg.includes('network')
+        || msg.includes('econnrefused') || msg.includes('load failed')
+        || msg.includes('abort') || msg.includes('tls') || msg.includes('ssl');
+      if (isNetErr) {
+        await updateOperationStatus(op.id, 'pending', errMsg);
+        failed++;
+        break;
+      }
+
+      // API error: retry up to 3 times, then mark as permanently failed
       await updateOperationStatus(op.id, op.retryCount >= 2 ? 'failed' : 'pending', errMsg);
       failed++;
       notify({ type: 'error', error: `${op.filterName}: ${errMsg}` });
     }
   }
 
-  // Clean up synced ops
-  await clearSyncedOperations();
+  await clearSyncedOperations().catch(() => {});
 
   syncing = false;
   notify({ type: 'complete', synced, total: pending.length });
@@ -85,23 +118,42 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
   return { synced, failed };
 }
 
-// Auto-sync when coming back online
+// Auto-sync: online event + periodic retry + visibilitychange
 let cleanup: (() => void) | null = null;
+let retryInterval: ReturnType<typeof setInterval> | null = null;
 
 export function startAutoSync(): void {
   if (cleanup) return;
 
-  cleanup = onOnlineStatusChange(async (online) => {
-    if (online) {
-      // Small delay to let network stabilize
-      setTimeout(() => syncPendingOperations(), 2000);
-    }
+  // 1. Browser online/offline events
+  const onlineCleanup = onOnlineStatusChange(async (online) => {
+    if (online) setTimeout(() => syncPendingOperations(), 2000);
   });
 
-  // Also try syncing on start
-  if (isOnline()) {
-    setTimeout(() => syncPendingOperations(), 3000);
-  }
+  // 2. Periodic retry every 30 seconds
+  retryInterval = setInterval(async () => {
+    try {
+      const pending = await getPendingOperations();
+      if (pending.length > 0) syncPendingOperations();
+    } catch {}
+  }, 30_000);
+
+  // 3. Sync when user returns to the app
+  const handleVisibility = () => {
+    if (document.visibilityState === 'visible') {
+      setTimeout(() => syncPendingOperations(), 1000);
+    }
+  };
+  document.addEventListener('visibilitychange', handleVisibility);
+
+  cleanup = () => {
+    onlineCleanup();
+    if (retryInterval) { clearInterval(retryInterval); retryInterval = null; }
+    document.removeEventListener('visibilitychange', handleVisibility);
+  };
+
+  // Initial sync attempt
+  setTimeout(() => syncPendingOperations(), 3000);
 }
 
 export function stopAutoSync(): void {

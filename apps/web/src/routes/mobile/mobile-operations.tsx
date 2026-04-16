@@ -5,6 +5,7 @@ import { apiClient } from '../../lib/api-client';
 import { useAuth } from '../../hooks/use-auth';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { useOffline } from '../../hooks/use-offline';
+import { onSyncEvent } from '../../lib/sync-engine';
 import { DryerDurationDialog } from '../filter-management/components/dryer-duration-dialog';
 
 const STAGES = [
@@ -36,13 +37,13 @@ function buildIdentifierMap(identifiers: any[]): Record<string, { filterId: stri
 export function MobileOperationsPage() {
   const { user, isLoading: authLoading, logout: authLogout } = useAuth();
   const { formatTime } = useDatetimeFormat();
-  const { online, pendingCount, syncing, executeOrQueue, manualSync, cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
+  const { online, pendingCount, syncing, lastSyncMessage, executeOrQueue, manualSync, clearQueue, getQueueDetails, cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
   const mobileNav = useNavigate();
 
   if (!authLoading && !user) return <Navigate to="/m/login" replace />;
 
   // Tablet access control — which features are allowed for this role
-  const { data: tabletAccess } = useSWR(user ? '/api/config/tablet-access/my-features' : null);
+  const { data: tabletAccess } = useSWR(user && online ? '/api/config/tablet-access/my-features' : null);
   const allowedFeatures: string[] = (tabletAccess as any)?.allowed ?? [];
   const hasFeature = (f: string) => allowedFeatures.length === 0 || allowedFeatures.includes(f); // empty = all allowed (backwards compat)
 
@@ -87,15 +88,12 @@ export function MobileOperationsPage() {
   const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=100' : null);
   const { data: reasonsData } = useSWR(online ? '/api/filters/reasons' : null);
   const { data: identifiersData } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null);
+  const { data: equipGroupsData } = useSWR(online ? '/api/equipment-groups' : null);
 
-  // My Tasks + Approvals — only fetch when the user actually opens those views.
-  // SWR key flips to null otherwise, skipping the request entirely.
+  // My Tasks + Approvals — fetch when user opens the view, cache for offline
   const { data: dueTasksData, mutate: mutateDueTasks, isLoading: dueTasksLoading } =
     useSWR(online && view === 'my-tasks' ? '/api/pm-schedules/due' : null, { refreshInterval: 30000 });
 
-  // Approvers see all pending by default (they want to act on open requests);
-  // non-approvers default to ALL so they can see the status of every request
-  // they've submitted — pending, approved, rejected, expired — not just pending.
   const isApprover = user?.role === 'SUPER_ADMIN' || (user?.permissions ?? []).includes('BLOCK_CHANGE_APPROVE');
   const [approvalsFilter, setApprovalsFilter] = useState<'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL'>(isApprover ? 'PENDING' : 'ALL');
   const approvalsKey = (online && view === 'approvals')
@@ -103,7 +101,21 @@ export function MobileOperationsPage() {
     : null;
   const { data: approvalsData, mutate: mutateApprovals, isLoading: approvalsLoading } =
     useSWR<any>(approvalsKey, { refreshInterval: 30000 });
-  const approvals: any[] = approvalsData?.data ?? [];
+
+  // Cache tasks and approvals for offline use
+  const [offlineTasks, setOfflineTasks] = useState<any>(null);
+  const [offlineApprovals, setOfflineApprovals] = useState<any[]>([]);
+  useEffect(() => { if (dueTasksData) { cache('due-tasks', dueTasksData); } }, [dueTasksData, cache]);
+  useEffect(() => { if (approvalsData?.data) { cache('approvals', approvalsData.data); } }, [approvalsData, cache]);
+  useEffect(() => {
+    if (!online) {
+      getCache<any>('due-tasks').then(t => setOfflineTasks(t));
+      getCache<any[]>('approvals').then(a => setOfflineApprovals(a ?? []));
+    }
+  }, [online, view]);
+
+  const approvals: any[] = online ? (approvalsData?.data ?? []) : offlineApprovals;
+  const tasksSource = online ? dueTasksData : offlineTasks;
 
   // Expand state for My Tasks cards + processing state for Approve/Reject
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
@@ -113,6 +125,28 @@ export function MobileOperationsPage() {
   const [offlineTemplates, setOfflineTemplates] = useState<any[]>([]);
   const [offlineReasons, setOfflineReasons] = useState<any[]>([]);
   const [dataCached, setDataCached] = useState(false);
+
+  // Revalidate SWR data after sync completes (fixes "buffering" after sync)
+  const [prevPendingCount, setPrevPendingCount] = useState(0);
+  useEffect(() => {
+    // When pending count drops (operations synced), refresh data
+    if (prevPendingCount > 0 && pendingCount < prevPendingCount && online) {
+      mutate('/api/assets/instances?limit=500');
+      mutateDueTasks();
+    }
+    setPrevPendingCount(pendingCount);
+  }, [pendingCount, online]);
+
+  // Also listen for sync events directly
+  useEffect(() => {
+    const cleanup = onSyncEvent((event) => {
+      if (event.type === 'complete' && event.synced && event.synced > 0) {
+        mutate('/api/assets/instances?limit=500');
+        mutateDueTasks();
+      }
+    });
+    return cleanup;
+  }, []);
 
   // Cache data when online for offline use
   useEffect(() => { if (instancesData?.data) cacheFilterData(instancesData.data); }, [instancesData]);
@@ -126,6 +160,24 @@ export function MobileOperationsPage() {
   }, [identifiersData, cache]);
   useEffect(() => { if (templatesData?.data) cache('templates', templatesData.data); }, [templatesData, cache]);
   useEffect(() => { const r = (reasonsData as any)?.reasons ?? reasonsData; if (r) cache('cleaning-reasons', r); }, [reasonsData, cache]);
+  useEffect(() => { if (equipGroupsData) cache('equipment-groups', Array.isArray(equipGroupsData) ? equipGroupsData : equipGroupsData?.data ?? []); }, [equipGroupsData, cache]);
+
+  // Batch-cache all filter states for offline use (single API call instead of N calls)
+  useEffect(() => {
+    if (!online || !instancesData?.data) return;
+    const cacheAllStates = async () => {
+      try {
+        const result = await apiClient.get<{ states: Record<string, any>; cachedAt: string }>('/api/filters/batch-states');
+        if (result?.states) {
+          for (const [fid, st] of Object.entries(result.states)) {
+            cache(`filter-state-${fid}`, st);
+          }
+        }
+      } catch { /* batch endpoint may not exist on older servers — fall through */ }
+    };
+    const timer = setTimeout(cacheAllStates, 2000);
+    return () => clearTimeout(timer);
+  }, [online, instancesData]);
 
   // Track when all data is cached and ready for offline
   useEffect(() => {
@@ -135,12 +187,13 @@ export function MobileOperationsPage() {
   }, [online, instancesData, templatesData, identifiersData, reasonsData]);
 
   // Load cached data when offline
+  const refreshOfflineData = () => {
+    getOfflineFilters().then(setOfflineFilters);
+    getCache<any[]>('templates').then(t => setOfflineTemplates(t ?? []));
+    getCache<any[]>('cleaning-reasons').then(r => setOfflineReasons(r ?? []));
+  };
   useEffect(() => {
-    if (!online) {
-      getOfflineFilters().then(setOfflineFilters);
-      getCache<any[]>('templates').then(t => setOfflineTemplates(t ?? []));
-      getCache<any[]>('cleaning-reasons').then(r => setOfflineReasons(r ?? []));
-    }
+    if (!online) refreshOfflineData();
   }, [online]);
 
   const cleaningReasons = online ? ((reasonsData as any)?.reasons ?? reasonsData ?? []) : offlineReasons;
@@ -212,13 +265,64 @@ export function MobileOperationsPage() {
       || e.name === 'TypeError';
   };
 
-  // Queue the operation offline (used as fallback when network fails mid-operation)
-  const queueOfflineAdvance = async (filterId: string, filterName: string) => {
-    if (!activeStage) return;
-    await executeOrQueue('advance', filterId, filterName, { targetState: activeStage.key, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${activeStage.label} - ${filterName}` }, activeStage.key);
-    setSuccess(`${filterName} → ${activeStage.label} (queued)`);
-    setRecentOps(prev => [{ stage: activeStage.key, filter: filterName, time: formatTime(new Date()), queued: true }, ...prev].slice(0, 20));
-    setScanValue(''); setRemarks('');
+  // Compute nextAllowedStages using the FULL pipeline graph (same logic as server's getNextStageKeys)
+  const computeNextStages = (graph: any, currentStageKey: string | null): string[] => {
+    if (!graph?.stages || !graph?.connections) return [];
+    // Find the current node by stateKey
+    let currentNode = currentStageKey
+      ? graph.stages.find((s: any) => s.stateKey === currentStageKey)
+      : graph.stages.find((s: any) => s.nodeType === 'START');
+    if (!currentNode) return [];
+
+    // Walk connections from current node, skipping CHECKLIST nodes to find reachable STAGE nodes
+    const reachable: string[] = [];
+    const visited = new Set<string>();
+    const walk = (nodeId: string) => {
+      if (visited.has(nodeId)) return;
+      visited.add(nodeId);
+      const outConns = graph.connections.filter((c: any) => c.fromStageId === nodeId);
+      for (const conn of outConns) {
+        const next = graph.stages.find((s: any) => s.id === conn.toStageId);
+        if (!next) continue;
+        if (next.nodeType === 'STAGE' && next.stateKey) reachable.push(next.stateKey);
+        else if (next.nodeType === 'CHECKLIST') walk(next.id); // skip checklist nodes
+      }
+    };
+    walk(currentNode.id);
+    return reachable;
+  };
+
+  // Update cached filter state + IndexedDB after offline operation
+  const updateOfflineState = async (filterId: string, newStage: string, cycleStarted: boolean) => {
+    try {
+      // Update IndexedDB filter record
+      const { updateFilterStateLocally } = await import('@/lib/offline-store');
+      await updateFilterStateLocally(filterId, newStage, cycleStarted);
+
+      // Update cached filter-state for pipeline validation on next scan
+      const cachedState = await getCache<any>(`filter-state-${filterId}`) ?? {};
+
+      // Use pipeline graph for proper nextAllowedStages (same as server logic)
+      const nextAllowed = cachedState.pipelineGraph
+        ? computeNextStages(cachedState.pipelineGraph, newStage)
+        : (() => {
+            // Fallback: linear pipeline from sorted stages
+            const pipeline: any[] = (cachedState.pipelineStages ?? [])
+              .filter((s: any) => s.stateKey)
+              .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+            const idx = pipeline.findIndex((s: any) => s.stateKey === newStage);
+            return (idx >= 0 && idx < pipeline.length - 1) ? [pipeline[idx + 1].stateKey] : [];
+          })();
+
+      cache(`filter-state-${filterId}`, {
+        ...cachedState,
+        currentState: newStage,
+        nextAllowedStages: nextAllowed,
+        pendingChecklist: [], // server recomputes on sync
+        currentCycle: cachedState.currentCycle ?? (cycleStarted ? { id: `offline-${Date.now()}`, status: 'IN_PROGRESS' } : null),
+      });
+    } catch { /* ignore */ }
+    refreshOfflineData();
   };
 
   const handleSubmit = async () => {
@@ -229,27 +333,94 @@ export function MobileOperationsPage() {
       if (!resolved) { setLoading(false); return; }
       const { filterId, filterName } = resolved;
 
-      if (!online) {
-        await queueOfflineAdvance(filterId, filterName);
-        setLoading(false); return;
-      }
-
-      // Online path — if any network call fails, fall back to offline queue
       let state: any;
-      try {
-        // Pass the selected cleaning area so the backend can pre-compute the
-        // block-change status. This lets us show the "request block change"
-        // popup up-front, before the wash-in reason dialog — instead of
-        // surfacing it as a background error after the user already picked a reason.
-        const csUrl = `/api/filters/${filterId}/current-state${selectedBlock?.id ? `?cleaningAreaId=${encodeURIComponent(selectedBlock.id)}` : ''}`;
-        state = await apiClient.get<any>(csUrl);
-      } catch (e: any) {
-        if (isNetworkError(e)) {
-          // Network dropped — queue for later sync
-          await queueOfflineAdvance(filterId, filterName);
+
+      if (!online) {
+        // Offline: build state from cached filter data + cached filter-specific state
+        const cachedFilters = await getOfflineFilters();
+        const cached = cachedFilters.find((f: any) => f.id === filterId);
+        const cachedState = await getCache<any>(`filter-state-${filterId}`);
+
+        const currentLifecycle = cached?.currentLifecycleState || cachedState?.currentState || null;
+
+        // Use cached nextAllowedStages if available (from last online fetch or updateOfflineState)
+        // Otherwise compute from pipeline graph
+        let offlineNextAllowed: string[] = cachedState?.nextAllowedStages ?? [];
+        if (offlineNextAllowed.length === 0 && cachedState?.pipelineGraph) {
+          offlineNextAllowed = computeNextStages(cachedState.pipelineGraph, currentLifecycle);
+        }
+
+        // Block duplicate submission — if filter is already at this stage
+        if (currentLifecycle === activeStage.key && offlineNextAllowed.length > 0) {
+          setError(`Already at ${activeStage.label}. Next: ${offlineNextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`);
           setLoading(false); return;
         }
-        throw e;
+
+        state = {
+          filterId,
+          filterName: cached?.name || filterName,
+          currentState: currentLifecycle,
+          currentCycle: (cachedState?.currentCycle?.status === 'IN_PROGRESS') ? cachedState.currentCycle : null,
+          nextAllowedStages: offlineNextAllowed,
+          pendingChecklist: cachedState?.pendingChecklist ?? [],
+          pipelineStages: cachedState?.pipelineStages ?? [],
+          pipelineGraph: cachedState?.pipelineGraph ?? null,
+          equipmentGroup: cachedState?.equipmentGroup ?? null,
+          isPmDue: cachedState?.isPmDue ?? false,
+          pmReasonKey: cachedState?.pmReasonKey ?? null,
+          blockChangeStatus: cachedState?.blockChangeStatus ?? null,
+          homeBlock: cachedState?.homeBlock ?? null,
+        };
+      } else {
+        // Online: fetch live state from API
+        try {
+          const csUrl = `/api/filters/${filterId}/current-state${selectedBlock?.id ? `?cleaningAreaId=${encodeURIComponent(selectedBlock.id)}` : ''}`;
+          state = await apiClient.get<any>(csUrl);
+          // Cache filter-specific state for offline use (equipmentGroup, pendingChecklist, pipeline)
+          cache(`filter-state-${filterId}`, {
+            equipmentGroup: state.equipmentGroup ?? null,
+            pendingChecklist: state.pendingChecklist ?? [],
+            pipelineStages: state.pipelineStages ?? [],
+            isPmDue: state.isPmDue ?? false,
+            pmReasonKey: state.pmReasonKey ?? null,
+            currentCycle: state.currentCycle ?? null,
+          });
+        } catch (e: any) {
+          if (isNetworkError(e)) {
+            // Network dropped mid-request — use cached state (same as offline path)
+            const cachedFilters = await getOfflineFilters();
+            const cached = cachedFilters.find((f: any) => f.id === filterId);
+            const cachedState = await getCache<any>(`filter-state-${filterId}`);
+
+            const currentLifecycle = cached?.currentLifecycleState || cachedState?.currentState || null;
+            let offlineNextAllowed: string[] = cachedState?.nextAllowedStages ?? [];
+            if (offlineNextAllowed.length === 0 && cachedState?.pipelineGraph) {
+              offlineNextAllowed = computeNextStages(cachedState.pipelineGraph, currentLifecycle);
+            }
+            if (currentLifecycle === activeStage.key && offlineNextAllowed.length > 0) {
+              setError(`Already at ${activeStage.label}. Next: ${offlineNextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`);
+              setLoading(false); return;
+            }
+
+            state = {
+              filterId,
+              filterName: cached?.name || filterName,
+              currentState: currentLifecycle,
+              currentCycle: (cachedState?.currentCycle?.status === 'IN_PROGRESS') ? cachedState.currentCycle : null,
+              nextAllowedStages: offlineNextAllowed,
+              pendingChecklist: cachedState?.pendingChecklist ?? [],
+              pipelineStages: cachedState?.pipelineStages ?? [],
+              pipelineGraph: cachedState?.pipelineGraph ?? null,
+              equipmentGroup: cachedState?.equipmentGroup ?? null,
+              isPmDue: cachedState?.isPmDue ?? false,
+              pmReasonKey: cachedState?.pmReasonKey ?? null,
+              blockChangeStatus: cachedState?.blockChangeStatus ?? null,
+              homeBlock: cachedState?.homeBlock ?? null,
+            };
+          } else {
+            throw e;
+          }
+        }
       }
 
       // Up-front block verification. If the filter belongs to a different
@@ -273,17 +444,30 @@ export function MobileOperationsPage() {
       if (state.pendingChecklist?.length > 0) { setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: state.pendingChecklist }); setChecklistAnswers({}); setLoading(false); return; }
       const nextAllowed = state.nextAllowedStages ?? [];
       if (nextAllowed.length > 0 && !nextAllowed.includes(activeStage.key)) { setError(`Next allowed: ${nextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`); setLoading(false); return; }
-      if (!state.currentCycle) {
+      // Check if there's an active IN_PROGRESS cycle — completed/terminated cycles don't count
+      const hasActiveCycle = state.currentCycle && state.currentCycle.status === 'IN_PROGRESS';
+      if (!hasActiveCycle) {
         // PM auto-start: if the filter's AHU is currently in a PM schedule
         // window and a "PM" cleaning reason is configured, skip the reason
         // dialog and start the cycle with PM as the reason. Falls through
         // to the normal equipment-group / advance flow below.
         if (state.isPmDue && state.pmReasonKey) {
           try {
-            await apiClient.post(`/api/filters/${filterId}/start-cycle`, {
-              cleaningReasonKey: state.pmReasonKey,
-              cleaningAreaId: selectedBlock?.id,
-            });
+            const fName = filterName || state.filterName;
+            const cyclePayload = { cleaningReasonKey: state.pmReasonKey, cleaningAreaId: selectedBlock?.id };
+            const advancePayload = { targetState: activeStage.key, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${activeStage.label} - ${fName} (PM auto)` };
+
+            const { executed: cycleStarted, result } = await executeOrQueue(
+              'start-and-advance', filterId, fName,
+              { cyclePayload, advancePayload } as any, activeStage.key
+            );
+
+            if (!cycleStarted) {
+              await updateOfflineState(filterId, activeStage.key, true);
+              setSuccess(`${fName} → ${activeStage.label} (PM auto, queued)`);
+              setRecentOps(prev => [{ stage: activeStage.key, filter: fName, time: formatTime(new Date()), queued: true }, ...prev].slice(0, 20));
+              setScanValue(''); setRemarks(''); setLoading(false); return;
+            }
 
             // If WASH_IN and a block is selected, the equipment-group dialog
             // may be required before advance — mirror handleReasonSubmit.
@@ -291,23 +475,16 @@ export function MobileOperationsPage() {
               try {
                 const groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${selectedBlock.id}`);
                 if (groups?.length) {
-                  setEquipDialog({ filterId, filterName: filterName || state.filterName, stage: activeStage.key, groups });
+                  setEquipDialog({ filterId, filterName: fName, stage: activeStage.key, groups });
                   setSelectedEquipGroup(null); setReadings({});
                   setLoading(false); return;
                 }
               } catch {}
             }
-
-            // No equipment dialog needed — advance directly
-            const result = await apiClient.post<any>(`/api/filters/${filterId}/advance`, {
-              targetState: activeStage.key,
-              cleaningAreaId: selectedBlock?.id,
-              remarks: remarks || `${activeStage.label} - ${filterName || state.filterName} (PM auto)`,
-            });
-            setSuccess(`${filterName || state.filterName} → ${activeStage.label} (PM auto)`);
-            setRecentOps(prev => [{ stage: activeStage.key, filter: filterName || state.filterName, time: formatTime(new Date()) }, ...prev].slice(0, 20));
+            setSuccess(`${fName} → ${activeStage.label} (PM auto)`);
+            setRecentOps(prev => [{ stage: activeStage.key, filter: fName, time: formatTime(new Date()) }, ...prev].slice(0, 20));
             setScanValue(''); setRemarks(''); mutate('/api/assets/instances?limit=500');
-            if (result?.pendingChecklist?.length > 0) { setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: result.pendingChecklist }); setChecklistAnswers({}); }
+            if (result?.pendingChecklist?.length > 0) { setChecklistDialog({ filterId, filterName: fName, checklists: result.pendingChecklist }); setChecklistAnswers({}); }
             setLoading(false); return;
           } catch (e: any) {
             if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
@@ -344,17 +521,16 @@ export function MobileOperationsPage() {
         }
       }
 
-      let result: any;
-      try {
-        result = await apiClient.post<any>(`/api/filters/${filterId}/advance`, { targetState: activeStage.key, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${activeStage.label} - ${filterName}` });
-      } catch (e: any) {
-        if (isNetworkError(e)) { await queueOfflineAdvance(filterId, filterName); setLoading(false); return; }
-        throw e;
+      const { executed, result } = await executeOrQueue('advance', filterId, filterName || state.filterName, { targetState: activeStage.key, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${activeStage.label} - ${filterName}` }, activeStage.key);
+      setSuccess(`${filterName || state.filterName} → ${activeStage.label}${executed ? '' : ' (queued)'}`);
+      setRecentOps(prev => [{ stage: activeStage.key, filter: filterName || state.filterName, time: formatTime(new Date()), queued: !executed }, ...prev].slice(0, 20));
+      setScanValue(''); setRemarks('');
+      if (executed) {
+        mutate('/api/assets/instances?limit=500');
+        if (result?.pendingChecklist?.length > 0) { setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: result.pendingChecklist }); setChecklistAnswers({}); }
+      } else {
+        await updateOfflineState(filterId, activeStage.key, false);
       }
-      setSuccess(`${filterName || state.filterName} → ${activeStage.label}`);
-      setRecentOps(prev => [{ stage: activeStage.key, filter: filterName || state.filterName, time: formatTime(new Date()) }, ...prev].slice(0, 20));
-      setScanValue(''); setRemarks(''); mutate('/api/assets/instances?limit=500');
-      if (result?.pendingChecklist?.length > 0) { setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: result.pendingChecklist }); setChecklistAnswers({}); }
     } catch (e: any) {
       if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
         setBlockChangeDialog({ filterId: e.connectionInfo.filterId, filterName: scanValue, homeBlockId: e.connectionInfo.homeBlockId, homeBlockName: e.connectionInfo.homeBlockName, requestedBlockId: e.connectionInfo.requestedBlockId, requestedBlockName: e.connectionInfo.requestedBlockName });
@@ -365,25 +541,48 @@ export function MobileOperationsPage() {
     setLoading(false);
   };
 
+  // Pending cycle payload — saved when reason is selected, used by equipment dialog for offline compound queue
+  const [pendingCyclePayload, setPendingCyclePayload] = useState<Record<string, any> | null>(null);
+
   const handleReasonSubmit = async () => {
     if (!reasonDialog || !selectedReason) return;
     setLoading(true); setError('');
     try {
       const cyclePayload = { cleaningReasonKey: selectedReason, cleaningJustification: justification || undefined, cleaningAreaId: selectedBlock?.id };
-      const { executed: cycleExecuted } = await executeOrQueue('start-cycle', reasonDialog.filterId, reasonDialog.filterName, cyclePayload);
+      const advancePayload = { targetState: reasonDialog.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${reasonDialog.stage.replace(/_/g, ' ')} - ${reasonDialog.filterName}` };
+
+      // Check for equipment groups BEFORE executing — works for both online and offline
+      if (reasonDialog.stage === 'WASH_IN' && selectedBlock?.id) {
+        let groups: any[] = [];
+        if (online) {
+          try { groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${selectedBlock.id}`) ?? []; } catch {}
+        } else {
+          // Offline: use cached equipment groups
+          const cachedGroups = await getCache<any[]>('equipment-groups') ?? [];
+          groups = cachedGroups.filter((g: any) => g.blockId === selectedBlock.id);
+        }
+        if (groups.length > 0) {
+          // Save the cycle payload — equipment dialog will use it for the compound operation
+          setPendingCyclePayload(cyclePayload);
+          setReasonDialog(null);
+          setEquipDialog({ filterId: reasonDialog.filterId, filterName: reasonDialog.filterName, stage: reasonDialog.stage, groups });
+          setSelectedEquipGroup(null); setReadings({});
+          setLoading(false); return;
+        }
+      }
+
+      // No equipment groups needed — queue compound operation directly
+      const { executed: cycleExecuted, result } = await executeOrQueue(
+        'start-and-advance', reasonDialog.filterId, reasonDialog.filterName,
+        { cyclePayload, advancePayload } as any, reasonDialog.stage
+      );
 
       if (!cycleExecuted) {
-        // Offline: also queue the advance after start-cycle
-        await executeOrQueue('advance', reasonDialog.filterId, reasonDialog.filterName, { targetState: reasonDialog.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${reasonDialog.stage.replace(/_/g, ' ')} - ${reasonDialog.filterName}` }, reasonDialog.stage);
+        await updateOfflineState(reasonDialog.filterId, reasonDialog.stage, true);
         setSuccess(`${reasonDialog.filterName} → ${reasonDialog.stage.replace(/_/g, ' ')} (queued)`);
         setRecentOps(prev => [{ stage: reasonDialog.stage, filter: reasonDialog.filterName, time: formatTime(new Date()), queued: true }, ...prev].slice(0, 20));
         setScanValue(''); setRemarks(''); setReasonDialog(null); setLoading(false); return;
       }
-
-      if (reasonDialog.stage === 'WASH_IN' && selectedBlock?.id) {
-        try { const groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${selectedBlock.id}`); if (groups?.length) { setReasonDialog(null); setEquipDialog({ filterId: reasonDialog.filterId, filterName: reasonDialog.filterName, stage: reasonDialog.stage, groups }); setSelectedEquipGroup(null); setReadings({}); setLoading(false); return; } } catch {}
-      }
-      const { result } = await executeOrQueue('advance', reasonDialog.filterId, reasonDialog.filterName, { targetState: reasonDialog.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${reasonDialog.stage.replace(/_/g, ' ')} - ${reasonDialog.filterName}` }, reasonDialog.stage);
       setSuccess(`${reasonDialog.filterName} → ${reasonDialog.stage.replace(/_/g, ' ')}`);
       setRecentOps(prev => [{ stage: reasonDialog.stage, filter: reasonDialog.filterName, time: formatTime(new Date()) }, ...prev].slice(0, 20));
       setScanValue(''); setRemarks(''); setReasonDialog(null); mutate('/api/assets/instances?limit=500');
@@ -426,8 +625,26 @@ export function MobileOperationsPage() {
     try {
       const isDryerReadings = equipDialog.stage === 'DRY_IN';
       const advancePayload = { targetState: isDryerReadings ? 'DRY_OUT' : equipDialog.stage, cleaningAreaId: selectedBlock?.id, equipmentGroupId: selectedEquipGroup.id, instrumentReadings: readings, ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}), remarks: remarks || `${equipDialog.stage.replace(/_/g, ' ')} - ${equipDialog.filterName}` };
-      const { executed, result } = await executeOrQueue('advance', equipDialog.filterId, equipDialog.filterName, advancePayload, equipDialog.stage);
+
+      // If we have a pending cycle payload (from reason dialog), use compound operation
+      let executed: boolean;
+      let result: any;
+      if (pendingCyclePayload) {
+        const res = await executeOrQueue(
+          'start-and-advance', equipDialog.filterId, equipDialog.filterName,
+          { cyclePayload: pendingCyclePayload, advancePayload } as any, equipDialog.stage
+        );
+        executed = res.executed;
+        result = res.result;
+        setPendingCyclePayload(null);
+      } else {
+        const res = await executeOrQueue('advance', equipDialog.filterId, equipDialog.filterName, advancePayload, equipDialog.stage);
+        executed = res.executed;
+        result = res.result;
+      }
+
       const queued = !executed;
+      if (queued) await updateOfflineState(equipDialog.filterId, isDryerReadings ? 'DRY_OUT' : equipDialog.stage, !!pendingCyclePayload);
       setSuccess(`${equipDialog.filterName} → ${equipDialog.stage.replace(/_/g, ' ')}${queued ? ' (queued)' : ''}`);
       setRecentOps(prev => [{ stage: equipDialog.stage, filter: equipDialog.filterName, time: formatTime(new Date()), queued }, ...prev].slice(0, 20));
       setScanValue(''); setRemarks(''); setEquipDialog(null); setSelectedEquipGroup(null); setReadings({});
@@ -540,9 +757,22 @@ export function MobileOperationsPage() {
             </div>
           )}
           {pendingCount > 0 && (
-            <button onClick={manualSync} disabled={!online || syncing} className="px-2 py-1 bg-amber-50 border border-amber-200 rounded-full text-[10px] text-amber-700 font-medium">
-              {syncing ? '⟳' : pendingCount} {syncing ? 'Syncing' : 'pending'}
-            </button>
+            <div className="flex items-center gap-1">
+              <button onClick={async () => {
+                const r = await manualSync();
+                if (r.synced > 0) setSuccess(`Synced ${r.synced} operation(s)`);
+                if (r.failed > 0) {
+                  const ops = await getQueueDetails();
+                  const details = ops.filter((o: any) => o.status !== 'synced').map((o: any) => `${o.type}: ${o.filterName} — ${o.error || 'pending'}`).join('\n');
+                  setError(details || lastSyncMessage || 'Sync failed');
+                }
+              }} disabled={syncing} className="px-2 py-1 bg-amber-50 border border-amber-200 rounded-full text-[10px] text-amber-700 font-medium">
+                {syncing ? '⟳ Syncing...' : `${pendingCount} pending — sync`}
+              </button>
+              <button onClick={async () => { if (confirm('Clear all pending operations? They will not be synced.')) { await clearQueue(); setSuccess('Queue cleared'); } }} className="px-1.5 py-1 bg-red-50 border border-red-200 rounded-full text-[10px] text-red-600 font-medium">
+                ✕
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -707,7 +937,7 @@ export function MobileOperationsPage() {
               </div>
             )}
 
-            {online && !dueTasksLoading && (!dueTasksData?.tasks?.length && !dueTasksData?.overdue?.length) && (
+            {!dueTasksLoading && (!tasksSource?.tasks?.length && !tasksSource?.overdue?.length) && (
               <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
                 <div className="h-1.5 bg-gradient-to-r from-teal-400 to-cyan-500" />
                 <div className="p-10 text-center">
@@ -720,7 +950,7 @@ export function MobileOperationsPage() {
               </div>
             )}
 
-            {online && (dueTasksData?.tasks ?? []).map((task: any) => {
+            {(tasksSource?.tasks ?? []).map((task: any) => {
               const expanded = expandedTasks.has(task.entryId);
               const statusColor =
                 task.overallStatus === 'complete' ? { bar: 'from-emerald-400 to-emerald-500', badge: 'bg-emerald-50 text-emerald-700 border-emerald-100', dot: 'bg-emerald-500' }
@@ -798,13 +1028,13 @@ export function MobileOperationsPage() {
               );
             })}
 
-            {online && (dueTasksData?.overdue ?? []).length > 0 && (
+            {(tasksSource?.overdue ?? []).length > 0 && (
               <div className="space-y-3 pt-2">
                 <div className="flex items-center gap-2">
                   <span className="text-rose-600 text-sm">⚠</span>
                   <h3 className="text-sm font-bold text-slate-800">Overdue</h3>
                 </div>
-                {(dueTasksData.overdue as any[]).map((task: any) => (
+                {((tasksSource?.overdue ?? []) as any[]).map((task: any) => (
                   <div key={task.entryId} className="bg-white border border-rose-200 rounded-2xl overflow-hidden shadow-sm">
                     <div className="h-1.5 bg-gradient-to-r from-rose-400 to-rose-500" />
                     <div className="p-4">
@@ -1121,21 +1351,104 @@ export function MobileOperationsPage() {
 
       {/* Checklist */}
       {checklistDialog && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end justify-center z-50">
-          <div className="bg-white rounded-t-3xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl">
-            <div className="bg-gradient-to-r from-emerald-500 to-green-600 px-5 py-4 rounded-t-3xl"><h2 className="text-lg font-bold text-white">Checklist</h2><p className="text-emerald-100 text-sm">{checklistDialog.filterName}</p></div>
-            <div className="p-5 space-y-4 overflow-y-auto flex-1">
-              {checklistDialog.checklists.map((cl: any) => (<div key={cl.pipelineNodeId}><h3 className="text-sm font-semibold text-slate-700 mb-3">{cl.checklistProfileName}</h3>
-                {cl.questions.map((q: any) => (<div key={q.id} className="mb-4"><label className="text-sm text-slate-700 font-medium">{q.question} {q.required && <span className="text-red-500">*</span>}</label>
-                  {['YES_NO', 'YES_NO_NA', 'PASS_FAIL'].includes(q.questionType) ? (
-                    <div className="flex gap-2 mt-2">{(q.questionType === 'YES_NO' ? ['Yes', 'No'] : q.questionType === 'YES_NO_NA' ? ['Yes', 'No', 'N/A'] : ['Pass', 'Fail']).map((opt: string) => (
-                      <button key={opt} onClick={() => setChecklistAnswers(p => ({ ...p, [q.id]: opt }))} className={`flex-1 py-2.5 rounded-xl text-sm font-medium border-2 ${checklistAnswers[q.id] === opt ? 'bg-cyan-600 text-white border-cyan-600' : 'bg-white text-slate-600 border-slate-200'}`}>{opt}</button>
-                    ))}</div>
-                  ) : <input type={q.questionType === 'NUMERIC' ? 'number' : 'text'} value={checklistAnswers[q.id] ?? ''} onChange={e => setChecklistAnswers(p => ({ ...p, [q.id]: e.target.value }))} className="w-full mt-2 border border-slate-200 rounded-xl px-4 py-3 text-sm" placeholder="Enter answer..." />}
-                </div>))}
-              </div>))}
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end justify-center z-50">
+          <div className="bg-white rounded-t-3xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl animate-slide-up">
+            <div className="bg-gradient-to-r from-purple-600 to-purple-700 px-5 py-4 rounded-t-3xl flex items-center gap-3 shrink-0">
+              <svg className="w-6 h-6 text-purple-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+              <div><h2 className="text-lg font-bold text-white">Checklist Required</h2><p className="text-purple-100 text-sm">{checklistDialog.filterName}</p></div>
             </div>
-            <div className="p-4 border-t border-slate-200 flex gap-3"><button onClick={() => setChecklistDialog(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium">Cancel</button><button onClick={handleChecklistSubmit} disabled={loading} className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold disabled:opacity-40">{loading ? 'Submitting...' : 'Submit'}</button></div>
+            <div className="p-5 space-y-5 overflow-y-auto flex-1">
+              {checklistDialog.checklists.map((cl: any) => (
+                <div key={cl.pipelineNodeId}>
+                  <h3 className="text-sm font-semibold text-purple-700 uppercase tracking-wider mb-3">{cl.checklistProfileName}</h3>
+                  <div className="space-y-4">
+                    {cl.questions.map((q: any, qi: number, arr: any[]) => {
+                      const prevSection = qi > 0 ? arr[qi - 1].section : null;
+                      const showSection = q.section && q.section !== prevSection;
+                      const val = checklistAnswers[q.id] ?? '';
+                      const setVal = (v: any) => setChecklistAnswers(p => ({ ...p, [q.id]: v }));
+                      return (
+                        <div key={q.id}>
+                          {showSection && <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mt-2 mb-1 border-b border-slate-200 pb-1">{q.section}</div>}
+                          <div className="space-y-2">
+                            <div className="flex items-start gap-2">
+                              <span className="text-slate-400 text-xs font-mono mt-0.5 w-5 shrink-0">{qi + 1}.</span>
+                              <div className="flex-1">
+                                <p className="text-sm text-slate-700">{q.question}{q.required && <span className="text-red-600 ml-1">*</span>}</p>
+                                {q.description && <p className="text-xs text-slate-400 mt-0.5">{q.description}</p>}
+                              </div>
+                            </div>
+                            <div className="ml-7">
+                              {q.questionType === 'YES_NO' ? (
+                                <div className="flex gap-2">
+                                  {['Yes', 'No'].map(opt => <button key={opt} onClick={() => setVal(opt)} className={`flex-1 py-2.5 rounded-xl text-sm font-medium border-2 transition-colors ${val === opt ? 'bg-cyan-600 text-white border-cyan-600' : 'bg-white text-slate-600 border-slate-200'}`}>{opt}</button>)}
+                                </div>
+                              ) : q.questionType === 'YES_NO_NA' ? (
+                                <div className="flex gap-2">
+                                  {['Yes', 'No', 'N/A'].map(opt => <button key={opt} onClick={() => setVal(opt)} className={`flex-1 py-2.5 rounded-xl text-sm font-medium border-2 transition-colors ${val === opt ? 'bg-cyan-600 text-white border-cyan-600' : 'bg-white text-slate-600 border-slate-200'}`}>{opt}</button>)}
+                                </div>
+                              ) : q.questionType === 'PASS_FAIL' ? (
+                                <div className="flex gap-2">
+                                  {['Pass', 'Fail'].map(opt => <button key={opt} onClick={() => setVal(opt)} className={`flex-1 py-2.5 rounded-xl text-sm font-medium border-2 transition-colors ${val === opt ? (opt === 'Pass' ? 'bg-green-600 text-white border-green-600' : 'bg-red-600 text-white border-red-600') : 'bg-white text-slate-600 border-slate-200'}`}>{opt}</button>)}
+                                </div>
+                              ) : q.questionType === 'DROPDOWN' ? (
+                                <select value={val} onChange={e => setVal(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:border-cyan-500 outline-none">
+                                  <option value="">Select...</option>
+                                  {(Array.isArray(q.options) ? q.options : []).map((opt: any, i: number) => <option key={i} value={typeof opt === 'string' ? opt : opt.value}>{typeof opt === 'string' ? opt : opt.label}</option>)}
+                                </select>
+                              ) : q.questionType === 'MULTI_SELECT' ? (
+                                <div className="flex flex-wrap gap-2">
+                                  {(Array.isArray(q.options) ? q.options : []).map((opt: any, i: number) => {
+                                    const optVal = typeof opt === 'string' ? opt : opt.value;
+                                    const optLabel = typeof opt === 'string' ? opt : opt.label;
+                                    const selected = Array.isArray(val) && val.includes(optVal);
+                                    return <button key={i} onClick={() => { const arr = Array.isArray(val) ? [...val] : []; setVal(selected ? arr.filter((v: string) => v !== optVal) : [...arr, optVal]); }} className={`px-3 py-2 rounded-xl text-sm font-medium border-2 transition-colors ${selected ? 'bg-cyan-600 text-white border-cyan-600' : 'bg-white text-slate-600 border-slate-200'}`}>{optLabel}</button>;
+                                  })}
+                                </div>
+                              ) : q.questionType === 'NUMERIC' ? (
+                                <div>
+                                  <input type="number" value={val} onChange={e => setVal(e.target.value)}
+                                    min={q.validation?.min} max={q.validation?.max} step={q.validation?.leastCount || 'any'}
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:border-cyan-500 outline-none" placeholder={q.validation?.unit ? `Enter value (${q.validation.unit})` : 'Enter value'} />
+                                  {(q.validation?.min !== undefined || q.validation?.max !== undefined) && (
+                                    <p className="text-xs text-slate-400 mt-1">Range: {q.validation.min ?? '—'} – {q.validation.max ?? '—'}{q.validation.unit ? ` ${q.validation.unit}` : ''}</p>
+                                  )}
+                                </div>
+                              ) : q.questionType === 'PHOTO' ? (
+                                <div>
+                                  <input type="file" accept="image/*" capture="environment" onChange={e => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    const reader = new FileReader();
+                                    reader.onload = () => setVal(reader.result as string);
+                                    reader.readAsDataURL(file);
+                                  }} className="w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-medium file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100" />
+                                  {val && typeof val === 'string' && val.startsWith('data:image') && (
+                                    <img src={val} alt="Captured" className="mt-2 rounded-xl max-h-32 object-cover border border-slate-200" />
+                                  )}
+                                </div>
+                              ) : q.questionType === 'SIGNATURE' ? (
+                                <p className="text-xs text-slate-400 italic">Signature capture not available on tablet — will be collected online</p>
+                              ) : (
+                                <textarea value={val} onChange={e => setVal(e.target.value)} rows={2}
+                                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:border-cyan-500 outline-none" placeholder="Enter answer" />
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              {error && <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
+            </div>
+            <div className="px-5 py-4 border-t border-slate-200 shrink-0 flex gap-3">
+              <button onClick={() => setChecklistDialog(null)} disabled={loading} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition-colors disabled:opacity-40">Cancel</button>
+              <button onClick={handleChecklistSubmit} disabled={loading} className="flex-1 py-3 bg-purple-600 text-white rounded-xl font-bold disabled:opacity-40 flex items-center justify-center gap-2 hover:bg-purple-500 transition-colors">
+                {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <>Submit Checklist</>}
+              </button>
+            </div>
           </div>
         </div>
       )}

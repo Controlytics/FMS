@@ -11,7 +11,7 @@ export function unregisterSwrToast() { _toastError = null; }
 
 export const swrConfig: SWRConfiguration = {
   fetcher: (url: string) => apiClient.get(url),
-  revalidateOnFocus: false,
+  revalidateOnFocus: true,
   shouldRetryOnError: true,
   errorRetryCount: 2,
   errorRetryInterval: 5000,

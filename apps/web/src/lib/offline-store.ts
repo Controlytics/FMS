@@ -8,7 +8,7 @@ const DB_VERSION = 1;
 
 interface OfflineOperation {
   id: string;
-  type: 'advance' | 'start-cycle' | 'submit-checklist' | 'bypass' | 'terminate';
+  type: 'advance' | 'start-cycle' | 'submit-checklist' | 'bypass' | 'terminate' | 'start-and-advance';
   filterId: string;
   filterName: string;
   payload: Record<string, any>;
@@ -83,7 +83,8 @@ export async function getCachedData<T>(key: string): Promise<T | null> {
     req.onsuccess = () => {
       const result = req.result as CachedData | undefined;
       if (!result) { resolve(null); return; }
-      if (new Date(result.expiresAt) < new Date()) { resolve(null); return; } // Expired
+      // When offline, always return cached data regardless of expiry
+      if (navigator.onLine && new Date(result.expiresAt) < new Date()) { resolve(null); return; }
       resolve(result.data as T);
     };
     req.onerror = () => reject(req.error);
@@ -112,7 +113,7 @@ export async function getCachedFilters(): Promise<CachedFilter[]> {
 }
 
 // Update a single filter's state locally (optimistic update for offline)
-export async function updateFilterStateLocally(filterId: string, newState: string): Promise<void> {
+export async function updateFilterStateLocally(filterId: string, newState: string, markCycleActive?: boolean): Promise<void> {
   const db = await openDB();
   const tx = db.transaction('filters', 'readwrite');
   const store = tx.objectStore('filters');
@@ -122,6 +123,10 @@ export async function updateFilterStateLocally(filterId: string, newState: strin
       const filter = req.result;
       if (filter) {
         filter.currentLifecycleState = newState;
+        // When a cycle is started offline, mark it so subsequent stages don't re-ask for reason
+        if (markCycleActive && !filter.currentCycleId) {
+          filter.currentCycleId = `offline-cycle-${Date.now()}`;
+        }
         store.put(filter);
       }
     };
@@ -186,7 +191,10 @@ export async function updateOperationStatus(id: string, status: OfflineOperation
       if (op) {
         op.status = status;
         if (error) op.error = error;
-        if (status === 'failed') op.retryCount = (op.retryCount ?? 0) + 1;
+        // Increment retry count on every failure (pending retry or final failure)
+        if (status === 'failed' || (status === 'pending' && error)) {
+          op.retryCount = (op.retryCount ?? 0) + 1;
+        }
         store.put(op);
       }
       resolve();
@@ -211,6 +219,16 @@ export async function clearSyncedOperations(): Promise<void> {
     };
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => resolve();
+  });
+}
+
+export async function clearAllOperations(): Promise<void> {
+  const db = await openDB();
+  const tx = db.transaction('operations', 'readwrite');
+  tx.objectStore('operations').clear();
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
