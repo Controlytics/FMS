@@ -165,13 +165,15 @@ export function useOffline() {
     return getCachedFilters();
   }, []);
 
-  // Generic cache
+  // Generic cache — 24h TTL (refreshed every time online; stale data served when offline)
   const cache = useCallback(async (key: string, data: any) => {
-    await cacheData(key, data, 30 * 60 * 1000); // 30 min TTL
+    await cacheData(key, data, 24 * 60 * 60 * 1000); // 24 hour TTL
   }, []);
 
   const getCache = useCallback(async <T>(key: string): Promise<T | null> => {
-    return getCachedData<T>(key);
+    // When offline, ignore expiry — stale data is better than no data on pharma floor
+    const ignoreExpiry = !checkOnline();
+    return getCachedData<T>(key, ignoreExpiry);
   }, []);
 
   // Clear all stuck/failed operations from the queue

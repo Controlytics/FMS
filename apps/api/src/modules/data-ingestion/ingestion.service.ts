@@ -13,10 +13,8 @@
 
 import { prisma } from '../../lib/prisma.js';
 import { computeChecksum } from '../../lib/hash-chain.js';
-import { flushAll } from '@digilog/db';
-import { Queue } from 'bullmq';
-import { getRedisConnection, QUEUES, JOB_PRIORITY } from '@digilog/queue';
-import IORedis from 'ioredis';
+import { flushAll, getTsdbPool as getPgPool } from '@digilog/db';
+import { getBoss, QUEUES, QUEUE_OPTIONS, JOB_PRIORITY } from '@digilog/queue';
 import type { IngestionMessage } from './message-normalizer.js';
 import { getConfigOrDefault } from './ingestion-config.service.js';
 import { markOnline } from './connectivity-tracker.js';
@@ -41,33 +39,15 @@ import { addToDLQ } from './dlq-manager.js';
 import { addDeviceEventRow } from '@digilog/db';
 import { dispatchNotification } from "../notification-delivery/notification-dispatcher.js";
 
-// ─── Redis publisher for Stage 11 ──────────────────────
+// ─── PostgreSQL NOTIFY publisher for Stage 11 ──────────
 
-let redisPub: IORedis | null = null;
-
-function getRedisPublisher(): IORedis {
-  if (!redisPub) {
-    redisPub = new IORedis({
-      host: process.env.REDIS_HOST ?? 'localhost',
-      port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
-      password: process.env.REDIS_PASSWORD || undefined,
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
-    });
+async function pgNotify(channel: string, payload: Record<string, unknown>): Promise<void> {
+  try {
+    const pool = getPgPool();
+    await pool.query(`SELECT pg_notify($1, $2)`, [channel, JSON.stringify(payload)]);
+  } catch {
+    // Non-critical — WebSocket broadcast failure is not fatal
   }
-  return redisPub;
-}
-
-let notificationQueue: Queue | null = null;
-
-function getNotificationQueue(): Queue {
-  if (!notificationQueue) {
-    notificationQueue = new Queue(QUEUES.NOTIFICATION.name, {
-      connection: getRedisConnection(),
-      defaultJobOptions: QUEUES.NOTIFICATION.defaultJobOptions,
-    });
-  }
-  return notificationQueue;
 }
 
 // ─── Rate limiting state (in-memory) ───────────────────
@@ -332,19 +312,16 @@ export async function processIngestionMessage(msg: IngestionMessage): Promise<Pi
 
       for (const notification of ruleChainNotifications) {
         try {
-          const queue = getNotificationQueue();
-          await queue.add('rule_chain_notification', {
+          await dispatchNotification({
             type: notification.type,
             entityId: msg.entityId,
             title: notification.title,
             message: notification.message,
             targetRole: notification.targetRole,
             metadata: notification.metadata,
-          }, {
-            priority: JOB_PRIORITY.ALARM_PROCESSING,
           });
         } catch {
-          warnings.push('WARN_NOTIFICATION_ENQUEUE_FAILED');
+          warnings.push('WARN_NOTIFICATION_DISPATCH_FAILED');
         }
       }
 
@@ -767,13 +744,12 @@ async function executeStage10(msg: IngestionMessage): Promise<void> {
 async function executeStage11(msg: IngestionMessage, warnings: string[]): Promise<void> {
   // 1. Publish to Redis pub/sub for WebSocket broadcast
   try {
-    const redis = getRedisPublisher();
-    await redis.publish('ws:events', JSON.stringify({
+    await pgNotify('ws_events', {
       entityId: msg.entityId,
       type: msg.messageType,
       data: msg.data,
       timestamp: msg.timestamp,
-    }));
+    });
   } catch {
     warnings.push('WARN_EMIT_WS_FAILED');
   }
@@ -781,8 +757,7 @@ async function executeStage11(msg: IngestionMessage, warnings: string[]): Promis
   // 2. Enqueue notification if alarm created
   if (msg.messageType === 'ALARM') {
     try {
-      const queue = getNotificationQueue();
-      await queue.add('alarm_notification', {
+      await dispatchNotification({
         type: 'ALARM',
         entityId: msg.entityId,
         title: `Alarm: ${msg.data.alarmType ?? 'Unknown'}`,
@@ -791,8 +766,6 @@ async function executeStage11(msg: IngestionMessage, warnings: string[]): Promis
           alarmType: msg.data.alarmType,
           severity: msg.data.severity,
         },
-      }, {
-        priority: JOB_PRIORITY.ALARM_PROCESSING,
       });
     } catch {
       warnings.push('WARN_EMIT_NOTIFICATION_FAILED');
@@ -919,12 +892,8 @@ async function evaluateTemplateAlarmRules(
   }
 }
 
-/** Close the Redis publisher used by the pipeline and clean up timers. */
-export async function closePipelineRedis(): Promise<void> {
+/** Clean up pipeline resources (timers, rate limit state). */
+export async function closePipelineResources(): Promise<void> {
   clearInterval(rateLimitCleanupTimer);
   rateLimitMap.clear();
-  if (redisPub) {
-    await redisPub.quit();
-    redisPub = null;
-  }
 }

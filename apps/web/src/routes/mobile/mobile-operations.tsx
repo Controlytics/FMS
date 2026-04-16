@@ -89,6 +89,7 @@ export function MobileOperationsPage() {
   const { data: reasonsData } = useSWR(online ? '/api/filters/reasons' : null);
   const { data: identifiersData } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null);
   const { data: equipGroupsData } = useSWR(online ? '/api/equipment-groups' : null);
+  const { data: checklistProfilesData } = useSWR(online ? '/api/checklist-profiles?limit=100' : null);
 
   // My Tasks + Approvals — fetch when user opens the view, cache for offline
   const { data: dueTasksData, mutate: mutateDueTasks, isLoading: dueTasksLoading } =
@@ -124,6 +125,8 @@ export function MobileOperationsPage() {
   const [offlineFilters, setOfflineFilters] = useState<any[]>([]);
   const [offlineTemplates, setOfflineTemplates] = useState<any[]>([]);
   const [offlineReasons, setOfflineReasons] = useState<any[]>([]);
+  const [offlineEquipmentGroups, setOfflineEquipmentGroups] = useState<any[]>([]);
+  const [offlineChecklistProfiles, setOfflineChecklistProfiles] = useState<any[]>([]);
   const [dataCached, setDataCached] = useState(false);
 
   // Revalidate SWR data after sync completes (fixes "buffering" after sync)
@@ -161,6 +164,7 @@ export function MobileOperationsPage() {
   useEffect(() => { if (templatesData?.data) cache('templates', templatesData.data); }, [templatesData, cache]);
   useEffect(() => { const r = (reasonsData as any)?.reasons ?? reasonsData; if (r) cache('cleaning-reasons', r); }, [reasonsData, cache]);
   useEffect(() => { if (equipGroupsData) cache('equipment-groups', Array.isArray(equipGroupsData) ? equipGroupsData : equipGroupsData?.data ?? []); }, [equipGroupsData, cache]);
+  useEffect(() => { const profiles = (checklistProfilesData as any)?.data ?? checklistProfilesData; if (profiles) cache('checklist-profiles', profiles); }, [checklistProfilesData, cache]);
 
   // Batch-cache all filter states for offline use (single API call instead of N calls)
   useEffect(() => {
@@ -181,19 +185,28 @@ export function MobileOperationsPage() {
 
   // Track when all data is cached and ready for offline
   useEffect(() => {
-    if (online && instancesData?.data && templatesData?.data && identifiersData && reasonsData) {
+    if (online && instancesData?.data && templatesData?.data && identifiersData && reasonsData && equipGroupsData) {
       setDataCached(true);
     }
-  }, [online, instancesData, templatesData, identifiersData, reasonsData]);
+  }, [online, instancesData, templatesData, identifiersData, reasonsData, equipGroupsData]);
 
-  // Load cached data when offline
-  const refreshOfflineData = () => {
-    getOfflineFilters().then(setOfflineFilters);
-    getCache<any[]>('templates').then(t => setOfflineTemplates(t ?? []));
-    getCache<any[]>('cleaning-reasons').then(r => setOfflineReasons(r ?? []));
+  // Load cached data on mount AND when going offline — ensures fallback is always ready
+  const refreshOfflineData = async () => {
+    const [filters, templates, reasons, equipGroups, checklists] = await Promise.all([
+      getOfflineFilters(),
+      getCache<any[]>('templates'),
+      getCache<any[]>('cleaning-reasons'),
+      getCache<any[]>('equipment-groups'),
+      getCache<any[]>('checklist-profiles'),
+    ]);
+    setOfflineFilters(filters);
+    setOfflineTemplates(templates ?? []);
+    setOfflineReasons(reasons ?? []);
+    setOfflineEquipmentGroups(equipGroups ?? []);
+    setOfflineChecklistProfiles(checklists ?? []);
   };
   useEffect(() => {
-    if (!online) refreshOfflineData();
+    refreshOfflineData();
   }, [online]);
 
   const cleaningReasons = online ? ((reasonsData as any)?.reasons ?? reasonsData ?? []) : offlineReasons;
@@ -206,6 +219,21 @@ export function MobileOperationsPage() {
 
   const stageCounts: Record<string, number> = {};
   allFilters.forEach((f: any) => { if (f.currentLifecycleState) stageCounts[f.currentLifecycleState] = (stageCounts[f.currentLifecycleState] ?? 0) + 1; });
+
+  // Helper: get equipment groups for a block — tries API first, falls back to cached data
+  const getEquipmentGroupsForBlock = async (blockId: string): Promise<any[]> => {
+    if (online) {
+      try {
+        const groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${blockId}`);
+        return groups ?? [];
+      } catch {}
+    }
+    // Offline or API failed — use cached equipment groups filtered by blockId
+    const allGroups = offlineEquipmentGroups.length > 0
+      ? offlineEquipmentGroups
+      : (await getCache<any[]>('equipment-groups')) ?? [];
+    return allGroups.filter((g: any) => g.blockId === blockId);
+  };
 
   useEffect(() => { if (success) { const t = setTimeout(() => setSuccess(''), 4000); return () => clearTimeout(t); } }, [success]);
   useEffect(() => { if (error) { const t = setTimeout(() => setError(''), 6000); return () => clearTimeout(t); } }, [error]);
@@ -472,14 +500,12 @@ export function MobileOperationsPage() {
             // If WASH_IN and a block is selected, the equipment-group dialog
             // may be required before advance — mirror handleReasonSubmit.
             if (activeStage.key === 'WASH_IN' && selectedBlock?.id) {
-              try {
-                const groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${selectedBlock.id}`);
-                if (groups?.length) {
-                  setEquipDialog({ filterId, filterName: fName, stage: activeStage.key, groups });
-                  setSelectedEquipGroup(null); setReadings({});
-                  setLoading(false); return;
-                }
-              } catch {}
+              const groups = await getEquipmentGroupsForBlock(selectedBlock.id);
+              if (groups?.length) {
+                setEquipDialog({ filterId, filterName: fName, stage: activeStage.key, groups });
+                setSelectedEquipGroup(null); setReadings({});
+                setLoading(false); return;
+              }
             }
             setSuccess(`${fName} → ${activeStage.label} (PM auto)`);
             setRecentOps(prev => [{ stage: activeStage.key, filter: fName, time: formatTime(new Date()) }, ...prev].slice(0, 20));
@@ -582,6 +608,11 @@ export function MobileOperationsPage() {
         setSuccess(`${reasonDialog.filterName} → ${reasonDialog.stage.replace(/_/g, ' ')} (queued)`);
         setRecentOps(prev => [{ stage: reasonDialog.stage, filter: reasonDialog.filterName, time: formatTime(new Date()), queued: true }, ...prev].slice(0, 20));
         setScanValue(''); setRemarks(''); setReasonDialog(null); setLoading(false); return;
+      }
+
+      if (reasonDialog.stage === 'WASH_IN' && selectedBlock?.id) {
+        const groups = await getEquipmentGroupsForBlock(selectedBlock.id);
+        if (groups?.length) { setReasonDialog(null); setEquipDialog({ filterId: reasonDialog.filterId, filterName: reasonDialog.filterName, stage: reasonDialog.stage, groups }); setSelectedEquipGroup(null); setReadings({}); setLoading(false); return; }
       }
       setSuccess(`${reasonDialog.filterName} → ${reasonDialog.stage.replace(/_/g, ' ')}`);
       setRecentOps(prev => [{ stage: reasonDialog.stage, filter: reasonDialog.filterName, time: formatTime(new Date()) }, ...prev].slice(0, 20));

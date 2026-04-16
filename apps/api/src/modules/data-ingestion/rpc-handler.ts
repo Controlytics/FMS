@@ -1,29 +1,29 @@
 /**
- * RPC Flow Helpers — Publish RPC requests to devices via MQTT, track responses in Redis.
+ * RPC Flow Helpers — Publish RPC requests to devices via MQTT, track responses in PostgreSQL.
+ * Replaces Redis key-value caching with in-memory Map (RPC requests are short-lived, 30s TTL).
  */
 
 import { randomUUID } from 'node:crypto';
-import IORedis from 'ioredis';
 import { getMqttClient } from '../../transport/mqtt-client.js';
 import { prisma } from '../../lib/prisma.js';
 
 const RPC_TTL_SECONDS = 30; // Default RPC response timeout
-const RPC_PREFIX = 'rpc:';
 
-let redis: IORedis | null = null;
+// In-memory RPC request/response tracking (short-lived, auto-cleaned)
+const rpcRequests = new Map<string, { entityId: string; method: string; params: Record<string, unknown>; createdAt: string; expiresAt: number }>();
+const rpcResponses = new Map<string, RpcResponse>();
 
-function getRedis(): IORedis {
-  if (!redis) {
-    redis = new IORedis({
-      host: process.env.REDIS_HOST ?? 'localhost',
-      port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
-      password: process.env.REDIS_PASSWORD || undefined,
-      maxRetriesPerRequest: 3,
-      enableReadyCheck: true,
-    });
+// Periodic cleanup of expired entries (every 30s)
+const cleanupTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [id, req] of rpcRequests) {
+    if (now > req.expiresAt) rpcRequests.delete(id);
   }
-  return redis;
-}
+  for (const [id] of rpcResponses) {
+    if (!rpcRequests.has(id)) rpcResponses.delete(id);
+  }
+}, 30_000);
+if (cleanupTimer.unref) cleanupTimer.unref();
 
 export interface RpcRequest {
   requestId: string;
@@ -39,7 +39,7 @@ export interface RpcResponse {
 }
 
 /**
- * Publish an RPC request to a device via MQTT and cache the request in Redis.
+ * Publish an RPC request to a device via MQTT and cache the request in memory.
  * Returns the generated requestId for polling the response.
  */
 export async function publishRpcRequest(
@@ -55,6 +55,7 @@ export async function publishRpcRequest(
     where: { entityId },
   });
 
+  let topic: string;
   if (!unsMapping) {
     // Fallback: try entity's unsPath field
     const entity = await prisma.assetInstance.findUnique({
@@ -64,27 +65,11 @@ export async function publishRpcRequest(
     if (!entity?.unsPath) {
       throw new Error(`No UNS path found for entity ${entityId}`);
     }
-    // Use entity unsPath
-    const topic = `${entity.unsPath}/rpc/request/${requestId}`;
-    const payload = JSON.stringify({ method, params, requestId });
-
-    const client = getMqttClient();
-    if (client) {
-      await client.publishAsync(topic, payload, { qos: 1 });
-    }
-
-    // Cache the request in Redis with TTL
-    const r = getRedis();
-    await r.setex(
-      `${RPC_PREFIX}req:${requestId}`,
-      ttlSeconds,
-      JSON.stringify({ requestId, entityId, method, params, createdAt: new Date().toISOString() }),
-    );
-
-    return requestId;
+    topic = `${entity.unsPath}/rpc/request/${requestId}`;
+  } else {
+    topic = `${unsMapping.unsPath}/rpc/request/${requestId}`;
   }
 
-  const topic = `${unsMapping.unsPath}/rpc/request/${requestId}`;
   const payload = JSON.stringify({ method, params, requestId });
 
   const client = getMqttClient();
@@ -92,58 +77,44 @@ export async function publishRpcRequest(
     await client.publishAsync(topic, payload, { qos: 1 });
   }
 
-  // Cache the request in Redis with TTL
-  const r = getRedis();
-  await r.setex(
-    `${RPC_PREFIX}req:${requestId}`,
-    ttlSeconds,
-    JSON.stringify({ requestId, entityId, method, params, createdAt: new Date().toISOString() }),
-  );
+  // Cache the request in memory with TTL
+  rpcRequests.set(requestId, {
+    entityId,
+    method,
+    params,
+    createdAt: new Date().toISOString(),
+    expiresAt: Date.now() + ttlSeconds * 1000,
+  });
 
   return requestId;
 }
 
 /**
- * Check Redis cache for an RPC response.
+ * Check cache for an RPC response.
  * Returns the response data or null if not yet received.
  */
 export async function getRpcResponse(requestId: string): Promise<RpcResponse | null> {
-  const r = getRedis();
-  const raw = await r.get(`${RPC_PREFIX}res:${requestId}`);
-  if (!raw) return null;
-
-  try {
-    return JSON.parse(raw) as RpcResponse;
-  } catch {
-    return null;
-  }
+  return rpcResponses.get(requestId) ?? null;
 }
 
 /**
  * Called by mqtt-handler when an rpc/response message arrives.
- * Stores the response in Redis so the polling endpoint can return it.
+ * Stores the response in memory so the polling endpoint can return it.
  */
 export async function onRpcResponse(requestId: string, responseData: Record<string, unknown>): Promise<void> {
-  const r = getRedis();
   const response: RpcResponse = {
     requestId,
     data: responseData,
     receivedAt: new Date().toISOString(),
   };
-
-  // Store with same TTL as the request (or 60s if request already expired)
-  const reqTtl = await r.ttl(`${RPC_PREFIX}req:${requestId}`);
-  const ttl = reqTtl > 0 ? reqTtl : 60;
-
-  await r.setex(`${RPC_PREFIX}res:${requestId}`, ttl, JSON.stringify(response));
+  rpcResponses.set(requestId, response);
 }
 
 /**
- * Clean up Redis connection on shutdown.
+ * Clean up on shutdown.
  */
-export async function closeRpcRedis(): Promise<void> {
-  if (redis) {
-    await redis.quit();
-    redis = null;
-  }
+export async function closeRpcHandler(): Promise<void> {
+  clearInterval(cleanupTimer);
+  rpcRequests.clear();
+  rpcResponses.clear();
 }

@@ -1,19 +1,18 @@
 /**
- * Maintenance Worker — Handles periodic maintenance tasks via BullMQ.
- * Tasks: DLQ processing, connectivity timeout checks, cleanup.
- * Uses repeatable jobs scheduled at startup.
+ * Maintenance Worker — Handles periodic maintenance tasks via node-cron.
+ * Tasks: DLQ processing, connectivity timeout checks, retention cleanup.
+ * Replaces BullMQ repeatable jobs with lightweight cron schedules.
  */
 
-import { Worker, Queue, type Job } from 'bullmq';
-import { getRedisConnection, QUEUES } from '@digilog/queue';
-import type { MaintenanceJob } from '@digilog/queue';
+import cron from 'node-cron';
 import { processDLQ } from '../modules/data-ingestion/dlq-manager.js';
 import { checkInactivityTimeouts } from '../modules/data-ingestion/connectivity-tracker.js';
 import { prisma } from '../lib/prisma.js';
 import { getTsdbPool } from '@digilog/db';
 
-let worker: Worker | null = null;
-let maintenanceQueue: Queue | null = null;
+let dlqJob: cron.ScheduledTask | null = null;
+let connectivityJob: cron.ScheduledTask | null = null;
+let retentionJob: cron.ScheduledTask | null = null;
 
 /** TSDB table mapping — mirrors retention.routes.ts */
 const TSDB_TABLE_MAP: Record<string, string> = {
@@ -107,104 +106,50 @@ async function runRetentionCleanup(): Promise<{
 }
 
 /**
- * Start the maintenance worker and schedule repeatable jobs.
+ * Start the maintenance worker — schedules periodic cron jobs.
  */
-export async function startMaintenanceWorker(): Promise<void> {
-  if (worker) return;
+export function startMaintenanceWorker(): void {
+  if (dlqJob) return; // Already started
 
-  const connection = getRedisConnection();
-
-  // Create queue for scheduling
-  maintenanceQueue = new Queue(QUEUES.MAINTENANCE.name, {
-    connection,
-    defaultJobOptions: QUEUES.MAINTENANCE.defaultJobOptions,
+  // Every 1 minute — DLQ check
+  dlqJob = cron.schedule('*/1 * * * *', async () => {
+    try {
+      await processDLQ();
+    } catch (e: any) {
+      console.error('[Maintenance] DLQ check failed:', e.message);
+    }
   });
 
-  // Schedule repeatable jobs
-  // DLQ check: every 60 seconds
-  await maintenanceQueue.add('dlq_check', {
-    task: 'dlq_check',
-  } satisfies MaintenanceJob, {
-    repeat: { every: 60_000 },
-    jobId: 'maintenance-dlq-check',
-    removeOnComplete: 5,
-    removeOnFail: 10,
+  // Every 1 minute — connectivity check
+  connectivityJob = cron.schedule('*/1 * * * *', async () => {
+    try {
+      await checkInactivityTimeouts();
+    } catch (e: any) {
+      console.error('[Maintenance] Connectivity check failed:', e.message);
+    }
   });
 
-  // Connectivity check: every 60 seconds
-  await maintenanceQueue.add('connectivity_check', {
-    task: 'connectivity_check',
-  } satisfies MaintenanceJob, {
-    repeat: { every: 60_000 },
-    jobId: 'maintenance-connectivity-check',
-    removeOnComplete: 5,
-    removeOnFail: 10,
+  // Every day at midnight — retention cleanup
+  retentionJob = cron.schedule('0 0 * * *', async () => {
+    try {
+      await runRetentionCleanup();
+    } catch (e: any) {
+      console.error('[Maintenance] Retention cleanup failed:', e.message);
+    }
   });
 
-  // Retention cleanup: every 24 hours (86400 seconds)
-  await maintenanceQueue.add('retention_cleanup', {
-    task: 'retention',
-  } satisfies MaintenanceJob, {
-    repeat: { every: 86_400_000 },
-    jobId: 'maintenance-retention-cleanup',
-    removeOnComplete: 5,
-    removeOnFail: 10,
-  });
-
-  // Worker
-  worker = new Worker(
-    QUEUES.MAINTENANCE.name,
-    async (job: Job) => {
-      const data = job.data as MaintenanceJob;
-
-      switch (data.task) {
-        case 'dlq_check': {
-          const result = await processDLQ();
-          return { task: 'dlq_check', ...result };
-        }
-        case 'connectivity_check': {
-          const offlineCount = await checkInactivityTimeouts();
-          return { task: 'connectivity_check', offlineCount };
-        }
-        case 'retention': {
-          const retentionResult = await runRetentionCleanup();
-          return { task: 'retention', ...retentionResult };
-        }
-        default:
-          console.warn(`[Maintenance] Unknown task: ${data.task}`);
-          return { task: data.task, skipped: true };
-      }
-    },
-    {
-      connection,
-      concurrency: 1, // Maintenance tasks run sequentially
-      removeOnComplete: { count: 10 },
-      removeOnFail: { count: 10 },
-    },
-  );
-
-  worker.on('failed', (job, err) => {
-    console.error(`[Maintenance] Job ${job?.id} failed:`, err.message);
-  });
-
-  worker.on('error', (err) => {
-    console.error('[Maintenance] Worker error:', err.message);
-  });
-
-  console.info('[Maintenance] Worker started with DLQ check (60s), connectivity check (60s), retention cleanup (24h)');
+  console.info('[Maintenance] Worker started (node-cron): DLQ check (60s), connectivity check (60s), retention cleanup (daily midnight)');
 }
 
 /**
  * Stop the maintenance worker gracefully.
  */
-export async function stopMaintenanceWorker(): Promise<void> {
-  if (worker) {
-    await worker.close();
-    worker = null;
-  }
-  if (maintenanceQueue) {
-    await maintenanceQueue.close();
-    maintenanceQueue = null;
-  }
+export function stopMaintenanceWorker(): void {
+  dlqJob?.stop();
+  connectivityJob?.stop();
+  retentionJob?.stop();
+  dlqJob = null;
+  connectivityJob = null;
+  retentionJob = null;
   console.info('[Maintenance] Worker stopped');
 }

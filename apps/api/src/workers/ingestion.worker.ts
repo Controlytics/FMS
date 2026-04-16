@@ -1,29 +1,30 @@
 /**
- * In-Process BullMQ Worker — Processes ingestion queue messages.
- * Runs in the same process as the API server (Phase 1 architecture).
- * Concurrency and rate limits read from IngestionSystemConfig at startup.
+ * Ingestion Worker — Processes ingestion queue messages via pg-boss.
+ * Runs in the same process as the API server.
+ * Concurrency read from SystemConfig at startup.
  */
 
-import { Worker, type Job } from 'bullmq';
-import { getRedisConnection, QUEUES } from '@digilog/queue';
+import { getBoss, QUEUES } from '@digilog/queue';
 import type { IngestionMessage } from '../modules/data-ingestion/message-normalizer.js';
 import { processIngestionMessage } from '../modules/data-ingestion/ingestion.service.js';
 import { getConfigOrDefault } from '../modules/data-ingestion/ingestion-config.service.js';
 
-let worker: Worker | null = null;
+let isRunning = false;
 
 /**
  * Start the ingestion worker.
  * Reads concurrency from SystemConfig 'ingestion.worker_concurrency' (default 5).
  */
 export async function startIngestionWorker(): Promise<void> {
-  if (worker) return;
+  if (isRunning) return;
 
   const concurrency = await getConfigOrDefault<number>('ingestion.worker_concurrency', 5);
+  const boss = await getBoss();
 
-  worker = new Worker(
-    QUEUES.INGESTION.name,
-    async (job: Job) => {
+  await boss.work(
+    QUEUES.INGESTION,
+    { teamSize: concurrency, teamConcurrency: concurrency },
+    async (job) => {
       const msg = job.data as IngestionMessage;
 
       const result = await processIngestionMessage(msg);
@@ -36,43 +37,20 @@ export async function startIngestionWorker(): Promise<void> {
 
       return result;
     },
-    {
-      connection: getRedisConnection(),
-      concurrency,
-      limiter: {
-        max: 1000,
-        duration: 1000, // 1000 jobs per second max
-      },
-      removeOnComplete: { count: 100 },
-      removeOnFail: { count: 1000 },
-    },
   );
 
-  worker.on('completed', (job) => {
-    // Job completed — logged at debug level only
-    if (process.env.NODE_ENV !== 'production') {
-      console.info(`[IngestionWorker] Job ${job.id} completed`);
-    }
-  });
-
-  worker.on('failed', (job, err) => {
-    console.error(`[IngestionWorker] Job ${job?.id} failed:`, err.message);
-  });
-
-  worker.on('error', (err) => {
-    console.error('[IngestionWorker] Worker error:', err.message);
-  });
-
-  console.info(`[IngestionWorker] Started with concurrency=${concurrency}`);
+  isRunning = true;
+  console.info(`[IngestionWorker] Started (pgboss) with concurrency=${concurrency}`);
 }
 
 /**
  * Stop the ingestion worker gracefully.
  */
 export async function stopIngestionWorker(): Promise<void> {
-  if (worker) {
-    await worker.close();
-    worker = null;
+  if (isRunning) {
+    const boss = await getBoss();
+    await boss.offWork(QUEUES.INGESTION);
+    isRunning = false;
     console.info('[IngestionWorker] Stopped');
   }
 }

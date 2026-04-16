@@ -6,7 +6,6 @@
  */
 
 import { getTsdbPool } from '@digilog/db';
-import IORedis from 'ioredis';
 import { getConfigOrDefault } from './ingestion-config.service.js';
 
 export interface StageResult {
@@ -36,21 +35,6 @@ export interface PipelineTrace {
   warnings: string[];
   totalDurationMs: number;
   startTime: number;
-}
-
-let redisPub: IORedis | null = null;
-
-function getRedisPublisher(): IORedis {
-  if (!redisPub) {
-    redisPub = new IORedis({
-      host: process.env.REDIS_HOST ?? 'localhost',
-      port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
-      password: process.env.REDIS_PASSWORD || undefined,
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
-    });
-  }
-  return redisPub;
 }
 
 /** Check if tracing is enabled for this message context. */
@@ -198,11 +182,11 @@ export async function finalizeTrace(trace: PipelineTrace): Promise<void> {
     console.error('[PipelineTracer] Failed to write trace:', err);
   }
 
-  // Publish to Redis for real-time UI streaming
+  // Publish to PostgreSQL NOTIFY for real-time UI streaming
   if (trace.entityId) {
     try {
-      const redis = getRedisPublisher();
-      await redis.publish(`ws:trace:${trace.entityId}`, JSON.stringify({
+      const pool = getTsdbPool();
+      const payload = JSON.stringify({
         messageId: trace.messageId,
         entityId: trace.entityId,
         messageType: trace.messageType,
@@ -210,7 +194,11 @@ export async function finalizeTrace(trace: PipelineTrace): Promise<void> {
         totalDurationMs: trace.totalDurationMs,
         stages: trace.stages,
         warnings: trace.warnings,
-      }));
+      });
+      // pg_notify payload max is 8000 bytes — only send if fits
+      if (payload.length < 7500) {
+        await pool.query(`SELECT pg_notify($1, $2)`, [`ws_trace_${trace.entityId}`, payload]);
+      }
     } catch {
       // Non-critical
     }
@@ -222,10 +210,4 @@ export function markTraceDLQ(trace: PipelineTrace): void {
   trace.finalStatus = 'DLQ';
 }
 
-/** Close the Redis publisher on shutdown. */
-export async function closeTracerRedis(): Promise<void> {
-  if (redisPub) {
-    await redisPub.quit();
-    redisPub = null;
-  }
-}
+// No shutdown needed — PostgreSQL pool is closed centrally

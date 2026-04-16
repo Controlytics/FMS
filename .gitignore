@@ -18,6 +18,11 @@ apps/*/.env
 .vscode/
 .idea/
 
+# Gradle (Android RFID app build cache)
+.gradle/
+RFID/.gradle/
+*.class
+
 # Misc
 *.log
 .DS_Store
