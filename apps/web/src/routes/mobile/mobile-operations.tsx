@@ -292,33 +292,70 @@ export function MobileOperationsPage() {
     return reachable;
   };
 
+  // Find CHECKLIST nodes immediately after a stage in the pipeline graph
+  const findChecklistsAfterStage = (graph: any, stageKey: string): any[] => {
+    if (!graph?.stages || !graph?.connections) return [];
+    const stageNode = graph.stages.find((s: any) => s.stateKey === stageKey);
+    if (!stageNode) return [];
+    const outConns = graph.connections.filter((c: any) => c.fromStageId === stageNode.id);
+    return outConns
+      .map((c: any) => graph.stages.find((s: any) => s.id === c.toStageId))
+      .filter((n: any) => n?.nodeType === 'CHECKLIST' && n?.configuration?.checklistProfileId);
+  };
+
+  // Build pendingChecklist from cached checklist profiles for CHECKLIST nodes
+  const buildOfflineChecklist = async (checklistNodes: any[]): Promise<any[]> => {
+    const cachedProfiles = await getCache<any[]>('checklist-profiles') ?? [];
+    const result: any[] = [];
+    for (const node of checklistNodes) {
+      const profileId = node.configuration?.checklistProfileId;
+      if (!profileId) continue;
+      const profile = cachedProfiles.find((p: any) => p.id === profileId && p.isActive !== false);
+      if (!profile) continue;
+      result.push({
+        pipelineNodeId: node.id,
+        checklistProfileId: profileId,
+        checklistProfileName: profile.name,
+        questions: (profile.questions ?? []).sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
+      });
+    }
+    return result;
+  };
+
   // Update cached filter state + IndexedDB after offline operation
   const updateOfflineState = async (filterId: string, newStage: string, cycleStarted: boolean) => {
     try {
-      // Update IndexedDB filter record
       const { updateFilterStateLocally } = await import('@/lib/offline-store');
       await updateFilterStateLocally(filterId, newStage, cycleStarted);
 
-      // Update cached filter-state for pipeline validation on next scan
       const cachedState = await getCache<any>(`filter-state-${filterId}`) ?? {};
+      const graph = cachedState.pipelineGraph;
 
-      // Use pipeline graph for proper nextAllowedStages (same as server logic)
-      const nextAllowed = cachedState.pipelineGraph
-        ? computeNextStages(cachedState.pipelineGraph, newStage)
-        : (() => {
-            // Fallback: linear pipeline from sorted stages
-            const pipeline: any[] = (cachedState.pipelineStages ?? [])
-              .filter((s: any) => s.stateKey)
-              .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-            const idx = pipeline.findIndex((s: any) => s.stateKey === newStage);
-            return (idx >= 0 && idx < pipeline.length - 1) ? [pipeline[idx + 1].stateKey] : [];
-          })();
+      // Check if pipeline has CHECKLIST nodes after the new stage
+      const checklistNodes = graph ? findChecklistsAfterStage(graph, newStage) : [];
+      const pendingChecklist = checklistNodes.length > 0
+        ? await buildOfflineChecklist(checklistNodes)
+        : [];
+
+      // If checklist is pending, block advancement (nextAllowedStages = [])
+      let nextAllowed: string[] = [];
+      if (pendingChecklist.length > 0) {
+        nextAllowed = []; // blocked until checklist answered
+      } else if (graph) {
+        nextAllowed = computeNextStages(graph, newStage);
+      } else {
+        const pipeline: any[] = (cachedState.pipelineStages ?? [])
+          .filter((s: any) => s.stateKey)
+          .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+        const idx = pipeline.findIndex((s: any) => s.stateKey === newStage);
+        nextAllowed = (idx >= 0 && idx < pipeline.length - 1) ? [pipeline[idx + 1].stateKey] : [];
+      }
 
       cache(`filter-state-${filterId}`, {
         ...cachedState,
         currentState: newStage,
         nextAllowedStages: nextAllowed,
-        pendingChecklist: [], // server recomputes on sync
+        pendingChecklist,
         currentCycle: cachedState.currentCycle ?? (cycleStarted ? { id: `offline-${Date.now()}`, status: 'IN_PROGRESS' } : null),
       });
     } catch { /* ignore */ }
@@ -425,8 +462,11 @@ export function MobileOperationsPage() {
 
       // Up-front block verification. If the filter belongs to a different
       // block and there is no standing approval, show the request-block-change
-      // popup now and stop — the user should never reach the reason dialog in
-      // that case.
+      // popup now and stop.
+      // Offline: if homeBlock is cached and doesn't match selected block, block the operation
+      if (!online && state.homeBlock && selectedBlock?.id && state.homeBlock.id !== selectedBlock.id && state.blockChangeStatus !== 'APPROVED') {
+        state.blockChangeStatus = 'REQUIRED';
+      }
       if (state.blockChangeStatus === 'REQUIRED' && state.homeBlock && selectedBlock?.id) {
         setBlockChangeDialog({
           filterId,
@@ -661,6 +701,16 @@ export function MobileOperationsPage() {
     try {
       const { executed } = await executeOrQueue('submit-checklist', checklistDialog.filterId, checklistDialog.filterName, { answers: checklistAnswers });
       setSuccess(`Checklist submitted${executed ? '' : ' (queued)'}`);
+      // After checklist answered, update cached state: clear pendingChecklist, compute next stages
+      if (!executed) {
+        try {
+          const cs = await getCache<any>(`filter-state-${checklistDialog.filterId}`) ?? {};
+          const currentStage = cs.currentState;
+          // Walk past checklist nodes to find next STAGE nodes
+          const nextAllowed = cs.pipelineGraph ? computeNextStages(cs.pipelineGraph, currentStage) : [];
+          cache(`filter-state-${checklistDialog.filterId}`, { ...cs, pendingChecklist: [], nextAllowedStages: nextAllowed });
+        } catch { /* ignore */ }
+      }
       setChecklistDialog(null); setChecklistAnswers({});
       if (executed) mutate('/api/assets/instances?limit=500');
     } catch (e: any) { setError(e.message ?? 'Failed'); }

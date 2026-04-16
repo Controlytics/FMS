@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
@@ -6,6 +6,7 @@ import { useAuth } from '../../hooks/use-auth';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { useOffline } from '../../hooks/use-offline';
 import { onSyncEvent } from '../../lib/sync-engine';
+import { syncAllDataForOffline, type SyncProgress } from '../../lib/offline-sync-service';
 import { MobileOperationsPage } from './mobile-operations';
 
 const STAGES = [
@@ -62,14 +63,42 @@ export function MobileWrapperPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Data — always fetch when online, cache for offline
+  // ===== CENTRALIZED OFFLINE DATA SYNC =====
+  // On login (while online), sync ALL master data in one go.
+  // Then keep SWR for live data refresh while online.
+  const [dataCached, setDataCached] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
+  const syncStarted = useRef(false);
+
+  // Run full sync once after login while online
+  useEffect(() => {
+    if (!online || !user || syncStarted.current) return;
+    syncStarted.current = true;
+    syncAllDataForOffline((progress) => {
+      setSyncProgress(progress);
+      if (progress.done) setDataCached(true);
+    });
+  }, [online, user]);
+
+  // Re-sync after operations are synced back to server (keeps cache fresh)
+  useEffect(() => {
+    const cleanup = onSyncEvent((event) => {
+      if (event.type === 'complete' && event.synced && event.synced > 0 && online) {
+        // Full re-sync after successful operation sync
+        syncAllDataForOffline((progress) => {
+          setSyncProgress(progress);
+        });
+        mutate('/api/assets/instances?limit=500');
+      }
+    });
+    return cleanup;
+  }, [online]);
+
+  // SWR for live data while online (refresh intervals for real-time updates)
   const { data: instancesData } = useSWR(online ? '/api/assets/instances?limit=500' : null, { refreshInterval: 15000 });
   const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=100' : null);
-  const { data: reasonsData } = useSWR(online ? '/api/filters/reasons' : null);
-  const { data: identifiersData } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null);
-  const { data: equipGroupsData } = useSWR(online ? '/api/equipment-groups' : null);
 
-  // My Tasks + Approvals — always fetch when online (for caching), refresh on view
+  // My Tasks + Approvals
   const { data: dueTasksData, mutate: mutateDueTasks, isLoading: dueTasksLoading } =
     useSWR(online ? '/api/pm-schedules/due' : null, { refreshInterval: view === 'my-tasks' ? 30000 : 120000 });
 
@@ -81,100 +110,35 @@ export function MobileWrapperPage() {
   const { data: approvalsData, mutate: mutateApprovals, isLoading: approvalsLoading } =
     useSWR<any>(approvalsKey, { refreshInterval: view === 'approvals' ? 30000 : 120000 });
 
-  // Cache tasks and approvals for offline use
+  // Offline data from IndexedDB cache
   const [offlineTasks, setOfflineTasks] = useState<any>(null);
   const [offlineApprovals, setOfflineApprovals] = useState<any[]>([]);
-  useEffect(() => { if (dueTasksData) cache('due-tasks', dueTasksData); }, [dueTasksData]);
-  useEffect(() => { if (approvalsData?.data) cache('approvals', approvalsData.data); }, [approvalsData]);
-
-  // Load cached data for offline
-  useEffect(() => {
-    getCache<any>('due-tasks').then(t => { if (t) setOfflineTasks(t); });
-    getCache<any[]>('approvals').then(a => { if (a) setOfflineApprovals(a); });
-  }, []);
-
-  const approvals: any[] = (online ? approvalsData?.data : null) ?? offlineApprovals;
-  const tasksSource = (online ? dueTasksData : null) ?? offlineTasks;
-
-  // Expand state for My Tasks cards + processing state for Approve/Reject
-  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
-  const [processingApproval, setProcessingApproval] = useState<string | null>(null);
-  const [approvalComment, setApprovalComment] = useState('');
   const [offlineFilters, setOfflineFilters] = useState<any[]>([]);
   const [offlineTemplates, setOfflineTemplates] = useState<any[]>([]);
   const [offlineReasons, setOfflineReasons] = useState<any[]>([]);
-  const [dataCached, setDataCached] = useState(false);
 
-  // Revalidate SWR data after sync completes (fixes "buffering" after sync)
-  const [prevPendingCount, setPrevPendingCount] = useState(0);
-  useEffect(() => {
-    // When pending count drops (operations synced), refresh data
-    if (prevPendingCount > 0 && pendingCount < prevPendingCount && online) {
-      mutate('/api/assets/instances?limit=500');
-      mutateDueTasks();
-    }
-    setPrevPendingCount(pendingCount);
-  }, [pendingCount, online]);
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
+  const [processingApproval, setProcessingApproval] = useState<string | null>(null);
+  const [approvalComment, setApprovalComment] = useState('');
 
-  // Also listen for sync events directly
-  useEffect(() => {
-    const cleanup = onSyncEvent((event) => {
-      if (event.type === 'complete' && event.synced && event.synced > 0) {
-        mutate('/api/assets/instances?limit=500');
-        mutateDueTasks();
-      }
-    });
-    return cleanup;
-  }, []);
-
-  // Cache data when online for offline use
+  // Cache live SWR data for offline fallback
   useEffect(() => { if (instancesData?.data) cacheFilterData(instancesData.data); }, [instancesData]);
-  useEffect(() => {
-    if (identifiersData) {
-      const map = buildIdentifierMap(identifiersData as any[]);
-      if (Object.keys(map).length > 0) {
-        cache('identifier-map', map);
-      }
-    }
-  }, [identifiersData, cache]);
-  useEffect(() => { if (templatesData?.data) cache('templates', templatesData.data); }, [templatesData, cache]);
-  useEffect(() => { const r = (reasonsData as any)?.reasons ?? reasonsData; if (r) cache('cleaning-reasons', r); }, [reasonsData, cache]);
-  useEffect(() => { if (equipGroupsData) cache('equipment-groups', Array.isArray(equipGroupsData) ? equipGroupsData : equipGroupsData?.data ?? []); }, [equipGroupsData, cache]);
+  useEffect(() => { if (dueTasksData) cache('due-tasks', dueTasksData); }, [dueTasksData]);
+  useEffect(() => { if (approvalsData?.data) cache('approvals', approvalsData.data); }, [approvalsData]);
 
-  // Batch-cache all filter states for offline use (single API call)
-  const [statesCached, setStatesCached] = useState(false);
-  useEffect(() => {
-    if (!online || !instancesData?.data) return;
-    const cacheAllStates = async () => {
-      try {
-        const result = await apiClient.get<{ states: Record<string, any>; cachedAt: string }>('/api/filters/batch-states');
-        if (result?.states) {
-          for (const [fid, st] of Object.entries(result.states)) {
-            cache(`filter-state-${fid}`, st);
-          }
-          setStatesCached(true);
-        }
-      } catch { /* endpoint may not be available */ }
-    };
-    cacheAllStates();
-  }, [online, instancesData]);
-
-  // Track when all data is cached and ready for offline
-  useEffect(() => {
-    if (online && instancesData?.data && templatesData?.data && identifiersData && reasonsData && statesCached) {
-      setDataCached(true);
-    }
-  }, [online, instancesData, templatesData, identifiersData, reasonsData, statesCached]);
-
-  // Load cached data when offline
+  // Load cached data for offline use
   const refreshOfflineData = () => {
     getOfflineFilters().then(setOfflineFilters);
     getCache<any[]>('templates').then(t => setOfflineTemplates(t ?? []));
     getCache<any[]>('cleaning-reasons').then(r => setOfflineReasons(r ?? []));
+    getCache<any>('due-tasks').then(t => { if (t) setOfflineTasks(t); });
+    getCache<any[]>('approvals').then(a => { if (a) setOfflineApprovals(a); });
   };
-  // Load cached data on mount AND when going offline
   useEffect(() => { refreshOfflineData(); }, []);
   useEffect(() => { if (!online) refreshOfflineData(); }, [online]);
+
+  const approvals: any[] = (online ? approvalsData?.data : null) ?? offlineApprovals;
+  const tasksSource = (online ? dueTasksData : null) ?? offlineTasks;
 
   const templates = (online ? (templatesData?.data ?? []) : offlineTemplates) as any[];
   const instances = online ? ((instancesData?.data ?? []) as any[]) : offlineFilters;
@@ -249,7 +213,7 @@ export function MobileWrapperPage() {
           {online && (
             <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium ${dataCached ? 'bg-blue-50 text-blue-600 border border-blue-200' : 'bg-yellow-50 text-yellow-600 border border-yellow-200'}`}>
               <div className={`w-1.5 h-1.5 rounded-full ${dataCached ? 'bg-blue-500' : 'bg-yellow-400 animate-pulse'}`} />
-              {dataCached ? 'Data Synced' : 'Syncing...'}
+              {dataCached ? 'Data Synced' : (syncProgress?.step?.replace('Syncing ', '').replace('...', '') || 'Syncing...')}
             </div>
           )}
           {pendingCount > 0 && (

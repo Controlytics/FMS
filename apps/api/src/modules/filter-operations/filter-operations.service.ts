@@ -968,7 +968,7 @@ export class FilterOperationsService {
       if (leadsToEnd && !hasMoreStages) {
         await tx.cleaningCycle.update({
           where: { id: cycle.id },
-          data: { status: 'COMPLETED', completedAt: new Date() },
+          data: { status: 'COMPLETED', completedAt: offlineTime ?? new Date() },
         });
         await tx.assetInstance.update({
           where: { id: filterId },
