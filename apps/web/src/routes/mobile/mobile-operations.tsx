@@ -450,11 +450,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           setLoading(false); return;
         }
 
+        // Determine active cycle: check status field, OR presence of currentCycleId in IndexedDB
+        const hasCycle = cachedState?.currentCycle
+          ? (cachedState.currentCycle.status === 'IN_PROGRESS' || !!cachedState.currentCycle.id)
+          : !!cached?.currentCycleId;
         state = {
           filterId,
           filterName: cached?.name || filterName,
           currentState: currentLifecycle,
-          currentCycle: (cachedState?.currentCycle?.status === 'IN_PROGRESS') ? cachedState.currentCycle : null,
+          currentCycle: hasCycle ? (cachedState?.currentCycle ?? { id: cached?.currentCycleId, status: 'IN_PROGRESS' }) : null,
           nextAllowedStages: offlineNextAllowed,
           pendingChecklist: cachedState?.pendingChecklist ?? [],
           pipelineStages: cachedState?.pipelineStages ?? [],
@@ -470,14 +474,19 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         try {
           const csUrl = `/api/filters/${filterId}/current-state${selectedBlock?.id ? `?cleaningAreaId=${encodeURIComponent(selectedBlock.id)}` : ''}`;
           state = await apiClient.get<any>(csUrl);
-          // Cache filter-specific state for offline use (equipmentGroup, pendingChecklist, pipeline)
+          // Cache for offline — preserve existing graph data from full sync
+          const existingCache = await getCache<any>(`filter-state-${filterId}`);
           cache(`filter-state-${filterId}`, {
+            ...(existingCache ?? {}),
             equipmentGroup: state.equipmentGroup ?? null,
             pendingChecklist: state.pendingChecklist ?? [],
-            pipelineStages: state.pipelineStages ?? [],
+            pipelineStages: state.pipelineStages ?? existingCache?.pipelineStages ?? [],
+            pipelineGraph: state.pipelineGraph ?? existingCache?.pipelineGraph ?? null,
+            nextAllowedStages: state.nextAllowedStages ?? [],
             isPmDue: state.isPmDue ?? false,
             pmReasonKey: state.pmReasonKey ?? null,
             currentCycle: state.currentCycle ?? null,
+            currentState: state.currentState ?? null,
           });
         } catch (e: any) {
           if (isNetworkError(e)) {
@@ -496,11 +505,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               setLoading(false); return;
             }
 
+            const hasCycleFallback = cachedState?.currentCycle
+              ? (cachedState.currentCycle.status === 'IN_PROGRESS' || !!cachedState.currentCycle.id)
+              : !!cached?.currentCycleId;
             state = {
               filterId,
               filterName: cached?.name || filterName,
               currentState: currentLifecycle,
-              currentCycle: (cachedState?.currentCycle?.status === 'IN_PROGRESS') ? cachedState.currentCycle : null,
+              currentCycle: hasCycleFallback ? (cachedState?.currentCycle ?? { id: cached?.currentCycleId, status: 'IN_PROGRESS' }) : null,
               nextAllowedStages: offlineNextAllowed,
               pendingChecklist: cachedState?.pendingChecklist ?? [],
               pipelineStages: cachedState?.pipelineStages ?? [],
@@ -542,7 +554,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       const nextAllowed = state.nextAllowedStages ?? [];
       if (nextAllowed.length > 0 && !nextAllowed.includes(activeStage.key)) { setError(`Next allowed: ${nextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`); setLoading(false); return; }
       // Check if there's an active IN_PROGRESS cycle — completed/terminated cycles don't count
-      const hasActiveCycle = state.currentCycle && state.currentCycle.status === 'IN_PROGRESS';
+      const hasActiveCycle = !!(state.currentCycle && (state.currentCycle.status === 'IN_PROGRESS' || state.currentCycle.id));
       if (!hasActiveCycle) {
         // PM auto-start: if the filter's AHU is currently in a PM schedule
         // window and a "PM" cleaning reason is configured, skip the reason
