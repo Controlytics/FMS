@@ -62,6 +62,26 @@ function openDB(): Promise<IDBDatabase> {
 
 // === Cache Operations ===
 
+// Clear all filter-state-* and dryer-temp-* cache entries (after sync replay)
+export async function clearFilterStateCaches(): Promise<void> {
+  const db = await openDB();
+  const tx = db.transaction('cache', 'readwrite');
+  const store = tx.objectStore('cache');
+  const req = store.getAll();
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => {
+      const items = req.result ?? [];
+      for (const item of items) {
+        if (item.key?.startsWith('filter-state-') || item.key?.startsWith('dryer-temp-')) {
+          store.delete(item.key);
+        }
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 export async function cacheData(key: string, data: any, ttlMs: number = 5 * 60 * 1000): Promise<void> {
   const db = await openDB();
   const tx = db.transaction('cache', 'readwrite');
@@ -127,6 +147,26 @@ export async function updateFilterStateLocally(filterId: string, newState: strin
         if (markCycleActive && !filter.currentCycleId) {
           filter.currentCycleId = `offline-cycle-${Date.now()}`;
         }
+        store.put(filter);
+      }
+    };
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// Clear the currentCycleId for a filter (when cycle completes offline)
+export async function clearOfflineCycleId(filterId: string): Promise<void> {
+  const db = await openDB();
+  const tx = db.transaction('filters', 'readwrite');
+  const store = tx.objectStore('filters');
+  const req = store.get(filterId);
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => {
+      const filter = req.result;
+      if (filter) {
+        filter.currentCycleId = null;
         store.put(filter);
       }
     };

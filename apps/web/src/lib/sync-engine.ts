@@ -7,6 +7,7 @@ import {
   updateOperationStatus,
   clearSyncedOperations,
   onOnlineStatusChange,
+  clearFilterStateCaches,
 } from './offline-store';
 
 type SyncListener = (event: { type: 'start' | 'progress' | 'complete' | 'error'; synced?: number; total?: number; error?: string }) => void;
@@ -111,6 +112,10 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
   }
 
   await clearSyncedOperations().catch(() => {});
+  // Clear stale filter-state caches so next online fetch gets fresh server data
+  if (synced > 0) {
+    await clearFilterStateCaches().catch(() => {});
+  }
 
   syncing = false;
   notify({ type: 'complete', synced, total: pending.length });

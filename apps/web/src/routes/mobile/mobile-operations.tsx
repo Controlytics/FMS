@@ -323,7 +323,7 @@ export function MobileOperationsPage() {
   };
 
   // Update cached filter state + IndexedDB after offline operation
-  const updateOfflineState = async (filterId: string, newStage: string, cycleStarted: boolean) => {
+  const updateOfflineState = async (filterId: string, newStage: string, cycleStarted: boolean, blockId?: string) => {
     try {
       const { updateFilterStateLocally } = await import('@/lib/offline-store');
       await updateFilterStateLocally(filterId, newStage, cycleStarted);
@@ -351,13 +351,20 @@ export function MobileOperationsPage() {
         nextAllowed = (idx >= 0 && idx < pipeline.length - 1) ? [pipeline[idx + 1].stateKey] : [];
       }
 
+      // If no next stages and no pending checklist, cycle is complete — clear it
+      const cycleComplete = nextAllowed.length === 0 && pendingChecklist.length === 0 && !cycleStarted;
       cache(`filter-state-${filterId}`, {
         ...cachedState,
         currentState: newStage,
         nextAllowedStages: nextAllowed,
         pendingChecklist,
-        currentCycle: cachedState.currentCycle ?? (cycleStarted ? { id: `offline-${Date.now()}`, status: 'IN_PROGRESS' } : null),
+        currentCycle: cycleComplete ? null : (cachedState.currentCycle ?? (cycleStarted ? { id: `offline-${Date.now()}`, status: 'IN_PROGRESS', cleaningAreaId: blockId ?? selectedBlock?.id ?? null } : null)),
       });
+      // Also clear currentCycleId in filters store when cycle completes
+      if (cycleComplete) {
+        const { clearOfflineCycleId } = await import('@/lib/offline-store');
+        await clearOfflineCycleId(filterId);
+      }
     } catch { /* ignore */ }
     refreshOfflineData();
   };
@@ -503,7 +510,7 @@ export function MobileOperationsPage() {
             );
 
             if (!cycleStarted) {
-              await updateOfflineState(filterId, activeStage.key, true);
+              await updateOfflineState(filterId, activeStage.key, true, selectedBlock?.id);
               setSuccess(`${fName} → ${activeStage.label} (PM auto, queued)`);
               setRecentOps(prev => [{ stage: activeStage.key, filter: fName, time: formatTime(new Date()), queued: true }, ...prev].slice(0, 20));
               setScanValue(''); setRemarks(''); setLoading(false); return;
@@ -618,7 +625,7 @@ export function MobileOperationsPage() {
       );
 
       if (!cycleExecuted) {
-        await updateOfflineState(reasonDialog.filterId, reasonDialog.stage, true);
+        await updateOfflineState(reasonDialog.filterId, reasonDialog.stage, true, selectedBlock?.id);
         setSuccess(`${reasonDialog.filterName} → ${reasonDialog.stage.replace(/_/g, ' ')} (queued)`);
         setRecentOps(prev => [{ stage: reasonDialog.stage, filter: reasonDialog.filterName, time: formatTime(new Date()), queued: true }, ...prev].slice(0, 20));
         setScanValue(''); setRemarks(''); setReasonDialog(null); setLoading(false); return;
@@ -651,6 +658,33 @@ export function MobileOperationsPage() {
       const { executed } = await executeOrQueue('advance', dryerDialog.filterId, dryerDialog.filterName, payload, 'DRY_IN');
       setSuccess(`${dryerDialog.filterName} → Dryer running (${minutes} min)${executed ? '' : ' (queued)'}`);
       setRecentOps(prev => [{ stage: 'Dryer Started', filter: dryerDialog.filterName, time: formatTime(new Date()), queued: !executed }, ...prev].slice(0, 20));
+      // Cache dryer timing + equipmentGroup (offline + navigation persistence)
+      try {
+        const cached = await getCache<any>(`filter-state-${dryerDialog.filterId}`) ?? {};
+        // Resolve equipment group for offline temperature dropdown
+        let eqGroup = cached.equipmentGroup ?? null;
+        if (!eqGroup && selectedBlock?.id) {
+          const allGroups = await getCache<any[]>('equipment-groups') ?? [];
+          const blockGroups = allGroups.filter((g: any) => g.blockId === selectedBlock.id);
+          if (blockGroups.length === 1) eqGroup = blockGroups[0];
+        }
+        cache(`filter-state-${dryerDialog.filterId}`, {
+          ...cached,
+          currentState: 'DRY_IN',
+          equipmentGroup: eqGroup,
+          currentCycle: {
+            ...(cached.currentCycle ?? {}),
+            status: 'IN_PROGRESS',
+            dryerDurationMinutes: minutes,
+            dryerStartedAt: new Date().toISOString(),
+            cleaningAreaId: selectedBlock?.id ?? cached.currentCycle?.cleaningAreaId ?? null,
+          },
+        });
+      } catch { /* ignore cache errors */ }
+      // Update offline state (nextAllowedStages, etc.) when queued
+      if (!executed) {
+        await updateOfflineState(dryerDialog.filterId, 'DRY_IN', false);
+      }
       setScanValue(''); setRemarks(''); setDryerDialog(null);
       if (executed) mutate('/api/assets/instances?limit=500');
     } catch (e: any) {
@@ -661,6 +695,14 @@ export function MobileOperationsPage() {
 
   const handleEquipSubmit = async () => {
     if (!equipDialog || !selectedEquipGroup) return;
+    // Validate all instrument readings are filled
+    const stageInstruments = (selectedEquipGroup.instruments ?? []).filter((i: any) => i.stageKey === equipDialog.stage);
+    for (const inst of stageInstruments) {
+      if (readings[inst.id] === undefined) {
+        setError(`Please select a value for ${inst.description}`);
+        return;
+      }
+    }
     setLoading(true); setError('');
     try {
       const isDryerReadings = equipDialog.stage === 'DRY_IN';
@@ -684,7 +726,7 @@ export function MobileOperationsPage() {
       }
 
       const queued = !executed;
-      if (queued) await updateOfflineState(equipDialog.filterId, isDryerReadings ? 'DRY_OUT' : equipDialog.stage, !!pendingCyclePayload);
+      if (queued) await updateOfflineState(equipDialog.filterId, isDryerReadings ? 'DRY_OUT' : equipDialog.stage, !!pendingCyclePayload, selectedBlock?.id);
       setSuccess(`${equipDialog.filterName} → ${equipDialog.stage.replace(/_/g, ' ')}${queued ? ' (queued)' : ''}`);
       setRecentOps(prev => [{ stage: equipDialog.stage, filter: equipDialog.filterName, time: formatTime(new Date()), queued }, ...prev].slice(0, 20));
       setScanValue(''); setRemarks(''); setEquipDialog(null); setSelectedEquipGroup(null); setReadings({});
@@ -1413,7 +1455,7 @@ export function MobileOperationsPage() {
                   </select></div>
               ))}
             </div>
-            <div className="p-4 border-t border-slate-200 flex gap-3"><button onClick={() => setEquipDialog(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium">Cancel</button><button onClick={handleEquipSubmit} disabled={loading || !selectedEquipGroup} className="flex-1 py-3 bg-amber-500 text-white rounded-xl font-bold disabled:opacity-40">{loading ? 'Submitting...' : 'Submit'}</button></div>
+            <div className="p-4 border-t border-slate-200 flex gap-3"><button onClick={() => setEquipDialog(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium">Cancel</button><button onClick={handleEquipSubmit} disabled={loading || !selectedEquipGroup || (() => { const insts = (selectedEquipGroup?.instruments ?? []).filter((i: any) => i.stageKey === equipDialog.stage); return insts.length > 0 && insts.some((i: any) => readings[i.id] === undefined); })()} className="flex-1 py-3 bg-amber-500 text-white rounded-xl font-bold disabled:opacity-40">{loading ? 'Submitting...' : 'Submit'}</button></div>
           </div>
         </div>
       )}
@@ -1600,6 +1642,12 @@ function DryingFilterCard({
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+  // Restore previously selected temperature from cache (survives navigation)
+  useEffect(() => {
+    getCache<number>(`dryer-temp-${filterId}`).then(saved => {
+      if (saved !== null && saved !== undefined) setTemp(saved);
+    }).catch(() => {});
+  }, [filterId]);
 
   // Load dryer data from API (online) or cache (offline)
   useEffect(() => {
@@ -1615,7 +1663,18 @@ function DryingFilterCard({
       // Offline: use cached state
       const cached = await getCache<any>(`filter-state-${filterId}`);
       setCycleData(cached?.currentCycle);
-      setEquipGroup(cached?.equipmentGroup);
+      let grp = cached?.equipmentGroup ?? null;
+      // Fallback: resolve from cached equipment groups
+      if (!grp) {
+        const allGroups = await getCache<any[]>('equipment-groups') ?? [];
+        if (cached?.currentCycle?.cleaningAreaId) {
+          const blockGroups = allGroups.filter((g: any) => g.blockId === cached.currentCycle.cleaningAreaId);
+          if (blockGroups.length >= 1) grp = blockGroups[0];
+        }
+        // Last resort: if only one equipment group exists, use it
+        if (!grp && allGroups.length === 1) grp = allGroups[0];
+      }
+      setEquipGroup(grp);
     };
     load();
     // Refresh every 15s when online
@@ -1677,6 +1736,10 @@ function DryingFilterCard({
         remarks: `Dryer temperature ${temp}${tempUom} - ${filterName}`,
       }, 'DRY_OUT');
       if (!executed) await updateOfflineState(filterId, 'DRY_OUT', false);
+      // Clear persisted temp selection
+      import('@/lib/offline-store').then(({ cacheData }) => {
+        cacheData(`dryer-temp-${filterId}`, null, 0);
+      }).catch(() => {});
       onSuccess(`${filterName} → Dry Out (${temp}${tempUom})${executed ? '' : ' (queued)'}`);
     } catch (e: any) {
       onError(e.message ?? 'Failed');
@@ -1706,7 +1769,15 @@ function DryingFilterCard({
         <div className="flex items-center gap-2 pt-1">
           <select
             value={temp}
-            onChange={e => setTemp(e.target.value ? Number(e.target.value) : '')}
+            onChange={e => {
+              const val = e.target.value ? Number(e.target.value) : '';
+              setTemp(val);
+              if (val !== '') {
+                import('@/lib/offline-store').then(({ cacheData }) => {
+                  cacheData(`dryer-temp-${filterId}`, val, 24 * 60 * 60 * 1000);
+                }).catch(() => {});
+              }
+            }}
             disabled={submitting}
             className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:border-amber-400 outline-none"
           >

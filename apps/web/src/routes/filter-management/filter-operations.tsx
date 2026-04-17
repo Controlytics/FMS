@@ -423,17 +423,24 @@ export function FilterOperationsPage() {
       const nextAllowed = (currentIdx >= 0 && currentIdx < pipeline.length - 1)
         ? [pipeline[currentIdx + 1].stateKey] : [];
 
+      // If no next stages, cycle is complete — clear it
+      const cycleComplete = nextAllowed.length === 0 && !cycleStarted;
       cache(`filter-state-${filterId}`, {
         ...cachedState,
         currentState: newStageKey,
         nextAllowedStages: nextAllowed,
         pendingChecklist: [], // cleared after advance — server recomputes on sync
-        currentCycle: cachedState.currentCycle ?? (cycleStarted ? { id: `offline-cycle-${Date.now()}` } : null),
+        currentCycle: cycleComplete ? null : (cachedState.currentCycle ?? (cycleStarted ? { id: `offline-cycle-${Date.now()}`, status: 'IN_PROGRESS' } : null)),
       });
 
       // Also update the filter instance's local state
       const { updateFilterStateLocally } = await import('@/lib/offline-store');
       await updateFilterStateLocally(filterId, newStageKey, cycleStarted);
+      // Clear currentCycleId when cycle completes
+      if (cycleComplete) {
+        const { clearOfflineCycleId } = await import('@/lib/offline-store');
+        await clearOfflineCycleId(filterId);
+      }
     } catch { /* ignore cache update errors */ }
   };
 
@@ -928,6 +935,38 @@ export function FilterOperationsPage() {
       }
       setRecentSubmissions(prev => [...newSubs, ...prev].slice(0, 10));
       refreshFilters();
+      // Cache dryer timing + equipmentGroup for each filter (offline + navigation persistence)
+      const dryerStartedAt = new Date().toISOString();
+      // Resolve equipment group for offline temperature dropdown
+      let batchEqGroup: any = null;
+      if (blockId) {
+        try {
+          const allGroups = await getCache<any[]>('equipment-groups') ?? [];
+          const blockGroups = allGroups.filter((g: any) => g.blockId === blockId);
+          if (blockGroups.length === 1) batchEqGroup = blockGroups[0];
+        } catch {}
+      }
+      for (const item of batch) {
+        try {
+          const cached = await getCache<any>(`filter-state-${item.filterId}`) ?? {};
+          cache(`filter-state-${item.filterId}`, {
+            ...cached,
+            currentState: 'DRY_IN',
+            equipmentGroup: cached.equipmentGroup ?? batchEqGroup,
+            currentCycle: {
+              ...(cached.currentCycle ?? {}),
+              status: 'IN_PROGRESS',
+              dryerDurationMinutes: minutes,
+              dryerStartedAt,
+              cleaningAreaId: blockId ?? cached.currentCycle?.cleaningAreaId ?? null,
+            },
+          });
+        } catch { /* ignore cache errors */ }
+      }
+      // Update offline state (nextAllowedStages) for each filter when queued
+      for (const item of batch) {
+        await updateCachedStateAfterAdvance(item.filterId, 'DRY_IN', false);
+      }
       setDryerDialog(null);
       setPendingBatch(null);
       if (failed.length > 0) setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
@@ -946,6 +985,32 @@ export function FilterOperationsPage() {
       }, 'DRY_IN');
       setRecentSubmissions(prev => [{ stage: 'Dryer Started' + (executed ? '' : ' (queued)'), filter: dryerDialog.filterName, block: blockName, time: formatTime(new Date()) }, ...prev].slice(0, 10));
       refreshFilters();
+      // Cache dryer timing + equipmentGroup (offline + navigation persistence)
+      try {
+        const cached = await getCache<any>(`filter-state-${dryerDialog.filterId}`) ?? {};
+        let eqGroup = cached.equipmentGroup ?? null;
+        if (!eqGroup && blockId) {
+          const allGroups = await getCache<any[]>('equipment-groups') ?? [];
+          const blockGroups = allGroups.filter((g: any) => g.blockId === blockId);
+          if (blockGroups.length === 1) eqGroup = blockGroups[0];
+        }
+        cache(`filter-state-${dryerDialog.filterId}`, {
+          ...cached,
+          currentState: 'DRY_IN',
+          equipmentGroup: eqGroup,
+          currentCycle: {
+            ...(cached.currentCycle ?? {}),
+            status: 'IN_PROGRESS',
+            dryerDurationMinutes: minutes,
+            dryerStartedAt: new Date().toISOString(),
+            cleaningAreaId: blockId ?? cached.currentCycle?.cleaningAreaId ?? null,
+          },
+        });
+      } catch { /* ignore cache errors */ }
+      // Update offline state (nextAllowedStages) when queued
+      if (!executed) {
+        await updateCachedStateAfterAdvance(dryerDialog.filterId, 'DRY_IN', false);
+      }
       setDryerDialog(null);
       setToast({ type: 'success', message: `${dryerDialog.filterName} → Dryer running (${minutes} min)${executed ? '' : ' (queued)'}` });
     } catch (e: any) {
@@ -1534,22 +1599,50 @@ function DryingFilterRow({
   const [submitting, setSubmitting] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState<string>('');
   const [now, setNow] = useState(() => Date.now());
+  const [offlineState, setOfflineState] = useState<any>(null);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+  const [offlineEquipGroups, setOfflineEquipGroups] = useState<any[]>([]);
+  // Restore previously selected temperature from cache (survives navigation)
+  // Also load offline state fallback from IndexedDB
+  useEffect(() => {
+    import('@/lib/offline-store').then(({ getCachedData }) => {
+      getCachedData<number>(`dryer-temp-${filterId}`).then(saved => {
+        if (saved !== null && saved !== undefined) setTemp(saved);
+      });
+      getCachedData<any>(`filter-state-${filterId}`).then(cached => {
+        if (cached) setOfflineState(cached);
+      });
+      // Load cached equipment groups as fallback for offline
+      getCachedData<any[]>('equipment-groups').then(groups => {
+        if (groups) setOfflineEquipGroups(groups);
+      });
+    }).catch(() => {});
+  }, [filterId]);
 
-  const cyc = state?.currentCycle;
+  // Use SWR data when available, fall back to offline cache
+  const effectiveState = state ?? offlineState;
+  const cyc = effectiveState?.currentCycle;
   const startedAt = cyc?.dryerStartedAt ? new Date(cyc.dryerStartedAt).getTime() : null;
   const durationMin: number | null = cyc?.dryerDurationMinutes ?? null;
 
   // Equipment group from cycle or block fallback
-  const stateGroup = state?.equipmentGroup;
-  const blockGroups: any[] = state?.blockEquipmentGroups ?? [];
+  const stateGroup = effectiveState?.equipmentGroup;
+  const blockGroups: any[] = effectiveState?.blockEquipmentGroups ?? [];
+  // Offline fallback: resolve from cached equipment groups by block
+  const offlineBlockGroups = (() => {
+    if (stateGroup || blockGroups.length > 0) return [];
+    const areaId = cyc?.cleaningAreaId;
+    if (areaId) return offlineEquipGroups.filter((g: any) => g.blockId === areaId);
+    return offlineEquipGroups.length === 1 ? offlineEquipGroups : [];
+  })();
 
-  // Resolve which group to use: cycle's group > single block group > user-selected
+  // Resolve which group to use: cycle's group > block groups > offline fallback > user-selected
   const resolvedGroup = stateGroup
     ?? (blockGroups.length === 1 ? blockGroups[0] : null)
+    ?? (offlineBlockGroups.length >= 1 ? offlineBlockGroups[0] : null)
     ?? (selectedGroupId ? blockGroups.find((g: any) => g.id === selectedGroupId) : null);
 
   // Find the dryer temperature instrument
@@ -1611,6 +1704,10 @@ function DryingFilterRow({
         remarks: `Dryer temperature ${temp}${tempUom} - ${filterName}`,
       }, 'DRY_OUT');
       setToast({ type: 'success', message: `${filterName} → DRY_OUT (${temp}${tempUom})${executed ? '' : ' (queued)'}` });
+      // Clear persisted temp selection
+      import('@/lib/offline-store').then(({ cacheData }) => {
+        cacheData(`dryer-temp-${filterId}`, null, 0);
+      }).catch(() => {});
       refreshFilters();
       if (executed) refreshState();
     } catch (e: any) {
@@ -1653,7 +1750,15 @@ function DryingFilterRow({
           <>
             <select
               value={temp}
-              onChange={(e) => setTemp(e.target.value ? Number(e.target.value) : '')}
+              onChange={(e) => {
+                const val = e.target.value ? Number(e.target.value) : '';
+                setTemp(val);
+                if (val !== '') {
+                  import('@/lib/offline-store').then(({ cacheData }) => {
+                    cacheData(`dryer-temp-${filterId}`, val, 24 * 60 * 60 * 1000);
+                  }).catch(() => {});
+                }
+              }}
               disabled={!halfElapsed || submitting}
               className="rounded border border-slate-300 px-2 py-1 text-slate-800 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
               title={dryerInstrument ? `${dryerInstrument.operatingMin}–${dryerInstrument.operatingMax} ${tempUom} (step ${dryerInstrument.leastCount})` : ''}

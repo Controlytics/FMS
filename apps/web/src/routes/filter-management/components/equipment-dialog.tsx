@@ -133,7 +133,7 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error }: E
         <div className="px-6 py-4 border-t border-slate-200 flex gap-3 shrink-0">
           <button onClick={onClose}
             className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl">Cancel</button>
-          <button onClick={handleSubmit} disabled={loading || !selectedEquipmentGroup}
+          <button onClick={handleSubmit} disabled={loading || !selectedEquipmentGroup || (() => { const insts = (selectedEquipmentGroup?.instruments ?? []).filter((i: any) => i.stageKey === dialog.stage.key); return insts.length > 0 && insts.some((i: any) => instrumentReadings[i.id] === undefined); })()}
             className={`flex-1 py-3 text-white rounded-xl font-bold disabled:opacity-40 flex items-center justify-center gap-2 transition-colors ${dialog.stage.key === 'DRY_IN' ? 'bg-amber-600 hover:bg-amber-500' : 'bg-cyan-600 hover:bg-cyan-500'}`}>
             {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> :
               <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>Submit</>}
