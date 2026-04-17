@@ -14,7 +14,7 @@ export async function getBoss(): Promise<PgBoss> {
       schema: 'pgboss',
       retryLimit: 3,
       retryDelay: 5,
-      expireInHours: 24,
+      expireInHours: 23,
       archiveCompletedAfterSeconds: 86400,
       deleteAfterDays: 7,
     });
