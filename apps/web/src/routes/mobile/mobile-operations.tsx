@@ -1830,13 +1830,16 @@ function DryingFilterCard({
         remarks: `Dryer temperature ${temp}${tempUom} - ${filterName}`,
       }, 'DRY_IN');
       if (!executed) await updateOfflineState(filterId, 'DRY_IN', false);
-      // Mark readings as submitted in cache + clear persisted temp
+      // Mark readings as submitted in cache (read AFTER updateOfflineState to get latest) + clear persisted temp
       try {
-        const cs = await getCache<any>(`filter-state-${filterId}`) ?? {};
+        const freshState = await getCache<any>(`filter-state-${filterId}`) ?? {};
         const { cacheData } = await import('@/lib/offline-store');
-        cacheData(`filter-state-${filterId}`, { ...cs, currentCycle: { ...(cs.currentCycle ?? {}), dryerReadingsSubmitted: true } });
+        cacheData(`filter-state-${filterId}`, { ...freshState, currentCycle: { ...(freshState.currentCycle ?? {}), dryerReadingsSubmitted: true } });
         cacheData(`dryer-temp-${filterId}`, null, 0);
       } catch {}
+      // Update local component state so UI shows "Complete" immediately
+      setCycleData((prev: any) => ({ ...(prev ?? {}), dryerReadingsSubmitted: true }));
+      setTemp('');
       onSuccess(`${filterName} → Dry In complete (${temp}${tempUom})${executed ? '' : ' (queued)'}`);
     } catch (e: any) {
       onError(e.message ?? 'Failed');

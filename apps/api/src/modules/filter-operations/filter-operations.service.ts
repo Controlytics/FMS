@@ -792,22 +792,24 @@ export class FilterOperationsService {
       if (!dryerDurationMinutes || dryerDurationMinutes < 1) throw new AppError(400, 'INVALID_DURATION', 'dryerDurationMinutes required');
     }
 
-    // Dryer SUBMIT_READINGS: validate half-time elapsed
+    // Dryer SUBMIT_READINGS: validate half-time elapsed (skip for offline replay — time already validated client-side)
     if (dryerAction === 'SUBMIT_READINGS') {
       if (filter.currentLifecycleState !== 'DRY_IN') throw new AppError(400, 'NOT_IN_DRY_IN', 'Filter is not in DRY_IN');
       if (!cycle.dryerStartedAt || !cycle.dryerDurationMinutes) {
         throw new AppError(400, 'DRYER_NOT_STARTED', 'Dryer duration not set');
       }
-      const halfMs = (cycle.dryerDurationMinutes * 60_000) / 2;
-      const elapsedMs = Date.now() - new Date(cycle.dryerStartedAt).getTime();
-      if (elapsedMs < halfMs) {
-        const remainingMin = Math.ceil((halfMs - elapsedMs) / 60_000);
-        throw new AppError(400, 'DRYER_NOT_READY', `Dryer still running. Wait ${remainingMin} more minute(s).`);
+      if (!offlineTime) {
+        const halfMs = (cycle.dryerDurationMinutes * 60_000) / 2;
+        const elapsedMs = Date.now() - new Date(cycle.dryerStartedAt).getTime();
+        if (elapsedMs < halfMs) {
+          const remainingMin = Math.ceil((halfMs - elapsedMs) / 60_000);
+          throw new AppError(400, 'DRYER_NOT_READY', `Dryer still running. Wait ${remainingMin} more minute(s).`);
+        }
       }
     }
 
-    // Guard: leaving DRY_IN requires the dryer to have run at least half its duration
-    if (filter.currentLifecycleState === 'DRY_IN' && targetState !== 'DRY_IN') {
+    // Guard: leaving DRY_IN requires the dryer to have run at least half its duration (skip for offline replay)
+    if (filter.currentLifecycleState === 'DRY_IN' && targetState !== 'DRY_IN' && !offlineTime) {
       if (cycle.dryerStartedAt && cycle.dryerDurationMinutes) {
         const halfMs = (cycle.dryerDurationMinutes * 60_000) / 2;
         const elapsedMs = Date.now() - new Date(cycle.dryerStartedAt).getTime();
