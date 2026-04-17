@@ -405,12 +405,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       const cycleComplete = hasGraphData && nextAllowed.length === 0 && pendingChecklist.length === 0 && !cycleStarted;
       cache(`filter-state-${filterId}`, {
         ...cachedState,
-        currentState: newStage,
-        nextAllowedStages: nextAllowed,
+        currentState: cycleComplete ? null : newStage,
+        nextAllowedStages: cycleComplete ? [] : nextAllowed,
         pendingChecklist,
         currentCycle: cycleComplete ? null : (cachedState.currentCycle ?? (cycleStarted ? { id: `offline-${Date.now()}`, status: 'IN_PROGRESS', cleaningAreaId: blockId ?? selectedBlock?.id ?? null } : null)),
       });
-      // Also clear currentCycleId in filters store when cycle completes
+      // Clear both currentCycleId and currentLifecycleState in filters store when cycle completes
       if (cycleComplete) {
         const { clearOfflineCycleId } = await import('@/lib/offline-store');
         await clearOfflineCycleId(filterId);

@@ -156,7 +156,7 @@ export async function updateFilterStateLocally(filterId: string, newState: strin
   });
 }
 
-// Clear the currentCycleId for a filter (when cycle completes offline)
+// Clear the currentCycleId and currentLifecycleState for a filter (when cycle completes offline)
 export async function clearOfflineCycleId(filterId: string): Promise<void> {
   const db = await openDB();
   const tx = db.transaction('filters', 'readwrite');
@@ -167,6 +167,7 @@ export async function clearOfflineCycleId(filterId: string): Promise<void> {
       const filter = req.result;
       if (filter) {
         filter.currentCycleId = null;
+        filter.currentLifecycleState = null;
         store.put(filter);
       }
     };

@@ -452,15 +452,20 @@ export function FilterOperationsPage() {
       const cycleComplete = hasGraphData && nextAllowed.length === 0 && !cycleStarted;
       cache(`filter-state-${filterId}`, {
         ...cachedState,
-        currentState: newStageKey,
-        nextAllowedStages: nextAllowed,
+        currentState: cycleComplete ? null : newStageKey,
+        nextAllowedStages: cycleComplete ? [] : nextAllowed,
         pendingChecklist: [], // cleared after advance — server recomputes on sync
         currentCycle: cycleComplete ? null : (cachedState.currentCycle ?? (cycleStarted ? { id: `offline-cycle-${Date.now()}`, status: 'IN_PROGRESS' } : null)),
       });
 
       // Also update the filter instance's local state
       const { updateFilterStateLocally } = await import('@/lib/offline-store');
-      await updateFilterStateLocally(filterId, newStageKey, cycleStarted);
+      if (cycleComplete) {
+        // Cycle done — clear lifecycle state so next scan starts fresh
+        await updateFilterStateLocally(filterId, '', false);
+      } else {
+        await updateFilterStateLocally(filterId, newStageKey, cycleStarted);
+      }
       // Clear currentCycleId when cycle completes
       if (cycleComplete) {
         const { clearOfflineCycleId } = await import('@/lib/offline-store');
