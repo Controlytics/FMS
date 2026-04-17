@@ -611,6 +611,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       }
       if (activeStage.key === 'DRY_IN') {
         const cyc = state.currentCycle ?? {};
+        if (cyc.dryerReadingsSubmitted) {
+          setError('Dry In complete — temperature already recorded. Scan on Dry Out stage to advance.');
+          setLoading(false); return;
+        }
         const startedAt = cyc.dryerStartedAt ? new Date(cyc.dryerStartedAt).getTime() : null;
         const durationMin: number | null = cyc.dryerDurationMinutes ?? null;
         if (!startedAt || !durationMin) {
@@ -768,7 +772,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     setLoading(true); setError('');
     try {
       const isDryerReadings = equipDialog.stage === 'DRY_IN';
-      const advancePayload = { targetState: isDryerReadings ? 'DRY_OUT' : equipDialog.stage, cleaningAreaId: selectedBlock?.id, equipmentGroupId: selectedEquipGroup.id, instrumentReadings: readings, ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}), remarks: remarks || `${equipDialog.stage.replace(/_/g, ' ')} - ${equipDialog.filterName}` };
+      const advancePayload = { targetState: isDryerReadings ? 'DRY_IN' : equipDialog.stage, cleaningAreaId: selectedBlock?.id, equipmentGroupId: selectedEquipGroup.id, instrumentReadings: readings, ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}), remarks: remarks || `${equipDialog.stage.replace(/_/g, ' ')} - ${equipDialog.filterName}` };
 
       // If we have a pending cycle payload (from reason dialog), use compound operation
       let executed: boolean;
@@ -788,7 +792,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       }
 
       const queued = !executed;
-      if (queued) await updateOfflineState(equipDialog.filterId, isDryerReadings ? 'DRY_OUT' : equipDialog.stage, !!pendingCyclePayload, selectedBlock?.id);
+      if (queued) await updateOfflineState(equipDialog.filterId, isDryerReadings ? 'DRY_IN' : equipDialog.stage, !!pendingCyclePayload, selectedBlock?.id);
       setSuccess(`${equipDialog.filterName} → ${equipDialog.stage.replace(/_/g, ' ')}${queued ? ' (queued)' : ''}`);
       setRecentOps(prev => [{ stage: equipDialog.stage, filter: equipDialog.filterName, time: formatTime(new Date()), queued }, ...prev].slice(0, 20));
       setScanValue(''); setRemarks(''); setEquipDialog(null); setSelectedEquipGroup(null); setReadings({});
@@ -1819,13 +1823,13 @@ function DryingFilterCard({
         readings[inst.id] = (dryerInstrument && inst.id === dryerInstrument.id) ? Number(temp) : inst.operatingMin;
       }
       const { executed } = await executeOrQueue('advance', filterId, filterName, {
-        targetState: 'DRY_OUT',
+        targetState: 'DRY_IN',
         dryerAction: 'SUBMIT_READINGS',
         equipmentGroupId: equipGroup.id,
         instrumentReadings: readings,
         remarks: `Dryer temperature ${temp}${tempUom} - ${filterName}`,
-      }, 'DRY_OUT');
-      if (!executed) await updateOfflineState(filterId, 'DRY_OUT', false);
+      }, 'DRY_IN');
+      if (!executed) await updateOfflineState(filterId, 'DRY_IN', false);
       // Mark readings as submitted in cache + clear persisted temp
       try {
         const cs = await getCache<any>(`filter-state-${filterId}`) ?? {};
@@ -1833,7 +1837,7 @@ function DryingFilterCard({
         cacheData(`filter-state-${filterId}`, { ...cs, currentCycle: { ...(cs.currentCycle ?? {}), dryerReadingsSubmitted: true } });
         cacheData(`dryer-temp-${filterId}`, null, 0);
       } catch {}
-      onSuccess(`${filterName} → Dry Out (${temp}${tempUom})${executed ? '' : ' (queued)'}`);
+      onSuccess(`${filterName} → Dry In complete (${temp}${tempUom})${executed ? '' : ' (queued)'}`);
     } catch (e: any) {
       onError(e.message ?? 'Failed');
     }

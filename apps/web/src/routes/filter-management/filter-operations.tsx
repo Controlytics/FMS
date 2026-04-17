@@ -605,6 +605,11 @@ export function FilterOperationsPage() {
       // DRY_IN special two-step dryer flow
       if (activeStage.key === 'DRY_IN') {
         const cyc = state.currentCycle ?? {};
+        if (cyc.dryerReadingsSubmitted) {
+          setPopupError('Dry In complete — temperature already recorded. Scan on Dry Out stage to advance.');
+          setLoading(false); setSubmitting(false);
+          return;
+        }
         const startedAt = cyc.dryerStartedAt ? new Date(cyc.dryerStartedAt).getTime() : null;
         const durationMin: number | null = cyc.dryerDurationMinutes ?? null;
 
@@ -1062,7 +1067,7 @@ export function FilterOperationsPage() {
       for (const item of batch) {
         try {
           const advPayload = {
-            targetState: isDryerReadings ? 'DRY_OUT' : stage.key,
+            targetState: isDryerReadings ? 'DRY_IN' : stage.key,
             cleaningAreaId: blockId,
             equipmentGroupId: groupId,
             instrumentReadings: readings,
@@ -1075,15 +1080,15 @@ export function FilterOperationsPage() {
             const res = await executeOrQueue('start-and-advance', item.filterId, item.filterName, {
               cyclePayload: { ...savedCyclePayload, equipmentGroupId: groupId },
               advancePayload: advPayload,
-            } as any, isDryerReadings ? 'DRY_OUT' : stage.key);
+            } as any, isDryerReadings ? 'DRY_IN' : stage.key);
             executed = res.executed;
           } else {
-            const res = await executeOrQueue('advance', item.filterId, item.filterName, advPayload, isDryerReadings ? 'DRY_OUT' : stage.key);
+            const res = await executeOrQueue('advance', item.filterId, item.filterName, advPayload, isDryerReadings ? 'DRY_IN' : stage.key);
             executed = res.executed;
           }
           success++;
           // Update cached state after offline operation
-          if (!executed) await updateCachedStateAfterAdvance(item.filterId, isDryerReadings ? 'DRY_OUT' : stage.key, !!savedCyclePayload);
+          if (!executed) await updateCachedStateAfterAdvance(item.filterId, isDryerReadings ? 'DRY_IN' : stage.key, !!savedCyclePayload);
           newSubs.push({ stage: stage.label + (executed ? '' : ' (queued)'), filter: item.filterName, block: blockName, time: formatTime(new Date()) });
         } catch (e: any) {
           failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
@@ -1103,7 +1108,7 @@ export function FilterOperationsPage() {
 
     try {
       const advPayload = {
-        targetState: isDryerReadings ? 'DRY_OUT' : equipmentDialog.stage.key,
+        targetState: isDryerReadings ? 'DRY_IN' : equipmentDialog.stage.key,
         cleaningAreaId: equipmentDialog.block?.id,
         equipmentGroupId: groupId,
         instrumentReadings: readings,
@@ -1117,12 +1122,12 @@ export function FilterOperationsPage() {
         const res = await executeOrQueue('start-and-advance', equipmentDialog.filterId, equipmentDialog.filterName, {
           cyclePayload: { ...pendingCyclePayload, equipmentGroupId: groupId },
           advancePayload: advPayload,
-        } as any, isDryerReadings ? 'DRY_OUT' : equipmentDialog.stage.key);
+        } as any, isDryerReadings ? 'DRY_IN' : equipmentDialog.stage.key);
         executed = res.executed;
         advanceResult = res.result;
         setPendingCyclePayload(null);
       } else {
-        const res = await executeOrQueue('advance', equipmentDialog.filterId, equipmentDialog.filterName, advPayload, isDryerReadings ? 'DRY_OUT' : equipmentDialog.stage.key);
+        const res = await executeOrQueue('advance', equipmentDialog.filterId, equipmentDialog.filterName, advPayload, isDryerReadings ? 'DRY_IN' : equipmentDialog.stage.key);
         executed = res.executed;
         advanceResult = res.result;
       }
@@ -1722,13 +1727,13 @@ function DryingFilterRow({
         }};
       });
       const { executed } = await eOrQ('advance', filterId, filterName, {
-        targetState: 'DRY_OUT',
+        targetState: 'DRY_IN',
         dryerAction: 'SUBMIT_READINGS',
         equipmentGroupId: resolvedGroup.id,
         instrumentReadings: readings,
         remarks: `Dryer temperature ${temp}${tempUom} - ${filterName}`,
-      }, 'DRY_OUT');
-      setToast({ type: 'success', message: `${filterName} → DRY_OUT (${temp}${tempUom})${executed ? '' : ' (queued)'}` });
+      }, 'DRY_IN');
+      setToast({ type: 'success', message: `${filterName} → Dry In complete (${temp}${tempUom})${executed ? '' : ' (queued)'}` });
       // Mark readings submitted in cache + clear persisted temp
       import('@/lib/offline-store').then(({ cacheData, getCachedData }) => {
         cacheData(`dryer-temp-${filterId}`, null, 0);
