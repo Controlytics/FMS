@@ -23,6 +23,28 @@ apps/*/.env
 RFID/.gradle/
 *.class
 
+# Android build artifacts (NOT needed in git)
+RFID/app/build/
+RFID/build/
+RFID/.idea/
+RFID/local.properties
+*.apk
+*.aab
+
+# Local notes / scratch / planning files
+tasks/
+scratch/
+notes/
+TODO.md
+DEPLOY-NOTES.md
+*.local.md
+*.draft.md
+
+# Editor files
+*.swp
+*.swo
+Thumbs.db
+
 # Misc
 *.log
 .DS_Store
