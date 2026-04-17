@@ -62,9 +62,11 @@ export function CleaningCycleHistoryPage() {
   });
 
   const getStageInfo = (events: FilterEvent[], stage: string) => {
-    const ev = (events ?? []).find((e) => e.eventType === 'STATE_TRANSITION' && e.toState === stage);
+    const stageEvents = (events ?? []).filter((e) => e.eventType === 'STATE_TRANSITION' && e.toState === stage);
+    // Prefer the event with instrument readings (e.g., DRY_IN temperature submit)
+    const ev = stageEvents.find((e) => (e.attributes as any)?.instrumentReadings?.length > 0) ?? stageEvents[0];
     if (!ev) return null;
-    return { time: ev.performedAt, performedBy: ev.performedByName ?? ev.performedBy?.substring(0, 8) ?? '-', readings: ev.attributes?.instrumentReadings ?? [] };
+    return { time: ev.performedAt, performedBy: ev.performedByName ?? ev.performedBy?.substring(0, 8) ?? '-', readings: (ev.attributes as any)?.instrumentReadings ?? [] };
   };
 
   const getReading = (readings: any[], desc: string) => {
