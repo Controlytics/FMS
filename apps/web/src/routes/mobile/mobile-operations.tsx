@@ -386,20 +386,23 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
 
       // If checklist is pending, block advancement (nextAllowedStages = [])
       let nextAllowed: string[] = [];
+      let hasGraphData = false;
       if (pendingChecklist.length > 0) {
         nextAllowed = []; // blocked until checklist answered
       } else if (graph) {
         nextAllowed = computeNextStages(graph, newStage);
+        hasGraphData = true;
       } else {
         const pipeline: any[] = (cachedState.pipelineStages ?? [])
           .filter((s: any) => s.stateKey)
           .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
         const idx = pipeline.findIndex((s: any) => s.stateKey === newStage);
         nextAllowed = (idx >= 0 && idx < pipeline.length - 1) ? [pipeline[idx + 1].stateKey] : [];
+        hasGraphData = pipeline.length > 0;
       }
 
-      // If no next stages and no pending checklist, cycle is complete — clear it
-      const cycleComplete = nextAllowed.length === 0 && pendingChecklist.length === 0 && !cycleStarted;
+      // Only mark cycle complete if we have pipeline data to verify it AND there are truly no next stages
+      const cycleComplete = hasGraphData && nextAllowed.length === 0 && pendingChecklist.length === 0 && !cycleStarted;
       cache(`filter-state-${filterId}`, {
         ...cachedState,
         currentState: newStage,

@@ -418,13 +418,38 @@ export function FilterOperationsPage() {
         .filter((s: any) => s.stateKey)
         .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 
-      // Compute new nextAllowedStages from sorted pipeline
-      const currentIdx = pipeline.findIndex((s: any) => s.stateKey === newStageKey);
-      const nextAllowed = (currentIdx >= 0 && currentIdx < pipeline.length - 1)
-        ? [pipeline[currentIdx + 1].stateKey] : [];
+      // Compute new nextAllowedStages — prefer graph, fall back to linear pipeline
+      const graph = cachedState.pipelineGraph;
+      let nextAllowed: string[] = [];
+      let hasGraphData = false;
+      if (graph?.stages && graph?.connections) {
+        // Walk graph to find reachable STAGE nodes (skip CHECKLIST)
+        const currentNode = graph.stages.find((s: any) => s.stateKey === newStageKey);
+        if (currentNode) {
+          const visited = new Set<string>();
+          const walk = (nodeId: string) => {
+            if (visited.has(nodeId)) return;
+            visited.add(nodeId);
+            for (const c of graph.connections.filter((c: any) => c.fromStageId === nodeId)) {
+              const next = graph.stages.find((s: any) => s.id === c.toStageId);
+              if (!next) continue;
+              if (next.nodeType === 'STAGE' && next.stateKey) nextAllowed.push(next.stateKey);
+              else if (next.nodeType === 'CHECKLIST') walk(next.id);
+            }
+          };
+          walk(currentNode.id);
+          hasGraphData = true;
+        }
+      }
+      if (!hasGraphData) {
+        const currentIdx = pipeline.findIndex((s: any) => s.stateKey === newStageKey);
+        nextAllowed = (currentIdx >= 0 && currentIdx < pipeline.length - 1)
+          ? [pipeline[currentIdx + 1].stateKey] : [];
+        hasGraphData = pipeline.length > 0;
+      }
 
-      // If no next stages, cycle is complete — clear it
-      const cycleComplete = nextAllowed.length === 0 && !cycleStarted;
+      // Only mark cycle complete if we have pipeline data to verify it
+      const cycleComplete = hasGraphData && nextAllowed.length === 0 && !cycleStarted;
       cache(`filter-state-${filterId}`, {
         ...cachedState,
         currentState: newStageKey,

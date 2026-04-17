@@ -64,13 +64,9 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
   }
   if (pending.length === 0) return { synced: 0, failed: 0 };
 
-  // Quick connectivity test: try a lightweight API call
+  // Quick connectivity test: use apiClient (supports CapacitorHttp for self-signed certs)
   try {
-    const baseUrl = import.meta.env.VITE_API_URL ?? '';
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
-    await fetch(`${baseUrl}/api/health`, { method: 'GET', signal: controller.signal });
-    clearTimeout(timer);
+    await apiClient.get('/api/health');
   } catch {
     // Server not reachable — skip sync
     return { synced: 0, failed: 0 };
@@ -97,7 +93,7 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
       // Network error: server went away mid-sync, stop trying
       const isNetErr = msg.includes('fetch') || msg.includes('network')
         || msg.includes('econnrefused') || msg.includes('load failed')
-        || msg.includes('abort') || msg.includes('tls') || msg.includes('ssl');
+        || msg.includes('abort');
       if (isNetErr) {
         await updateOperationStatus(op.id, 'pending', errMsg);
         failed++;
