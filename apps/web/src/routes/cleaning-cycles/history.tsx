@@ -106,7 +106,7 @@ export function CleaningCycleHistoryPage() {
         const dryIn = getStageInfo(c.events ?? [], 'DRY_IN');
         const dryOut = getStageInfo(c.events ?? [], 'DRY_OUT');
         const washReadings = washIn?.readings ?? [];
-        const dryReadings = dryOut?.readings ?? dryIn?.readings ?? [];
+        const dryReadings = (dryIn?.readings?.length ? dryIn.readings : null) ?? (dryOut?.readings?.length ? dryOut.readings : null) ?? [];
         return [
           String(idx + 1), c.filterName ?? '-', attrs.filterSize ?? '-',
           getReading(washReadings, 'air pressure'), getReading(washReadings, 'ro water'),
@@ -254,7 +254,7 @@ export function CleaningCycleHistoryPage() {
                 const dryIn = getStageInfo(c.events ?? [], 'DRY_IN');
                 const dryOut = getStageInfo(c.events ?? [], 'DRY_OUT');
                 const washReadings = washIn?.readings ?? [];
-                const dryReadings = dryOut?.readings ?? dryIn?.readings ?? [];
+                const dryReadings = (dryIn?.readings?.length ? dryIn.readings : null) ?? (dryOut?.readings?.length ? dryOut.readings : null) ?? [];
                 const dryerTemp = getReading(dryReadings, 'dryer') !== '-' ? getReading(dryReadings, 'dryer') : getReading(dryReadings, 'temperature');
                 const duration = getDuration(c);
                 const sc = STATUS_CONFIG[c.status];
