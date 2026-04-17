@@ -429,104 +429,77 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
 
       let state: any;
 
-      if (!online) {
-        // Offline: build state from cached filter data + cached filter-specific state
+      // === UNIFIED STATE RESOLUTION ===
+      // Always try API first (works online), fall back to cache (works offline).
+      // Single code path — no divergence between online/offline.
+      const buildOfflineState = async () => {
         const cachedFilters = await getOfflineFilters();
         const cached = cachedFilters.find((f: any) => f.id === filterId);
-        const cachedState = await getCache<any>(`filter-state-${filterId}`);
+        const cachedState = await getCache<any>(`filter-state-${filterId}`) ?? {};
 
-        const currentLifecycle = cached?.currentLifecycleState || cachedState?.currentState || null;
-
-        // Use cached nextAllowedStages if available (from last online fetch or updateOfflineState)
-        // Otherwise compute from pipeline graph
-        let offlineNextAllowed: string[] = cachedState?.nextAllowedStages ?? [];
-        if (offlineNextAllowed.length === 0 && cachedState?.pipelineGraph) {
-          offlineNextAllowed = computeNextStages(cachedState.pipelineGraph, currentLifecycle);
+        const currentLifecycle = cached?.currentLifecycleState || cachedState.currentState || null;
+        let nextAllowed: string[] = cachedState.nextAllowedStages ?? [];
+        if (nextAllowed.length === 0 && cachedState.pipelineGraph) {
+          nextAllowed = computeNextStages(cachedState.pipelineGraph, currentLifecycle);
         }
 
-        // Block duplicate submission — if filter is already at this stage
-        if (currentLifecycle === activeStage.key && offlineNextAllowed.length > 0) {
-          setError(`Already at ${activeStage.label}. Next: ${offlineNextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`);
-          setLoading(false); return;
-        }
+        // Active cycle: server returns currentCycle with id+status, offline has cached version
+        const cycle = cachedState.currentCycle ?? null;
+        const hasCycle = cycle ? !!(cycle.status === 'IN_PROGRESS' || cycle.id) : !!cached?.currentCycleId;
 
-        // Determine active cycle: check status field, OR presence of currentCycleId in IndexedDB
-        const hasCycle = cachedState?.currentCycle
-          ? (cachedState.currentCycle.status === 'IN_PROGRESS' || !!cachedState.currentCycle.id)
-          : !!cached?.currentCycleId;
-        state = {
+        return {
           filterId,
           filterName: cached?.name || filterName,
           currentState: currentLifecycle,
-          currentCycle: hasCycle ? (cachedState?.currentCycle ?? { id: cached?.currentCycleId, status: 'IN_PROGRESS' }) : null,
-          nextAllowedStages: offlineNextAllowed,
-          pendingChecklist: cachedState?.pendingChecklist ?? [],
-          pipelineStages: cachedState?.pipelineStages ?? [],
-          pipelineGraph: cachedState?.pipelineGraph ?? null,
-          equipmentGroup: cachedState?.equipmentGroup ?? null,
-          isPmDue: cachedState?.isPmDue ?? false,
-          pmReasonKey: cachedState?.pmReasonKey ?? null,
-          blockChangeStatus: cachedState?.blockChangeStatus ?? null,
-          homeBlock: cachedState?.homeBlock ?? null,
+          currentCycle: hasCycle ? (cycle ?? { id: cached?.currentCycleId, status: 'IN_PROGRESS' }) : null,
+          nextAllowedStages: nextAllowed,
+          pendingChecklist: cachedState.pendingChecklist ?? [],
+          pipelineStages: cachedState.pipelineStages ?? [],
+          pipelineGraph: cachedState.pipelineGraph ?? null,
+          equipmentGroup: cachedState.equipmentGroup ?? null,
+          isPmDue: cachedState.isPmDue ?? false,
+          pmReasonKey: cachedState.pmReasonKey ?? null,
+          blockChangeStatus: cachedState.blockChangeStatus ?? null,
+          homeBlock: cachedState.homeBlock ?? null,
         };
-      } else {
-        // Online: fetch live state from API
+      };
+
+      if (online) {
         try {
           const csUrl = `/api/filters/${filterId}/current-state${selectedBlock?.id ? `?cleaningAreaId=${encodeURIComponent(selectedBlock.id)}` : ''}`;
           state = await apiClient.get<any>(csUrl);
-          // Cache for offline — preserve existing graph data from full sync
-          const existingCache = await getCache<any>(`filter-state-${filterId}`);
+          // Cache full server response for offline use
           cache(`filter-state-${filterId}`, {
-            ...(existingCache ?? {}),
             equipmentGroup: state.equipmentGroup ?? null,
+            blockEquipmentGroups: state.blockEquipmentGroups ?? [],
             pendingChecklist: state.pendingChecklist ?? [],
-            pipelineStages: state.pipelineStages ?? existingCache?.pipelineStages ?? [],
-            pipelineGraph: state.pipelineGraph ?? existingCache?.pipelineGraph ?? null,
+            pipelineStages: state.pipelineStages ?? [],
+            pipelineGraph: state.pipelineGraph ?? null,
             nextAllowedStages: state.nextAllowedStages ?? [],
             isPmDue: state.isPmDue ?? false,
             pmReasonKey: state.pmReasonKey ?? null,
             currentCycle: state.currentCycle ?? null,
             currentState: state.currentState ?? null,
+            homeBlock: state.homeBlock ?? null,
+            blockChangeStatus: state.blockChangeStatus ?? null,
           });
         } catch (e: any) {
           if (isNetworkError(e)) {
-            // Network dropped mid-request — use cached state (same as offline path)
-            const cachedFilters = await getOfflineFilters();
-            const cached = cachedFilters.find((f: any) => f.id === filterId);
-            const cachedState = await getCache<any>(`filter-state-${filterId}`);
-
-            const currentLifecycle = cached?.currentLifecycleState || cachedState?.currentState || null;
-            let offlineNextAllowed: string[] = cachedState?.nextAllowedStages ?? [];
-            if (offlineNextAllowed.length === 0 && cachedState?.pipelineGraph) {
-              offlineNextAllowed = computeNextStages(cachedState.pipelineGraph, currentLifecycle);
-            }
-            if (currentLifecycle === activeStage.key && offlineNextAllowed.length > 0) {
-              setError(`Already at ${activeStage.label}. Next: ${offlineNextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`);
-              setLoading(false); return;
-            }
-
-            const hasCycleFallback = cachedState?.currentCycle
-              ? (cachedState.currentCycle.status === 'IN_PROGRESS' || !!cachedState.currentCycle.id)
-              : !!cached?.currentCycleId;
-            state = {
-              filterId,
-              filterName: cached?.name || filterName,
-              currentState: currentLifecycle,
-              currentCycle: hasCycleFallback ? (cachedState?.currentCycle ?? { id: cached?.currentCycleId, status: 'IN_PROGRESS' }) : null,
-              nextAllowedStages: offlineNextAllowed,
-              pendingChecklist: cachedState?.pendingChecklist ?? [],
-              pipelineStages: cachedState?.pipelineStages ?? [],
-              pipelineGraph: cachedState?.pipelineGraph ?? null,
-              equipmentGroup: cachedState?.equipmentGroup ?? null,
-              isPmDue: cachedState?.isPmDue ?? false,
-              pmReasonKey: cachedState?.pmReasonKey ?? null,
-              blockChangeStatus: cachedState?.blockChangeStatus ?? null,
-              homeBlock: cachedState?.homeBlock ?? null,
-            };
+            state = await buildOfflineState();
           } else {
             throw e;
           }
         }
+      } else {
+        state = await buildOfflineState();
+      }
+
+      // Block duplicate submission
+      const currentLifecycle = state.currentState;
+      const nextAllowed = state.nextAllowedStages ?? [];
+      if (currentLifecycle === activeStage.key && nextAllowed.length > 0) {
+        setError(`Already at ${activeStage.label}. Next: ${nextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`);
+        setLoading(false); return;
       }
 
       // Up-front block verification. If the filter belongs to a different
@@ -551,10 +524,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       }
 
       if (state.pendingChecklist?.length > 0) { setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: state.pendingChecklist }); setChecklistAnswers({}); setLoading(false); return; }
-      const nextAllowed = state.nextAllowedStages ?? [];
       if (nextAllowed.length > 0 && !nextAllowed.includes(activeStage.key)) { setError(`Next allowed: ${nextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`); setLoading(false); return; }
-      // Check if there's an active IN_PROGRESS cycle — completed/terminated cycles don't count
-      const hasActiveCycle = !!(state.currentCycle && (state.currentCycle.status === 'IN_PROGRESS' || state.currentCycle.id));
+      // Check if there's an active cycle — no cycle means we need to start one (reason dialog)
+      const hasActiveCycle = !!state.currentCycle;
       if (!hasActiveCycle) {
         // PM auto-start: if the filter's AHU is currently in a PM schedule
         // window and a "PM" cleaning reason is configured, skip the reason
