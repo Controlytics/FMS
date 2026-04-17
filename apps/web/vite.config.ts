@@ -65,30 +65,34 @@ export default defineConfig({
       },
     },
   },
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
-  },
-  server: {
-    port: 5175,
-    strictPort: true,
-    host: true,
-    https: {
-      key: fs.readFileSync(path.resolve(__dirname, '../../certs/server.key')),
-      cert: fs.readFileSync(path.resolve(__dirname, '../../certs/server.crt')),
-    },
-    proxy: {
-      '/api': {
-        target: 'https://localhost:3000',
-        changeOrigin: true,
-        secure: false,
+  server: (() => {
+    // Only enable HTTPS if both cert files exist locally
+    const keyPath = path.resolve(__dirname, '../../certs/server.key');
+    const certPath = path.resolve(__dirname, '../../certs/server.crt');
+    const useHttps = fs.existsSync(keyPath) && fs.existsSync(certPath);
+    const apiTarget = useHttps ? 'https://localhost:3000' : 'http://localhost:3000';
+    return {
+      port: 5175,
+      strictPort: true,
+      host: true,
+      ...(useHttps && {
+        https: {
+          key: fs.readFileSync(keyPath),
+          cert: fs.readFileSync(certPath),
+        },
+      }),
+      proxy: {
+        '/api': {
+          target: apiTarget,
+          changeOrigin: true,
+          secure: false,
+        },
+        '/uploads': {
+          target: apiTarget,
+          changeOrigin: true,
+          secure: false,
+        },
       },
-      '/uploads': {
-        target: 'https://localhost:3000',
-        changeOrigin: true,
-        secure: false,
-      },
-    },
-  },
+    };
+  })(),
 });
