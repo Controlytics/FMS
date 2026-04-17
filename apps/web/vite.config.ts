@@ -39,19 +39,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        runtimeCaching: [
-          {
-            // WARNING: Caching /api/ responses is risky for 21 CFR Part 11 compliance.
-            // Consider excluding sensitive endpoints (audit, filter-operations) from cache.
-            urlPattern: /^https?:\/\/.*\/api\//,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              expiration: { maxEntries: 100, maxAgeSeconds: 300 },
-              networkTimeoutSeconds: 5,
-            },
-          },
-        ],
+        navigateFallbackDenylist: [/^\/api\//],
+        runtimeCaching: [],
       },
     }),
   ],

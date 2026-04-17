@@ -1704,9 +1704,12 @@ function DryingFilterRow({
         remarks: `Dryer temperature ${temp}${tempUom} - ${filterName}`,
       }, 'DRY_OUT');
       setToast({ type: 'success', message: `${filterName} → DRY_OUT (${temp}${tempUom})${executed ? '' : ' (queued)'}` });
-      // Clear persisted temp selection
-      import('@/lib/offline-store').then(({ cacheData }) => {
+      // Mark readings submitted in cache + clear persisted temp
+      import('@/lib/offline-store').then(({ cacheData, getCachedData }) => {
         cacheData(`dryer-temp-${filterId}`, null, 0);
+        getCachedData<any>(`filter-state-${filterId}`).then(cs => {
+          if (cs) cacheData(`filter-state-${filterId}`, { ...cs, currentCycle: { ...(cs.currentCycle ?? {}), dryerReadingsSubmitted: true } });
+        });
       }).catch(() => {});
       refreshFilters();
       if (executed) refreshState();
@@ -1726,14 +1729,18 @@ function DryingFilterRow({
           <div className="font-medium text-slate-800 truncate">{filterName}</div>
           <div className="text-xs text-slate-500">
             {durationMin} min total{' '}
-            {halfElapsed ? (
+            {cyc?.dryerReadingsSubmitted ? (
+              <span className="text-green-600">• temperature recorded</span>
+            ) : halfElapsed ? (
               <span className="text-green-600">• ready for reading</span>
             ) : (
               <span className="text-amber-600">• {remainingToHalfMin} min until reading</span>
             )}
           </div>
         </div>
-        {needsGroupSelect ? (
+        {cyc?.dryerReadingsSubmitted ? (
+          <span className="text-xs text-green-600 font-medium bg-green-50 border border-green-200 rounded px-2 py-1">Complete</span>
+        ) : needsGroupSelect ? (
           <select
             value={selectedGroupId}
             onChange={(e) => setSelectedGroupId(e.target.value)}

@@ -745,7 +745,9 @@ export class FilterOperationsService {
       if (reachableStages.length === 0 && hasEndNext) {
         throw new AppError(400, 'CYCLE_COMPLETE', 'Cleaning cycle is complete. No more stages.');
       }
-      if (!reachableStages.includes(targetState) && cp.flowMode !== 'BYPASS_ENABLED') {
+      // SUBMIT_READINGS with targetState=DRY_IN stays at DRY_IN (records temp without advancing)
+      const isDryerReadingsInPlace = dryerAction === 'SUBMIT_READINGS' && targetState === 'DRY_IN';
+      if (!reachableStages.includes(targetState) && cp.flowMode !== 'BYPASS_ENABLED' && !isDryerReadingsInPlace) {
         throw new AppError(400, 'OUT_OF_SEQUENCE', `Cannot move to ${targetState} from ${currentState ?? 'START'}. Next allowed: ${reachableStages.join(', ')}`);
       }
     }
@@ -959,6 +961,14 @@ export class FilterOperationsService {
           ...(offlineTime && { performedAt: offlineTime }),
         },
       });
+
+      // Mark dryer readings as submitted (DRY_IN stays, user advances to DRY_OUT later)
+      if (dryerAction === 'SUBMIT_READINGS') {
+        await tx.cleaningCycle.update({
+          where: { id: cycle.id },
+          data: { dryerReadingsSubmitted: true },
+        });
+      }
 
       await tx.assetInstance.update({
         where: { id: filterId },

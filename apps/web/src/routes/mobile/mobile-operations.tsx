@@ -34,7 +34,7 @@ function buildIdentifierMap(identifiers: any[]): Record<string, { filterId: stri
   return map;
 }
 
-export function MobileOperationsPage() {
+export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialStageKey?: string; hideHeader?: boolean } = {}) {
   const { user, isLoading: authLoading, logout: authLogout } = useAuth();
   const { formatTime } = useDatetimeFormat();
   const { online, pendingCount, syncing, lastSyncMessage, executeOrQueue, manualSync, clearQueue, getQueueDetails, cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
@@ -57,10 +57,12 @@ export function MobileOperationsPage() {
     mobileNav('/m/login', { replace: true });
   };
 
-  const [view, setView] = useState<View>('home');
-  const [activeStage, setActiveStage] = useState<typeof STAGES[0] | null>(null);
+  const initialStage = initialStageKey ? STAGES.find(s => s.key === initialStageKey) : null;
+  const [view, setView] = useState<View>(initialStage ? 'stage' : 'home');
+  const [activeStage, setActiveStage] = useState<typeof STAGES[0] | null>(initialStage ?? null);
   const [selectedBlock, setSelectedBlock] = useState<any>(null);
   const [scanValue, setScanValue] = useState('');
+  const [scanQueue, setScanQueue] = useState<Array<{ filterId: string; filterName: string; tagId: string }>>([]);
   const [remarks, setRemarks] = useState('');
   const [blockChangeDialog, setBlockChangeDialog] = useState<{ filterId: string; filterName: string; homeBlockId: string; homeBlockName: string; requestedBlockId: string; requestedBlockName: string } | null>(null);
   const [blockChangeReason, setBlockChangeReason] = useState('');
@@ -216,7 +218,7 @@ export function MobileOperationsPage() {
     setScanValue(''); setRemarks(''); setError(''); setSuccess(''); setSelectedBlock(null);
   };
 
-  const goHome = () => { setView('home'); setActiveStage(null); setReasonDialog(null); setEquipDialog(null); setChecklistDialog(null); setError(''); setSuccess(''); };
+  const goHome = () => { setView('home'); setActiveStage(null); setReasonDialog(null); setEquipDialog(null); setChecklistDialog(null); setError(''); setSuccess(''); setScanQueue([]); };
 
   const resolveFilter = async (): Promise<{ filterId: string; filterName: string } | null> => {
     let filterId = ''; let filterName = '';
@@ -253,6 +255,51 @@ export function MobileOperationsPage() {
     if (!filterId && sv.match(/^[0-9a-f]{8}-/i)) { filterId = sv; filterName = sv.slice(0, 8); }
     if (!filterId) { setError('Filter not found. Ensure you scanned while online first to cache identifiers.'); return null; }
     return { filterId, filterName };
+  };
+
+  // Add scanned filter to queue (batch mode)
+  const handleAddToQueue = async () => {
+    if (!scanValue.trim()) return;
+    setError('');
+    const resolved = await resolveFilter();
+    if (!resolved) return;
+    if (scanQueue.some(q => q.filterId === resolved.filterId)) {
+      setError('Filter already in queue');
+      setScanValue('');
+      return;
+    }
+    setScanQueue(prev => [...prev, { ...resolved, tagId: scanValue.trim() }]);
+    setScanValue('');
+  };
+
+  const removeFromQueue = (filterId: string) => {
+    setScanQueue(prev => prev.filter(q => q.filterId !== filterId));
+  };
+
+  // Submit all queued filters for the active stage (batch advance for mid-cycle stages)
+  const handleSubmitQueue = async () => {
+    if (scanQueue.length === 0 || !activeStage || loading) return;
+    setLoading(true); setError(''); setSuccess('');
+    let successCount = 0;
+    const failed: string[] = [];
+    for (const item of scanQueue) {
+      try {
+        const { executed } = await executeOrQueue('advance', item.filterId, item.filterName, {
+          targetState: activeStage.key, cleaningAreaId: selectedBlock?.id,
+          remarks: remarks || `${activeStage.label} - ${item.filterName}`,
+        }, activeStage.key);
+        if (!executed) await updateOfflineState(item.filterId, activeStage.key, false);
+        successCount++;
+        setRecentOps(prev => [{ stage: activeStage.key, filter: item.filterName, time: formatTime(new Date()), queued: !executed }, ...prev].slice(0, 20));
+      } catch (e: any) {
+        failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
+      }
+    }
+    setScanQueue([]);
+    if (successCount > 0) setSuccess(`${successCount} filter(s) → ${activeStage.label}${failed.length > 0 ? ` (${failed.length} failed)` : ''}`);
+    if (failed.length > 0) setError(failed.join('\n'));
+    setLoading(false);
+    if (online) mutate('/api/assets/instances?limit=500');
   };
 
   // Helper: detect network errors (fetch failures + CapacitorHttp native errors)
@@ -824,7 +871,7 @@ export function MobileOperationsPage() {
   return (
     <div className="h-[100dvh] flex flex-col bg-gradient-to-b from-slate-50 to-slate-100 select-none overflow-hidden">
       {/* ─── HEADER ─── */}
-      <div className="bg-white/80 backdrop-blur-lg border-b border-slate-200/60 px-4 py-3 flex items-center justify-between shrink-0 z-10">
+      {!hideHeader && <div className="bg-white/80 backdrop-blur-lg border-b border-slate-200/60 px-4 py-3 flex items-center justify-between shrink-0 z-10">
         <div className="flex items-center gap-3">
           {view !== 'home' && (
             <button onClick={goHome} className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center active:bg-slate-200">
@@ -867,10 +914,10 @@ export function MobileOperationsPage() {
             </div>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* Offline Banner */}
-      {!online && <div className="mx-4 mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-700 flex items-center gap-2"><span>📡</span> Working offline — operations queued for sync</div>}
+      {!hideHeader && !online && <div className="mx-4 mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-700 flex items-center gap-2"><span>📡</span> Working offline — operations queued for sync</div>}
 
       {/* Toast */}
       {success && <div className="mx-4 mt-2 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 font-medium shadow-sm">✓ {success}</div>}
@@ -1355,18 +1402,46 @@ export function MobileOperationsPage() {
                   </div>
                 )}
 
-                <input type="text" value={scanValue} onChange={e => { setScanValue(e.target.value); setError(''); }}
-                  onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }}
-                  placeholder="Scan or type filter name..."
-                  className="w-full bg-white border-2 border-slate-200 rounded-2xl px-4 py-4 text-base text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-cyan-500 shadow-sm" autoFocus />
+                <div className="flex gap-2">
+                  <input type="text" value={scanValue} onChange={e => { setScanValue(e.target.value); setError(''); }}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); scanQueue.length > 0 ? handleAddToQueue() : handleSubmit(); } }}
+                    placeholder="Scan or type filter name..."
+                    data-rfid="true"
+                    className="flex-1 bg-white border-2 border-slate-200 rounded-2xl px-4 py-4 text-base text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-cyan-500 shadow-sm" autoFocus />
+                  <button onClick={handleAddToQueue} disabled={!scanValue.trim()}
+                    className="px-4 py-4 bg-white border-2 border-cyan-500 text-cyan-700 rounded-2xl font-bold text-sm disabled:opacity-40 active:bg-cyan-50 shrink-0">
+                    + Add
+                  </button>
+                </div>
+
+                {/* Scan Queue */}
+                {scanQueue.length > 0 && (
+                  <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-1.5">
+                    <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Queue ({scanQueue.length})</div>
+                    {scanQueue.map(q => (
+                      <div key={q.filterId} className="flex items-center justify-between py-1.5 px-2 bg-slate-50 rounded-lg">
+                        <span className="text-sm font-medium text-slate-700">{q.filterName}</span>
+                        <button onClick={() => removeFromQueue(q.filterId)} className="text-red-400 text-xs hover:text-red-600">Remove</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 <textarea value={remarks} onChange={e => setRemarks(e.target.value)} placeholder="Remarks (optional)" rows={2}
                   className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-cyan-500" />
 
-                <button onClick={handleSubmit} disabled={loading || !scanValue.trim()}
-                  className={`w-full py-4 bg-gradient-to-r ${activeStage.gradient} text-white rounded-2xl font-bold text-base disabled:opacity-40 active:opacity-90 flex items-center justify-center gap-2 shadow-lg`}>
-                  {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <>✓ Submit</>}
-                </button>
+                {/* Single submit (when no queue) or Submit All (when queue has items) */}
+                {scanQueue.length === 0 ? (
+                  <button onClick={handleSubmit} disabled={loading || !scanValue.trim()}
+                    className={`w-full py-4 bg-gradient-to-r ${activeStage.gradient} text-white rounded-2xl font-bold text-base disabled:opacity-40 active:opacity-90 flex items-center justify-center gap-2 shadow-lg`}>
+                    {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <>✓ Submit</>}
+                  </button>
+                ) : (
+                  <button onClick={handleSubmitQueue} disabled={loading}
+                    className={`w-full py-4 bg-gradient-to-r ${activeStage.gradient} text-white rounded-2xl font-bold text-base disabled:opacity-40 active:opacity-90 flex items-center justify-center gap-2 shadow-lg`}>
+                    {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <>✓ Submit All ({scanQueue.length})</>}
+                  </button>
+                )}
               </div>
             )}
 
@@ -1736,10 +1811,13 @@ function DryingFilterCard({
         remarks: `Dryer temperature ${temp}${tempUom} - ${filterName}`,
       }, 'DRY_OUT');
       if (!executed) await updateOfflineState(filterId, 'DRY_OUT', false);
-      // Clear persisted temp selection
-      import('@/lib/offline-store').then(({ cacheData }) => {
+      // Mark readings as submitted in cache + clear persisted temp
+      try {
+        const cs = await getCache<any>(`filter-state-${filterId}`) ?? {};
+        const { cacheData } = await import('@/lib/offline-store');
+        cacheData(`filter-state-${filterId}`, { ...cs, currentCycle: { ...(cs.currentCycle ?? {}), dryerReadingsSubmitted: true } });
         cacheData(`dryer-temp-${filterId}`, null, 0);
-      }).catch(() => {});
+      } catch {}
       onSuccess(`${filterName} → Dry Out (${temp}${tempUom})${executed ? '' : ' (queued)'}`);
     } catch (e: any) {
       onError(e.message ?? 'Failed');
@@ -1754,8 +1832,8 @@ function DryingFilterCard({
           <div className="text-sm font-semibold text-slate-800">{filterName}</div>
           <div className="text-[10px] text-slate-500">{durationMin} min total</div>
         </div>
-        <div className={`text-xs font-bold px-2.5 py-1 rounded-full ${halfReached ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
-          {halfReached ? 'Ready' : `${remainingMin}:${String(remainingSecPart).padStart(2, '0')}`}
+        <div className={`text-xs font-bold px-2.5 py-1 rounded-full ${cycleData?.dryerReadingsSubmitted ? 'bg-green-50 text-green-700 border border-green-200' : halfReached ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+          {cycleData?.dryerReadingsSubmitted ? 'Complete' : halfReached ? 'Ready' : `${remainingMin}:${String(remainingSecPart).padStart(2, '0')}`}
         </div>
       </div>
 
@@ -1764,8 +1842,17 @@ function DryingFilterCard({
         <div className={`h-full rounded-full transition-all ${halfReached ? 'bg-green-500' : 'bg-amber-500'}`} style={{ width: `${progressPct}%` }} />
       </div>
 
-      {/* Temperature selection — only when half-time reached */}
-      {halfReached && tempOptions.length > 0 && (
+      {/* Temperature already recorded */}
+      {cycleData?.dryerReadingsSubmitted && (
+        <div className="flex items-center gap-2 pt-1 px-1">
+          <div className="flex-1 bg-green-50 border border-green-200 rounded-xl px-3 py-2.5 text-sm text-green-700 font-medium flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+            Temperature recorded
+          </div>
+        </div>
+      )}
+      {/* Temperature selection — only when half-time reached and not yet submitted */}
+      {halfReached && !cycleData?.dryerReadingsSubmitted && tempOptions.length > 0 && (
         <div className="flex items-center gap-2 pt-1">
           <select
             value={temp}
@@ -1793,7 +1880,7 @@ function DryingFilterCard({
           </button>
         </div>
       )}
-      {halfReached && tempOptions.length === 0 && (
+      {halfReached && !cycleData?.dryerReadingsSubmitted && tempOptions.length === 0 && (
         <div className="text-[10px] text-red-500">No temperature instrument configured for this equipment group</div>
       )}
     </div>

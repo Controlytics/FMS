@@ -298,23 +298,20 @@ export function MobileWrapperPage() {
             </div>
             )}
 
-            {/* Filter Cleaning Operations Card */}
+            {/* Stage Cards — direct access to each cleaning stage */}
             {hasFeature('filter_cleaning') && (
-            <button onClick={() => { setView('operations'); }}
-              className="w-full bg-white rounded-2xl border border-slate-200 p-5 shadow-sm active:shadow-none active:bg-slate-50 transition-all">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-sky-500 to-blue-600 flex items-center justify-center shadow-lg shadow-sky-500/20">
-                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+            <div className="grid grid-cols-2 gap-3">
+              {STAGES.map(stage => (
+                <button key={stage.key} onClick={() => openStage(stage.key)}
+                  className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm active:shadow-none active:scale-[0.98] transition-all text-left">
+                  <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${stage.gradient} flex items-center justify-center mb-3 shadow-lg shadow-slate-300/30`}>
+                    <span className="text-3xl">{stage.icon}</span>
                   </div>
-                  <div className="text-left">
-                    <div className="text-base font-bold text-slate-800">Filter Cleaning Operations</div>
-                    <div className="text-xs text-slate-400">Wash, Dry, Storage stages</div>
-                  </div>
-                </div>
-                <svg className="w-5 h-5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-              </div>
-            </button>
+                  <div className="text-sm font-bold text-slate-800">{stage.label}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">{stageCounts[stage.key] ?? 0} filter(s)</div>
+                </button>
+              ))}
+            </div>
             )}
 
             {/* Logout */}
@@ -671,7 +668,7 @@ export function MobileWrapperPage() {
         {/* === OPERATIONS VIEW (renders MobileOperationsPage with proper offline support) === */}
         {view === 'operations' && (
           <div className="flex-1 overflow-y-auto">
-            <MobileOperationsPage />
+            <MobileOperationsPage initialStageKey={selectedStageKey ?? undefined} hideHeader />
           </div>
         )}
       </div>
