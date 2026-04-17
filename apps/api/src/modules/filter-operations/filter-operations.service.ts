@@ -745,9 +745,9 @@ export class FilterOperationsService {
       if (reachableStages.length === 0 && hasEndNext) {
         throw new AppError(400, 'CYCLE_COMPLETE', 'Cleaning cycle is complete. No more stages.');
       }
-      // SUBMIT_READINGS with targetState=DRY_IN stays at DRY_IN (records temp without advancing)
-      const isDryerReadingsInPlace = dryerAction === 'SUBMIT_READINGS' && targetState === 'DRY_IN';
-      if (!reachableStages.includes(targetState) && cp.flowMode !== 'BYPASS_ENABLED' && !isDryerReadingsInPlace) {
+      // Dryer actions (SET_DURATION, SUBMIT_READINGS) with targetState=DRY_IN stay at DRY_IN
+      const isDryerInPlace = !!dryerAction && targetState === 'DRY_IN' && filter.currentLifecycleState === 'DRY_IN';
+      if (!reachableStages.includes(targetState) && cp.flowMode !== 'BYPASS_ENABLED' && !isDryerInPlace) {
         throw new AppError(400, 'OUT_OF_SEQUENCE', `Cannot move to ${targetState} from ${currentState ?? 'START'}. Next allowed: ${reachableStages.join(', ')}`);
       }
     }
