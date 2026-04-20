@@ -40,7 +40,55 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         navigateFallbackDenylist: [/^\/api\//],
-        runtimeCaching: [],
+        // Runtime caching for read-only API GETs that benefit from offline
+        // access if IndexedDB cache misses. Writes still go through
+        // executeOrQueue (IndexedDB) — these strategies only help GETs.
+        runtimeCaching: [
+          {
+            // Checklist profile definitions (rarely change)
+            urlPattern: /\/api\/checklists(\/[^?]*)?(\?.*)?$/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-checklists',
+              networkTimeoutSeconds: 5,
+              expiration: { maxEntries: 50, maxAgeSeconds: 24 * 60 * 60 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            // Filter cleaning profiles (pipeline graphs)
+            urlPattern: /\/api\/cleaning-profiles(\/[^?]*)?(\?.*)?$/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-cleaning-profiles',
+              networkTimeoutSeconds: 5,
+              expiration: { maxEntries: 50, maxAgeSeconds: 24 * 60 * 60 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            // Config endpoints (password-policy, branding, themes, report-settings)
+            urlPattern: /\/api\/config\/[^?]+\/current(\?.*)?$/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-config-current',
+              networkTimeoutSeconds: 5,
+              expiration: { maxEntries: 30, maxAgeSeconds: 12 * 60 * 60 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            // Public active roles for contact-admin
+            urlPattern: /\/api\/roles\/active(\?.*)?$/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-roles-active',
+              networkTimeoutSeconds: 5,
+              expiration: { maxEntries: 5, maxAgeSeconds: 24 * 60 * 60 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
       },
     }),
   ],

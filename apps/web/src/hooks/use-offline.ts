@@ -30,11 +30,12 @@ export function useOffline() {
   useEffect(() => {
     const cleanup = onOnlineStatusChange(setOnline);
 
-    // Real connectivity check: try to reach the API
+    // Real connectivity check: try to reach the API.
+    // 10s timeout: pharma WiFi can be slow near metal equipment/RF interference.
     if (checkOnline()) {
       const baseUrl = import.meta.env.VITE_API_URL ?? '';
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 5000);
+      const timer = setTimeout(() => controller.abort(), 10000);
       fetch(`${baseUrl}/api/health`, { method: 'GET', signal: controller.signal })
         .then(() => { clearTimeout(timer); setOnline(true); })
         .catch(() => { clearTimeout(timer); setOnline(false); });
