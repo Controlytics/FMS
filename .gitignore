@@ -63,3 +63,6 @@ CREDENTIALS.md
 # Android signing keys - NEVER track (keep local only, back up securely)
 *.jks
 *.keystore
+
+# Old RFID scanner app - superseded by RFID/ folder, kept local for reference
+rfid_scan_app/
