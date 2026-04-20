@@ -145,7 +145,8 @@ export function LoginPage() {
               <h1
                 className="text-3xl font-bold mb-2"
                 style={{
-                  background: `linear-gradient(to right, ${branding.primaryColor}, ${branding.secondaryColor})`,
+                  backgroundImage: `linear-gradient(to right, ${branding.primaryColor}, ${branding.secondaryColor})`,
+                  backgroundClip: 'text',
                   WebkitBackgroundClip: 'text',
                   WebkitTextFillColor: 'transparent',
                 }}

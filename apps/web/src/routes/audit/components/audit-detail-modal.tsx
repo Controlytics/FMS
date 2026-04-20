@@ -1,5 +1,21 @@
 import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuidLike(value: unknown): boolean {
+  return typeof value === 'string' && UUID_REGEX.test(value);
+}
+
+/** Strip keys whose value is a UUID (id, userId, *Id) so the detail view shows only human-readable fields. */
+function pruneUuids(obj: Record<string, unknown> | null | undefined): Array<[string, unknown]> {
+  if (!obj || typeof obj !== 'object') return [];
+  return Object.entries(obj).filter(([key, value]) => {
+    if (isUuidLike(value)) return false;
+    if (/(^|[^a-z])id$/i.test(key) && typeof value === 'string') return false;
+    return true;
+  });
+}
+
 interface AuditDetailModalProps {
   selectedRecord: any;
   onClose: () => void;
@@ -116,51 +132,55 @@ export function AuditDetailModal({
                   <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Target Type</p>
                   <p className="text-sm font-semibold text-slate-800 mt-1">{selectedRecord.targetType || '-'}</p>
                 </div>
-                <div className="p-3 rounded-xl bg-slate-50 col-span-2">
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Target ID</p>
-                  <p className="text-sm font-mono text-slate-800 mt-1 break-all">{selectedRecord.targetId || '-'}</p>
-                </div>
               </div>
 
-              {/* Before/After Values */}
-              {selectedRecord.beforeValue && (
-                <div className="rounded-xl border border-red-100 overflow-hidden">
-                  <div className="px-4 py-2 bg-red-50 border-b border-red-100">
-                    <p className="text-xs font-semibold text-red-700 uppercase tracking-wider">Previous Value</p>
-                  </div>
-                  <div className="p-4 bg-white space-y-2">
-                    {Object.entries(selectedRecord.beforeValue).map(([key, value]) => (
-                      <div key={key} className="flex items-start gap-3 py-1.5 border-b border-slate-50 last:border-0">
-                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[120px] pt-0.5">
-                          {key.replace(/([A-Z])/g, ' $1').replace(/[_-]/g, ' ').trim()}
-                        </span>
-                        <span className="text-sm text-slate-800 break-all">
-                          {value === null || value === undefined ? '-' : typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                        </span>
+              {/* Before/After Values — UUID-valued fields are filtered out */}
+              {(() => {
+                const beforeEntries = pruneUuids(selectedRecord.beforeValue);
+                const afterEntries = pruneUuids(selectedRecord.afterValue);
+                return (
+                  <>
+                    {beforeEntries.length > 0 && (
+                      <div className="rounded-xl border border-red-100 overflow-hidden">
+                        <div className="px-4 py-2 bg-red-50 border-b border-red-100">
+                          <p className="text-xs font-semibold text-red-700 uppercase tracking-wider">Previous Value</p>
+                        </div>
+                        <div className="p-4 bg-white space-y-2">
+                          {beforeEntries.map(([key, value]) => (
+                            <div key={key} className="flex items-start gap-3 py-1.5 border-b border-slate-50 last:border-0">
+                              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[120px] pt-0.5">
+                                {key.replace(/([A-Z])/g, ' $1').replace(/[_-]/g, ' ').trim()}
+                              </span>
+                              <span className="text-sm text-slate-800 break-all">
+                                {value === null || value === undefined ? '-' : typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {selectedRecord.afterValue && (
-                <div className="rounded-xl border border-green-100 overflow-hidden">
-                  <div className="px-4 py-2 bg-green-50 border-b border-green-100">
-                    <p className="text-xs font-semibold text-green-700 uppercase tracking-wider">New Value</p>
-                  </div>
-                  <div className="p-4 bg-white space-y-2">
-                    {Object.entries(selectedRecord.afterValue).map(([key, value]) => (
-                      <div key={key} className="flex items-start gap-3 py-1.5 border-b border-slate-50 last:border-0">
-                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[120px] pt-0.5">
-                          {key.replace(/([A-Z])/g, ' $1').replace(/[_-]/g, ' ').trim()}
-                        </span>
-                        <span className="text-sm text-slate-800 break-all">
-                          {value === null || value === undefined ? '-' : typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                        </span>
+                    )}
+                    {afterEntries.length > 0 && (
+                      <div className="rounded-xl border border-green-100 overflow-hidden">
+                        <div className="px-4 py-2 bg-green-50 border-b border-green-100">
+                          <p className="text-xs font-semibold text-green-700 uppercase tracking-wider">New Value</p>
+                        </div>
+                        <div className="p-4 bg-white space-y-2">
+                          {afterEntries.map(([key, value]) => (
+                            <div key={key} className="flex items-start gap-3 py-1.5 border-b border-slate-50 last:border-0">
+                              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[120px] pt-0.5">
+                                {key.replace(/([A-Z])/g, ' $1').replace(/[_-]/g, ' ').trim()}
+                              </span>
+                              <span className="text-sm text-slate-800 break-all">
+                                {value === null || value === undefined ? '-' : typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                    )}
+                  </>
+                );
+              })()}
 
               {/* Checksum */}
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">

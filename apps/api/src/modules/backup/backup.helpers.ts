@@ -20,27 +20,8 @@ export interface BackupData {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** PostgreSQL table names (from @@map in schema.prisma) */
-export const DB_TABLES = [
-  'roles', 'users', 'system_config', 'audit_trail',
-  'notifications', 'password_history', 'sessions', 'field_id_config',
-  'user_configs', 'role_configs', 'password_reset_requests',
-] as const;
-
-/** Map Prisma model keys to actual DB table names */
-export const PRISMA_TO_DB: Record<string, string> = {
-  users: 'users',
-  roles: 'roles',
-  systemConfig: 'system_config',
-  auditTrail: 'audit_trail',
-  notifications: 'notifications',
-  passwordHistory: 'password_history',
-  sessions: 'sessions',
-  fieldIdConfig: 'field_id_config',
-  userConfigs: 'user_configs',
-  roleConfigs: 'role_configs',
-  passwordResetRequests: 'password_reset_requests',
-};
+// Table list is now discovered dynamically at backup time
+// (see getAllTables in backup.repository.ts)
 
 // ---------------------------------------------------------------------------
 // Pure helper functions (no DB access)

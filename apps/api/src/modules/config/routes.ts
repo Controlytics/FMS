@@ -93,7 +93,7 @@ export default async function configRoutes(app: FastifyInstance) {
   configEndpoint('password-policy', passwordPolicySchema, true);
   configEndpoint('login-security', loginSecuritySchema, true);
   configEndpoint('session', sessionConfigSchema, true);
-  configEndpoint('datetime', datetimeConfigSchema, false);
+  configEndpoint('datetime', datetimeConfigSchema, true);
   configEndpoint('pagination', paginationConfigSchema, false);
 
   // Public password-policy for all authenticated users (session timeout, expiry checks)
@@ -149,17 +149,40 @@ export default async function configRoutes(app: FastifyInstance) {
     return row?.configValue ?? {};
   });
 
+  // Keep in sync with ALL_CARDS in apps/web/src/routes/config/dashboard-cards.tsx
+  const VALID_CARD_KEYS = new Set([
+    'total_users', 'audit_trail', 'notifications', 'filter_analytics',
+    'total_filters', 'active_cycles', 'completed_today', 'stage_distribution',
+    'cycle_status', 'daily_chart', 'monthly_chart', 'quick_actions',
+  ]);
+
   app.put('/dashboard-cards', {
     preHandler: [app.requirePermission('CONFIG_UPDATE')],
     schema: {
       tags: ['Config'],
       summary: 'Update dashboard card visibility per role',
       body: { type: 'object', properties: { configValue: { type: 'object', additionalProperties: true } }, required: ['configValue'] },
-      response: { 200: { type: 'object', additionalProperties: true } },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
-  }, async (req) => {
-    const { configValue } = req.body as { configValue: any };
+  }, async (req, reply) => {
+    const { configValue } = req.body as { configValue: { roles?: Record<string, string[]> } };
     const ctx = buildContext(req);
+
+    // Validate card keys against the known set
+    const rolesMap = configValue?.roles ?? {};
+    const invalid: string[] = [];
+    for (const [role, cards] of Object.entries(rolesMap)) {
+      if (!Array.isArray(cards)) {
+        return reply.code(400).send({ error: 'INVALID_CARDS', message: `Cards for role ${role} must be an array` });
+      }
+      for (const k of cards) {
+        if (!VALID_CARD_KEYS.has(k)) invalid.push(`${role}:${k}`);
+      }
+    }
+    if (invalid.length > 0) {
+      return reply.code(400).send({ error: 'INVALID_CARD_KEY', message: `Unknown card key(s): ${invalid.join(', ')}` });
+    }
+
     await prisma.systemConfig.upsert({
       where: { configKey: 'dashboard-cards' },
       update: { configValue, updatedBy: ctx.userSub },
@@ -926,5 +949,55 @@ export default async function configRoutes(app: FastifyInstance) {
     const row = await prisma.systemConfig.findUnique({ where: { configKey: 'tablet-access' } });
     const config = (row?.configValue as any) ?? {};
     return { role, allowed: config[role] ?? [] };
+  });
+
+  // ─── Configuration Access Matrix ─────────────────────────
+  // Stored shape: { [moduleKey: string]: string[] }  — role names allowed to open each module
+  app.get('/access-matrix', {
+    preHandler: [app.requirePermission('CONFIG_READ')],
+    schema: { tags: ['Config'], summary: 'Get configuration access matrix' },
+  }, async () => {
+    const row = await prisma.systemConfig.findUnique({ where: { configKey: 'access-matrix' } });
+    return (row?.configValue as any) ?? {};
+  });
+
+  app.put('/access-matrix', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Config'],
+      summary: 'Update configuration access matrix',
+      body: { type: 'object', additionalProperties: { type: 'array', items: { type: 'string' } } },
+    },
+  }, async (req) => {
+    const body = req.body as Record<string, string[]>;
+    const ctx = buildContext(req);
+    const existing = await prisma.systemConfig.findUnique({ where: { configKey: 'access-matrix' } });
+    await prisma.systemConfig.upsert({
+      where: { configKey: 'access-matrix' },
+      update: { configValue: body },
+      create: { configKey: 'access-matrix', configValue: body as any, configType: 'security' },
+    });
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'CONFIG_CHANGED',
+      targetType: 'system_config', targetId: 'access-matrix',
+      beforeValue: existing?.configValue,
+      afterValue: body,
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+    return { success: true };
+  });
+
+  // Authenticated users can read which modules their role is allowed to access
+  app.get('/access-matrix/my-modules', {
+    schema: { tags: ['Config'], summary: 'Get modules allowed for the current role' },
+  }, async (req) => {
+    const role = req.user?.role;
+    if (!role) return { role: null, allowed: [] as string[] };
+    const row = await prisma.systemConfig.findUnique({ where: { configKey: 'access-matrix' } });
+    const matrix = (row?.configValue as Record<string, string[]>) ?? {};
+    const allowed = Object.entries(matrix)
+      .filter(([, roles]) => Array.isArray(roles) && roles.includes(role))
+      .map(([moduleKey]) => moduleKey);
+    return { role, allowed };
   });
 }

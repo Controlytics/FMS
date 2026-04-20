@@ -264,7 +264,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
 
   // ── Retire a filter ──
   app.post('/:id/retire', {
-    preHandler: [app.requirePermission('FILTER_OPERATE')],
+    preHandler: [app.requireAnyPermission('FILTER_OPERATE', 'FILTER_RETIRE')],
     schema: {
       tags: ['Filter Operations'],
       summary: 'Retire a filter permanently',
@@ -291,7 +291,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
 
   // ── Replace a filter ──
   app.post('/:id/replace', {
-    preHandler: [app.requirePermission('FILTER_OPERATE')],
+    preHandler: [app.requireAnyPermission('FILTER_OPERATE', 'FILTER_REPLACE')],
     schema: {
       tags: ['Filter Operations'],
       summary: 'Replace a filter (retire old + create new)',

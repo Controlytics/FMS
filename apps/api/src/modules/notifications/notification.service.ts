@@ -101,16 +101,18 @@ export const notificationService = {
     return { count: await notificationRepository.count(where) };
   },
 
-  async markRead(id: string) {
+  async markRead(id: string, userRole: string, username: string) {
     const notification = await notificationRepository.findById(id);
     if (!notification) throw new NotFoundError('Notification not found');
+    assertNotificationVisible(notification, userRole, username);
     await notificationRepository.markRead(id);
     return { success: true };
   },
 
-  async markUnread(id: string) {
+  async markUnread(id: string, userRole: string, username: string) {
     const notification = await notificationRepository.findById(id);
     if (!notification) throw new NotFoundError('Notification not found');
+    assertNotificationVisible(notification, userRole, username);
     await notificationRepository.markUnread(id);
     return { success: true };
   },
@@ -137,13 +139,26 @@ export const notificationService = {
     return { success: true, count: result.count };
   },
 
-  async delete(id: string) {
+  async delete(id: string, userRole: string, username: string) {
     const notification = await notificationRepository.findById(id);
     if (!notification) throw new NotFoundError('Notification not found');
+    assertNotificationVisible(notification, userRole, username);
     await notificationRepository.delete(id);
     return { success: true };
   },
 };
+
+// Throws a 403-like error if the notification doesn't belong to the caller (unless ADMIN/SUPER_ADMIN).
+// Mirrors buildVisibilityFilter's rules so list-visibility == single-op access.
+function assertNotificationVisible(notif: any, userRole: string, username: string): void {
+  if (userRole === 'SUPER_ADMIN') return;
+  if (userRole === 'ADMIN') {
+    if (notif.forRole === 'SUPER_ADMIN') throw new NotFoundError('Notification not found');
+    return;
+  }
+  const isForUser = notif.forUserId === username || notif.targetUserId === username;
+  if (!isForUser) throw new NotFoundError('Notification not found');
+}
 
 // Exported for use by other modules (auth.service.ts, user.service.ts)
 export async function createNotification(data: {

@@ -29,16 +29,17 @@ interface StatCardProps {
   value: string | number;
   icon: React.ReactNode;
   href: string;
-  gradient: string;
   delay?: string;
 }
 
-function StatCard({ title, value, icon, href, gradient, delay = '0ms' }: StatCardProps) {
+const themeGradient = 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))';
+
+function StatCard({ title, value, icon, href, delay = '0ms' }: StatCardProps) {
   return (
     <Link to={href} className="group" style={{ animationDelay: delay }}>
       <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200/60 shadow-soft hover:shadow-elevated transition-all duration-300 hover:-translate-y-1">
         {/* Gradient accent bar */}
-        <div className={`absolute top-0 left-0 right-0 h-1 ${gradient}`} />
+        <div className="absolute top-0 left-0 right-0 h-1" style={{ backgroundImage: themeGradient }} />
 
         <div className="p-6">
           <div className="flex items-start justify-between">
@@ -46,7 +47,7 @@ function StatCard({ title, value, icon, href, gradient, delay = '0ms' }: StatCar
               <p className="text-sm font-medium text-slate-500 uppercase tracking-wider">{title}</p>
               <p className="text-4xl font-bold text-slate-800">{value}</p>
             </div>
-            <div className={`p-3 rounded-xl ${gradient} text-white shadow-lg group-hover:scale-110 transition-transform duration-300`}>
+            <div className="p-3 rounded-xl text-white shadow-lg group-hover:scale-110 transition-transform duration-300" style={{ backgroundImage: themeGradient }}>
               {icon}
             </div>
           </div>
@@ -89,11 +90,14 @@ export function DashboardPage() {
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Welcome Section */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#1e3a5f] to-[#3b82f6] p-8 text-white shadow-elevated">
+      <div
+        className="relative overflow-hidden rounded-2xl p-8 text-white shadow-elevated"
+        style={{ backgroundImage: themeGradient }}
+      >
         <div className="relative z-10">
-          <p className="text-blue-200 text-sm font-medium mb-1">Welcome back,</p>
+          <p className="text-white/70 text-sm font-medium mb-1">Welcome back,</p>
           <h1 className="text-3xl font-bold mb-2">{user?.fullName}</h1>
-          <p className="text-blue-100 text-sm">
+          <p className="text-white/80 text-sm">
             {branding.appName} - {branding.appTagline}
           </p>
         </div>
@@ -109,12 +113,12 @@ export function DashboardPage() {
         {/* Quick stats in welcome banner */}
         <div className="relative z-10 mt-6 pt-6 border-t border-white/20 flex items-center gap-8">
           <div>
-            <p className="text-blue-200 text-xs uppercase tracking-wider">Role</p>
+            <p className="text-white/70 text-xs uppercase tracking-wider">Role</p>
             <p className="text-lg font-semibold">{user?.role?.replace('_', ' ')}</p>
           </div>
           <div className="h-10 w-px bg-white/20" />
           <div>
-            <p className="text-blue-200 text-xs uppercase tracking-wider">Today</p>
+            <p className="text-white/70 text-xs uppercase tracking-wider">Today</p>
             <p className="text-lg font-semibold">
               {formatDate(new Date())}
             </p>
@@ -132,7 +136,6 @@ export function DashboardPage() {
               value={userStats?.total ?? '-'}
               icon={statCardIcons.users}
               href="/users"
-              gradient="bg-gradient-to-r from-blue-500 to-indigo-600"
               delay="0ms"
             />
           )}
@@ -143,7 +146,6 @@ export function DashboardPage() {
               value={auditStats?.total ?? '-'}
               icon={statCardIcons.audit}
               href="/audit"
-              gradient="bg-gradient-to-r from-purple-500 to-pink-600"
               delay="50ms"
             />
           )}
@@ -154,7 +156,6 @@ export function DashboardPage() {
               value={notifStats?.total ?? '-'}
               icon={statCardIcons.notifications}
               href="/notifications"
-              gradient="bg-gradient-to-r from-amber-500 to-orange-600"
               delay="100ms"
             />
           )}
@@ -170,9 +171,12 @@ export function DashboardPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {isAdmin && (
             <Link to="/users/create">
-              <Card className="group cursor-pointer hover:border-blue-200">
+              <Card className="group cursor-pointer" style={{ borderColor: 'transparent' }}>
                 <CardContent className="p-5 flex items-center gap-4">
-                  <div className="p-3 rounded-xl bg-blue-50 text-blue-600 group-hover:bg-blue-100 transition-colors">
+                  <div
+                    className="p-3 rounded-xl transition-colors"
+                    style={{ backgroundColor: 'var(--theme-primary-light)', color: 'var(--theme-primary)' }}
+                  >
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                     </svg>
@@ -187,9 +191,12 @@ export function DashboardPage() {
           )}
 
           <Link to="/audit">
-            <Card className="group cursor-pointer hover:border-purple-200">
+            <Card className="group cursor-pointer" style={{ borderColor: 'transparent' }}>
               <CardContent className="p-5 flex items-center gap-4">
-                <div className="p-3 rounded-xl bg-purple-50 text-purple-600 group-hover:bg-purple-100 transition-colors">
+                <div
+                  className="p-3 rounded-xl transition-colors"
+                  style={{ backgroundColor: 'var(--theme-accent-light)', color: 'var(--theme-accent)' }}
+                >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
@@ -204,9 +211,12 @@ export function DashboardPage() {
 
           {isAdmin && (
             <Link to="/config">
-              <Card className="group cursor-pointer hover:border-emerald-200">
+              <Card className="group cursor-pointer" style={{ borderColor: 'transparent' }}>
                 <CardContent className="p-5 flex items-center gap-4">
-                  <div className="p-3 rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100 transition-colors">
+                  <div
+                    className="p-3 rounded-xl transition-colors"
+                    style={{ backgroundColor: 'var(--theme-primary-light)', color: 'var(--theme-primary-dark)' }}
+                  >
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />

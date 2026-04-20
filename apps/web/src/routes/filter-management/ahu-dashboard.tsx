@@ -38,8 +38,9 @@ export function AhuDashboardPage() {
   const { id } = useParams<{ id: string }>();
   const { formatDateTime, formatDate, formatTime } = useDatetimeFormat();
   const { data: asset } = useSWR(id ? `/api/assets/instances/${id}` : null);
-  // TODO: Implement pagination or dynamic limit for sites with >200 filters
-  const { data: childrenData } = useSWR(id ? `/api/assets/instances?parentId=${id}&limit=200` : null, { refreshInterval: 10000 });
+  // Max 1000 filters per AHU; if more exist, a warning banner below alerts the operator.
+  const { data: childrenData } = useSWR(id ? `/api/assets/instances?parentId=${id}&limit=1000` : null, { refreshInterval: 10000 });
+  const truncated = (childrenData?.total ?? 0) > ((childrenData?.data ?? []).length ?? 0);
   const { data: events } = useSWR(id ? `/api/filters/events?filterId=${id}&limit=10` : null);
   const [bulkOpen, setBulkOpen] = useState(false);
 
@@ -64,6 +65,11 @@ export function AhuDashboardPage() {
           <h1 className="text-2xl font-bold text-slate-800">{asset?.name ?? 'AHU Dashboard'}</h1>
           {asset?.organizationId && <span className="px-2 py-1 text-xs bg-slate-100 text-slate-600 rounded">Org: {asset.organizationId}</span>}
           <span className="px-2 py-1 text-xs bg-slate-100 text-slate-500 rounded">{allChildren.length} filter(s)</span>
+          {truncated && (
+            <span className="px-2 py-1 text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded">
+              Showing first {allChildren.length} of {childrenData.total} — contact admin
+            </span>
+          )}
         </div>
         <button onClick={() => setBulkOpen(true)}
           className="flex items-center gap-2 px-4 py-2 bg-cyan-700 text-white rounded-lg text-sm hover:bg-cyan-600 transition-colors">

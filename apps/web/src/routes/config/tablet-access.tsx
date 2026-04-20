@@ -9,6 +9,7 @@ const FEATURES = [
   { key: 'filter_status', label: 'Filter Status', description: 'View current filter states and cleaning progress' },
   { key: 'my_tasks', label: 'My Tasks', description: 'View PM schedule tasks and due filters' },
   { key: 'approvals', label: 'Approvals', description: 'View and process block change approval requests' },
+  { key: 'rfid_assign', label: 'RFID Assign', description: 'Assign or remove RFID tags on filters from the tablet' },
   { key: 'logout', label: 'Logout', description: 'Allow logout from the tablet app' },
 ];
 

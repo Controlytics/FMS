@@ -44,6 +44,11 @@ export function FilterListPage() {
   const hasPerm = (p: string) => isSuperAdmin || perms.includes(p);
   const canCreate = hasPerm('FILTER_HIERARCHY_CREATE');
   const canBulkUpload = hasPerm('FILTER_BULK_UPLOAD');
+  const canCreateFilter = hasPerm('FILTER_CREATE') || hasPerm('ASSET_CREATE');
+  const canEditFilter = hasPerm('FILTER_EDIT') || hasPerm('ASSET_UPDATE');
+  const canDeleteFilter = hasPerm('FILTER_DELETE') || hasPerm('ASSET_DELETE');
+  const canEditHierarchy = hasPerm('FILTER_HIERARCHY_EDIT') || hasPerm('ASSET_UPDATE');
+  const canDeleteHierarchy = hasPerm('FILTER_HIERARCHY_DELETE') || hasPerm('ASSET_DELETE');
   const canRetire = hasPerm('FILTER_RETIRE');
   const canReplace = hasPerm('FILTER_REPLACE');
   const canStatusUpdate = hasPerm('FILTER_STATUS_UPDATE');
@@ -76,6 +81,30 @@ export function FilterListPage() {
 
   // Bulk upload
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
+  // Hierarchy node edit/delete (areas, AHUs — reuses the same instance routes)
+  const [hierarchyEditDialog, setHierarchyEditDialog] = useState<{ id: string; name: string; entityType: string } | null>(null);
+  const [hierarchyEditName, setHierarchyEditName] = useState('');
+  const [hierarchyEditSubmitting, setHierarchyEditSubmitting] = useState(false);
+  const [hierarchyEditError, setHierarchyEditError] = useState('');
+  const [hierarchyDeleteDialog, setHierarchyDeleteDialog] = useState<{ id: string; name: string; entityType: string } | null>(null);
+  const [hierarchyDeleteSubmitting, setHierarchyDeleteSubmitting] = useState(false);
+  // Edit filter dialog
+  const [editFilterDialog, setEditFilterDialog] = useState<{ id: string; name: string; filterSet?: string } | null>(null);
+  const [editFilterName, setEditFilterName] = useState('');
+  const [editFilterSet, setEditFilterSet] = useState<'A' | 'B'>('A');
+  const [editFilterSubmitting, setEditFilterSubmitting] = useState(false);
+  const [editFilterError, setEditFilterError] = useState('');
+  // Delete filter dialog
+  const [deleteFilterDialog, setDeleteFilterDialog] = useState<{ id: string; name: string } | null>(null);
+  const [deleteFilterSubmitting, setDeleteFilterSubmitting] = useState(false);
+  // Single-filter create dialog
+  const [createFilterOpen, setCreateFilterOpen] = useState(false);
+  const [createFilterAhu, setCreateFilterAhu] = useState('');
+  const [createFilterName, setCreateFilterName] = useState('');
+  const [createFilterSet, setCreateFilterSet] = useState<'A' | 'B'>('A');
+  const [createFilterProfile, setCreateFilterProfile] = useState('');
+  const [createFilterSubmitting, setCreateFilterSubmitting] = useState(false);
+  const [createFilterError, setCreateFilterError] = useState('');
   const [bulkUploadAhu, setBulkUploadAhu] = useState('');
   const [bulkUploadFile, setBulkUploadFile] = useState<File | null>(null);
   const [bulkUploadStep, setBulkUploadStep] = useState<'select' | 'preview' | 'uploading' | 'results'>('select');
@@ -570,6 +599,163 @@ export function FilterListPage() {
     return allAhus;
   }, [selectedBlock, treeData, diagramFilter]);
 
+  // ── Hierarchy edit/delete helpers ──
+  const openHierarchyEdit = (node: { id: string; name: string; entityType: string }) => {
+    setHierarchyEditDialog(node);
+    setHierarchyEditName(node.name);
+    setHierarchyEditError('');
+  };
+
+  const submitHierarchyEdit = async () => {
+    if (!hierarchyEditDialog || !hierarchyEditName.trim()) {
+      setHierarchyEditError('Name is required.');
+      return;
+    }
+    setHierarchyEditSubmitting(true);
+    setHierarchyEditError('');
+    const id = hierarchyEditDialog.id;
+    await reauth.execute('EDIT_HIERARCHY_NODE', async (password?: string) => {
+      const body = { name: hierarchyEditName.trim() };
+      if (password) await api.putWithReauth(`/api/assets/instances/${id}`, body, password);
+      else await api.put(`/api/assets/instances/${id}`, body);
+    }, {
+      onSuccess: () => {
+        toast.success('Updated', `"${hierarchyEditName}" saved`);
+        setHierarchyEditDialog(null);
+        mutate('/api/assets/instances?limit=500');
+        setHierarchyEditSubmitting(false);
+      },
+      onError: (err: any) => {
+        setHierarchyEditError(err?.message ?? 'Failed to update');
+        setHierarchyEditSubmitting(false);
+      },
+    });
+  };
+
+  const submitHierarchyDelete = async () => {
+    if (!hierarchyDeleteDialog) return;
+    setHierarchyDeleteSubmitting(true);
+    const { id, name, entityType } = hierarchyDeleteDialog;
+    await reauth.execute('DELETE_HIERARCHY_NODE', async (password?: string) => {
+      if (password) await api.deleteWithReauth(`/api/assets/instances/${id}`, password);
+      else await api.delete(`/api/assets/instances/${id}`);
+    }, {
+      onSuccess: () => {
+        toast.success('Deleted', `${entityType} "${name}" removed`);
+        setHierarchyDeleteDialog(null);
+        mutate('/api/assets/instances?limit=500');
+        setHierarchyDeleteSubmitting(false);
+      },
+      onError: (err: any) => {
+        toast.error('Delete failed', err?.message ?? 'Could not delete');
+        setHierarchyDeleteSubmitting(false);
+      },
+    });
+  };
+
+  // ── Edit filter helpers ──
+  const openEditFilter = (f: { id: string; name: string; filterSet?: string }) => {
+    setEditFilterDialog(f);
+    setEditFilterName(f.name);
+    setEditFilterSet((f.filterSet === 'B' ? 'B' : 'A') as 'A' | 'B');
+    setEditFilterError('');
+  };
+
+  const submitEditFilter = async () => {
+    if (!editFilterDialog || !editFilterName.trim()) {
+      setEditFilterError('Filter name is required.');
+      return;
+    }
+    setEditFilterSubmitting(true);
+    setEditFilterError('');
+    const id = editFilterDialog.id;
+    await reauth.execute('EDIT_FILTER', async (password?: string) => {
+      const body = { name: editFilterName.trim(), filterSet: editFilterSet };
+      if (password) await api.putWithReauth(`/api/assets/instances/${id}`, body, password);
+      else await api.put(`/api/assets/instances/${id}`, body);
+    }, {
+      onSuccess: () => {
+        toast.success('Filter Updated', `"${editFilterName}" saved`);
+        setEditFilterDialog(null);
+        mutate('/api/assets/instances?limit=500');
+        setEditFilterSubmitting(false);
+      },
+      onError: (err: any) => {
+        setEditFilterError(err?.message ?? 'Failed to update filter');
+        setEditFilterSubmitting(false);
+      },
+    });
+  };
+
+  // ── Delete filter helpers ──
+  const submitDeleteFilter = async () => {
+    if (!deleteFilterDialog) return;
+    setDeleteFilterSubmitting(true);
+    const { id, name } = deleteFilterDialog;
+    await reauth.execute('DELETE_FILTER', async (password?: string) => {
+      if (password) await api.deleteWithReauth(`/api/assets/instances/${id}`, password);
+      else await api.delete(`/api/assets/instances/${id}`);
+    }, {
+      onSuccess: () => {
+        toast.success('Filter Deleted', `"${name}" removed`);
+        setDeleteFilterDialog(null);
+        setSelectedFilterIds(prev => { const n = new Set(prev); n.delete(id); return n; });
+        mutate('/api/assets/instances?limit=500');
+        setDeleteFilterSubmitting(false);
+      },
+      onError: (err: any) => {
+        toast.error('Delete failed', err?.message ?? 'Could not delete filter');
+        setDeleteFilterSubmitting(false);
+      },
+    });
+  };
+
+  // ── Single-filter create helpers ──
+  const openCreateFilter = () => {
+    setCreateFilterOpen(true);
+    setCreateFilterAhu(bulkUploadAhus.length === 1 ? bulkUploadAhus[0].id : '');
+    setCreateFilterName('');
+    setCreateFilterSet('A');
+    setCreateFilterProfile('');
+    setCreateFilterError('');
+  };
+
+  const submitCreateFilter = async () => {
+    if (!createFilterAhu || !createFilterName.trim() || !filterTemplateId) {
+      setCreateFilterError('Please choose an AHU and enter a filter name.');
+      return;
+    }
+    setCreateFilterSubmitting(true);
+    setCreateFilterError('');
+    try {
+      await reauth.execute('CREATE_FILTER', async (password?: string) => {
+        const body = {
+          name: createFilterName.trim(),
+          templateId: filterTemplateId,
+          parentId: createFilterAhu,
+          filterSet: createFilterSet,
+          ...(createFilterProfile && { filterProfileId: createFilterProfile }),
+        };
+        if (password) await api.postWithReauth('/api/assets/instances', body, password);
+        else await api.post('/api/assets/instances', body);
+      }, {
+        onSuccess: () => {
+          toast.success('Filter Created', `"${createFilterName}" added`);
+          setCreateFilterOpen(false);
+          mutate('/api/assets/instances?limit=500');
+          setCreateFilterSubmitting(false);
+        },
+        onError: (err: any) => {
+          setCreateFilterError(err?.message ?? 'Failed to create filter');
+          setCreateFilterSubmitting(false);
+        },
+      });
+    } catch (err: any) {
+      setCreateFilterError(err?.message ?? 'Failed to create filter');
+      setCreateFilterSubmitting(false);
+    }
+  };
+
   const openBulkUpload = () => {
     setBulkUploadOpen(true);
     setBulkUploadStep('select');
@@ -764,6 +950,20 @@ export function FilterListPage() {
             <span className="text-xs font-bold text-center text-teal-800 truncate w-full">{ahu.name}</span>
             <span className="text-[9px] mt-0.5 text-teal-500">AHU</span>
           </button>
+          <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover/ahu:opacity-100 transition-opacity">
+            {canEditHierarchy && (
+              <button onClick={(e) => { e.stopPropagation(); openHierarchyEdit({ id: ahu.id, name: ahu.name, entityType: 'AHU' }); }}
+                className="w-6 h-6 rounded-full bg-white border border-amber-300 text-amber-600 hover:bg-amber-50 shadow-sm flex items-center justify-center" title="Edit AHU">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+              </button>
+            )}
+            {canDeleteHierarchy && (
+              <button onClick={(e) => { e.stopPropagation(); setHierarchyDeleteDialog({ id: ahu.id, name: ahu.name, entityType: 'AHU' }); }}
+                className="w-6 h-6 rounded-full bg-white border border-red-300 text-red-600 hover:bg-red-50 shadow-sm flex items-center justify-center" title="Delete AHU">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              </button>
+            )}
+          </div>
         </div>
         {filterNodes.length > 0 && renderChildrenConnector(filterNodes, 130)}
       </div>
@@ -783,18 +983,36 @@ export function FilterListPage() {
             <span className="text-xs font-bold text-center text-purple-800 truncate w-full">{area.name}</span>
             <span className="text-[9px] mt-0.5 text-purple-500">Area</span>
           </button>
-          {/* Hover: Add AHU */}
-          {canCreate && (
-            <div className="absolute -top-2 -right-2 flex gap-0.5 opacity-0 group-hover/area:opacity-100 transition-opacity z-10">
+          {/* Hover: Add AHU / Edit / Delete */}
+          <div className="absolute -top-2 -right-2 flex gap-0.5 opacity-0 group-hover/area:opacity-100 transition-opacity z-10">
+            {canCreate && (
               <button
-                className="w-5 h-5 rounded-full bg-teal-500 text-white flex items-center justify-center shadow-sm hover:bg-teal-600 transition-colors"
+                className="w-6 h-6 rounded-full bg-teal-500 text-white flex items-center justify-center shadow-sm hover:bg-teal-600 transition-colors"
                 title="Add AHU"
-                onClick={() => setCreateDialog({ type: 'ahu', parentId: area.id, parentName: area.name })}
+                onClick={(e) => { e.stopPropagation(); setCreateDialog({ type: 'ahu', parentId: area.id, parentName: area.name }); }}
               >
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
               </button>
-            </div>
-          )}
+            )}
+            {canEditHierarchy && (
+              <button
+                className="w-6 h-6 rounded-full bg-white border border-amber-300 text-amber-600 hover:bg-amber-50 shadow-sm flex items-center justify-center"
+                title="Edit Area"
+                onClick={(e) => { e.stopPropagation(); openHierarchyEdit({ id: area.id, name: area.name, entityType: 'Area' }); }}
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+              </button>
+            )}
+            {canDeleteHierarchy && (
+              <button
+                className="w-6 h-6 rounded-full bg-white border border-red-300 text-red-600 hover:bg-red-50 shadow-sm flex items-center justify-center"
+                title="Delete Area"
+                onClick={(e) => { e.stopPropagation(); setHierarchyDeleteDialog({ id: area.id, name: area.name, entityType: 'Area' }); }}
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              </button>
+            )}
+          </div>
         </div>
         {ahuNodes.length > 0 && renderChildrenConnector(ahuNodes, 160)}
       </div>
@@ -1053,6 +1271,13 @@ export function FilterListPage() {
                 </div>
               )}
             </div>
+            {canCreateFilter && bulkUploadAhus.length > 0 && (
+              <button onClick={openCreateFilter}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-sm transition-all">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                Create Filter
+              </button>
+            )}
             {canBulkUpload && (
               <button onClick={openBulkUpload}
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 text-white rounded-lg text-xs font-semibold shadow-sm hover:shadow-md transition-all"
@@ -1185,6 +1410,22 @@ export function FilterListPage() {
                               </Link>
                               {!isRetired && (
                                 <>
+                                  {canEditFilter && (
+                                    <button onClick={() => openEditFilter({ id: f.id, name: f.name, filterSet: f.filterSet })}
+                                      className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors" title="Edit Filter">
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                      </svg>
+                                    </button>
+                                  )}
+                                  {canDeleteFilter && (
+                                    <button onClick={() => setDeleteFilterDialog({ id: f.id, name: f.name })}
+                                      className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="Delete Filter">
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                      </svg>
+                                    </button>
+                                  )}
                                   {canStatusUpdate && (
                                     <button onClick={() => openStatusPanel({ id: f.id, name: f.name, currentState: f.currentState })}
                                       className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors" title="Update Status">
@@ -1783,6 +2024,204 @@ export function FilterListPage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* Create Filter Dialog */}
+      {createFilterOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md overflow-hidden flex flex-col shadow-2xl">
+            <div className="px-6 py-4 shrink-0 flex items-center justify-between" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
+              <div>
+                <h2 className="text-lg font-bold text-white">Create Filter</h2>
+                <p className="text-white/70 text-sm">Add a single filter under an AHU</p>
+              </div>
+              <button onClick={() => setCreateFilterOpen(false)} className="text-white/80 hover:text-white">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              {createFilterError && (
+                <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">{createFilterError}</div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">AHU <span className="text-red-500">*</span></label>
+                <select value={createFilterAhu} onChange={e => setCreateFilterAhu(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
+                  <option value="">Select AHU...</option>
+                  {bulkUploadAhus.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Filter Name <span className="text-red-500">*</span></label>
+                <input type="text" value={createFilterName} onChange={e => setCreateFilterName(e.target.value)}
+                  placeholder="e.g., Pre-Filter-01"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Filter Set <span className="text-red-500">*</span></label>
+                <div className="flex gap-2">
+                  {(['A', 'B'] as const).map(s => (
+                    <button key={s} type="button" onClick={() => setCreateFilterSet(s)}
+                      className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+                        createFilterSet === s ? 'bg-cyan-600 text-white border-cyan-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      }`}>
+                      Set {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
+              <button onClick={() => setCreateFilterOpen(false)} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
+              <button onClick={submitCreateFilter} disabled={createFilterSubmitting || !createFilterAhu || !createFilterName.trim()}
+                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                style={themeButton}>
+                {createFilterSubmitting ? 'Creating...' : 'Create Filter'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hierarchy Edit Dialog */}
+      {hierarchyEditDialog && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md overflow-hidden flex flex-col shadow-2xl">
+            <div className="px-6 py-4 shrink-0 flex items-center justify-between bg-gradient-to-r from-amber-500 to-orange-500">
+              <div>
+                <h2 className="text-lg font-bold text-white">Edit {hierarchyEditDialog.entityType}</h2>
+                <p className="text-white/70 text-sm">Rename this hierarchy node</p>
+              </div>
+              <button onClick={() => setHierarchyEditDialog(null)} className="text-white/80 hover:text-white">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              {hierarchyEditError && (
+                <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">{hierarchyEditError}</div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Name <span className="text-red-500">*</span></label>
+                <input type="text" value={hierarchyEditName} onChange={e => setHierarchyEditName(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500" />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
+              <button onClick={() => setHierarchyEditDialog(null)} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
+              <button onClick={submitHierarchyEdit} disabled={hierarchyEditSubmitting || !hierarchyEditName.trim()}
+                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                {hierarchyEditSubmitting ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hierarchy Delete Dialog */}
+      {hierarchyDeleteDialog && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+            <div className="px-6 py-5">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-red-100 text-red-600">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-bold text-slate-800">Delete {hierarchyDeleteDialog.entityType}</h3>
+                  <p className="text-sm text-slate-600 mt-1">
+                    Permanently delete <strong>"{hierarchyDeleteDialog.name}"</strong>? Any child entities will also be removed. This cannot be undone.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
+              <button onClick={() => setHierarchyDeleteDialog(null)} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
+              <button onClick={submitHierarchyDelete} disabled={hierarchyDeleteSubmitting}
+                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                {hierarchyDeleteSubmitting ? 'Deleting...' : `Delete ${hierarchyDeleteDialog.entityType}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Filter Dialog */}
+      {editFilterDialog && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md overflow-hidden flex flex-col shadow-2xl">
+            <div className="px-6 py-4 shrink-0 flex items-center justify-between bg-gradient-to-r from-amber-500 to-orange-500">
+              <div>
+                <h2 className="text-lg font-bold text-white">Edit Filter</h2>
+                <p className="text-white/70 text-sm">Update filter name and set</p>
+              </div>
+              <button onClick={() => setEditFilterDialog(null)} className="text-white/80 hover:text-white">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              {editFilterError && (
+                <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">{editFilterError}</div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Filter Name <span className="text-red-500">*</span></label>
+                <input type="text" value={editFilterName} onChange={e => setEditFilterName(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Filter Set</label>
+                <div className="flex gap-2">
+                  {(['A', 'B'] as const).map(s => (
+                    <button key={s} type="button" onClick={() => setEditFilterSet(s)}
+                      className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+                        editFilterSet === s ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      }`}>
+                      Set {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
+              <button onClick={() => setEditFilterDialog(null)} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
+              <button onClick={submitEditFilter} disabled={editFilterSubmitting || !editFilterName.trim()}
+                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                {editFilterSubmitting ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Filter Confirmation */}
+      {deleteFilterDialog && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+            <div className="px-6 py-5">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-red-100 text-red-600">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-bold text-slate-800">Delete Filter</h3>
+                  <p className="text-sm text-slate-600 mt-1">
+                    Permanently delete <strong>"{deleteFilterDialog.name}"</strong>? This cannot be undone.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
+              <button onClick={() => setDeleteFilterDialog(null)} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
+              <button onClick={submitDeleteFilter} disabled={deleteFilterSubmitting}
+                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                {deleteFilterSubmitting ? 'Deleting...' : 'Delete Filter'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Bulk Upload Dialog */}

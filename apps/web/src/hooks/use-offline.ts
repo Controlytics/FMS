@@ -30,17 +30,41 @@ export function useOffline() {
   useEffect(() => {
     const cleanup = onOnlineStatusChange(setOnline);
 
-    // Real connectivity check: try to reach the API
-    if (checkOnline()) {
-      const baseUrl = import.meta.env.VITE_API_URL ?? '';
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 5000);
-      fetch(`${baseUrl}/api/health`, { method: 'GET', signal: controller.signal })
-        .then(() => { clearTimeout(timer); setOnline(true); })
-        .catch(() => { clearTimeout(timer); setOnline(false); });
-    }
+    // Periodic real connectivity check — navigator.onLine is unreliable on
+    // Android/Capacitor WebViews (often stays "offline" after WiFi reconnects
+    // until a user interaction). Poll the API every 15s + on tab visibility.
+    const baseUrl = import.meta.env.VITE_API_URL ?? '';
+    let cancelled = false;
 
-    return cleanup;
+    const probe = async () => {
+      if (cancelled) return;
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        try {
+          await apiClient.get('/api/health');
+        } catch {
+          const r = await fetch(`${baseUrl}/api/health`, { method: 'GET', signal: controller.signal });
+          if (!r.ok) throw new Error('health not ok');
+        }
+        clearTimeout(timer);
+        if (!cancelled) setOnline(true);
+      } catch {
+        if (!cancelled) setOnline(false);
+      }
+    };
+
+    probe();
+    const interval = setInterval(probe, 15_000);
+    const handleVisibility = () => { if (document.visibilityState === 'visible') probe(); };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      cancelled = true;
+      cleanup();
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, []);
 
   // Start auto-sync
@@ -54,9 +78,10 @@ export function useOffline() {
   // Track sync events
   useEffect(() => {
     const cleanup = onSyncEvent((event) => {
-      if (event.type === 'start') setSyncing(true);
+      if (event.type === 'start') { setSyncing(true); setOnline(true); /* sync means API is reachable */ }
       if (event.type === 'complete') {
         setSyncing(false);
+        setOnline(true);
         if (event.synced) {
           setLastSyncMessage(`Synced ${event.synced} operation(s)`);
           if (onSyncComplete) onSyncComplete();
@@ -165,9 +190,10 @@ export function useOffline() {
     return getCachedFilters();
   }, []);
 
-  // Generic cache
-  const cache = useCallback(async (key: string, data: any) => {
-    await cacheData(key, data, 30 * 60 * 1000); // 30 min TTL
+  // Generic cache. Default TTL is 30 min for short-lived UI caches; caller can pass
+  // a longer TTL (e.g. 24h) for data that must survive long offline shifts.
+  const cache = useCallback(async (key: string, data: any, ttlMs: number = 30 * 60 * 1000) => {
+    await cacheData(key, data, ttlMs);
   }, []);
 
   const getCache = useCallback(async <T>(key: string): Promise<T | null> => {

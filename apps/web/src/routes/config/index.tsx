@@ -44,9 +44,34 @@ const configCards = [
     gradient: 'from-emerald-500 to-teal-600',
     shadowColor: 'shadow-emerald-500/25',
   },
+  {
+    title: 'User ID Format',
+    description: 'Configure User ID format and rules',
+    href: '/config/user-id',
+    reauth: false,
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2" />
+      </svg>
+    ),
+    gradient: 'from-teal-500 to-emerald-600',
+    shadowColor: 'shadow-teal-500/25',
+  },
 ];
 
 const superAdminCards = [
+  {
+    title: 'Configuration Access',
+    description: 'Assign config modules to roles — choose what each role can open',
+    href: '/config/access-matrix',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+      </svg>
+    ),
+    gradient: 'from-indigo-500 to-purple-600',
+    shadowColor: 'shadow-indigo-500/25',
+  },
   {
     title: 'Dashboard Cards',
     description: 'Configure which dashboard cards are visible per role',
@@ -82,18 +107,6 @@ const superAdminCards = [
     ),
     gradient: 'from-cyan-500 to-teal-600',
     shadowColor: 'shadow-cyan-500/25',
-  },
-  {
-    title: 'User ID Format',
-    description: 'Configure User ID format and rules',
-    href: '/config/user-id',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2" />
-      </svg>
-    ),
-    gradient: 'from-teal-500 to-emerald-600',
-    shadowColor: 'shadow-teal-500/25',
   },
   {
     title: 'Role & Access Configuration',
@@ -264,30 +277,6 @@ const superAdminCards = [
     shadowColor: "shadow-teal-500/25",
   },
   {
-    title: 'RFID Scanner Settings',
-    description: 'Configure scan debounce, deduplication, input guard, and identifier cache',
-    href: '/config/dynamic/rfid-scanner',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0" />
-      </svg>
-    ),
-    gradient: 'from-violet-500 to-indigo-600',
-    shadowColor: 'shadow-violet-500/25',
-  },
-  {
-    title: 'Offline Sync Settings',
-    description: 'Configure offline queue behavior and sync settings for tablet operations',
-    href: '/config/dynamic/offline-sync',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-      </svg>
-    ),
-    gradient: 'from-sky-500 to-cyan-600',
-    shadowColor: 'shadow-sky-500/25',
-  },
-  {
     title: 'Filter Cleaning Reasons',
     description: 'Configure cleaning reason codes and justification requirements',
     href: '/config/filter-cleaning-reasons',
@@ -348,8 +337,39 @@ export function ConfigIndexPage() {
     customPagePath: string | null; settings: any[];
   }>>('/api/config/registry/manifest', { revalidateOnMount: true, dedupingInterval: 5000 });
 
+  // Configuration access matrix — { [moduleKey]: [roleNames] }
+  // If a module has an entry, only listed roles (plus SUPER_ADMIN) see it.
+  // If a module is NOT in the matrix, it remains visible to all (backwards compat).
+  const { data: accessMatrix } = useSWR<Record<string, string[]>>(
+    '/api/config/access-matrix',
+    { revalidateOnMount: true, dedupingInterval: 5000 },
+  );
+
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const canAccessModule = (moduleKey: string | undefined) => {
+    if (!moduleKey) return true;
+    if (isSuperAdmin) return true;
+    const assigned = accessMatrix?.[moduleKey];
+    if (!assigned) return true; // unconfigured → default allow
+    return user?.role ? assigned.includes(user.role) : false;
+  };
+
+  // Module key for a hardcoded card is the last segment of its href
+  //   '/config/user-id' → 'user-id'
+  const cardModuleKey = (href: string) => href.replace(/^\/config\/(dynamic\/)?/, '');
+
+  // Every moduleKey already rendered as a hardcoded card — exclude from the dynamic fallback section
+  const hardcodedModuleKeys = new Set(
+    [...configCards, ...superAdminCards].map(c => cardModuleKey(c.href)),
+  );
+
   // Group manifest entries by category
-  const dynamicModules = (manifest ?? []).filter(m => !m.hasCustomPage);
+  const dynamicModules = (manifest ?? [])
+    .filter(m => !m.hasCustomPage)
+    .filter(m => !hardcodedModuleKeys.has(m.moduleKey))
+    .filter(m => canAccessModule(m.moduleKey));
+
+  const visibleConfigCards = configCards.filter(c => canAccessModule(cardModuleKey(c.href)));
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -383,7 +403,7 @@ export function ConfigIndexPage() {
         </div>
         <div className="p-6">
           <div className="grid gap-5 sm:grid-cols-2">
-            {configCards.map((card) => (
+            {visibleConfigCards.map((card) => (
               <Link key={card.href} to={card.href}>
                 <div className={`group relative overflow-hidden rounded-2xl border-2 border-slate-200 bg-white p-6 transition-all duration-300 hover:border-slate-300 hover:shadow-xl ${card.shadowColor}`}>
                   {/* Background gradient on hover */}

@@ -12,6 +12,22 @@ export function MobileLoginPage() {
   const [loading, setLoading] = useState(false);
   const [showForce, setShowForce] = useState(false);
 
+  const checkTabletAccess = async (token: string): Promise<{ allowed: boolean; role?: string }> => {
+    try {
+      const res = await fetch('/api/config/tablet-access/my-features', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return { allowed: true }; // fail open if endpoint errors
+      const data = await res.json();
+      const allowed: string[] = Array.isArray(data?.allowed) ? data.allowed : [];
+      // Matches the wrapper's rule: empty list = all allowed (backwards compat)
+      if (allowed.length === 0) return { allowed: true };
+      return { allowed: allowed.includes('login'), role: data?.role };
+    } catch {
+      return { allowed: true };
+    }
+  };
+
   const handleLogin = async (force?: boolean) => {
     if (!username.trim() || !password.trim()) return;
     setLoading(true); setError('');
@@ -21,6 +37,17 @@ export function MobileLoginPage() {
         password,
         ...(force && { force: true }),
       });
+      // Enforce tablet-access: this role must be allowed to log in from the tablet
+      const access = await checkTabletAccess(res.token);
+      if (!access.allowed) {
+        // Discard the freshly-issued token so the wrapper can't log us back in
+        try { await fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${res.token}` } }); } catch {}
+        sessionStorage.removeItem('access_token');
+        localStorage.removeItem('access_token_backup');
+        setError(`The ${access.role ?? 'current'} role is not permitted to log in on the tablet. Contact an administrator.`);
+        setLoading(false);
+        return;
+      }
       sessionStorage.setItem('access_token', res.token);
       localStorage.setItem('access_token_backup', res.token);
       navigate('/m', { replace: true });
@@ -34,6 +61,15 @@ export function MobileLoginPage() {
               password,
               force: true,
             });
+            const access = await checkTabletAccess(res.token);
+            if (!access.allowed) {
+              try { await fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${res.token}` } }); } catch {}
+              sessionStorage.removeItem('access_token');
+              localStorage.removeItem('access_token_backup');
+              setError(`The ${access.role ?? 'current'} role is not permitted to log in on the tablet.`);
+              setLoading(false);
+              return;
+            }
             sessionStorage.setItem('access_token', res.token);
             localStorage.setItem('access_token_backup', res.token);
             navigate('/m', { replace: true });
@@ -92,7 +128,8 @@ export function MobileLoginPage() {
             <h1
               className="text-2xl font-bold mb-1"
               style={{
-                background: `linear-gradient(to right, ${branding.primaryColor}, ${branding.secondaryColor})`,
+                backgroundImage: `linear-gradient(to right, ${branding.primaryColor}, ${branding.secondaryColor})`,
+                backgroundClip: 'text',
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent',
               }}

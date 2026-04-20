@@ -27,6 +27,7 @@ import { RoleAccessPage } from './routes/config/role-access';
 // removed: SidebarConfigPage
 import { FieldIdsPage } from './routes/config/field-ids';
 import { UserIdConfigPage } from './routes/config/user-id';
+import { AccessMatrixPage } from './routes/config/access-matrix';
 import { BackupRestorePage } from './routes/config/backup';
 import { DynamicConfigPage } from './routes/config/dynamic-config';
 import { ActionReauthPage } from './routes/config/action-reauth';
@@ -154,7 +155,8 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/report-settings" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><ReportSettingsPage /></Suspense></RequireRole>} />
             <Route path="/config/roles" element={<RequireRole permissions={[PERMISSIONS.ROLE_MANAGE]}><RoleAccessPage /></RequireRole>} />
             <Route path="/config/field-ids" element={<RequireRole permissions={[PERMISSIONS.FIELD_ID_UPDATE]}><FieldIdsPage /></RequireRole>} />
-            <Route path="/config/user-id" element={<RequireRole roles={['SUPER_ADMIN']}><UserIdConfigPage /></RequireRole>} />
+            <Route path="/config/user-id" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><UserIdConfigPage /></RequireRole>} />
+            <Route path="/config/access-matrix" element={<RequireRole roles={['SUPER_ADMIN']}><AccessMatrixPage /></RequireRole>} />
             <Route path="/config/action-reauth" element={<RequireRole roles={['SUPER_ADMIN']}><ActionReauthPage /></RequireRole>} />
             <Route path="/config/audit-templates" element={<RequireRole roles={['SUPER_ADMIN']}><AuditTemplatesConfigPage /></RequireRole>} />
             <Route path="/config/pagination" element={<RequireRole roles={['SUPER_ADMIN']}><PaginationConfigPage /></RequireRole>} />

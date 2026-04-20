@@ -34,13 +34,13 @@ export async function isReauthRequired(action: string, role: string): Promise<bo
 
 /**
  * Enforce re-authentication on a request.
- * Checks the config for the current user's role + action.
- * Validates password from body._currentPassword or x-reauth-password header.
- * Returns { ok: true } if re-auth not needed or password is valid.
- * Returns { ok: false } and sends 401 if re-auth fails (reply already sent).
+ * Accepts one or more action keys — reauth is required if ANY of them is
+ * configured to require reauth for the user's current role. This supports
+ * routes that serve multiple logical actions (e.g., POST /instances handles
+ * both CREATE_ASSET and CREATE_FILTER semantics).
  */
 export async function enforceReauth(
-  action: string,
+  action: string | string[],
   req: FastifyRequest,
   reply: FastifyReply,
 ): Promise<{ ok: boolean }> {
@@ -49,8 +49,10 @@ export async function enforceReauth(
   if (req.headers['x-offline-replay'] === 'true') return { ok: true };
 
   const role = req.user.role;
-  const needed = await isReauthRequired(action, role);
+  const actions = Array.isArray(action) ? action : [action];
+  const needed = (await Promise.all(actions.map(a => isReauthRequired(a, role)))).some(Boolean);
   if (!needed) return { ok: true };
+  const primaryAction = actions[0];
 
   // Extract password from body field or custom header
   const body = req.body as Record<string, unknown> | undefined;
@@ -61,7 +63,7 @@ export async function enforceReauth(
     reply.code(401).send({
       error: 'REAUTH_REQUIRED',
       message: 'This action requires password re-authentication.',
-      action,
+      action: primaryAction,
     });
     return { ok: false };
   }

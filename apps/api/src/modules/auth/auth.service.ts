@@ -33,10 +33,7 @@ export const authService = {
 
       if (!user) {
         await verifyPassword(password, DUMMY_HASH);
-        const policy = await authRepository.getPasswordPolicyConfig();
-        const maxAttempts = (policy.maxFailedAttempts as number) ?? 5;
-        const err = new AppError(401, 'INVALID_CREDENTIALS', 'Invalid user ID or password.');
-        (err as any).attemptsRemaining = maxAttempts - 1;
+        const err = new AppError(401, 'USER_NOT_FOUND', 'User ID is incorrect.');
         throw err;
       }
     }
@@ -88,7 +85,7 @@ export const authService = {
             // Sync attributes from LDAP
             await ldapService.syncUserAttributes(user.id, ldapResult, ldapConfig);
           } else {
-            throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid user ID or password.');
+            throw new AppError(401, 'INVALID_PASSWORD', 'Password is incorrect.');
           }
         }
       } catch (err: any) {
@@ -113,7 +110,7 @@ export const authService = {
           afterValue: { username: user.username, fullName: user.fullName, adminExempt: true },
           ipAddress: ip, userAgent,
         });
-        throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid user ID or password.');
+        throw new AppError(401, 'INVALID_PASSWORD', 'Password is incorrect.');
       }
 
       const loginSecurity = await authRepository.getLoginSecurityConfig();
@@ -172,7 +169,7 @@ export const authService = {
         ipAddress: ip, userAgent,
       });
 
-      const err = new AppError(401, 'INVALID_CREDENTIALS', 'Invalid user ID or password.');
+      const err = new AppError(401, 'INVALID_PASSWORD', 'Password is incorrect.');
       (err as any).attemptsRemaining = maxAttempts - newAttempts;
       throw err;
     }

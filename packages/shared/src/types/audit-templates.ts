@@ -470,6 +470,26 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'PM execution completed for "{targetName}" by {actor}',
     placeholders: ['actor', 'targetName'],
   },
+
+  // Admin Requests
+  ADMIN_REQUEST_SUBMITTED: {
+    label: 'Admin Request Submitted',
+    category: 'Data & Approvals',
+    template: 'Admin request submitted — "{targetName}"',
+    placeholders: ['targetName'],
+  },
+  ADMIN_REQUEST_APPROVED: {
+    label: 'Admin Request Approved',
+    category: 'Data & Approvals',
+    template: 'Admin request approved — "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  ADMIN_REQUEST_REJECTED: {
+    label: 'Admin Request Rejected',
+    category: 'Data & Approvals',
+    template: 'Admin request rejected — "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
 };
 
 /** Extract just the template strings as defaults for the config schema */

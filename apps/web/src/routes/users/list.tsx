@@ -79,18 +79,9 @@ export function UserListPage({ orgId }: { orgId?: string } = {}) {
   const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy', { revalidateOnMount: true, dedupingInterval: 5000 });
   const policy = { ...DEFAULT_PASSWORD_POLICY, ...policyData };
 
-  // Filter out SUPER_ADMIN users from the list for Admin users (only affects display, not server query)
+  // Server already filters out higher-privilege roles (SUPER_ADMIN/ADMIN) per caller's role
   const isTopAdmin = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN';
-  const data = rawData ? {
-    ...rawData,
-    data: rawData.data?.filter((u: any) => {
-      if (currentUser?.role === 'SUPER_ADMIN') return true;
-      if (u.role === 'SUPER_ADMIN') return false;
-      if (currentUser?.role === 'ADMIN') return true;
-      if (u.role === 'ADMIN') return false;
-      return true;
-    }),
-  } : null;
+  const data = rawData ?? null;
 
   const handleAction = async () => {
     if (!actionDialog) return;
@@ -270,7 +261,7 @@ export function UserListPage({ orgId }: { orgId?: string } = {}) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <div className="p-3 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25">
+          <div className="p-3 rounded-2xl shadow-lg" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
             <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
             </svg>
@@ -295,7 +286,7 @@ export function UserListPage({ orgId }: { orgId?: string } = {}) {
             </Button>
           </Link>
           <Link to="/users/create">
-            <Button className="gap-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-lg shadow-blue-500/25">
+            <Button className="gap-2 shadow-lg text-white hover:opacity-90" style={{ backgroundImage: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
               </svg>
@@ -381,8 +372,8 @@ export function UserListPage({ orgId }: { orgId?: string } = {}) {
         policy={policy}
       />
 
-      {/* Pagination */}
-      {data && data.totalPages > 1 && (
+      {/* Pagination — always rendered so the rows-per-page selector is available */}
+      {data && data.total > 0 && (
         <UserPagination
           page={page}
           setPage={setPage}

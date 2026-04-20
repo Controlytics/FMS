@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
+import { formatByLeastCount } from '@/lib/format-by-least-count';
 
 interface Instrument {
   id?: string;
@@ -63,6 +64,7 @@ export function EquipmentGroupsConfigPage() {
   const [editing, setEditing] = useState<{ group: Partial<EquipmentGroup>; isNew: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [savedToast, setSavedToast] = useState('');
   const [deleteError, setDeleteError] = useState('');
   const [previewInst, setPreviewInst] = useState<number | null>(null);
 
@@ -131,6 +133,8 @@ export function EquipmentGroupsConfigPage() {
       else await apiClient.put(`/api/equipment-groups/${group.id}`, payload);
       mutate(`/api/equipment-groups?blockId=${selectedBlockId}`);
       setEditing(null);
+      setSavedToast(isNew ? 'Equipment group created' : 'Equipment group saved');
+      setTimeout(() => setSavedToast(''), 3000);
     } catch (e: any) { setError(e.message || 'Failed to save'); }
     setSaving(false);
   };
@@ -139,6 +143,12 @@ export function EquipmentGroupsConfigPage() {
 
   return (
     <div className="p-6 space-y-6">
+      {/* Success toast */}
+      {savedToast && (
+        <div className="fixed top-6 right-6 z-50 px-5 py-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl shadow-lg font-semibold text-sm">
+          {savedToast}
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -264,11 +274,11 @@ export function EquipmentGroupsConfigPage() {
                         </div>
                         <div className="bg-white/70 rounded-lg p-2">
                           <div className="text-slate-400 mb-0.5">Range</div>
-                          <div className="font-semibold text-slate-700">{inst.instrumentMin} – {inst.instrumentMax}</div>
+                          <div className="font-semibold text-slate-700">{formatByLeastCount(inst.instrumentMin, inst.leastCount)} – {formatByLeastCount(inst.instrumentMax, inst.leastCount)}</div>
                         </div>
                         <div className="bg-white/70 rounded-lg p-2">
                           <div className="text-slate-400 mb-0.5">Operating</div>
-                          <div className="font-semibold text-slate-700">{inst.operatingMin} – {inst.operatingMax}</div>
+                          <div className="font-semibold text-slate-700">{formatByLeastCount(inst.operatingMin, inst.leastCount)} – {formatByLeastCount(inst.operatingMax, inst.leastCount)}</div>
                         </div>
                       </div>
                     </div>
@@ -376,10 +386,10 @@ export function EquipmentGroupsConfigPage() {
                       </div>
                       {previewInst === idx && (
                         <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-                          <p className="text-xs text-slate-500 mb-2 font-medium">Dropdown values ({inst.operatingMin} to {inst.operatingMax}, step {inst.leastCount}):</p>
+                          <p className="text-xs text-slate-500 mb-2 font-medium">Dropdown values ({formatByLeastCount(inst.operatingMin, inst.leastCount)} to {formatByLeastCount(inst.operatingMax, inst.leastCount)}, step {inst.leastCount}):</p>
                           <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
                             {generateValues(inst.operatingMin, inst.operatingMax, inst.leastCount).slice(0, 100).map((v, i) => (
-                              <span key={i} className="px-2 py-0.5 bg-white text-slate-600 border border-slate-200 rounded-md text-xs font-mono">{v} {inst.uom}</span>
+                              <span key={i} className="px-2 py-0.5 bg-white text-slate-600 border border-slate-200 rounded-md text-xs font-mono">{formatByLeastCount(v, inst.leastCount)} {inst.uom}</span>
                             ))}
                             {generateValues(inst.operatingMin, inst.operatingMax, inst.leastCount).length > 100 && (
                               <span className="text-xs text-slate-400 px-2 py-0.5">...and more</span>

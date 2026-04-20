@@ -11,7 +11,7 @@ import { createNotification } from '../notifications/notification.service.js';
 import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
 
 export const userService = {
-  async list(query: { page: number; limit?: number; role?: string; status?: string; search?: string; organizationId?: string }) {
+  async list(query: { page: number; limit?: number; role?: string; status?: string; search?: string; organizationId?: string; callerRole?: string }) {
     const where: Record<string, unknown> = {};
     if (query.organizationId) where.organizationId = query.organizationId;
     if (query.role) where.role = query.role;
@@ -22,6 +22,13 @@ export const userService = {
         { fullName: { contains: query.search, mode: 'insensitive' } },
         { email: { contains: query.search, mode: 'insensitive' } },
       ];
+    }
+    // Hide higher-privilege accounts from the caller's list view
+    const excludedRoles: string[] = [];
+    if (query.callerRole !== 'SUPER_ADMIN') excludedRoles.push('SUPER_ADMIN');
+    if (query.callerRole !== 'SUPER_ADMIN' && query.callerRole !== 'ADMIN') excludedRoles.push('ADMIN');
+    if (excludedRoles.length > 0) {
+      where.role = query.role ? query.role : { notIn: excludedRoles };
     }
     const { users, total } = await userRepository.findMany(where, query.page, query.limit);
     return { data: users, total, page: query.page, limit: query.limit ?? total, totalPages: query.limit ? Math.ceil(total / query.limit) : 1 };

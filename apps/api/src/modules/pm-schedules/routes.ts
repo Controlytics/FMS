@@ -13,7 +13,7 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
 
   // ─── Template download ───
   app.get('/template.csv', {
-    preHandler: [app.requirePermission('PM_READ')],
+    preHandler: [app.requireAnyPermission('PM_READ', 'PM_DOWNLOAD_TEMPLATE')],
     schema: {
       tags: ['PM Schedules'],
       summary: 'Download the PM schedule bulk-upload template (CSV)',
@@ -28,7 +28,7 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
 
   // ─── Bulk upload CSV/XLSX ───
   app.post('/upload', {
-    preHandler: [app.requirePermission('PM_CREATE')],
+    preHandler: [app.requireAnyPermission('PM_CREATE', 'PM_UPLOAD')],
     schema: {
       tags: ['PM Schedules'],
       summary: 'Bulk upload PM schedule entries from a CSV or XLSX file',
@@ -228,7 +228,7 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
   });
 
   app.post('/entries/:id/resubmit', {
-    preHandler: [app.requirePermission('PM_CREATE')],
+    preHandler: [app.requireAnyPermission('PM_CREATE', 'PM_RESUBMIT')],
     schema: {
       tags: ['PM Schedules'],
       summary: 'Re-submit a rejected entry with corrected data',
@@ -251,7 +251,7 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
   });
 
   app.put('/entries/:id/edit', {
-    preHandler: [app.requirePermission('PM_UPDATE')],
+    preHandler: [app.requireAnyPermission('PM_UPDATE', 'PM_EDIT_ENTRY')],
     schema: {
       tags: ['PM Schedules'],
       summary: 'Edit an approved entry (creates pending change for QA review)',

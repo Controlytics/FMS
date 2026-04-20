@@ -344,7 +344,7 @@ export function AssetExplorerPage() {
                   ))}
                 </TableBody>
               </Table>
-              {listData && listData.totalPages > 1 && (
+              {listData && listData.total > 0 && (
                 <div className="flex items-center justify-between mt-4 px-2">
                   <p className="text-sm text-slate-500">Page {listData.page} of {listData.totalPages} ({listData.total} total)</p>
                   <div className="flex gap-2">

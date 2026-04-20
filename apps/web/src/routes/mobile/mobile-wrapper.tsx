@@ -18,7 +18,7 @@ const STAGES = [
   { key: 'STORAGE_OUT', label: 'Storage Out', icon: '\u{1F4E4}', gradient: 'from-slate-400 to-slate-500', bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-500', needsBlock: false },
 ];
 
-type View = 'home' | 'status' | 'my-tasks' | 'approvals' | 'operations';
+type View = 'home' | 'status' | 'my-tasks' | 'approvals' | 'operations' | 'rfid-assign';
 
 // Build identifier->filter map from identifiers list
 function buildIdentifierMap(identifiers: any[]): Record<string, { filterId: string; filterName: string }> {
@@ -97,6 +97,7 @@ export function MobileWrapperPage() {
   // SWR for live data while online (refresh intervals for real-time updates)
   const { data: instancesData } = useSWR(online ? '/api/assets/instances?limit=500' : null, { refreshInterval: 15000 });
   const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=100' : null);
+  const { data: identifiersData, mutate: mutateIdentifiers } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null, { refreshInterval: 30000 });
 
   // My Tasks + Approvals
   const { data: dueTasksData, mutate: mutateDueTasks, isLoading: dueTasksLoading } =
@@ -116,6 +117,14 @@ export function MobileWrapperPage() {
   const [offlineFilters, setOfflineFilters] = useState<any[]>([]);
   const [offlineTemplates, setOfflineTemplates] = useState<any[]>([]);
   const [offlineReasons, setOfflineReasons] = useState<any[]>([]);
+
+  // RFID Assign state
+  const [rfidSearch, setRfidSearch] = useState('');
+  const [rfidSelectedFilter, setRfidSelectedFilter] = useState<{ id: string; name: string } | null>(null);
+  const [rfidInput, setRfidInput] = useState('');
+  const [rfidSubmitting, setRfidSubmitting] = useState(false);
+  const [rfidError, setRfidError] = useState('');
+  const [rfidSuccess, setRfidSuccess] = useState('');
 
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
   const [processingApproval, setProcessingApproval] = useState<string | null>(null);
@@ -157,7 +166,68 @@ export function MobileWrapperPage() {
     setError(''); setSuccess('');
   };
 
-  const goHome = () => { setView('home'); setSelectedStageKey(null); setError(''); setSuccess(''); };
+  const goHome = () => {
+    setView('home');
+    setSelectedStageKey(null);
+    setError('');
+    setSuccess('');
+    setRfidSearch('');
+    setRfidSelectedFilter(null);
+    setRfidInput('');
+    setRfidError('');
+    setRfidSuccess('');
+  };
+
+  // ─── RFID Assign handlers ───
+  const allIdentifiers = ((identifiersData as any) ?? []) as any[];
+  const rfidTagsByFilter = new Map<string, any[]>();
+  for (const ident of allIdentifiers) {
+    if (ident.identifierType === 'RFID' && ident.assetId) {
+      const arr = rfidTagsByFilter.get(ident.assetId) ?? [];
+      arr.push(ident);
+      rfidTagsByFilter.set(ident.assetId, arr);
+    }
+  }
+  const currentRfidTags = rfidSelectedFilter ? (rfidTagsByFilter.get(rfidSelectedFilter.id) ?? []) : [];
+
+  const assignRfid = async () => {
+    if (!rfidSelectedFilter || !rfidInput.trim()) {
+      setRfidError('Enter or scan a tag value.');
+      return;
+    }
+    setRfidSubmitting(true);
+    setRfidError('');
+    setRfidSuccess('');
+    try {
+      await apiClient.post('/api/assets/identifiers', {
+        assetId: rfidSelectedFilter.id,
+        identifierType: 'RFID',
+        identifierValue: rfidInput.trim(),
+      });
+      setRfidSuccess(`Tag assigned to "${rfidSelectedFilter.name}"`);
+      setRfidInput('');
+      await mutateIdentifiers();
+    } catch (err: any) {
+      setRfidError(err?.message ?? 'Failed to assign tag');
+    } finally {
+      setRfidSubmitting(false);
+    }
+  };
+
+  const unassignRfid = async (identifierId: string) => {
+    setRfidSubmitting(true);
+    setRfidError('');
+    setRfidSuccess('');
+    try {
+      await apiClient.delete(`/api/assets/identifiers/${identifierId}`);
+      setRfidSuccess('Tag removed');
+      await mutateIdentifiers();
+    } catch (err: any) {
+      setRfidError(err?.message ?? 'Failed to remove tag');
+    } finally {
+      setRfidSubmitting(false);
+    }
+  };
 
   // ---- My Tasks handlers ----
   const toggleTaskExpand = (entryId: string) => {
@@ -296,6 +366,24 @@ export function MobileWrapperPage() {
               </button>
               )}
             </div>
+            )}
+
+            {/* RFID Assign */}
+            {hasFeature('rfid_assign') && online && (
+              <button onClick={() => setView('rfid-assign')} className="w-full bg-white rounded-2xl border border-slate-200 p-4 shadow-sm active:shadow-none active:bg-slate-50 transition-all">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-violet-500/20">
+                      <span className="text-2xl">{'\u{1F4F6}'}</span>
+                    </div>
+                    <div className="text-left">
+                      <div className="text-sm font-bold text-slate-800">RFID Assign</div>
+                      <div className="text-xs text-slate-400">Tag or untag filters</div>
+                    </div>
+                  </div>
+                  <svg className="w-5 h-5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                </div>
+              </button>
             )}
 
             {/* Stage Cards — direct access to each cleaning stage */}
@@ -669,6 +757,105 @@ export function MobileWrapperPage() {
         {view === 'operations' && (
           <div className="flex-1 overflow-y-auto">
             <MobileOperationsPage initialStageKey={selectedStageKey ?? undefined} hideHeader />
+          </div>
+        )}
+
+        {/* === RFID ASSIGN VIEW === */}
+        {view === 'rfid-assign' && (
+          <div className="p-4 space-y-4">
+            {!rfidSelectedFilter ? (
+              <>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Select Filter</label>
+                  <input
+                    type="text"
+                    value={rfidSearch}
+                    onChange={e => setRfidSearch(e.target.value)}
+                    placeholder="Search by filter name..."
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                  />
+                </div>
+                <div className="space-y-2">
+                  {allFilters
+                    .filter((f: any) => !rfidSearch || f.name?.toLowerCase().includes(rfidSearch.toLowerCase()))
+                    .slice(0, 60)
+                    .map((f: any) => {
+                      const tags = rfidTagsByFilter.get(f.id) ?? [];
+                      return (
+                        <button key={f.id} onClick={() => { setRfidSelectedFilter({ id: f.id, name: f.name }); setRfidError(''); setRfidSuccess(''); }}
+                          className="w-full bg-white rounded-xl border border-slate-200 p-3 active:bg-slate-50 transition-colors text-left flex items-center justify-between">
+                          <div>
+                            <div className="text-sm font-semibold text-slate-800">{f.name}</div>
+                            <div className="text-[11px] text-slate-400 mt-0.5">
+                              {tags.length > 0 ? `${tags.length} tag${tags.length > 1 ? 's' : ''} assigned` : 'No tag assigned'}
+                            </div>
+                          </div>
+                          <svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                        </button>
+                      );
+                    })}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="bg-white rounded-2xl border border-slate-200 p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-[11px] text-slate-400 uppercase tracking-wider font-bold">Selected Filter</div>
+                      <div className="text-base font-bold text-slate-800 mt-0.5">{rfidSelectedFilter.name}</div>
+                    </div>
+                    <button onClick={() => { setRfidSelectedFilter(null); setRfidInput(''); setRfidError(''); setRfidSuccess(''); }}
+                      className="text-xs font-semibold text-violet-600">Change</button>
+                  </div>
+                </div>
+
+                {rfidError && (
+                  <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-sm text-red-700">{rfidError}</div>
+                )}
+                {rfidSuccess && (
+                  <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-sm text-emerald-700">{rfidSuccess}</div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Assigned Tags</label>
+                  {currentRfidTags.length === 0 ? (
+                    <div className="rounded-xl bg-slate-50 border border-slate-200 p-4 text-center text-sm text-slate-400">No RFID tag assigned yet.</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {currentRfidTags.map((tag: any) => (
+                        <div key={tag.id} className="bg-white rounded-xl border border-slate-200 p-3 flex items-center justify-between">
+                          <div>
+                            <div className="text-xs text-slate-400">RFID</div>
+                            <div className="text-sm font-mono font-semibold text-slate-800 break-all">{tag.identifierValue}</div>
+                          </div>
+                          <button onClick={() => unassignRfid(tag.id)} disabled={rfidSubmitting}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-red-600 border border-red-200 bg-red-50 active:bg-red-100 disabled:opacity-50">
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Assign New Tag</label>
+                  <input
+                    data-rfid="true"
+                    type="text"
+                    value={rfidInput}
+                    onChange={e => setRfidInput(e.target.value)}
+                    placeholder="Scan or enter tag value..."
+                    autoFocus
+                    className="w-full px-3 py-3 border border-slate-200 rounded-xl text-base font-mono bg-white focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                  />
+                  <button onClick={assignRfid} disabled={rfidSubmitting || !rfidInput.trim()}
+                    className="w-full mt-3 py-3 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-violet-500 to-purple-600 shadow-lg shadow-violet-500/20 active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed">
+                    {rfidSubmitting ? 'Assigning...' : 'Assign Tag'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>

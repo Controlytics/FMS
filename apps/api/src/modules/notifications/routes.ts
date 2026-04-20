@@ -4,6 +4,7 @@ import { notificationService } from './notification.service.js';
 
 export default async function notificationRoutes(app: FastifyInstance) {
   // GET /api/notifications — list notifications for current user
+  // No permission check: notifications are inherently scoped per-user by the service.
   app.get('/', {
     schema: {
       tags: ['Notifications'],
@@ -201,7 +202,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { id } = req.params as { id: string };
-    return notificationService.markRead(id);
+    return notificationService.markRead(id, req.user.role, req.user.username);
   });
 
   // PUT /api/notifications/:id/unread — mark as unread
@@ -229,10 +230,10 @@ export default async function notificationRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { id } = req.params as { id: string };
-    return notificationService.markUnread(id);
+    return notificationService.markUnread(id, req.user.role, req.user.username);
   });
 
-  // DELETE /api/notifications/:id — delete notification
+  // DELETE /api/notifications/:id — delete notification (per-user dismiss)
   app.delete('/:id', {
     schema: {
       tags: ['Notifications'],
@@ -257,6 +258,6 @@ export default async function notificationRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { id } = req.params as { id: string };
-    return notificationService.delete(id);
+    return notificationService.delete(id, req.user.role, req.user.username);
   });
 }

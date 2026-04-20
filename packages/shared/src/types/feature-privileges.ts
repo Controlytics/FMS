@@ -237,7 +237,7 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'filters.events': ['EVENT_READ', 'ASSET_READ'],
 
   // Filters Page Controls
-  'filters.bulk_upload': ['FILTER_BULK_UPLOAD', 'ASSET_CREATE', 'ASSET_READ'],
+  'filters.bulk_upload': ['FILTER_BULK_UPLOAD', 'ASSET_CREATE'],
   'filters.retire': ['FILTER_RETIRE', 'FILTER_OPERATE', 'ASSET_READ'],
   'filters.replace': ['FILTER_REPLACE', 'FILTER_OPERATE', 'ASSET_READ'],
   'filters.status_update': ['FILTER_STATUS_UPDATE', 'ASSET_UPDATE', 'ASSET_READ'],

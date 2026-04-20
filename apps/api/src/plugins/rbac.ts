@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma.js';
 declare module 'fastify' {
   interface FastifyInstance {
     requirePermission: (permission: string) => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requireAnyPermission: (...permissions: string[]) => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     requireRole: (...roles: string[]) => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     requireSuperAdmin: () => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
@@ -60,6 +61,54 @@ async function rbacPlugin(app: FastifyInstance) {
           error: 'FORBIDDEN',
           message: 'Permission denied',
           requiredPermission: permission,
+          yourRole: userRole,
+        });
+      }
+    };
+  });
+
+  // Allow access if the user has ANY of the listed permissions.
+  // Useful for routes that can be gated by either a broad permission (ASSET_UPDATE)
+  // or a more granular toggle (EG_EDIT) — whichever the role has.
+  app.decorate('requireAnyPermission', (...permissions: string[]) => {
+    return async (req: FastifyRequest, reply: FastifyReply) => {
+      const userRole = req.user?.role;
+      if (!userRole) {
+        return reply.code(401).send({ error: 'UNAUTHORIZED', message: 'Not authenticated' });
+      }
+      if (userRole === 'SUPER_ADMIN') return;
+
+      const role = await prisma.role.findFirst({
+        where: { name: userRole },
+        select: { permissions: true },
+      });
+      const perms = (role?.permissions as string[]) || [];
+
+      const hasAny = permissions.some(permission => {
+        if (perms.includes(permission)) return true;
+        // Apply the same fallbacks as requirePermission
+        if (permission.endsWith('_VIEW')) {
+          const readVariant = permission.slice(0, -'_VIEW'.length) + '_READ';
+          if (perms.includes(readVariant)) return true;
+        }
+        const manageVariants = ['_CREATE', '_UPDATE', '_DELETE', '_VIEW', '_READ', '_EXPORT'];
+        for (const suffix of manageVariants) {
+          if (permission.endsWith(suffix)) {
+            const managePermission = permission.slice(0, -suffix.length) + '_MANAGE';
+            if (perms.includes(managePermission)) return true;
+          }
+        }
+        return false;
+      });
+
+      if (!hasAny) {
+        if (process.env.NODE_ENV === 'production') {
+          return reply.code(403).send({ error: 'FORBIDDEN', message: 'Insufficient permissions' });
+        }
+        return reply.code(403).send({
+          error: 'FORBIDDEN',
+          message: 'Permission denied',
+          requiredPermissions: permissions,
           yourRole: userRole,
         });
       }

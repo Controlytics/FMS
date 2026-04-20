@@ -7,6 +7,7 @@ import { useReportConfig } from '@/hooks/use-report-config';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { createReport } from '../../lib/pdf-report';
 import type { CleaningCycle, FilterEvent, FilterInstance, PaginatedResponse } from '../../types/filter';
+import { formatByLeastCount } from '@/lib/format-by-least-count';
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; dot: string; border: string }> = {
   IN_PROGRESS: { label: 'In Progress', bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-400 animate-pulse', border: 'border-blue-200' },
@@ -71,7 +72,11 @@ export function CleaningCycleHistoryPage() {
 
   const getReading = (readings: any[], desc: string) => {
     const r = readings.find((r: any) => r.description?.toLowerCase().includes(desc.toLowerCase()));
-    return r ? `${r.value} ${r.uom ?? ''}`.trim() : '-';
+    if (!r) return '-';
+    const formatted = r.leastCount !== undefined && r.leastCount !== null
+      ? formatByLeastCount(r.value, r.leastCount)
+      : String(r.value);
+    return `${formatted} ${r.uom ?? ''}`.trim();
   };
 
   const getDuration = (cycle: any) => {

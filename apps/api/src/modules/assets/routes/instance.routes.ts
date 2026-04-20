@@ -217,7 +217,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
 
   // 10. POST /instances — Create instance from template
   app.post('/instances', {
-    preHandler: [app.requirePermission('ASSET_CREATE')],
+    preHandler: [app.requireAnyPermission('ASSET_CREATE', 'FILTER_CREATE', 'FILTER_HIERARCHY_CREATE')],
     schema: {
       tags: ['Entities'],
       summary: 'Create entity instance',
@@ -248,7 +248,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('CREATE_ASSET', req, reply);
+    const { ok } = await enforceReauth(['CREATE_ASSET', 'CREATE_FILTER'], req, reply);
     if (!ok) return;
 
     const parsed = createAssetInstanceSchema.safeParse(req.body);
@@ -262,7 +262,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
 
   // POST /instances/bulk-upload-filters — Bulk create filters from CSV
   app.post('/instances/bulk-upload-filters', {
-    preHandler: [app.requirePermission('ASSET_CREATE')],
+    preHandler: [app.requireAnyPermission('ASSET_CREATE', 'FILTER_BULK_UPLOAD')],
     schema: {
       tags: ['Entities'],
       summary: 'Bulk upload filters from CSV',
@@ -334,7 +334,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
 
   // 11. PUT /instances/:id — Update instance
   app.put('/instances/:id', {
-    preHandler: [app.requirePermission('ASSET_UPDATE')],
+    preHandler: [app.requireAnyPermission('ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT')],
     schema: {
       tags: ['Entities'],
       summary: 'Update entity instance',
@@ -368,7 +368,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('UPDATE_ASSET', req, reply);
+    const { ok } = await enforceReauth(['UPDATE_ASSET', 'EDIT_FILTER', 'EDIT_HIERARCHY_NODE'], req, reply);
     if (!ok) return;
 
     const { id } = req.params as { id: string };
@@ -469,7 +469,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
 
   // 13. DELETE /instances/:id — Soft-delete with cascade
   app.delete('/instances/:id', {
-    preHandler: [app.requirePermission('ASSET_DELETE')],
+    preHandler: [app.requireAnyPermission('ASSET_DELETE', 'FILTER_DELETE', 'FILTER_HIERARCHY_DELETE')],
     schema: {
       tags: ['Entities'],
       summary: 'Soft-delete entity instance',
@@ -491,7 +491,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('DELETE_ASSET', req, reply);
+    const { ok } = await enforceReauth(['DELETE_ASSET', 'DELETE_FILTER', 'DELETE_HIERARCHY_NODE'], req, reply);
     if (!ok) return;
 
     const { id } = req.params as { id: string };

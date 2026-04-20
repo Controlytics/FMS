@@ -41,7 +41,7 @@ export interface DueTasksResponse {
 }
 
 async function checkPmEnabled() {
-  const cfg = await prisma.systemConfig.findUnique({ where: { configKey: 'filter-pm-schedule' } });
+  const cfg = await prisma.systemConfig.findUnique({ where: { configKey: 'pm-schedule-settings' } });
   const val = cfg?.configValue as any;
   if (!val?.enabled) throw new AppError(404, 'PM_DISABLED', 'PM scheduling module is not enabled');
 }

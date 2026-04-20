@@ -869,6 +869,7 @@ export class FilterOperationsService {
           description: inst.description,
           value: val,
           uom: inst.uom,
+          leastCount: inst.leastCount,
         });
       }
     }
@@ -1099,6 +1100,10 @@ export class FilterOperationsService {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
     const where: any = {};
+    // Org-scope when no filterId was specified (otherwise getFilter already enforced it)
+    if (!query.filterId && ctx.organizationId && ctx.userRole !== 'SUPER_ADMIN' && ctx.userRole !== 'ADMIN') {
+      where.filter = { organizationId: ctx.organizationId };
+    }
     if (query.filterId) where.filterId = query.filterId;
     if (query.cycleId) where.cycleId = query.cycleId;
     if (query.eventType) where.eventType = query.eventType;
@@ -1207,6 +1212,10 @@ export class FilterOperationsService {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
     const where: any = {};
+    // Org-scope when no filterId was specified (otherwise getFilter already enforced it)
+    if (!query.filterId && ctx.organizationId && ctx.userRole !== 'SUPER_ADMIN' && ctx.userRole !== 'ADMIN') {
+      where.filter = { organizationId: ctx.organizationId };
+    }
     if (query.filterId) where.filterId = query.filterId;
     if (query.ahuId) where.ahuId = query.ahuId;
     if (query.status) where.status = query.status;

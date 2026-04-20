@@ -8,7 +8,7 @@ export const userIdDef: ModuleConfigDefinition = {
   category: 'user',
   sortOrder: 20,
   permissions: { read: 'CONFIG_READ', write: 'CONFIG_UPDATE' },
-  requiredRole: 'SUPER_ADMIN',
+  requiredRole: 'ADMIN',
   requiresReauth: false,
   hasCustomPage: true,
   customPagePath: '/config/user-id',

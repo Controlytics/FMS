@@ -258,6 +258,9 @@ export function DynamicConfigPage() {
                           className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-60 disabled:cursor-wait"
                         >
                           <option value="">{loading ? 'Loading…' : 'Select...'}</option>
+                          {!loading && finalOptions.length === 0 && (
+                            <option value="" disabled>No options available</option>
+                          )}
                           {finalOptions.map(opt => (
                             <option key={opt.value} value={opt.value}>{opt.label}</option>
                           ))}

@@ -70,7 +70,7 @@ export function PmScheduleListPage() {
   const { toast } = useToast();
   const { formatDate } = useDatetimeFormat();
   const reauth = useReauth();
-  const { data: pmConfig } = useSWR('/api/config/dynamic/filter-pm-schedule');
+  const { data: pmConfig } = useSWR('/api/config/dynamic/pm-schedule-settings');
 
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploading, setUploading] = useState(false);

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { formatByLeastCount } from '@/lib/format-by-least-count';
 
 interface EquipmentDialogProps {
   dialog: {
@@ -109,7 +110,7 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error }: E
                           <span className="text-sm font-medium text-slate-700">{inst.description}</span>
                           <span className="ml-2 text-xs text-slate-400 font-mono">{inst.instrumentId}</span>
                         </div>
-                        <span className="text-xs text-slate-400">{inst.operatingMin}–{inst.operatingMax} {inst.uom}</span>
+                        <span className="text-xs text-slate-400">{formatByLeastCount(inst.operatingMin, inst.leastCount)}–{formatByLeastCount(inst.operatingMax, inst.leastCount)} {inst.uom}</span>
                       </div>
                       <select
                         value={instrumentReadings[inst.id] ?? ''}
@@ -117,7 +118,7 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error }: E
                         className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-slate-800 text-sm focus:border-cyan-500 outline-none">
                         <option value="">Select value...</option>
                         {options.map((v) => (
-                          <option key={v} value={v}>{v} {inst.uom}</option>
+                          <option key={v} value={v}>{formatByLeastCount(v, inst.leastCount)} {inst.uom}</option>
                         ))}
                       </select>
                     </div>

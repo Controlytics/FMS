@@ -7,10 +7,11 @@ import {
   updateOperationStatus,
   clearSyncedOperations,
   onOnlineStatusChange,
-  clearFilterStateCaches,
 } from './offline-store';
 
-type SyncListener = (event: { type: 'start' | 'progress' | 'complete' | 'error'; synced?: number; total?: number; error?: string }) => void;
+type SyncListener = (event: { type: 'start' | 'progress' | 'complete' | 'error' | 'interrupted'; synced?: number; total?: number; error?: string }) => void;
+
+const MAX_RETRIES = 5;
 
 let syncing = false;
 const listeners: Set<SyncListener> = new Set();
@@ -97,21 +98,21 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
       if (isNetErr) {
         await updateOperationStatus(op.id, 'pending', errMsg);
         failed++;
+        notify({ type: 'interrupted', error: 'Sync interrupted — will retry in 30s' });
         break;
       }
 
-      // API error: retry up to 3 times, then mark as permanently failed
-      await updateOperationStatus(op.id, op.retryCount >= 2 ? 'failed' : 'pending', errMsg);
+      // API error: retry up to MAX_RETRIES, then mark as permanently failed
+      await updateOperationStatus(op.id, op.retryCount >= MAX_RETRIES - 1 ? 'failed' : 'pending', errMsg);
       failed++;
       notify({ type: 'error', error: `${op.filterName}: ${errMsg}` });
     }
   }
 
   await clearSyncedOperations().catch(() => {});
-  // Clear stale filter-state caches so next online fetch gets fresh server data
-  if (synced > 0) {
-    await clearFilterStateCaches().catch(() => {});
-  }
+  // Note: don't wipe filter-state caches here. Next /current-state fetch from the
+  // UI will overwrite the cache with fresh server data; blanket clearing breaks
+  // users who go offline again before that fetch happens.
 
   syncing = false;
   notify({ type: 'complete', synced, total: pending.length });

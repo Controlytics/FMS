@@ -53,7 +53,7 @@ const PUBLIC_PATHS = [
 ];
 
 // Paths that are public only for GET requests
-const PUBLIC_GET_PATHS = ['/api/config/branding', '/api/config/datetime/current', '/uploads/photos/', '/uploads/branding/', '/api/roles/active'];
+const PUBLIC_GET_PATHS = ['/api/config/branding', '/api/config/datetime/current', '/uploads/photos/', '/uploads/branding/', '/api/roles/active', '/api/admin-requests/user-lookup'];
 
 async function authPlugin(app: FastifyInstance) {
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {

@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { createReport } from '../../lib/pdf-report';
+import { formatByLeastCount } from '@/lib/format-by-least-count';
 
 const EVENT_ICONS: Record<string, { icon: string; color: string; border: string; bg: string }> = {
   CYCLE_STARTED: { icon: '▶', color: 'text-cyan-600', border: 'border-cyan-500', bg: 'bg-cyan-50' },
@@ -102,7 +103,10 @@ export function CleaningCycleTimelinePage() {
       events.forEach((ev: any, idx: number) => {
         const attrs = ev.attributes ?? {};
         const readings: any[] = attrs.instrumentReadings ?? [];
-        const readingsStr = readings.map((r: any) => `${r.description ?? ''}: ${r.value} ${r.uom ?? ''}`).join(', ');
+        const readingsStr = readings.map((r: any) => {
+          const val = r.leastCount !== undefined && r.leastCount !== null ? formatByLeastCount(r.value, r.leastCount) : String(r.value);
+          return `${r.description ?? ''}: ${val} ${r.uom ?? ''}`;
+        }).join(', ');
         eventRows.push([
           String(idx + 1),
           ev.eventType.replace(/_/g, ' '),
@@ -345,7 +349,7 @@ export function CleaningCycleTimelinePage() {
                           <div key={ri} className="bg-white border border-slate-200 rounded-lg px-3 py-2.5">
                             <div className="text-[11px] text-slate-400 mb-1">{reading.description || reading.instrumentCode || `Instrument ${ri + 1}`}</div>
                             <div className="flex items-baseline gap-1.5">
-                              <span className="text-lg font-bold text-slate-800 tabular-nums">{reading.value}</span>
+                              <span className="text-lg font-bold text-slate-800 tabular-nums">{reading.leastCount !== undefined && reading.leastCount !== null ? formatByLeastCount(reading.value, reading.leastCount) : reading.value}</span>
                               <span className="text-xs text-slate-500">{reading.uom || reading.unit || ''}</span>
                             </div>
                             {reading.instrumentCode && reading.description && (

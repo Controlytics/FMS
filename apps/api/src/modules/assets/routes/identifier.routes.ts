@@ -70,7 +70,7 @@ export default async function identifierRoutes(app: FastifyInstance) {
 
   // 20. POST /identifiers — Create identifier
   app.post('/identifiers', {
-    preHandler: [app.requirePermission('ASSET_IDENTIFIER_CREATE')],
+    preHandler: [app.requireAnyPermission('ASSET_IDENTIFIER_CREATE', 'FILTER_RFID_MANAGE')],
     schema: {
       tags: ['Entity Identifiers'],
       summary: 'Create entity identifier',
@@ -112,7 +112,7 @@ export default async function identifierRoutes(app: FastifyInstance) {
 
   // 21. DELETE /identifiers/:id — Delete identifier
   app.delete('/identifiers/:id', {
-    preHandler: [app.requirePermission('ASSET_IDENTIFIER_DELETE')],
+    preHandler: [app.requireAnyPermission('ASSET_IDENTIFIER_DELETE', 'FILTER_RFID_MANAGE')],
     schema: {
       tags: ['Entity Identifiers'],
       summary: 'Delete entity identifier',

@@ -74,7 +74,8 @@ export function ForgotPasswordPage() {
               <h1
                 className="text-2xl font-bold mb-2"
                 style={{
-                  background: `linear-gradient(to right, ${branding.primaryColor}, ${branding.secondaryColor})`,
+                  backgroundImage: `linear-gradient(to right, ${branding.primaryColor}, ${branding.secondaryColor})`,
+                  backgroundClip: 'text',
                   WebkitBackgroundClip: 'text',
                   WebkitTextFillColor: 'transparent',
                 }}

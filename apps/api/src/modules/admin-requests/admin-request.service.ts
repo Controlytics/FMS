@@ -1,6 +1,10 @@
 import { PrismaClient } from '@prisma/client';
+import { randomInt } from 'node:crypto';
 import { auditLog } from '../../lib/audit.js';
 import { stripHtml } from '../../lib/sanitize.js';
+import { NotFoundError, ValidationError } from '../../lib/errors.js';
+import { userService } from '../users/user.service.js';
+import { userRepository } from '../users/user.repository.js';
 import type { RequestContext } from '../../types/context.js';
 
 const prisma = new PrismaClient();
@@ -27,13 +31,23 @@ export const adminRequestService = {
     });
 
     // Audit log (no userId since this is a public endpoint)
+    const requesterLabel = request.requesterEmployeeId
+      ? `${request.requesterName} (${request.requesterEmployeeId})`
+      : request.requesterName;
+    const submittedName = `${formatRequestType(request.requestType)} — ${requesterLabel}`;
     await auditLog({
+      userId: request.requesterEmployeeId ?? undefined,
       action: 'ADMIN_REQUEST_SUBMITTED',
       targetType: 'admin_request',
       targetId: request.id,
-      afterValue: { requestType: request.requestType, requesterName: request.requesterName },
-      reason: `${request.requestType} request submitted by ${request.requesterName}`,
-      signatureMeaning: `Admin request (${request.requestType}) submitted by ${request.requesterName}`,
+      afterValue: {
+        name: submittedName,
+        requestType: request.requestType,
+        requesterName: request.requesterName,
+        requesterEmployeeId: request.requesterEmployeeId,
+      },
+      reason: `${formatRequestType(request.requestType)} request submitted by ${requesterLabel}`,
+      signatureMeaning: `Admin request (${formatRequestType(request.requestType)}) submitted by ${requesterLabel}`,
     });
 
     // Create notification for admins
@@ -73,8 +87,14 @@ export const adminRequestService = {
     ctx: RequestContext,
   ) {
     const request = await prisma.adminRequest.findUnique({ where: { id } });
-    if (!request) throw new Error('Request not found');
-    if (request.status !== 'PENDING') throw new Error('Request has already been processed');
+    if (!request) throw new NotFoundError('Request not found');
+    if (request.status !== 'PENDING') throw new ValidationError('Request has already been processed');
+
+    // On approve: execute the action first. If it fails, leave request PENDING.
+    let actionOutcome: { username?: string; temporaryPassword?: string; message?: string } = {};
+    if (action === 'approve') {
+      actionOutcome = await executeApproval(request, ctx);
+    }
 
     const newStatus = action === 'approve' ? 'APPROVED' : 'REJECTED';
 
@@ -89,41 +109,130 @@ export const adminRequestService = {
     });
 
     // Audit log
+    const requesterLabel = request.requesterEmployeeId
+      ? `${request.requesterName} (${request.requesterEmployeeId})`
+      : request.requesterName;
+    const processedName = `${formatRequestType(request.requestType)} — ${requesterLabel}`;
     await auditLog({
       userId: ctx.userId,
       userRole: ctx.userRole,
       action: action === 'approve' ? 'ADMIN_REQUEST_APPROVED' : 'ADMIN_REQUEST_REJECTED',
       targetType: 'admin_request',
       targetId: id,
-      beforeValue: { status: 'PENDING' },
-      afterValue: { status: newStatus, adminRemarks },
+      beforeValue: { name: processedName, status: 'PENDING', requesterEmployeeId: request.requesterEmployeeId },
+      afterValue: { name: processedName, status: newStatus, adminRemarks, requesterEmployeeId: request.requesterEmployeeId },
       reason: `${formatRequestType(request.requestType)} request ${newStatus.toLowerCase()} — ${adminRemarks}`,
-      signatureMeaning: `Admin request (${request.requestType}) ${newStatus.toLowerCase()} by admin`,
+      signatureMeaning: `Admin request (${formatRequestType(request.requestType)}) ${newStatus.toLowerCase()} by admin`,
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
       sessionId: ctx.sessionId,
     });
 
-    // Notify requester via email if provided
-    if (request.requesterEmail) {
-      const notifType = action === 'approve'
-        ? 'USER_CREATION_REQUEST_APPROVED' as const
-        : 'USER_CREATION_REQUEST_REJECTED' as const;
-
-      await prisma.notification.create({
-        data: {
-          type: notifType,
-          title: `Request ${newStatus}`,
-          message: `Your ${formatRequestType(request.requestType).toLowerCase()} request has been ${newStatus.toLowerCase()}.${adminRemarks ? ` Admin notes: ${adminRemarks}` : ''}`,
-          targetUserId: request.requesterName,
-          metadata: { requestId: id, requestType: request.requestType },
-        },
-      });
-    }
-
-    return updated;
+    return { ...updated, ...actionOutcome };
   },
 };
+
+async function executeApproval(
+  request: { id: string; requestType: string; requestData: unknown; requesterName: string; requesterEmail: string | null },
+  ctx: RequestContext,
+): Promise<{ username?: string; temporaryPassword?: string; message?: string }> {
+  const data = (request.requestData ?? {}) as Record<string, any>;
+  switch (request.requestType) {
+    case 'CREATE_USER': {
+      const email = String(data.email ?? '').trim();
+      const fullName = String(data.fullName ?? request.requesterName).trim();
+      const requestedRole = String(data.requestedRole ?? '').trim();
+      const department = data.department ? String(data.department).trim() : undefined;
+      if (!email) throw new ValidationError('Request is missing email');
+      if (!requestedRole) throw new ValidationError('Request is missing requested role');
+
+      const username = await generateUniqueUsername(email);
+      const temporaryPassword = generateTempPassword();
+
+      await userService.create(
+        {
+          username,
+          fullName,
+          email,
+          department,
+          role: requestedRole,
+          password: temporaryPassword,
+          organizationId: ctx.organizationId,
+        },
+        ctx,
+      );
+      return { username, temporaryPassword, message: `User "${username}" created.` };
+    }
+
+    case 'UNLOCK': {
+      const targetUsername = String(data.username ?? '').trim();
+      if (!targetUsername) throw new ValidationError('Request is missing username');
+      const user = await userRepository.findByUsername(targetUsername);
+      if (!user) throw new NotFoundError(`User "${targetUsername}" not found`);
+      const temporaryPassword = generateTempPassword();
+      await userService.unlock(user.id, temporaryPassword, ctx);
+      return { username: targetUsername, temporaryPassword, message: `Account "${targetUsername}" unlocked.` };
+    }
+
+    case 'FORGOT_PASSWORD': {
+      const targetUsername = String(data.username ?? '').trim();
+      if (!targetUsername) throw new ValidationError('Request is missing username');
+      const user = await userRepository.findByUsername(targetUsername);
+      if (!user) throw new NotFoundError(`User "${targetUsername}" not found`);
+      const temporaryPassword = generateTempPassword();
+      await userService.resetPassword(user.id, temporaryPassword, ctx);
+      return { username: targetUsername, temporaryPassword, message: `Password reset for "${targetUsername}".` };
+    }
+
+    case 'MODIFY_USER': {
+      const targetUsername = String(data.username ?? '').trim();
+      const field = String(data.modifyField ?? '').trim();
+      const newValue = data.newValue;
+      if (!targetUsername) throw new ValidationError('Request is missing username');
+      if (!field) throw new ValidationError('Request is missing modifyField');
+      const allowed = new Set(['fullName', 'email', 'department', 'role', 'status']);
+      if (!allowed.has(field)) throw new ValidationError(`Field "${field}" cannot be modified via admin request`);
+      const user = await userRepository.findByUsername(targetUsername);
+      if (!user) throw new NotFoundError(`User "${targetUsername}" not found`);
+      await userService.update(user.id, { [field]: newValue }, ctx);
+      return { username: targetUsername, message: `User "${targetUsername}" updated (${field}).` };
+    }
+
+    default:
+      throw new ValidationError(`Unknown request type: ${request.requestType}`);
+  }
+}
+
+async function generateUniqueUsername(email: string): Promise<string> {
+  const base = email.split('@')[0].toLowerCase().replace(/[^a-z0-9._-]/g, '').slice(0, 40) || 'user';
+  let candidate = base;
+  for (let i = 2; i < 200; i++) {
+    const existing = await userRepository.findByUsername(candidate);
+    if (!existing) return candidate;
+    candidate = `${base}${i}`;
+  }
+  throw new ValidationError('Could not generate a unique username — please create user manually');
+}
+
+function generateTempPassword(): string {
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower = 'abcdefghjkmnpqrstuvwxyz';
+  const digit = '23456789';
+  const special = '!@#$%&*';
+  const all = upper + lower + digit + special;
+  const chars = [
+    upper[randomInt(0, upper.length)],
+    lower[randomInt(0, lower.length)],
+    digit[randomInt(0, digit.length)],
+    special[randomInt(0, special.length)],
+  ];
+  for (let i = 0; i < 10; i++) chars.push(all[randomInt(0, all.length)]);
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = randomInt(0, i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
+}
 
 function formatRequestType(type: string): string {
   switch (type) {

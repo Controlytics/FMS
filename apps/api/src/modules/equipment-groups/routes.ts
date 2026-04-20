@@ -26,7 +26,7 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
   const service = new EquipmentGroupsService();
 
   app.get('/', {
-    preHandler: [app.requirePermission('ASSET_READ')],
+    preHandler: [app.requireAnyPermission('ASSET_READ', 'EG_VIEW')],
     schema: {
       tags: ['Equipment Groups'],
       summary: 'List equipment groups',
@@ -43,7 +43,7 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
   });
 
   app.get('/:id', {
-    preHandler: [app.requirePermission('ASSET_READ')],
+    preHandler: [app.requireAnyPermission('ASSET_READ', 'EG_VIEW')],
     schema: {
       tags: ['Equipment Groups'],
       summary: 'Get equipment group by ID',
@@ -57,7 +57,7 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
   });
 
   app.get('/by-block/:blockId', {
-    preHandler: [app.requirePermission('ASSET_READ')],
+    preHandler: [app.requireAnyPermission('ASSET_READ', 'EG_VIEW')],
     schema: {
       tags: ['Equipment Groups'],
       summary: 'Get equipment groups for a block',
@@ -71,7 +71,7 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
   });
 
   app.post('/', {
-    preHandler: [app.requirePermission('ASSET_CREATE')],
+    preHandler: [app.requireAnyPermission('ASSET_CREATE', 'EG_CREATE')],
     schema: {
       tags: ['Equipment Groups'],
       summary: 'Create equipment group with 3 instruments',
@@ -95,7 +95,7 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
   });
 
   app.put('/:id', {
-    preHandler: [app.requirePermission('ASSET_UPDATE')],
+    preHandler: [app.requireAnyPermission('ASSET_UPDATE', 'EG_EDIT')],
     schema: {
       tags: ['Equipment Groups'],
       summary: 'Update equipment group and instruments',
@@ -119,7 +119,7 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
   });
 
   app.delete('/:id', {
-    preHandler: [app.requirePermission('ASSET_DELETE')],
+    preHandler: [app.requireAnyPermission('ASSET_DELETE', 'EG_DELETE')],
     schema: {
       tags: ['Equipment Groups'],
       summary: 'Delete (deactivate) equipment group',

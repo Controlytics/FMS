@@ -15,6 +15,7 @@ import { ErrorPopup } from '../../components/ui/error-popup';
 import { useOffline } from '../../hooks/use-offline';
 import { onSyncEvent } from '../../lib/sync-engine';
 import type { FilterInstance, PaginatedResponse } from '../../types/filter';
+import { formatByLeastCount } from '@/lib/format-by-least-count';
 
 const CLEANING_STAGES = CLEANING_STAGES_OPS;
 
@@ -87,7 +88,7 @@ export function FilterOperationsPage() {
             currentCycle: st.currentCycle ?? null,
             homeBlock: st.homeBlock ?? null,
             blockChangeStatus: st.blockChangeStatus ?? null,
-          });
+          }, 24 * 60 * 60 * 1000);
         } catch { break; } // stop on first failure
       }
     };
@@ -403,6 +404,18 @@ export function FilterOperationsPage() {
     if (newSubmissions.some(s => s.stage.includes('queued'))) {
       getOfflineFilters().then(setOfflineInstances);
     }
+    // Offline parity: if pipeline prescribes a checklist after this stage, pop the dialog
+    // so the operator can complete it (matches mobile behavior, blocks further advance).
+    if (batch.length > 0 && newSubmissions.some(s => s.stage.includes('queued'))) {
+      try {
+        const firstItem = batch[0];
+        const cs = await getCache<any>(`filter-state-${firstItem.filterId}`);
+        if (cs?.pendingChecklist?.length > 0) {
+          setChecklistDialog({ filterId: firstItem.filterId, filterName: `${batch.length} filter(s)`, checklists: cs.pendingChecklist });
+          setChecklistError('');
+        }
+      } catch { /* ignore */ }
+    }
     if (failed.length > 0 && !blockChangeDialog) {
       setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
     } else if (failed.length === 0) {
@@ -411,6 +424,36 @@ export function FilterOperationsPage() {
   };
 
   // After an offline advance, update cached filter state to reflect new stage
+  // Find CHECKLIST nodes immediately after a stage in the pipeline graph
+  const findChecklistsAfterStage = (graph: any, stageKey: string): any[] => {
+    if (!graph?.stages || !graph?.connections) return [];
+    const stageNode = graph.stages.find((s: any) => s.stateKey === stageKey);
+    if (!stageNode) return [];
+    const outConns = graph.connections.filter((c: any) => c.fromStageId === stageNode.id);
+    return outConns
+      .map((c: any) => graph.stages.find((s: any) => s.id === c.toStageId))
+      .filter((n: any) => n?.nodeType === 'CHECKLIST' && n?.configuration?.checklistProfileId);
+  };
+
+  // Build pendingChecklist entries from cached checklist profiles (matches mobile's helper)
+  const buildOfflineChecklist = async (checklistNodes: any[]): Promise<any[]> => {
+    const cachedProfiles = await getCache<any[]>('checklist-profiles') ?? [];
+    const result: any[] = [];
+    for (const node of checklistNodes) {
+      const profileId = node.configuration?.checklistProfileId;
+      if (!profileId) continue;
+      const profile = cachedProfiles.find((p: any) => p.id === profileId && p.isActive !== false);
+      if (!profile) continue;
+      result.push({
+        pipelineNodeId: node.id,
+        checklistProfileId: profileId,
+        checklistProfileName: profile.name,
+        questions: (profile.questions ?? []).sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
+      });
+    }
+    return result;
+  };
+
   const updateCachedStateAfterAdvance = async (filterId: string, newStageKey: string, cycleStarted?: boolean) => {
     try {
       const cachedState = await getCache<any>(`filter-state-${filterId}`) ?? {};
@@ -418,11 +461,21 @@ export function FilterOperationsPage() {
         .filter((s: any) => s.stateKey)
         .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 
-      // Compute new nextAllowedStages — prefer graph, fall back to linear pipeline
+      // Compute pendingChecklist from pipeline graph (21 CFR compliance — never skip required checklists offline)
       const graph = cachedState.pipelineGraph;
+      const checklistNodes = graph ? findChecklistsAfterStage(graph, newStageKey) : [];
+      const pendingChecklist = checklistNodes.length > 0
+        ? await buildOfflineChecklist(checklistNodes)
+        : [];
+
+      // Compute new nextAllowedStages — prefer graph, fall back to linear pipeline.
+      // If checklist is pending, block advancement until it's answered.
       let nextAllowed: string[] = [];
       let hasGraphData = false;
-      if (graph?.stages && graph?.connections) {
+      if (pendingChecklist.length > 0) {
+        nextAllowed = [];
+        hasGraphData = !!graph;
+      } else if (graph?.stages && graph?.connections) {
         // Walk graph to find reachable STAGE nodes (skip CHECKLIST)
         const currentNode = graph.stages.find((s: any) => s.stateKey === newStageKey);
         if (currentNode) {
@@ -448,15 +501,18 @@ export function FilterOperationsPage() {
         hasGraphData = pipeline.length > 0;
       }
 
-      // Only mark cycle complete if we have pipeline data to verify it
-      const cycleComplete = hasGraphData && nextAllowed.length === 0 && !cycleStarted;
+      // Only mark cycle complete if we have pipeline data to verify it AND no checklist pending
+      const cycleComplete = hasGraphData && nextAllowed.length === 0 && pendingChecklist.length === 0 && !cycleStarted;
+      // 24h TTL (matches sync service) — shorter TTLs caused offline cycle state
+      // to appear expired during long shifts, which made downstream checks think
+      // the pipeline hadn't been started.
       cache(`filter-state-${filterId}`, {
         ...cachedState,
         currentState: cycleComplete ? null : newStageKey,
         nextAllowedStages: cycleComplete ? [] : nextAllowed,
-        pendingChecklist: [], // cleared after advance — server recomputes on sync
+        pendingChecklist,
         currentCycle: cycleComplete ? null : (cachedState.currentCycle ?? (cycleStarted ? { id: `offline-cycle-${Date.now()}`, status: 'IN_PROGRESS' } : null)),
-      });
+      }, 24 * 60 * 60 * 1000);
 
       // Also update the filter instance's local state
       const { updateFilterStateLocally } = await import('@/lib/offline-store');
@@ -486,15 +542,21 @@ export function FilterOperationsPage() {
       const csQuery = selectedBlock?.id ? `?cleaningAreaId=${encodeURIComponent(selectedBlock.id)}` : '';
       try {
         state = await apiClient.get<any>(`/api/filters/${first.filterId}/current-state${csQuery}`);
-        // Cache the state for offline use (match mobile's cache shape)
+        // Cache the full state for offline use (match mobile's cache shape exactly)
         cache(`filter-state-${first.filterId}`, {
           equipmentGroup: state.equipmentGroup ?? null,
+          blockEquipmentGroups: state.blockEquipmentGroups ?? [],
           pendingChecklist: state.pendingChecklist ?? [],
           pipelineStages: state.pipelineStages ?? [],
+          pipelineGraph: state.pipelineGraph ?? null,
+          nextAllowedStages: state.nextAllowedStages ?? [],
           isPmDue: state.isPmDue ?? false,
           pmReasonKey: state.pmReasonKey ?? null,
           currentCycle: state.currentCycle ?? null,
-        });
+          currentState: state.currentState ?? null,
+          homeBlock: state.homeBlock ?? null,
+          blockChangeStatus: state.blockChangeStatus ?? null,
+        }, 24 * 60 * 60 * 1000);
       } catch (fetchErr: any) {
         const msg = String(fetchErr?.message || '').toLowerCase();
         const isNetErr = (fetchErr instanceof TypeError && msg.includes('fetch'))
@@ -544,6 +606,54 @@ export function FilterOperationsPage() {
         }
       }
 
+      // ─── STRICT OFFLINE GATE (parity with mobile) ─────────────────────────
+      // Without cached pipeline data we cannot enforce stage ordering — refuse
+      // the operation explicitly rather than silently letting it through.
+      if (!online) {
+        const hasGraph = !!state.pipelineGraph?.stages;
+        const hasLinearPipeline = (state.pipelineStages?.length ?? 0) > 0;
+        const offlineNextAllowed = state.nextAllowedStages ?? [];
+        const hasValidation = hasGraph || hasLinearPipeline || offlineNextAllowed.length > 0;
+
+        if (!hasValidation) {
+          setPopupError(`${first.filterName}: offline data not cached. Connect to network and re-sync before retrying.`);
+          setLoading(false); setSubmitting(false);
+          return;
+        }
+
+        // Force block-change enforcement when homeBlock is known and differs
+        if (state.homeBlock && selectedBlock?.id && state.homeBlock.id !== selectedBlock.id && state.blockChangeStatus !== 'APPROVED') {
+          state.blockChangeStatus = 'REQUIRED';
+        }
+
+        const cycleInProgress = !!state.currentCycle;
+        // New cycle: activeStage must be a legal entry point of the pipeline
+        if (!cycleInProgress && hasGraph) {
+          const firstStages: string[] = [];
+          const startNode = state.pipelineGraph.stages.find((s: any) => s.nodeType === 'START');
+          if (startNode) {
+            const conns = (state.pipelineGraph.connections ?? []).filter((c: any) => c.fromStageId === startNode.id);
+            for (const c of conns) {
+              const next = state.pipelineGraph.stages.find((s: any) => s.id === c.toStageId);
+              if (next?.nodeType === 'STAGE' && next.stateKey) firstStages.push(next.stateKey);
+            }
+          }
+          if (firstStages.length > 0 && !firstStages.includes(activeStage.key)) {
+            setError(`${first.filterName}: cannot start cycle at ${activeStage.label}. Start at: ${firstStages.map(s => s.replace(/_/g, ' ')).join(', ')}`);
+            setLoading(false); setSubmitting(false);
+            return;
+          }
+        }
+
+        // In-cycle but no cached next stages → stale cache; refuse
+        if (cycleInProgress && offlineNextAllowed.length === 0) {
+          setPopupError(`${first.filterName}: filter is in-cycle but no next stage is cached. Reconnect and re-sync.`);
+          setLoading(false); setSubmitting(false);
+          return;
+        }
+      }
+      // ─── END STRICT OFFLINE GATE ─────────────────────────────────────────
+
       // Gap 9: Proactive block change check (before any dialogs)
       if (state.blockChangeStatus === 'REQUIRED' && state.homeBlock && selectedBlock?.id) {
         setBlockChangeDialog({
@@ -555,6 +665,15 @@ export function FilterOperationsPage() {
           requestedBlockName: selectedBlock.name,
         });
         setBlockChangeReason('');
+        setLoading(false); setSubmitting(false);
+        return;
+      }
+
+      // DRY_IN: if temperature already recorded, direct user to Dry Out stage
+      // (runs BEFORE generic nextAllowed check so the user gets a clear instruction
+      // instead of the confusing "is at DRY IN. Next allowed: Dry Out")
+      if (activeStage.key === 'DRY_IN' && state.currentCycle?.dryerReadingsSubmitted) {
+        setPopupError('Dry In complete — temperature already recorded. Scan on Dry Out stage to advance.');
         setLoading(false); setSubmitting(false);
         return;
       }
@@ -995,7 +1114,7 @@ export function FilterOperationsPage() {
               dryerStartedAt,
               cleaningAreaId: blockId ?? cached.currentCycle?.cleaningAreaId ?? null,
             },
-          });
+          }, 24 * 60 * 60 * 1000);
         } catch { /* ignore cache errors */ }
       }
       // Update offline state (nextAllowedStages) for each filter when queued
@@ -1040,7 +1159,7 @@ export function FilterOperationsPage() {
             dryerStartedAt: new Date().toISOString(),
             cleaningAreaId: blockId ?? cached.currentCycle?.cleaningAreaId ?? null,
           },
-        });
+        }, 24 * 60 * 60 * 1000);
       } catch { /* ignore cache errors */ }
       // Update offline state (nextAllowedStages) when queued
       if (!executed) {
@@ -1629,6 +1748,7 @@ function DryingFilterRow({
   setToast: (t: { type: 'success' | 'error'; message: string } | null) => void;
   setPopupError: (msg: string) => void;
 }) {
+  const { executeOrQueue } = useOffline();
   const { data: state, mutate: refreshState } = useSWR<any>(`/api/filters/${filterId}/current-state`, { refreshInterval: 15000 });
   const [temp, setTemp] = useState<number | ''>('');
   const [submitting, setSubmitting] = useState(false);
@@ -1713,25 +1833,7 @@ function DryingFilterRow({
         if (dryerInstrument && inst.id === dryerInstrument.id) readings[inst.id] = Number(temp);
         else readings[inst.id] = inst.operatingMin;
       }
-      const { executeOrQueue: eOrQ } = await import('@/hooks/use-offline').then(() => {
-        // Use apiClient for online, queue for offline
-        return { executeOrQueue: async (type: any, fId: string, fName: string, payload: any, optState?: string) => {
-          try {
-            await apiClient.post(`/api/filters/${fId}/advance`, payload);
-            return { executed: true };
-          } catch (e: any) {
-            const msg = String(e?.message || '').toLowerCase();
-            if (msg.includes('fetch') || msg.includes('network') || msg.includes('load failed')) {
-              const { queueOperation, updateFilterStateLocally } = await import('@/lib/offline-store');
-              await queueOperation({ type: 'advance', filterId: fId, filterName: fName, payload });
-              if (optState) await updateFilterStateLocally(fId, optState);
-              return { executed: false };
-            }
-            throw e;
-          }
-        }};
-      });
-      const { executed } = await eOrQ('advance', filterId, filterName, {
+      const { executed } = await executeOrQueue('advance', filterId, filterName, {
         targetState: 'DRY_IN',
         dryerAction: 'SUBMIT_READINGS',
         equipmentGroupId: resolvedGroup.id,
@@ -1803,11 +1905,11 @@ function DryingFilterRow({
               }}
               disabled={!halfElapsed || submitting}
               className="rounded border border-slate-300 px-2 py-1 text-slate-800 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
-              title={dryerInstrument ? `${dryerInstrument.operatingMin}–${dryerInstrument.operatingMax} ${tempUom} (step ${dryerInstrument.leastCount})` : ''}
+              title={dryerInstrument ? `${formatByLeastCount(dryerInstrument.operatingMin, dryerInstrument.leastCount)}–${formatByLeastCount(dryerInstrument.operatingMax, dryerInstrument.leastCount)} ${tempUom} (step ${dryerInstrument.leastCount})` : ''}
             >
               <option value="">{tempUom}</option>
               {tempOptions.map((v) => (
-                <option key={v} value={v}>{v}{tempUom}</option>
+                <option key={v} value={v}>{formatByLeastCount(v, dryerInstrument?.leastCount)}{tempUom}</option>
               ))}
             </select>
             <button

@@ -27,20 +27,16 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/notification-logs.def.js'),
     import('../modules/config/defs/backup.def.js'),
     import('../modules/config/defs/roles.def.js'),
-    import('../modules/config/defs/role-privileges.def.js'),
-    import('../modules/config/defs/sidebar-config.def.js'),
     import('../modules/config/defs/field-ids.def.js'),
     import('../modules/config/defs/retention.def.js'),
     import('../modules/config/defs/help.def.js'),
     import('../modules/config/defs/uns.def.js'),
     import('../modules/config/defs/filter-cleaning-reasons.def.js'),
-    import('../modules/config/defs/filter-pm-schedule.def.js'),
-    import('../modules/config/defs/rfid-scanner.def.js'),
-    import('../modules/config/defs/offline-sync.def.js'),
     import('../modules/config/defs/block-change-approval.def.js'),
     import('../modules/config/defs/pm-schedule-settings.def.js'),
     import('../modules/config/defs/ahu-filter-set-config.def.js'),
     import('../modules/config/defs/report-settings.def.js'),
+    import('../modules/config/defs/access-matrix.def.js'),
     // ─── Add new module configs below this line ───
   ]);
 
@@ -56,5 +52,41 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
   // Auto-seed defaults for any newly registered configs
   await configRegistry.seedDefaults();
 
+  // One-time migration: merge legacy `filter-pm-schedule.enabled` into `pm-schedule-settings`
+  await migrateFilterPmScheduleIntoPmSettings();
+
+  // One-time cleanup: remove dead config keys whose defs were deleted
+  // (offline-sync + rfid-scanner settings were never read; role-privileges + sidebar-config pages never existed)
+  await cleanupDeadConfigKeys();
+
   console.info(`[config-registry] ${configRegistry.size} modules registered`);
+}
+
+async function cleanupDeadConfigKeys(): Promise<void> {
+  const { prisma } = await import('./prisma.js');
+  const deadKeys = ['offline-sync', 'rfid-scanner', 'role-privileges', 'sidebar-config'];
+  const res = await prisma.systemConfig.deleteMany({ where: { configKey: { in: deadKeys } } });
+  if (res.count > 0) {
+    console.info(`[config-migration] removed ${res.count} dead config row(s): ${deadKeys.join(', ')}`);
+  }
+}
+
+async function migrateFilterPmScheduleIntoPmSettings(): Promise<void> {
+  const { prisma } = await import('./prisma.js');
+  const legacy = await prisma.systemConfig.findUnique({ where: { configKey: 'filter-pm-schedule' } });
+  if (!legacy) return;
+  const legacyValue = (legacy.configValue ?? {}) as Record<string, unknown>;
+  const enabled = Boolean(legacyValue.enabled);
+
+  const current = await prisma.systemConfig.findUnique({ where: { configKey: 'pm-schedule-settings' } });
+  const currentValue = (current?.configValue ?? {}) as Record<string, unknown>;
+  if (currentValue.enabled === undefined || currentValue.enabled === null) {
+    await prisma.systemConfig.upsert({
+      where: { configKey: 'pm-schedule-settings' },
+      update: { configValue: { ...currentValue, enabled } },
+      create: { configKey: 'pm-schedule-settings', configValue: { enabled } as any, configType: 'filter' },
+    });
+  }
+  await prisma.systemConfig.delete({ where: { configKey: 'filter-pm-schedule' } });
+  console.info('[config-migration] merged filter-pm-schedule into pm-schedule-settings');
 }

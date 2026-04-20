@@ -25,6 +25,14 @@ export const pmScheduleSettingsDef: ModuleConfigDefinition = {
   hasCustomPage: false,
   settings: [
     {
+      key: 'enabled',
+      type: 'boolean',
+      label: 'Enable PM Scheduling',
+      description: 'Turn the preventive maintenance scheduling module on or off globally. When disabled, all PM endpoints return 404 PM_DISABLED.',
+      group: 'General',
+      default: false,
+    },
+    {
       key: 'defaultToleranceDays',
       type: 'number',
       label: 'Default Tolerance (days)',

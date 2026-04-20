@@ -198,17 +198,25 @@ export function HelpArticlesPage() {
 
   // ── Handlers: Edit ────────────────────────────────────────────────────────
 
-  const openEdit = (article: HelpArticle) => {
+  const openEdit = async (article: HelpArticle) => {
     setSelectedArticle(article);
+    // Show dialog immediately with known fields; fetch full content so the user can edit it
     setForm({
       key: article.key,
       title: article.title,
       category: article.category,
-      content: '',   // content is not fetched in list — user must type new content
+      content: '',
       sortOrder: article.sortOrder,
     });
     setFormError('');
     setShowEdit(true);
+    try {
+      // GET /api/help/:key returns the full article including `content`
+      const full = await apiClient.get<HelpArticle & { content?: string }>(`/api/help/${encodeURIComponent(article.key)}`);
+      setForm(f => ({ ...f, content: full?.content ?? '' }));
+    } catch (e: any) {
+      setFormError(`Could not load article content: ${e.message ?? 'unknown error'}`);
+    }
   };
 
   const handleEdit = async () => {

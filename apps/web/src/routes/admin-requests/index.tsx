@@ -32,6 +32,8 @@ export function AdminRequestsPage() {
   const [selectedRequest, setSelectedRequest] = useState<any>(null);
   const [adminRemarks, setAdminRemarks] = useState('');
   const [processing, setProcessing] = useState(false);
+  const [approvalResult, setApprovalResult] = useState<{ username?: string; temporaryPassword?: string; message?: string; requestType?: string } | null>(null);
+  const [copied, setCopied] = useState<string>('');
 
   const queryParam = statusFilter ? `?status=${statusFilter}` : '';
   const { data, isLoading } = useSWR(`/api/admin-requests${queryParam}`, { refreshInterval: 15000 });
@@ -40,25 +42,42 @@ export function AdminRequestsPage() {
 
   const handleProcess = (action: 'approve' | 'reject') => {
     if (!selectedRequest) return;
+    if (!adminRemarks.trim()) {
+      toast.warning('Remarks Required', 'Please fill in your response before approving or rejecting.');
+      return;
+    }
     setProcessing(true);
+    let response: any = null;
+    const reqType = selectedRequest.requestType;
     reauth.execute(
       'CREATE_USER',
       async (password?: string) => {
         const body = { action, adminRemarks: adminRemarks.trim() };
         if (password) {
-          await api.postWithReauth(`/api/admin-requests/${selectedRequest.id}/process`, body, password);
+          response = await api.postWithReauth(`/api/admin-requests/${selectedRequest.id}/process`, body, password);
         } else {
-          await api.post(`/api/admin-requests/${selectedRequest.id}/process`, body);
+          response = await api.post(`/api/admin-requests/${selectedRequest.id}/process`, body);
         }
       },
       {
         onSuccess: () => {
-          toast.success(
-            action === 'approve' ? 'Request Approved' : 'Request Rejected',
-            `${TYPE_CFG[selectedRequest.requestType]?.label} request has been ${action === 'approve' ? 'approved' : 'rejected'}.`,
-          );
+          const hasCreds = action === 'approve' && (response?.temporaryPassword || response?.username);
+          if (hasCreds) {
+            setApprovalResult({
+              username: response.username,
+              temporaryPassword: response.temporaryPassword,
+              message: response.message,
+              requestType: reqType,
+            });
+          } else {
+            toast.success(
+              action === 'approve' ? 'Request Approved' : 'Request Rejected',
+              `${TYPE_CFG[reqType]?.label} request has been ${action === 'approve' ? 'approved' : 'rejected'}.`,
+            );
+          }
           setSelectedRequest(null);
           setAdminRemarks('');
+          setProcessing(false);
           mutate(`/api/admin-requests${queryParam}`);
         },
         onError: (err: any) => {
@@ -67,6 +86,13 @@ export function AdminRequestsPage() {
         },
       },
     );
+  };
+
+  const copyToClipboard = (text: string, key: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(key);
+      setTimeout(() => setCopied(''), 2000);
+    });
   };
 
   const timeAgo = (date: string) => {
@@ -115,7 +141,7 @@ export function AdminRequestsPage() {
       <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-white shrink-0">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-cyan-600 to-teal-700 shadow-lg shadow-cyan-600/10">
+            <div className="p-2.5 rounded-xl shadow-lg" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
               <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
               </svg>
@@ -334,11 +360,11 @@ export function AdminRequestsPage() {
             {/* Footer actions */}
             {canApprove && selectedRequest.status === 'PENDING' && (
               <div className="px-6 py-4 border-t border-slate-100 bg-white flex items-center gap-3">
-                <button onClick={() => handleProcess('reject')} disabled={processing || !adminRemarks.trim()}
+                <button onClick={() => handleProcess('reject')} disabled={processing}
                   className="flex-1 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 shadow-sm">
                   {processing ? 'Processing...' : 'Reject'}
                 </button>
-                <button onClick={() => handleProcess('approve')} disabled={processing || !adminRemarks.trim()}
+                <button onClick={() => handleProcess('approve')} disabled={processing}
                   className="flex-1 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-50 shadow-sm">
                   {processing ? 'Processing...' : 'Approve'}
                 </button>
@@ -355,9 +381,76 @@ export function AdminRequestsPage() {
         isVerifying={reauth.isVerifying}
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
-        onCancel={reauth.cancel}
+        onCancel={() => { reauth.cancel(); setProcessing(false); }}
         actionLabel="Process Request"
       />
+
+      {/* Approval result dialog — shows temporary password/username for admin to share */}
+      {approvalResult && (
+        <>
+          <div className="fixed inset-0 bg-black/50 z-[55]" />
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+              <div className="px-6 py-5 bg-gradient-to-br from-emerald-500 to-teal-600 text-white">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold">Request Approved</h3>
+                    <p className="text-[12px] text-white/80">{approvalResult.message ?? 'Action completed successfully.'}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="p-6 space-y-4">
+                {approvalResult.temporaryPassword && (
+                  <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-[12px] text-amber-800">
+                    <strong>Share these credentials with the user.</strong> They won't be shown again. The user must change the password on first login.
+                  </div>
+                )}
+                {approvalResult.username && (
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Username</label>
+                    <div className="mt-1 flex items-center gap-2">
+                      <code className="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[13px] text-slate-800 font-mono">{approvalResult.username}</code>
+                      <button
+                        onClick={() => copyToClipboard(approvalResult.username!, 'username')}
+                        className="px-3 py-2.5 rounded-lg text-[12px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+                      >
+                        {copied === 'username' ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {approvalResult.temporaryPassword && (
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Temporary Password</label>
+                    <div className="mt-1 flex items-center gap-2">
+                      <code className="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[13px] text-slate-800 font-mono">{approvalResult.temporaryPassword}</code>
+                      <button
+                        onClick={() => copyToClipboard(approvalResult.temporaryPassword!, 'password')}
+                        className="px-3 py-2.5 rounded-lg text-[12px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+                      >
+                        {copied === 'password' ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="px-6 py-4 border-t border-slate-100 flex justify-end">
+                <button
+                  onClick={() => { setApprovalResult(null); setCopied(''); }}
+                  className="px-5 py-2 rounded-lg text-[13px] font-semibold text-white bg-cyan-600 hover:bg-cyan-700 transition-colors"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -163,15 +163,14 @@ export function AuditTrailPage() {
         r.userId ?? '-',
         r.userRole ?? '-',
         r.targetType ?? '-',
-        r.targetId ? r.targetId.substring(0, 12) : '-',
-        getAuditSummary(r, templates).substring(0, 60),
+        getAuditSummary(r, templates).substring(0, 80),
         r.ipAddress ?? '-',
       ]);
 
       report.addTable({
-        head: ['Timestamp', 'Action', 'User', 'Role', 'Target Type', 'Target ID', 'Description', 'IP Address'],
+        head: ['Timestamp', 'Action', 'User', 'Role', 'Target Type', 'Description', 'IP Address'],
         body: tableRows,
-        columnStyles: { 0: { cellWidth: 35 }, 6: { cellWidth: 50 } },
+        columnStyles: { 0: { cellWidth: 35 }, 5: { cellWidth: 65 } },
       });
 
       report.save(`audit-trail-${new Date().toISOString().slice(0, 10)}.pdf`);
@@ -185,7 +184,7 @@ export function AuditTrailPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <div className="p-3 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg">
+          <div className="p-3 rounded-2xl text-white shadow-lg" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
             <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>

@@ -98,7 +98,7 @@ export function MyTasksPage() {
     <div className="p-6 space-y-6">
       {/* ─── Header ─── */}
       <div className="flex items-center gap-4">
-        <div className="p-3 rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 shadow-lg shadow-cyan-500/25">
+        <div className="p-3 rounded-2xl shadow-lg" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
           <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
           </svg>
@@ -113,9 +113,9 @@ export function MyTasksPage() {
 
       {/* ─── Stat Cards ─── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-br from-teal-500 to-cyan-600 rounded-2xl p-4 text-white shadow-lg shadow-cyan-500/20">
+        <div className="rounded-2xl p-4 text-white shadow-lg" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
           <div className="text-2xl font-bold">{tasks.length}</div>
-          <div className="text-cyan-100 text-sm font-medium mt-0.5">Due Now</div>
+          <div className="text-white/80 text-sm font-medium mt-0.5">Due Now</div>
         </div>
         <StatCard label="Due Today" value={stats.dueToday} iconBg="bg-amber-50" iconColor="text-amber-600" icon={
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -268,8 +268,8 @@ function TaskCard({ task, expanded, onToggle, onPerform, formatDate }: {
               {task.totalFilters > 0 && (
                 <div className="mt-2.5 h-1.5 bg-slate-100 rounded-full overflow-hidden max-w-md">
                   <div
-                    className="h-full bg-gradient-to-r from-teal-400 to-cyan-500 transition-all"
-                    style={{ width: `${progressPct}%` }}
+                    className="h-full transition-all"
+                    style={{ width: `${progressPct}%`, backgroundImage: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}
                   />
                 </div>
               )}
@@ -295,7 +295,8 @@ function TaskCard({ task, expanded, onToggle, onPerform, formatDate }: {
             ) : (
               <button
                 onClick={onPerform}
-                className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-xl text-sm font-semibold shadow-lg shadow-cyan-500/25 hover:from-teal-500 hover:to-cyan-500 transition-all"
+                className="inline-flex items-center gap-2 px-4 py-2.5 text-white rounded-xl text-sm font-semibold shadow-lg hover:opacity-90 transition-all"
+                style={{ backgroundImage: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}
               >
                 Perform
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -8,17 +8,17 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
   const service = new ChecklistProfileService();
 
   app.get('/', {
-    preHandler: [app.requirePermission('FCP_READ')],
+    preHandler: [app.requireAnyPermission('FCP_READ', 'CHECKLIST_TOGGLE')],
     schema: { tags: ['Checklist Profiles'], querystring: { type: 'object', properties: { page: { type: 'integer' }, limit: { type: 'integer' }, isActive: { type: 'string' } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
   }, async (req) => service.list(buildContext(req), req.query as any));
 
   app.get('/:id', {
-    preHandler: [app.requirePermission('FCP_READ')],
+    preHandler: [app.requireAnyPermission('FCP_READ', 'CHECKLIST_TOGGLE')],
     schema: { tags: ['Checklist Profiles'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
   }, async (req) => service.getById(buildContext(req), (req.params as any).id));
 
   app.post('/', {
-    preHandler: [app.requirePermission('FCP_CREATE')],
+    preHandler: [app.requireAnyPermission('FCP_CREATE', 'CHECKLIST_CREATE')],
     schema: { tags: ['Checklist Profiles'], body: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, description: { type: 'string' } } }, response: { 201: { type: 'object', additionalProperties: true }, ...errorResponses } },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('CREATE_CHECKLIST_PROFILE', req, reply);
@@ -28,7 +28,7 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
   });
 
   app.put('/:id', {
-    preHandler: [app.requirePermission('FCP_UPDATE')],
+    preHandler: [app.requireAnyPermission('FCP_UPDATE', 'CHECKLIST_EDIT')],
     schema: { tags: ['Checklist Profiles'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', properties: { name: { type: 'string' }, description: { type: 'string' }, isActive: { type: 'boolean' } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('UPDATE_CHECKLIST_PROFILE', req, reply);
@@ -37,7 +37,7 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
   });
 
   app.delete('/:id', {
-    preHandler: [app.requirePermission('FCP_DELETE')],
+    preHandler: [app.requireAnyPermission('FCP_DELETE', 'CHECKLIST_DELETE')],
     schema: { tags: ['Checklist Profiles'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses } },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('DELETE_CHECKLIST_PROFILE', req, reply);
@@ -47,7 +47,7 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
 
   // Questions
   app.post('/:id/questions', {
-    preHandler: [app.requirePermission('FCP_CREATE')],
+    preHandler: [app.requireAnyPermission('FCP_CREATE', 'CHECKLIST_CREATE')],
     schema: { tags: ['Checklist Questions'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', required: ['question'], properties: { question: { type: 'string' }, questionType: { type: 'string' }, required: { type: 'boolean' }, section: { type: 'string' }, description: { type: 'string' }, options: { type: 'array' }, validation: { type: 'object' }, sortOrder: { type: 'integer' } } }, response: { 201: { type: 'object', additionalProperties: true }, ...errorResponses } },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('CREATE_CHECKLIST_PROFILE', req, reply);
@@ -57,7 +57,7 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
   });
 
   app.put('/:id/questions/:questionId', {
-    preHandler: [app.requirePermission('FCP_UPDATE')],
+    preHandler: [app.requireAnyPermission('FCP_UPDATE', 'CHECKLIST_EDIT')],
     schema: { tags: ['Checklist Questions'], params: { type: 'object', required: ['id', 'questionId'], properties: { id: { type: 'string', format: 'uuid' }, questionId: { type: 'string', format: 'uuid' } } }, body: { type: 'object', properties: { question: { type: 'string' }, questionType: { type: 'string' }, required: { type: 'boolean' }, section: { type: 'string' }, description: { type: 'string' }, options: { type: 'array' }, validation: { type: 'object' }, sortOrder: { type: 'integer' } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('UPDATE_CHECKLIST_PROFILE', req, reply);
@@ -66,7 +66,7 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
   });
 
   app.delete('/:id/questions/:questionId', {
-    preHandler: [app.requirePermission('FCP_DELETE')],
+    preHandler: [app.requireAnyPermission('FCP_DELETE', 'CHECKLIST_DELETE')],
     schema: { tags: ['Checklist Questions'], params: { type: 'object', required: ['id', 'questionId'], properties: { id: { type: 'string', format: 'uuid' }, questionId: { type: 'string', format: 'uuid' } } }, response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses } },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('DELETE_CHECKLIST_PROFILE', req, reply);
@@ -75,7 +75,7 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
   });
 
   app.put('/:id/reorder', {
-    preHandler: [app.requirePermission('FCP_UPDATE')],
+    preHandler: [app.requireAnyPermission('FCP_UPDATE', 'CHECKLIST_EDIT')],
     schema: { tags: ['Checklist Questions'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', required: ['questionIds'], properties: { questionIds: { type: 'array', items: { type: 'string' } } } }, response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses } },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('UPDATE_CHECKLIST_PROFILE', req, reply);

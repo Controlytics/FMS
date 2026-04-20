@@ -60,7 +60,8 @@ export function BrandingPreview({ watchedValues }: BrandingPreviewProps) {
               <h2
                 className="text-2xl font-bold mb-1"
                 style={{
-                  background: `linear-gradient(to right, ${watchedValues.primaryColor || '#1e3a5f'}, ${watchedValues.secondaryColor || '#3b82f6'})`,
+                  backgroundImage: `linear-gradient(to right, ${watchedValues.primaryColor || '#1e3a5f'}, ${watchedValues.secondaryColor || '#3b82f6'})`,
+                  backgroundClip: 'text',
                   WebkitBackgroundClip: 'text',
                   WebkitTextFillColor: 'transparent',
                 }}

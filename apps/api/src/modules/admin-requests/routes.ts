@@ -3,6 +3,7 @@ import { enforceReauth } from '../../lib/reauth-check.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { adminRequestService } from './admin-request.service.js';
+import { prisma } from '../../lib/prisma.js';
 
 export default async function adminRequestRoutes(app: FastifyInstance) {
 
@@ -23,11 +24,11 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
       security: [],
       body: {
         type: 'object',
-        required: ['requestType', 'requesterName', 'requestData'],
+        required: ['requestType', 'requesterName', 'requesterEmployeeId', 'requestData'],
         properties: {
           requestType: { type: 'string', enum: ['CREATE_USER', 'MODIFY_USER', 'UNLOCK', 'FORGOT_PASSWORD'] },
           requesterName: { type: 'string', minLength: 1, maxLength: 100 },
-          requesterEmployeeId: { type: 'string', maxLength: 50 },
+          requesterEmployeeId: { type: 'string', minLength: 1, maxLength: 50 },
           requesterEmail: { type: 'string', format: 'email', maxLength: 100 },
           requestData: { type: 'object', additionalProperties: true },
           remarks: { type: 'string', maxLength: 500 },
@@ -61,6 +62,69 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
       message: 'Your request has been submitted. An administrator will review it shortly.',
       requestId: request.id,
     });
+  });
+
+  // 1b. GET /user-lookup — Public lookup by username/employee ID (for contact-admin form)
+  app.get('/user-lookup', {
+    config: {
+      skipAuth: true,
+      rateLimit: {
+        max: 20,
+        timeWindow: '15 minutes',
+        keyGenerator: (req: any) => req.ip,
+      },
+    },
+    schema: {
+      tags: ['Admin Requests'],
+      summary: 'Lookup a user by employee ID (username)',
+      description: 'Public endpoint used by the contact-admin form to confirm a user exists before submitting a modification/unlock/reset request.',
+      security: [],
+      querystring: {
+        type: 'object',
+        required: ['username'],
+        properties: { username: { type: 'string', minLength: 1, maxLength: 50 } },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            username: { type: 'string' },
+            fullName: { type: 'string' },
+            email: { type: 'string' },
+            department: { type: ['string', 'null'] },
+            role: { type: 'string' },
+            roleDisplayName: { type: 'string' },
+            status: { type: 'string' },
+          },
+        },
+        404: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' },
+            message: { type: 'string' },
+          },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const { username } = req.query as { username: string };
+    const user = await prisma.user.findUnique({
+      where: { username: username.trim() },
+      select: {
+        username: true, fullName: true, email: true, department: true, role: true, status: true,
+      },
+    });
+    if (!user) {
+      return reply.code(404).send({
+        error: 'NOT_FOUND',
+        message: 'Employee ID does not exist in the application',
+      });
+    }
+    const role = await prisma.role.findUnique({
+      where: { name: user.role },
+      select: { displayName: true },
+    });
+    return { ...user, roleDisplayName: role?.displayName ?? user.role };
   });
 
   // 2. GET / — List all requests (admin only)
@@ -140,6 +204,9 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
           properties: {
             success: { type: 'boolean' },
             data: { type: 'object', additionalProperties: true },
+            username: { type: 'string' },
+            temporaryPassword: { type: 'string' },
+            message: { type: 'string' },
           },
         },
         ...errorResponses,
@@ -154,6 +221,7 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
     const ctx = buildContext(req);
 
     const result = await adminRequestService.process(id, action, adminRemarks ?? '', ctx);
-    return { success: true, data: result };
+    const { username, temporaryPassword, message, ...rest } = result as any;
+    return { success: true, data: rest, ...(username && { username }), ...(temporaryPassword && { temporaryPassword }), ...(message && { message }) };
   });
 }

@@ -84,10 +84,12 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   const after = record.afterValue || {};
   const targetType = record.targetType || '';
 
-  const targetUser = after.username || before.username || record.targetId || '';
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const nonUuid = (v: unknown): string => (typeof v === 'string' && !UUID_RE.test(v) ? v : '');
+  const targetUser = after.username || before.username || nonUuid(record.targetId) || '';
   const isSelf = targetUser === actor;
-  const targetName = after.name || before.name || after.label || before.label || record.targetId || '';
-  const configKey = record.targetId || targetType || '';
+  const targetName = after.name || before.name || after.label || before.label || nonUuid(record.targetId) || '';
+  const configKey = nonUuid(record.targetId) || targetType || '';
   const version = after.versionNumber || after.version || before.versionNumber || before.version || '';
   const sourceName = after.sourceName || before.sourceName || '';
   const beforeStatus = before.status || '';
@@ -122,8 +124,8 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
     return replacePlaceholders(template);
   }
 
-  // Fallback for unknown actions
+  // Fallback for unknown actions — avoid showing UUIDs as "names"
   const label = record.action.replace(/_/g, ' ').toLowerCase();
-  const name = targetName || targetUser;
+  const name = nonUuid(targetName) || nonUuid(targetUser);
   return name ? `${label} — "${name}" by ${actor}` : `${label} by ${actor}`;
 }

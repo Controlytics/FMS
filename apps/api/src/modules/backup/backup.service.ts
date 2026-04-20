@@ -5,12 +5,10 @@ import { auditLog } from '../../lib/audit.js';
 import type { RequestContext } from '../../types/context.js';
 import {
   fetchAllTablesRaw,
-  fetchAllTablesPrisma,
   restoreFromBackup,
 } from './backup.repository.js';
 import {
   computeBackupChecksum,
-  DB_TABLES,
   escapeSqlValue,
   generateCsv,
   type BackupData,
@@ -95,6 +93,13 @@ function parseCsvLine(line: string): string[] {
 function parseSqlBackup(sqlContent: string): BackupData {
   const data: Record<string, any[]> = {};
 
+  // Seed all tables referenced by TRUNCATE statements — this captures empty tables too
+  const truncateRegex = /TRUNCATE TABLE "([^"]+)"/g;
+  let tm;
+  while ((tm = truncateRegex.exec(sqlContent)) !== null) {
+    if (!data[tm[1]]) data[tm[1]] = [];
+  }
+
   // Match INSERT INTO "tablename" (columns) VALUES (values);
   const insertRegex = /INSERT INTO "([^"]+)"\s*\(([^)]+)\)\s*VALUES\s*\((.+?)\);/g;
   let match;
@@ -129,10 +134,10 @@ function parseSqlBackup(sqlContent: string): BackupData {
       timestamp,
       generatedBy,
       tableCount: Object.keys(data).length,
-      checksum: computeBackupChecksum(convertDbKeysToPrisma(data)),
+      checksum: computeBackupChecksum(data),
       format: 'sql',
     },
-    data: convertDbKeysToPrisma(data),
+    data,
   };
 }
 
@@ -186,120 +191,6 @@ function parseSqlValues(valuesStr: string): any[] {
 }
 
 
-/** Convert snake_case DB column names to camelCase Prisma field names in row data */
-function convertDbColumnsToPrisma(data: Record<string, any[]>): Record<string, any[]> {
-  // Map of DB column name -> Prisma field name (only for columns that differ)
-  const COLUMN_MAP: Record<string, string> = {
-    display_name: 'displayName',
-    hierarchy_level: 'hierarchyLevel',
-    is_system: 'isSystem',
-    is_active: 'isActive',
-    created_at: 'createdAt',
-    updated_at: 'updatedAt',
-    created_by: 'createdBy',
-    updated_by: 'updatedBy',
-    full_name: 'fullName',
-    password_hash: 'passwordHash',
-    photo_url: 'photoUrl',
-    failed_login_attempts: 'failedLoginAttempts',
-    locked_at: 'lockedAt',
-    lockout_until: 'lockoutUntil',
-    password_changed_at: 'passwordChangedAt',
-    password_expires_at: 'passwordExpiresAt',
-    force_password_change: 'forcePasswordChange',
-    is_temporary_password: 'isTemporaryPassword',
-    last_login: 'lastLogin',
-    user_id: 'userId',
-    token_hash: 'tokenHash',
-    ip_address: 'ipAddress',
-    user_agent: 'userAgent',
-    last_active_at: 'lastActiveAt',
-    expires_at: 'expiresAt',
-    termination_reason: 'terminationReason',
-    config_key: 'configKey',
-    config_value: 'configValue',
-    config_type: 'configType',
-    requires_reauth: 'requiresReauth',
-    field_id: 'fieldId',
-    default_name: 'defaultName',
-    requested_at: 'requestedAt',
-    processed_at: 'processedAt',
-    processed_by: 'processedBy',
-    user_name: 'userName',
-    user_role: 'userRole',
-    target_type: 'targetType',
-    target_id: 'targetId',
-    before_value: 'beforeValue',
-    after_value: 'afterValue',
-    session_id: 'sessionId',
-    signature_meaning: 'signatureMeaning',
-    target_user_id: 'targetUserId',
-    for_user_id: 'forUserId',
-    for_role: 'forRole',
-    is_read: 'isRead',
-    read_at: 'readAt',
-    sidebar_items: 'sidebarItems',
-    home_widgets: 'homeWidgets',
-    permissions: 'permissions',
-  };
-
-  // Fields that must always be strings (even if they look numeric)
-  const STRING_FIELDS = new Set([
-    'username', 'name', 'displayName', 'fullName', 'email', 'department',
-    'role', 'status', 'description', 'color', 'action',
-    'createdBy', 'updatedBy', 'processedBy', 'userId', 'userName',
-    'userRole', 'targetType', 'targetId', 'sessionId', 'ipAddress',
-    'signatureMeaning', 'targetUserId', 'forUserId', 'forRole',
-    'configKey', 'configType', 'fieldId', 'defaultName',
-    'passwordHash', 'tokenHash', 'userAgent', 'terminationReason',
-    'photoUrl', 'notes', 'newPassword', 'title', 'message', 'type',
-    'configValue',
-  ]);
-
-  const result: Record<string, any[]> = {};
-  for (const [key, rows] of Object.entries(data)) {
-    if (!Array.isArray(rows)) { result[key] = rows; continue; }
-    result[key] = rows.map(row => {
-      const mapped: Record<string, any> = {};
-      for (const [col, val] of Object.entries(row)) {
-        const field = COLUMN_MAP[col] ?? col;
-        // Coerce numeric values back to strings for known string fields
-        if (STRING_FIELDS.has(field) && val !== null && val !== undefined && typeof val === 'number') {
-          mapped[field] = String(val);
-        } else {
-          mapped[field] = val;
-        }
-      }
-      return mapped;
-    });
-  }
-  return result;
-}
-
-/** Convert DB table names to Prisma model keys */
-function convertDbKeysToPrisma(data: Record<string, any[]>): Record<string, any[]> {
-  const DB_TO_PRISMA: Record<string, string> = {
-    'users': 'users',
-    'roles': 'roles',
-    'system_config': 'systemConfig',
-    'audit_trail': 'auditTrail',
-    'notifications': 'notifications',
-    'password_history': 'passwordHistory',
-    'sessions': 'sessions',
-    'field_id_config': 'fieldIdConfig',
-    'user_configs': 'userConfigs',
-    'role_configs': 'roleConfigs',
-    'password_reset_requests': 'passwordResetRequests',
-  };
-
-  const result: Record<string, any[]> = {};
-  for (const [key, rows] of Object.entries(data)) {
-    const prismaKey = DB_TO_PRISMA[key] ?? key;
-    result[prismaKey] = rows;
-  }
-  // Also convert DB column names to Prisma field names
-  return convertDbColumnsToPrisma(result);
-}
 
 /**
  * Parse a CSV ZIP backup into BackupData.
@@ -330,18 +221,16 @@ function parseCsvZipBackup(rawBuffer: Buffer): BackupData {
     data[tableName] = parseCsvContent(csvContent);
   }
 
-  const prismaData = convertDbKeysToPrisma(data);
-
   return {
     metadata: {
       version: '1.0.0',
       timestamp,
       generatedBy,
-      tableCount: Object.keys(prismaData).length,
-      checksum: computeBackupChecksum(prismaData),
+      tableCount: Object.keys(data).length,
+      checksum: computeBackupChecksum(data),
       format: 'csv',
     },
-    data: prismaData,
+    data,
   };
 }
 
@@ -396,7 +285,7 @@ export async function exportJson(
   username: string,
   ctx: RequestContext,
 ): Promise<{ backup: BackupData; filename: string }> {
-  const data = await fetchAllTablesPrisma();
+  const data = await fetchAllTablesRaw();
   const checksum = computeBackupChecksum(data);
   const timestamp = new Date().toISOString();
 
@@ -442,7 +331,7 @@ export async function exportBak(
   username: string,
   ctx: RequestContext,
 ): Promise<{ compressed: Buffer; filename: string }> {
-  const data = await fetchAllTablesPrisma();
+  const data = await fetchAllTablesRaw();
   const checksum = computeBackupChecksum(data);
   const timestamp = new Date().toISOString();
 
@@ -494,6 +383,7 @@ export async function exportSql(
   ctx: RequestContext,
 ): Promise<{ sqlContent: string; filename: string }> {
   const rawData = await fetchAllTablesRaw();
+  const tables = Object.keys(rawData);
   const totalRecords = Object.values(rawData).reduce((sum, arr) => sum + arr.length, 0);
 
   const sqlParts: string[] = [];
@@ -507,13 +397,13 @@ export async function exportSql(
   sqlParts.push('');
 
   // FK-safe order: delete children first, insert parents first
-  const deleteOrder = [...DB_TABLES].reverse();
+  const deleteOrder = [...tables].reverse();
   for (const table of deleteOrder) {
     sqlParts.push(`TRUNCATE TABLE "${table}" CASCADE;`);
   }
   sqlParts.push('');
 
-  for (const table of DB_TABLES) {
+  for (const table of tables) {
     const rows = rawData[table];
     if (rows.length === 0) {
       sqlParts.push(`-- Table: ${table} (0 rows)`);
@@ -558,11 +448,12 @@ export async function exportCsv(
   ctx: RequestContext,
 ): Promise<{ zipBuffer: Buffer; filename: string }> {
   const rawData = await fetchAllTablesRaw();
+  const tables = Object.keys(rawData);
   const totalRecords = Object.values(rawData).reduce((sum, arr) => sum + arr.length, 0);
 
   const zip = new AdmZip();
 
-  for (const table of DB_TABLES) {
+  for (const table of tables) {
     const rows = rawData[table];
     const csvContent = generateCsv(rows);
     zip.addFile(`${table}.csv`, Buffer.from(csvContent, 'utf-8'));
@@ -575,9 +466,9 @@ export async function exportCsv(
       timestamp: new Date().toISOString(),
       generatedBy: username,
       format: 'csv',
-      tableCount: DB_TABLES.length,
+      tableCount: tables.length,
       totalRecords,
-      tables: Object.fromEntries(DB_TABLES.map(t => [t, rawData[t].length])),
+      tables: Object.fromEntries(tables.map(t => [t, rawData[t].length])),
     },
     null,
     2,

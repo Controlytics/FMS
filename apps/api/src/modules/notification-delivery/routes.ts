@@ -10,6 +10,7 @@ import { prisma } from '../../lib/prisma.js';
 import { invalidateNotificationConfigCache } from './config-loader.js';
 import { sendNotification, sendTestNotification, testChannel } from './delivery.service.js';
 import { auditLog } from '../../lib/audit.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 
 const MASK = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
 
@@ -61,7 +62,10 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_EMAIL_CONFIG', req, reply);
+    if (!ok) return;
+
     const body = req.body as Record<string, unknown>;
     const ctx = buildContext(req);
 
@@ -370,7 +374,10 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_SMS_CONFIG', req, reply);
+    if (!ok) return;
+
     const body = req.body as Record<string, unknown>;
     const ctx = buildContext(req);
 

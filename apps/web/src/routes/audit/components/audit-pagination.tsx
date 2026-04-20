@@ -17,7 +17,7 @@ export function AuditPagination({
   data,
   paginationOptions,
 }: AuditPaginationProps) {
-  if (!data || data.totalPages <= 1) return null;
+  if (!data || !data.total) return null;
 
   return (
     <div className="flex items-center justify-between bg-white rounded-xl border border-slate-200 p-4">

@@ -36,6 +36,7 @@ export default async function dashboardRoutes(app: FastifyInstance) {
 
   // ─── LIST DASHBOARDS (user's visible dashboards) ───────
   app.get('/', {
+    preHandler: [app.requirePermission('DASHBOARD_VIEW')],
     schema: {
       tags: ['Dashboards'],
       summary: 'List dashboards visible to current user',
@@ -90,6 +91,7 @@ export default async function dashboardRoutes(app: FastifyInstance) {
 
   // ─── GET DASHBOARD WITH WIDGETS ────────────────────────
   app.get('/:id', {
+    preHandler: [app.requirePermission('DASHBOARD_VIEW')],
     schema: {
       tags: ['Dashboards'],
       summary: 'Get dashboard with all widgets',
@@ -404,6 +406,7 @@ export default async function dashboardRoutes(app: FastifyInstance) {
 
   // ─── GET WIDGET DATA ───────────────────────────────────
   app.get('/:id/data/:widgetId', {
+    preHandler: [app.requirePermission('DASHBOARD_VIEW')],
     schema: {
       tags: ['Dashboards'],
       summary: 'Fetch data for a specific widget',

@@ -216,7 +216,7 @@ export function NotificationLogsPage() {
         </div>
 
         {/* Pagination */}
-        {totalPages > 1 && (
+        {total > 0 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200">
             <div className="text-sm text-slate-500">
               Showing {(page - 1) * 25 + 1}-{Math.min(page * 25, total)} of {total}

@@ -228,7 +228,7 @@ export default async function userRoutes(app: FastifyInstance) {
     const query = userQuerySchema.parse(req.query);
     // Non-SUPER_ADMIN users must only see users within their own organization
     const organizationId = req.user.role !== 'SUPER_ADMIN' ? req.user.organizationId : undefined;
-    return userService.list({ ...query, organizationId });
+    return userService.list({ ...query, organizationId, callerRole: req.user.role });
   });
 
   // GET /api/users/:id — Get user detail
