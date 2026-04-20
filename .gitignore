@@ -59,3 +59,7 @@ CREDENTIALS.md
 *.pem
 *.key
 .bak
+
+# Android signing keys - NEVER track (keep local only, back up securely)
+*.jks
+*.keystore
