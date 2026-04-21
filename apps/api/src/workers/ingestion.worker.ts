@@ -5,7 +5,7 @@
  */
 
 import { Worker, type Job } from 'bullmq';
-import { getRedisConnection, QUEUES } from '@digilog/queue';
+import { getWorkerConnection, QUEUES } from '@digilog/queue';
 import type { IngestionMessage } from '../modules/data-ingestion/message-normalizer.js';
 import { processIngestionMessage } from '../modules/data-ingestion/ingestion.service.js';
 import { getConfigOrDefault } from '../modules/data-ingestion/ingestion-config.service.js';
@@ -37,7 +37,7 @@ export async function startIngestionWorker(): Promise<void> {
       return result;
     },
     {
-      connection: getRedisConnection(),
+      connection: getWorkerConnection(),
       concurrency,
       limiter: {
         max: 1000,

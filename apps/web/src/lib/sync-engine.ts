@@ -123,16 +123,23 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
 // Auto-sync: online event + periodic retry + visibilitychange
 let cleanup: (() => void) | null = null;
 let retryInterval: ReturnType<typeof setInterval> | null = null;
+const pendingTimers = new Set<ReturnType<typeof setTimeout>>();
+
+const scheduleSync = (delayMs: number) => {
+  const t = setTimeout(() => {
+    pendingTimers.delete(t);
+    syncPendingOperations();
+  }, delayMs);
+  pendingTimers.add(t);
+};
 
 export function startAutoSync(): void {
   if (cleanup) return;
 
-  // 1. Browser online/offline events
   const onlineCleanup = onOnlineStatusChange(async (online) => {
-    if (online) setTimeout(() => syncPendingOperations(), 2000);
+    if (online) scheduleSync(2000);
   });
 
-  // 2. Periodic retry every 30 seconds
   retryInterval = setInterval(async () => {
     try {
       const pending = await getPendingOperations();
@@ -140,11 +147,8 @@ export function startAutoSync(): void {
     } catch {}
   }, 30_000);
 
-  // 3. Sync when user returns to the app
   const handleVisibility = () => {
-    if (document.visibilityState === 'visible') {
-      setTimeout(() => syncPendingOperations(), 1000);
-    }
+    if (document.visibilityState === 'visible') scheduleSync(1000);
   };
   document.addEventListener('visibilitychange', handleVisibility);
 
@@ -152,10 +156,11 @@ export function startAutoSync(): void {
     onlineCleanup();
     if (retryInterval) { clearInterval(retryInterval); retryInterval = null; }
     document.removeEventListener('visibilitychange', handleVisibility);
+    pendingTimers.forEach(clearTimeout);
+    pendingTimers.clear();
   };
 
-  // Initial sync attempt
-  setTimeout(() => syncPendingOperations(), 3000);
+  scheduleSync(3000);
 }
 
 export function stopAutoSync(): void {

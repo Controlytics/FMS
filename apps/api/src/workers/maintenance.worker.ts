@@ -5,7 +5,7 @@
  */
 
 import { Worker, Queue, type Job } from 'bullmq';
-import { getRedisConnection, QUEUES } from '@digilog/queue';
+import { getQueueConnection, getWorkerConnection, QUEUES } from '@digilog/queue';
 import type { MaintenanceJob } from '@digilog/queue';
 import { processDLQ } from '../modules/data-ingestion/dlq-manager.js';
 import { checkInactivityTimeouts } from '../modules/data-ingestion/connectivity-tracker.js';
@@ -112,11 +112,9 @@ async function runRetentionCleanup(): Promise<{
 export async function startMaintenanceWorker(): Promise<void> {
   if (worker) return;
 
-  const connection = getRedisConnection();
-
-  // Create queue for scheduling
+  // Create queue for scheduling (producer — shared connection)
   maintenanceQueue = new Queue(QUEUES.MAINTENANCE.name, {
-    connection,
+    connection: getQueueConnection(),
     defaultJobOptions: QUEUES.MAINTENANCE.defaultJobOptions,
   });
 
@@ -176,7 +174,7 @@ export async function startMaintenanceWorker(): Promise<void> {
       }
     },
     {
-      connection,
+      connection: getWorkerConnection(),
       concurrency: 1, // Maintenance tasks run sequentially
       removeOnComplete: { count: 10 },
       removeOnFail: { count: 10 },

@@ -32,3 +32,6 @@ CREDENTIALS.md
 *.pem
 *.key
 .bak
+
+# Playwright MCP session traces (regenerated each run)
+.playwright-mcp/

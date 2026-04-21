@@ -1,5 +1,5 @@
 import { type FastifyInstance } from 'fastify';
-import { brandingConfigSchema, passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, userIdConfigSchema, actionReauthConfigSchema, auditTemplatesSchema, paginationConfigSchema } from '@digilog/shared';
+import { brandingConfigSchema, passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, userIdConfigSchema, auditTemplatesSchema, paginationConfigSchema } from '@digilog/shared';
 import { verifyPassword } from '../../lib/password.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
@@ -8,6 +8,19 @@ import { configService } from './config.service.js';
 import { configRepository } from './config.repository.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
+import { actionReauthRoutes } from './static-routes/action-reauth.routes.js';
+
+// TODO: Continue the monolith split — extract remaining groups into static-routes/:
+//   - branding.routes.ts        (/branding GET+PUT)
+//   - user-id.routes.ts         (/user-id GET+PUT+/next+/validate)
+//   - field-ids.routes.ts       (/field-ids + /field-ids/:fieldId)
+//   - audit-templates.routes.ts (/audit-templates + /current)
+//   - alarm-columns.routes.ts   (/alarm-columns + /current)
+//   - dashboard-cards.routes.ts (/dashboard-cards + VALID_CARD_KEYS guard)
+//   - tablet-access.routes.ts
+//   - access-matrix.routes.ts
+//   - roles.routes.ts           (/roles + /roles/:role + /users/:userId)
+// Follow the action-reauth.routes.ts pattern.
 
 // Map config keys to reauth action names
 const CONFIG_KEY_TO_ACTION: Record<string, string> = {
@@ -18,6 +31,9 @@ const CONFIG_KEY_TO_ACTION: Record<string, string> = {
 };
 
 export default async function configRoutes(app: FastifyInstance) {
+  // Extracted route groups
+  await actionReauthRoutes(app);
+
   const configEndpoint = (key: string, schema: any, requiresReauth: boolean) => {
     const titleKey = key.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
@@ -647,75 +663,7 @@ export default async function configRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
-  // ====== Action Re-authentication Configuration ======
-
-  // GET /api/config/action-reauth — full config (SUPER_ADMIN only)
-  app.get('/action-reauth', {
-    preHandler: [app.requirePermission('CONFIG_READ')],
-    schema: {
-      tags: ['Config'],
-      summary: 'Get action re-authentication configuration',
-      description: 'Retrieve the full action re-authentication matrix. Each key is an action name, each value is an array of role names that require re-auth for that action.',
-      response: {
-        200: { type: 'object', additionalProperties: true },
-      },
-    },
-  }, async () => {
-    return configService.getActionReauth();
-  });
-
-  // PUT /api/config/action-reauth — update config (SUPER_ADMIN only)
-  app.put('/action-reauth', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
-    schema: {
-      tags: ['Config'],
-      summary: 'Update action re-authentication configuration',
-      description: 'Set which actions require password re-authentication for each role. Pass an object mapping action names to arrays of role names.',
-      body: { type: 'object', additionalProperties: true },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            data: { type: 'object', additionalProperties: true },
-          },
-        },
-        ...errorResponses,
-      },
-    },
-  }, async (req, reply) => {
-    const ctx = buildContext(req);
-    const data = await configService.updateActionReauth(req.body, actionReauthConfigSchema, ctx);
-    return { success: true, data };
-  });
-
-  // GET /api/config/action-reauth/check?action=DELETE_USER — check single action
-  app.get('/action-reauth/check', {
-    schema: {
-      tags: ['Config'],
-      summary: 'Check if action requires re-authentication',
-      description: 'Check if a specific action requires password re-authentication for the current user\'s role.',
-      querystring: {
-        type: 'object',
-        required: ['action'],
-        properties: {
-          action: { type: 'string', description: 'Action key (e.g. DELETE_USER)' },
-        },
-      },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            action: { type: 'string' },
-            required: { type: 'boolean' },
-          },
-        },
-      },
-    },
-  }, async (req) => {
-    const { action } = req.query as { action: string };
-    return configService.checkReauth(action, req.user.role);
-  });
+  // action-reauth routes extracted → static-routes/action-reauth.routes.ts
 
   // ====== Audit Text Templates Configuration ======
 
@@ -834,24 +782,7 @@ export default async function configRoutes(app: FastifyInstance) {
     return configService.getMyAlarmColumns(req.user.username);
   });
 
-  // GET /api/config/action-reauth/my-actions — all actions for current user's role
-  app.get('/action-reauth/my-actions', {
-    schema: {
-      tags: ['Config'],
-      summary: 'Get re-auth actions for current user',
-      description: 'Returns all action keys that require password re-authentication for the current user\'s role. Used by frontend to show/hide re-auth dialogs.',
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            actions: { type: 'array', items: { type: 'string' } },
-          },
-        },
-      },
-    },
-  }, async (req) => {
-    return configService.getMyActions(req.user.role);
-  });
+  // action-reauth/my-actions extracted → static-routes/action-reauth.routes.ts
 
   // ====== Cleaning Profile Assignment Configuration ======
 

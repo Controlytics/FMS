@@ -287,7 +287,6 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     const failed: string[] = [];
     for (const item of scanQueue) {
       try {
-        // ─── Per-item strict validation ─────────────────────────────
         const cachedFilters = await getOfflineFilters();
         const cached = cachedFilters.find((f: any) => f.id === item.filterId);
         const cachedState = await getCache<any>(`filter-state-${item.filterId}`) ?? {};
@@ -296,48 +295,33 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         if (itemNextAllowed.length === 0 && cachedState.pipelineGraph) {
           itemNextAllowed = computeNextStages(cachedState.pipelineGraph, currentLifecycle);
         }
-        const hasGraph = !!cachedState.pipelineGraph?.stages;
-        const hasLinearPipeline = (cachedState.pipelineStages?.length ?? 0) > 0;
-        const hasValidation = hasGraph || hasLinearPipeline || itemNextAllowed.length > 0;
         const cycleInProgress = !!(cachedState.currentCycle?.id || cached?.currentCycleId);
 
-        if (!online && !hasValidation) {
-          failed.push(`${item.filterName}: offline data not cached — sync first`);
+        const gate = validateOfflineGate({
+          activeStageKey: activeStage.key,
+          activeStageLabel: activeStage.label,
+          online,
+          currentLifecycle,
+          nextAllowed: itemNextAllowed,
+          hasGraph: !!cachedState.pipelineGraph?.stages,
+          hasLinearPipeline: (cachedState.pipelineStages?.length ?? 0) > 0,
+          pipelineGraph: cachedState.pipelineGraph,
+          cycleInProgress,
+          hasPendingChecklist: (cachedState.pendingChecklist?.length ?? 0) > 0,
+          dryerReadingsSubmitted: cachedState.currentCycle?.dryerReadingsSubmitted,
+          homeBlockId: cachedState.homeBlock?.id,
+          blockChangeStatus: cachedState.blockChangeStatus,
+          selectedBlockId: selectedBlock?.id,
+        });
+        if (!gate.ok) {
+          failed.push(`${item.filterName}: ${gate.reason}`);
           continue;
         }
-        // Block enforcement offline: filter must be in its home block (or approved)
-        if (!online && cachedState.homeBlock && selectedBlock?.id && cachedState.homeBlock.id !== selectedBlock.id && cachedState.blockChangeStatus !== 'APPROVED') {
-          failed.push(`${item.filterName}: belongs to ${cachedState.homeBlock.name} — block change approval required`);
-          continue;
-        }
-        // New cycle: activeStage must be a legal entry stage of the pipeline
-        if (!cycleInProgress && hasGraph) {
-          const firstStages = computeNextStages(cachedState.pipelineGraph, null);
-          if (firstStages.length > 0 && !firstStages.includes(activeStage.key)) {
-            failed.push(`${item.filterName}: cannot start cycle at ${activeStage.label} — start at ${firstStages.map(s => s.replace(/_/g, ' ')).join(', ')}`);
-            continue;
-          }
-        }
-        // In-cycle: activeStage must be in nextAllowedStages
-        if (cycleInProgress && itemNextAllowed.length > 0 && !itemNextAllowed.includes(activeStage.key)) {
-          failed.push(`${item.filterName}: is at ${(currentLifecycle ?? 'START').replace(/_/g, ' ')} — next allowed ${itemNextAllowed.map(s => s.replace(/_/g, ' ')).join(', ')}`);
-          continue;
-        }
-        if (!online && cycleInProgress && itemNextAllowed.length === 0) {
-          failed.push(`${item.filterName}: in-cycle but no next stage cached — re-sync`);
-          continue;
-        }
-        // DRY_IN dryer-readings-submitted guard
-        if (activeStage.key === 'DRY_IN' && cachedState.currentCycle?.dryerReadingsSubmitted) {
-          failed.push(`${item.filterName}: dry-in already recorded — scan on Dry Out`);
-          continue;
-        }
-        // Starting a new cycle needs a reason (reason dialog) — the batch path can't collect it
+        // Batch path: cannot handle interactive reason dialog for new cycles
         if (!cycleInProgress) {
           failed.push(`${item.filterName}: no active cycle — use single scan to start a cycle`);
           continue;
         }
-        // ─── End strict validation ──────────────────────────────────
 
         const { executed } = await executeOrQueue('advance', item.filterId, item.filterName, {
           targetState: activeStage.key, cleaningAreaId: selectedBlock?.id,
@@ -407,6 +391,58 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     };
     walk(currentNode.id);
     return reachable;
+  };
+
+  // SPIS: single-source offline gate shared by handleSubmit (single scan) and
+  // handleSubmitQueue (batch). Every offline/online validation rule lives HERE
+  // — both callers must go through this. See memory: feedback_batch_single_parity.md.
+  type GateInput = {
+    activeStageKey: string;
+    activeStageLabel: string;
+    online: boolean;
+    currentLifecycle: string | null;
+    nextAllowed: string[];
+    hasGraph: boolean;
+    hasLinearPipeline: boolean;
+    pipelineGraph: any;
+    cycleInProgress: boolean;
+    hasPendingChecklist: boolean;
+    dryerReadingsSubmitted?: boolean;
+    homeBlockId?: string | null;
+    blockChangeStatus?: string | null;
+    selectedBlockId?: string | null;
+  };
+  type GateResult = { ok: true } | { ok: false; reason: string; blockChangeRequired?: boolean };
+  const validateOfflineGate = (g: GateInput): GateResult => {
+    const hasValidation = g.hasGraph || g.hasLinearPipeline || g.nextAllowed.length > 0;
+    if (!g.online && !hasValidation) {
+      return { ok: false, reason: 'offline data not cached — sync first' };
+    }
+    // Block assignment: home-block mismatch without approval
+    const homeMismatch = !!(g.homeBlockId && g.selectedBlockId && g.homeBlockId !== g.selectedBlockId && g.blockChangeStatus !== 'APPROVED');
+    if (!g.online && homeMismatch) {
+      return { ok: false, reason: 'block change approval required', blockChangeRequired: true };
+    }
+    // First-stage validation for brand-new cycles
+    if (!g.cycleInProgress && g.hasGraph) {
+      const firstStages = computeNextStages(g.pipelineGraph, null);
+      if (firstStages.length > 0 && !firstStages.includes(g.activeStageKey)) {
+        return { ok: false, reason: `cannot start cycle at ${g.activeStageLabel} — start at ${firstStages.map(s => s.replace(/_/g, ' ')).join(', ')}` };
+      }
+    }
+    // In-cycle: activeStage must be in nextAllowed
+    if (g.cycleInProgress && g.nextAllowed.length > 0 && !g.nextAllowed.includes(g.activeStageKey)) {
+      return { ok: false, reason: `is at ${(g.currentLifecycle ?? 'START').replace(/_/g, ' ')} — next allowed ${g.nextAllowed.map(s => s.replace(/_/g, ' ')).join(', ')}` };
+    }
+    // Offline: cycle-in-progress + empty nextAllowed is stale cache (unless checklist blocks)
+    if (!g.online && g.cycleInProgress && g.nextAllowed.length === 0 && !g.hasPendingChecklist) {
+      return { ok: false, reason: 'in-cycle but no next stage cached — re-sync' };
+    }
+    // DRY_IN guard
+    if (g.activeStageKey === 'DRY_IN' && g.dryerReadingsSubmitted) {
+      return { ok: false, reason: 'dry-in already recorded — scan on Dry Out' };
+    }
+    return { ok: true };
   };
 
   // Find CHECKLIST nodes immediately after a stage in the pipeline graph
@@ -573,55 +609,35 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       const currentLifecycle = state.currentState;
       const nextAllowed = state.nextAllowedStages ?? [];
 
-      // ─── STRICT OFFLINE GATE ─────────────────────────────────────────────
-      // Refuse the operation outright when essential validation data is missing.
-      // Without the pipeline graph (and therefore no nextAllowedStages), offline
-      // operations would bypass the cleaning profile entirely, letting operators
-      // submit any stage in any block with no order enforcement.
+      // Shared SPIS gate (same helper used by handleSubmitQueue).
+      // Only enforced offline — online callers get richer server-side validation.
       if (!online) {
-        const hasGraph = !!state.pipelineGraph?.stages;
-        const hasLinearPipeline = (state.pipelineStages?.length ?? 0) > 0;
-        const hasValidation = hasGraph || hasLinearPipeline || nextAllowed.length > 0;
-
-        if (!hasValidation) {
-          setError('Offline data not cached for this filter. Connect to network, tap "Sync Data", then retry.');
-          setLoading(false); return;
-        }
-
-        // If a home-block is known and the operator picked a different block,
-        // force the block-change approval path (the existing code below will
-        // pop the dialog once blockChangeStatus is set).
-        if (state.homeBlock && selectedBlock?.id && state.homeBlock.id !== selectedBlock.id && state.blockChangeStatus !== 'APPROVED') {
-          state.blockChangeStatus = 'REQUIRED';
-        }
-
-        // If NO cycle is active (starting a brand new one), the activeStage must
-        // be a legal entry point of the pipeline — validate against graph.
-        const cycleInProgress = !!state.currentCycle;
-        if (!cycleInProgress && hasGraph) {
-          const firstStages = computeNextStages(state.pipelineGraph, null);
-          if (firstStages.length > 0 && !firstStages.includes(activeStage.key)) {
-            setError(`Cannot start cycle at ${activeStage.label}. Start at: ${firstStages.map((s: string) => s.replace(/_/g, ' ')).join(', ')}`);
+        const gate = validateOfflineGate({
+          activeStageKey: activeStage.key,
+          activeStageLabel: activeStage.label,
+          online,
+          currentLifecycle,
+          nextAllowed,
+          hasGraph: !!state.pipelineGraph?.stages,
+          hasLinearPipeline: (state.pipelineStages?.length ?? 0) > 0,
+          pipelineGraph: state.pipelineGraph,
+          cycleInProgress: !!state.currentCycle,
+          hasPendingChecklist: (state.pendingChecklist?.length ?? 0) > 0,
+          dryerReadingsSubmitted: state.currentCycle?.dryerReadingsSubmitted,
+          homeBlockId: state.homeBlock?.id,
+          blockChangeStatus: state.blockChangeStatus,
+          selectedBlockId: selectedBlock?.id,
+        });
+        if (!gate.ok) {
+          if (gate.blockChangeRequired) {
+            // Let the existing block-change dialog flow below handle this
+            state.blockChangeStatus = 'REQUIRED';
+          } else {
+            setError(gate.reason);
             setLoading(false); return;
           }
         }
-
-        // If cycle IS in progress, nextAllowed MUST contain activeStage.key.
-        // We already enforce this below, but the below check is permissive when
-        // nextAllowed is empty — cycleInProgress + empty nextAllowed means stale
-        // cache or broken state, so refuse explicitly here.
-        //
-        // Exception: a legitimate reason for nextAllowed = [] is an unanswered
-        // CHECKLIST sitting between stages (the pipeline blocks advance until
-        // the checklist is submitted). In that case we want the checklist
-        // dialog to open further down in handleSubmit, not to reject here.
-        const hasPendingChecklist = (state.pendingChecklist?.length ?? 0) > 0;
-        if (cycleInProgress && nextAllowed.length === 0 && !hasPendingChecklist) {
-          setError('Filter is in-cycle but no next stage is cached. Reconnect and re-sync to continue.');
-          setLoading(false); return;
-        }
       }
-      // ─── END STRICT OFFLINE GATE ─────────────────────────────────────────
 
       // DRY_IN: if temperature already recorded, direct user to Dry Out stage
       // (runs BEFORE generic nextAllowed check so the user gets a clear instruction

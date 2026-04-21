@@ -1,42 +1,61 @@
 import IORedis from 'ioredis';
 
-// TODO: BullMQ recommends separate connections for workers vs queue producers.
-// Consider providing getWorkerConnection() and getQueueConnection() factories.
+// BullMQ recommends separate connections for workers vs queue producers, because
+// workers use blocking commands (BRPOPLPUSH, etc.) that hold the connection.
+//   - getQueueConnection() — shared singleton for producers (enqueue, add, etc.)
+//   - getWorkerConnection() — new connection per call, for Worker instances
 
-let connection: IORedis | null = null;
+const redisOptions = () => ({
+  host: process.env.REDIS_HOST ?? 'localhost',
+  port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
+  password: process.env.REDIS_PASSWORD || undefined,
+  maxRetriesPerRequest: null, // Required by BullMQ
+  enableReadyCheck: false,
+  retryStrategy(times: number) {
+    if (times > 10) {
+      console.error('[Redis] Max retries exceeded, giving up');
+      return null;
+    }
+    return Math.min(times * 200, 5000);
+  },
+});
 
-export function getRedisConnection(): IORedis {
-  if (!connection) {
-    connection = new IORedis({
-      host: process.env.REDIS_HOST ?? 'localhost',
-      port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
-      password: process.env.REDIS_PASSWORD || undefined,
-      maxRetriesPerRequest: null, // Required by BullMQ
-      enableReadyCheck: false,
-      retryStrategy(times) {
-        if (times > 10) {
-          console.error('[Redis] Max retries exceeded, giving up');
-          return null; // stop retrying
-        }
-        return Math.min(times * 200, 5000); // retry with backoff, max 5s
-      },
-    });
+let queueConnection: IORedis | null = null;
+const workerConnections = new Set<IORedis>();
 
-    connection.on('error', (err) => {
-      console.error('[Redis] Connection error:', err.message);
+export function getQueueConnection(): IORedis {
+  if (!queueConnection) {
+    queueConnection = new IORedis(redisOptions());
+    queueConnection.on('error', (err) => {
+      console.error('[Redis queue] Connection error:', err.message);
     });
   }
-  return connection;
+  return queueConnection;
 }
 
+export function getWorkerConnection(): IORedis {
+  const c = new IORedis(redisOptions());
+  c.on('error', (err) => {
+    console.error('[Redis worker] Connection error:', err.message);
+  });
+  workerConnections.add(c);
+  c.on('end', () => workerConnections.delete(c));
+  return c;
+}
+
+// Backward-compatible alias — points to the queue (producer) connection.
+// Existing callers keep working; new code should pick the explicit factory.
+export const getRedisConnection = getQueueConnection;
+
 export async function closeRedisConnection(): Promise<void> {
-  if (connection) {
-    try {
-      await connection.quit();
-    } catch (err) {
-      console.error('[Redis] Error closing connection:', err);
-    } finally {
-      connection = null;
-    }
+  const closers: Promise<unknown>[] = [];
+  if (queueConnection) {
+    closers.push(queueConnection.quit().catch((err) => console.error('[Redis queue] close error:', err)));
+    queueConnection = null;
   }
+  for (const c of workerConnections) {
+    closers.push(c.quit().catch((err) => console.error('[Redis worker] close error:', err)));
+  }
+  workerConnections.clear();
+  await Promise.all(closers);
 }

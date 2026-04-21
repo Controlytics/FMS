@@ -145,3 +145,13 @@ table {
 .shadow-elevated {
   box-shadow: 0 10px 40px -10px rgba(30, 58, 95, 0.15), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
 }
+
+/* Theme utility classes — replace inline style={{ color: 'var(--theme-*)' }} patterns */
+.text-theme-primary { color: var(--theme-primary); }
+.text-theme-primary-dark { color: var(--theme-primary-dark); }
+.bg-theme-primary { background-color: var(--theme-primary); }
+.bg-theme-primary-light { background-color: var(--theme-primary-light); }
+.border-theme-primary { border-color: var(--theme-primary); }
+.ring-theme-focus { box-shadow: 0 0 0 3px var(--theme-focus-ring); }
+.bg-theme-gradient { background-image: linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to)); }
+.bg-theme-gradient-br { background-image: linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to)); }

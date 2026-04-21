@@ -22,9 +22,7 @@ import { ConfigIndexPage } from './routes/config/index';
 import { PasswordPolicyPage } from './routes/config/password-policy';
 import { DatetimeConfigPage } from './routes/config/datetime';
 import { BrandingConfigPage } from './routes/config/branding';
-// removed: RolePrivilegesPage
 import { RoleAccessPage } from './routes/config/role-access';
-// removed: SidebarConfigPage
 import { FieldIdsPage } from './routes/config/field-ids';
 import { UserIdConfigPage } from './routes/config/user-id';
 import { AccessMatrixPage } from './routes/config/access-matrix';
@@ -53,7 +51,7 @@ const RetentionConfigPage = lazy(() => import('./routes/config/retention').then(
 const LdapConfigPage = lazy(() => import("./routes/config/ldap"));
 const SystemHealthPage = lazy(() => import('./routes/system-health/index').then(m => ({ default: m.SystemHealthPage })));
 const DebugTracesPage = lazy(() => import('./routes/debug/index').then(m => ({ default: m.DebugTracesPage })));
-const ChecklistPage = lazy(() => import('./routes/checklist/index').then(m => ({ default: m.ChecklistPage })));
+const ChecklistPage = lazy(() => import('./routes/checklist-form/index').then(m => ({ default: m.ChecklistPage })));
 const EmailSettingsPage = lazy(() => import('./routes/config/notification-settings/email-settings').then(m => ({ default: m.EmailSettingsPage })));
 const SmsSettingsPage = lazy(() => import('./routes/config/notification-settings/sms-settings').then(m => ({ default: m.SmsSettingsPage })));
 const NotificationRulesPage = lazy(() => import('./routes/config/notification-rules/index').then(m => ({ default: m.NotificationRulesPage })));
@@ -63,8 +61,8 @@ const OrganizationsPage = lazy(() => import("./routes/tenant/organizations"));
 const OrgDetailPage = lazy(() => import("./routes/tenant/org-detail"));
 
 // Phase 2: Digital Filter Management System
-const ChecklistProfileListPage = lazy(() => import("./routes/checklists/list").then(m => ({ default: m.ChecklistProfileListPage })));
-const ChecklistProfileDetailPage = lazy(() => import("./routes/checklists/detail").then(m => ({ default: m.ChecklistProfileDetailPage })));
+const ChecklistProfileListPage = lazy(() => import("./routes/checklist-admin/list").then(m => ({ default: m.ChecklistProfileListPage })));
+const ChecklistProfileDetailPage = lazy(() => import("./routes/checklist-admin/detail").then(m => ({ default: m.ChecklistProfileDetailPage })));
 const CleaningProfileListPage = lazy(() => import("./routes/filter-management/cleaning-profile-list").then(m => ({ default: m.CleaningProfileListPage })));
 // FilterProfileListPage removed — replaced by Config > Cleaning Profile Assignment
 

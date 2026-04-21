@@ -139,7 +139,6 @@ export function NotificationsPage() {
       globalMutate('/api/notifications/unread-count');
     } catch (err: any) {
       toast.error('Failed to mark as read', err.message || 'Operation failed');
-      console.error('Failed to mark notification as read:', err);
     }
   };
 
@@ -150,7 +149,6 @@ export function NotificationsPage() {
       globalMutate('/api/notifications/unread-count');
     } catch (err: any) {
       toast.error('Failed to mark as unread', err.message || 'Operation failed');
-      console.error('Failed to mark notification as unread:', err);
     }
   };
 
@@ -161,7 +159,6 @@ export function NotificationsPage() {
       globalMutate('/api/notifications/unread-count');
     } catch (err: any) {
       toast.error('Failed to mark all as read', err.message || 'Operation failed');
-      console.error('Failed to mark all notifications as read:', err);
     }
   };
 
@@ -173,7 +170,6 @@ export function NotificationsPage() {
       globalMutate('/api/notifications/unread-count');
     } catch (err: any) {
       toast.error('Failed to bulk mark as read', err.message || 'Operation failed');
-      console.error('Failed to bulk mark as read:', err);
     }
   };
 
@@ -185,7 +181,6 @@ export function NotificationsPage() {
       globalMutate('/api/notifications/unread-count');
     } catch (err: any) {
       toast.error('Failed to bulk mark as unread', err.message || 'Operation failed');
-      console.error('Failed to bulk mark as unread:', err);
     }
   };
 
@@ -198,7 +193,6 @@ export function NotificationsPage() {
       globalMutate('/api/notifications/unread-count');
     } catch (err: any) {
       toast.error('Failed to delete notifications', err.message || 'Operation failed');
-      console.error('Failed to bulk delete:', err);
     }
   };
 
@@ -214,7 +208,6 @@ export function NotificationsPage() {
       globalMutate('/api/notifications/unread-count');
     } catch (err: any) {
       toast.error('Failed to delete notification', err.message || 'Operation failed');
-      console.error('Failed to delete notification:', err);
     }
   };
 

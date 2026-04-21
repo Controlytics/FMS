@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
+import { useToast } from '@/hooks/use-toast';
 import { useFieldLabels } from '@/hooks/use-field-labels';
 import { useRoleColors } from '@/hooks/use-role-colors';
 import { Button } from '@/components/ui/button';
@@ -27,6 +28,7 @@ export function UserListPage({ orgId }: { orgId?: string } = {}) {
   const apiBase = orgId ? `/api/organizations/${orgId}` : `/api`;
   const { user: currentUser } = useAuth();
   const reauth = useReauth();
+  const { toast } = useToast();
   const { userLabels } = useFieldLabels();
   const { formatDate, formatTime } = useDatetimeFormat();
   const paginationOptions = usePaginationConfig();
@@ -40,7 +42,6 @@ export function UserListPage({ orgId }: { orgId?: string } = {}) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleteDialog, setBulkDeleteDialog] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
-  const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [unlockDialog, setUnlockDialog] = useState<{ userId: string; username: string } | null>(null);
   const [unlockPassword, setUnlockPassword] = useState('');
   const [showUnlockPassword, setShowUnlockPassword] = useState(false);
@@ -93,7 +94,6 @@ export function UserListPage({ orgId }: { orgId?: string } = {}) {
     const reauthAction = actionMap[actionDialog.type] || actionDialog.type;
     const { userId, type, username } = actionDialog;
     setActionDialog(null);
-    setActionMessage(null);
 
     const actionLabels: Record<string, string> = {
       delete: 'deleted',
@@ -118,12 +118,10 @@ export function UserListPage({ orgId }: { orgId?: string } = {}) {
           return next;
         });
       }
-      setActionMessage({ type: 'success', text: `User "${username}" has been ${actionLabels[type] || type} successfully.` });
-      setTimeout(() => setActionMessage(null), 5000);
+      toast.success('User updated', `User "${username}" has been ${actionLabels[type] || type} successfully.`);
     }, {
       onError: (err: any) => {
-        setActionMessage({ type: 'error', text: err?.message || `Failed to ${type} user "${username}".` });
-        setTimeout(() => setActionMessage(null), 5000);
+        toast.error('Action failed', err?.message || `Failed to ${type} user "${username}".`);
       },
     });
   };
@@ -161,7 +159,6 @@ export function UserListPage({ orgId }: { orgId?: string } = {}) {
   const handleBulkDelete = async () => {
     const ids = Array.from(selectedIds);
     setBulkDeleteDialog(false);
-    setActionMessage(null);
 
     await reauth.execute('BULK_DELETE_USERS', async (password?) => {
       if (password) await apiClient.postWithReauth(`${apiBase}/users/bulk-delete`, { userIds: ids }, password);
@@ -169,12 +166,10 @@ export function UserListPage({ orgId }: { orgId?: string } = {}) {
       setSelectedIds(new Set());
       mutate();
       mutateStats();
-      setActionMessage({ type: 'success', text: `${ids.length} user(s) deleted successfully.` });
-      setTimeout(() => setActionMessage(null), 5000);
+      toast.success('Users deleted', `${ids.length} user(s) deleted successfully.`);
     }, {
       onError: (err: any) => {
-        setActionMessage({ type: 'error', text: err?.message || 'Failed to delete selected users.' });
-        setTimeout(() => setActionMessage(null), 5000);
+        toast.error('Bulk delete failed', err?.message || 'Failed to delete selected users.');
       },
     });
   };
@@ -231,33 +226,6 @@ export function UserListPage({ orgId }: { orgId?: string } = {}) {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Action feedback message */}
-      {actionMessage && (
-        <div
-          className={`rounded-xl border p-4 text-sm flex items-center justify-between ${
-            actionMessage.type === 'success'
-              ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-              : 'bg-red-50 border-red-200 text-red-700'
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d={actionMessage.type === 'success'
-                  ? 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z'
-                  : 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'}
-              />
-            </svg>
-            {actionMessage.text}
-          </div>
-          <button onClick={() => setActionMessage(null)} className="text-current opacity-60 hover:opacity-100">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-      )}
-
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">

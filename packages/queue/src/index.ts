@@ -17,4 +17,9 @@ export type {
   MaintenanceJob,
 } from './schemas.js';
 
-export { getRedisConnection, closeRedisConnection } from './connection.js';
+export {
+  getQueueConnection,
+  getWorkerConnection,
+  getRedisConnection,
+  closeRedisConnection,
+} from './connection.js';
