@@ -3,6 +3,8 @@
  * Stores: filter cache, operation queue, sync status.
  */
 
+import { dbRun,dbQuery } from "./sqllite-db";
+
 const DB_NAME = 'digilog-offline';
 const DB_VERSION = 1;
 
@@ -179,97 +181,70 @@ export async function clearOfflineCycleId(filterId: string): Promise<void> {
 // === Operation Queue ===
 
 export async function queueOperation(op: Omit<OfflineOperation, 'id' | 'createdAt' | 'status' | 'retryCount'>): Promise<string> {
-  const db = await openDB();
+ 
   const id = `op-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const tx = db.transaction('operations', 'readwrite');
-  tx.objectStore('operations').put({
-    ...op,
-    id,
-    createdAt: new Date().toISOString(),
-    status: 'pending',
-    retryCount: 0,
-  });
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve(id);
-    tx.onerror = () => reject(tx.error);
-  });
+  const createdAt = new Date().toISOString();
+
+  await dbRun(
+    `INSERT INTO operations (id, type, filter_id, filter_name, payload, status, created_at, retry_count) VALUES (?, ?, ?, ?, ?, 'pending', ?, 0)`,
+    [id, op.type, op.filterId, op.filterName, JSON.stringify(op.payload), createdAt]
+  );
+  return id;
+}
+
+function rowToOperation(row: any): OfflineOperation {
+  return {
+    id : row.id,
+    type: row.type,
+    filterId: row.filter_id,
+    filterName: row.filter_name,
+    payload: typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload,
+    createdAt: row.created_at,
+    status: row.status,
+    retryCount: row.retry_count ?? 0,
+    error: row.error ?? undefined,
+
+  };
 }
 
 export async function getPendingOperations(): Promise<OfflineOperation[]> {
-  const db = await openDB();
-  const tx = db.transaction('operations', 'readonly');
-  const index = tx.objectStore('operations').index('status');
-  const req = index.getAll('pending');
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result ?? []);
-    req.onerror = () => reject(req.error);
-  });
+  const rows = await dbQuery<any>(`SELECT * FROM operations WHERE status = 'pending' ORDER BY created_at ASC`);
+  return rows.map(rowToOperation);
 }
 
 export async function getAllOperations(): Promise<OfflineOperation[]> {
-  const db = await openDB();
-  const tx = db.transaction('operations', 'readonly');
-  const req = tx.objectStore('operations').getAll();
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => {
-      const ops = (req.result ?? []) as OfflineOperation[];
-      ops.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-      resolve(ops);
-    };
-    req.onerror = () => reject(req.error);
-  });
+  const rows = await dbQuery<any>(`SELECT * FROM operations ORDER BY created_at ASC`);
+  return rows.map(rowToOperation);
 }
 
 export async function updateOperationStatus(id: string, status: OfflineOperation['status'], error?: string): Promise<void> {
-  const db = await openDB();
-  const tx = db.transaction('operations', 'readwrite');
-  const store = tx.objectStore('operations');
-  const req = store.get(id);
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => {
-      const op = req.result;
-      if (op) {
-        op.status = status;
-        if (error) op.error = error;
-        // Increment retry count on every failure (pending retry or final failure)
-        if (status === 'failed' || (status === 'pending' && error)) {
-          op.retryCount = (op.retryCount ?? 0) + 1;
-        }
-        store.put(op);
-      }
-      resolve();
-    };
-    req.onerror = () => reject(req.error);
-    tx.oncomplete = () => resolve();
-  });
+  const shouldIncrementRetry = status === 'failed' || (status === 'pending' && !!error);
+  if (status === 'synced') {
+    // 4 placeholders, 4 values — include synced_at timestamp for auto-cleanup later.
+    await dbRun(
+      `UPDATE operations SET status = ?, error = ?, synced_at = ? WHERE id = ?`,
+      [status, null, new Date().toISOString(), id]
+    );
+  } else if (shouldIncrementRetry) {
+    await dbRun(
+      `UPDATE operations SET status = ?, error = ?, retry_count = retry_count + 1 WHERE id = ?`,
+      [status, error ?? null, id]
+    );
+  } else {
+    await dbRun(
+      `UPDATE operations SET status = ?, error = ? WHERE id = ?`,
+      [status, error ?? null, id]
+    );
+  }
 }
 
 export async function clearSyncedOperations(): Promise<void> {
-  const db = await openDB();
-  const tx = db.transaction('operations', 'readwrite');
-  const store = tx.objectStore('operations');
-  const req = store.getAll();
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => {
-      const ops = req.result ?? [];
-      for (const op of ops) {
-        if (op.status === 'synced') store.delete(op.id);
-      }
-      resolve();
-    };
-    req.onerror = () => reject(req.error);
-    tx.oncomplete = () => resolve();
-  });
+  await dbRun(`DELETE FROM operations WHERE status = 'synced' AND synced_at < ?`, [new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()]);
 }
 
 export async function clearAllOperations(): Promise<void> {
-  const db = await openDB();
-  const tx = db.transaction('operations', 'readwrite');
-  tx.objectStore('operations').clear();
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+  await dbRun(`DELETE FROM operations`);
+
 }
 
 // === Online/Offline Detection ===
