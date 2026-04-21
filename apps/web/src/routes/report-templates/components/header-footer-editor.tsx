@@ -40,11 +40,11 @@ export function HeaderFooterEditor({ label, config, onChange }: Props) {
             <label className="text-sm font-semibold text-slate-700">Elements ({config.elements.length})</label>
             <div className="flex gap-1">
               <button onClick={() => addElement('text')}
-                className="px-2 py-1 text-xs font-medium rounded-lg hover:bg-slate-100 transition-colors" style={{ color: 'var(--theme-primary)' }}>
+                className="px-2 py-1 text-xs font-medium rounded-lg hover:bg-slate-100 transition-colors text-theme-primary">
                 + Text
               </button>
               <button onClick={() => addElement('image')}
-                className="px-2 py-1 text-xs font-medium rounded-lg hover:bg-slate-100 transition-colors" style={{ color: 'var(--theme-primary)' }}>
+                className="px-2 py-1 text-xs font-medium rounded-lg hover:bg-slate-100 transition-colors text-theme-primary">
                 + Image
               </button>
             </div>

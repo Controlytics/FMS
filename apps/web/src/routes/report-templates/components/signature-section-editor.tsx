@@ -49,7 +49,7 @@ export function SignatureSectionEditor({ section, onChange, signatureConfig, onS
           <div className="flex items-center justify-between mb-2">
             <label className="text-xs font-semibold text-slate-500">Signers ({signatureConfig.signers.length})</label>
             <button onClick={addSigner}
-              className="flex items-center gap-1 text-xs font-medium hover:text-blue-500" style={{ color: 'var(--theme-primary)' }}>
+              className="flex items-center gap-1 text-xs font-medium hover:text-blue-500 text-theme-primary">
               <Plus className="w-3 h-3" /> Add
             </button>
           </div>

@@ -218,7 +218,7 @@ export function ReportTemplateListPage() {
           </div>
           <p className="text-slate-500 font-medium">{search ? 'No templates match your search' : 'No report templates yet'}</p>
           {canCreate && !search && (
-            <button onClick={() => setShowCreateDialog(true)} className="mt-3 text-sm font-medium" style={{ color: 'var(--theme-primary)' }}>
+            <button onClick={() => setShowCreateDialog(true)} className="mt-3 text-sm font-medium text-theme-primary">
               Create your first template
             </button>
           )}

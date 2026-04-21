@@ -114,7 +114,7 @@ export function TableColumnEditor({ column, index, onChange, onRemove }: Props) 
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-semibold text-slate-500">Conditional Formatting</label>
               <button onClick={() => onChange({ ...column, conditionalRules: [...(column.conditionalRules ?? []), { condition: 'gt', value: 0, style: {} }] })}
-                className="flex items-center gap-1 text-xs font-medium hover:text-blue-500 transition-colors" style={{ color: 'var(--theme-primary)' }}>
+                className="flex items-center gap-1 text-xs font-medium hover:text-blue-500 transition-colors text-theme-primary">
                 <Plus className="w-3 h-3" /> Add
               </button>
             </div>

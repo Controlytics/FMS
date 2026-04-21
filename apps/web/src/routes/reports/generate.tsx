@@ -89,7 +89,7 @@ export function ReportGeneratePage() {
           {(templates?.data ?? []).length === 0 && (
             <div className="text-center py-12 text-slate-400">
               <p>No active templates available.</p>
-              <button onClick={() => navigate('/report-templates')} className="mt-2 text-sm font-medium" style={{ color: 'var(--theme-primary)' }}>
+              <button onClick={() => navigate('/report-templates')} className="mt-2 text-sm font-medium text-theme-primary">
                 Create a template first
               </button>
             </div>

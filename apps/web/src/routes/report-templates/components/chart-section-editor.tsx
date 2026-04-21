@@ -110,7 +110,7 @@ export function ChartSectionEditor({ section, onChange, entitySlots }: Props) {
         <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-semibold text-slate-700">Data Series ({section.dataSeries.length})</label>
           <button onClick={addSeries}
-            className="flex items-center gap-1 text-xs font-medium hover:text-blue-500" style={{ color: 'var(--theme-primary)' }}>
+            className="flex items-center gap-1 text-xs font-medium hover:text-blue-500 text-theme-primary">
             <Plus className="w-3.5 h-3.5" /> Add
           </button>
         </div>

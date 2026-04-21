@@ -77,7 +77,7 @@ export function TableSectionEditor({ section, onChange, entitySlots }: Props) {
         <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-semibold text-slate-700">Columns ({section.columns.length})</label>
           <button onClick={addColumn}
-            className="flex items-center gap-1 text-xs font-medium hover:text-blue-500 transition-colors" style={{ color: 'var(--theme-primary)' }}>
+            className="flex items-center gap-1 text-xs font-medium hover:text-blue-500 transition-colors text-theme-primary">
             <Plus className="w-3.5 h-3.5" /> Add Column
           </button>
         </div>

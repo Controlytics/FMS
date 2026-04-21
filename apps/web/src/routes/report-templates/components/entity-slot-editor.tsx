@@ -16,7 +16,7 @@ export function EntitySlotEditor({ slots, onChange }: Props) {
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Entity Slots</h3>
         <button onClick={addSlot}
-          className="p-1 rounded-lg hover:bg-slate-100 transition-colors" style={{ color: 'var(--theme-primary)' }}>
+          className="p-1 rounded-lg hover:bg-slate-100 transition-colors text-theme-primary">
           <Plus className="w-4 h-4" />
         </button>
       </div>

@@ -891,7 +891,7 @@ export function FilterListPage() {
           </svg>
           <span className="text-[10px] font-bold text-center text-slate-700 truncate w-full">{f.name}</span>
           <span className={`text-[8px] mt-0.5 px-1.5 py-0.5 rounded-full border font-medium ${stateInfo.color}`}>{stateInfo.label}</span>
-          {rfidTags.length > 0 && <span className="text-[7px] font-mono mt-0.5 truncate w-full text-center" style={{ color: 'var(--theme-primary)' }}>{rfidTags[0].identifierValue}</span>}
+          {rfidTags.length > 0 && <span className="text-[7px] font-mono mt-0.5 truncate w-full text-center text-theme-primary">{rfidTags[0].identifierValue}</span>}
           {f.filterSet && <span className="text-[7px] text-slate-400 mt-0.5">{f.filterSet.replace('_', ' ')}</span>}
         </button>
       </div>
@@ -1214,11 +1214,11 @@ export function FilterListPage() {
                         <button onClick={() => navigateFromDiagram('block', block.id, block.name)}
                           className="flex flex-col items-center px-5 py-3 rounded-xl border-2 shadow-md ring-2 min-w-[130px] max-w-[170px] hover:shadow-lg cursor-pointer transition-all"
                           style={{ borderColor: 'var(--theme-primary)', backgroundColor: 'var(--theme-primary-light)', '--tw-ring-color': 'var(--theme-primary-light)' } as React.CSSProperties}>
-                          <svg className="w-5 h-5 mb-1" style={{ color: 'var(--theme-primary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-5 h-5 mb-1 text-theme-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                           </svg>
                           <span className="text-xs font-bold text-center truncate w-full" style={{ color: 'var(--theme-primary-dark)' }}>{block.name}</span>
-                          <span className="text-[9px] mt-0.5" style={{ color: 'var(--theme-primary)' }}>Block</span>
+                          <span className="text-[9px] mt-0.5 text-theme-primary">Block</span>
                         </button>
                         {canCreate && (
                           <div className="absolute -top-2 -right-2 flex gap-0.5 opacity-0 group-hover/block:opacity-100 transition-opacity z-10">
@@ -1369,7 +1369,7 @@ export function FilterListPage() {
                           <td className="w-14 text-center px-2 py-3.5 text-sm text-slate-400 font-medium">{(page - 1) * perPage + idx + 1}</td>
                           <td className="px-5 py-3.5">
                             {f.ahuId ? (
-                              <Link to={`/ahus/${f.ahuId}`} className="text-sm hover:opacity-80 font-medium" style={{ color: 'var(--theme-primary)' }}>{f.ahuName}</Link>
+                              <Link to={`/ahus/${f.ahuId}`} className="text-sm hover:opacity-80 font-medium text-theme-primary">{f.ahuName}</Link>
                             ) : (
                               <span className="text-sm text-slate-400">--</span>
                             )}
@@ -1858,12 +1858,12 @@ export function FilterListPage() {
                       {rfidTags.map((tag: any) => (
                         <div key={tag.id} className="flex items-center justify-between rounded-xl px-4 py-3" style={{ backgroundColor: 'var(--theme-primary-light)', border: '1px solid var(--theme-primary)' }}>
                           <div className="flex items-center gap-3">
-                            <svg className="w-5 h-5" style={{ color: 'var(--theme-primary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-5 h-5 text-theme-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0" />
                             </svg>
                             <div>
                               <div className="text-sm font-bold font-mono" style={{ color: 'var(--theme-primary-dark)' }}>{tag.identifierValue}</div>
-                              <div className="text-[10px]" style={{ color: 'var(--theme-primary)' }}>RFID Tag</div>
+                              <div className="text-[10px] text-theme-primary">RFID Tag</div>
                             </div>
                           </div>
                           <button onClick={() => handleUnassignRfid(tag.id)} disabled={rfidSubmitting}
@@ -2278,11 +2278,11 @@ export function FilterListPage() {
                   <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
                     <h4 className="text-sm font-medium text-slate-600 mb-2">CSV Columns</h4>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                      <span className="font-mono" style={{ color: 'var(--theme-primary)' }}>name</span><span className="text-slate-400">Filter ID/Name (required)</span>
-                      <span className="font-mono" style={{ color: 'var(--theme-primary)' }}>filterSet</span><span className="text-slate-400">A or B (required)</span>
+                      <span className="font-mono text-theme-primary">name</span><span className="text-slate-400">Filter ID/Name (required)</span>
+                      <span className="font-mono text-theme-primary">filterSet</span><span className="text-slate-400">A or B (required)</span>
                       {filterTemplateSchema.map((f, fi) => (
                         <Fragment key={f.fieldName}>
-                          <span className="font-mono" style={{ color: 'var(--theme-primary)' }}>{f.fieldName}</span>
+                          <span className="font-mono text-theme-primary">{f.fieldName}</span>
                           <span className="text-slate-400">
                             {f.dropdownOptions?.length ? f.dropdownOptions.join(', ') : f.dataType || 'Text'}
                             {f.required ? ' (required)' : ''}
@@ -2321,7 +2321,7 @@ export function FilterListPage() {
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-slate-600"><strong>{bulkUploadRows.length}</strong> filter(s) ready to upload into <strong>{bulkUploadAhus.find(h => h.id === bulkUploadAhu)?.name}</strong></p>
                     <button onClick={() => { setBulkUploadStep('select'); setBulkUploadFile(null); setBulkUploadRows([]); }}
-                      className="text-xs hover:opacity-80 font-medium" style={{ color: 'var(--theme-primary)' }}>Change file</button>
+                      className="text-xs hover:opacity-80 font-medium text-theme-primary">Change file</button>
                   </div>
                   <div className="max-h-64 overflow-auto border border-slate-200 rounded-lg">
                     <table className="w-full text-xs">

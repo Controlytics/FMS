@@ -308,7 +308,7 @@ function FilterAnalytics({ stats, showCard }: { stats: any; showCard: (key: stri
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-slate-800">Filter Cleaning Analytics</h2>
-        <Link to="/filters" className="text-sm font-medium flex items-center gap-1" style={{ color: 'var(--theme-primary)' }}>
+        <Link to="/filters" className="text-sm font-medium flex items-center gap-1 text-theme-primary">
           Go to Operations
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
         </Link>

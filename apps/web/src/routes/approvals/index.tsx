@@ -165,7 +165,7 @@ export function ApprovalsPage() {
                         <div className="flex items-center gap-1.5">
                           <span className="font-medium text-slate-700">{r.fromBlockName}</span>
                           <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
-                          <span className="font-medium" style={{ color: 'var(--theme-primary)' }}>{r.toBlockName}</span>
+                          <span className="font-medium text-theme-primary">{r.toBlockName}</span>
                         </div>
                       </div>
                       {r.reason && <p className="text-sm text-slate-400 mt-2">Reason: {r.reason}</p>}
