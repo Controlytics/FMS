@@ -9,7 +9,7 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
 
   app.get('/', {
     preHandler: [app.requirePermission('FCP_READ')],
-    schema: { tags: ['Checklist Profiles'], querystring: { type: 'object', properties: { page: { type: 'integer' }, limit: { type: 'integer' }, isActive: { type: 'string' } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
+    schema: { tags: ['Checklist Profiles'], querystring: { type: 'object', properties: { page: { type: 'integer' }, limit: { type: 'integer' }, isActive: { type: 'string' }, includeQuestions: { type: 'string' } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
   }, async (req) => service.list(buildContext(req), req.query as any));
 
   app.get('/:id', {

@@ -12,12 +12,18 @@ function orgFilter(ctx: RequestContext) {
 }
 
 export class ChecklistProfileService {
-  async list(ctx: RequestContext, query: { page?: number; limit?: number; isActive?: string }) {
+  async list(ctx: RequestContext, query: { page?: number; limit?: number; isActive?: string; includeQuestions?: string }) {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 50, 100);
     const where: any = { ...orgFilter(ctx) };
     if (query.isActive === 'true') where.isActive = true;
     else if (query.isActive === 'false') where.isActive = false;
+
+    // Mobile/offline clients need questions embedded so they can render
+    // checklists without making a second call per profile.
+    const includeQuestions = query.includeQuestions === 'true';
+    const include: any = { _count: { select: { questions: true } } };
+    if (includeQuestions) include.questions = { orderBy: { sortOrder: 'asc' } };
 
     const [data, total] = await Promise.all([
       prisma.checklistProfile.findMany({
@@ -25,16 +31,17 @@ export class ChecklistProfileService {
         skip: (page - 1) * limit,
         take: limit,
         orderBy: { createdAt: 'desc' },
-        include: { _count: { select: { questions: true } } },
+        include,
       }),
       prisma.checklistProfile.count({ where }),
     ]);
 
     return {
-      data: data.map(p => ({
+      data: data.map((p: any) => ({
         id: p.id, name: p.name, description: p.description,
         isActive: p.isActive, questionCount: p._count.questions,
         createdAt: p.createdAt, updatedAt: p.updatedAt,
+        ...(includeQuestions ? { questions: p.questions ?? [] } : {}),
       })),
       total, page, limit, totalPages: Math.ceil(total / limit),
     };

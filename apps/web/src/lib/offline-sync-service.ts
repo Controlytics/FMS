@@ -138,7 +138,7 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
     // 8. Checklist profiles (with questions)
     report(steps[currentStep]);
     try {
-      const checklistRes = await apiClient.get<any>('/api/checklist-profiles?limit=100&isActive=true');
+      const checklistRes = await apiClient.get<any>('/api/checklist-profiles?limit=100&isActive=true&includeQuestions=true');
       await cacheItem('checklist-profiles', checklistRes?.data ?? []);
     } catch { /* may not have permission */ }
     currentStep++;

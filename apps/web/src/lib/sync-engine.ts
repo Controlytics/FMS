@@ -111,6 +111,18 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
   // Clear stale filter-state caches so next online fetch gets fresh server data
   if (synced > 0) {
     await clearFilterStateCaches().catch(() => {});
+    // Force SWR to revalidate cleaning-cycle / event / asset endpoints so
+    // pages like Cleaning Cycle History, Timeline, and Filter Traceability
+    // reflect the synced operations without a manual refresh.
+    try {
+      const swr = await import('swr');
+      await Promise.all([
+        swr.mutate((key: any) => typeof key === 'string' && key.startsWith('/api/filter/cycles')),
+        swr.mutate((key: any) => typeof key === 'string' && key.startsWith('/api/filter/events')),
+        swr.mutate((key: any) => typeof key === 'string' && key.startsWith('/api/assets/instances')),
+        swr.mutate((key: any) => typeof key === 'string' && key.startsWith('/api/filters/')),
+      ]);
+    } catch { /* swr not available in some contexts — harmless */ }
   }
 
   syncing = false;

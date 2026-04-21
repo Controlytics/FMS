@@ -79,7 +79,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const [equipDialog, setEquipDialog] = useState<{ filterId: string; filterName: string; stage: string; groups: any[]; cycleGroup?: any } | null>(null);
   const [selectedEquipGroup, setSelectedEquipGroup] = useState<any>(null);
   const [readings, setReadings] = useState<Record<string, number>>({});
-  const [dryerDialog, setDryerDialog] = useState<{ filterId: string; filterName: string } | null>(null);
+  const [dryerDialog, setDryerDialog] = useState<{ filterId: string; filterName: string; needsCycleStart?: boolean; blockId?: string } | null>(null);
   const [dryerLoading, setDryerLoading] = useState(false);
   const [dryerError, setDryerError] = useState('');
   const [checklistDialog, setChecklistDialog] = useState<{ filterId: string; filterName: string; checklists: any[] } | null>(null);
@@ -91,7 +91,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const { data: reasonsData } = useSWR(online ? '/api/filters/reasons' : null);
   const { data: identifiersData } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null);
   const { data: equipGroupsData } = useSWR(online ? '/api/equipment-groups' : null);
-  const { data: checklistProfilesData } = useSWR(online ? '/api/checklist-profiles?limit=100' : null);
+  const { data: checklistProfilesData } = useSWR(online ? '/api/checklist-profiles?limit=100&includeQuestions=true' : null);
 
   // My Tasks + Approvals — fetch when user opens the view, cache for offline
   const { data: dueTasksData, mutate: mutateDueTasks, isLoading: dueTasksLoading } =
@@ -405,8 +405,17 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       const cachedState = await getCache<any>(`filter-state-${filterId}`) ?? {};
       const graph = cachedState.pipelineGraph;
 
-      // Check if pipeline has CHECKLIST nodes after the new stage
-      const checklistNodes = graph ? findChecklistsAfterStage(graph, newStage) : [];
+      // If a new cycle is starting, reset the answered-checklists tracker
+      // so previous cycle's history doesn't block the new one.
+      const prevAnswered: string[] = Array.isArray(cachedState.answeredChecklistStages)
+        ? cachedState.answeredChecklistStages : [];
+      const answeredStages: string[] = cycleStarted ? [] : prevAnswered;
+
+      // Check if pipeline has CHECKLIST nodes after the new stage.
+      // Skip if this stage's checklist was already answered in this cycle.
+      const checklistNodes = (graph && !answeredStages.includes(newStage))
+        ? findChecklistsAfterStage(graph, newStage)
+        : [];
       const pendingChecklist = checklistNodes.length > 0
         ? await buildOfflineChecklist(checklistNodes)
         : [];
@@ -430,11 +439,20 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
 
       // Only mark cycle complete if we have pipeline data to verify it AND there are truly no next stages
       const cycleComplete = hasGraphData && nextAllowed.length === 0 && pendingChecklist.length === 0 && !cycleStarted;
-      cache(`filter-state-${filterId}`, {
+      // AWAIT the cache write so callers that immediately read filter-state
+      // back (e.g. handleReasonSubmit) see the updated state — otherwise a
+      // race causes cycle 2's WASH_IN checklist to appear after WASH_OUT scan.
+      await cache(`filter-state-${filterId}`, {
         ...cachedState,
-        currentState: newStage,
-        nextAllowedStages: nextAllowed,
-        pendingChecklist,
+        // When a cycle completes offline, CLEAR the per-cycle state so the
+        // next cycle's first advance is treated as a fresh WASH_IN (reason
+        // dialog) instead of continuing from the old terminal state. Also
+        // clear any stale pendingChecklist / dryer info carried over.
+        currentState: cycleComplete ? null : newStage,
+        nextAllowedStages: cycleComplete ? [] : nextAllowed,
+        pendingChecklist: cycleComplete ? [] : pendingChecklist,
+        answeredChecklistStages: cycleComplete || cycleStarted ? [] : answeredStages,
+        equipmentGroup: cycleComplete ? null : cachedState.equipmentGroup,
         currentCycle: cycleComplete ? null : (cachedState.currentCycle ?? (cycleStarted ? { id: `offline-${Date.now()}`, status: 'IN_PROGRESS', cleaningAreaId: blockId ?? selectedBlock?.id ?? null } : null)),
       });
       // Also clear currentCycleId in filters store when cycle completes
@@ -463,19 +481,69 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         const cachedState = await getCache<any>(`filter-state-${filterId}`);
 
         const currentLifecycle = cached?.currentLifecycleState || cachedState?.currentState || null;
+        const graph = cachedState?.pipelineGraph;
 
-        // Use cached nextAllowedStages if available (from last online fetch or updateOfflineState)
-        // Otherwise compute from pipeline graph
-        let offlineNextAllowed: string[] = cachedState?.nextAllowedStages ?? [];
-        if (offlineNextAllowed.length === 0 && cachedState?.pipelineGraph) {
-          offlineNextAllowed = computeNextStages(cachedState.pipelineGraph, currentLifecycle);
-        }
-
-        // Block duplicate submission — if filter is already at this stage
-        if (currentLifecycle === activeStage.key && offlineNextAllowed.length > 0) {
-          setError(`Already at ${activeStage.label}. Next: ${offlineNextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`);
+        // Block mismatch: the cached pipeline was fetched for a different block.
+        // We don't have fresh graph/checklist data for the current block offline,
+        // so we can't safely proceed. Require the operator to come online once.
+        if (cachedState?.blockId && selectedBlock?.id && cachedState.blockId !== selectedBlock.id) {
+          setError('This filter was last synced for a different block. Please come online once so the cleaning profile for this block can be cached.');
           setLoading(false); return;
         }
+
+        // ALWAYS compute fresh from pipelineGraph — the cached nextAllowedStages
+        // can be stale when checklist status shifts or stages are walked past.
+        const validStageKeys: string[] = graph?.stages
+          ? graph.stages.filter((s: any) => s.nodeType === 'STAGE' && s.stateKey).map((s: any) => s.stateKey)
+          : [];
+        const freshNext = graph ? computeNextStages(graph, currentLifecycle) : (cachedState?.nextAllowedStages ?? []);
+
+        // Re-compute pendingChecklist from graph so it always reflects
+        // the CURRENT stage, not whatever was cached last.
+        // Skip the checklist if it was already answered for this cycle stage.
+        const answeredStages: string[] = Array.isArray(cachedState?.answeredChecklistStages)
+          ? cachedState.answeredChecklistStages : [];
+        let freshPendingChecklist: any[] = [];
+        if (graph && currentLifecycle && !answeredStages.includes(currentLifecycle)) {
+          const checklistNodes = findChecklistsAfterStage(graph, currentLifecycle);
+          if (checklistNodes.length > 0) {
+            freshPendingChecklist = await buildOfflineChecklist(checklistNodes);
+          }
+        }
+
+        // Block 1: stage must be configured in THIS block's profile.
+        // If user selected a stage not present in the pipeline at all,
+        // reject immediately with the next allowed stages.
+        if (validStageKeys.length > 0 && !validStageKeys.includes(activeStage.key)) {
+          const nextHint = freshNext.length > 0 ? freshNext.map((k: string) => k.replace(/_/g, ' ')).join(', ') : (validStageKeys.join(', '));
+          setError(`${activeStage.label} is not in this block's cleaning profile. Next: ${nextHint}`);
+          setLoading(false); return;
+        }
+
+        // Block 2: checklist pending — open dialog so operator can answer.
+        if (freshPendingChecklist.length > 0) {
+          setChecklistDialog({
+            filterId,
+            filterName: cached?.name || filterName,
+            checklists: freshPendingChecklist,
+          });
+          setChecklistAnswers({});
+          setLoading(false); return;
+        }
+
+        // Block 3: stage is valid but not the next one from current state.
+        if (freshNext.length > 0 && !freshNext.includes(activeStage.key)) {
+          setError(`This is not the correct stage. Next: ${freshNext.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`);
+          setLoading(false); return;
+        }
+
+        // Block 4: duplicate submission — already at this stage.
+        if (currentLifecycle === activeStage.key && freshNext.length > 0) {
+          setError(`Already at ${activeStage.label}. Next: ${freshNext.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`);
+          setLoading(false); return;
+        }
+
+        const offlineNextAllowed = freshNext;
 
         state = {
           filterId,
@@ -497,31 +565,72 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         try {
           const csUrl = `/api/filters/${filterId}/current-state${selectedBlock?.id ? `?cleaningAreaId=${encodeURIComponent(selectedBlock.id)}` : ''}`;
           state = await apiClient.get<any>(csUrl);
-          // Cache filter-specific state for offline use (equipmentGroup, pendingChecklist, pipeline)
+          // Cache filter-specific state for offline use. Include pipelineGraph
+          // so offline can compute next stages + checklists for THIS block.
+          // Also record blockId so later scans know which block the cache is for.
           cache(`filter-state-${filterId}`, {
+            currentState: state.currentState ?? null,
             equipmentGroup: state.equipmentGroup ?? null,
             pendingChecklist: state.pendingChecklist ?? [],
             pipelineStages: state.pipelineStages ?? [],
+            pipelineGraph: state.pipelineGraph ?? null,
+            nextAllowedStages: state.nextAllowedStages ?? [],
             isPmDue: state.isPmDue ?? false,
             pmReasonKey: state.pmReasonKey ?? null,
             currentCycle: state.currentCycle ?? null,
+            blockId: selectedBlock?.id ?? null,
+            blockChangeStatus: state.blockChangeStatus ?? null,
+            homeBlock: state.homeBlock ?? null,
           });
         } catch (e: any) {
           if (isNetworkError(e)) {
-            // Network dropped mid-request — use cached state (same as offline path)
+            // Network dropped mid-request — use cached state (same rules as offline path).
             const cachedFilters = await getOfflineFilters();
             const cached = cachedFilters.find((f: any) => f.id === filterId);
             const cachedState = await getCache<any>(`filter-state-${filterId}`);
 
             const currentLifecycle = cached?.currentLifecycleState || cachedState?.currentState || null;
-            let offlineNextAllowed: string[] = cachedState?.nextAllowedStages ?? [];
-            if (offlineNextAllowed.length === 0 && cachedState?.pipelineGraph) {
-              offlineNextAllowed = computeNextStages(cachedState.pipelineGraph, currentLifecycle);
+            const graph = cachedState?.pipelineGraph;
+
+            // Compute fresh from graph (not stale nextAllowedStages).
+            const validStageKeys: string[] = graph?.stages
+              ? graph.stages.filter((s: any) => s.nodeType === 'STAGE' && s.stateKey).map((s: any) => s.stateKey)
+              : [];
+            const freshNext = graph ? computeNextStages(graph, currentLifecycle) : (cachedState?.nextAllowedStages ?? []);
+
+            const answeredStages: string[] = Array.isArray(cachedState?.answeredChecklistStages)
+              ? cachedState.answeredChecklistStages : [];
+            let freshPendingChecklist: any[] = [];
+            if (graph && currentLifecycle && !answeredStages.includes(currentLifecycle)) {
+              const checklistNodes = findChecklistsAfterStage(graph, currentLifecycle);
+              if (checklistNodes.length > 0) {
+                freshPendingChecklist = await buildOfflineChecklist(checklistNodes);
+              }
             }
-            if (currentLifecycle === activeStage.key && offlineNextAllowed.length > 0) {
-              setError(`Already at ${activeStage.label}. Next: ${offlineNextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`);
+
+            if (validStageKeys.length > 0 && !validStageKeys.includes(activeStage.key)) {
+              const nextHint = freshNext.length > 0 ? freshNext.map((k: string) => k.replace(/_/g, ' ')).join(', ') : (validStageKeys.join(', '));
+              setError(`${activeStage.label} is not in this block's cleaning profile. Next: ${nextHint}`);
               setLoading(false); return;
             }
+            if (freshPendingChecklist.length > 0) {
+              setChecklistDialog({
+                filterId,
+                filterName: cached?.name || filterName,
+                checklists: freshPendingChecklist,
+              });
+              setChecklistAnswers({});
+              setLoading(false); return;
+            }
+            if (freshNext.length > 0 && !freshNext.includes(activeStage.key)) {
+              setError(`This is not the correct stage. Next: ${freshNext.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`);
+              setLoading(false); return;
+            }
+            if (currentLifecycle === activeStage.key && freshNext.length > 0) {
+              setError(`Already at ${activeStage.label}. Next: ${freshNext.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`);
+              setLoading(false); return;
+            }
+            const offlineNextAllowed = freshNext;
 
             state = {
               filterId,
@@ -570,6 +679,13 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       if (nextAllowed.length > 0 && !nextAllowed.includes(activeStage.key)) { setError(`Next allowed: ${nextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`); setLoading(false); return; }
       // Check if there's an active IN_PROGRESS cycle — completed/terminated cycles don't count
       const hasActiveCycle = state.currentCycle && state.currentCycle.status === 'IN_PROGRESS';
+      // Starting a cycle at DRY_IN: skip reason dialog entirely and open
+      // the dryer duration dialog. handleDryerDurationSubmit does the
+      // compound start-cycle + advance + SET_DURATION using a default reason.
+      if (!hasActiveCycle && activeStage.key === 'DRY_IN') {
+        setDryerDialog({ filterId, filterName: filterName || state.filterName, needsCycleStart: true, blockId: selectedBlock?.id });
+        setLoading(false); return;
+      }
       if (!hasActiveCycle) {
         // PM auto-start: if the filter's AHU is currently in a PM schedule
         // window and a "PM" cleaning reason is configured, skip the reason
@@ -588,6 +704,25 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
 
             if (!cycleStarted) {
               await updateOfflineState(filterId, activeStage.key, true, selectedBlock?.id);
+              // Pipeline starts with DRY_IN: still need to prompt for
+              // dryer duration even when the start was queued offline.
+              if (activeStage.key === 'DRY_IN') {
+                setDryerDialog({ filterId, filterName: fName });
+                setLoading(false); return;
+              }
+              // If the newly-entered stage has a CHECKLIST right after it
+              // in the pipeline, open the dialog NOW so the operator can
+              // answer it before scanning the next stage (otherwise the
+              // checklist only shows on the next scan, confusing the user).
+              try {
+                const refreshed = await getCache<any>(`filter-state-${filterId}`);
+                const pending = Array.isArray(refreshed?.pendingChecklist) ? refreshed.pendingChecklist : [];
+                if (pending.length > 0) {
+                  setChecklistDialog({ filterId, filterName: fName, checklists: pending });
+                  setChecklistAnswers({});
+                  setScanValue(''); setRemarks(''); setLoading(false); return;
+                }
+              } catch { /* ignore */ }
               setSuccess(`${fName} → ${activeStage.label} (PM auto, queued)`);
               setRecentOps(prev => [{ stage: activeStage.key, filter: fName, time: formatTime(new Date()), queued: true }, ...prev].slice(0, 20));
               setScanValue(''); setRemarks(''); setLoading(false); return;
@@ -602,6 +737,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 setSelectedEquipGroup(null); setReadings({});
                 setLoading(false); return;
               }
+            }
+            // Pipeline starts with DRY_IN: cycle started, prompt for
+            // dryer duration (SET_DURATION) before leaving DRY_IN.
+            if (activeStage.key === 'DRY_IN') {
+              setDryerDialog({ filterId, filterName: fName });
+              setScanValue(''); setRemarks(''); setLoading(false); return;
             }
             setSuccess(`${fName} → ${activeStage.label} (PM auto)`);
             setRecentOps(prev => [{ stage: activeStage.key, filter: fName, time: formatTime(new Date()) }, ...prev].slice(0, 20));
@@ -652,6 +793,17 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         if (result?.pendingChecklist?.length > 0) { setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: result.pendingChecklist }); setChecklistAnswers({}); }
       } else {
         await updateOfflineState(filterId, activeStage.key, false);
+        // Offline: if the new stage triggers a checklist, open the dialog now
+        // so the operator can complete it before continuing. Mirrors the
+        // online path which opens the dialog from result.pendingChecklist.
+        try {
+          const refreshed = await getCache<any>(`filter-state-${filterId}`);
+          const pending = Array.isArray(refreshed?.pendingChecklist) ? refreshed.pendingChecklist : [];
+          if (pending.length > 0) {
+            setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: pending });
+            setChecklistAnswers({});
+          }
+        } catch { /* ignore */ }
       }
     } catch (e: any) {
       if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
@@ -701,6 +853,26 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
 
       if (!cycleExecuted) {
         await updateOfflineState(reasonDialog.filterId, reasonDialog.stage, true, selectedBlock?.id);
+        // Pipeline starts with DRY_IN: after queuing the start-cycle offline,
+        // we still need the operator to enter dryer duration. Opening the
+        // dryer dialog lets handleDryerDurationSubmit queue SET_DURATION.
+        if (reasonDialog.stage === 'DRY_IN') {
+          setDryerDialog({ filterId: reasonDialog.filterId, filterName: reasonDialog.filterName });
+          setReasonDialog(null); setLoading(false); return;
+        }
+        // If a CHECKLIST sits immediately after the newly-entered stage,
+        // open the dialog right after the cycle start so the operator can
+        // answer it before the next scan. Without this, the checklist from
+        // WASH_IN would only appear when the operator later scans WASH_OUT.
+        try {
+          const refreshed = await getCache<any>(`filter-state-${reasonDialog.filterId}`);
+          const pending = Array.isArray(refreshed?.pendingChecklist) ? refreshed.pendingChecklist : [];
+          if (pending.length > 0) {
+            setChecklistDialog({ filterId: reasonDialog.filterId, filterName: reasonDialog.filterName, checklists: pending });
+            setChecklistAnswers({});
+            setScanValue(''); setRemarks(''); setReasonDialog(null); setLoading(false); return;
+          }
+        } catch { /* ignore */ }
         setSuccess(`${reasonDialog.filterName} → ${reasonDialog.stage.replace(/_/g, ' ')} (queued)`);
         setRecentOps(prev => [{ stage: reasonDialog.stage, filter: reasonDialog.filterName, time: formatTime(new Date()), queued: true }, ...prev].slice(0, 20));
         setScanValue(''); setRemarks(''); setReasonDialog(null); setLoading(false); return;
@@ -709,6 +881,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       if (reasonDialog.stage === 'WASH_IN' && selectedBlock?.id) {
         const groups = await getEquipmentGroupsForBlock(selectedBlock.id);
         if (groups?.length) { setReasonDialog(null); setEquipDialog({ filterId: reasonDialog.filterId, filterName: reasonDialog.filterName, stage: reasonDialog.stage, groups }); setSelectedEquipGroup(null); setReadings({}); setLoading(false); return; }
+      }
+      // Pipeline starts with DRY_IN: cycle started successfully, now ask
+      // for dryer duration (SET_DURATION advance) before the operator can
+      // leave DRY_IN — same flow as WASH_IN -> equipment dialog above.
+      if (reasonDialog.stage === 'DRY_IN') {
+        setReasonDialog(null);
+        setDryerDialog({ filterId: reasonDialog.filterId, filterName: reasonDialog.filterName });
+        setScanValue(''); setRemarks(''); setLoading(false); return;
       }
       setSuccess(`${reasonDialog.filterName} → ${reasonDialog.stage.replace(/_/g, ' ')}`);
       setRecentOps(prev => [{ stage: reasonDialog.stage, filter: reasonDialog.filterName, time: formatTime(new Date()) }, ...prev].slice(0, 20));
@@ -728,9 +908,34 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     if (!dryerDialog || dryerLoading) return;
     setDryerLoading(true); setDryerError('');
     try {
+      const blockId = dryerDialog.blockId ?? selectedBlock?.id;
+
+      // Starting a cycle at DRY_IN: do compound start-cycle + advance first
+      // (so SET_DURATION below has a DRY_IN filter to operate on).
+      if (dryerDialog.needsCycleStart) {
+        const cachedReasons = (await getCache<any[]>('cleaning-reasons')) ?? [];
+        const defaultReason = cachedReasons.find((r: any) => r?.isActive !== false) ?? cachedReasons[0];
+        const reasonKey = defaultReason?.key;
+        if (!reasonKey) {
+          setDryerError('No cleaning reason configured. Please add one under Config > Cleaning Reasons.');
+          setDryerLoading(false); return;
+        }
+        const cyclePayload = { cleaningReasonKey: reasonKey, cleaningAreaId: blockId };
+        const advancePayload = { targetState: 'DRY_IN', cleaningAreaId: blockId, remarks: remarks || `DRY_IN - ${dryerDialog.filterName}` };
+        const { executed: startedExec } = await executeOrQueue(
+          'start-and-advance', dryerDialog.filterId, dryerDialog.filterName,
+          { cyclePayload, advancePayload } as any, 'DRY_IN',
+        );
+        // If the compound op was queued offline, the SET_DURATION below will also
+        // be queued. Offline state is updated in the shared block after SET_DURATION.
+        if (!startedExec) {
+          await updateOfflineState(dryerDialog.filterId, 'DRY_IN', true, blockId);
+        }
+      }
+
       const payload = {
         targetState: 'DRY_IN',
-        cleaningAreaId: selectedBlock?.id,
+        cleaningAreaId: blockId,
         dryerAction: 'SET_DURATION',
         dryerDurationMinutes: minutes,
         remarks: remarks || `Dryer started (${minutes} min) - ${dryerDialog.filterName}`,
@@ -823,16 +1028,24 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     try {
       const { executed } = await executeOrQueue('submit-checklist', checklistDialog.filterId, checklistDialog.filterName, { answers: checklistAnswers });
       setSuccess(`Checklist submitted${executed ? '' : ' (queued)'}`);
-      // After checklist answered, update cached state: clear pendingChecklist, compute next stages
-      if (!executed) {
-        try {
-          const cs = await getCache<any>(`filter-state-${checklistDialog.filterId}`) ?? {};
-          const currentStage = cs.currentState;
-          // Walk past checklist nodes to find next STAGE nodes
-          const nextAllowed = cs.pipelineGraph ? computeNextStages(cs.pipelineGraph, currentStage) : [];
-          cache(`filter-state-${checklistDialog.filterId}`, { ...cs, pendingChecklist: [], nextAllowedStages: nextAllowed });
-        } catch { /* ignore */ }
-      }
+      // After checklist answered, update cached state:
+      //   - mark currentStage as "checklist answered" so fresh computes skip it
+      //   - clear pendingChecklist, recompute next allowed stages
+      try {
+        const cs = await getCache<any>(`filter-state-${checklistDialog.filterId}`) ?? {};
+        const currentStage = cs.currentState;
+        const nextAllowed = cs.pipelineGraph ? computeNextStages(cs.pipelineGraph, currentStage) : (cs.nextAllowedStages ?? []);
+        const prevAnswered: string[] = Array.isArray(cs.answeredChecklistStages) ? cs.answeredChecklistStages : [];
+        const answeredStages = currentStage && !prevAnswered.includes(currentStage)
+          ? [...prevAnswered, currentStage]
+          : prevAnswered;
+        await cache(`filter-state-${checklistDialog.filterId}`, {
+          ...cs,
+          pendingChecklist: [],
+          nextAllowedStages: nextAllowed,
+          answeredChecklistStages: answeredStages,
+        });
+      } catch { /* ignore */ }
       setChecklistDialog(null); setChecklistAnswers({});
       if (executed) mutate('/api/assets/instances?limit=500');
     } catch (e: any) { setError(e.message ?? 'Failed'); }

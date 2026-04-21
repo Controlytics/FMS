@@ -22,6 +22,7 @@ import { ConfigIndexPage } from './routes/config/index';
 import { PasswordPolicyPage } from './routes/config/password-policy';
 import { DatetimeConfigPage } from './routes/config/datetime';
 import { BrandingConfigPage } from './routes/config/branding';
+import { initOfflineDB} from './lib/sqllite-db';
 // removed: RolePrivilegesPage
 import { RoleAccessPage } from './routes/config/role-access';
 // removed: SidebarConfigPage
@@ -113,6 +114,10 @@ function LazyFallback() {
 if ((window as any).Capacitor?.isNativePlatform?.() && !window.location.pathname.startsWith('/m')) {
   window.location.href = '/m/login';
 }
+
+initOfflineDB().catch((err: unknown) => {
+  console.error("Failed to initialize offline database", err);
+});
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

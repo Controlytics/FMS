@@ -252,8 +252,16 @@ export function CleaningCycleHistoryPage() {
                 const dryIn = getStageInfo(c.events ?? [], 'DRY_IN');
                 const dryOut = getStageInfo(c.events ?? [], 'DRY_OUT');
                 const washReadings = washIn?.readings ?? [];
-                const dryReadings = dryOut?.readings ?? dryIn?.readings ?? [];
-                const dryerTemp = getReading(dryReadings, 'dryer') !== '-' ? getReading(dryReadings, 'dryer') : getReading(dryReadings, 'temperature');
+                // Prefer DRY_OUT event readings (where SUBMIT_READINGS is posted),
+                // fall back to DRY_IN and also check WASH_OUT in case the readings
+                // were attached to that transition by older builds.
+                const dryReadings = dryOut?.readings ?? dryIn?.readings ?? washOut?.readings ?? [];
+                // Try multiple description keywords — instrument may be named
+                // "Dryer Temperature", "Oven Temp", just "Temp", etc.
+                const dryerTemp =
+                  getReading(dryReadings, 'dryer') !== '-' ? getReading(dryReadings, 'dryer') :
+                  getReading(dryReadings, 'temperature') !== '-' ? getReading(dryReadings, 'temperature') :
+                  getReading(dryReadings, 'temp');
                 const duration = getDuration(c);
                 const sc = STATUS_CONFIG[c.status];
 
