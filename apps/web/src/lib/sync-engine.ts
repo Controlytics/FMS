@@ -1,5 +1,16 @@
 /**
  * Sync Engine — Replays queued offline operations when back online.
+ *
+ * Order on each tick:
+ *   1. Refresh JWT (so an 8h-expired token doesn't 401 the whole batch)
+ *   2. Drain tombstones (deletes/terminations first — keeps audit consistent)
+ *   3. Drain queued mutations (FIFO)
+ *   4. Compact synced operations older than retention window
+ *
+ * Every replayed call carries:
+ *   - x-offline-replay: true            (skips reauth on backend)
+ *   - x-client-op-id: <uuid>            (idempotency key — backend dedups)
+ *   - body.offlinePerformedAt           (preserves real action time in audit)
  */
 import { apiClient } from './api-client';
 import {
@@ -7,6 +18,11 @@ import {
   updateOperationStatus,
   clearSyncedOperations,
   onOnlineStatusChange,
+  getPendingTombstones,
+  updateTombstoneStatus,
+  clearSyncedTombstones,
+  compactSyncedOperations,
+  evictLruCache,
 } from './offline-store';
 
 type SyncListener = (event: { type: 'start' | 'progress' | 'complete' | 'error' | 'interrupted'; synced?: number; total?: number; error?: string }) => void;
@@ -30,20 +46,34 @@ function notify(event: Parameters<SyncListener>[0]) {
  * Sends x-offline-replay header so the backend skips re-authentication.
  * For 'start-and-advance' compound ops: runs start-cycle first, then advance.
  */
-async function executeOperation(op: { type: string; filterId: string; payload: Record<string, any>; createdAt: string }): Promise<void> {
-  const headers: Record<string, string> = { 'x-offline-replay': 'true' };
-  // Inject the original offline timestamp so the backend records the correct time
+async function executeOperation(op: { type: string; filterId: string; payload: Record<string, any>; createdAt: string; clientOpId?: string }): Promise<void> {
+  // x-client-op-id makes replay idempotent — backend stores it on FilterEvent.attributes
+  // and returns the cached response if the same id arrives twice. For start-and-advance
+  // we suffix to differentiate the two underlying mutations.
+  const headers: Record<string, string> = {
+    'x-offline-replay': 'true',
+    ...(op.clientOpId ? { 'x-client-op-id': op.clientOpId } : {}),
+  };
   const offlineTime = op.createdAt;
 
   if (op.type === 'start-and-advance') {
     const { cyclePayload, advancePayload } = op.payload as { cyclePayload: Record<string, any>; advancePayload: Record<string, any> };
     try {
-      await apiClient.post(`/api/filters/${op.filterId}/start-cycle`, { ...cyclePayload, offlinePerformedAt: offlineTime }, headers);
+      await apiClient.post(
+        `/api/filters/${op.filterId}/start-cycle`,
+        { ...cyclePayload, offlinePerformedAt: offlineTime, clientOpId: op.clientOpId ? `${op.clientOpId}:start` : undefined },
+        { ...headers, ...(op.clientOpId ? { 'x-client-op-id': `${op.clientOpId}:start` } : {}) },
+      );
     } catch (e: any) {
       const code = e?.code || e?.error || '';
+      // CYCLE_ACTIVE is a benign race — start succeeded earlier, just continue with advance
       if (code !== 'CYCLE_ACTIVE') throw e;
     }
-    await apiClient.post(`/api/filters/${op.filterId}/advance`, { ...advancePayload, offlinePerformedAt: offlineTime }, headers);
+    await apiClient.post(
+      `/api/filters/${op.filterId}/advance`,
+      { ...advancePayload, offlinePerformedAt: offlineTime, clientOpId: op.clientOpId ? `${op.clientOpId}:advance` : undefined },
+      { ...headers, ...(op.clientOpId ? { 'x-client-op-id': `${op.clientOpId}:advance` } : {}) },
+    );
     return;
   }
 
@@ -51,7 +81,62 @@ async function executeOperation(op: { type: string; filterId: string; payload: R
     ? `/api/filters/${op.filterId}/terminate-cycle`
     : `/api/filters/${op.filterId}/${op.type}`;
 
-  await apiClient.post(url, { ...op.payload, offlinePerformedAt: offlineTime }, headers);
+  await apiClient.post(url, { ...op.payload, offlinePerformedAt: offlineTime, clientOpId: op.clientOpId }, headers);
+}
+
+/**
+ * Drain tombstones (deletes/terminations queued offline) before mutations.
+ * Doing this first keeps audit history consistent — e.g. terminate-then-restart
+ * is replayed in the right order.
+ */
+async function syncTombstones(): Promise<void> {
+  let pending: any[];
+  try { pending = await getPendingTombstones(); } catch { return; }
+  if (pending.length === 0) return;
+
+  for (const t of pending) {
+    try {
+      await updateTombstoneStatus(t.id, 'syncing');
+      const headers: Record<string, string> = {
+        'x-offline-replay': 'true',
+        'x-client-op-id': t.clientOpId,
+      };
+      if (t.entityType === 'cycle') {
+        await apiClient.post(
+          `/api/filters/${t.payload?.filterId ?? ''}/terminate-cycle`,
+          { reason: t.payload?.reason ?? 'Offline terminate', clientOpId: t.clientOpId },
+          headers,
+        );
+      } else if (t.entityType === 'block-change-request') {
+        await apiClient.delete(`/api/block-change-requests/${t.entityId}`);
+      }
+      await updateTombstoneStatus(t.id, 'synced');
+    } catch (e: any) {
+      const errMsg = e?.message ?? e?.error ?? 'Tombstone sync failed';
+      await updateTombstoneStatus(t.id, t.retryCount >= MAX_RETRIES - 1 ? 'failed' : 'pending', errMsg);
+    }
+  }
+  await clearSyncedTombstones().catch(() => {});
+}
+
+/**
+ * Refresh JWT before draining the queue. Long offline sessions can outlast
+ * the 8h token, which would 401 every queued op. If refresh itself 401s,
+ * keep the queue intact and surface the error so the UI can prompt re-login.
+ */
+async function refreshTokenBeforeSync(): Promise<{ ok: boolean; error?: string }> {
+  const token = sessionStorage.getItem('access_token') || localStorage.getItem('access_token_backup');
+  if (!token) return { ok: false, error: 'No token in storage' };
+  try {
+    const res = await apiClient.post<{ token: string }>('/api/auth/refresh', {});
+    if (res?.token) {
+      sessionStorage.setItem('access_token', res.token);
+      localStorage.setItem('access_token_backup', res.token);
+    }
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'Token refresh failed' };
+  }
 }
 
 export async function syncPendingOperations(): Promise<{ synced: number; failed: number }> {
@@ -72,6 +157,17 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
     // Server not reachable — skip sync
     return { synced: 0, failed: 0 };
   }
+
+  // Refresh JWT before draining — long offline sessions can outlive the 8h token.
+  // If refresh fails with anything other than network error, surface and bail.
+  const refresh = await refreshTokenBeforeSync();
+  if (!refresh.ok) {
+    notify({ type: 'error', error: `Token refresh failed: ${refresh.error}. Re-login required to sync.` });
+    return { synced: 0, failed: 0 };
+  }
+
+  // Drain tombstones first so deletes apply before any mutation that follows
+  await syncTombstones();
 
   syncing = true;
   notify({ type: 'start', total: pending.length });
@@ -110,6 +206,9 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
   }
 
   await clearSyncedOperations().catch(() => {});
+  // Periodic compaction + LRU eviction — keeps IndexedDB from growing unbounded
+  await compactSyncedOperations().catch(() => {});
+  await evictLruCache().catch(() => {});
   // Note: don't wipe filter-state caches here. Next /current-state fetch from the
   // UI will overwrite the cache with fresh server data; blanket clearing breaks
   // users who go offline again before that fetch happens.

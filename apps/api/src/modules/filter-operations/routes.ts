@@ -95,6 +95,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           cleaningAreaId: { type: 'string', format: 'uuid' },
           equipmentGroupId: { type: 'string', format: 'uuid' },
           offlinePerformedAt: { type: 'string', format: 'date-time' },
+          clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay' },
         },
       },
       response: {
@@ -143,6 +144,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           dryerAction: { type: 'string', enum: ['SET_DURATION', 'SUBMIT_READINGS'] },
           dryerDurationMinutes: { type: 'integer', minimum: 1, maximum: 1440 },
           offlinePerformedAt: { type: 'string', format: 'date-time' },
+          clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay' },
         },
       },
       response: {
@@ -187,6 +189,8 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
             additionalProperties: true,
             description: 'Map of questionId -> answer value',
           },
+          offlinePerformedAt: { type: 'string', format: 'date-time' },
+          clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay' },
         },
       },
       response: {
@@ -231,6 +235,8 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           targetState: { type: 'string' },
           justification: { type: 'string', minLength: 10 },
           parameters: { type: 'object' },
+          offlinePerformedAt: { type: 'string', format: 'date-time' },
+          clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay' },
         },
       },
       response: {
@@ -359,7 +365,15 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
       tags: ['Filter Operations'],
       summary: 'Terminate active cleaning cycle',
       params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
-      body: { type: 'object', required: ['justification'], properties: { justification: { type: 'string', minLength: 10 } } },
+      body: {
+        type: 'object',
+        required: ['justification'],
+        properties: {
+          justification: { type: 'string', minLength: 10 },
+          offlinePerformedAt: { type: 'string', format: 'date-time' },
+          clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay' },
+        },
+      },
       response: {
         200: {
           type: 'object',

@@ -8,6 +8,7 @@ import { AppError } from '../../lib/errors.js';
 import { createHash } from 'node:crypto';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { orgScope } from '../../lib/org-scope.js';
+import { findExistingByClientOpId } from '../../lib/idempotency.js';
 
 function computeChecksum(data: Record<string, unknown>): string {
   const canonical = JSON.stringify(data, Object.keys(data).sort());
@@ -558,6 +559,12 @@ export class FilterOperationsService {
     const { cleaningReasonKey, cleaningAreaId, equipmentGroupId } = data;
     // offlinePerformedAt: original timestamp from when the user performed the action offline
     const offlineTime = data.offlinePerformedAt ? new Date(data.offlinePerformedAt) : undefined;
+    // Idempotent replay: if this clientOpId was already processed, return current state
+    // instead of creating a duplicate cycle.
+    const clientOpId: string | null = data.clientOpId ?? null;
+    if (clientOpId && await findExistingByClientOpId(filterId, clientOpId)) {
+      return this.getCurrentState(ctx, filterId);
+    }
     const cleaningJustification = typeof data.cleaningJustification === "string" ? data.cleaningJustification.replace(/</g, "&lt;").replace(/>/g, "&gt;") : data.cleaningJustification;
 
     const filter = await this.getFilter(filterId, ctx);
@@ -637,7 +644,7 @@ export class FilterOperationsService {
         data: {
           filterId, cycleId: newCycle.id, eventType: 'CYCLE_STARTED',
           performedBy: ctx.userSub, cleaningAreaId: cleaningAreaId ?? null,
-          attributes: { cleaningReasonKey, cleaningReasonLabel: reason.name },
+          attributes: { cleaningReasonKey, cleaningReasonLabel: reason.name, ...(clientOpId ? { clientOpId } : {}) },
           remarks: cleaningJustification ?? null,
           checksum: computeChecksum({ filterId, cycleId: newCycle.id, eventType: 'CYCLE_STARTED', performedBy: ctx.userSub }),
           ipAddress: ctx.ipAddress, telemetrySnapshot: {},
@@ -668,6 +675,12 @@ export class FilterOperationsService {
     const { targetState, parameters, equipmentId, cleaningAreaId, instrumentReadings, equipmentGroupId, dryerAction, dryerDurationMinutes } = data;
     const offlineTime = data.offlinePerformedAt ? new Date(data.offlinePerformedAt) : undefined;
     const remarks = typeof data.remarks === "string" ? data.remarks.replace(/</g, "&lt;").replace(/>/g, "&gt;") : data.remarks;
+    // Idempotent replay: same clientOpId == same logical operation. Return current
+    // state instead of double-applying.
+    const clientOpId: string | null = data.clientOpId ?? null;
+    if (clientOpId && await findExistingByClientOpId(filterId, clientOpId)) {
+      return this.getCurrentState(ctx, filterId);
+    }
 
     const filter = await this.getFilter(filterId, ctx);
     if (!filter.currentCycleId) throw new AppError(400, 'NO_CYCLE', 'No active cleaning cycle');
