@@ -628,7 +628,11 @@ export function FilterDataManagementPage() {
             { key: 'filter-events', label: 'Filter Events' },
             { key: 'alarms', label: 'Alarms' },
             { key: 'pm-entries', label: 'PM Entries' },
-            ...genericTabs.map(t => ({ key: t.key, label: t.label })),
+            { key: 'audit-trail', label: 'Audit Trail' },
+            { key: 'notifications', label: 'Notifications' },
+            { key: 'admin-requests', label: 'Admin Requests' },
+            { key: 'block-changes', label: 'Block Changes' },
+            ...genericTabs.map((t: GenericTabDef) => ({ key: t.key, label: t.label })),
           ].map(t => (
             <button key={t.key} onClick={() => { setTab(t.key); setEditingId(null); setSearch(''); }}
               className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all ${
