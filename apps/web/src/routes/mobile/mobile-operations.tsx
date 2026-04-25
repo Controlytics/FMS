@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
@@ -73,6 +73,20 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const [success, setSuccess] = useState('');
   const [recentOps, setRecentOps] = useState<Array<{ stage: string; filter: string; time: string; queued?: boolean }>>([]);
 
+  // RFID scan input ref + focus management. autoFocus only fires once on mount,
+  // so after the first scan succeeds the input loses focus and subsequent RFID
+  // keystrokes hit document.body — third-party apps work because they keep one
+  // input permanently focused. We do the same: refocus after every successful
+  // scan, dialog close, view change, AND we install a global keydown trap on
+  // the stage view that pipes RFID-speed keystrokes to the input regardless
+  // of where focus is. (RFID readers in UKB mode type 3-50ms between keys;
+  // humans type 80-300ms — anything ≤80ms is RFID.)
+  const scanInputRef = useRef<HTMLInputElement>(null);
+  const focusScanInput = () => {
+    // setTimeout(0) so the focus runs after React commits the next paint
+    setTimeout(() => { scanInputRef.current?.focus(); }, 0);
+  };
+
   // Dialogs
   const [reasonDialog, setReasonDialog] = useState<{ filterId: string; filterName: string; stage: string } | null>(null);
   const [selectedReason, setSelectedReason] = useState('');
@@ -85,6 +99,90 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const [dryerError, setDryerError] = useState('');
   const [checklistDialog, setChecklistDialog] = useState<{ filterId: string; filterName: string; checklists: any[] } | null>(null);
   const [checklistAnswers, setChecklistAnswers] = useState<Record<string, any>>({});
+
+  // Refocus the scan input whenever we enter the stage view, all dialogs close,
+  // or success flashes. autoFocus only fires once on mount, so without this
+  // the operator has to manually tap the input after every successful scan
+  // before the next RFID trigger does anything.
+  useEffect(() => {
+    if (view === 'stage' && !reasonDialog && !equipDialog && !checklistDialog && !dryerDialog && !blockChangeDialog) {
+      focusScanInput();
+    }
+  }, [view, reasonDialog, equipDialog, checklistDialog, dryerDialog, blockChangeDialog, success]);
+
+  // Global RFID-burst capture on the stage view. Even if focus has drifted to
+  // body / a button / the remarks textarea, an RFID trigger fires keystrokes at
+  // 3-50ms intervals — way faster than human typing. We catch those bursts at
+  // document level, build the tag string, and stuff it into the scan input.
+  // This is what third-party RFID apps do: they don't trust focus, they listen
+  // globally and forward to the active scan field.
+  useEffect(() => {
+    if (view !== 'stage') return;
+    let buffer = '';
+    let lastKeyTime = 0;
+    let captureMode = false;
+    const RFID_INTERVAL_MS = 80;   // ≤ this gap = RFID, not human
+    const FLUSH_TIMEOUT_MS = 100;  // burst ended → commit buffer
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const commitBuffer = () => {
+      if (buffer.length >= 4) {
+        setScanValue(buffer);
+        focusScanInput();
+      }
+      buffer = '';
+      captureMode = false;
+    };
+
+    const handler = (e: KeyboardEvent) => {
+      const now = Date.now();
+      const gap = now - lastKeyTime;
+      lastKeyTime = now;
+
+      // Enter terminates an RFID burst — readers usually append CR/LF
+      if (e.key === 'Enter') {
+        if (captureMode || buffer.length > 0) {
+          e.preventDefault();
+          if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+          if (buffer.length >= 4) {
+            const toSubmit = buffer;
+            buffer = ''; captureMode = false;
+            setTimeout(() => {
+              setScanValue(toSubmit);
+              if (scanQueue.length > 0) handleAddToQueue(); else handleSubmit();
+            }, 0);
+          } else {
+            buffer = '';
+            captureMode = false;
+          }
+        }
+        return;
+      }
+
+      if (e.key.length !== 1) return;
+
+      // Fast key after a recent fast key (or first key with no human-speed predecessor) → RFID
+      if (gap <= RFID_INTERVAL_MS || captureMode) {
+        const target = e.target as HTMLElement | null;
+        const isScanInput = target === scanInputRef.current;
+        captureMode = true;
+        buffer += e.key;
+        // Don't preventDefault if it's already in the scan input — let normal typing happen too
+        if (!isScanInput) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        if (flushTimer) clearTimeout(flushTimer);
+        flushTimer = setTimeout(commitBuffer, FLUSH_TIMEOUT_MS);
+      }
+    };
+
+    document.addEventListener('keydown', handler, true);
+    return () => {
+      document.removeEventListener('keydown', handler, true);
+      if (flushTimer) clearTimeout(flushTimer);
+    };
+  }, [view, scanQueue.length]);
 
   // Data — always fetch when online, cache for offline
   const { data: instancesData } = useSWR(online ? '/api/assets/instances?limit=500' : null, { refreshInterval: 15000 });
@@ -1670,8 +1768,17 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 )}
 
                 <div className="flex gap-2">
-                  <input type="text" value={scanValue} onChange={e => { setScanValue(e.target.value); setError(''); }}
+                  <input ref={scanInputRef} type="text" value={scanValue} onChange={e => { setScanValue(e.target.value); setError(''); }}
                     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); scanQueue.length > 0 ? handleAddToQueue() : handleSubmit(); } }}
+                    onBlur={() => {
+                      // If focus drifted to body or a non-input element, snap back.
+                      // Lets buttons and the submit flow steal focus, but never lets
+                      // focus end up on document.body where RFID keystrokes get lost.
+                      setTimeout(() => {
+                        const ae = document.activeElement;
+                        if (!ae || ae === document.body) focusScanInput();
+                      }, 50);
+                    }}
                     placeholder="Scan or type filter name..."
                     data-rfid="true"
                     className="flex-1 bg-white border-2 border-slate-200 rounded-2xl px-4 py-4 text-base text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-cyan-500 shadow-sm" autoFocus />
