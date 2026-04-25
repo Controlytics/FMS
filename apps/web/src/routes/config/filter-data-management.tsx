@@ -91,6 +91,45 @@ function getAlarmClearedValue(a: any): string | null { return extractAlarmValue(
 
 // PM entry helpers — month names + status derivation matches /pm-schedules/:entityId detail page
 const PM_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// Audit-trail Success/Fail derivation matches /audit page behavior
+function getAuditStatus(action: string): 'Success' | 'Fail' {
+  if (!action) return 'Success';
+  return action.toUpperCase().includes('FAIL') || action.toUpperCase().includes('REJECT') || action.toUpperCase().includes('DENIED')
+    ? 'Fail' : 'Success';
+}
+
+// Notification type → color (matches /notifications typeColors)
+const NOTIFICATION_TYPE_COLORS: Record<string, string> = {
+  CYCLE_STARTED: 'bg-blue-50 text-blue-700 border-blue-200',
+  CYCLE_COMPLETED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  CYCLE_TERMINATED: 'bg-red-50 text-red-700 border-red-200',
+  ACCOUNT_LOCKED: 'bg-red-50 text-red-700 border-red-200',
+  PASSWORD_RESET_REQUEST: 'bg-amber-50 text-amber-700 border-amber-200',
+  USER_CREATED: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  ALARM: 'bg-orange-50 text-orange-700 border-orange-200',
+};
+
+// Admin request type + status badges (mirrors /admin-requests)
+const ADMIN_REQ_TYPE_LABELS: Record<string, string> = {
+  CREATE_USER: 'Create User',
+  RESET_PASSWORD: 'Reset Password',
+  UNLOCK_USER: 'Unlock User',
+  MODIFY_USER: 'Modify User',
+};
+const ADMIN_REQ_STATUS_COLORS: Record<string, string> = {
+  PENDING: 'bg-amber-50 text-amber-700 border-amber-200',
+  APPROVED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  REJECTED: 'bg-red-50 text-red-700 border-red-200',
+};
+
+// Block-change status badges (mirrors /approvals STATUS_CONFIG)
+const BLOCK_CHANGE_STATUS: Record<string, { label: string; bg: string; text: string; dot: string; bar: string }> = {
+  PENDING: { label: 'Pending', bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-400', bar: 'bg-gradient-to-r from-amber-400 to-orange-400' },
+  APPROVED: { label: 'Approved', bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-400', bar: 'bg-gradient-to-r from-emerald-400 to-green-500' },
+  REJECTED: { label: 'Rejected', bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-400', bar: 'bg-gradient-to-r from-red-400 to-rose-500' },
+  CONSUMED: { label: 'Consumed', bg: 'bg-slate-50', text: 'text-slate-600', dot: 'bg-slate-400', bar: 'bg-gradient-to-r from-slate-300 to-slate-400' },
+};
+
 function getPmEntryStatus(entry: any): { label: string; bg: string; text: string; border: string; cardBorder: string } {
   const exec = entry.execution;
   const now = new Date();
@@ -161,7 +200,7 @@ export function FilterDataManagementPage() {
   //   dryerDurationMinutes, dryerStartedAt
   // For filter_events:  eventType, fromState, toState, performedAt, remarks
   // (checksum deliberately excluded — editing would break the SHA-256 hash chain)
-  const [rowEditDialog, setRowEditDialog] = useState<{ id: string; entity: 'cycle' | 'event' | 'alarm' | 'pm-entry'; rowName: string } | null>(null);
+  const [rowEditDialog, setRowEditDialog] = useState<{ id: string; entity: 'cycle' | 'event' | 'alarm' | 'pm-entry' | 'notification' | 'admin-request' | 'block-change'; rowName: string } | null>(null);
   const [rowEditFields, setRowEditFields] = useState<Record<string, any>>({});
   const [rowEditSaving, setRowEditSaving] = useState(false);
   const [unretireDialog, setUnretireDialog] = useState<{ id: string; name: string; preRetireParentId: string | null; preRetireParentName: string | null } | null>(null);
@@ -181,21 +220,15 @@ export function FilterDataManagementPage() {
   // page table with severity/threshold/value columns, pm-entries use the
   // /pm-schedules/:id detail-page card grid) so the data-management view
   // looks identical to what the operator sees.
-  const genericTabs = [
-    { key: 'audit-trail', label: 'Audit Trail', endpoint: '/api/super-admin/data/audit-trail', idField: 'id',
-      columns: ['action', 'userId', 'userName', 'userRole', 'targetType', 'targetId', 'timestamp', 'ipAddress', 'sessionId'] },
-    // alarms tab handled by a dedicated render branch (mirrors /alarms page)
-    // — kept out of genericTabs so the generic table doesn't render it
-    { key: 'notifications', label: 'Notifications', endpoint: '/api/super-admin/data/notifications', idField: 'id',
-      columns: ['type', 'title', 'message', 'forUserId', 'forRole', 'targetUserId', 'isRead', 'readAt', 'createdAt', 'createdBy'] },
-    { key: 'admin-requests', label: 'Admin Requests', endpoint: '/api/super-admin/data/admin-requests', idField: 'id',
-      columns: ['requestType', 'status', 'requesterName', 'requesterEmployeeId', 'requesterEmail', 'remarks', 'adminRemarks', 'processedBy', 'requestedAt', 'processedAt'] },
-    { key: 'block-changes', label: 'Block Changes', endpoint: '/api/super-admin/data/block-change-requests', idField: 'id',
-      columns: ['filterId', 'filterName', 'fromBlockId', 'fromBlockName', 'toBlockId', 'toBlockName', 'status', 'reason', 'requestedBy', 'requestedByName', 'processedBy', 'processedByName', 'processedComment', 'createdAt', 'processedAt'] },
-    // pm-entries handled by a dedicated render branch (mirrors detail-page card layout)
-    // — kept out of genericTabs so the generic table doesn't render it
-  ];
-  const activeGenericTab = genericTabs.find(t => t.key === tab);
+  // All tabs that previously lived here — cleaning-cycles, filter-events,
+  // alarms, pm-entries, audit-trail, notifications, admin-requests, and
+  // block-changes — now have dedicated render branches that mirror their
+  // user-facing pages. The genericTabs list is intentionally empty but
+  // typed so TypeScript can still infer activeGenericTab's shape (and so
+  // adding a future generic tab is a one-liner).
+  type GenericTabDef = { key: string; label: string; endpoint: string; idField: string; columns: string[] };
+  const genericTabs: GenericTabDef[] = [];
+  const activeGenericTab = genericTabs.find((t: GenericTabDef) => t.key === tab);
   const { data: genericData, isLoading: genericLoading } = useSWR(
     activeGenericTab ? `${activeGenericTab.endpoint}?limit=50` : null
   );
@@ -228,6 +261,41 @@ export function FilterDataManagementPage() {
     a.entityName?.toLowerCase().includes(search.toLowerCase()) ||
     a.severity?.toLowerCase().includes(search.toLowerCase()) ||
     a.message?.toLowerCase().includes(search.toLowerCase()));
+
+  // Remaining tabs use the same super-admin data endpoints but are rendered
+  // by dedicated branches that mirror their corresponding user-facing pages.
+  const auditEnriched = useSWR<any>(tab === 'audit-trail' ? '/api/audit?page=1&limit=50' : null);
+  const enrichedAudit: any[] = (auditEnriched.data as any)?.data ?? [];
+  const filteredEnrichedAudit = enrichedAudit.filter(a => !search ||
+    (a.action ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (a.userId ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (a.userName ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (a.targetType ?? '').toLowerCase().includes(search.toLowerCase()));
+
+  const notificationsEnriched = useSWR<any>(tab === 'notifications' ? '/api/super-admin/data/notifications?limit=100' : null);
+  const enrichedNotifications: any[] = (notificationsEnriched.data as any)?.data ?? [];
+  const filteredEnrichedNotifications = enrichedNotifications.filter(n => !search ||
+    (n.title ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (n.message ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (n.type ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (n.targetUserId ?? '').toLowerCase().includes(search.toLowerCase()));
+
+  const adminReqEnriched = useSWR<any>(tab === 'admin-requests' ? '/api/admin-requests' : null);
+  const enrichedAdminReqs: any[] = (adminReqEnriched.data as any)?.data ?? (adminReqEnriched.data as any) ?? [];
+  const filteredEnrichedAdminReqs = (Array.isArray(enrichedAdminReqs) ? enrichedAdminReqs : []).filter((r: any) => !search ||
+    (r.requesterName ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (r.requesterEmployeeId ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (r.requestType ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (r.status ?? '').toLowerCase().includes(search.toLowerCase()));
+
+  const blockChangesEnriched = useSWR<any>(tab === 'block-changes' ? '/api/block-change-requests?page=1&limit=50&status=ALL' : null);
+  const enrichedBlockChanges: any[] = (blockChangesEnriched.data as any)?.data ?? [];
+  const filteredEnrichedBlockChanges = enrichedBlockChanges.filter((b: any) => !search ||
+    (b.filterName ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (b.fromBlockName ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (b.toBlockName ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (b.status ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (b.requestedByName ?? '').toLowerCase().includes(search.toLowerCase()));
 
   // PM Entries tab — same super-admin endpoint as before, but rendered as
   // cards mirroring the /pm-schedules/:entityId detail-page layout. The
@@ -329,7 +397,7 @@ export function FilterDataManagementPage() {
     setProcessing(false);
   };
 
-  const openRowEdit = (row: any, entity: 'cycle' | 'event' | 'alarm' | 'pm-entry', rowName: string) => {
+  const openRowEdit = (row: any, entity: 'cycle' | 'event' | 'alarm' | 'pm-entry' | 'notification' | 'admin-request' | 'block-change', rowName: string) => {
     setRowEditDialog({ id: row.id, entity, rowName });
     if (entity === 'cycle') {
       setRowEditFields({
@@ -362,7 +430,7 @@ export function FilterDataManagementPage() {
         acknowledgedAt: row.acknowledgedAt ? row.acknowledgedAt.slice(0, 16) : '',
         clearedAt: row.clearedAt ? row.clearedAt.slice(0, 16) : '',
       });
-    } else {
+    } else if (entity === 'pm-entry') {
       // pm-entry row — editable fields on the underlying pm_schedule_entries row
       setRowEditFields({
         month: row.month ?? '',
@@ -374,6 +442,33 @@ export function FilterDataManagementPage() {
         approvalRemarks: row.approvalRemarks ?? '',
         notes: row.notes ?? '',
       });
+    } else if (entity === 'notification') {
+      setRowEditFields({
+        type: row.type ?? '',
+        title: row.title ?? '',
+        message: row.message ?? '',
+        targetUserId: row.targetUserId ?? '',
+        forRole: row.forRole ?? '',
+        isRead: row.isRead === true ? 'true' : 'false',
+        readAt: row.readAt ? row.readAt.slice(0, 16) : '',
+      });
+    } else if (entity === 'admin-request') {
+      setRowEditFields({
+        requestType: row.requestType ?? '',
+        status: row.status ?? 'PENDING',
+        requesterName: row.requesterName ?? '',
+        requesterEmployeeId: row.requesterEmployeeId ?? '',
+        requesterEmail: row.requesterEmail ?? '',
+        remarks: row.remarks ?? '',
+        adminRemarks: row.adminRemarks ?? '',
+      });
+    } else {
+      // block-change request row
+      setRowEditFields({
+        status: row.status ?? 'PENDING',
+        reason: row.reason ?? '',
+        processedComment: row.processedComment ?? '',
+      });
     }
   };
 
@@ -381,33 +476,39 @@ export function FilterDataManagementPage() {
     if (!rowEditDialog || rowEditSaving) return;
     setRowEditSaving(true);
     try {
-      const endpoint = rowEditDialog.entity === 'cycle'
-        ? '/api/super-admin/data/cleaning-cycles'
-        : rowEditDialog.entity === 'event'
-          ? '/api/super-admin/data/filter-events'
-          : rowEditDialog.entity === 'alarm'
-            ? '/api/super-admin/data/alarms'
-            : '/api/super-admin/data/pm-entries';
+      const endpointMap: Record<string, string> = {
+        'cycle': '/api/super-admin/data/cleaning-cycles',
+        'event': '/api/super-admin/data/filter-events',
+        'alarm': '/api/super-admin/data/alarms',
+        'pm-entry': '/api/super-admin/data/pm-entries',
+        'notification': '/api/super-admin/data/notifications',
+        'admin-request': '/api/super-admin/data/admin-requests',
+        'block-change': '/api/super-admin/data/block-change-requests',
+      };
+      const endpoint = endpointMap[rowEditDialog.entity];
       // Coerce numeric fields + drop empty strings so the server doesn't try
       // to write '' into an integer column. Date inputs come back as
       // 'YYYY-MM-DDTHH:mm' — leave them as-is; backend parses ISO-ish.
       const body: Record<string, any> = {};
       const numericKeys = new Set(['sequenceNumber', 'dryerDurationMinutes', 'month', 'toleranceDays']);
+      const booleanKeys = new Set(['isRead']);
       for (const [k, v] of Object.entries(rowEditFields)) {
         if (v === '' || v === null || v === undefined) continue;
         if (numericKeys.has(k)) {
           const n = Number(v);
           if (Number.isFinite(n)) body[k] = n;
+        } else if (booleanKeys.has(k)) {
+          body[k] = v === 'true' || v === true;
         } else {
           body[k] = v;
         }
       }
       await apiClient.put(`${endpoint}/${rowEditDialog.id}`, body);
-      const entityLabel = rowEditDialog.entity === 'cycle' ? 'Cycle'
-        : rowEditDialog.entity === 'event' ? 'Event'
-        : rowEditDialog.entity === 'alarm' ? 'Alarm'
-        : 'PM entry';
-      toast.success('Updated', `${entityLabel} updated silently`);
+      const labelMap: Record<string, string> = {
+        'cycle': 'Cycle', 'event': 'Event', 'alarm': 'Alarm', 'pm-entry': 'PM entry',
+        'notification': 'Notification', 'admin-request': 'Admin request', 'block-change': 'Block change',
+      };
+      toast.success('Updated', `${labelMap[rowEditDialog.entity]} updated silently`);
       setRowEditDialog(null);
       setRowEditFields({});
       // Refresh both the enriched feed (used by the table) and the super-admin
@@ -421,8 +522,14 @@ export function FilterDataManagementPage() {
       } else if (rowEditDialog.entity === 'alarm') {
         globalMutate('/api/alarms?page=1&limit=50');
         globalMutate('/api/super-admin/data/alarms?limit=50');
-      } else {
+      } else if (rowEditDialog.entity === 'pm-entry') {
         globalMutate('/api/super-admin/data/pm-entries?limit=100');
+      } else if (rowEditDialog.entity === 'notification') {
+        globalMutate('/api/super-admin/data/notifications?limit=100');
+      } else if (rowEditDialog.entity === 'admin-request') {
+        globalMutate('/api/admin-requests');
+      } else if (rowEditDialog.entity === 'block-change') {
+        globalMutate('/api/block-change-requests?page=1&limit=50&status=ALL');
       }
     } catch (e: any) {
       toast.error('Update failed', e?.message ?? 'Could not update record');
@@ -439,6 +546,10 @@ export function FilterDataManagementPage() {
     if (!endpoint && tab === 'filter-events') endpoint = '/api/super-admin/data/filter-events';
     if (!endpoint && tab === 'alarms') endpoint = '/api/super-admin/data/alarms';
     if (!endpoint && tab === 'pm-entries') endpoint = '/api/super-admin/data/pm-entries';
+    if (!endpoint && tab === 'audit-trail') endpoint = '/api/super-admin/data/audit-trail';
+    if (!endpoint && tab === 'notifications') endpoint = '/api/super-admin/data/notifications';
+    if (!endpoint && tab === 'admin-requests') endpoint = '/api/super-admin/data/admin-requests';
+    if (!endpoint && tab === 'block-changes') endpoint = '/api/super-admin/data/block-change-requests';
     if (!endpoint) return;
 
     setProcessing(true);
@@ -453,6 +564,10 @@ export function FilterDataManagementPage() {
       if (tab === 'filter-events') globalMutate('/api/filters/events?page=1&limit=50');
       if (tab === 'alarms') globalMutate('/api/alarms?page=1&limit=50');
       if (tab === 'pm-entries') globalMutate('/api/super-admin/data/pm-entries?limit=100');
+      if (tab === 'audit-trail') globalMutate('/api/audit?page=1&limit=50');
+      if (tab === 'notifications') globalMutate('/api/super-admin/data/notifications?limit=100');
+      if (tab === 'admin-requests') globalMutate('/api/admin-requests');
+      if (tab === 'block-changes') globalMutate('/api/block-change-requests?page=1&limit=50&status=ALL');
     } catch (e: any) { toast.error('Error', e?.message ?? 'Failed'); }
     setProcessing(false);
   };
@@ -463,6 +578,10 @@ export function FilterDataManagementPage() {
     : tab === 'filter-events' ? eventsEnriched.isLoading
     : tab === 'alarms' ? alarmsEnriched.isLoading
     : tab === 'pm-entries' ? pmEntriesEnriched.isLoading
+    : tab === 'audit-trail' ? auditEnriched.isLoading
+    : tab === 'notifications' ? notificationsEnriched.isLoading
+    : tab === 'admin-requests' ? adminReqEnriched.isLoading
+    : tab === 'block-changes' ? blockChangesEnriched.isLoading
     : genericLoading;
 
   return (
@@ -1017,8 +1136,201 @@ export function FilterDataManagementPage() {
           )
         )}
 
+        {/* ─── Audit Trail — mirrors /audit page (Timestamp / Description / Action / User / Status) ─── */}
+        {tab === 'audit-trail' && !auditEnriched.isLoading && (
+          filteredEnrichedAudit.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <span className="text-slate-400 font-medium">{search ? 'No results found' : 'No audit records'}</span>
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  {['Timestamp', 'Action', 'Performed By', 'Target', 'Status', 'Actions'].map((h, i) => (
+                    <th key={i} className="text-left px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {filteredEnrichedAudit.map((a: any) => {
+                  const status = getAuditStatus(a.action ?? '');
+                  return (
+                    <tr key={a.id} className="hover:bg-slate-50/50 group">
+                      <td className="px-4 py-3 text-[12px] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(a.timestamp)}</td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">{a.action}</span>
+                      </td>
+                      <td className="px-4 py-3 text-[12px]">
+                        <div className="font-semibold text-slate-700">{a.userId ?? '-'}</div>
+                        {a.userRole && <div className="text-[10px] text-slate-400">{a.userRole}</div>}
+                      </td>
+                      <td className="px-4 py-3 text-[11px] text-slate-500">
+                        {a.targetType ? <span>{a.targetType}{a.targetId ? <span className="text-slate-300 ml-1">({String(a.targetId).slice(0, 8)})</span> : null}</span> : '-'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${status === 'Success' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                          {status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1 justify-end">
+                          <button onClick={() => setConfirmDelete({ id: a.id, type: 'generic' as any, name: a.action ?? 'Audit record' })}
+                            className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100">
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )
+        )}
+
+        {/* ─── Notifications — mirrors /notifications page (type / title / message / read / time) ─── */}
+        {tab === 'notifications' && !notificationsEnriched.isLoading && (
+          filteredEnrichedNotifications.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <span className="text-slate-400 font-medium">{search ? 'No results found' : 'No notifications'}</span>
+            </div>
+          ) : (
+            <div className="space-y-2 p-4">
+              {filteredEnrichedNotifications.map((n: any) => {
+                const tCol = NOTIFICATION_TYPE_COLORS[n.type] ?? 'bg-slate-50 text-slate-600 border-slate-200';
+                return (
+                  <div key={n.id} className={`group bg-white border rounded-lg p-4 ${n.isRead ? 'border-slate-200' : 'border-cyan-300 shadow-sm'} hover:bg-slate-50/50`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`inline-flex px-2 py-0.5 rounded-md text-[10px] font-bold border ${tCol}`}>{n.type?.replace(/_/g, ' ')}</span>
+                          {!n.isRead && <span className="text-[10px] text-cyan-600 font-bold">UNREAD</span>}
+                        </div>
+                        <div className="text-[13px] font-semibold text-slate-800">{n.title}</div>
+                        {n.message && <div className="text-[12px] text-slate-500 mt-0.5">{n.message}</div>}
+                        <div className="flex items-center gap-3 mt-1 text-[11px] text-slate-400">
+                          {n.targetUserId && <span>For: {n.targetUserId}</span>}
+                          {n.forRole && <span>Role: {n.forRole}</span>}
+                          <span>{formatDateTime(n.createdAt)}</span>
+                          {n.readAt && <span>Read: {formatDateTime(n.readAt)}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+                        <button onClick={() => openRowEdit(n, 'notification', n.title ?? 'Notification')}
+                          className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100">Edit</button>
+                        <button onClick={() => setConfirmDelete({ id: n.id, type: 'generic' as any, name: n.title ?? 'Notification' })}
+                          className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50">Delete</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        )}
+
+        {/* ─── Admin Requests — mirrors /admin-requests page (Requester / Type / Status / Submitted) ─── */}
+        {tab === 'admin-requests' && !adminReqEnriched.isLoading && (
+          filteredEnrichedAdminReqs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <span className="text-slate-400 font-medium">{search ? 'No results found' : 'No admin requests'}</span>
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  {['Requester', 'Type', 'Status', 'Submitted', 'Processed By', 'Actions'].map((h, i) => (
+                    <th key={i} className="text-left px-5 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {filteredEnrichedAdminReqs.map((req: any) => {
+                  const typeLabel = ADMIN_REQ_TYPE_LABELS[req.requestType] ?? req.requestType;
+                  const sCol = ADMIN_REQ_STATUS_COLORS[req.status] ?? 'bg-slate-50 text-slate-600 border-slate-200';
+                  return (
+                    <tr key={req.id} className="hover:bg-slate-50/50 group">
+                      <td className="px-5 py-3.5">
+                        <div className="text-[13px] font-semibold text-slate-800">{req.requesterName}</div>
+                        {req.requesterEmployeeId && <div className="text-[11px] text-slate-400">{req.requesterEmployeeId}</div>}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <span className="inline-flex px-2.5 py-1 rounded-full text-[11px] font-bold bg-cyan-50 text-cyan-700 border border-cyan-200">{typeLabel}</span>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <span className={`inline-flex px-2.5 py-1 rounded-full text-[11px] font-bold border ${sCol}`}>{req.status}</span>
+                      </td>
+                      <td className="px-5 py-3.5 text-[12px] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(req.requestedAt)}</td>
+                      <td className="px-5 py-3.5 text-[12px] text-slate-500">{req.processedByName ?? req.processedBy ?? '-'}</td>
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center gap-1 justify-end">
+                          <button onClick={() => openRowEdit(req, 'admin-request', `${typeLabel} - ${req.requesterName}`)}
+                            className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 opacity-0 group-hover:opacity-100">Edit</button>
+                          <button onClick={() => setConfirmDelete({ id: req.id, type: 'generic' as any, name: `${typeLabel} - ${req.requesterName}` })}
+                            className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100">Delete</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )
+        )}
+
+        {/* ─── Block Changes — mirrors /approvals page (filter / from→to block / status / reason) ─── */}
+        {tab === 'block-changes' && !blockChangesEnriched.isLoading && (
+          filteredEnrichedBlockChanges.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <span className="text-slate-400 font-medium">{search ? 'No results found' : 'No block change requests'}</span>
+            </div>
+          ) : (
+            <div className="space-y-3 p-4">
+              {filteredEnrichedBlockChanges.map((r: any) => {
+                const sc = BLOCK_CHANGE_STATUS[r.status] ?? BLOCK_CHANGE_STATUS.PENDING;
+                return (
+                  <div key={r.id} className="group bg-white border border-slate-200 rounded-2xl overflow-hidden hover:shadow-md transition-shadow">
+                    <div className={`h-1 ${sc.bar}`} />
+                    <div className="p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-3 mb-2">
+                            <h3 className="text-base font-bold text-slate-800">{r.filterName ?? '-'}</h3>
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold rounded-full ${sc.bg} ${sc.text}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
+                              {sc.label}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-sm text-slate-500">
+                            <span className="font-medium text-slate-700">{r.fromBlockName ?? '-'}</span>
+                            <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+                            <span className="font-medium text-cyan-600">{r.toBlockName ?? '-'}</span>
+                          </div>
+                          {r.reason && <p className="text-sm text-slate-400 mt-2">Reason: {r.reason}</p>}
+                          <div className="flex items-center gap-4 mt-2 text-xs text-slate-400">
+                            <span>By: {r.requestedByName ?? '-'}</span>
+                            <span>{formatDateTime(r.createdAt)}</span>
+                            {r.processedByName && <span>Processed by: {r.processedByName}</span>}
+                            {r.processedComment && <span>Comment: {r.processedComment}</span>}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+                          <button onClick={() => openRowEdit(r, 'block-change', r.filterName ?? 'Block change')}
+                            className="px-2.5 py-1 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100">Edit</button>
+                          <button onClick={() => setConfirmDelete({ id: r.id, type: 'generic' as any, name: `Block change for ${r.filterName ?? 'filter'}` })}
+                            className="px-2.5 py-1 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50">Delete</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        )}
+
         {/* ─── Generic Data Tables (all columns editable) ─── */}
-        {activeGenericTab && tab !== 'retirements' && tab !== 'replacements' && tab !== 'cleaning-cycles' && tab !== 'filter-events' && tab !== 'alarms' && tab !== 'pm-entries' && (
+        {activeGenericTab && tab !== 'retirements' && tab !== 'replacements' && tab !== 'cleaning-cycles' && tab !== 'filter-events' && tab !== 'alarms' && tab !== 'pm-entries' && tab !== 'audit-trail' && tab !== 'notifications' && tab !== 'admin-requests' && tab !== 'block-changes' && (
           genericLoading ? (
             <div className="flex flex-col items-center justify-center py-20 gap-3">
               <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
@@ -1195,10 +1507,14 @@ export function FilterDataManagementPage() {
             <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h3 className="text-[15px] font-bold text-slate-800">
-                  Edit {rowEditDialog.entity === 'cycle' ? 'Cleaning Cycle'
-                    : rowEditDialog.entity === 'event' ? 'Filter Event'
-                    : rowEditDialog.entity === 'alarm' ? 'Alarm'
-                    : 'PM Entry'}
+                  Edit {(() => {
+                    const titleMap: Record<string, string> = {
+                      'cycle': 'Cleaning Cycle', 'event': 'Filter Event', 'alarm': 'Alarm',
+                      'pm-entry': 'PM Entry', 'notification': 'Notification',
+                      'admin-request': 'Admin Request', 'block-change': 'Block Change Request',
+                    };
+                    return titleMap[rowEditDialog.entity];
+                  })()}
                 </h3>
                 <p className="text-[12px] text-slate-400 mt-0.5">{rowEditDialog.rowName}</p>
               </div>
@@ -1247,7 +1563,7 @@ export function FilterDataManagementPage() {
                     Note: trigger details, threshold values, and entity references are not editable here — they're set by the rule engine when the alarm fires.
                   </p>
                 </>
-              ) : (
+              ) : rowEditDialog.entity === 'pm-entry' ? (
                 <>
                   <Field label="Month (1-12)" value={rowEditFields.month} onChange={v => setRowEditFields(p => ({ ...p, month: v }))} type="number" />
                   <Field label="Planned Date" value={rowEditFields.plannedDate} onChange={v => setRowEditFields(p => ({ ...p, plannedDate: v }))} type="datetime-local" />
@@ -1260,6 +1576,39 @@ export function FilterDataManagementPage() {
                   <Field label="Notes" value={rowEditFields.notes} onChange={v => setRowEditFields(p => ({ ...p, notes: v }))} textarea />
                   <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                     Note: execution status (Completed / In Progress / Overdue / Due) is computed from the joined PM execution row + window dates and is not directly editable.
+                  </p>
+                </>
+              ) : rowEditDialog.entity === 'notification' ? (
+                <>
+                  <Field label="Type" value={rowEditFields.type} onChange={v => setRowEditFields(p => ({ ...p, type: v }))} />
+                  <Field label="Title" value={rowEditFields.title} onChange={v => setRowEditFields(p => ({ ...p, title: v }))} />
+                  <Field label="Message" value={rowEditFields.message} onChange={v => setRowEditFields(p => ({ ...p, message: v }))} textarea />
+                  <Field label="Target User ID" value={rowEditFields.targetUserId} onChange={v => setRowEditFields(p => ({ ...p, targetUserId: v }))} />
+                  <Field label="For Role" value={rowEditFields.forRole} onChange={v => setRowEditFields(p => ({ ...p, forRole: v }))} />
+                  <Field label="Read" value={rowEditFields.isRead} onChange={v => setRowEditFields(p => ({ ...p, isRead: v }))}
+                    select options={['true', 'false']} />
+                  <Field label="Read At" value={rowEditFields.readAt} onChange={v => setRowEditFields(p => ({ ...p, readAt: v }))} type="datetime-local" />
+                </>
+              ) : rowEditDialog.entity === 'admin-request' ? (
+                <>
+                  <Field label="Request Type" value={rowEditFields.requestType} onChange={v => setRowEditFields(p => ({ ...p, requestType: v }))}
+                    select options={['CREATE_USER', 'RESET_PASSWORD', 'UNLOCK_USER', 'MODIFY_USER']} />
+                  <Field label="Status" value={rowEditFields.status} onChange={v => setRowEditFields(p => ({ ...p, status: v }))}
+                    select options={['PENDING', 'APPROVED', 'REJECTED']} />
+                  <Field label="Requester Name" value={rowEditFields.requesterName} onChange={v => setRowEditFields(p => ({ ...p, requesterName: v }))} />
+                  <Field label="Requester Employee ID" value={rowEditFields.requesterEmployeeId} onChange={v => setRowEditFields(p => ({ ...p, requesterEmployeeId: v }))} />
+                  <Field label="Requester Email" value={rowEditFields.requesterEmail} onChange={v => setRowEditFields(p => ({ ...p, requesterEmail: v }))} />
+                  <Field label="Requester Remarks" value={rowEditFields.remarks} onChange={v => setRowEditFields(p => ({ ...p, remarks: v }))} textarea />
+                  <Field label="Admin Remarks" value={rowEditFields.adminRemarks} onChange={v => setRowEditFields(p => ({ ...p, adminRemarks: v }))} textarea />
+                </>
+              ) : (
+                <>
+                  <Field label="Status" value={rowEditFields.status} onChange={v => setRowEditFields(p => ({ ...p, status: v }))}
+                    select options={['PENDING', 'APPROVED', 'REJECTED', 'CONSUMED']} />
+                  <Field label="Reason" value={rowEditFields.reason} onChange={v => setRowEditFields(p => ({ ...p, reason: v }))} textarea />
+                  <Field label="Processed Comment" value={rowEditFields.processedComment} onChange={v => setRowEditFields(p => ({ ...p, processedComment: v }))} textarea />
+                  <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    Note: filter / from-block / to-block references and the requester are not editable here — they're set when the request is created.
                   </p>
                 </>
               )}
