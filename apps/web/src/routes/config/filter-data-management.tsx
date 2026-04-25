@@ -4,6 +4,44 @@ import { apiClient } from '../../lib/api-client';
 import { useAuth } from '../../hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
+import { formatByLeastCount } from '@/lib/format-by-least-count';
+
+// Helpers copied from cleaning-cycles/history.tsx + filter-traceability.tsx so
+// the data-management view renders rows identically to the user-facing pages.
+// Keeping them inline (rather than in a shared module) keeps the data-management
+// page self-contained and avoids a refactor of the existing pages.
+const CYCLE_STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; border: string }> = {
+  IN_PROGRESS: { label: 'In Progress', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
+  COMPLETED: { label: 'Completed', bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200' },
+  TERMINATED: { label: 'Terminated', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' },
+};
+function getStageInfoFromEvents(events: any[], stage: string) {
+  const stageEvents = (events ?? []).filter((e: any) => e.eventType === 'STATE_TRANSITION' && e.toState === stage);
+  const ev = stageEvents.find((e: any) => (e.attributes as any)?.instrumentReadings?.length > 0) ?? stageEvents[0];
+  if (!ev) return null;
+  return {
+    time: ev.performedAt,
+    performedBy: ev.performedByName ?? ev.performedBy?.substring(0, 8) ?? '-',
+    readings: (ev.attributes as any)?.instrumentReadings ?? [],
+  };
+}
+function getReadingValue(readings: any[], desc: string) {
+  const r = readings.find((x: any) => x.description?.toLowerCase().includes(desc.toLowerCase()));
+  if (!r) return '-';
+  const formatted = r.leastCount !== undefined && r.leastCount !== null
+    ? formatByLeastCount(r.value, r.leastCount)
+    : String(r.value);
+  return `${formatted} ${r.uom ?? ''}`.trim();
+}
+function getCycleDuration(cycle: any) {
+  const end = cycle.completedAt ?? (cycle.status === 'IN_PROGRESS' ? new Date().toISOString() : null);
+  if (!end) return '-';
+  const ms = new Date(end).getTime() - new Date(cycle.startedAt).getTime();
+  const mins = Math.round(ms / 60000);
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ${mins % 60}m`;
+}
 
 interface RetiredFilter {
   id: string; name: string; updatedAt: string; filterSet: string | null; attributes: any;
@@ -37,22 +75,12 @@ export function FilterDataManagementPage() {
   // corresponding user-facing pages so admins don't see internal UUIDs and
   // junk columns the operator never sees.
   //
-  //   cleaning-cycles  → /cleaning-cycles  (CleaningCycleHistoryPage)
-  //                      shown: code, reason, status, started, completed,
-  //                      sequence, dryer duration, dryer start
-  //   filter-events    → /filters/:id/trace tab=events (filter-traceability)
-  //                      shown: type, from→to state, performed time, remarks,
-  //                      checksum
-  //
-  // Raw UUID-only columns (filterId, cycleId, ahuId, cleaningAreaId,
-  // equipmentGroupId, profileId, performedBy, ipAddress, blockId) are
-  // intentionally hidden — they're never rendered on the user pages and
-  // would only confuse admins editing rows here.
+  // cleaning-cycles AND filter-events are NOT in this list — they have
+  // dedicated render branches below that hit the same enriched endpoints
+  // the user-facing pages use (cycles join filter+events, events use
+  // filter-traceability's card layout) so the data-management view looks
+  // identical to what the operator sees.
   const genericTabs = [
-    { key: 'cleaning-cycles', label: 'Cleaning Cycles', endpoint: '/api/super-admin/data/cleaning-cycles', idField: 'id',
-      columns: ['cycleCode', 'cleaningReasonLabel', 'status', 'startedAt', 'completedAt', 'sequenceNumber', 'dryerDurationMinutes', 'dryerStartedAt'] },
-    { key: 'filter-events', label: 'Filter Events', endpoint: '/api/super-admin/data/filter-events', idField: 'id',
-      columns: ['eventType', 'fromState', 'toState', 'performedAt', 'remarks', 'checksum'] },
     { key: 'audit-trail', label: 'Audit Trail', endpoint: '/api/super-admin/data/audit-trail', idField: 'id',
       columns: ['action', 'userId', 'userName', 'userRole', 'targetType', 'targetId', 'timestamp', 'ipAddress', 'sessionId'] },
     { key: 'alarms', label: 'Alarms', endpoint: '/api/super-admin/data/alarms', idField: 'id',
@@ -71,6 +99,25 @@ export function FilterDataManagementPage() {
     activeGenericTab ? `${activeGenericTab.endpoint}?limit=50` : null
   );
   const genericRows: any[] = (genericData as any)?.data ?? [];
+
+  // Enriched fetches for the dedicated cleaning-cycles + filter-events tabs.
+  // These hit the SAME endpoints the user-facing /cleaning-cycles and
+  // /filters/:id/trace?tab=events pages use, so the data-management view
+  // displays the same joined+computed columns instead of raw DB rows.
+  const cyclesEnriched = useSWR<any>(tab === 'cleaning-cycles' ? '/api/filters/cycles?page=1&limit=50&includeEvents=true' : null);
+  const cycleInstancesData = useSWR<any>(tab === 'cleaning-cycles' ? '/api/assets/instances?limit=500' : null);
+  const cycleTemplatesData = useSWR<any>(tab === 'cleaning-cycles' ? '/api/assets/templates?limit=100' : null);
+  const cycleFilterTemplateId = (cycleTemplatesData.data?.data ?? []).find((t: any) => t.name === 'Filter')?.id;
+  const cycleFilterAttrMap = new Map<string, Record<string, any>>();
+  (cycleInstancesData.data?.data ?? []).forEach((i: any) => {
+    if (i.templateId === cycleFilterTemplateId) cycleFilterAttrMap.set(i.id, i.attributes ?? {});
+  });
+  const enrichedCycles: any[] = cyclesEnriched.data?.data ?? [];
+  const filteredEnrichedCycles = enrichedCycles.filter(c => !search || c.filterName?.toLowerCase().includes(search.toLowerCase()) || c.cycleCode?.toLowerCase().includes(search.toLowerCase()));
+
+  const eventsEnriched = useSWR<any>(tab === 'filter-events' ? '/api/filters/events?page=1&limit=50' : null);
+  const enrichedEvents: any[] = eventsEnriched.data?.data ?? [];
+  const filteredEnrichedEvents = enrichedEvents.filter(e => !search || e.eventType?.toLowerCase().includes(search.toLowerCase()) || e.fromState?.toLowerCase().includes(search.toLowerCase()) || e.toState?.toLowerCase().includes(search.toLowerCase()));
 
   if (user?.role !== 'SUPER_ADMIN') {
     return (
@@ -155,18 +202,33 @@ export function FilterDataManagementPage() {
   };
 
   const handleDeleteGeneric = async (id: string) => {
-    if (!activeGenericTab) return;
+    // Resolve endpoint from active tab. The dedicated cleaning-cycles +
+    // filter-events tabs aren't in genericTabs but still hit the super-admin
+    // data endpoints under the same naming convention.
+    let endpoint = activeGenericTab?.endpoint;
+    if (!endpoint && tab === 'cleaning-cycles') endpoint = '/api/super-admin/data/cleaning-cycles';
+    if (!endpoint && tab === 'filter-events') endpoint = '/api/super-admin/data/filter-events';
+    if (!endpoint) return;
+
     setProcessing(true);
     try {
-      await apiClient.delete(`${activeGenericTab.endpoint}/${id}`);
+      await apiClient.delete(`${endpoint}/${id}`);
       toast.success('Deleted', 'Record permanently removed');
       setConfirmDelete(null);
-      globalMutate(`${activeGenericTab.endpoint}?limit=50`);
+      // Invalidate both the super-admin data feed AND the enriched feed used
+      // by the dedicated cycles/events tabs so the row disappears immediately.
+      globalMutate(`${endpoint}?limit=50`);
+      if (tab === 'cleaning-cycles') globalMutate('/api/filters/cycles?page=1&limit=50&includeEvents=true');
+      if (tab === 'filter-events') globalMutate('/api/filters/events?page=1&limit=50');
     } catch (e: any) { toast.error('Error', e?.message ?? 'Failed'); }
     setProcessing(false);
   };
 
-  const isLoading = tab === 'retirements' ? retLoading : tab === 'replacements' ? repLoading : genericLoading;
+  const isLoading = tab === 'retirements' ? retLoading
+    : tab === 'replacements' ? repLoading
+    : tab === 'cleaning-cycles' ? cyclesEnriched.isLoading
+    : tab === 'filter-events' ? eventsEnriched.isLoading
+    : genericLoading;
 
   return (
     <div className="h-full flex flex-col space-y-4 p-4 overflow-hidden">
@@ -208,6 +270,8 @@ export function FilterDataManagementPage() {
           {[
             { key: 'retirements', label: 'Retirements' },
             { key: 'replacements', label: 'Replacements' },
+            { key: 'cleaning-cycles', label: 'Cleaning Cycles' },
+            { key: 'filter-events', label: 'Filter Events' },
             ...genericTabs.map(t => ({ key: t.key, label: t.label })),
           ].map(t => (
             <button key={t.key} onClick={() => { setTab(t.key); setEditingId(null); setSearch(''); }}
@@ -469,8 +533,100 @@ export function FilterDataManagementPage() {
           )
         ) : null}
 
+        {/* ─── Cleaning Cycles — mirrors /cleaning-cycles page exactly ─── */}
+        {tab === 'cleaning-cycles' && !cyclesEnriched.isLoading && (
+          filteredEnrichedCycles.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <span className="text-slate-400 font-medium">{search ? 'No results found' : 'No cleaning cycles'}</span>
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  {['S.No', 'Filter', 'Size', 'Air Pressure', 'RO Water', 'Wash In', 'Wash Out', 'Wash By', 'Dryer Temp', 'Dry In', 'Dry Out', 'Dry By', 'Duration', 'Status', 'Actions'].map((h, i) => (
+                    <th key={i} className="text-left px-3 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {filteredEnrichedCycles.map((c: any, idx: number) => {
+                  const attrs = cycleFilterAttrMap.get(c.filterId) ?? {};
+                  const washIn = getStageInfoFromEvents(c.events ?? [], 'WASH_IN');
+                  const washOut = getStageInfoFromEvents(c.events ?? [], 'WASH_OUT');
+                  const dryIn = getStageInfoFromEvents(c.events ?? [], 'DRY_IN');
+                  const dryOut = getStageInfoFromEvents(c.events ?? [], 'DRY_OUT');
+                  const washReadings = washIn?.readings ?? [];
+                  const dryReadings = (dryIn?.readings?.length ? dryIn.readings : null) ?? (dryOut?.readings?.length ? dryOut.readings : null) ?? [];
+                  const dryerTemp = getReadingValue(dryReadings, 'dryer') !== '-' ? getReadingValue(dryReadings, 'dryer') : getReadingValue(dryReadings, 'temperature');
+                  const sc = CYCLE_STATUS_CONFIG[c.status] ?? { label: c.status, bg: 'bg-slate-100', text: 'text-slate-600', border: 'border-slate-200' };
+                  return (
+                    <tr key={c.id} className="hover:bg-slate-50/50 group">
+                      <td className="px-3 py-2.5 text-[12px] text-slate-400 tabular-nums">{idx + 1}</td>
+                      <td className="px-3 py-2.5 text-[12px] font-semibold text-slate-800">{c.filterName ?? '-'}</td>
+                      <td className="px-3 py-2.5 text-[12px] text-slate-600">{attrs.filterSize ?? '-'}</td>
+                      <td className="px-3 py-2.5 text-[12px] text-slate-600 font-mono tabular-nums">{getReadingValue(washReadings, 'air pressure')}</td>
+                      <td className="px-3 py-2.5 text-[12px] text-slate-600 font-mono tabular-nums">{getReadingValue(washReadings, 'ro water')}</td>
+                      <td className="px-3 py-2.5 text-[12px] text-slate-500 whitespace-nowrap">{washIn ? formatDateTime(washIn.time) : '-'}</td>
+                      <td className="px-3 py-2.5 text-[12px] text-slate-500 whitespace-nowrap">{washOut ? formatDateTime(washOut.time) : '-'}</td>
+                      <td className="px-3 py-2.5 text-[12px] text-slate-600">{washIn?.performedBy ?? washOut?.performedBy ?? '-'}</td>
+                      <td className="px-3 py-2.5 text-[12px] text-slate-600 font-mono tabular-nums">{dryerTemp}</td>
+                      <td className="px-3 py-2.5 text-[12px] text-slate-500 whitespace-nowrap">{dryIn ? formatDateTime(dryIn.time) : '-'}</td>
+                      <td className="px-3 py-2.5 text-[12px] text-slate-500 whitespace-nowrap">{dryOut ? formatDateTime(dryOut.time) : '-'}</td>
+                      <td className="px-3 py-2.5 text-[12px] text-slate-600">{dryIn?.performedBy ?? dryOut?.performedBy ?? '-'}</td>
+                      <td className="px-3 py-2.5 text-[12px] text-slate-600 tabular-nums">{getCycleDuration(c)}</td>
+                      <td className="px-3 py-2.5">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold ${sc.bg} ${sc.text} border ${sc.border}`}>{sc.label}</span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <button onClick={() => setConfirmDelete({ id: c.id, type: 'generic' as any, name: c.cycleCode ?? c.filterName ?? 'Cycle' })}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )
+        )}
+
+        {/* ─── Filter Events — mirrors /filters/:id/trace?tab=events card layout ─── */}
+        {tab === 'filter-events' && !eventsEnriched.isLoading && (
+          filteredEnrichedEvents.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <span className="text-slate-400 font-medium">{search ? 'No results found' : 'No filter events'}</span>
+            </div>
+          ) : (
+            <div className="space-y-2 p-4">
+              {filteredEnrichedEvents.map((e: any) => (
+                <div key={e.id} className={`group bg-white border-l-4 rounded-lg p-4 hover:bg-slate-50/50 ${e.eventType === 'BYPASS_DEVIATION' ? 'border-red-500' : 'border-cyan-600'}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-semibold text-slate-800">{e.eventType?.replace(/_/g, ' ')}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-400">{formatDateTime(e.performedAt)}</span>
+                      <button onClick={() => setConfirmDelete({ id: e.id, type: 'generic' as any, name: e.eventType ?? 'Event' })}
+                        className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100">
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                  {(e.fromState || e.toState) && (
+                    <div className="text-sm text-slate-600">
+                      {e.fromState?.replace(/_/g, ' ') ?? ''} {e.fromState && e.toState && '→'} <span className="text-cyan-600">{e.toState?.replace(/_/g, ' ') ?? ''}</span>
+                    </div>
+                  )}
+                  {e.remarks && <div className="text-sm text-slate-400 mt-1 italic">{e.remarks}</div>}
+                  {e.checksum && <div className="text-xs text-slate-300 mt-1 font-mono">Checksum: {String(e.checksum).slice(0, 16)}...</div>}
+                </div>
+              ))}
+            </div>
+          )
+        )}
+
         {/* ─── Generic Data Tables (all columns editable) ─── */}
-        {activeGenericTab && tab !== 'retirements' && tab !== 'replacements' && (
+        {activeGenericTab && tab !== 'retirements' && tab !== 'replacements' && tab !== 'cleaning-cycles' && tab !== 'filter-events' && (
           genericLoading ? (
             <div className="flex flex-col items-center justify-center py-20 gap-3">
               <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
