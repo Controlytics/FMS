@@ -34,6 +34,7 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/filter-cleaning-reasons.def.js'),
     import('../modules/config/defs/block-change-approval.def.js'),
     import('../modules/config/defs/pm-schedule-settings.def.js'),
+    import('../modules/config/defs/pm-schedule-approval.def.js'),
     import('../modules/config/defs/ahu-filter-set-config.def.js'),
     import('../modules/config/defs/report-settings.def.js'),
     import('../modules/config/defs/access-matrix.def.js'),
