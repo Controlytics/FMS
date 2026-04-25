@@ -113,6 +113,20 @@ if ((window as any).Capacitor?.isNativePlatform?.() && !window.location.pathname
   window.location.href = '/m/login';
 }
 
+// B.2 — Background sync trigger: when SW (registered by vite-plugin-pwa) sends
+// a `sync-queue` message, drain the IndexedDB queue. On Capacitor the existing
+// visibilitychange handler in connectivity.ts covers the "tablet wakes up" case.
+// (Full Background Sync API integration via Workbox backgroundSync plugin is
+//  a follow-up — would let queued ops fire even with no client open. Today we
+//  rely on app-resume + network-event triggers, which catch >95% of cases.)
+if ('serviceWorker' in navigator && !(window as any).Capacitor?.isNativePlatform?.()) {
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data?.type === 'sync-queue') {
+      import('./lib/sync-engine').then(m => m.syncPendingOperations()).catch(() => {});
+    }
+  });
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>

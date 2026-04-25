@@ -1,12 +1,14 @@
 /**
  * useOffline — Hook for offline-aware operations.
  * Returns online status, pending operation count, and an offline-safe API wrapper.
+ *
+ * Connectivity comes from connectivity.ts (Capacitor Network plugin + /api/health
+ * probe + window online/offline events) — NOT from raw navigator.onLine, which
+ * lies on Capacitor Android WebViews.
  */
 import { useState, useEffect, useCallback } from 'react';
 import { apiClient } from '@/lib/api-client';
 import {
-  isOnline as checkOnline,
-  onOnlineStatusChange,
   queueOperation,
   getPendingOperations,
   updateFilterStateLocally,
@@ -18,53 +20,20 @@ import {
   getAllOperations,
 } from '@/lib/offline-store';
 import { syncPendingOperations, onSyncEvent, startAutoSync } from '@/lib/sync-engine';
+import { isOnline as connIsOnline, onConnectivityChange, startConnectivityEngine } from '@/lib/connectivity';
 
 export function useOffline() {
-  const [online, setOnline] = useState(checkOnline());
+  const [online, setOnline] = useState(connIsOnline());
   const [pendingCount, setPendingCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [lastSyncMessage, setLastSyncMessage] = useState('');
 
-  // Track online/offline — also verify with a real connectivity check on mount
-  // because navigator.onLine can lie on Android/Capacitor WebViews
+  // Connectivity is owned by lib/connectivity.ts — single source of truth
+  // (Capacitor Network plugin + /api/health probe + window online/offline)
   useEffect(() => {
-    const cleanup = onOnlineStatusChange(setOnline);
-
-    // Periodic real connectivity check — navigator.onLine is unreliable on
-    // Android/Capacitor WebViews (often stays "offline" after WiFi reconnects
-    // until a user interaction). Poll the API every 15s + on tab visibility.
-    const baseUrl = import.meta.env.VITE_API_URL ?? '';
-    let cancelled = false;
-
-    const probe = async () => {
-      if (cancelled) return;
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 5000);
-        try {
-          await apiClient.get('/api/health');
-        } catch {
-          const r = await fetch(`${baseUrl}/api/health`, { method: 'GET', signal: controller.signal });
-          if (!r.ok) throw new Error('health not ok');
-        }
-        clearTimeout(timer);
-        if (!cancelled) setOnline(true);
-      } catch {
-        if (!cancelled) setOnline(false);
-      }
-    };
-
-    probe();
-    const interval = setInterval(probe, 15_000);
-    const handleVisibility = () => { if (document.visibilityState === 'visible') probe(); };
-    document.addEventListener('visibilitychange', handleVisibility);
-
-    return () => {
-      cancelled = true;
-      cleanup();
-      clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
+    startConnectivityEngine();
+    const unsub = onConnectivityChange(setOnline);
+    return unsub;
   }, []);
 
   // Start auto-sync
@@ -176,7 +145,7 @@ export function useOffline() {
 
   // Manually trigger sync
   const manualSync = useCallback(async () => {
-    if (!checkOnline()) return { synced: 0, failed: 0 };
+    if (!connIsOnline()) return { synced: 0, failed: 0 };
     return syncPendingOperations();
   }, []);
 

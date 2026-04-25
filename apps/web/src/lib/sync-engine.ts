@@ -17,13 +17,13 @@ import {
   getPendingOperations,
   updateOperationStatus,
   clearSyncedOperations,
-  onOnlineStatusChange,
   getPendingTombstones,
   updateTombstoneStatus,
   clearSyncedTombstones,
   compactSyncedOperations,
   evictLruCache,
 } from './offline-store';
+import { onConnectivityChange } from './connectivity';
 
 type SyncListener = (event: { type: 'start' | 'progress' | 'complete' | 'error' | 'interrupted'; synced?: number; total?: number; error?: string }) => void;
 
@@ -235,7 +235,7 @@ const scheduleSync = (delayMs: number) => {
 export function startAutoSync(): void {
   if (cleanup) return;
 
-  const onlineCleanup = onOnlineStatusChange(async (online) => {
+  const onlineCleanup = onConnectivityChange((online) => {
     if (online) scheduleSync(2000);
   });
 
