@@ -144,25 +144,35 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     return () => { cancelled = true; try { unsub?.(); } catch {} };
   }, [view, scanQueue.length]);
 
-  // Global RFID-burst capture on the stage view. Even if focus has drifted to
-  // body / a button / the remarks textarea, an RFID trigger fires keystrokes at
-  // 3-50ms intervals — way faster than human typing. We catch those bursts at
-  // document level, build the tag string, and stuff it into the scan input.
-  // This is what third-party RFID apps do: they don't trust focus, they listen
-  // globally and forward to the active scan field.
+  // Global RFID-burst capture. UKB-mode readers inject keystrokes into the
+  // focused app at 3-100ms intervals (way faster than human typing). We catch
+  // those bursts at document level, build the tag string, and route it to the
+  // scan input. Debug log captures every keydown so operators can verify keys
+  // are actually arriving (toggle via tap on the small ⓘ in the header).
+  const [rfidDebug, setRfidDebug] = useState<string[]>([]);
+  const [rfidDebugVisible, setRfidDebugVisible] = useState(false);
+  const pushDebug = (s: string) => setRfidDebug(prev => [s, ...prev].slice(0, 25));
+
   useEffect(() => {
-    if (view !== 'stage') return;
     let buffer = '';
     let lastKeyTime = 0;
     let captureMode = false;
-    const RFID_INTERVAL_MS = 80;   // ≤ this gap = RFID, not human
-    const FLUSH_TIMEOUT_MS = 100;  // burst ended → commit buffer
+    const RFID_INTERVAL_MS = 150;  // ≤ this gap = RFID. Bumped from 80ms — KC readers vary.
+    const FLUSH_TIMEOUT_MS = 200;  // burst ended → commit buffer
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
     const commitBuffer = () => {
       if (buffer.length >= 4) {
-        setScanValue(buffer);
+        const toSubmit = buffer;
+        pushDebug(`COMMIT: "${toSubmit}" (len ${toSubmit.length})`);
+        setScanValue(toSubmit);
         focusScanInput();
+        if (view === 'stage') {
+          setTimeout(() => {
+            setScanValue(toSubmit);
+            if (scanQueue.length > 0) handleAddToQueue(); else handleSubmit();
+          }, 0);
+        }
       }
       buffer = '';
       captureMode = false;
@@ -170,44 +180,58 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
 
     const handler = (e: KeyboardEvent) => {
       const now = Date.now();
-      const gap = now - lastKeyTime;
+      const gap = lastKeyTime === 0 ? -1 : now - lastKeyTime;
       lastKeyTime = now;
 
-      // Enter terminates an RFID burst — readers usually append CR/LF
-      if (e.key === 'Enter') {
+      // Always log to the debug ring buffer so operators can verify keys arrive.
+      // Truncated to readable single-line form.
+      if (e.key.length === 1 || e.key === 'Enter' || e.key === 'Tab') {
+        pushDebug(`key="${e.key}" gap=${gap}ms target=${(e.target as HTMLElement)?.tagName ?? '?'}`);
+      }
+
+      // Enter or Tab terminates an RFID burst — readers usually append CR/LF/TAB
+      if (e.key === 'Enter' || e.key === 'Tab') {
         if (captureMode || buffer.length > 0) {
           e.preventDefault();
           if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
-          if (buffer.length >= 4) {
-            const toSubmit = buffer;
-            buffer = ''; captureMode = false;
-            setTimeout(() => {
-              setScanValue(toSubmit);
-              if (scanQueue.length > 0) handleAddToQueue(); else handleSubmit();
-            }, 0);
-          } else {
-            buffer = '';
-            captureMode = false;
-          }
+          commitBuffer();
         }
         return;
       }
 
       if (e.key.length !== 1) return;
 
-      // Fast key after a recent fast key (or first key with no human-speed predecessor) → RFID
-      if (gap <= RFID_INTERVAL_MS || captureMode) {
+      // Capture rule:
+      //   - We're already in captureMode (continuing a burst) → keep buffering
+      //   - First key (gap === -1) → seed the buffer; the next key's gap will
+      //     tell us whether this is RFID. Without seeding, every scan loses
+      //     its first character.
+      //   - Fast follow-up key (gap >= 0 && gap <= threshold) → RFID burst
+      //   - Otherwise human typing into a normal field → ignore
+      const isFastFollow = gap >= 0 && gap <= RFID_INTERVAL_MS;
+      const isFirstKey = gap === -1;
+
+      if (captureMode || isFastFollow || isFirstKey) {
         const target = e.target as HTMLElement | null;
         const isScanInput = target === scanInputRef.current;
-        captureMode = true;
+
+        // For the first key we provisionally buffer but DON'T enter captureMode
+        // yet — if the next gap is human-slow we'll just commit a 1-char buffer
+        // (which gets dropped by the >= 4 length check) and reset.
+        if (isFastFollow || captureMode) captureMode = true;
         buffer += e.key;
-        // Don't preventDefault if it's already in the scan input — let normal typing happen too
-        if (!isScanInput) {
+
+        // Don't preventDefault if it's already in the scan input — let typing happen too
+        if (!isScanInput && captureMode) {
           e.preventDefault();
           e.stopPropagation();
         }
         if (flushTimer) clearTimeout(flushTimer);
         flushTimer = setTimeout(commitBuffer, FLUSH_TIMEOUT_MS);
+      } else {
+        // Human-speed key after a long gap — reset state in case prior buffer was stale
+        buffer = '';
+        captureMode = false;
       }
     };
 
@@ -1332,6 +1356,31 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             className="px-3 py-1 bg-amber-100 hover:bg-amber-200 rounded-lg text-xs font-semibold whitespace-nowrap">
             Reconnect
           </button>
+        </div>
+      )}
+      {/* RFID debug overlay — shows every keydown the WebView receives so
+          operators can verify whether UKB-mode keystrokes are arriving.
+          Tap the floating button bottom-right to toggle. */}
+      <button
+        onClick={() => setRfidDebugVisible(v => !v)}
+        className="fixed bottom-4 right-4 z-[60] w-10 h-10 rounded-full bg-slate-800/80 text-white text-xs font-bold shadow-lg active:bg-slate-700"
+        title="Toggle RFID debug"
+      >
+        {rfidDebugVisible ? '✕' : 'ⓘ'}
+      </button>
+      {rfidDebugVisible && (
+        <div className="fixed bottom-16 right-4 z-[60] w-80 max-h-96 bg-slate-900/95 text-emerald-300 text-[11px] font-mono rounded-xl shadow-2xl border border-slate-700 overflow-hidden flex flex-col">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700 bg-slate-800/60">
+            <span className="text-slate-300 font-bold">RFID DEBUG ({rfidDebug.length})</span>
+            <button onClick={() => setRfidDebug([])} className="text-amber-400 underline">clear</button>
+          </div>
+          <div className="overflow-y-auto p-2 space-y-0.5">
+            {rfidDebug.length === 0 ? (
+              <div className="text-slate-500 italic">Waiting for keystrokes… trigger the RFID reader now.</div>
+            ) : (
+              rfidDebug.map((line, i) => <div key={i}>{line}</div>)
+            )}
+          </div>
         </div>
       )}
       {error && <div className="mx-4 mt-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 shadow-sm">{error}</div>}
