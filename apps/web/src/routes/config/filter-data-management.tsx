@@ -33,12 +33,26 @@ export function FilterDataManagementPage() {
   const { data: retirements, isLoading: retLoading } = useSWR<RetiredFilter[]>('/api/filters/retirements');
   const { data: replacements, isLoading: repLoading } = useSWR<ReplacementRecord[]>('/api/filters/replacements');
 
-  // Generic data tabs — all columns editable, matching actual screen layouts
+  // Generic data tabs — columns mirror what's actually shown on the
+  // corresponding user-facing pages so admins don't see internal UUIDs and
+  // junk columns the operator never sees.
+  //
+  //   cleaning-cycles  → /cleaning-cycles  (CleaningCycleHistoryPage)
+  //                      shown: code, reason, status, started, completed,
+  //                      sequence, dryer duration, dryer start
+  //   filter-events    → /filters/:id/trace tab=events (filter-traceability)
+  //                      shown: type, from→to state, performed time, remarks,
+  //                      checksum
+  //
+  // Raw UUID-only columns (filterId, cycleId, ahuId, cleaningAreaId,
+  // equipmentGroupId, profileId, performedBy, ipAddress, blockId) are
+  // intentionally hidden — they're never rendered on the user pages and
+  // would only confuse admins editing rows here.
   const genericTabs = [
     { key: 'cleaning-cycles', label: 'Cleaning Cycles', endpoint: '/api/super-admin/data/cleaning-cycles', idField: 'id',
-      columns: ['cycleCode', 'filterId', 'ahuId', 'status', 'cleaningReasonKey', 'cleaningReasonLabel', 'cleaningJustification', 'cleaningAreaId', 'equipmentGroupId', 'profileId', 'profileVersion', 'sequenceNumber', 'startedAt', 'completedAt', 'terminatedAt', 'terminationReason', 'dryerDurationMinutes', 'dryerStartedAt'] },
+      columns: ['cycleCode', 'cleaningReasonLabel', 'status', 'startedAt', 'completedAt', 'sequenceNumber', 'dryerDurationMinutes', 'dryerStartedAt'] },
     { key: 'filter-events', label: 'Filter Events', endpoint: '/api/super-admin/data/filter-events', idField: 'id',
-      columns: ['eventType', 'filterId', 'cycleId', 'fromState', 'toState', 'performedBy', 'performedAt', 'cleaningAreaId', 'equipmentId', 'blockId', 'remarks', 'checksum', 'ipAddress', 'createdAt'] },
+      columns: ['eventType', 'fromState', 'toState', 'performedAt', 'remarks', 'checksum'] },
     { key: 'audit-trail', label: 'Audit Trail', endpoint: '/api/super-admin/data/audit-trail', idField: 'id',
       columns: ['action', 'userId', 'userName', 'userRole', 'targetType', 'targetId', 'timestamp', 'ipAddress', 'sessionId'] },
     { key: 'alarms', label: 'Alarms', endpoint: '/api/super-admin/data/alarms', idField: 'id',
