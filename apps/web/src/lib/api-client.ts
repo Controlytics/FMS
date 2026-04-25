@@ -58,6 +58,9 @@ class ApiClient {
       (error as any).code = err.error;
       (error as any).connectionInfo = err.details ?? err.connectionInfo;
       (error as any).activeSession = err.activeSession;
+      // Lockout-progress field — backend sends this on INVALID_PASSWORD so the
+      // login UI can show "X attempts remaining before lockout".
+      if (err.attemptsRemaining !== undefined) (error as any).attemptsRemaining = err.attemptsRemaining;
       throw error;
     }
 
