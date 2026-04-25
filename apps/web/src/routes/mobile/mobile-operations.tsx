@@ -715,7 +715,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     return checklists;
   };
 
-  // Build pendingChecklist from cached checklist profiles for CHECKLIST nodes
+  // Build pendingChecklist from cached checklist profiles for CHECKLIST nodes.
+  // Skips profiles that don't have a `questions` array — happens if the cache
+  // was populated before the API supported ?expand=questions on the list
+  // endpoint. The next online refresh will repopulate with full questions.
   const buildOfflineChecklist = async (checklistNodes: any[]): Promise<any[]> => {
     const cachedProfiles = await getCache<any[]>('checklist-profiles') ?? [];
     const result: any[] = [];
@@ -723,6 +726,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       const profileId = node.configuration?.checklistProfileId;
       if (!profileId) continue;
       const profile = cachedProfiles.find((p: any) => p.id === profileId && p.isActive !== false);
+      if (profile && (!Array.isArray(profile.questions) || profile.questions.length === 0)) {
+        // Stale cache: profile exists but questions aren't there. Surface this
+        // so operators see a clear "re-sync" hint rather than an empty modal.
+        console.warn('[offline] checklist profile cached without questions', profileId);
+      }
       if (!profile) continue;
       result.push({
         pipelineNodeId: node.id,

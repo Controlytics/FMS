@@ -9,7 +9,10 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
 
   app.get('/', {
     preHandler: [app.requireAnyPermission('FCP_READ', 'CHECKLIST_TOGGLE')],
-    schema: { tags: ['Checklist Profiles'], querystring: { type: 'object', properties: { page: { type: 'integer' }, limit: { type: 'integer' }, isActive: { type: 'string' } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
+    // expand=questions inlines questions[] on each row — used by the mobile
+    // tablet to cache the full checklist payload for offline use. Without
+    // adding this to the schema, Fastify strips the unknown query param.
+    schema: { tags: ['Checklist Profiles'], querystring: { type: 'object', properties: { page: { type: 'integer' }, limit: { type: 'integer' }, isActive: { type: 'string' }, expand: { type: 'string' } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
   }, async (req) => service.list(buildContext(req), req.query as any));
 
   app.get('/:id', {

@@ -19,22 +19,32 @@ export class ChecklistProfileService {
     if (query.isActive === 'true') where.isActive = true;
     else if (query.isActive === 'false') where.isActive = false;
 
+    // expand=questions inlines the full questions array on each profile so the
+    // mobile/tablet client can cache the entire checklist payload for offline
+    // use. Without this the offline checklist dialog opens with zero questions.
+    const expand = String(query.expand ?? '').split(',').map(s => s.trim()).filter(Boolean);
+    const includeQuestions = expand.includes('questions');
+
     const [data, total] = await Promise.all([
       prisma.checklistProfile.findMany({
         where,
         skip: (page - 1) * limit,
         take: limit,
         orderBy: { createdAt: 'desc' },
-        include: { _count: { select: { questions: true } } },
+        include: {
+          _count: { select: { questions: true } },
+          ...(includeQuestions ? { questions: { orderBy: { sortOrder: 'asc' } } } : {}),
+        },
       }),
       prisma.checklistProfile.count({ where }),
     ]);
 
     return {
-      data: data.map(p => ({
+      data: data.map((p: any) => ({
         id: p.id, name: p.name, description: p.description,
         isActive: p.isActive, questionCount: p._count.questions,
         createdAt: p.createdAt, updatedAt: p.updatedAt,
+        ...(includeQuestions && { questions: p.questions ?? [] }),
       })),
       total, page, limit, totalPages: Math.ceil(total / limit),
     };
