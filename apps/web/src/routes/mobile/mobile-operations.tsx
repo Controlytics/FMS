@@ -92,6 +92,22 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const { data: reasonsData } = useSWR(online ? '/api/filters/reasons' : null);
   const { data: identifiersData } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null);
   const { data: equipGroupsData } = useSWR(online ? '/api/equipment-groups' : null);
+  // B.5 — Cache cleaning-profile-assignment + active profiles so offline scans of
+  // a brand-new filter (no filter-state-{id} cache yet) can still resolve a pipeline.
+  const { data: cleaningAssignmentData } = useSWR(online ? '/api/config/cleaning-profile-assignment' : null);
+  const { data: activeProfilesData } = useSWR(online ? '/api/filter-cleaning-profiles?status=ACTIVE&expand=stages,connections' : null);
+  const { data: checklistProfilesData } = useSWR(online ? '/api/checklist-profiles?expand=questions' : null);
+  // B.13 — Cache branding/field-ids/datetime config so offline app restart doesn't
+  // flash defaults or break field labels until reconnect.
+  const { data: brandingData } = useSWR(online ? '/api/config/branding' : null);
+  const { data: fieldIdsData } = useSWR(online ? '/api/config/field-ids' : null);
+  const { data: datetimeData } = useSWR(online ? '/api/config/datetime/current' : null);
+  // B.14 — Cache approved block-change requests so an APPROVED status from a
+  // recent server-side approval is visible offline before the cycle starts.
+  const { data: approvedBlockChangesData } = useSWR(online ? '/api/block-change-requests?status=APPROVED&limit=200' : null);
+  // B.11 — Cache reauth scope for current user so offline ops know which actions
+  // need a queued password vs. immediate dialog.
+  const { data: myReauthActionsData } = useSWR(online && user ? '/api/config/action-reauth/my-actions' : null);
 
   // My Tasks + Approvals — fetch when user opens the view, cache for offline
   const { data: dueTasksData, mutate: mutateDueTasks, isLoading: dueTasksLoading } =
@@ -161,26 +177,79 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       }
     }
   }, [identifiersData, cache]);
-  useEffect(() => { if (templatesData?.data) cache('templates', templatesData.data); }, [templatesData, cache]);
-  useEffect(() => { const r = (reasonsData as any)?.reasons ?? reasonsData; if (r) cache('cleaning-reasons', r); }, [reasonsData, cache]);
-  useEffect(() => { if (equipGroupsData) cache('equipment-groups', Array.isArray(equipGroupsData) ? equipGroupsData : equipGroupsData?.data ?? []); }, [equipGroupsData, cache]);
+  useEffect(() => { if (templatesData?.data) cache('templates', templatesData.data, 24 * 60 * 60 * 1000); }, [templatesData, cache]);
+  useEffect(() => { const r = (reasonsData as any)?.reasons ?? reasonsData; if (r) cache('cleaning-reasons', r, 24 * 60 * 60 * 1000); }, [reasonsData, cache]);
+  useEffect(() => { if (equipGroupsData) cache('equipment-groups', Array.isArray(equipGroupsData) ? equipGroupsData : equipGroupsData?.data ?? [], 24 * 60 * 60 * 1000); }, [equipGroupsData, cache]);
+  // B.5/B.11/B.13/B.14 — operationally-critical caches: 24h TTL so they survive long shifts
+  useEffect(() => { if (cleaningAssignmentData) cache('cleaning-profile-assignment', cleaningAssignmentData, 24 * 60 * 60 * 1000); }, [cleaningAssignmentData, cache]);
+  useEffect(() => {
+    const list = (activeProfilesData as any)?.data ?? activeProfilesData;
+    if (Array.isArray(list)) {
+      cache('active-profiles', list, 24 * 60 * 60 * 1000);
+      // Also store per-profile so resolveProfileForBlockOffline() can look up by id quickly
+      for (const p of list) cache(`active-profile-${p.id}`, p, 24 * 60 * 60 * 1000);
+    }
+  }, [activeProfilesData, cache]);
+  useEffect(() => {
+    const list = (checklistProfilesData as any)?.data ?? checklistProfilesData;
+    if (Array.isArray(list)) cache('checklist-profiles', list, 24 * 60 * 60 * 1000);
+  }, [checklistProfilesData, cache]);
+  useEffect(() => { if (brandingData) cache('branding-config', brandingData, 24 * 60 * 60 * 1000); }, [brandingData, cache]);
+  useEffect(() => { if (fieldIdsData) cache('field-ids-config', fieldIdsData, 24 * 60 * 60 * 1000); }, [fieldIdsData, cache]);
+  useEffect(() => { if (datetimeData) cache('datetime-config', datetimeData, 24 * 60 * 60 * 1000); }, [datetimeData, cache]);
+  useEffect(() => {
+    const list = (approvedBlockChangesData as any)?.data ?? approvedBlockChangesData;
+    if (Array.isArray(list)) cache('approved-block-changes', list, 24 * 60 * 60 * 1000);
+  }, [approvedBlockChangesData, cache]);
+  useEffect(() => {
+    const actions = (myReauthActionsData as any)?.actions ?? myReauthActionsData;
+    if (actions) cache('my-reauth-actions', actions, 24 * 60 * 60 * 1000);
+  }, [myReauthActionsData, cache]);
 
-  // Batch-cache all filter states for offline use (single API call instead of N calls)
+  // Batch-cache all filter states for offline use (single API call instead of N calls).
+  // B.4 — surface failures via state so the "Data Synced" indicator can show a
+  // warning instead of silently leaving the operator with a stale cache. Manual
+  // re-cache button below uses the same function.
+  const [batchCacheError, setBatchCacheError] = useState<string | null>(null);
+  const [batchCacheTimestamp, setBatchCacheTimestamp] = useState<string | null>(null);
+  const [recaching, setRecaching] = useState(false);
+  const cacheAllStates = async (): Promise<{ ok: boolean; count: number; error?: string }> => {
+    try {
+      const result = await apiClient.get<{ states: Record<string, any>; cachedAt: string }>('/api/filters/batch-states');
+      if (result?.states) {
+        let count = 0;
+        for (const [fid, st] of Object.entries(result.states)) {
+          await cache(`filter-state-${fid}`, st, 24 * 60 * 60 * 1000);
+          count++;
+        }
+        setBatchCacheError(null);
+        setBatchCacheTimestamp(result.cachedAt ?? new Date().toISOString());
+        return { ok: true, count };
+      }
+      setBatchCacheError('Batch states endpoint returned no data');
+      return { ok: false, count: 0, error: 'No data' };
+    } catch (e: any) {
+      const msg = e?.message ?? String(e);
+      setBatchCacheError(msg);
+      return { ok: false, count: 0, error: msg };
+    }
+  };
   useEffect(() => {
     if (!online || !instancesData?.data) return;
-    const cacheAllStates = async () => {
-      try {
-        const result = await apiClient.get<{ states: Record<string, any>; cachedAt: string }>('/api/filters/batch-states');
-        if (result?.states) {
-          for (const [fid, st] of Object.entries(result.states)) {
-            cache(`filter-state-${fid}`, st, 24 * 60 * 60 * 1000);
-          }
-        }
-      } catch { /* batch endpoint may not exist on older servers — fall through */ }
-    };
     const timer = setTimeout(cacheAllStates, 2000);
     return () => clearTimeout(timer);
   }, [online, instancesData]);
+  const manualRecache = async () => {
+    if (!online || recaching) return;
+    setRecaching(true);
+    try {
+      const r = await cacheAllStates();
+      if (r.ok) setSuccess(`Re-cached ${r.count} filter states for offline use`);
+      else setError(`Re-cache failed: ${r.error ?? 'unknown'}`);
+    } finally {
+      setRecaching(false);
+    }
+  };
 
   // Track when all data is cached and ready for offline
   useEffect(() => {
@@ -637,6 +706,18 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             setLoading(false); return;
           }
         }
+      }
+
+      // B.10 — stale profile detection: if the in-progress cycle is bound to a
+      // profile that no longer matches the live block-assigned profile, surface
+      // a clear instruction instead of letting the user hit "next stage = wrong"
+      // confusion. Operator must terminate-and-restart to pick up the new profile.
+      if (state.profileSyncWarning) {
+        const w = state.profileSyncWarning;
+        setError(
+          `This filter's active cycle is on profile "${w.cycleProfileName ?? w.cycleProfileId}", but the configured profile for this block is now "${w.expectedProfileName ?? w.expectedProfileId}". Terminate the current cycle and rescan to start fresh on the live profile.`
+        );
+        setLoading(false); return;
       }
 
       // DRY_IN: if temperature already recorded, direct user to Dry Out stage
@@ -1097,6 +1178,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
 
       {/* Toast */}
       {success && <div className="mx-4 mt-2 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 font-medium shadow-sm">✓ {success}</div>}
+      {batchCacheError && online && (
+        <div className="mx-4 mt-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 flex items-center justify-between gap-3">
+          <span>⚠ Offline pre-cache failed. New filters may not work offline. {batchCacheError}</span>
+          <button onClick={manualRecache} disabled={recaching} className="px-3 py-1 bg-amber-100 hover:bg-amber-200 disabled:opacity-50 rounded-lg text-xs font-semibold whitespace-nowrap">
+            {recaching ? 'Re-caching…' : 'Retry'}
+          </button>
+        </div>
+      )}
       {error && <div className="mx-4 mt-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 shadow-sm">{error}</div>}
 
       {/* ─── CONTENT ─── */}

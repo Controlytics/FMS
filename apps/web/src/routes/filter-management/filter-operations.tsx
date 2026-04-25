@@ -669,6 +669,18 @@ export function FilterOperationsPage() {
         return;
       }
 
+      // B.10 — stale profile detection on desktop too. Cycle bound to a profile
+      // that no longer matches the live block-assignment → block advance and
+      // tell the operator to terminate-and-restart.
+      if (state.profileSyncWarning) {
+        const w = state.profileSyncWarning;
+        setPopupError(
+          `${first.filterName}: active cycle is on profile "${w.cycleProfileName ?? w.cycleProfileId}", but the live profile for this block is "${w.expectedProfileName ?? w.expectedProfileId}". Terminate the current cycle and rescan to start fresh.`
+        );
+        setLoading(false); setSubmitting(false);
+        return;
+      }
+
       // DRY_IN: if temperature already recorded, direct user to Dry Out stage
       // (runs BEFORE generic nextAllowed check so the user gets a clear instruction
       // instead of the confusing "is at DRY IN. Next allowed: Dry Out")

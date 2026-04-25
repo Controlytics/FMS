@@ -48,6 +48,30 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
             blockChangeStatus: { type: 'string', nullable: true, enum: ['MATCH', 'APPROVED', 'REQUIRED'] },
             isPmDue: { type: 'boolean' },
             pmReasonKey: { type: 'string', nullable: true },
+            profileSyncWarning: {
+              type: 'object',
+              nullable: true,
+              additionalProperties: true,
+              properties: {
+                cycleProfileId: { type: 'string' },
+                cycleProfileName: { type: 'string', nullable: true },
+                expectedProfileId: { type: 'string' },
+                expectedProfileName: { type: 'string', nullable: true },
+                recommendation: { type: 'string' },
+              },
+            },
+            stageLookup: {
+              type: 'object',
+              additionalProperties: {
+                type: 'object',
+                properties: {
+                  nextStages: { type: 'array', items: { type: 'string' } },
+                  pendingChecklistProfileIds: { type: 'array', items: { type: 'string' } },
+                  leadsToEnd: { type: 'boolean' },
+                },
+              },
+              description: 'Per-stage lookup for offline use: from a given stateKey, what comes next + which checklists fire',
+            },
           },
         },
         ...errorResponses,

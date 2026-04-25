@@ -439,6 +439,72 @@ export class FilterOperationsService {
       });
     }
 
+    // B.7 — Per-stage lookup table the offline client uses without reconstructing
+    // server logic. For every STAGE node in the pipeline, pre-compute:
+    //   - nextStages: array of stateKey strings reachable next
+    //   - pendingChecklistProfileIds: ids of CHECKLIST nodes that fire after this
+    //     stage (client uses cached checklist-profiles to render questions offline)
+    //   - leadsToEnd: true if no more stages follow
+    // The client just looks this up after each successful offline advance instead
+    // of walking the graph itself (which has historically drifted from server).
+    const stageLookup: Record<string, { nextStages: string[]; pendingChecklistProfileIds: string[]; leadsToEnd: boolean }> = {};
+    if (cp) {
+      for (const s of cp.stages) {
+        if (s.nodeType !== 'STAGE' || !s.stateKey) continue;
+        const checklistNodes = collectChecklistsAfterStage(s, cp.stages, cp.connections);
+        const nextSet = new Set<string>();
+        let leadsToEnd = false;
+        const collectStagesPast = (nodeId: string, visited: Set<string>) => {
+          if (visited.has(nodeId)) return;
+          visited.add(nodeId);
+          const outConns = cp!.connections.filter((c: any) => c.fromStageId === nodeId);
+          for (const conn of outConns) {
+            const next = cp!.stages.find((n: any) => n.id === conn.toStageId);
+            if (!next) continue;
+            if (next.nodeType === 'STAGE' && next.stateKey) nextSet.add(next.stateKey);
+            else if (next.nodeType === 'END') leadsToEnd = true;
+            else if (next.nodeType === 'CHECKLIST') collectStagesPast(next.id, visited);
+          }
+        };
+        collectStagesPast(s.id, new Set());
+        stageLookup[s.stateKey] = {
+          nextStages: [...nextSet],
+          pendingChecklistProfileIds: checklistNodes.map((n: any) => (n.configuration as any)?.checklistProfileId).filter(Boolean),
+          leadsToEnd,
+        };
+      }
+    }
+
+    // Stale-profile detection: if the in-progress cycle is bound to a profile
+    // that no longer matches what the live block-assignment config says,
+    // surface a warning so the operator can terminate-and-restart on the
+    // current profile instead of silently continuing on the wrong pipeline.
+    let profileSyncWarning: { cycleProfileId: string; cycleProfileName: string | null; expectedProfileId: string; expectedProfileName: string | null; recommendation: 'TERMINATE_AND_RESTART' } | null = null;
+    if (currentCycle && resolvedProfileId) {
+      const cycleProfileId: string = currentCycle.profileId;
+      // resolvedProfileId is what the live config + filter assignment resolves to
+      // (FilterProfile id OR CleaningProfile id directly). Normalize both sides.
+      const normalize = async (id: string): Promise<string> => {
+        const fp = await prisma.filterProfile.findUnique({ where: { id }, select: { cleaningProfileId: true } });
+        return fp ? fp.cleaningProfileId : id;
+      };
+      const liveCpId = await normalize(resolvedProfileId);
+      const cycleCpId = await normalize(cycleProfileId);
+      if (liveCpId !== cycleCpId) {
+        const [liveCp, cycleCp] = await Promise.all([
+          prisma.filterCleaningProfile.findUnique({ where: { id: liveCpId }, select: { name: true } }),
+          prisma.filterCleaningProfile.findUnique({ where: { id: cycleCpId }, select: { name: true } }),
+        ]);
+        profileSyncWarning = {
+          cycleProfileId: cycleCpId,
+          cycleProfileName: cycleCp?.name ?? null,
+          expectedProfileId: liveCpId,
+          expectedProfileName: liveCp?.name ?? null,
+          recommendation: 'TERMINATE_AND_RESTART',
+        };
+      }
+    }
+
     return {
       filterId: filter.id,
       filterName: filter.name,
@@ -458,12 +524,18 @@ export class FilterOperationsService {
       blockChangeStatus,
       isPmDue,
       pmReasonKey,
+      profileSyncWarning,
+      stageLookup,
     };
   }
 
   /** @param data - Validated by Fastify JSON schema before reaching this method */
   async submitChecklist(ctx: RequestContext, filterId: string, data: any) {
     const { answers } = data;
+    const clientOpId: string | null = data.clientOpId ?? null;
+    if (clientOpId && await findExistingByClientOpId(filterId, clientOpId)) {
+      return this.getCurrentState(ctx, filterId);
+    }
 
     const filter = await this.getFilter(filterId, ctx);
     if (!filter.currentCycleId) throw new AppError(400, 'NO_CYCLE', 'No active cleaning cycle');
@@ -1031,6 +1103,10 @@ export class FilterOperationsService {
   async bypass(ctx: RequestContext, filterId: string, data: any) {
     const { targetState, parameters } = data;
     const justification = typeof data.justification === "string" ? data.justification.replace(/</g, "&lt;").replace(/>/g, "&gt;") : data.justification;
+    const clientOpId: string | null = data.clientOpId ?? null;
+    if (clientOpId && await findExistingByClientOpId(filterId, clientOpId)) {
+      return this.getCurrentState(ctx, filterId);
+    }
 
     const filter = await this.getFilter(filterId, ctx);
     if (!filter.currentCycleId) throw new AppError(400, 'NO_CYCLE', 'No active cleaning cycle — start a cycle before bypassing');
@@ -1357,7 +1433,11 @@ export class FilterOperationsService {
     };
   }
 
-  async terminateCycle(ctx: RequestContext, filterId: string, data: { justification: string }) {
+  async terminateCycle(ctx: RequestContext, filterId: string, data: { justification: string; clientOpId?: string }) {
+    const clientOpId: string | null = data.clientOpId ?? null;
+    if (clientOpId && await findExistingByClientOpId(filterId, clientOpId)) {
+      return this.getCurrentState(ctx, filterId);
+    }
     const filter = await this.getFilter(filterId, ctx);
     if (!filter.currentCycleId) throw new AppError(400, 'NO_CYCLE', 'No active cleaning cycle');
 
