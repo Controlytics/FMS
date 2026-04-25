@@ -157,57 +157,44 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     let buffer = '';
     let lastKeyTime = 0;
     let captureMode = false;
-    const RFID_INTERVAL_MS = 150;  // ≤ this gap = RFID. Bumped from 80ms — KC readers vary.
-    const FLUSH_TIMEOUT_MS = 200;  // burst ended → commit buffer
-    let flushTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const commitBuffer = () => {
-      if (buffer.length >= 4) {
-        const toSubmit = buffer;
-        pushDebug(`COMMIT: "${toSubmit}" (len ${toSubmit.length})`);
-        setScanValue(toSubmit);
-        focusScanInput();
-        if (view === 'stage') {
-          setTimeout(() => {
-            setScanValue(toSubmit);
-            if (scanQueue.length > 0) handleAddToQueue(); else handleSubmit();
-          }, 0);
-        }
-      }
-      buffer = '';
-      captureMode = false;
-    };
+    const RFID_INTERVAL_MS = 150;  // ≤ this gap = RFID. Used only to gate captureMode.
 
     const handler = (e: KeyboardEvent) => {
       const now = Date.now();
       const gap = lastKeyTime === 0 ? -1 : now - lastKeyTime;
       lastKeyTime = now;
 
-      // Always log to the debug ring buffer so operators can verify keys arrive.
-      // Truncated to readable single-line form.
       if (e.key.length === 1 || e.key === 'Enter' || e.key === 'Tab') {
         pushDebug(`key="${e.key}" gap=${gap}ms target=${(e.target as HTMLElement)?.tagName ?? '?'}`);
       }
 
-      // Enter or Tab terminates an RFID burst — readers usually append CR/LF/TAB
+      // Enter or Tab terminates an RFID burst — most readers append CR/LF/TAB.
+      // Submit immediately on terminator. Zero wait.
       if (e.key === 'Enter' || e.key === 'Tab') {
         if (captureMode || buffer.length > 0) {
           e.preventDefault();
-          if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
-          commitBuffer();
+          if (buffer.length >= 4) {
+            const toSubmit = buffer;
+            pushDebug(`SUBMIT: "${toSubmit}" (len ${toSubmit.length})`);
+            setScanValue(toSubmit);
+            if (view === 'stage') {
+              if (scanQueue.length > 0) handleAddToQueue(); else handleSubmit();
+            }
+          }
+          buffer = '';
+          captureMode = false;
         }
         return;
       }
 
       if (e.key.length !== 1) return;
 
-      // Capture rule:
-      //   - We're already in captureMode (continuing a burst) → keep buffering
-      //   - First key (gap === -1) → seed the buffer; the next key's gap will
-      //     tell us whether this is RFID. Without seeding, every scan loses
-      //     its first character.
-      //   - Fast follow-up key (gap >= 0 && gap <= threshold) → RFID burst
-      //   - Otherwise human typing into a normal field → ignore
+      // Capture rule (no time wait — every captured char is written to the input
+      // immediately so operators see the tag building live):
+      //   - captureMode is on (already in a burst) → continue
+      //   - First key (gap === -1) → seed the buffer; next gap tells us if RFID
+      //   - Fast follow-up (gap <= threshold) → RFID burst, latch captureMode
+      //   - Otherwise human typing → ignore + reset stale buffer
       const isFastFollow = gap >= 0 && gap <= RFID_INTERVAL_MS;
       const isFirstKey = gap === -1;
 
@@ -215,19 +202,19 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         const target = e.target as HTMLElement | null;
         const isScanInput = target === scanInputRef.current;
 
-        // For the first key we provisionally buffer but DON'T enter captureMode
-        // yet — if the next gap is human-slow we'll just commit a 1-char buffer
-        // (which gets dropped by the >= 4 length check) and reset.
         if (isFastFollow || captureMode) captureMode = true;
         buffer += e.key;
 
-        // Don't preventDefault if it's already in the scan input — let typing happen too
+        // Live update: stuff the buffer into the scan input as each key arrives.
+        // No setTimeout, no flush timer — operator sees the EPC build in real
+        // time. If a slow reader doesn't send Enter/Tab, the input still shows
+        // the full tag the moment the last character arrives.
+        setScanValue(buffer);
+
         if (!isScanInput && captureMode) {
           e.preventDefault();
           e.stopPropagation();
         }
-        if (flushTimer) clearTimeout(flushTimer);
-        flushTimer = setTimeout(commitBuffer, FLUSH_TIMEOUT_MS);
       } else {
         // Human-speed key after a long gap — reset state in case prior buffer was stale
         buffer = '';
@@ -238,7 +225,6 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     document.addEventListener('keydown', handler, true);
     return () => {
       document.removeEventListener('keydown', handler, true);
-      if (flushTimer) clearTimeout(flushTimer);
     };
   }, [view, scanQueue.length]);
 
