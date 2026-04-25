@@ -577,8 +577,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       || e.name === 'TypeError';
   };
 
-  // Compute nextAllowedStages using the FULL pipeline graph (same logic as server's getNextStageKeys)
-  const computeNextStages = (graph: any, currentStageKey: string | null): string[] => {
+  // Compute nextAllowedStages — prefers the server's stageLookup if cached
+  // (authoritative — same algorithm as server's getNextStageKeys + walk-past-
+  // checklist logic), otherwise falls back to local graph walk.
+  const computeNextStages = (graph: any, currentStageKey: string | null, stageLookup?: any): string[] => {
+    // Tier 1: stageLookup from server response (B.7)
+    if (stageLookup && currentStageKey && Array.isArray(stageLookup[currentStageKey]?.nextStages)) {
+      return stageLookup[currentStageKey].nextStages;
+    }
     if (!graph?.stages || !graph?.connections) return [];
     // Find the current node by stateKey
     let currentNode = currentStageKey
@@ -656,15 +662,57 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     return { ok: true };
   };
 
-  // Find CHECKLIST nodes immediately after a stage in the pipeline graph
-  const findChecklistsAfterStage = (graph: any, stageKey: string): any[] => {
+  // Find CHECKLIST nodes that fire after a stage in the pipeline graph.
+  //
+  // Two-tier resolution (matches server logic — see filter-operations.service.ts
+  // collectChecklistsAfterStage AND the stageLookup table now returned by
+  // /current-state since commit 0c8de53):
+  //   1. If the cached state has stageLookup[stageKey].pendingChecklistProfileIds,
+  //      that's authoritative — server already walked the graph for us. Convert
+  //      the profile ids back into pseudo-nodes the buildOfflineChecklist helper
+  //      can resolve against the cached `checklist-profiles` store.
+  //   2. Otherwise walk the graph ourselves, RECURSIVELY through chained
+  //      CHECKLIST nodes (the previous version only looked at direct outConns
+  //      from the stage, so pipelines like
+  //          WASH_IN → CHECKLIST_A → CHECKLIST_B → WASH_OUT
+  //      would only surface CHECKLIST_A, leaving CHECKLIST_B silently skipped
+  //      offline — the bug operators reported as "checklist not coming at that
+  //      stage".)
+  const findChecklistsAfterStage = (graph: any, stageKey: string, stageLookup?: any): any[] => {
+    // Tier 1: server-computed authoritative answer
+    if (stageLookup && Array.isArray(stageLookup[stageKey]?.pendingChecklistProfileIds)) {
+      const ids: string[] = stageLookup[stageKey].pendingChecklistProfileIds;
+      // Pseudo-nodes — buildOfflineChecklist only reads node.configuration.checklistProfileId
+      // and node.id, so synthesizing them is fine.
+      return ids.map((profileId, i) => ({
+        id: `${stageKey}-checklist-${i}`,
+        nodeType: 'CHECKLIST',
+        configuration: { checklistProfileId: profileId },
+      }));
+    }
+    // Tier 2: fall back to graph walk (with chain support)
     if (!graph?.stages || !graph?.connections) return [];
     const stageNode = graph.stages.find((s: any) => s.stateKey === stageKey);
     if (!stageNode) return [];
-    const outConns = graph.connections.filter((c: any) => c.fromStageId === stageNode.id);
-    return outConns
-      .map((c: any) => graph.stages.find((s: any) => s.id === c.toStageId))
-      .filter((n: any) => n?.nodeType === 'CHECKLIST' && n?.configuration?.checklistProfileId);
+    const checklists: any[] = [];
+    const visited = new Set<string>();
+    const walk = (nodeId: string) => {
+      if (visited.has(nodeId)) return;
+      visited.add(nodeId);
+      const outConns = graph.connections.filter((c: any) => c.fromStageId === nodeId);
+      for (const conn of outConns) {
+        const next = graph.stages.find((s: any) => s.id === conn.toStageId);
+        if (!next) continue;
+        if (next.nodeType === 'CHECKLIST') {
+          if (next.configuration?.checklistProfileId) checklists.push(next);
+          walk(next.id); // chain: CHECKLIST → CHECKLIST → STAGE
+        }
+        // STAGE / END / other → stop (we only collect checklists between THIS
+        // stage and the NEXT real stage, matching server semantics)
+      }
+    };
+    walk(stageNode.id);
+    return checklists;
   };
 
   // Build pendingChecklist from cached checklist profiles for CHECKLIST nodes
@@ -694,9 +742,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
 
       const cachedState = await getCache<any>(`filter-state-${filterId}`) ?? {};
       const graph = cachedState.pipelineGraph;
+      const stageLookup = cachedState.stageLookup; // server-computed (B.7)
 
-      // Check if pipeline has CHECKLIST nodes after the new stage
-      const checklistNodes = graph ? findChecklistsAfterStage(graph, newStage) : [];
+      // Check if pipeline has CHECKLIST nodes after the new stage. stageLookup
+      // takes precedence over local graph walk so we match server semantics
+      // (including chained CHECKLIST nodes between the same two stages).
+      const checklistNodes = findChecklistsAfterStage(graph, newStage, stageLookup);
       const pendingChecklist = checklistNodes.length > 0
         ? await buildOfflineChecklist(checklistNodes)
         : [];
@@ -706,8 +757,8 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       let hasGraphData = false;
       if (pendingChecklist.length > 0) {
         nextAllowed = []; // blocked until checklist answered
-      } else if (graph) {
-        nextAllowed = computeNextStages(graph, newStage);
+      } else if (graph || stageLookup) {
+        nextAllowed = computeNextStages(graph, newStage, stageLookup);
         hasGraphData = true;
       } else {
         const pipeline: any[] = (cachedState.pipelineStages ?? [])
@@ -790,13 +841,18 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         try {
           const csUrl = `/api/filters/${filterId}/current-state${selectedBlock?.id ? `?cleaningAreaId=${encodeURIComponent(selectedBlock.id)}` : ''}`;
           state = await apiClient.get<any>(csUrl);
-          // Cache full server response for offline use
+          // Cache full server response for offline use. stageLookup MUST be
+          // included — it's the per-stage authoritative table the offline
+          // checklist + next-stage logic depends on (B.7). Without it, the
+          // client falls back to a graph walk that historically drifts from
+          // server semantics and was missing chained-CHECKLIST detection.
           cache(`filter-state-${filterId}`, {
             equipmentGroup: state.equipmentGroup ?? null,
             blockEquipmentGroups: state.blockEquipmentGroups ?? [],
             pendingChecklist: state.pendingChecklist ?? [],
             pipelineStages: state.pipelineStages ?? [],
             pipelineGraph: state.pipelineGraph ?? null,
+            stageLookup: state.stageLookup ?? null,
             nextAllowedStages: state.nextAllowedStages ?? [],
             isPmDue: state.isPmDue ?? false,
             pmReasonKey: state.pmReasonKey ?? null,
@@ -1194,8 +1250,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         try {
           const cs = await getCache<any>(`filter-state-${checklistDialog.filterId}`) ?? {};
           const currentStage = cs.currentState;
-          // Walk past checklist nodes to find next STAGE nodes
-          const nextAllowed = cs.pipelineGraph ? computeNextStages(cs.pipelineGraph, currentStage) : [];
+          // Walk past checklist nodes to find next STAGE nodes — prefer
+          // server-computed stageLookup so we match what the next /current-state
+          // would return after the answered checklist syncs back online.
+          const nextAllowed = computeNextStages(cs.pipelineGraph, currentStage, cs.stageLookup);
           cache(`filter-state-${checklistDialog.filterId}`, { ...cs, pendingChecklist: [], nextAllowedStages: nextAllowed }, 24 * 60 * 60 * 1000);
         } catch { /* ignore */ }
       }
