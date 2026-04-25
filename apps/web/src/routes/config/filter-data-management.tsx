@@ -89,6 +89,20 @@ function extractAlarmValue(details: Record<string, unknown> | undefined, sourceF
 function getAlarmGeneratedValue(a: any): string | null { return extractAlarmValue(a.triggerDetails, a.triggerDetails?._sourceField); }
 function getAlarmClearedValue(a: any): string | null { return extractAlarmValue(a.clearDetails, a.triggerDetails?._sourceField); }
 
+// PM entry helpers — month names + status derivation matches /pm-schedules/:entityId detail page
+const PM_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function getPmEntryStatus(entry: any): { label: string; bg: string; text: string; border: string; cardBorder: string } {
+  const exec = entry.execution;
+  const now = new Date();
+  const windowStart = entry.windowStart ? new Date(entry.windowStart) : null;
+  const windowEnd = entry.windowEnd ? new Date(entry.windowEnd) : null;
+  if (exec?.status === 'COMPLETED') return { label: 'Completed', bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200', cardBorder: 'border-green-600' };
+  if (exec?.status === 'IN_PROGRESS') return { label: 'In Progress', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', cardBorder: 'border-blue-600' };
+  if (!exec && windowEnd && now > windowEnd) return { label: 'Overdue', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', cardBorder: 'border-red-600' };
+  if (!exec && windowStart && windowEnd && now >= windowStart && now <= windowEnd) return { label: 'Due', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', cardBorder: 'border-amber-600' };
+  return { label: 'Scheduled', bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', cardBorder: 'border-slate-200' };
+}
+
 // Local field renderer used by the row-edit modal. Keeps the modal markup
 // readable and gives all inputs the same styling without an external dep.
 function Field(props: {
@@ -147,7 +161,7 @@ export function FilterDataManagementPage() {
   //   dryerDurationMinutes, dryerStartedAt
   // For filter_events:  eventType, fromState, toState, performedAt, remarks
   // (checksum deliberately excluded — editing would break the SHA-256 hash chain)
-  const [rowEditDialog, setRowEditDialog] = useState<{ id: string; entity: 'cycle' | 'event' | 'alarm'; rowName: string } | null>(null);
+  const [rowEditDialog, setRowEditDialog] = useState<{ id: string; entity: 'cycle' | 'event' | 'alarm' | 'pm-entry'; rowName: string } | null>(null);
   const [rowEditFields, setRowEditFields] = useState<Record<string, any>>({});
   const [rowEditSaving, setRowEditSaving] = useState(false);
   const [unretireDialog, setUnretireDialog] = useState<{ id: string; name: string; preRetireParentId: string | null; preRetireParentName: string | null } | null>(null);
@@ -160,12 +174,13 @@ export function FilterDataManagementPage() {
   // corresponding user-facing pages so admins don't see internal UUIDs and
   // junk columns the operator never sees.
   //
-  // cleaning-cycles, filter-events AND alarms are NOT in this list — they
-  // have dedicated render branches below that hit the same enriched endpoints
-  // the user-facing pages use (cycles join filter+events, events use
-  // filter-traceability's card layout, alarms use the /alarms page table
-  // with severity/threshold/value columns) so the data-management view looks
-  // identical to what the operator sees.
+  // cleaning-cycles, filter-events, alarms AND pm-entries are NOT in this
+  // list — they have dedicated render branches below that hit the same
+  // enriched endpoints the user-facing pages use (cycles join filter+events,
+  // events use filter-traceability's card layout, alarms use the /alarms
+  // page table with severity/threshold/value columns, pm-entries use the
+  // /pm-schedules/:id detail-page card grid) so the data-management view
+  // looks identical to what the operator sees.
   const genericTabs = [
     { key: 'audit-trail', label: 'Audit Trail', endpoint: '/api/super-admin/data/audit-trail', idField: 'id',
       columns: ['action', 'userId', 'userName', 'userRole', 'targetType', 'targetId', 'timestamp', 'ipAddress', 'sessionId'] },
@@ -177,8 +192,8 @@ export function FilterDataManagementPage() {
       columns: ['requestType', 'status', 'requesterName', 'requesterEmployeeId', 'requesterEmail', 'remarks', 'adminRemarks', 'processedBy', 'requestedAt', 'processedAt'] },
     { key: 'block-changes', label: 'Block Changes', endpoint: '/api/super-admin/data/block-change-requests', idField: 'id',
       columns: ['filterId', 'filterName', 'fromBlockId', 'fromBlockName', 'toBlockId', 'toBlockName', 'status', 'reason', 'requestedBy', 'requestedByName', 'processedBy', 'processedByName', 'processedComment', 'createdAt', 'processedAt'] },
-    { key: 'pm-entries', label: 'PM Entries', endpoint: '/api/super-admin/data/pm-entries', idField: 'id',
-      columns: ['scheduleId', 'month', 'plannedDate', 'toleranceDays', 'windowStart', 'windowEnd', 'approvalStatus', 'approvalRemarks', 'submittedBy', 'submittedByName', 'approvedBy', 'approvedByName', 'approvedAt', 'notes'] },
+    // pm-entries handled by a dedicated render branch (mirrors detail-page card layout)
+    // — kept out of genericTabs so the generic table doesn't render it
   ];
   const activeGenericTab = genericTabs.find(t => t.key === tab);
   const { data: genericData, isLoading: genericLoading } = useSWR(
@@ -213,6 +228,24 @@ export function FilterDataManagementPage() {
     a.entityName?.toLowerCase().includes(search.toLowerCase()) ||
     a.severity?.toLowerCase().includes(search.toLowerCase()) ||
     a.message?.toLowerCase().includes(search.toLowerCase()));
+
+  // PM Entries tab — same super-admin endpoint as before, but rendered as
+  // cards mirroring the /pm-schedules/:entityId detail-page layout. The
+  // super-admin route already includes joined `execution` so the status
+  // pill (Completed / In Progress / Overdue / Due / Scheduled) and timing
+  // info match what operators see on the detail page.
+  const pmEntriesEnriched = useSWR<any>(tab === 'pm-entries' ? '/api/super-admin/data/pm-entries?limit=100' : null);
+  const enrichedPmEntries: any[] = (pmEntriesEnriched.data as any)?.data ?? [];
+  const filteredEnrichedPmEntries = enrichedPmEntries.filter(e => {
+    if (!search) return true;
+    const monthName = (PM_MONTHS[(e.month ?? 1) - 1] ?? '').toLowerCase();
+    const q = search.toLowerCase();
+    return monthName.includes(q)
+      || (e.approvalStatus ?? '').toLowerCase().includes(q)
+      || (e.submittedByName ?? '').toLowerCase().includes(q)
+      || (e.approvedByName ?? '').toLowerCase().includes(q)
+      || (e.notes ?? '').toLowerCase().includes(q);
+  });
 
   if (user?.role !== 'SUPER_ADMIN') {
     return (
@@ -296,7 +329,7 @@ export function FilterDataManagementPage() {
     setProcessing(false);
   };
 
-  const openRowEdit = (row: any, entity: 'cycle' | 'event' | 'alarm', rowName: string) => {
+  const openRowEdit = (row: any, entity: 'cycle' | 'event' | 'alarm' | 'pm-entry', rowName: string) => {
     setRowEditDialog({ id: row.id, entity, rowName });
     if (entity === 'cycle') {
       setRowEditFields({
@@ -319,7 +352,7 @@ export function FilterDataManagementPage() {
         performedAt: row.performedAt ? row.performedAt.slice(0, 16) : '',
         remarks: row.remarks ?? '',
       });
-    } else {
+    } else if (entity === 'alarm') {
       // alarm row — only the columns that are settable on the underlying alarm row
       setRowEditFields({
         severity: row.severity ?? 'INFO',
@@ -328,6 +361,18 @@ export function FilterDataManagementPage() {
         message: row.message ?? '',
         acknowledgedAt: row.acknowledgedAt ? row.acknowledgedAt.slice(0, 16) : '',
         clearedAt: row.clearedAt ? row.clearedAt.slice(0, 16) : '',
+      });
+    } else {
+      // pm-entry row — editable fields on the underlying pm_schedule_entries row
+      setRowEditFields({
+        month: row.month ?? '',
+        plannedDate: row.plannedDate ? row.plannedDate.slice(0, 16) : '',
+        windowStart: row.windowStart ? row.windowStart.slice(0, 16) : '',
+        windowEnd: row.windowEnd ? row.windowEnd.slice(0, 16) : '',
+        toleranceDays: row.toleranceDays ?? '',
+        approvalStatus: row.approvalStatus ?? '',
+        approvalRemarks: row.approvalRemarks ?? '',
+        notes: row.notes ?? '',
       });
     }
   };
@@ -340,14 +385,17 @@ export function FilterDataManagementPage() {
         ? '/api/super-admin/data/cleaning-cycles'
         : rowEditDialog.entity === 'event'
           ? '/api/super-admin/data/filter-events'
-          : '/api/super-admin/data/alarms';
+          : rowEditDialog.entity === 'alarm'
+            ? '/api/super-admin/data/alarms'
+            : '/api/super-admin/data/pm-entries';
       // Coerce numeric fields + drop empty strings so the server doesn't try
       // to write '' into an integer column. Date inputs come back as
       // 'YYYY-MM-DDTHH:mm' — leave them as-is; backend parses ISO-ish.
       const body: Record<string, any> = {};
+      const numericKeys = new Set(['sequenceNumber', 'dryerDurationMinutes', 'month', 'toleranceDays']);
       for (const [k, v] of Object.entries(rowEditFields)) {
         if (v === '' || v === null || v === undefined) continue;
-        if (k === 'sequenceNumber' || k === 'dryerDurationMinutes') {
+        if (numericKeys.has(k)) {
           const n = Number(v);
           if (Number.isFinite(n)) body[k] = n;
         } else {
@@ -355,7 +403,11 @@ export function FilterDataManagementPage() {
         }
       }
       await apiClient.put(`${endpoint}/${rowEditDialog.id}`, body);
-      toast.success('Updated', `${rowEditDialog.entity === 'cycle' ? 'Cycle' : rowEditDialog.entity === 'event' ? 'Event' : 'Alarm'} updated silently`);
+      const entityLabel = rowEditDialog.entity === 'cycle' ? 'Cycle'
+        : rowEditDialog.entity === 'event' ? 'Event'
+        : rowEditDialog.entity === 'alarm' ? 'Alarm'
+        : 'PM entry';
+      toast.success('Updated', `${entityLabel} updated silently`);
       setRowEditDialog(null);
       setRowEditFields({});
       // Refresh both the enriched feed (used by the table) and the super-admin
@@ -366,9 +418,11 @@ export function FilterDataManagementPage() {
       } else if (rowEditDialog.entity === 'event') {
         globalMutate('/api/filters/events?page=1&limit=50');
         globalMutate('/api/super-admin/data/filter-events?limit=50');
-      } else {
+      } else if (rowEditDialog.entity === 'alarm') {
         globalMutate('/api/alarms?page=1&limit=50');
         globalMutate('/api/super-admin/data/alarms?limit=50');
+      } else {
+        globalMutate('/api/super-admin/data/pm-entries?limit=100');
       }
     } catch (e: any) {
       toast.error('Update failed', e?.message ?? 'Could not update record');
@@ -384,6 +438,7 @@ export function FilterDataManagementPage() {
     if (!endpoint && tab === 'cleaning-cycles') endpoint = '/api/super-admin/data/cleaning-cycles';
     if (!endpoint && tab === 'filter-events') endpoint = '/api/super-admin/data/filter-events';
     if (!endpoint && tab === 'alarms') endpoint = '/api/super-admin/data/alarms';
+    if (!endpoint && tab === 'pm-entries') endpoint = '/api/super-admin/data/pm-entries';
     if (!endpoint) return;
 
     setProcessing(true);
@@ -397,6 +452,7 @@ export function FilterDataManagementPage() {
       if (tab === 'cleaning-cycles') globalMutate('/api/filters/cycles?page=1&limit=50&includeEvents=true');
       if (tab === 'filter-events') globalMutate('/api/filters/events?page=1&limit=50');
       if (tab === 'alarms') globalMutate('/api/alarms?page=1&limit=50');
+      if (tab === 'pm-entries') globalMutate('/api/super-admin/data/pm-entries?limit=100');
     } catch (e: any) { toast.error('Error', e?.message ?? 'Failed'); }
     setProcessing(false);
   };
@@ -406,6 +462,7 @@ export function FilterDataManagementPage() {
     : tab === 'cleaning-cycles' ? cyclesEnriched.isLoading
     : tab === 'filter-events' ? eventsEnriched.isLoading
     : tab === 'alarms' ? alarmsEnriched.isLoading
+    : tab === 'pm-entries' ? pmEntriesEnriched.isLoading
     : genericLoading;
 
   return (
@@ -451,6 +508,7 @@ export function FilterDataManagementPage() {
             { key: 'cleaning-cycles', label: 'Cleaning Cycles' },
             { key: 'filter-events', label: 'Filter Events' },
             { key: 'alarms', label: 'Alarms' },
+            { key: 'pm-entries', label: 'PM Entries' },
             ...genericTabs.map(t => ({ key: t.key, label: t.label })),
           ].map(t => (
             <button key={t.key} onClick={() => { setTab(t.key); setEditingId(null); setSearch(''); }}
@@ -894,8 +952,73 @@ export function FilterDataManagementPage() {
           )
         )}
 
+        {/* ─── PM Entries — mirrors /pm-schedules/:id detail page card grid ─── */}
+        {tab === 'pm-entries' && !pmEntriesEnriched.isLoading && (
+          filteredEnrichedPmEntries.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <span className="text-slate-400 font-medium">{search ? 'No results found' : 'No PM entries'}</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-4">
+              {filteredEnrichedPmEntries.map((entry: any) => {
+                const exec = entry.execution;
+                const st = getPmEntryStatus(entry);
+                return (
+                  <div key={entry.id} className={`group bg-white border rounded-xl p-4 ${st.cardBorder}`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-lg font-semibold text-slate-800">
+                        {PM_MONTHS[(entry.month ?? 1) - 1] ?? `Month ${entry.month}`}
+                      </span>
+                      <span className={`px-2 py-0.5 text-xs font-bold rounded-full border ${st.bg} ${st.text} ${st.border}`}>{st.label}</span>
+                    </div>
+                    <div className="text-sm text-slate-500 space-y-1">
+                      {entry.plannedDate && <div>Planned: <span className="text-slate-600">{formatDateTime(entry.plannedDate)}</span></div>}
+                      {entry.windowStart && entry.windowEnd && (
+                        <div>Window: <span className="text-slate-600">{formatDateTime(entry.windowStart)} - {formatDateTime(entry.windowEnd)}</span></div>
+                      )}
+                      {entry.toleranceDays !== undefined && entry.toleranceDays !== null && (
+                        <div>Tolerance: <span className="text-slate-600">{entry.toleranceDays} days</span></div>
+                      )}
+                    </div>
+                    {exec && (
+                      <div className="mt-2 pt-2 border-t border-slate-200 text-sm text-slate-500 space-y-0.5">
+                        {exec.startedAt && <div>Started: <span className="text-slate-600">{formatDateTime(exec.startedAt)}</span></div>}
+                        {exec.completedAt && <div>Done: <span className="text-slate-600">{formatDateTime(exec.completedAt)}</span></div>}
+                        {exec.isWithinWindow === false && <div className="text-xs text-amber-600">Out of window</div>}
+                      </div>
+                    )}
+                    {(entry.approvalStatus || entry.submittedByName || entry.approvedByName) && (
+                      <div className="mt-2 pt-2 border-t border-slate-200 text-xs text-slate-500 space-y-0.5">
+                        {entry.approvalStatus && (
+                          <div>Approval: <span className={`font-semibold ${entry.approvalStatus === 'APPROVED' ? 'text-emerald-600' : entry.approvalStatus === 'REJECTED' ? 'text-red-600' : 'text-amber-600'}`}>{entry.approvalStatus}</span></div>
+                        )}
+                        {entry.submittedByName && <div>Submitted by: <span className="text-slate-600">{entry.submittedByName}</span></div>}
+                        {entry.approvedByName && <div>Approved by: <span className="text-slate-600">{entry.approvedByName}</span></div>}
+                        {entry.approvedAt && <div>Approved at: <span className="text-slate-600">{formatDateTime(entry.approvedAt)}</span></div>}
+                        {entry.notes && <div className="italic">"{entry.notes}"</div>}
+                      </div>
+                    )}
+                    <div className="mt-3 pt-2 border-t border-slate-100 flex items-center gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => openRowEdit(entry, 'pm-entry', `${PM_MONTHS[(entry.month ?? 1) - 1]} ${entry.plannedDate ? new Date(entry.plannedDate).getFullYear() : ''}`)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                        Edit
+                      </button>
+                      <button onClick={() => setConfirmDelete({ id: entry.id, type: 'generic' as any, name: `${PM_MONTHS[(entry.month ?? 1) - 1]} entry` })}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        )}
+
         {/* ─── Generic Data Tables (all columns editable) ─── */}
-        {activeGenericTab && tab !== 'retirements' && tab !== 'replacements' && tab !== 'cleaning-cycles' && tab !== 'filter-events' && tab !== 'alarms' && (
+        {activeGenericTab && tab !== 'retirements' && tab !== 'replacements' && tab !== 'cleaning-cycles' && tab !== 'filter-events' && tab !== 'alarms' && tab !== 'pm-entries' && (
           genericLoading ? (
             <div className="flex flex-col items-center justify-center py-20 gap-3">
               <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
@@ -1072,7 +1195,10 @@ export function FilterDataManagementPage() {
             <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h3 className="text-[15px] font-bold text-slate-800">
-                  Edit {rowEditDialog.entity === 'cycle' ? 'Cleaning Cycle' : rowEditDialog.entity === 'event' ? 'Filter Event' : 'Alarm'}
+                  Edit {rowEditDialog.entity === 'cycle' ? 'Cleaning Cycle'
+                    : rowEditDialog.entity === 'event' ? 'Filter Event'
+                    : rowEditDialog.entity === 'alarm' ? 'Alarm'
+                    : 'PM Entry'}
                 </h3>
                 <p className="text-[12px] text-slate-400 mt-0.5">{rowEditDialog.rowName}</p>
               </div>
@@ -1107,7 +1233,7 @@ export function FilterDataManagementPage() {
                     Note: SHA-256 checksum is not editable. Changing it would break the audit hash chain.
                   </p>
                 </>
-              ) : (
+              ) : rowEditDialog.entity === 'alarm' ? (
                 <>
                   <Field label="Severity" value={rowEditFields.severity} onChange={v => setRowEditFields(p => ({ ...p, severity: v }))}
                     select options={['CRITICAL', 'MAJOR', 'MINOR', 'WARNING', 'INFO']} />
@@ -1119,6 +1245,21 @@ export function FilterDataManagementPage() {
                   <Field label="Cleared At" value={rowEditFields.clearedAt} onChange={v => setRowEditFields(p => ({ ...p, clearedAt: v }))} type="datetime-local" />
                   <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                     Note: trigger details, threshold values, and entity references are not editable here — they're set by the rule engine when the alarm fires.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <Field label="Month (1-12)" value={rowEditFields.month} onChange={v => setRowEditFields(p => ({ ...p, month: v }))} type="number" />
+                  <Field label="Planned Date" value={rowEditFields.plannedDate} onChange={v => setRowEditFields(p => ({ ...p, plannedDate: v }))} type="datetime-local" />
+                  <Field label="Window Start" value={rowEditFields.windowStart} onChange={v => setRowEditFields(p => ({ ...p, windowStart: v }))} type="datetime-local" />
+                  <Field label="Window End" value={rowEditFields.windowEnd} onChange={v => setRowEditFields(p => ({ ...p, windowEnd: v }))} type="datetime-local" />
+                  <Field label="Tolerance Days" value={rowEditFields.toleranceDays} onChange={v => setRowEditFields(p => ({ ...p, toleranceDays: v }))} type="number" />
+                  <Field label="Approval Status" value={rowEditFields.approvalStatus} onChange={v => setRowEditFields(p => ({ ...p, approvalStatus: v }))}
+                    select options={['', 'PENDING', 'APPROVED', 'REJECTED']} />
+                  <Field label="Approval Remarks" value={rowEditFields.approvalRemarks} onChange={v => setRowEditFields(p => ({ ...p, approvalRemarks: v }))} textarea />
+                  <Field label="Notes" value={rowEditFields.notes} onChange={v => setRowEditFields(p => ({ ...p, notes: v }))} textarea />
+                  <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    Note: execution status (Completed / In Progress / Overdue / Due) is computed from the joined PM execution row + window dates and is not directly editable.
                   </p>
                 </>
               )}
