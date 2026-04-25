@@ -43,6 +43,35 @@ function getCycleDuration(cycle: any) {
   return `${hrs}h ${mins % 60}m`;
 }
 
+// Local field renderer used by the row-edit modal. Keeps the modal markup
+// readable and gives all inputs the same styling without an external dep.
+function Field(props: {
+  label: string;
+  value: any;
+  onChange: (v: string) => void;
+  type?: string;
+  textarea?: boolean;
+  select?: boolean;
+  options?: string[];
+}) {
+  const { label, value, onChange, type = 'text', textarea, select, options } = props;
+  const cls = 'w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-700 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none';
+  return (
+    <div>
+      <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">{label}</label>
+      {select ? (
+        <select value={value ?? ''} onChange={e => onChange(e.target.value)} className={cls}>
+          {(options ?? []).map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      ) : textarea ? (
+        <textarea value={value ?? ''} onChange={e => onChange(e.target.value)} rows={2} className={cls} />
+      ) : (
+        <input type={type} value={value ?? ''} onChange={e => onChange(e.target.value)} className={cls} />
+      )}
+    </div>
+  );
+}
+
 interface RetiredFilter {
   id: string; name: string; updatedAt: string; filterSet: string | null; attributes: any;
   preRetireParentId: string | null; preRetireParentName: string | null;
@@ -65,6 +94,16 @@ export function FilterDataManagementPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editFields, setEditFields] = useState<Record<string, string>>({});
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; type: 'retirement' | 'replacement'; name: string } | null>(null);
+  // Edit-row modal for cycles/events tabs. Shows only the columns that live
+  // ON the underlying DB row (vs. the derived display columns in the table).
+  // For cleaning_cycles: cycleCode, status, cleaningReasonLabel, startedAt,
+  //   completedAt, terminatedAt, terminationReason, sequenceNumber,
+  //   dryerDurationMinutes, dryerStartedAt
+  // For filter_events:  eventType, fromState, toState, performedAt, remarks
+  // (checksum deliberately excluded — editing would break the SHA-256 hash chain)
+  const [rowEditDialog, setRowEditDialog] = useState<{ id: string; entity: 'cycle' | 'event'; rowName: string } | null>(null);
+  const [rowEditFields, setRowEditFields] = useState<Record<string, any>>({});
+  const [rowEditSaving, setRowEditSaving] = useState(false);
   const [unretireDialog, setUnretireDialog] = useState<{ id: string; name: string; preRetireParentId: string | null; preRetireParentName: string | null } | null>(null);
   const [unretireParentId, setUnretireParentId] = useState('');
 
@@ -199,6 +238,71 @@ export function FilterDataManagementPage() {
       setConfirmDelete(null); refreshAll();
     } catch (e: any) { toast.error('Error', e?.message ?? 'Failed'); }
     setProcessing(false);
+  };
+
+  const openRowEdit = (row: any, entity: 'cycle' | 'event', rowName: string) => {
+    setRowEditDialog({ id: row.id, entity, rowName });
+    if (entity === 'cycle') {
+      setRowEditFields({
+        cycleCode: row.cycleCode ?? '',
+        status: row.status ?? 'IN_PROGRESS',
+        cleaningReasonLabel: row.cleaningReasonLabel ?? '',
+        startedAt: row.startedAt ? row.startedAt.slice(0, 16) : '',
+        completedAt: row.completedAt ? row.completedAt.slice(0, 16) : '',
+        terminatedAt: row.terminatedAt ? row.terminatedAt.slice(0, 16) : '',
+        terminationReason: row.terminationReason ?? '',
+        sequenceNumber: row.sequenceNumber ?? '',
+        dryerDurationMinutes: row.dryerDurationMinutes ?? '',
+        dryerStartedAt: row.dryerStartedAt ? row.dryerStartedAt.slice(0, 16) : '',
+      });
+    } else {
+      setRowEditFields({
+        eventType: row.eventType ?? '',
+        fromState: row.fromState ?? '',
+        toState: row.toState ?? '',
+        performedAt: row.performedAt ? row.performedAt.slice(0, 16) : '',
+        remarks: row.remarks ?? '',
+      });
+    }
+  };
+
+  const submitRowEdit = async () => {
+    if (!rowEditDialog || rowEditSaving) return;
+    setRowEditSaving(true);
+    try {
+      const endpoint = rowEditDialog.entity === 'cycle'
+        ? '/api/super-admin/data/cleaning-cycles'
+        : '/api/super-admin/data/filter-events';
+      // Coerce numeric fields + drop empty strings so the server doesn't try
+      // to write '' into an integer column. Date inputs come back as
+      // 'YYYY-MM-DDTHH:mm' — leave them as-is; backend parses ISO-ish.
+      const body: Record<string, any> = {};
+      for (const [k, v] of Object.entries(rowEditFields)) {
+        if (v === '' || v === null || v === undefined) continue;
+        if (k === 'sequenceNumber' || k === 'dryerDurationMinutes') {
+          const n = Number(v);
+          if (Number.isFinite(n)) body[k] = n;
+        } else {
+          body[k] = v;
+        }
+      }
+      await apiClient.put(`${endpoint}/${rowEditDialog.id}`, body);
+      toast.success('Updated', `${rowEditDialog.entity === 'cycle' ? 'Cycle' : 'Event'} updated silently`);
+      setRowEditDialog(null);
+      setRowEditFields({});
+      // Refresh both the enriched feed (used by the table) and the super-admin
+      // feed (used by other tabs that hit the same endpoint).
+      if (rowEditDialog.entity === 'cycle') {
+        globalMutate('/api/filters/cycles?page=1&limit=50&includeEvents=true');
+        globalMutate('/api/super-admin/data/cleaning-cycles?limit=50');
+      } else {
+        globalMutate('/api/filters/events?page=1&limit=50');
+        globalMutate('/api/super-admin/data/filter-events?limit=50');
+      }
+    } catch (e: any) {
+      toast.error('Update failed', e?.message ?? 'Could not update record');
+    }
+    setRowEditSaving(false);
   };
 
   const handleDeleteGeneric = async (id: string) => {
@@ -578,11 +682,18 @@ export function FilterDataManagementPage() {
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold ${sc.bg} ${sc.text} border ${sc.border}`}>{sc.label}</span>
                       </td>
                       <td className="px-3 py-2.5">
-                        <button onClick={() => setConfirmDelete({ id: c.id, type: 'generic' as any, name: c.cycleCode ?? c.filterName ?? 'Cycle' })}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100">
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                          Delete
-                        </button>
+                        <div className="flex items-center gap-1 justify-end">
+                          <button onClick={() => openRowEdit(c, 'cycle', c.cycleCode ?? c.filterName ?? 'Cycle')}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 opacity-0 group-hover:opacity-100">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                            Edit
+                          </button>
+                          <button onClick={() => setConfirmDelete({ id: c.id, type: 'generic' as any, name: c.cycleCode ?? c.filterName ?? 'Cycle' })}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -606,6 +717,10 @@ export function FilterDataManagementPage() {
                     <span className="text-sm font-semibold text-slate-800">{e.eventType?.replace(/_/g, ' ')}</span>
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-slate-400">{formatDateTime(e.performedAt)}</span>
+                      <button onClick={() => openRowEdit(e, 'event', e.eventType ?? 'Event')}
+                        className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 opacity-0 group-hover:opacity-100">
+                        Edit
+                      </button>
                       <button onClick={() => setConfirmDelete({ id: e.id, type: 'generic' as any, name: e.eventType ?? 'Event' })}
                         className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100">
                         Delete
@@ -787,6 +902,68 @@ export function FilterDataManagementPage() {
                   {processing ? 'Deleting...' : 'Delete Forever'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Row Edit Dialog — used by Cleaning Cycles + Filter Events tabs.
+          Shows only fields that exist on the underlying DB row (not the
+          derived display columns). Checksum intentionally omitted because
+          editing it would invalidate the SHA-256 hash chain. */}
+      {rowEditDialog && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
+            <div className="h-1.5 bg-gradient-to-r from-cyan-500 to-blue-500" />
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-[15px] font-bold text-slate-800">
+                  Edit {rowEditDialog.entity === 'cycle' ? 'Cleaning Cycle' : 'Filter Event'}
+                </h3>
+                <p className="text-[12px] text-slate-400 mt-0.5">{rowEditDialog.rowName}</p>
+              </div>
+              <button onClick={() => { setRowEditDialog(null); setRowEditFields({}); }}
+                className="text-slate-400 hover:text-slate-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-3 max-h-[60vh] overflow-y-auto">
+              {rowEditDialog.entity === 'cycle' ? (
+                <>
+                  <Field label="Cycle Code" value={rowEditFields.cycleCode} onChange={v => setRowEditFields(p => ({ ...p, cycleCode: v }))} />
+                  <Field label="Status" value={rowEditFields.status} onChange={v => setRowEditFields(p => ({ ...p, status: v }))}
+                    select options={['IN_PROGRESS', 'COMPLETED', 'TERMINATED']} />
+                  <Field label="Cleaning Reason" value={rowEditFields.cleaningReasonLabel} onChange={v => setRowEditFields(p => ({ ...p, cleaningReasonLabel: v }))} />
+                  <Field label="Sequence Number" value={rowEditFields.sequenceNumber} onChange={v => setRowEditFields(p => ({ ...p, sequenceNumber: v }))} type="number" />
+                  <Field label="Started At" value={rowEditFields.startedAt} onChange={v => setRowEditFields(p => ({ ...p, startedAt: v }))} type="datetime-local" />
+                  <Field label="Completed At" value={rowEditFields.completedAt} onChange={v => setRowEditFields(p => ({ ...p, completedAt: v }))} type="datetime-local" />
+                  <Field label="Terminated At" value={rowEditFields.terminatedAt} onChange={v => setRowEditFields(p => ({ ...p, terminatedAt: v }))} type="datetime-local" />
+                  <Field label="Termination Reason" value={rowEditFields.terminationReason} onChange={v => setRowEditFields(p => ({ ...p, terminationReason: v }))} textarea />
+                  <Field label="Dryer Duration (min)" value={rowEditFields.dryerDurationMinutes} onChange={v => setRowEditFields(p => ({ ...p, dryerDurationMinutes: v }))} type="number" />
+                  <Field label="Dryer Started At" value={rowEditFields.dryerStartedAt} onChange={v => setRowEditFields(p => ({ ...p, dryerStartedAt: v }))} type="datetime-local" />
+                </>
+              ) : (
+                <>
+                  <Field label="Event Type" value={rowEditFields.eventType} onChange={v => setRowEditFields(p => ({ ...p, eventType: v }))} />
+                  <Field label="From State" value={rowEditFields.fromState} onChange={v => setRowEditFields(p => ({ ...p, fromState: v }))} />
+                  <Field label="To State" value={rowEditFields.toState} onChange={v => setRowEditFields(p => ({ ...p, toState: v }))} />
+                  <Field label="Performed At" value={rowEditFields.performedAt} onChange={v => setRowEditFields(p => ({ ...p, performedAt: v }))} type="datetime-local" />
+                  <Field label="Remarks" value={rowEditFields.remarks} onChange={v => setRowEditFields(p => ({ ...p, remarks: v }))} textarea />
+                  <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    Note: SHA-256 checksum is not editable. Changing it would break the audit hash chain.
+                  </p>
+                </>
+              )}
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
+              <button onClick={() => { setRowEditDialog(null); setRowEditFields({}); }}
+                className="flex-1 py-2.5 bg-white border border-slate-300 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100">
+                Cancel
+              </button>
+              <button onClick={submitRowEdit} disabled={rowEditSaving}
+                className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-cyan-500 hover:to-blue-500">
+                {rowEditSaving ? 'Saving...' : 'Save Changes'}
+              </button>
             </div>
           </div>
         </div>
