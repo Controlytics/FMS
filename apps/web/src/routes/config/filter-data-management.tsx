@@ -43,6 +43,52 @@ function getCycleDuration(cycle: any) {
   return `${hrs}h ${mins % 60}m`;
 }
 
+// Alarms helpers — copied from /alarms page so data-mgmt renders identically.
+const ALARM_SEVERITY_COLORS: Record<string, string> = {
+  CRITICAL: 'bg-red-100 text-red-700 border-red-200',
+  MAJOR: 'bg-orange-100 text-orange-700 border-orange-200',
+  MINOR: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+  WARNING: 'bg-blue-100 text-blue-700 border-blue-200',
+  INFO: 'bg-slate-100 text-slate-600 border-slate-200',
+};
+const ALARM_SEVERITY_DOT: Record<string, string> = {
+  CRITICAL: 'bg-red-500', MAJOR: 'bg-orange-500', MINOR: 'bg-yellow-500',
+  WARNING: 'bg-blue-500', INFO: 'bg-slate-400',
+};
+const ALARM_STATUS_COLORS: Record<string, string> = {
+  ACTIVE: 'bg-red-100 text-red-700 border-red-200',
+  ACKNOWLEDGED: 'bg-amber-100 text-amber-700 border-amber-200',
+  CLEARED: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  MANUALLY_CLEARED: 'bg-blue-100 text-blue-700 border-blue-200',
+};
+const ALARM_STATUS_LABELS: Record<string, string> = {
+  ACTIVE: 'Active', ACKNOWLEDGED: 'Acknowledged', CLEARED: 'Cleared', MANUALLY_CLEARED: 'Manually Cleared',
+};
+function getAlarmHighLimit(a: any): string | null {
+  const d = a.triggerDetails; if (!d || d._threshold === undefined) return null;
+  if (d._condition === '>' || d._condition === '>=') return String(d._threshold);
+  return null;
+}
+function getAlarmLowLimit(a: any): string | null {
+  const d = a.triggerDetails; if (!d || d._threshold === undefined) return null;
+  if (d._condition === '<' || d._condition === '<=') return String(d._threshold);
+  return null;
+}
+function extractAlarmValue(details: Record<string, unknown> | undefined, sourceField?: string): string | null {
+  if (!details) return null;
+  if (sourceField) {
+    const val = details[sourceField];
+    if (val !== undefined && val !== null) return typeof val === 'number' ? val.toFixed(2) : String(val);
+  }
+  for (const [k, v] of Object.entries(details)) {
+    if (k.startsWith('_')) continue;
+    if (typeof v === 'number') return v.toFixed(2);
+  }
+  return null;
+}
+function getAlarmGeneratedValue(a: any): string | null { return extractAlarmValue(a.triggerDetails, a.triggerDetails?._sourceField); }
+function getAlarmClearedValue(a: any): string | null { return extractAlarmValue(a.clearDetails, a.triggerDetails?._sourceField); }
+
 // Local field renderer used by the row-edit modal. Keeps the modal markup
 // readable and gives all inputs the same styling without an external dep.
 function Field(props: {
@@ -101,7 +147,7 @@ export function FilterDataManagementPage() {
   //   dryerDurationMinutes, dryerStartedAt
   // For filter_events:  eventType, fromState, toState, performedAt, remarks
   // (checksum deliberately excluded — editing would break the SHA-256 hash chain)
-  const [rowEditDialog, setRowEditDialog] = useState<{ id: string; entity: 'cycle' | 'event'; rowName: string } | null>(null);
+  const [rowEditDialog, setRowEditDialog] = useState<{ id: string; entity: 'cycle' | 'event' | 'alarm'; rowName: string } | null>(null);
   const [rowEditFields, setRowEditFields] = useState<Record<string, any>>({});
   const [rowEditSaving, setRowEditSaving] = useState(false);
   const [unretireDialog, setUnretireDialog] = useState<{ id: string; name: string; preRetireParentId: string | null; preRetireParentName: string | null } | null>(null);
@@ -114,16 +160,17 @@ export function FilterDataManagementPage() {
   // corresponding user-facing pages so admins don't see internal UUIDs and
   // junk columns the operator never sees.
   //
-  // cleaning-cycles AND filter-events are NOT in this list — they have
-  // dedicated render branches below that hit the same enriched endpoints
+  // cleaning-cycles, filter-events AND alarms are NOT in this list — they
+  // have dedicated render branches below that hit the same enriched endpoints
   // the user-facing pages use (cycles join filter+events, events use
-  // filter-traceability's card layout) so the data-management view looks
+  // filter-traceability's card layout, alarms use the /alarms page table
+  // with severity/threshold/value columns) so the data-management view looks
   // identical to what the operator sees.
   const genericTabs = [
     { key: 'audit-trail', label: 'Audit Trail', endpoint: '/api/super-admin/data/audit-trail', idField: 'id',
       columns: ['action', 'userId', 'userName', 'userRole', 'targetType', 'targetId', 'timestamp', 'ipAddress', 'sessionId'] },
-    { key: 'alarms', label: 'Alarms', endpoint: '/api/super-admin/data/alarms', idField: 'id',
-      columns: ['severity', 'status', 'alarmType', 'message', 'entityId', 'acknowledgedBy', 'acknowledgedAt', 'clearedBy', 'clearedAt', 'createdAt'] },
+    // alarms tab handled by a dedicated render branch (mirrors /alarms page)
+    // — kept out of genericTabs so the generic table doesn't render it
     { key: 'notifications', label: 'Notifications', endpoint: '/api/super-admin/data/notifications', idField: 'id',
       columns: ['type', 'title', 'message', 'forUserId', 'forRole', 'targetUserId', 'isRead', 'readAt', 'createdAt', 'createdBy'] },
     { key: 'admin-requests', label: 'Admin Requests', endpoint: '/api/super-admin/data/admin-requests', idField: 'id',
@@ -157,6 +204,15 @@ export function FilterDataManagementPage() {
   const eventsEnriched = useSWR<any>(tab === 'filter-events' ? '/api/filters/events?page=1&limit=50' : null);
   const enrichedEvents: any[] = eventsEnriched.data?.data ?? [];
   const filteredEnrichedEvents = enrichedEvents.filter(e => !search || e.eventType?.toLowerCase().includes(search.toLowerCase()) || e.fromState?.toLowerCase().includes(search.toLowerCase()) || e.toState?.toLowerCase().includes(search.toLowerCase()));
+
+  // Alarms tab — same endpoint as /alarms page, same columns, same badges
+  const alarmsEnriched = useSWR<any>(tab === 'alarms' ? '/api/alarms?page=1&limit=50' : null);
+  const enrichedAlarms: any[] = alarmsEnriched.data?.data ?? [];
+  const filteredEnrichedAlarms = enrichedAlarms.filter(a => !search ||
+    a.alarmType?.toLowerCase().includes(search.toLowerCase()) ||
+    a.entityName?.toLowerCase().includes(search.toLowerCase()) ||
+    a.severity?.toLowerCase().includes(search.toLowerCase()) ||
+    a.message?.toLowerCase().includes(search.toLowerCase()));
 
   if (user?.role !== 'SUPER_ADMIN') {
     return (
@@ -240,7 +296,7 @@ export function FilterDataManagementPage() {
     setProcessing(false);
   };
 
-  const openRowEdit = (row: any, entity: 'cycle' | 'event', rowName: string) => {
+  const openRowEdit = (row: any, entity: 'cycle' | 'event' | 'alarm', rowName: string) => {
     setRowEditDialog({ id: row.id, entity, rowName });
     if (entity === 'cycle') {
       setRowEditFields({
@@ -255,13 +311,23 @@ export function FilterDataManagementPage() {
         dryerDurationMinutes: row.dryerDurationMinutes ?? '',
         dryerStartedAt: row.dryerStartedAt ? row.dryerStartedAt.slice(0, 16) : '',
       });
-    } else {
+    } else if (entity === 'event') {
       setRowEditFields({
         eventType: row.eventType ?? '',
         fromState: row.fromState ?? '',
         toState: row.toState ?? '',
         performedAt: row.performedAt ? row.performedAt.slice(0, 16) : '',
         remarks: row.remarks ?? '',
+      });
+    } else {
+      // alarm row — only the columns that are settable on the underlying alarm row
+      setRowEditFields({
+        severity: row.severity ?? 'INFO',
+        status: row.status ?? 'ACTIVE',
+        alarmType: row.alarmType ?? '',
+        message: row.message ?? '',
+        acknowledgedAt: row.acknowledgedAt ? row.acknowledgedAt.slice(0, 16) : '',
+        clearedAt: row.clearedAt ? row.clearedAt.slice(0, 16) : '',
       });
     }
   };
@@ -272,7 +338,9 @@ export function FilterDataManagementPage() {
     try {
       const endpoint = rowEditDialog.entity === 'cycle'
         ? '/api/super-admin/data/cleaning-cycles'
-        : '/api/super-admin/data/filter-events';
+        : rowEditDialog.entity === 'event'
+          ? '/api/super-admin/data/filter-events'
+          : '/api/super-admin/data/alarms';
       // Coerce numeric fields + drop empty strings so the server doesn't try
       // to write '' into an integer column. Date inputs come back as
       // 'YYYY-MM-DDTHH:mm' — leave them as-is; backend parses ISO-ish.
@@ -287,7 +355,7 @@ export function FilterDataManagementPage() {
         }
       }
       await apiClient.put(`${endpoint}/${rowEditDialog.id}`, body);
-      toast.success('Updated', `${rowEditDialog.entity === 'cycle' ? 'Cycle' : 'Event'} updated silently`);
+      toast.success('Updated', `${rowEditDialog.entity === 'cycle' ? 'Cycle' : rowEditDialog.entity === 'event' ? 'Event' : 'Alarm'} updated silently`);
       setRowEditDialog(null);
       setRowEditFields({});
       // Refresh both the enriched feed (used by the table) and the super-admin
@@ -295,9 +363,12 @@ export function FilterDataManagementPage() {
       if (rowEditDialog.entity === 'cycle') {
         globalMutate('/api/filters/cycles?page=1&limit=50&includeEvents=true');
         globalMutate('/api/super-admin/data/cleaning-cycles?limit=50');
-      } else {
+      } else if (rowEditDialog.entity === 'event') {
         globalMutate('/api/filters/events?page=1&limit=50');
         globalMutate('/api/super-admin/data/filter-events?limit=50');
+      } else {
+        globalMutate('/api/alarms?page=1&limit=50');
+        globalMutate('/api/super-admin/data/alarms?limit=50');
       }
     } catch (e: any) {
       toast.error('Update failed', e?.message ?? 'Could not update record');
@@ -312,6 +383,7 @@ export function FilterDataManagementPage() {
     let endpoint = activeGenericTab?.endpoint;
     if (!endpoint && tab === 'cleaning-cycles') endpoint = '/api/super-admin/data/cleaning-cycles';
     if (!endpoint && tab === 'filter-events') endpoint = '/api/super-admin/data/filter-events';
+    if (!endpoint && tab === 'alarms') endpoint = '/api/super-admin/data/alarms';
     if (!endpoint) return;
 
     setProcessing(true);
@@ -324,6 +396,7 @@ export function FilterDataManagementPage() {
       globalMutate(`${endpoint}?limit=50`);
       if (tab === 'cleaning-cycles') globalMutate('/api/filters/cycles?page=1&limit=50&includeEvents=true');
       if (tab === 'filter-events') globalMutate('/api/filters/events?page=1&limit=50');
+      if (tab === 'alarms') globalMutate('/api/alarms?page=1&limit=50');
     } catch (e: any) { toast.error('Error', e?.message ?? 'Failed'); }
     setProcessing(false);
   };
@@ -332,6 +405,7 @@ export function FilterDataManagementPage() {
     : tab === 'replacements' ? repLoading
     : tab === 'cleaning-cycles' ? cyclesEnriched.isLoading
     : tab === 'filter-events' ? eventsEnriched.isLoading
+    : tab === 'alarms' ? alarmsEnriched.isLoading
     : genericLoading;
 
   return (
@@ -376,6 +450,7 @@ export function FilterDataManagementPage() {
             { key: 'replacements', label: 'Replacements' },
             { key: 'cleaning-cycles', label: 'Cleaning Cycles' },
             { key: 'filter-events', label: 'Filter Events' },
+            { key: 'alarms', label: 'Alarms' },
             ...genericTabs.map(t => ({ key: t.key, label: t.label })),
           ].map(t => (
             <button key={t.key} onClick={() => { setTab(t.key); setEditingId(null); setSearch(''); }}
@@ -740,8 +815,87 @@ export function FilterDataManagementPage() {
           )
         )}
 
+        {/* ─── Alarms — mirrors /alarms page exactly ─── */}
+        {tab === 'alarms' && !alarmsEnriched.isLoading && (
+          filteredEnrichedAlarms.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <span className="text-slate-400 font-medium">{search ? 'No results found' : 'No alarms'}</span>
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  {['Severity', 'Alarm Type', 'Entity', 'High Limit', 'Low Limit', 'Generated Value', 'Cleared Value', 'Status', 'Generated At', 'Cleared At', 'Actions'].map((h, i) => (
+                    <th key={i} className="text-left px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {filteredEnrichedAlarms.map((a: any) => {
+                  const sev = ALARM_SEVERITY_COLORS[a.severity] ?? 'bg-slate-100 text-slate-600 border-slate-200';
+                  const dot = ALARM_SEVERITY_DOT[a.severity] ?? 'bg-slate-400';
+                  const stCol = ALARM_STATUS_COLORS[a.status] ?? 'bg-slate-100 text-slate-600 border-slate-200';
+                  const stLabel = ALARM_STATUS_LABELS[a.status] ?? a.status;
+                  const high = getAlarmHighLimit(a);
+                  const low = getAlarmLowLimit(a);
+                  const gen = getAlarmGeneratedValue(a);
+                  const clr = getAlarmClearedValue(a);
+                  return (
+                    <tr key={a.id} className="hover:bg-slate-50/50 group">
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${sev}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${dot}`} />
+                          {a.severity}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-[12px] font-medium text-slate-700">{a.alarmType}</div>
+                        {a.message && <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[200px]">{a.message}</div>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-[10px] font-mono text-slate-600 bg-slate-100 px-2 py-1 rounded-lg">{a.entityName ?? a.entityId}</span>
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        {high ? <span className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-md">{high}</span> : <span className="text-slate-300">-</span>}
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        {low ? <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md">{low}</span> : <span className="text-slate-300">-</span>}
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        {gen ? <span className="text-[10px] font-bold text-orange-700 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-md">{gen}</span> : <span className="text-slate-300">-</span>}
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        {clr ? <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">{clr}</span> : <span className="text-slate-300">-</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${stCol}`}>{stLabel}</span>
+                      </td>
+                      <td className="px-4 py-3 text-[11px] text-slate-500 whitespace-nowrap">{a.createdAt ? formatDateTime(a.createdAt) : '-'}</td>
+                      <td className="px-4 py-3 text-[11px] text-slate-500 whitespace-nowrap">{a.clearedAt ? formatDateTime(a.clearedAt) : '-'}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1 justify-end">
+                          <button onClick={() => openRowEdit(a, 'alarm', a.alarmType ?? 'Alarm')}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 opacity-0 group-hover:opacity-100">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                            Edit
+                          </button>
+                          <button onClick={() => setConfirmDelete({ id: a.id, type: 'generic' as any, name: a.alarmType ?? 'Alarm' })}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )
+        )}
+
         {/* ─── Generic Data Tables (all columns editable) ─── */}
-        {activeGenericTab && tab !== 'retirements' && tab !== 'replacements' && tab !== 'cleaning-cycles' && tab !== 'filter-events' && (
+        {activeGenericTab && tab !== 'retirements' && tab !== 'replacements' && tab !== 'cleaning-cycles' && tab !== 'filter-events' && tab !== 'alarms' && (
           genericLoading ? (
             <div className="flex flex-col items-center justify-center py-20 gap-3">
               <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
@@ -918,7 +1072,7 @@ export function FilterDataManagementPage() {
             <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h3 className="text-[15px] font-bold text-slate-800">
-                  Edit {rowEditDialog.entity === 'cycle' ? 'Cleaning Cycle' : 'Filter Event'}
+                  Edit {rowEditDialog.entity === 'cycle' ? 'Cleaning Cycle' : rowEditDialog.entity === 'event' ? 'Filter Event' : 'Alarm'}
                 </h3>
                 <p className="text-[12px] text-slate-400 mt-0.5">{rowEditDialog.rowName}</p>
               </div>
@@ -942,7 +1096,7 @@ export function FilterDataManagementPage() {
                   <Field label="Dryer Duration (min)" value={rowEditFields.dryerDurationMinutes} onChange={v => setRowEditFields(p => ({ ...p, dryerDurationMinutes: v }))} type="number" />
                   <Field label="Dryer Started At" value={rowEditFields.dryerStartedAt} onChange={v => setRowEditFields(p => ({ ...p, dryerStartedAt: v }))} type="datetime-local" />
                 </>
-              ) : (
+              ) : rowEditDialog.entity === 'event' ? (
                 <>
                   <Field label="Event Type" value={rowEditFields.eventType} onChange={v => setRowEditFields(p => ({ ...p, eventType: v }))} />
                   <Field label="From State" value={rowEditFields.fromState} onChange={v => setRowEditFields(p => ({ ...p, fromState: v }))} />
@@ -951,6 +1105,20 @@ export function FilterDataManagementPage() {
                   <Field label="Remarks" value={rowEditFields.remarks} onChange={v => setRowEditFields(p => ({ ...p, remarks: v }))} textarea />
                   <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                     Note: SHA-256 checksum is not editable. Changing it would break the audit hash chain.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <Field label="Severity" value={rowEditFields.severity} onChange={v => setRowEditFields(p => ({ ...p, severity: v }))}
+                    select options={['CRITICAL', 'MAJOR', 'MINOR', 'WARNING', 'INFO']} />
+                  <Field label="Status" value={rowEditFields.status} onChange={v => setRowEditFields(p => ({ ...p, status: v }))}
+                    select options={['ACTIVE', 'ACKNOWLEDGED', 'CLEARED', 'MANUALLY_CLEARED']} />
+                  <Field label="Alarm Type" value={rowEditFields.alarmType} onChange={v => setRowEditFields(p => ({ ...p, alarmType: v }))} />
+                  <Field label="Message" value={rowEditFields.message} onChange={v => setRowEditFields(p => ({ ...p, message: v }))} textarea />
+                  <Field label="Acknowledged At" value={rowEditFields.acknowledgedAt} onChange={v => setRowEditFields(p => ({ ...p, acknowledgedAt: v }))} type="datetime-local" />
+                  <Field label="Cleared At" value={rowEditFields.clearedAt} onChange={v => setRowEditFields(p => ({ ...p, clearedAt: v }))} type="datetime-local" />
+                  <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    Note: trigger details, threshold values, and entity references are not editable here — they're set by the rule engine when the alarm fires.
                   </p>
                 </>
               )}
