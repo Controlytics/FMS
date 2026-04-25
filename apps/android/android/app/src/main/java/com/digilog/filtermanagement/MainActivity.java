@@ -1,10 +1,18 @@
 package com.digilog.filtermanagement;
 
+import android.os.Bundle;
 import android.webkit.WebView;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.Bridge;
 
 public class MainActivity extends BridgeActivity {
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        // Register the RFID plugin BEFORE super.onCreate so the bridge picks it up
+        registerPlugin(RfidPlugin.class);
+        super.onCreate(savedInstanceState);
+    }
 
     @Override
     public void onStart() {

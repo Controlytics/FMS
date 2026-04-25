@@ -8,6 +8,7 @@ import { useOffline } from '../../hooks/use-offline';
 import { onSyncEvent } from '../../lib/sync-engine';
 import { DryerDurationDialog } from '../filter-management/components/dryer-duration-dialog';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
+import { subscribeRfidTags } from '@/lib/rfid-bridge';
 
 const STAGES = [
   { key: 'WASH_IN', label: 'Wash In', icon: '🚿', gradient: 'from-sky-500 to-sky-600', bg: 'bg-sky-50', border: 'border-sky-200', text: 'text-sky-700', needsBlock: true },
@@ -109,6 +110,39 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       focusScanInput();
     }
   }, [view, reasonDialog, equipDialog, checklistDialog, dryerDialog, blockChangeDialog, success]);
+
+  // Native SDK-mode RFID bridge. When the reader is in answer/SDK mode the OS
+  // does NOT inject keystrokes — Reader_Usb.jar reads tags directly via USB
+  // and pushes them through Capacitor's RfidPlugin. We subscribe once on the
+  // stage view and route every received tag to the scan input + auto-submit.
+  // Falls back silently on web (browser) where the plugin isn't available;
+  // the document-level keystroke trap below handles UKB-mode readers.
+  const [rfidError, setRfidError] = useState<string | null>(null);
+  useEffect(() => {
+    if (view !== 'stage') return;
+    let unsub: (() => void) | null = null;
+    let cancelled = false;
+    (async () => {
+      const off = await subscribeRfidTags(
+        (tag) => {
+          if (cancelled) return;
+          // Use the EPC as the scan value. resolveFilter() already handles
+          // RFID dedup + identifier-map lookup the same way it does for keyboard input.
+          const epc = (tag.epc ?? '').trim();
+          if (!epc) return;
+          setScanValue(epc);
+          // Defer one tick so React applies the value before submit reads it
+          setTimeout(() => {
+            setScanValue(epc);
+            if (scanQueue.length > 0) handleAddToQueue(); else handleSubmit();
+          }, 0);
+        },
+        (err) => { if (!cancelled) setRfidError(err); },
+      );
+      if (cancelled) { try { off(); } catch {} } else unsub = off;
+    })();
+    return () => { cancelled = true; try { unsub?.(); } catch {} };
+  }, [view, scanQueue.length]);
 
   // Global RFID-burst capture on the stage view. Even if focus has drifted to
   // body / a button / the remarks textarea, an RFID trigger fires keystrokes at
@@ -1281,6 +1315,22 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           <span>⚠ Offline pre-cache failed. New filters may not work offline. {batchCacheError}</span>
           <button onClick={manualRecache} disabled={recaching} className="px-3 py-1 bg-amber-100 hover:bg-amber-200 disabled:opacity-50 rounded-lg text-xs font-semibold whitespace-nowrap">
             {recaching ? 'Re-caching…' : 'Retry'}
+          </button>
+        </div>
+      )}
+      {rfidError && view === 'stage' && (
+        <div className="mx-4 mt-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 flex items-center justify-between gap-3">
+          <span>📡 RFID reader: {rfidError}. You can still type/scan manually into the input.</span>
+          <button
+            onClick={async () => {
+              setRfidError(null);
+              const { reconnectRfid } = await import('@/lib/rfid-bridge');
+              const r = await reconnectRfid();
+              if (!r.ok) setRfidError(r.error ?? 'reconnect failed');
+              else setSuccess('RFID reader reconnected');
+            }}
+            className="px-3 py-1 bg-amber-100 hover:bg-amber-200 rounded-lg text-xs font-semibold whitespace-nowrap">
+            Reconnect
           </button>
         </div>
       )}
