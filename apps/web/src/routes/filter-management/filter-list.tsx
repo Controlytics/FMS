@@ -103,6 +103,7 @@ export function FilterListPage() {
   const [createFilterName, setCreateFilterName] = useState('');
   const [createFilterSet, setCreateFilterSet] = useState<'A' | 'B'>('A');
   const [createFilterProfile, setCreateFilterProfile] = useState('');
+  const [createFilterAttrs, setCreateFilterAttrs] = useState<Record<string, any>>({});
   const [createFilterSubmitting, setCreateFilterSubmitting] = useState(false);
   const [createFilterError, setCreateFilterError] = useState('');
   const [bulkUploadAhu, setBulkUploadAhu] = useState('');
@@ -711,12 +712,22 @@ export function FilterListPage() {
   };
 
   // ── Single-filter create helpers ──
+  // Filter template attributeSchema — driven by config so admins can add fields
+  // (memory rule: feedback_dynamic_template_fields.md — create dialogs MUST render
+  // template attributeSchema fields, not just the hard-coded core columns).
+  const filterAttributeSchema: any[] = (() => {
+    const tpl = templates.find((t: any) => t.id === filterTemplateId);
+    const raw = tpl?.attributeSchema;
+    return Array.isArray(raw) ? raw : [];
+  })();
+
   const openCreateFilter = () => {
     setCreateFilterOpen(true);
     setCreateFilterAhu(bulkUploadAhus.length === 1 ? bulkUploadAhus[0].id : '');
     setCreateFilterName('');
     setCreateFilterSet('A');
     setCreateFilterProfile('');
+    setCreateFilterAttrs({});
     setCreateFilterError('');
   };
 
@@ -725,16 +736,49 @@ export function FilterListPage() {
       setCreateFilterError('Please choose an AHU and enter a filter name.');
       return;
     }
+    // Validate required dynamic fields up front so the operator sees one error
+    // instead of a backend rejection deep in the create flow.
+    const missingRequired = filterAttributeSchema
+      .filter((f: any) => f.required)
+      .filter((f: any) => {
+        const v = createFilterAttrs[f.fieldName];
+        return v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
+      })
+      .map((f: any) => f.fieldName);
+    if (missingRequired.length > 0) {
+      setCreateFilterError(`Missing required field(s): ${missingRequired.join(', ')}`);
+      return;
+    }
+    // Build attributes object — coerce numeric and boolean datatypes per schema
+    const attributes: Record<string, any> = {};
+    for (const field of filterAttributeSchema) {
+      const raw = createFilterAttrs[field.fieldName];
+      if (raw === undefined || raw === null || raw === '') continue;
+      if (field.dataType === 'FLOAT' || field.dataType === 'NUMBER' || field.dataType === 'INTEGER') {
+        const n = Number(raw);
+        if (!Number.isFinite(n)) {
+          setCreateFilterError(`${field.fieldName} must be a number`);
+          return;
+        }
+        attributes[field.fieldName] = n;
+      } else if (field.dataType === 'BOOLEAN') {
+        attributes[field.fieldName] = raw === true || raw === 'true';
+      } else {
+        attributes[field.fieldName] = raw;
+      }
+    }
+
     setCreateFilterSubmitting(true);
     setCreateFilterError('');
     try {
       await reauth.execute('CREATE_FILTER', async (password?: string) => {
-        const body = {
+        const body: any = {
           name: createFilterName.trim(),
           templateId: filterTemplateId,
           parentId: createFilterAhu,
           filterSet: createFilterSet,
           ...(createFilterProfile && { filterProfileId: createFilterProfile }),
+          ...(Object.keys(attributes).length > 0 && { attributes }),
         };
         if (password) await api.postWithReauth('/api/assets/instances', body, password);
         else await api.post('/api/assets/instances', body);
@@ -2039,7 +2083,7 @@ export function FilterListPage() {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
-            <div className="px-6 py-5 space-y-4">
+            <div className="px-6 py-5 space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(90vh - 160px)' }}>
               {createFilterError && (
                 <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">{createFilterError}</div>
               )}
@@ -2070,6 +2114,61 @@ export function FilterListPage() {
                   ))}
                 </div>
               </div>
+              {/* Dynamic fields from Filter template attributeSchema. Same renderer
+                  pattern as the Block/Area/AHU create dialog above so admins can
+                  add new fields once on the template and they show up everywhere. */}
+              {filterAttributeSchema.length > 0 && (
+                <div className="space-y-3 pt-1 border-t border-slate-100">
+                  <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider pt-2">Filter Attributes</div>
+                  {filterAttributeSchema.map((field: any) => (
+                    <div key={field.fieldName}>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        {field.fieldName.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').trim()}
+                        {field.unit && <span className="text-slate-400 font-normal"> ({field.unit})</span>}
+                        {field.required && <span className="text-red-500"> *</span>}
+                      </label>
+                      {field.dataType === 'DROPDOWN' ? (
+                        <select
+                          value={createFilterAttrs[field.fieldName] ?? ''}
+                          onChange={e => setCreateFilterAttrs(p => ({ ...p, [field.fieldName]: e.target.value }))}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                        >
+                          <option value="">Select...</option>
+                          {(field.dropdownOptions ?? []).map((opt: string) => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      ) : field.dataType === 'BOOLEAN' ? (
+                        <select
+                          value={createFilterAttrs[field.fieldName] ?? ''}
+                          onChange={e => setCreateFilterAttrs(p => ({ ...p, [field.fieldName]: e.target.value }))}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                        >
+                          <option value="">Select...</option>
+                          <option value="true">Yes</option>
+                          <option value="false">No</option>
+                        </select>
+                      ) : field.dataType === 'DATE' ? (
+                        <input
+                          type="date"
+                          value={createFilterAttrs[field.fieldName] ?? ''}
+                          onChange={e => setCreateFilterAttrs(p => ({ ...p, [field.fieldName]: e.target.value }))}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                        />
+                      ) : (
+                        <input
+                          type={field.dataType === 'FLOAT' || field.dataType === 'NUMBER' || field.dataType === 'INTEGER' ? 'number' : 'text'}
+                          step={field.dataType === 'FLOAT' ? 'any' : undefined}
+                          value={createFilterAttrs[field.fieldName] ?? ''}
+                          onChange={e => setCreateFilterAttrs(p => ({ ...p, [field.fieldName]: e.target.value }))}
+                          placeholder={field.fieldName.replace(/_/g, ' ')}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
               <button onClick={() => setCreateFilterOpen(false)} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
