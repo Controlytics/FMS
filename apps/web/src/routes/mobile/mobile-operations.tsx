@@ -221,7 +221,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const stageCounts: Record<string, number> = {};
   allFilters.forEach((f: any) => { if (f.currentLifecycleState) stageCounts[f.currentLifecycleState] = (stageCounts[f.currentLifecycleState] ?? 0) + 1; });
 
-  // Helper: get equipment groups for a block — tries API first, falls back to cached data
+  // Helper: get equipment groups for a block — tries API first, then prefers
+  // the per-block cache (exact same shape as /api/equipment-groups/by-block/:id),
+  // and finally falls back to filtering the flat equipment-groups cache by blockId.
   const getEquipmentGroupsForBlock = async (blockId: string): Promise<any[]> => {
     if (online) {
       try {
@@ -229,7 +231,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         return groups ?? [];
       } catch {}
     }
-    // Offline or API failed — use cached equipment groups filtered by blockId
+    // Offline or API failed — prefer per-block cache populated during syncAllDataForOffline
+    const perBlock = await getCache<any[]>(`equipment-groups-by-block-${blockId}`);
+    if (perBlock && perBlock.length > 0) return perBlock;
+
+    // Last-resort fallback: filter the flat equipment-groups cache
     const allGroups = offlineEquipmentGroups.length > 0
       ? offlineEquipmentGroups
       : (await getCache<any[]>('equipment-groups')) ?? [];
@@ -439,6 +445,36 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
 
       // Only mark cycle complete if we have pipeline data to verify it AND there are truly no next stages
       const cycleComplete = hasGraphData && nextAllowed.length === 0 && pendingChecklist.length === 0 && !cycleStarted;
+
+      // Resolve currentCycle for the cache write:
+      //   - Complete → null
+      //   - cycleStarted=true → ALWAYS an IN_PROGRESS cycle (Bug B fix). Don't
+      //     fall back to cachedState.currentCycle via ?? because a stale
+      //     non-IN_PROGRESS cycle from a previous failed attempt would
+      //     cause hasActiveCycle=false on the next scan and re-fire the
+      //     reason/equipment dialog. When the cache already has an
+      //     IN_PROGRESS cycle, preserve its id + dryer timing; otherwise
+      //     mint a fresh offline cycle id.
+      //   - cycleStarted=false → keep the existing cycle (if any), do not invent one.
+      let nextCurrentCycle: any = null;
+      if (!cycleComplete) {
+        if (cycleStarted) {
+          const prev = cachedState.currentCycle;
+          const prevIsActive = prev && prev.status === 'IN_PROGRESS';
+          nextCurrentCycle = prevIsActive
+            ? { ...prev, status: 'IN_PROGRESS' }
+            : {
+                id: `offline-${Date.now()}`,
+                status: 'IN_PROGRESS',
+                cleaningAreaId: blockId ?? selectedBlock?.id ?? null,
+              };
+        } else {
+          // Plain advance: preserve the existing cycle (including dryer timing
+          // written just before by handleDryerDurationSubmit — Bug A protection).
+          nextCurrentCycle = cachedState.currentCycle ?? null;
+        }
+      }
+
       // AWAIT the cache write so callers that immediately read filter-state
       // back (e.g. handleReasonSubmit) see the updated state — otherwise a
       // race causes cycle 2's WASH_IN checklist to appear after WASH_OUT scan.
@@ -453,7 +489,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         pendingChecklist: cycleComplete ? [] : pendingChecklist,
         answeredChecklistStages: cycleComplete || cycleStarted ? [] : answeredStages,
         equipmentGroup: cycleComplete ? null : cachedState.equipmentGroup,
-        currentCycle: cycleComplete ? null : (cachedState.currentCycle ?? (cycleStarted ? { id: `offline-${Date.now()}`, status: 'IN_PROGRESS', cleaningAreaId: blockId ?? selectedBlock?.id ?? null } : null)),
+        currentCycle: nextCurrentCycle,
       });
       // Also clear currentCycleId in filters store when cycle completes
       if (cycleComplete) {
@@ -461,7 +497,8 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         await clearOfflineCycleId(filterId);
       }
     } catch { /* ignore */ }
-    refreshOfflineData();
+    // Fix Bug C — await so callers/next scan see fresh React state
+    await refreshOfflineData();
   };
 
   const handleSubmit = async () => {
@@ -696,6 +733,35 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             const fName = filterName || state.filterName;
             const cyclePayload = { cleaningReasonKey: state.pmReasonKey, cleaningAreaId: selectedBlock?.id };
             const advancePayload = { targetState: activeStage.key, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${activeStage.label} - ${fName} (PM auto)` };
+
+            // If WASH_IN with a block that has equipment groups, we must NOT
+            // advance yet — the equipment dialog will collect readings and
+            // submit the advance itself. Advancing here causes
+            // "Cannot move from WASH_IN to WASH_IN" on the second advance.
+            // Works BOTH online and offline: online calls start-cycle now,
+            // offline defers it so handleEquipSubmit can issue a single
+            // compound start-and-advance op carrying the readings.
+            const needsEquipDialog = activeStage.key === 'WASH_IN' && selectedBlock?.id
+              && (await getEquipmentGroupsForBlock(selectedBlock.id))?.length > 0;
+
+            if (needsEquipDialog) {
+              if (online) {
+                // Start the cycle only (no advance). Equipment dialog will advance.
+                try {
+                  await apiClient.post(`/api/filters/${filterId}/start-cycle`, cyclePayload);
+                } catch (e: any) {
+                  if ((e?.code || e?.error) !== 'CYCLE_ACTIVE') throw e;
+                }
+              }
+              // Offline: DO NOT call start-cycle yet. handleEquipSubmit will
+              // detect pendingCyclePayload and queue a 'start-and-advance'
+              // compound op atomically — one audit event with readings.
+              setPendingCyclePayload(cyclePayload);
+              const groups = await getEquipmentGroupsForBlock(selectedBlock.id);
+              setEquipDialog({ filterId, filterName: fName, stage: activeStage.key, groups });
+              setSelectedEquipGroup(null); setReadings({});
+              setLoading(false); return;
+            }
 
             const { executed: cycleStarted, result } = await executeOrQueue(
               'start-and-advance', filterId, fName,
@@ -943,7 +1009,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       const { executed } = await executeOrQueue('advance', dryerDialog.filterId, dryerDialog.filterName, payload, 'DRY_IN');
       setSuccess(`${dryerDialog.filterName} → Dryer running (${minutes} min)${executed ? '' : ' (queued)'}`);
       setRecentOps(prev => [{ stage: 'Dryer Started', filter: dryerDialog.filterName, time: formatTime(new Date()), queued: !executed }, ...prev].slice(0, 20));
-      // Cache dryer timing + equipmentGroup (offline + navigation persistence)
+      // Cache dryer timing + equipmentGroup (offline + navigation persistence).
+      // CRITICAL: We must persist the dryer timestamps (dryerStartedAt +
+      // dryerDurationMinutes) BEFORE updateOfflineState runs, because the
+      // latter reads this cache key and would otherwise overwrite it with a
+      // payload that drops these fields — causing Bug A (dryer state lost
+      // when operator switches filters and comes back to DRY_IN).
       try {
         const cached = await getCache<any>(`filter-state-${dryerDialog.filterId}`) ?? {};
         // Resolve equipment group for offline temperature dropdown
@@ -953,7 +1024,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           const blockGroups = allGroups.filter((g: any) => g.blockId === selectedBlock.id);
           if (blockGroups.length === 1) eqGroup = blockGroups[0];
         }
-        cache(`filter-state-${dryerDialog.filterId}`, {
+        await cache(`filter-state-${dryerDialog.filterId}`, {
           ...cached,
           currentState: 'DRY_IN',
           equipmentGroup: eqGroup,

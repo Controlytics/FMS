@@ -109,6 +109,26 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
     const equipRes = await apiClient.get<any>('/api/equipment-groups');
     const equipGroups = Array.isArray(equipRes) ? equipRes : equipRes?.data ?? [];
     await cacheItem('equipment-groups', equipGroups);
+
+    // 5b. Per-block equipment groups — mirror exactly what
+    //     GET /api/equipment-groups/by-block/:id returns, so offline path
+    //     sees the same filtered + org-scoped list as online callers.
+    //     Indexed by block UUID so getEquipmentGroupsForBlock() can do an
+    //     O(1) cache hit instead of filtering a flat list by blockId.
+    try {
+      const blockTemplate = (templatesRes?.data ?? []).find((t: any) => t.name === 'Block');
+      const blocks = blockTemplate
+        ? instances.filter((i: any) =>
+            i.templateId === blockTemplate.id && i.isActive !== false
+          )
+        : [];
+      for (const b of blocks) {
+        try {
+          const groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${b.id}`);
+          await cacheItem(`equipment-groups-by-block-${b.id}`, Array.isArray(groups) ? groups : []);
+        } catch { /* best-effort per block */ }
+      }
+    } catch { /* block-template lookup failed — fall back to flat cache above */ }
     currentStep++;
 
     // 6. Identifier map (RFID/barcode → filterId+filterName)

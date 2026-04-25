@@ -139,7 +139,28 @@ export function useOffline() {
       // Network error or reauth block — fall through to queue below
     }
 
-    // Offline or network error: queue the operation
+    // Offline or network error: queue the operation.
+    //
+    // Pre-queue validation (advance-like ops only): check the cached
+    // pipeline graph so we don't poison the queue with an op the server
+    // will reject at sync (OUT_OF_SEQUENCE / CHECKLIST_PENDING). We gate
+    // on `optimisticState` presence so submit-checklist / bypass / terminate
+    // skip this check (they have their own server-side enforcement).
+    if (optimisticState) {
+      const { validatePreQueue } = await import('@/lib/offline-store');
+      const blockId = (payload as any)?.cleaningAreaId
+        ?? (payload as any)?.advancePayload?.cleaningAreaId
+        ?? null;
+      const v = await validatePreQueue(filterId, optimisticState, { blockId });
+      if (!v.ok) {
+        const err: any = new Error(v.message);
+        err.code = v.code;
+        err.nextAllowed = v.nextAllowed;
+        err.offlineValidation = true;
+        throw err;
+      }
+    }
+
     await queueOperation({ type, filterId, filterName, payload });
     if (optimisticState) {
       // When starting a cycle offline, also mark the filter as having an active cycle

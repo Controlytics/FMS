@@ -592,7 +592,12 @@ export class FilterOperationsService {
     const prevCycleCount = await prisma.cleaningCycle.count({ where: { filterId } });
     const seq = prevCycleCount + 1;
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const cycleCode = `CC-${orgSlug}-${filter.name?.replace(/\s+/g, '').slice(0, 10) ?? filterId.slice(0, 8)}-${String(seq).padStart(3, '0')}-${dateStr}`;
+    // Include filter.id suffix to guarantee uniqueness across filters
+    // that share a truncated name prefix (e.g. PRE-A-AHU-01..07 all
+    // collapse to "PRE-A-AHU-" when sliced at 10 chars).
+    const nameSafe = (filter.name?.replace(/\s+/g, '').slice(0, 20)) ?? filterId.slice(0, 8);
+    const idSuffix = filterId.replace(/-/g, '').slice(0, 4);
+    const cycleCode = `CC-${orgSlug}-${nameSafe}-${idSuffix}-${String(seq).padStart(3, '0')}-${dateStr}`;
 
     // Resolve to cleaning profile — could be a FilterProfile ID or a CleaningProfile ID directly
     const fp = await prisma.filterProfile.findUnique({ where: { id: resolvedProfileIdForCycle } });

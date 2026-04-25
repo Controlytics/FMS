@@ -461,10 +461,17 @@ export function FilterOperationsPage() {
       // Also update the filter instance's local state
       const { updateFilterStateLocally } = await import('@/lib/offline-store');
       await updateFilterStateLocally(filterId, newStageKey, cycleStarted);
-      // Clear currentCycleId when cycle completes
+      // Clear cycleId + lifecycle state when cycle completes, and wipe the
+      // filter-state cache so the next scan re-fetches fresh state from the
+      // server. Otherwise the stale cache keeps the terminal stage (e.g.
+      // STORAGE_IN) and the next WASH_IN is misinterpreted as an advance.
       if (cycleComplete) {
         const { clearOfflineCycleId } = await import('@/lib/offline-store');
         await clearOfflineCycleId(filterId);
+        try { await (await import('@/lib/sqllite-db')).dbRun(
+          `DELETE FROM reference_cache WHERE key = ?`,
+          [`filter-state-${filterId}`]
+        ); } catch { /* ignore */ }
       }
     } catch { /* ignore cache update errors */ }
   };
@@ -579,6 +586,62 @@ export function FilterOperationsPage() {
         if (state.isPmDue && state.pmReasonKey) {
           const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
           const blockId = selectedBlock?.id;
+
+          // For WASH_IN + block with equipment groups, we must NOT advance
+          // here — equipment dialog will collect readings and advance itself.
+          // Otherwise the filter is already at WASH_IN when the dialog submits,
+          // causing "Cannot move from WASH_IN to WASH_IN".
+          // Works BOTH online and offline: online starts cycles now, offline
+          // defers the start so handleEquipmentSubmit can issue one compound
+          // start-and-advance op per filter that carries the readings atomically.
+          if (activeStage.key === 'WASH_IN' && blockId) {
+            // Resolve equipment groups — prefer per-block cache offline
+            let groups: any[] = [];
+            if (online) {
+              try {
+                groups = (await apiClient.get<any[]>(`/api/equipment-groups/by-block/${blockId}`)) ?? [];
+              } catch { groups = []; }
+            }
+            if (!groups.length) {
+              const perBlock = await getCache<any[]>(`equipment-groups-by-block-${blockId}`);
+              if (perBlock && perBlock.length > 0) {
+                groups = perBlock;
+              } else {
+                const cachedGroups = await getCache<any[]>('equipment-groups') ?? [];
+                groups = cachedGroups.filter((g: any) => g.blockId === blockId);
+              }
+            }
+
+            if (groups.length > 0) {
+              if (online) {
+                // Start cycles only (no advance) for each filter in batch
+                for (const item of batch) {
+                  try {
+                    await apiClient.post(`/api/filters/${item.filterId}/start-cycle`, { cleaningReasonKey: state.pmReasonKey, cleaningAreaId: blockId });
+                  } catch (e: any) {
+                    if ((e?.code || e?.error) !== 'CYCLE_ACTIVE') throw e;
+                  }
+                }
+              }
+              // Offline: skip start-cycle here — handleEquipmentSubmit will
+              // queue 'start-and-advance' (compound) so readings + cycle start
+              // land in one atomic operation with a single audit event.
+              setPendingBatch(batch);
+              setPendingCyclePayload({ cleaningReasonKey: state.pmReasonKey, cleaningAreaId: blockId });
+              setEquipmentDialog({
+                filterId: batch[0].filterId,
+                filterName: `${batch.length} filter(s)`,
+                stage: activeStage,
+                groups,
+                block: selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined,
+              });
+              setEquipmentError('');
+              clearScanState();
+              setLoading(false); setSubmitting(false);
+              return;
+            }
+          }
+
           for (const item of batch) {
             const cyclePayload = { cleaningReasonKey: state.pmReasonKey, cleaningAreaId: blockId };
             const advancePayload = { targetState: activeStage.key, cleaningAreaId: blockId, remarks: remarks || `${activeStage.label} - ${item.filterName} (PM auto)` };
