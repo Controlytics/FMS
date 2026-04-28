@@ -542,6 +542,36 @@ User: "delete whatever documentation is not necessary".
 - **From 236 tracked .md files → 62 tracked .md files** (after deletion)
 - All deletions in this commit; rollback via `git revert <hash>` if anything turns out to be needed
 
+### Restore — future/backend + future/frontend (2026-04-29)
+
+User: "the future folder backend frontend files don't you think were important".
+
+**Correct**. After re-reading the deleted content, these 7 files contain unique knowledge that the current root docs do NOT duplicate:
+
+- **`future/backend/MODULES.md`** — per-module endpoint counts grounded in 2026-04-20 `grep` counts; lists sub-route splits (`events-routes`, `execution-routes`, `dynamic-routes`, `org-detail-routes`, per-resource files under `assets/routes/`) at a granularity my BACKEND_GUIDE doesn't have
+- **`future/backend/API_ENDPOINTS.md`** — canonical method/path/auth/notes table for every endpoint; my `API_REFERENCE.md` has request/response shapes but no "auth" column or compact catalog form
+- **`future/backend/README.md`** — directory map + ordered plugin list with line numbers + **PUBLIC_PATHS taxonomy** (Always public / Dev-only public / GET-only public) — this taxonomy is unique
+- **`future/backend/ENV_SETUP.md`** — backend-specific env walkthrough; complements `LOCAL_SETUP_WINDOWS.md` (which is repo-wide)
+- **`future/frontend/KEY_FILES.md`** — annotated "why it matters" file index for every important frontend file
+- **`future/frontend/PATTERNS.md`** — the conventions every page follows (route definition, SWR fetching, react-hook-form + zod, `useReauth`, `executeOrQueue`, dynamic `attributeSchema` rendering); this is the "how to add a feature" guide and is NOT in any other doc
+- **`future/frontend/README.md`** — full directory map of `apps/web/src/` with every component / hook / lib enumerated
+
+Restored via `git checkout 02f8108^ -- future/backend/ future/frontend/`.
+
+Updated `README.md` doc map to point at the restored files.
+
+#### What stayed deleted (still unnecessary)
+
+- `future/overview/` (3 files) — content fully duplicated by `PROJECT_SUMMARY.md`, `PROJECT_ARCHITECTURE.md`, `CHANGELOG.md`
+- `future/qa/` (4 files) — Phase 4-era acceptance criteria; `PHASE_5_RECENT_WORK.md § 11` outstanding work + `bloat.md` cover the current QA gaps
+- `future/testing/` (3 files) — superseded by `apps/api/src/e2e/` enumeration in `BACKEND_GUIDE.md`
+- `agents/` (13 files) — redundant with current plugin agents
+- All other previously-deleted archives — confirmed unnecessary
+
+#### Lesson captured
+
+When deleting "old" or "future" folders, read each file's actual content for unique knowledge before deleting — labels like `future/` don't mean obsolete; they may mean "onboarding pack created during reorg with detail not yet absorbed elsewhere".
+
 ### How to roll back
 ```bash
 git diff --stat HEAD~1 HEAD             # see what changed

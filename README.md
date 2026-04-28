@@ -173,6 +173,8 @@ See `LOCAL_SETUP_WINDOWS.md` for the full step-by-step setup, and `DEPLOY-WINDOW
 | `OFFLINE_SYNC_ARCHITECTURE.md` | Tablet APK + offline IndexedDB queue + sync engine |
 | `PHASE_5_RECENT_WORK.md` | Post-Phase-4 architecture changes (Apr 15–29) — reports, offline hardening, RFID SDK, decision tape |
 | `CHANGELOG.md` | Full chronological history |
+| `future/backend/{README,MODULES,API_ENDPOINTS,ENV_SETUP}.md` | Backend onboarding — directory map, request lifecycle + PUBLIC_PATHS taxonomy, per-module verified endpoint counts, full canonical endpoint table, env-setup walkthrough |
+| `future/frontend/{README,KEY_FILES,PATTERNS}.md` | Frontend onboarding — directory map, annotated file index ("why it matters"), conventions for routes / SWR / forms / offline-safe mutations / dynamic attribute forms |
 | `CLAUDE.md` | Instructions for AI coding assistants |
 | `AGENTS.md` | Agent-mode instructions |
 | `DEPLOY-WINDOWS.md` | Windows deployment options |
