@@ -10,7 +10,7 @@ The platform is monorepo-based (Turborepo) with a Fastify backend, a React/Vite 
 
 | Path | Contents |
 |---|---|
-| `apps/api/` | Fastify 5 backend — 34 modules, 200+ endpoints |
+| `apps/api/` | Fastify 5 backend — 37 modules, ~398 endpoints across 59 route files |
 | `apps/web/` | React 19 SPA — 22 route modules, ~85 pages, Tailwind CSS |
 | `apps/android/` | Capacitor Android wrapper that ships the SPA as `DigiLog-FilterOps.apk` |
 | `rfid_scan_app/` | Native Kotlin app for KC-series UHF RFID readers (USB) |
@@ -39,7 +39,7 @@ For end-to-end details, start with `PROJECT_SUMMARY.md` (overview), `PROJECT_ARC
 - **Audit trail** — Tamper-evident SHA-256 hash-chain log with before/after snapshots
 - **Notifications** — In-app + email (SMTP/OAuth2) + SMS (AWS SNS / Twilio) + Telegram + Slack
 - **Backup/restore** — Full DB export covering all 64 tables (`pg_tables` + `jsonb_populate_recordset`), SHA-256 integrity verification
-- **RBAC** — 6 hierarchical roles, **109 permissions**, **91 feature toggles**, **81 reauthentication actions**, **26 sidebar items**
+- **RBAC** — 6 hierarchical roles, **109 permissions**, **91 feature toggles**, **81 reauthentication actions** across 16 categories, **26 sidebar items**
 - **Help articles** — 40+ versioned in-app docs across 8 categories
 - **LDAP integration** — Active Directory / OpenLDAP with group→role mapping
 
@@ -71,7 +71,7 @@ For end-to-end details, start with `PROJECT_SUMMARY.md` (overview), `PROJECT_ARC
 - **Report template designer** — visual editor + PDF generation engine + digital signatures
 - **Configurable report header/footer/layout** — `/config/report-settings`
 - **Dynamic bulk upload** — CSV columns from template `attributeSchema`
-- **69 reauthentication actions** across 16 categories
+- **81 reauthentication actions** across 16 categories
 - **Block change request/approval** workflow with single-use consumption
 
 ### Phase 5 — April 15–29, 2026 (live on `RFID` branch)
@@ -175,7 +175,7 @@ See `LOCAL_SETUP_WINDOWS.md` for the full step-by-step setup, and `DEPLOY-WINDOW
 | `CHANGELOG.md` | Full chronological history |
 | `future/README.md` | Onboarding pack — overview + reading order |
 | `future/overview/CODEBASE_SUMMARY.md` | Most-comprehensive single-file tech stack with version pins (React 19 / Vite 6 / Fastify 5 / Prisma 6 / Capacitor 8 / `jose` / `ldapts`), feature areas verified by directory inspection, "How to find things" cookbook |
-| `future/overview/CURRENT_STATUS.md` | Snapshot @ 2026-04-20 + **KNOWN GOTCHAS** taxonomy (Capacitor WebView fetch, Redis ≥5, `digilog_tsdb`, Fastify schema stripping, roles after DB restore, PM2 compiled JS) |
+| `future/overview/CURRENT_STATUS.md` | Snapshot @ 2026-04-29 + **KNOWN GOTCHAS** taxonomy (Capacitor WebView fetch, Redis ≥5, `digilog_tsdb`, Fastify schema stripping, roles after DB restore, cycle profile_id frozen, idempotency-key required for replay) |
 | `future/overview/API_LIST.md` | Compact 394-endpoint index with `*` public markers |
 | `future/backend/{README,MODULES,API_ENDPOINTS,ENV_SETUP}.md` | Backend onboarding — directory map, request lifecycle + PUBLIC_PATHS taxonomy, per-module verified endpoint counts, full canonical endpoint table, env-setup walkthrough |
 | `future/frontend/{README,KEY_FILES,PATTERNS}.md` | Frontend onboarding — directory map, annotated file index ("why it matters"), conventions for routes / SWR / forms / offline-safe mutations / dynamic attribute forms |

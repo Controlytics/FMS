@@ -732,6 +732,51 @@ Files NOT meaningfully changed (already current after prior reconciliation pass)
 - `find apps/api/src/modules -name "*.ts" | xargs grep -l "app\.\(get\|post\|put\|patch\|delete\)" | wc -l` → **59 route files** (was claimed 47)
 - `grep -cE "app\.(get|post|put|patch|delete)" apps/api/src/modules/**/*.ts` → **~398** endpoint registrations
 
+### Ninth pass — root-vs-future cross-sync (2026-04-29)
+
+User: "is future and the other latest files are in sync with their knowledge".
+
+Ran 3 cross-doc consistency sweeps. After the eighth pass updated `future/` to live counts, **the root docs had drifted in 11 places** (still using older numbers). All patched:
+
+| File:line | Was | Now |
+|---|---|---|
+| `README.md:13` | "Fastify 5 backend — 34 modules" | **37 modules, ~398 endpoints across 59 route files** |
+| `README.md:74` | "69 reauthentication actions" | **81 reauthentication actions** |
+| `README.md:178` | "Snapshot @ 2026-04-20 + KNOWN GOTCHAS (...PM2 compiled JS)" | "Snapshot @ 2026-04-29 + GOTCHAS (cycle profile_id frozen, idempotency-key required)" |
+| `CLAUDE.md:101` | "18 granular feature toggles ... 69 reauth actions" | "18 toggles introduced; total privileges grew to 91 over Phases 4 + 5; 81 reauth actions across 16 categories" |
+| `PROJECT_SUMMARY.md:29` | "api/ — Fastify backend (34 modules" | "37 modules" |
+| `PROJECT_SUMMARY.md:33` | "shared/ — types (95 permissions, 82 privileges)" | "(109 permissions, 91 privileges, 81 reauth actions, 26 sidebar items)" |
+| `PROJECT_SUMMARY.md:47` | "RBAC with 95 permissions" | "RBAC with 109 permissions" |
+| `PROJECT_SUMMARY.md:131` | "PM2 process manager for API" | "NSSM for Windows Service registration" + scripts |
+| `PROJECT_ARCHITECTURE.md:46` | "│ 63 models│" (in ASCII diagram) | "│ 64 models│" |
+| `PROJECT_ARCHITECTURE.md:166` | "registers PM2 / NSSM service" | "registers NSSM Windows service" |
+| `PROJECT_ARCHITECTURE.md:222` | "Each of the 34 modules" | "Each of the 37 modules" |
+| `PROJECT_ARCHITECTURE.md:442` | "RBAC (95 permissions...)" | "RBAC (109 permissions, 81 sensitive actions)" |
+| `BACKEND_GUIDE.md:5` | "34 API modules ... Managed by PM2 in production" | "37 API modules, ~398 endpoints across 59 route files. Runs locally on Windows ... PM2 / EC2 are no longer in scope" |
+| `BACKEND_GUIDE.md:29` | "auto-registers 24 config definitions" | "30 config definitions" |
+| `BACKEND_GUIDE.md:349` | "24 config definitions auto-discovered" | "30 config definitions auto-discovered" |
+| `PHASE_5_RECENT_WORK.md:281` | "registers PM2/NSSM service" | "registers NSSM Windows service" |
+| `docs/index.md:114` | "69 reauth actions" | "81 reauth actions" |
+| `apps/api/CLAUDE.md:133` | "69 reauth actions across 16 categories" | "81 reauth actions across 16 categories" |
+
+Final consistency sweep (regex search across all 14 active docs in root + per-app + future + docs):
+- `(95 perm|82 (privi|feat)|69 reauth|57 model|17 enum|63 model|34 modules|34 API mod|24 config)` — **zero matches**
+- `(PM2 (in production|process|on EC2)|/home/ubuntu|34\.232\.224|EC2 (production|instance))` — **zero matches**
+
+Permitted lingering EC2/PM2 mentions are explicit historical references:
+- `CHANGELOG.md` "Phase A: Infrastructure (...PM2, Nginx)" and "PM2 TSDB_DATABASE env var fixed" — these are historical entries in the version log; CHANGELOG is append-only.
+- `CHANGELOG.md` "Removed all EC2 / Linux production assets" — the entry that DOCUMENTS the removal.
+- `PHASE_5_RECENT_WORK.md` "EC2/PM2 production assets removed" — same.
+- `PROJECT_ARCHITECTURE.md` cleanup-candidate table notes existence of stray files; not stale claims.
+
+#### Sync status — every active doc reads true against live code as of commit `1f9c1a6` + this pass
+
+- 14 root active docs ✓
+- 5 per-app/per-package CLAUDE/DECISIONS ✓
+- `docs/` active subtree ✓
+- `future/` complete (18 files) ✓
+- All numerical claims verified against live code by `grep`/`ls` (commit-hash linked in audit log)
+
 ### How to roll back
 ```bash
 git diff --stat HEAD~1 HEAD             # see what changed

@@ -43,7 +43,7 @@
 │  │  ┌──────────┐ ┌──────────┐ ┌────────┐ ┌──────────┐  │       │
 │  │  │PostgreSQL│ │TimescaleDB│ │ Redis  │ │  EMQX    │  │       │
 │  │  │  :5432   │ │  :5432   │ │ :6379  │ │  :1883   │  │       │
-│  │  │ 63 models│ │ 7 hyper- │ │BullMQ  │ │  MQTT    │  │       │
+│  │  │ 64 models│ │ 7 hyper- │ │BullMQ  │ │  MQTT    │  │       │
 │  │  │ Prisma   │ │ tables   │ │Pub/Sub │ │  Broker  │  │       │
 │  │  │digilog_db│ │digilog_  │ │Memurai │ │  IoT     │  │       │
 │  │  │          │ │tsdb      │ │        │ │  devices │  │       │
@@ -163,7 +163,7 @@
 │
 ├── scripts/                       (Windows deployment automation)
 │   ├── package-for-production.ps1  Builds API + Web + shared, zips into digilog-production.zip
-│   ├── install-on-target.ps1       Run-once on target Windows: installs deps, runs migrations, registers PM2 / NSSM service
+│   ├── install-on-target.ps1       Run-once on target Windows: installs deps, runs migrations, registers NSSM Windows service
 │   └── reset-cwh-cycles.sql        Emergency SQL to terminate IN_PROGRESS cycles bound to obsolete profile (used 04-25 for 7 stuck CWH cycles)
 │
 ├── rfid_scan_app/                 (Standalone Kotlin app — predates RFID SDK plugin in DigiLog APK)
@@ -219,7 +219,7 @@ HTTP Request
 
 ### Module Structure
 
-Each of the 34 modules follows this pattern:
+Each of the 37 modules follows this pattern:
 
 ```
 modules/
@@ -439,9 +439,9 @@ System:
 │    └── EMQX webhook auth (for MQTT devices)         │
 │                                                     │
 │  Layer 3: Authorization                             │
-│    └── RBAC (95 permissions, role-based)             │
+│    └── RBAC (109 permissions, role-based)            │
 │    └── Organization scoping (multi-tenant isolation) │
-│    └── Re-authentication (69 sensitive actions)      │
+│    └── Re-authentication (81 sensitive actions)      │
 │                                                     │
 │  Layer 4: Input Validation                          │
 │    └── HTML sanitization (all text inputs)           │

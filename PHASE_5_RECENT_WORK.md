@@ -278,7 +278,7 @@ Proposal only — not implemented. Current implementation still computes a `next
 
 ### Production deployment artifacts (Windows)
 - **`scripts/package-for-production.ps1`** — builds API (compiled JS) + Web (vite build) + shared package; bundles into `digilog-production.zip` ready for transport
-- **`scripts/install-on-target.ps1`** — run-once installer on target Windows machine; assumes Node.js 20+, PostgreSQL 18 + TimescaleDB, Memurai, EMQX, Nginx already installed; runs migrations, registers PM2/NSSM service
+- **`scripts/install-on-target.ps1`** — run-once installer on target Windows machine; assumes Node.js 20+, PostgreSQL 18 + TimescaleDB, Memurai, EMQX, optional Nginx already installed; runs migrations, registers NSSM Windows service
 - **`certs/`** — mkcert-generated TLS infrastructure for HTTPS API: `rootCA.pem` (install on tablet system cert store), `server.crt`/`server.key` (localhost), `ssl.conf` (OpenSSL config)
 - **`tsdb-migration/init-hypertables.sql`** — TimescaleDB hypertable bootstrap; converts 5 PostgreSQL tables to hypertables with 7-day chunk_time_interval on `ts_telemetry`. Run once after `createdb digilog_tsdb`.
 

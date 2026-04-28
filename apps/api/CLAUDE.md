@@ -130,7 +130,7 @@ See `CHANGELOG.md` for full details.
 
 **Permissions Updates:**
 - 95 total permission constants (was ~60)
-- 69 reauth actions across 16 categories
+- 81 reauth actions across 16 categories
 - FEATURE_TO_PERMISSION_MAP entries include both frontend + backend permissions
 - Block change requests GET endpoint accepts BLOCK_CHANGE_REQUEST OR BLOCK_CHANGE_APPROVE
 - Backup export uses CONFIG_UPDATE (removed hardcoded SUPER_ADMIN check)

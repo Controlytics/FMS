@@ -2,7 +2,7 @@
 
 ## Overview
 
-Fastify 5 backend with TypeScript, 34 API modules, 200+ endpoints. Managed by PM2 in production, tsx in development.
+Fastify 5 backend with TypeScript, **37 API modules**, ~398 endpoints across 59 route files. Runs locally on Windows: `tsx watch` in dev, compiled JS for prod-style local builds (registered as a Windows service via NSSM in installations). PM2 / EC2 are no longer in scope.
 
 **Entry point:** `apps/api/src/app.ts`
 **Dev:** `cd apps/api && npx tsx watch src/app.ts` (port 3000)
@@ -26,7 +26,7 @@ The main application file registers everything in this order:
 11. **WebSocket handler** — real-time data at `/ws`
 12. **Ingestion worker** — BullMQ consumer (concurrency: 10)
 13. **Maintenance worker** — DLQ check, connectivity check, retention cleanup
-14. **Config discovery** — auto-registers 24 config definitions
+14. **Config discovery** — auto-registers 30 config definitions
 15. **Static uploads** — serves `/uploads/` directory
 16. **Health check** — `GET /api/health`
 17. **Error handler** — unified error responses (AppError → HTTP codes)
@@ -346,7 +346,7 @@ MAX_FILE_SIZE=5242880
 4. **Re-authentication** — `enforceReauth('ACTION', req, reply)` for 69 sensitive operations
 5. **Audit logging** — Every mutation auto-logged with SHA-256 hash chain
 6. **Input sanitization** — All text fields stripped of HTML via `sanitize.ts`
-7. **Config registry** — 24 config definitions auto-discovered at startup
+7. **Config registry** — 30 config definitions auto-discovered at startup
 8. **Versioning** — Cleaning profiles, rule chains, help articles use version-on-update pattern
 9. **Immutable events** — Filter events stored with checksums, never modified (21 CFR Part 11)
 10. **Error handling** — `AppError(statusCode, code, message)` → unified JSON error response

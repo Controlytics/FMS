@@ -26,11 +26,11 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 ```
 21cfrlogbook-DigitalFMS/
 ├── apps/
-│   ├── api/            — Fastify backend (34 modules, TypeScript)
+│   ├── api/            — Fastify backend (37 modules, TypeScript)
 │   ├── web/            — React SPA (22 route modules, Vite + Tailwind)
 │   └── android/        — Capacitor wrapper for Android APK
 ├── packages/
-│   ├── shared/         — Zod schemas, permissions, types (95 permissions, 82 privileges)
+│   ├── shared/         — Zod schemas, permissions, types (109 permissions, 91 privileges, 81 reauth actions, 26 sidebar items)
 │   ├── db/             — Prisma client, TimescaleDB pool, telemetry batcher
 │   └── queue/          — BullMQ job queues (5 queues) + Redis connection
 ├── rfid_scan_app/      — Native Kotlin Android RFID scanner
@@ -44,7 +44,7 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 
 ### Phase 1: Core Platform
 - Multi-tenant organization management
-- Role-based access control (RBAC) with 95 permissions
+- Role-based access control (RBAC) with 109 permissions
 - JWT authentication with session management
 - Asset template and instance management (hierarchical)
 - Rule chain engine (77 node types across 8 categories)
@@ -126,12 +126,11 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 ## Deployment
 
 ### Production Deployment (Windows Server)
-- Self-contained ZIP package with install scripts
-- PowerShell-based automated installation
-- PM2 process manager for API
-- Nginx reverse proxy for SPA + API
+- Self-contained ZIP package via `scripts/package-for-production.ps1`
+- PowerShell-based automated installation via `scripts/install-on-target.ps1`
+- NSSM for Windows Service registration (the API runs as a Windows service)
+- Optional Nginx reverse proxy for SPA + API
 - Firewall rules auto-configured
-- NSSM for Windows Service registration
 
 ### Prerequisites
 - Node.js 20+, PostgreSQL 18 + TimescaleDB, Memurai (Redis), EMQX 5.x, Nginx

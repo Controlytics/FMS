@@ -111,7 +111,7 @@ All filter operations are recorded as immutable events with SHA-256 checksums, e
 - Report template designer + PDF generation engine + digital signatures
 - Configurable report header/footer/layout
 - Dynamic CSV bulk upload from template attributeSchema
-- 69 reauth actions
+- 81 reauth actions
 
 ## Phase 5 — Reports, Offline Hardening, RFID SDK, Filter Data Console (Apr 15–29, 2026)
 - Reports module phases A–F complete (template designer + generation engine + signatures)
