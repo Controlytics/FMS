@@ -5,6 +5,8 @@ This guide walks through installing DigiLog on a **fresh Windows machine**
 Total time: **60–90 minutes** for an experienced admin, 2–3 hours if you're
 installing Node, PostgreSQL, etc. for the first time.
 
+> **Before you begin:** read `windowsIssues.md` at the repo root for the full audit of 18 dependency / runtime issues that affect Windows deployments, with severity ratings and concrete mitigations. Each mitigation in this guide cross-references its `windowsIssues.md` § number for the rationale. The Phase-1 plan in `docs/plans/2026-04-29-windows-friendly-rewrite.md` (when present) tracks long-term remediation.
+
 ---
 
 ## 1. What's in the box

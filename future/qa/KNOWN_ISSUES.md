@@ -2,6 +2,8 @@
 
 These are real-world constraints verified from code + project memory, not speculation. Don't file bugs for these unless the underlying cause has changed.
 
+> **Windows Server deployment:** the authoritative deep-dive is `windowsIssues.md` at the repo root — 18 issues across hard blockers / soft blockers / operational hassles, each with mitigations. This file lists the operator-facing summary; the rewrite plan to eliminate paid-tool / heavy-binary dependencies is in `docs/plans/2026-04-29-windows-friendly-rewrite.md`.
+
 ## Environment / infrastructure
 
 - **Use `tsx watch` for dev, compiled JS for prod-style builds.** PM2 / EC2 are no longer in scope (removed in commit `251be95`). Production-style local builds: `npx tsc -p apps/api/tsconfig.json` then `node apps/api/dist/app.js`.

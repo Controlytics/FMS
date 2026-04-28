@@ -185,6 +185,7 @@ See `LOCAL_SETUP_WINDOWS.md` for the full step-by-step setup, and `DEPLOY-WINDOW
 | `AGENTS.md` | Agent-mode instructions |
 | `DEPLOY-WINDOWS.md` | Windows deployment options |
 | `LOCAL_SETUP_WINDOWS.md` | Windows local dev setup |
+| `windowsIssues.md` | Windows Server difficulty audit — 18 dependency / runtime issues with severity + mitigation |
 | `docs/` | User guides, admin guides, compliance, deployment methods |
 | `old/` | Archived superseded docs (read-only history) |
 
