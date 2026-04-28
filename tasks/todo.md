@@ -777,6 +777,47 @@ Permitted lingering EC2/PM2 mentions are explicit historical references:
 - `future/` complete (18 files) ✓
 - All numerical claims verified against live code by `grep`/`ls` (commit-hash linked in audit log)
 
+### Tenth pass — CLAUDE.md trim (2026-04-29)
+
+After codifying the doc-sync rule in pass 9 (`808245a`), CLAUDE.md grew to 278 lines / 21 KB. Loaded into every session's context, the cost was real for marginal benefit — the 30-row Change→Docs table reduced to a handful of principles when read carefully.
+
+#### Action
+
+1. **Created `docs/CONTRIBUTING.md`** (162 lines) — moved out:
+   - Full Change → Docs mapping table (37 rows split into Backend / Database / Frontend / Config+Permissions / Native Android / Tests+Infra)
+   - 12-touchpoint rule for new config defs (now numbered list)
+   - Pre-deletion rule with commit-hash receipts (`02f8108` → `8677bf7` → `2c1fa50`)
+   - Reading order for fresh contributors
+   - Audit-pass methodology section (the 6-step loop the 9-pass audit followed)
+
+2. **Trimmed CLAUDE.md Documentation Sync Rule from ~125 lines to ~30 lines.** Kept:
+   - The hard rule (every numerical claim → grep/ls verify)
+   - The active doc set inventory (compact)
+   - The 9 live-count verification commands
+   - Always-update list (CHANGELOG, PHASE_5 § 11, memory, tasks/todo.md)
+   - Pointer to `docs/CONTRIBUTING.md` for everything else
+   - Compressed pre-deletion rule (1 line + pointer)
+   - Compressed stale-stat sweep guidance (no longer hardcoded numbers — generate regex from current System Stats)
+
+3. **Removed the hardcoded stale-stat regex** (`95|82|69|57|17|63|34|24`). The regex was itself drift-prone. Replaced with the principle "derive the regex from previous System Stats numbers when changing any count."
+
+#### Net effect
+
+| | Before | After |
+|---|---|---|
+| `CLAUDE.md` lines | 278 | 185 |
+| Always-loaded context | ~21 KB | ~14 KB |
+| Detail loss | — | Zero (table preserved in `docs/CONTRIBUTING.md`) |
+| Maintenance load | High | Low |
+
+Verification: `grep` for stale-stat tokens across `CLAUDE.md` + `docs/CONTRIBUTING.md` returns zero matches (other than the literal regex inside the verification block, which is now intentional and unparameterized).
+
+#### How AI now uses the doc-sync contract
+
+- **Every session:** CLAUDE.md "Documentation Sync Rule" loads automatically (~30 lines). AI sees: principle, active doc set, verification commands, pointer.
+- **On a per-change-type code change:** AI does `Read` on `docs/CONTRIBUTING.md` for the table, applies it, doesn't load it otherwise.
+- **On a count-bearing doc change:** AI runs the live-count commands from CLAUDE.md, then does a one-shot grep-and-replace across the active doc set with the previous number.
+
 ### How to roll back
 ```bash
 git diff --stat HEAD~1 HEAD             # see what changed
