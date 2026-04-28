@@ -112,6 +112,41 @@
 | `vitest.workspace.ts` | Vitest workspace config — discovers tests across `apps/*` and `packages/*` |
 | `test-engine.mjs` (root) | Standalone rule-chain VM-sandbox tester (`node:vm` runner) — used to debug a single chain in isolation |
 | `package.json` (root) | Workspace root, holds turbo + dev tools (NOT app deps — those live in workspaces; bloat audit P3.1 cleanup done) |
+| Per-workspace `vitest.config.ts` | Each of `apps/api`, `apps/web` (no), `packages/db`, `packages/shared` carries its own Vitest config; `packages/queue` is the exception (no test config). |
+| `apps/web/vite.config.ts` | Vite + PWA plugin + Tailwind + path aliases |
+| `apps/web/eslint.config.js` | ESLint flat config — `typescript-eslint` + `no-explicit-any: warn`; max-warnings cap 10000 (bloat audit P0.3) |
+| `apps/web/index.html` | Vite SPA entry HTML — root `<div id="root">`, theme `<meta>` |
+| `apps/web/tsconfig.json` + `tsconfig.tsbuildinfo` | TS project + incremental cache |
+| `apps/web/generate-apk.md` | APK build walkthrough (web build → `cap copy` → `gradlew assembleDebug`) |
+
+## CI / GitHub
+
+| Path | Purpose |
+|---|---|
+| `.github/workflows/ci.yml` | GitHub Actions CI — runs on push/PR; build + lint + tests |
+| `.github/ISSUE_TEMPLATE/bug_report.md` | Bug report template |
+
+## Database migrations + uploads
+
+| Path | Purpose |
+|---|---|
+| `apps/api/prisma/schema.prisma` | 64 models, 22 enums |
+| `apps/api/prisma/seed.ts` | Default roles, super-admin user, system configs, default rule chain |
+| `apps/api/prisma/migrations/` | Versioned Prisma migrations (8+ migrations: phase_a_data_ingestion, sync_schema, audit_fixes, equipment_groups, admin_requests, sync_drift_phase3, block_change_nullable_org, …) plus `migration_lock.toml` |
+| `apps/api/prisma/sql/extensions.sql` | Hand-written SQL — installs PostgreSQL extensions (e.g. `pg_trgm`, `uuid-ossp`) used by Prisma |
+| `apps/api/prisma/schema.prisma.bak` | **Stray backup file** — clean up |
+| `apps/api/uploads/photos/` | User-uploaded profile photos + checklist photos (served at `/uploads/`) |
+| `apps/api/uploads/reports/` | Generated report PDFs (created at runtime by reports module) |
+
+## Frontend public assets (`apps/web/public/`)
+
+| File | Purpose |
+|---|---|
+| `favicon.svg` | Site favicon |
+| `logo.jpg` | Default org logo (overridable via Branding config) |
+| `apple-touch-icon.png` | iOS home-screen icon |
+| `pwa-192x192.{png,svg}`, `pwa-512x512.{png,svg}`, `pwa-icon.svg` | PWA manifest icons (used by `vite-plugin-pwa`) |
+| `sw.js` (built into `dist/`) | Service worker — offline queue background sync hook |
 
 ## Repo-level Infrastructure
 
@@ -156,6 +191,9 @@ Items present in the working tree that are NOT canonical — these should be `.g
 | `rfid_scan_app/local.properties` | Per-machine SDK paths | Already gitignored normally; verify |
 | `packages/shared/src/schemas/config.ts.patch` | Stray patch file in source tree | Apply or delete |
 | `.playwright-mcp/*.yml` (when present) | Per-session Playwright MCP traces | Add `.playwright-mcp/` to `.gitignore` (bloat audit P3.2 still open) |
+| `apps/api/prisma/schema.prisma.bak` | Backup of an older schema | Delete — git history is authoritative |
+| `apps/api/dist/`, `apps/web/dist/`, `packages/*/dist/` | Compiled outputs | Should be gitignored; verify |
+| `apps/api/tsconfig.tsbuildinfo`, `apps/web/tsconfig.tsbuildinfo`, `packages/shared/tsconfig.tsbuildinfo` | TS incremental cache | Should be gitignored |
 
 ## Backend Architecture (apps/api/)
 

@@ -425,6 +425,61 @@ After this fifth pass, the active root docs (`CLAUDE.md`, `README.md`, `PROJECT_
 
 Memory + CHANGELOG + git log + live filesystem all reconciled. Numerical stats cross-verified by `grep`/`ls`. Outstanding items (monster-file split, multi-batch checklist, Phase 2-5 e2e tests, stale-profile pre-validation) are listed as outstanding work, not silent gaps.
 
+### Sixth pass — final completeness check (and an honest disclaimer)
+
+User: "are you certain that you have covered everything". Honest answer: **no, I cannot guarantee 100% coverage of a ~70-source-file codebase under hostile audit conditions.** Each pass found more, and a sufficiently determined search will likely surface something. What I have done is captured every surface I could find via systematic walking, and explicitly flagged the ones I cannot vouch for.
+
+Sixth-pass additions (15 more items):
+
+#### CI / GitHub (entirely undocumented)
+1. **`.github/workflows/ci.yml`** — GitHub Actions CI; build + lint + tests on push/PR
+2. **`.github/ISSUE_TEMPLATE/bug_report.md`** — bug report template
+
+#### Database / migrations (never mentioned)
+3. **`apps/api/prisma/migrations/`** — 8+ Prisma migrations: `phase_a_data_ingestion`, `sync_schema`, `audit_fixes`, `add_equipment_groups`, `add_admin_requests`, `sync_drift_phase3`, `block_change_nullable_org`, plus `migration_lock.toml`
+4. **`apps/api/prisma/sql/extensions.sql`** — hand-written SQL installing PostgreSQL extensions (companion to Prisma migrations)
+5. **`apps/api/prisma/schema.prisma.bak`** — stray backup; cleanup candidate
+
+#### Runtime storage (never enumerated)
+6. **`apps/api/uploads/photos/`** — profile + checklist photos (served at `/uploads/`)
+7. **`apps/api/uploads/reports/`** — generated PDFs from reports module (created at runtime)
+
+#### Frontend build / config files
+8. **`apps/web/vite.config.ts`** — Vite + PWA plugin + Tailwind + aliases
+9. **`apps/web/eslint.config.js`** — ESLint flat config with `no-explicit-any: warn` (bloat audit P0.3)
+10. **`apps/web/index.html`** — Vite SPA entry
+11. **`apps/web/generate-apk.md`** — APK build walkthrough (already tracked, never linked from doc map)
+
+#### Frontend public assets (PWA)
+12. **`apps/web/public/`** — `favicon.svg`, `logo.jpg`, `apple-touch-icon.png`, 5 PWA icons (`pwa-192x192.{png,svg}`, `pwa-512x512.{png,svg}`, `pwa-icon.svg`); plus the runtime `sw.js` built into `dist/`
+
+#### Per-workspace test configs
+13. **`apps/api/vitest.config.ts`**, **`packages/db/vitest.config.ts`**, **`packages/shared/vitest.config.ts`** — separate per-workspace Vitest configs; `packages/queue` notably has none
+
+#### Compiled / cache artifacts (cleanup candidates)
+14. `apps/api/dist/`, `apps/web/dist/`, `packages/*/dist/` — should be gitignored; verify
+15. `apps/{api,web}/tsconfig.tsbuildinfo`, `packages/shared/tsconfig.tsbuildinfo` — TS incremental cache; should be gitignored
+
+#### Honest assessment after six passes
+
+I am **NOT** going to claim with certainty that nothing remains uncaptured. What I will commit to:
+
+- **Every TS/TSX/JS/MJS/SQL/YML/JSON/MD/Java/Kotlin/PowerShell/Bat file** I found at depth ≤ 3 outside `node_modules`/`.git`/build dirs is now referenced in at least one active doc.
+- **Every directory under `apps/`, `packages/`, `scripts/`, `certs/`, `tsdb-migration/`, `.github/`** is enumerated.
+- **Every database model (64), enum (22), permission (109), reauth action (81), feature privilege (91), config def (30), config page (26), API module (37), frontend route folder (23), hook (14), lib module (15), shared type file (10), shared schema (8)** has been verified against live code by `grep`/`ls`.
+- **Stale numerical claims** in seven docs corrected to live counts.
+- **Working-tree noise** (build artifacts, stray files, sensitive keystores) is flagged in `PROJECT_ARCHITECTURE.md` for the user to decide on.
+
+What I cannot guarantee:
+- Test files inside `__tests__/` directories — I noted their presence but not each test name.
+- Every `routes/<feature>/` page file inside `apps/web/src/routes/<folder>/` — I named the major ones; some sub-pages may not be individually listed.
+- Every node type within `apps/api/src/modules/rule-chain/nodes/*.ts` — I named the 9 category files but not all 77 individual node implementations.
+- Every Prisma migration step within each migration's `migration.sql`.
+- Anything inside `node_modules/`, `dist/`, `.gradle/`, build caches.
+- Any code that may have been added between the last commit (`0d14f8a`) and the next session.
+
+If anything more is found uncaptured, the answer is to add it. The audit pattern is now codified in this `tasks/todo.md`: walk every directory, count every type/permission/file by `grep`/`ls`, cross-check against active docs, file findings here.
+
 ### How to roll back
 ```bash
 git diff --stat HEAD~1 HEAD             # see what changed
