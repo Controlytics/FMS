@@ -127,9 +127,9 @@ All filter operations are recorded as immutable events with SHA-256 checksums, e
 See `PHASE_5_RECENT_WORK.md` for the full architectural breakdown and `CHANGELOG.md` for the release-note view.
 
 ## Historical design specs (archived but live features)
-The implementation plans + design specs for several Phase 4/5 features sit in `old/docs-superseded/superpowers-{plans,specs}/`. They contain problem statements, data models, and validation logic that aren't duplicated in code:
-- Block change approval (`2026-04-10-*`)
-- PM "My Tasks" system (`2026-04-11-*`)
-- Report template designer + generation engine (`2026-04-15-*`)
-- DRY_IN state persistence (`2026-04-17-*`)
-- Bloat audit (`old/docs-superseded/bloat.md`)
+Implementation plans + design specs for several Phase 4/5 features that contain problem statements, data models, and validation logic NOT duplicated in code:
+- Block change approval — `old/docs-superseded/superpowers-{plans,specs}/2026-04-10-*`
+- PM "My Tasks" system — `old/docs-superseded/superpowers-specs/2026-04-11-*`
+- Report template designer + generation engine — `old/docs-superseded/superpowers-plans/2026-04-15-*`
+- DRY_IN state persistence — `old/docs-superseded/superpowers-plans/2026-04-17-*`
+- Bloat audit — `old/docs-superseded/bloat.md`

@@ -480,6 +480,68 @@ What I cannot guarantee:
 
 If anything more is found uncaptured, the answer is to add it. The audit pattern is now codified in this `tasks/todo.md`: walk every directory, count every type/permission/file by `grep`/`ls`, cross-check against active docs, file findings here.
 
+### Seventh pass — bulk deletion of unnecessary documentation (2026-04-29)
+
+User: "delete whatever documentation is not necessary".
+
+#### Deleted (174 files)
+
+**`agents/` — 13 files** (whole directory)
+- AGENTS_INDEX, infra-maintenance, integration-expert, project-manager, 5 testing agents (api/e2e/frontend/manual/security-compliance) × {skills.md, work.md}
+- **Reason**: redundant with current Claude Code plugin agents (codex, claude-mem, vercel, superpowers); only self-referenced in repo.
+
+**`future/` — 16 files** (whole directory)
+- README + backend/, frontend/, overview/, qa/, testing/ subfolders
+- **Reason**: onboarding pack from session 04-20 reorg, content superseded by the much more current root docs (`PROJECT_SUMMARY`, `BACKEND_GUIDE`, `FRONTEND_GUIDE`, `PROJECT_ARCHITECTURE`, `PHASE_5_RECENT_WORK`).
+
+**`old/docs-superseded/api-reference-old/` — 16 files**
+- Phase 1 API reference, replaced by `API_REFERENCE.md`.
+
+**`old/docs-superseded/phases/` — 13 files**
+- PHASE_A through PHASE_K + README from pre-DigiLog ThingsBoard era.
+- **Reason**: history is in `CHANGELOG.md`, content not referenced.
+
+**`old/legacy-documentation/` — pre-DigiLog text docs**
+- Not referenced anywhere; content superseded by current docs.
+
+**`old/tasks/` — old code review reports**
+- code-review-2026-04-04, pentest-report, system-audit, etc. All findings rolled into `bloat.md` (which is preserved).
+
+**`old/tests-superseded/` — 51 files**
+- Phase 1 manual test cases + execution guides; superseded by `apps/api/src/e2e/` (Phase 1 coverage).
+- Phase 2-5 still need fresh cases (logged in `PHASE_5_RECENT_WORK.md` § 11).
+
+**`apps/web/generate-apk.md`** — content duplicated in `apps/web/CLAUDE.md` and `DEPLOY-WINDOWS.md`.
+
+#### Kept (still needed)
+
+**Root active docs** (14): `README`, `CLAUDE`, `AGENTS`, `CHANGELOG`, `DEPLOY-WINDOWS`, `LOCAL_SETUP_WINDOWS`, `PROJECT_SUMMARY`, `PROJECT_ARCHITECTURE`, `API_REFERENCE`, `BACKEND_GUIDE`, `FRONTEND_GUIDE`, `OFFLINE_SYNC_ARCHITECTURE`, `PHASE_5_RECENT_WORK`, `PROJECT_HANDOVER/APPLICATION_FLOW.md`
+
+**Per-app/per-package** (5): `apps/api/CLAUDE.md`, `apps/api/DECISIONS.md`, `apps/web/CLAUDE.md`, `apps/web/DECISIONS.md`, `packages/shared/CLAUDE.md`
+
+**`docs/`** entire active subtree:
+- `index.md`, `getting-started/` (3), `compliance/21-cfr-part-11.md`, `deployment-methods/` (6), `administration/` (7), `user-guide/` (10)
+
+**`old/docs-superseded/` (referenced for design rationale)**:
+- `superpowers-plans/` (4 files) — Block change, PM tasks, Reports, DRY_IN — referenced from `PHASE_5_RECENT_WORK.md § 10`
+- `superpowers-specs/` (2 files) — Block change design, PM tasks design
+- `ARCHITECTURE.md`, `bloat.md`, `offline-sync-design.md` — historical reference
+
+**`old/{apks, db-backups, playwright-artifacts, reports-specs, screenshots}/`** — kept (binary/non-doc artifacts; out of scope for "documentation" deletion)
+
+**`.github/ISSUE_TEMPLATE/bug_report.md`** — used by GitHub issue UI
+
+**`tasks/todo.md`** — this audit log
+
+#### Updated docs
+
+- `docs/index.md` — historical-design-specs paths shortened (no breakage; targets still exist)
+- `PHASE_5_RECENT_WORK.md` — note that `tests/manual-test-cases/` is **deleted**, not just archived; pointed at `apps/api/src/e2e/` as closest current coverage
+
+#### Net result
+- **From 236 tracked .md files → 62 tracked .md files** (after deletion)
+- All deletions in this commit; rollback via `git revert <hash>` if anything turns out to be needed
+
 ### How to roll back
 ```bash
 git diff --stat HEAD~1 HEAD             # see what changed

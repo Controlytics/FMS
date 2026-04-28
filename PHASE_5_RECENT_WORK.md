@@ -390,7 +390,7 @@ These were archived (not deleted) because the work is shipped — but the docs r
   8. `apps/web/src/routes/rule-chains/editor.tsx` (2140) — most intricate (ReactFlow + 77 node editors)
 - **P3.2 — `.playwright-mcp/` accumulation policy** (gitignore + session-end cleanup hook)
 - **Decision tape** — design + prototype if pipeline drift recurs (currently mitigated by `stageLookup`)
-- **Phase 2/3/4/5 manual test cases** — `tests/manual-test-cases/` only had Phase 1; archived to `old/tests-superseded/`. Need fresh cases for filter operations, RFID, offline replay, reports, block-change approval, PM My Tasks, admin requests.
+- **Phase 2/3/4/5 manual test cases** — `tests/manual-test-cases/` only had Phase 1; **deleted** in the documentation cleanup. Need fresh cases for filter operations, RFID, offline replay, reports, block-change approval, PM My Tasks, admin requests. Backend `apps/api/src/e2e/` has the closest current coverage (Phase 1 only).
 - **Multi-filter batch checklist dialog** — currently opens for first item only (session 04-20 known follow-up)
 - **Cleaning-profile version pinning in offline cache** — stale graph risk if admin edits mid-shift; currently surfaces as sync error rather than pre-validated (mitigation: stale-profile yellow banner)
 - **Root working-tree noise** — test PNGs, `.playwright-mcp/`, `backups/` not gitignored (session 04-20 follow-up)
