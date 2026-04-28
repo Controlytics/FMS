@@ -1,178 +1,179 @@
 # DigiLog — 21 CFR Part 11 Compliant Digital Logbook
 
-DigiLog is an IoT data logging platform designed for regulated industries requiring **21 CFR Part 11** compliance. It provides real-time data ingestion, visual rule chain processing, alarm management, digital checklists with electronic signatures, and a **Digital Filter Management System (FMS)** for pharmaceutical cleanroom filter lifecycle tracking.
+DigiLog is an IoT data logging platform designed for regulated industries that need **21 CFR Part 11** compliance. It combines real-time data ingestion, a visual rule-chain engine, alarm management, electronic-signature checklists, and a full **Digital Filter Management System (FMS)** for pharmaceutical cleanroom HEPA filter lifecycle tracking.
+
+The platform is monorepo-based (Turborepo) with a Fastify backend, a React/Vite SPA, a Capacitor Android wrapper for tablets, and a native Kotlin RFID scanner companion app.
+
+---
+
+## What's in this repo
+
+| Path | Contents |
+|---|---|
+| `apps/api/` | Fastify 5 backend — 34 modules, 200+ endpoints |
+| `apps/web/` | React 19 SPA — 22 route modules, ~85 pages, Tailwind CSS |
+| `apps/android/` | Capacitor Android wrapper that ships the SPA as `DigiLog-FilterOps.apk` |
+| `rfid_scan_app/` | Native Kotlin app for KC-series UHF RFID readers (USB) |
+| `packages/shared/` | Permissions, privileges, reauth actions, Zod schemas |
+| `packages/db/` | Prisma client + TimescaleDB pool + telemetry batcher |
+| `packages/queue/` | BullMQ queue definitions |
+| `docs/` | Active project documentation |
+| `old/` | Archived superseded docs (kept for reference) |
+| `future/` | Forward-looking design notes |
+| `scripts/` | Windows PowerShell deployment scripts |
+| `start-digilog.bat` / `stop-digilog.bat` | Local Windows service launchers |
+
+For end-to-end details, start with `PROJECT_SUMMARY.md` (overview), `PROJECT_ARCHITECTURE.md` (system architecture), `BACKEND_GUIDE.md` (API), `FRONTEND_GUIDE.md` (web), and `OFFLINE_SYNC_ARCHITECTURE.md` (tablet/offline).
+
+---
 
 ## Features
 
 ### Phase 1 — Core Platform
-- **Entity Management** — Hierarchical asset/equipment modeling with templates, relationships (12 types), and identifiers (QR/RFID/NFC)
-- **Rule Chain Engine** — Visual DAG-based data processing with 77 built-in node types across 8 categories (Filter, Enrichment, Transform, Action, External, Flow, Analytics)
-- **Data Ingestion** — MQTT (via EMQX) and HTTP ingestion with rate limiting, IP allowlists, and schema validation
-- **Alarm System** — Threshold, rate-of-change, and absence alarms with lifecycle management and electronic signature acknowledgment
-- **Unified Namespace (UNS)** — ISA-95 hierarchical topic structure with MQTT wildcard support
-- **Digital Checklists** — Mobile-friendly inspection forms with 14 field types, photo capture, and 3-step approval workflow
-- **Audit Trail** — Tamper-evident SHA-256 hash-chain audit log with before/after snapshots
-- **Notifications** — Multi-channel alerts (in-app, email via SMTP/OAuth2, SMS via AWS SNS/Twilio, Telegram, Slack)
-- **Data Retention** — Configurable per-table retention with TimescaleDB compression
-- **Backup & Restore** — Full database export (JSON/SQL/CSV) with SHA-256 integrity verification
-- **Role-Based Access Control** — 6 hierarchical roles with 95 granular permissions, 82 feature toggles, and 69 re-authentication actions
-- **Configurable Color Themes** — 10 preset color themes applied via CSS variables and use-branding hook
-- **Report Settings** — Configurable report header/footer/layout per organization
-- **Help Articles** — Versioned in-app documentation with 40+ articles across 8 categories
-- **LDAP Integration** — Active Directory / OpenLDAP authentication with group-to-role mapping
+- **Entity management** — Hierarchical asset modeling, 12 relationship types, identifiers (QR / RFID / NFC / Barcode)
+- **Rule chain engine** — Visual DAG editor with **77 node types** across 8 categories
+- **Data ingestion** — MQTT (EMQX) + HTTP with rate limiting, IP allowlists, schema validation
+- **Alarm system** — Threshold / rate-of-change / absence alarms with electronic-signature acknowledgment
+- **Unified Namespace (UNS)** — ISA-95 hierarchical topic structure
+- **Digital checklists** — 10+ field types, photo capture, 3-step approval workflow
+- **Audit trail** — Tamper-evident SHA-256 hash-chain log with before/after snapshots
+- **Notifications** — In-app + email (SMTP/OAuth2) + SMS (AWS SNS / Twilio) + Telegram + Slack
+- **Backup/restore** — Full DB export covering all 64 tables (`pg_tables` + `jsonb_populate_recordset`), SHA-256 integrity verification
+- **RBAC** — 6 hierarchical roles, **95 permissions**, **82 feature toggles**, **69 reauthentication actions**
+- **Help articles** — 40+ versioned in-app docs across 8 categories
+- **LDAP integration** — Active Directory / OpenLDAP with group→role mapping
 
 ### Phase 2 — Digital Filter Management System (FMS)
-- **Filter Operations** — 8-stage cleaning lifecycle (To Be Cleaned, Wash In/Out, Dry In/Out, Storage In/Out, Ready For Use) with QR/barcode scan
-- **Cleaning Profiles** — Visual pipeline editor with drag-and-drop nodes, connections, CHECKLIST gates, BYPASS mode
-- **Checklist Integration** — Configurable checklists (YES_NO, PASS_FAIL, NUMERIC, DROPDOWN, MULTI_SELECT, TEXT) triggered between pipeline stages
-- **Filter Profiles** — Assign cleaning profiles to filters with block restrictions and max cycle limits
-- **Cleaning Cycles** — Full audit trail with stage timestamps, remarks, performer names, checklist answers
-- **PM Scheduling** — Preventive maintenance schedules per AHU with tolerance windows and QA approval workflow
-- **AHU Dashboard** — Filter set management (Set A/B swap), lifecycle state visualization
-- **Filter Traceability** — Complete event history, cycle timeline, deviation tracking per filter
-- **Equipment Groups** — Instrument tracking for filters and AHUs
-- **Bulk Upload** — Dynamic CSV-based bulk filter import with template-driven columns
-- **Retirement & Replacement** — Filter lifecycle end management
+- **Filter operations** — Multi-stage cleaning lifecycle with QR/RFID scan
+- **Cleaning profiles** — Visual pipeline editor (ReactFlow) with drag-and-drop nodes, CHECKLIST gates, BYPASS mode
+- **Checklist profiles** — Reusable question templates wired into pipeline checklist nodes
+- **Filter profiles** — Block restrictions, max-cycle limits, profile-to-filter assignment
+- **Cleaning cycles** — Full audit trail with timestamps, performer, remarks, checklist answers
+- **PM schedules** — Preventive maintenance per AHU with tolerance windows + QA approval
+- **Equipment groups** — AHU dashboard, dual-set filter management (Set A / Set B)
+- **Filter traceability** — Per-filter event log + cycle timeline + deviation tracking
+- **Bulk upload** — Dynamic CSV columns generated from filter template `attributeSchema`
+- **Retirement & replacement** — End-of-life tracking
 
 ### Phase 3 — RFID & Offline Operations
-- **RFID Scanner App** — Native Android app (`rfid_scan_app/`) for KC-series UHF readers via USB-C
-- **RFID Integration** — Global keyboard guard prevents UKB tag input leaking into random fields; scan dialogs detect tags with deduplication and show filter name + AHU
-- **Offline Cleaning Operations** — Mobile APK caches templates, instances, cleaning reasons, and identifiers to IndexedDB; all operations (advance, start-cycle, checklist, equipment) queue when offline and auto-sync on reconnect
-- **Offline RFID Lookup** — Cached identifier→filter map enables tag scanning without internet
-- **Data Synced Indicator** — Visual badge in mobile header confirms when data is safe to go offline
-- **Responsive Layout** — Sidebar collapses to hamburger menu on mobile/tablet screens
-- **Error Popups** — Errors displayed as modal dialogs instead of background banners
-- **One Identifier Per Entity** — Enforced at backend service layer
+- **RFID Scanner Android app** for KC-series UHF readers via USB-C (`rfid_scan_app/`)
+- **RFID SDK plugin** bundled into DigiLog APK (`Reader_Usb.jar` via `RfidPlugin.java`) — works in SDK and UKB modes
+- **Web-side RFID guard** — global keyboard interceptor blocks tag bursts in non-`data-rfid` fields
+- **Offline cleaning operations** — IndexedDB queue + sync engine, FIFO replay on reconnect
+- **Cached master data** — filters, templates, cleaning reasons, identifier→filter map
+- **"Data Synced" indicator** in mobile header
+- **Responsive layout** — sidebar collapses to hamburger on `<lg` screens
+- **Modal error popups** replacing inline banners
+
+### Phase 4 — Permissions, Themes, Reports
+- **18 granular feature toggles** — Filters (6), Checklists (4), Cleaning Profiles (4), Equipment (4), PM (4)
+- **10 color themes** — CSS variables (`--theme-primary`, `--theme-gradient-from/to`)
+- **Report template designer** — visual editor + PDF generation engine + digital signatures
+- **Configurable report header/footer/layout** — `/config/report-settings`
+- **Dynamic bulk upload** — CSV columns from template `attributeSchema`
+- **69 reauthentication actions** across 16 categories
+- **Block change request/approval** workflow with single-use consumption
+
+### Recent (April 2026)
+- **Offline overhaul** — TTLs, idempotency keys, tombstones, LRU cache, JWT refresh on replay, server-side `stageLookup` walker for chained CHECKLIST nodes, batch + single submit parity
+- **Filter Data Management console** — 10 tabs mirroring user-facing pages (cycles, events, alarms, PM, audit, notifications, admin requests, block changes, etc.)
+- **Capacitor Network plugin + service-worker hook** — reliable online detection on Android WebView (replaces unreliable `navigator.onLine`)
+- **Forgot-password flow + lockout-progress UI** on tablet
+- **Decision-tape proposal** — future architecture to remove client/server pipeline drift (see `docs/`)
+
+---
 
 ## Tech Stack
 
 | Component | Technology |
-|-----------|-----------|
-| Backend | Fastify (Node.js/TypeScript, port 3000) |
-| Frontend | React + Vite SPA (TypeScript, Tailwind CSS, port 5175 dev) |
+|---|---|
+| Backend | Fastify 5 (Node.js / TypeScript, port 3000) |
+| Frontend | React 19 + Vite 6 (TypeScript, Tailwind CSS 4, port 5175 dev) |
 | Database | PostgreSQL 18 + Prisma ORM |
-| Time-Series DB | TimescaleDB (extension on PG 18) |
-| MQTT Broker | EMQX (ports 1883/18083) |
-| Cache/Queue | Redis 5 + BullMQ |
-| Process Manager | PM2 (production) |
-| Reverse Proxy | Nginx (production) |
+| Time-series DB | TimescaleDB extension on PG 18 |
+| MQTT broker | EMQX (1883 / 18083) |
+| Cache / queue | Memurai (Redis 7) + BullMQ |
+| Mobile | Capacitor Android APK + native Kotlin RFID app |
+| Reverse proxy | Nginx (production deployment) |
 
-## Quick Start
+---
+
+## Quick Start (Windows local dev)
+
+**Prerequisites:** Node.js 20+, PostgreSQL 18 with TimescaleDB, Memurai (Redis ≥5), EMQX 5.x (optional unless testing MQTT).
 
 ```bash
-# Clone and install
+# Clone
 git clone https://github.com/pankajexa/21cfrlogbook.git
 cd 21cfrlogbook
 git checkout DigitalFMS
 npm install
 
 # Build shared packages
-npx nx build shared
-npx nx build db
-npx nx build queue
+npx nx build shared && npx nx build db && npx nx build queue
 
-# Setup databases
+# Initialize databases
 createdb digilog_db
 createdb digilog_tsdb
 npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma
 npx prisma db seed --schema=apps/api/prisma/schema.prisma
 
-# Development mode
-cd apps/api && npx tsx watch src/app.ts   # Terminal 1: API on port 3000
-cd apps/web && npx vite --host            # Terminal 2: Frontend on port 5175
+# Start services (or use start-digilog.bat)
+C:\Users\hello\redis5\redis-server.exe        # Memurai / Redis
+C:\Users\hello\emqx\bin\emqx.cmd              # EMQX (optional)
+
+# Run API and web in two terminals
+cd apps/api && npx tsx watch src/app.ts       # API on :3000
+cd apps/web && npx vite --host                # Web on :5175
 ```
 
-### Windows Local Development
-
-```bash
-# Prerequisites: PostgreSQL 18, Redis 5, EMQX (optional)
-# Start services:
-C:\Users\hello\redis5\redis-server.exe
-C:\Users\hello\emqx\bin\emqx.cmd
-
-# Or use the batch scripts:
-start-digilog.bat    # Start all services
-stop-digilog.bat     # Stop all services
-```
-
-## Default Login
-
-- **Username:** `superadmin`
-- **Password:** `Admin@123`
-
-## Key URLs
-
-| Environment | App | API Docs (Swagger) | EMQX Dashboard |
-|-------------|-----|-------------------|----------------|
-| Production | http://34.232.224.0 | http://34.232.224.0/docs | http://34.232.224.0:18083 |
-| Development | http://localhost:5175 | http://localhost:3000/docs | http://localhost:18083 |
-
-## Project Structure
-
-```
-21cfrlogbook/
-├── apps/
-│   ├── api/          # Fastify backend (34 API modules)
-│   │   ├── prisma/   # Schema (57 models), migrations, seed
-│   │   └── src/      # Modules, plugins, lib, transport, workers
-│   ├── web/          # React frontend (Vite SPA, 20+ route groups)
-│   └── android/      # Capacitor Android app
-├── packages/
-│   ├── shared/       # Shared types, Zod schemas, constants
-│   ├── db/           # Prisma singleton + TimescaleDB pg Pool
-│   └── queue/        # BullMQ job queue definitions
-├── docs/             # Project documentation
-└── tests/            # Manual test cases & execution guides
-```
-
-## Database
-
-### PostgreSQL (digilog_db — Prisma ORM)
-57 Prisma models covering users, roles, sessions, entities, templates, relationships, identifiers, rule chains, alarms, audit trail, notifications, config, help articles, electronic signatures, filter cleaning profiles, filter profiles, cleaning cycles, filter events, PM schedules, checklist profiles, equipment groups, and more. 95 granular permissions, 82 feature toggles, 69 re-authentication actions.
-
-### TimescaleDB (digilog_tsdb)
-7 hypertables: ts_telemetry, ts_attributes, ts_checklist_responses, ts_device_events, ts_binary_data, ts_pipeline_traces, ts_alarm_history.
-
-### Key Enums (17)
-RoleScope, DashboardScope, AssigneeType, UserStatus, NotificationType, NotificationChannel, NotificationDeliveryStatus, NotificationEventType, PmScheduleStatus, PmExecutionStatus, FilterSetLabel, PipelineFlowMode, PipelineNodeType, CleaningCycleStatus, FilterEventType, BlockRestriction, ChecklistQuestionType.
-
-## Phase 2 Database (11 new tables)
-`filter_cleaning_profiles`, `filter_pipeline_stages`, `filter_pipeline_connections`, `filter_profiles`, `cleaning_cycles`, `filter_events`, `pm_schedules`, `pm_schedule_entries`, `pm_executions`, `equipment_groups`, `equipment_group_instruments`, `checklist_profiles`, `checklist_questions`
-
-## Phase 2 Key API Endpoints
-```
-POST /api/filters/:id/start-cycle    — Start cleaning cycle
-POST /api/filters/:id/advance        — Advance to next stage
-POST /api/filters/:id/submit-checklist — Submit checklist answers
-POST /api/filters/:id/bypass         — Bypass stage (deviation)
-GET  /api/filters/:id/current-state  — Get filter state + next actions
-GET  /api/filter/cycles              — List cleaning cycles
-GET  /api/filter/events              — List filter events
-GET  /api/cleaning-profiles          — List cleaning profiles
-GET  /api/filter-profiles            — List filter profiles
-GET  /api/pm-schedules               — List PM schedules
-GET  /api/checklist-profiles         — List checklist profiles
-GET  /api/equipment-groups           — List equipment groups
-```
-
-## License
-
-Proprietary — Pankaj Exa Technologies
+See `LOCAL_SETUP_WINDOWS.md` for the full step-by-step setup, and `DEPLOY-WINDOWS.md` for production-style deployment paths.
 
 ---
 
-## Phase 3 Update (2026-04-07)
+## Default Login
+- **Username:** `superadmin`
+- **Password:** `Admin@123` (forced change on first login)
 
-**RFID & Offline Operations:**
-- RFID Scanner Android app (`rfid_scan_app/`) for KC-series UHF readers
-- RFID keyboard guard prevents UKB tag input leaking into random fields
-- Offline cleaning operations via IndexedDB queue + sync engine
-- Cached identifier→filter map for offline RFID lookup
-- "Data Synced" indicator in mobile header
-- One identifier per entity (backend-enforced)
-- Responsive layout with collapsible sidebar
-- Error popups replace inline banners
-- User creation auto-assigns org for admins
-- `/api/roles/active` public endpoint for contact-admin page
+## Local URLs
+| Service | URL |
+|---|---|
+| Web (Vite dev) | http://localhost:5175 |
+| API | https://localhost:3000 |
+| Swagger docs | https://localhost:3000/docs |
+| EMQX dashboard | http://localhost:18083 |
 
-See `CHANGELOG.md` for full details.
+---
+
+## Database
+
+### PostgreSQL (`digilog_db` — Prisma)
+**63 models, 23 enums** covering users, roles, sessions, entities, templates, relationships, identifiers, rule chains, alarms, audit, notifications, configs, help articles, electronic signatures, filter cleaning profiles, filter profiles, cleaning cycles, filter events, PM schedules, checklist profiles, equipment groups, report templates, block-change requests, admin requests.
+
+### TimescaleDB (`digilog_tsdb`)
+**7 hypertables**: `ts_telemetry`, `ts_attributes`, `ts_checklist_responses`, `ts_device_events`, `ts_binary_data`, `ts_pipeline_traces`, `ts_alarm_history`.
+
+---
+
+## Documentation Map
+
+| File | Purpose |
+|---|---|
+| `PROJECT_SUMMARY.md` | 30-second project overview |
+| `PROJECT_ARCHITECTURE.md` | System architecture, request flow, data layers |
+| `API_REFERENCE.md` | Full API surface (200+ endpoints) |
+| `BACKEND_GUIDE.md` | Backend dev guide — module patterns, plugins, auth |
+| `FRONTEND_GUIDE.md` | Frontend dev guide — routes, hooks, state |
+| `OFFLINE_SYNC_ARCHITECTURE.md` | Tablet APK + offline IndexedDB queue + sync engine |
+| `CHANGELOG.md` | Full chronological history |
+| `CLAUDE.md` | Instructions for AI coding assistants |
+| `AGENTS.md` | Agent-mode instructions |
+| `DEPLOY-WINDOWS.md` | Windows deployment options |
+| `LOCAL_SETUP_WINDOWS.md` | Windows local dev setup |
+| `docs/` | User guides, admin guides, compliance, deployment methods |
+| `old/` | Archived superseded docs (read-only history) |
+
+---
+
+## License
+Proprietary — Pankaj Exa Technologies

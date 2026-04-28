@@ -1,212 +1,154 @@
 # DigiLog — CLAUDE.md
 
 ## Project
-DigiLog (21cfrlogbook) — IoT data logging platform with 21 CFR Part 11 compliance.
+DigiLog (21cfrlogbook) — IoT data logging platform with 21 CFR Part 11 compliance and an integrated Digital Filter Management System for pharmaceutical cleanrooms.
 
 ## Repository
 - **Remote:** github.com/pankajexa/21cfrlogbook.git
-- **Branch:** DigitalFMS (active development)
+- **Active branch:** `RFID` (feature work) → merges to `DigitalFMS` → `main`
 
 ## Monorepo Structure
 ```
-apps/api/     — Fastify backend (TypeScript, port 3000, PM2)
-apps/web/     — React frontend (Vite SPA, served by Nginx)
-packages/shared/ — Shared types, schemas, constants
-packages/db/     — TimescaleDB connection pool
-packages/queue/  — BullMQ job queue
+apps/api/         — Fastify backend (TypeScript, port 3000)
+apps/web/         — React SPA (Vite, port 5175 dev)
+apps/android/     — Capacitor Android wrapper (DigiLog-FilterOps.apk)
+rfid_scan_app/    — Native Kotlin RFID scanner (KC-series UHF readers)
+packages/shared/  — Permissions (95), privileges (82), reauth (69), zod schemas
+packages/db/      — Prisma client + TimescaleDB pool + telemetry batcher
+packages/queue/   — BullMQ queues (5) + Redis connection
+docs/             — Project docs (current)
+old/              — Archived superseded docs and tasks
+future/           — Forward-looking design notes
 ```
 
-## EC2 Instance
-- **IP:** 34.232.224.0 (may change on restart)
-- **SSH:** `ssh -i ~/Downloads/21cfrbook.pem ubuntu@34.232.224.0`
-- **Services:** Nginx (80/443), Fastify (3000), PostgreSQL (5432), EMQX (1883/18083), Redis (6379)
+## Local Dev Environment (Windows)
+The app runs ONLY on local Windows for development. There is no live EC2 / Linux production environment to push to.
+
+- Node.js 20+, PostgreSQL 18 + TimescaleDB, Memurai (Redis ≥5), EMQX 5.x
+- Memurai required (old Redis 3 crashes BullMQ); start: `C:\Users\hello\redis5\redis-server.exe`
+- EMQX optional unless testing MQTT ingest: `C:\Users\hello\emqx\bin\emqx.cmd`
+- Convenience: `start-digilog.bat` / `stop-digilog.bat`
+- API runs via `tsx watch` in dev (no PM2 locally), Vite serves frontend
+- See `LOCAL_SETUP_WINDOWS.md` and `DEPLOY-WINDOWS.md` for full details
 
 ## Build Commands
 ```bash
-# Backend
-cd /home/ubuntu/21cfrlogbook
-npx tsc -p apps/api/tsconfig.json && pm2 restart digilog-api
+# Backend (dev — auto-reload)
+cd apps/api && npx tsx watch src/app.ts
 
-# Frontend
+# Backend (prod-style local build)
+npx tsc -p apps/api/tsconfig.json && node apps/api/dist/app.js
+
+# Frontend (dev)
+cd apps/web && npx vite --host
+
+# Frontend (build)
 cd apps/web && npx vite build
 
 # Shared packages
 npx nx build shared && npx nx build db && npx nx build queue
+
+# APK
+cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 ```
 
 ## Default Login
-- **Username:** superadmin
-- **Password:** Admin@123
+- **Username:** `superadmin`
+- **Password:** `Admin@123` (forced change on first login)
 
-## Key URLs
-- App: http://34.232.224.0
-- Swagger: http://34.232.224.0/docs
-- EMQX: http://34.232.224.0:18083
+## Key Local URLs
+- App: http://localhost:5175
+- API: https://localhost:3000 (HTTPS required for APK login)
+- Swagger: https://localhost:3000/docs
+- EMQX dashboard: http://localhost:18083
+
+## System Stats (current — 2026-04-29)
+- **Backend:** 34 API modules, 200+ endpoints
+- **Database:** 63 Prisma models, 23 enums; TimescaleDB with 7 hypertables
+- **Permissions:** 95 constants, 82 feature privileges, 69 reauth actions
+- **Rule chain:** 77 node types across 8 categories
+- **Config:** 24 config definitions with auto-discovery
+- **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
+- **Frontend:** 22 route modules, ~85 pages, 14 custom hooks
+- **BullMQ queues:** 5 (ingestion, notification, export, reports, maintenance)
 
 ## Important Notes
-- Always run `npx tsc` before `pm2 restart` (PM2 runs compiled JS)
-- Frontend build output goes to `apps/web/dist/` (served by Nginx)
-- TimescaleDB is `digilog_tsdb`, NOT `digilog_db`
-- Input sanitization strips HTML from all text fields (lib/sanitize.ts)
-- 77 rule chain node types across 8 categories
-- 24 config definitions with auto-discovery
-- 28 help articles with version history
+- TimescaleDB is `digilog_tsdb`, NOT `digilog_db` (PG models live in `digilog_db`)
+- Input sanitization strips HTML on all text fields (`apps/api/src/lib/sanitize.ts`)
+- Capacitor APK uses **HTTPS** baked at build via `VITE_API_URL` (cert install required on tablet)
+- Light theme only — `bg-white`, `bg-slate-50`, `border-slate-200`, gradient dialog headers OK
+- SUPER_ADMIN bypasses frontend permission checks (`isSuperAdmin || perms.includes(...)`)
+- Feature toggles need BOTH frontend visibility perm AND backend route perm in `FEATURE_TO_PERMISSION_MAP`
+- New config defs must be imported in `config-discovery.ts` AND registered as a card in `config/index.tsx`
+- Approval/decision flows require remarks; filter cleaning stage remarks stay optional
+- Cycle `profile_id` is locked at start — reassigning a block's profile does NOT migrate in-progress cycles
 
-## Phase 2: Digital Filter Management System
+## Phase Snapshots (history is in `CHANGELOG.md`)
 
-### New Backend Modules
-- `cleaning-profiles/` — Pipeline profile CRUD with visual editor support
-- `filter-profiles/` — Filter-to-profile assignment
-- `filter-operations/` — Core operations: cycle start/advance/bypass/checklist/events
-- `pm-schedules/` — Preventive maintenance scheduling
-- `checklist-profiles/` — Checklist template management
+### Phase 2 — Digital Filter Management
+Cleaning profiles, filter operations (cycle start/advance/bypass/checklist), PM scheduling, equipment groups, checklist profiles, filter traceability.
 
-### Key API Endpoints
+### Phase 3 — RFID & Offline
+RFID Scanner Android app (Reader_Usb.jar SDK), web RFID keyboard guard, offline IndexedDB queue + sync engine, cached identifier→filter map, "Data Synced" indicator, responsive collapsible sidebar.
+
+### Phase 4 — Permissions, Themes, Reports
+18 granular feature toggles (Filters / Checklists / Cleaning Profiles / Equipment / PM), 10 color themes, configurable report header/footer/layout, dynamic bulk upload from template attributeSchema, 69 reauth actions.
+
+### Recent (April 2026)
+Offline overhaul (TTLs, idempotency, tombstones, JWT refresh, stage lookup, decision tape proposal), RFID SDK plugin in DigiLog APK, Filter Data Management console mirroring 10 user-facing pages, dynamic backup/restore covering all 64 tables.
+
+## Key API Endpoints (filter operations)
 ```
-POST /api/filters/:id/start-cycle    — Start cleaning cycle
-POST /api/filters/:id/advance        — Advance to next stage
-POST /api/filters/:id/submit-checklist — Submit checklist answers
-POST /api/filters/:id/bypass         — Bypass stage (deviation)
-GET  /api/filters/:id/current-state  — Get filter state + next actions
-GET  /api/filter/cycles              — List cleaning cycles
-GET  /api/filter/events              — List filter events
-GET  /api/config/report-settings/current — Report layout settings
-GET  /api/config/password-policy/current — Password policy (public)
+POST /api/filters/:id/start-cycle       — Start cleaning cycle
+POST /api/filters/:id/advance           — Advance to next stage
+POST /api/filters/:id/submit-checklist  — Submit checklist answers
+POST /api/filters/:id/bypass            — Bypass stage (deviation)
+POST /api/filters/:id/terminate         — Terminate cycle (with reason)
+GET  /api/filters/:id/current-state     — Filter state + next actions (full server snapshot)
+GET  /api/filter/cycles                 — List cleaning cycles
+GET  /api/filter/events                 — List filter events
+GET  /api/cleaning-profiles             — List cleaning profiles
+GET  /api/checklist-profiles?expand=questions — Used for offline cache
+GET  /api/config/report-settings/current — Report layout config
+GET  /api/config/password-policy/current — Password policy (public endpoint)
 ```
 
-### Pipeline Flow
-CHECKLIST nodes between STAGE nodes trigger automatic question dialogs.
-Server-side enforcement: advance() blocks if pending checklist not completed.
-Cycle auto-completes when last STAGE leads to END node.
-
-## Phase 3: RFID & Offline Operations
-
-### RFID Integration
-- **RFID Scanner Android app** (`rfid_scan_app/`) — uses Reader_Usb.jar SDK for KC-series UHF reader
-- **Web-side RFID guard** (`apps/web/src/hooks/use-rfid-guard.ts`) — global keydown interceptor blocks RFID keyboard bursts from non `data-rfid="true"` fields
-- **Tag detection** — 300ms debounce in scan dialogs + deduplication for repeated scans
-- **Entity identifier limit** — one identifier per entity, enforced in `identifier.service.ts`
-- **Filter details on scan** — stage scan dialog looks up filter name and parent AHU after tag detected
-
-### Offline Sync
-- **IndexedDB offline store** (`apps/web/src/lib/offline-store.ts`) — stores: operations queue, cache, filters
-- **Sync engine** (`apps/web/src/lib/sync-engine.ts`) — auto-syncs on reconnect, FIFO, skip conflicts
-- **useOffline hook** (`apps/web/src/hooks/use-offline.ts`) — `executeOrQueue()` for offline-safe API calls
-- **Cached data:** filter instances, templates, cleaning reasons, identifier map (for offline RFID lookup)
-- **"Data Synced" indicator** in mobile header — shows when all data loaded and cached
-- **Mobile operations page** (`routes/mobile/mobile-operations.tsx`) — all cleaning actions wrapped with executeOrQueue
-
-### Responsive Layout
-- Sidebar collapses to hamburger menu on `<lg` screens with slide-in overlay
-- Header hamburger toggle, reduced padding on mobile
-- `AppLayout` uses `useRfidGuard()` globally
-
-### Error Popups
-- `components/ui/error-popup.tsx` — reusable modal for error display
-- Used in `filter-operations.tsx` and `assets/index.tsx` instead of inline banners
-
-### Dev Mode HTTP
-- Capacitor WebView rejects self-signed certs for fetch — use HTTP in dev
-- Production HTTPS: install rootCA.pem on tablet system certificates
-
-
-Workflow Orchestration
-
-1. Plan Mode Default
-- Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)
-- If something goes sideways, STOP and re-plan immediately – don't keep pushing
-- Use plan mode for verification steps, not just building
-- Write detailed specs upfront to reduce ambiguity
-
-2. Subagent Strategy
-- Use subagents liberally to keep main context window clean
-- Offload research, exploration, and parallel analysis to subagents
-- For complex problems, throw more compute at it via subagents
-- One task per subagent for focused execution
-
-3. Self-Improvement Loop
-- After ANY correction from the user: update tasks/lessons.md with the pattern
-- Write rules for yourself that prevent the same mistake
-- Ruthlessly iterate on these lessons until mistake rate drops
-- Review lessons at session start for relevant project
-
-4. Verification Before Done
-- Never mark a task complete without proving it works
-- Diff behavior between main and your changes when relevant
-- Ask yourself: "Would a staff engineer approve this?"
-- Run tests, check logs, demonstrate correctness
-
-5. Demand Elegance (Balanced)
-- For non-trivial changes: pause and ask "is there a more elegant way?"
-- If a fix feels hacky: "Knowing everything I know now, implement the elegant solution"
-- Skip this for simple, obvious fixes – don't over-engineer
-- Challenge your own work before presenting it
-
-6. Autonomous Bug Fixing
-- When given a bug report, just fix it. Don't ask for hand-holding
-- Point at logs, errors, failing tests – then resolve them
-- Zero context switching required from the user
-- Go fix failing CI tests without being told how
-
-Task Management
-- Plan First: Write plan to tasks/todo.md with checkable items
-- Verify Plan: Check in before starting implementation
-- Track Progress: Mark items complete as you go
-- Explain Changes: High-level summary at each step
-- Document Results: Add review section to tasks/todo.md
-- Capture Lessons: Update tasks/lessons.md after corrections
-
-Core Principles
-- Simplicity First: Make every change as simple as possible. Impact minimal code.
-- No Laziness: Find root causes. No temporary fixes. Senior developer standards.
-- Minimal Impact: Changes should only touch what's necessary. Avoid introducing bugs.
----
-
-## Phase 3 Update (2026-04-07)
-
-**RFID & Offline Operations:**
-- RFID Scanner Android app (`rfid_scan_app/`) for KC-series UHF readers
-- RFID keyboard guard prevents UKB tag input leaking into random fields
-- Offline cleaning operations via IndexedDB queue + sync engine
-- Cached identifier→filter map for offline RFID lookup
-- "Data Synced" indicator in mobile header
-- One identifier per entity (backend-enforced)
-- Responsive layout with collapsible sidebar
-- Error popups replace inline banners
-- User creation auto-assigns org for admins
-- `/api/roles/active` public endpoint for contact-admin page
-
-See `CHANGELOG.md` for full details.
+## Pipeline Flow
+- CHECKLIST nodes between STAGE nodes trigger automatic question dialogs
+- Server-side enforcement: `advance()` blocks if pending checklist not completed
+- Cycle auto-completes when last STAGE leads to END node
+- Stage chain may include multiple consecutive CHECKLIST nodes — server uses `stageLookup` to resolve
 
 ---
 
-## Phase 4 Update (2026-04-14)
+## Workflow Orchestration
 
-**Granular Permissions System:**
-- 18 new feature toggles: Filters Page Controls (6), Checklist Page Controls (4), Cleaning Profile Page Controls (4), Equipment Group Controls (4)
-- PM Page Controls (4): Download Template, Upload, Edit Entry, Resubmit
-- All toggles include frontend visibility + backend route permissions in FEATURE_TO_PERMISSION_MAP
-- SUPER_ADMIN bypasses all frontend permission checks (isSuperAdmin || perms.includes)
-- 95 total permission constants, 82 feature privileges, 69 reauth actions
+### 1. Plan Mode Default
+Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions). If something goes sideways, STOP and re-plan immediately. Use plan mode for verification steps too. Write detailed specs upfront.
 
-**Configurable Color Themes:**
-- 10 preset themes: Ocean, Sapphire, Emerald, Amethyst, Sunset, Slate, Ruby, Forest, Midnight, Coral
-- CSS variables: --theme-primary, --theme-gradient-from/to, --theme-focus-ring
-- Theme selector on Branding config page, auto-fills color pickers
-- themes.ts defines colors, applyTheme() sets CSS vars on :root, use-branding hook applies on load
+### 2. Subagent Strategy
+Use subagents liberally to keep main context clean. Offload research, exploration, and parallel analysis. One task per subagent.
 
-**Report Settings:**
-- Configurable report header (logo, company, title, date, user), footer (pages, records, custom text), records per page, compact mode
-- ReportPageWrapper component wraps Audit Trail, Cleaning Cycles, Filter Traceability
-- Config page at /config/report-settings with live preview
+### 3. Self-Improvement Loop
+After ANY correction from the user: update memory or `tasks/lessons.md` with the pattern. Ruthlessly iterate on these lessons.
 
-**Dynamic Bulk Upload:**
-- CSV template columns generated from Filter entity template attributeSchema
-- Backend validates dynamic fields (dropdown, required, numeric)
+### 4. Verification Before Done
+Never mark a task complete without proving it works. Run tests, check logs, demonstrate correctness.
 
-**Key Bug Fixes:**
-- Backup export/restore for non-superadmin
-- Password-policy public endpoint for non-admin page loads
-- api-client.ts .status on errors for SWR 403 suppression
-- Block change requests visible to approvers
-- Reauth popup autofill/focus fixes
+### 5. Demand Elegance (Balanced)
+For non-trivial changes: pause and ask "is there a more elegant way?" If a fix feels hacky, refactor it. Skip for simple, obvious fixes.
+
+### 6. Autonomous Bug Fixing
+Just fix bugs when given. Point at logs, errors, failing tests — then resolve them.
+
+## Task Management
+- **Plan First** — Write plan to `tasks/todo.md` with checkable items
+- **Verify Plan** — Check in before starting implementation
+- **Track Progress** — Mark items complete as you go
+- **Document Results** — Add review section when done
+- **Capture Lessons** — Update memory after corrections
+
+## Core Principles
+- **Simplicity First** — Every change as simple as possible
+- **No Laziness** — Find root causes; no temp fixes; senior-developer standards
+- **Minimal Impact** — Touch only what's necessary; don't introduce regressions

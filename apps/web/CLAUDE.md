@@ -1,17 +1,19 @@
 # DigiLog Web — CLAUDE.md
 
 ## Overview
-React SPA built with Vite, served by Nginx from `apps/web/dist/` in production, or via Vite dev server on port 5175 locally.
+React 19 SPA built with Vite 6. In dev it runs on the Vite dev server (port 5175). For production-style builds it outputs to `apps/web/dist/`, which is also what Capacitor copies into the Android APK.
 
 ## Build & Deploy
 ```bash
-# Production (EC2)
-cd /home/ubuntu/21cfrlogbook/apps/web
-npx vite build   # Output to dist/
-# Nginx serves dist/ automatically
-
 # Local Development (Windows)
-cd apps/web && npx vite   # Dev server on port 5175
+cd apps/web && npx vite --host         # Dev server on port 5175
+
+# Build (for Nginx serving or APK packaging)
+cd apps/web && npx vite build          # Outputs to apps/web/dist/
+
+# Update APK with the latest build
+cd apps/android && npx cap copy android
+cd apps/android/android && ./gradlew assembleDebug
 ```
 
 ## Key Paths
@@ -39,7 +41,7 @@ cd apps/web && npx vite   # Dev server on port 5175
 - Force login (`force: true`) to terminate existing sessions
 
 ## Key Features
-- 23 config pages (auto-discovered from registry)
+- 24 config pages (auto-discovered from registry)
 - Entity tree with drag-and-drop hierarchy
 - Rule chain editor with 77 node types across 8 categories
 - Alarm dashboard with real-time updates and role-based column visibility

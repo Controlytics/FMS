@@ -1,26 +1,24 @@
 # DigiLog API — CLAUDE.md
 
 ## Overview
-Fastify backend serving the DigiLog REST API on port 3000. Managed by PM2 as `digilog-api` on EC2, or via `tsx` locally on Windows.
+Fastify backend serving the DigiLog REST API on port 3000. Runs locally on Windows via `tsx watch` in dev, or as a compiled Node service in production-style local builds. The repo currently has no live remote deployment.
 
 ## Build & Deploy
 ```bash
-# EC2 Production
-cd /home/ubuntu/21cfrlogbook
-npx tsc -p apps/api/tsconfig.json   # Compile TypeScript
-pm2 restart digilog-api              # Restart server
+# Windows Local Development (auto-reload)
+cd apps/api && npx tsx watch src/app.ts
 
-# Windows Local Development
-cd apps/api && npx tsx src/server.ts  # Run with tsx (no compile needed)
+# Production-style local build
+npx tsc -p apps/api/tsconfig.json   # Compile to apps/api/dist/
+node apps/api/dist/app.js
 ```
 
 ## Key Paths
 - Source: `apps/api/src/`
 - Compiled: `apps/api/dist/`
-- Entry: `apps/api/src/server.ts`
-- App setup: `apps/api/src/app.ts`
-- Prisma schema: `apps/api/prisma/schema.prisma` (57 models, 17 enums)
-- Config definitions: `apps/api/src/modules/config/defs/` (23 files)
+- Entry: `apps/api/src/app.ts`
+- Prisma schema: `apps/api/prisma/schema.prisma` (63 models, 23 enums)
+- Config definitions: `apps/api/src/modules/config/defs/` (24 files)
 - Route modules: `apps/api/src/modules/` (34 modules)
 
 ## Architecture
@@ -36,7 +34,7 @@ cd apps/api && npx tsx src/server.ts  # Run with tsx (no compile needed)
 admin-requests, assets (templates/instances/relationships/identifiers), audit, auth, backup, checklist-profiles, cleaning-profiles, config (23 definitions), connectivity, dashboards, data-ingestion (10-stage pipeline), deployment-check, entity-assignments, equipment-groups, filter-operations, filter-profiles, help, ldap, notification-delivery (email/SMS/Telegram/Slack), notification-rules, notifications, org-admin, pm-schedules, qr-code, queries (telemetry/alarm/retention/export), roles, rule-chain (77 node types), super-admin, system-health, tenant-admin, uns, uploads, user-groups, users
 
 ## Databases
-- **digilog_db** (PostgreSQL 18 via Prisma) — application data (57 models)
+- **digilog_db** (PostgreSQL 18 via Prisma) — application data (63 models, 23 enums)
 - **digilog_tsdb** (TimescaleDB via pg pool) — time-series data (7 hypertables)
 
 ## Key Libs (`apps/api/src/lib/`)
@@ -53,8 +51,8 @@ cd apps/api && npx vitest run   # Run unit tests
 ```
 
 ## Environment
-- PM2 env vars: TSDB_DATABASE=digilog_tsdb, PORT=3000
-- Redis: localhost:6379 (BullMQ job queue)
+- API_PORT=3000, TSDB_DATABASE=digilog_tsdb
+- Redis / Memurai: localhost:6379 (BullMQ job queue)
 - EMQX: localhost:1883 (MQTT), 18083 (dashboard)
 - PostgreSQL: localhost:5432
 

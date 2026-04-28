@@ -1,12 +1,25 @@
 # DigiLog Documentation
 
-Welcome to the DigiLog documentation — a 21 CFR Part 11 compliant digital logbook and IoT data logging platform for regulated industries, with an integrated Digital Filter Management System (Phase 2).
+A 21 CFR Part 11–compliant digital logbook + IoT data platform with an integrated **Digital Filter Management System** for pharmaceutical cleanrooms.
 
-## Platform Overview
-- **34 API modules**, **57 Prisma models**, **17 enums**
-- **77 rule chain node types** across 8 categories
-- **23 config definitions** with auto-discovery
-- **4 notification channels**: Email, SMS, Telegram, Slack
+## Platform stats (current — 2026-04-29)
+- **34 API modules**, **200+ endpoints**, **63 Prisma models**, **23 enums**
+- **77 rule-chain node types** across 8 categories
+- **24 config definitions** with auto-discovery
+- **95 permissions**, **82 feature toggles**, **69 reauth actions**
+- **10 color themes**, configurable report layout, multi-channel notifications
+- **TimescaleDB** with 7 hypertables for telemetry / attributes / events / alarm history
+
+## Where to start
+
+For a top-down view, prefer the docs at the repo root:
+- [`PROJECT_SUMMARY.md`](../PROJECT_SUMMARY.md) — 30-second overview
+- [`PROJECT_ARCHITECTURE.md`](../PROJECT_ARCHITECTURE.md) — full system architecture
+- [`API_REFERENCE.md`](../API_REFERENCE.md) — complete API reference (200+ endpoints)
+- [`BACKEND_GUIDE.md`](../BACKEND_GUIDE.md) — backend dev guide
+- [`FRONTEND_GUIDE.md`](../FRONTEND_GUIDE.md) — frontend dev guide
+- [`OFFLINE_SYNC_ARCHITECTURE.md`](../OFFLINE_SYNC_ARCHITECTURE.md) — tablet + offline architecture
+- [`CHANGELOG.md`](../CHANGELOG.md) — chronological history
 
 ## Getting Started
 - [What is DigiLog?](getting-started/what-is-digilog.md)
@@ -34,86 +47,69 @@ Welcome to the DigiLog documentation — a 21 CFR Part 11 compliant digital logb
 - [SMS Integration](administration/notifications/sms-integration.md)
 - [Security](administration/security/security.md)
 
-## API Reference
-- [Authentication](api-reference/authentication.md)
-- [Users](api-reference/users.md)
-- [Entities](api-reference/entities.md)
-- [Templates](api-reference/templates.md)
-- [Telemetry](api-reference/telemetry.md)
-- [Rule Chains](api-reference/rule-chains.md)
-- [Alarms](api-reference/alarms.md)
-- [UNS](api-reference/uns.md)
-- [Notifications](api-reference/notifications.md)
-- [Configuration](api-reference/configuration.md)
-- [Audit](api-reference/audit.md)
-- [Backup](api-reference/backup.md)
-- [Export](api-reference/export.md)
-- [Retention](api-reference/retention.md)
-- [Help](api-reference/help.md)
-- [Debug Traces](api-reference/debug-traces.md)
+## Deployment
+- [Deployment Methods Overview](deployment-methods/README.md)
+- [Method A — Native Windows](deployment-methods/method-a-native-windows.md)
+- [Method B — Docker Compose](deployment-methods/method-b-docker-compose.md)
+- [Method D — Hybrid](deployment-methods/method-d-hybrid.md)
+- [Method E — IIS](deployment-methods/method-e-iis.md)
+- [Comparison](deployment-methods/comparison.md)
 
 ## Compliance
 - [21 CFR Part 11](compliance/21-cfr-part-11.md)
 
-## Development Phases
-- [Phase Overview](phases/README.md)
+## Digital Filter Management System (Phase 2+)
 
-## Digital Filter Management System (Phase 2)
+Comprehensive system for tracking the cleaning lifecycle of pharmaceutical cleanroom HEPA filters.
 
-DigiLog includes a comprehensive Digital Filter Management System for pharmaceutical cleanroom HEPA filter cleaning lifecycle management.
+**Modules**
+- **Cleaning Profiles** — Visual pipeline editor (ReactFlow) with STAGE / CHECKLIST / BYPASS / END nodes
+- **Filter Profiles** — Block restrictions, max cycles, profile assignment
+- **Filter Operations** — Cycle start, advance, bypass, terminate, checklist submission
+- **PM Schedules** — Per-AHU preventive maintenance with tolerance windows + QA approval
+- **Checklist Profiles** — Reusable question templates for pipeline checklist nodes
+- **Equipment Groups** — AHU dashboard, dual-set (SET_A / SET_B) management
 
-### Modules
-- **Cleaning Profiles** — Visual pipeline editor for multi-stage cleaning workflows
-- **Filter Profiles** — Filter-to-cleaning-profile assignment and configuration
-- **Filter Operations** — Cycle start, stage advance, bypass (with deviation logging), checklist submission
-- **PM Schedules** — Preventive maintenance scheduling per AHU with tolerance windows
-- **Checklist Profiles** — Reusable question templates (10 question types) for pipeline checklist nodes
-- **Equipment Groups** — AHU dashboard with dual-set (SET_A/SET_B) filter management
-
-### Key Capabilities
-- Multi-stage cleaning pipeline (configurable stages via visual editor)
+**Key behaviors**
 - CHECKLIST nodes between STAGE nodes trigger automatic question dialogs
-- Server-side enforcement: advance() blocks if pending checklist not completed
-- Cycle auto-completes when last STAGE leads to END node
-- Real-time filter status tracking with QR/barcode scan
-- Cleaning cycle history with full audit trail
-- Configurable cleaning reasons with justification support
-- Filter retirement and replacement tracking
-- Bulk upload for filter data import
+- Server-side enforcement: `advance()` blocks until pending checklists are completed
+- Cycle auto-completes when the last STAGE leads to an END node
+- Stage chain may include multiple consecutive CHECKLIST nodes — server uses `stageLookup` to walk them
+- Cycle `profile_id` is locked at start; reassigning a block's profile does NOT migrate in-progress cycles
 
-### Phase 2 API Endpoints
+**Phase 2 endpoints**
 ```
 POST /api/filters/:id/start-cycle       — Start cleaning cycle
 POST /api/filters/:id/advance           — Advance to next stage
 POST /api/filters/:id/submit-checklist  — Submit checklist answers
 POST /api/filters/:id/bypass            — Bypass stage (deviation)
-GET  /api/filters/:id/current-state     — Get filter state + next actions
+POST /api/filters/:id/terminate         — Terminate cycle
+GET  /api/filters/:id/current-state     — Filter state + next actions
 GET  /api/filter/cycles                 — List cleaning cycles
 GET  /api/filter/events                 — List filter events
 GET  /api/cleaning-profiles             — List cleaning profiles
 GET  /api/filter-profiles               — List filter profiles
 GET  /api/pm-schedules                  — List PM schedules
-GET  /api/checklist-profiles            — List checklist profiles
+GET  /api/checklist-profiles?expand=questions — List checklist profiles (offline cache)
 GET  /api/equipment-groups              — List equipment groups
 ```
 
-### Compliance
 All filter operations are recorded as immutable events with SHA-256 checksums, electronic signatures, and deviation tracking per 21 CFR Part 11.
 
----
-
-## Phase 3 Update (2026-04-07)
-
-**RFID & Offline Operations:**
-- RFID Scanner Android app (`rfid_scan_app/`) for KC-series UHF readers
-- RFID keyboard guard prevents UKB tag input leaking into random fields
+## Phase 3 — RFID & Offline (2026-04-07)
+- RFID Scanner Android app for KC-series UHF readers
+- RFID SDK plugin bundled into DigiLog APK
+- Web RFID keyboard guard
 - Offline cleaning operations via IndexedDB queue + sync engine
 - Cached identifier→filter map for offline RFID lookup
 - "Data Synced" indicator in mobile header
-- One identifier per entity (backend-enforced)
-- Responsive layout with collapsible sidebar
-- Error popups replace inline banners
-- User creation auto-assigns org for admins
-- `/api/roles/active` public endpoint for contact-admin page
 
-See `CHANGELOG.md` for full details.
+## Phase 4 — Permissions, Themes, Reports (2026-04-14)
+- 18 granular feature toggles across Filters / Checklists / Cleaning Profiles / Equipment / PM
+- 10 preset color themes via CSS variables
+- Report template designer + PDF generation engine + digital signatures
+- Configurable report header/footer/layout
+- Dynamic CSV bulk upload from template attributeSchema
+- 69 reauth actions
+
+See `CHANGELOG.md` for full release history.
