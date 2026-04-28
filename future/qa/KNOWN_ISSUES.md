@@ -4,16 +4,17 @@ These are real-world constraints verified from code + project memory, not specul
 
 ## Environment / infrastructure
 
-- **PM2 runs compiled JS.** Forgetting `npx tsc -p apps/api/tsconfig.json` before `pm2 restart digilog-api` means your change does not go live. Always compile first.
+- **Use `tsx watch` for dev, compiled JS for prod-style builds.** PM2 / EC2 are no longer in scope (removed in commit `251be95`). Production-style local builds: `npx tsc -p apps/api/tsconfig.json` then `node apps/api/dist/app.js`.
 - **TimescaleDB database is `digilog_tsdb`, not `digilog_db`.** Connecting TSDB_* env vars to `digilog_db` fails silently on some queries and spectacularly on others.
 - **Redis must be ≥5.** BullMQ requires it. Old Redis 3 on Windows crashes the API at boot. Memurai ≥5 is the supported Windows substitute.
 - **Fastify strips response fields not declared in the schema.** If a property "disappears" over the wire, the schema is the likely suspect, not the handler.
 - **Role permissions go stale after a DB restore.** `roles` table is rewritten — either reseed from `seed.ts` or `UPDATE` directly. Symptom: users suddenly lose access after a restore test.
-- **Local HTTPS requires `certs/server.key` + `certs/server.crt`.** `API_HTTPS=true` without the cert files crashes startup.
+- **Local HTTPS requires `certs/server.key` + `certs/server.crt`.** `API_HTTPS=true` without the cert files crashes startup. mkcert is the easiest way; install `certs/rootCA.pem` on the tablet system cert store for APK to trust.
+- **Cycle `profile_id` is locked at start.** Reassigning a block's profile does NOT migrate in-progress cycles — they retain the original profile until terminated.
 
 ## Frontend + APK
 
-- **`navigator.onLine` is unreliable on Android WebViews.** We poll `/api/health` every 15 s + listen for `visibilitychange`. Do not rely on the browser event alone.
+- **`navigator.onLine` is unreliable on Android WebViews.** Use `lib/connectivity.ts` which fans out the Capacitor Network plugin + `navigator.onLine` + `/api/health` probe every 15 s + on `visibilitychange`. Do not read `navigator.onLine` directly.
 - **Capacitor WebView ignores `network_security_config` for `fetch()`.** Trying to `fetch()` a self-signed HTTPS API fails. Either use `CapacitorHttp` (already configured) or install a properly-trusted cert (mkcert) system-wide on the tablet.
 - **The APK bakes in `https://192.168.1.22:3000`.** If you change the dev host IP or run the API on a different host, you must rebuild the APK (`apps/android` → `cap sync` → `gradlew assembleDebug`).
 - **No frontend unit tests.** Any React change rides on manual QA + Playwright traces. Be deliberate.

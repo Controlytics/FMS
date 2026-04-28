@@ -1,10 +1,10 @@
 # API Endpoint Index
 
-**Total registered HTTP endpoints:** 394 across 47 route files (verified via grep of `apps/api/src/modules/**/*.ts`, 2026-04-20).
+**Total registered HTTP endpoints:** ~398 across 59 route files (verified via grep of `apps/api/src/modules/**/*.ts`, 2026-04-29).
 
 All endpoints are mounted under `/api/...` unless noted. Prefixes come from `apps/api/src/app.ts` (`app.register(..., { prefix: ... })`). The list below groups endpoints by their **mount prefix**, so to derive the full URL, concatenate the prefix with each route path. A `*` marks an endpoint that is public (does not require a bearer token); everything else goes through `authPlugin` + `rbacPlugin`.
 
-This file is an **index** — for handler-level detail (request/response shapes, permissions required per route), see `future/backend/API_ENDPOINTS.md`.
+This file is an **index** — for handler-level detail (request/response shapes, permissions required per route), see `future/backend/API_ENDPOINTS.md`. The `config` module is now split: `dynamic-routes.ts` for registry-discovered surfaces + `static-routes/` for 11 per-tab route files (bloat audit P2.3 done).
 
 ---
 

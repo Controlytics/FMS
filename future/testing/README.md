@@ -5,10 +5,13 @@ This project has four distinct test surfaces. Know which one to touch before you
 | Surface | Location | Tool | Purpose |
 |---|---|---|---|
 | Backend unit | `apps/api/src/lib/*.test.ts`, `apps/api/src/modules/**/__tests__/*.test.ts` | Vitest | Pure-function + repository tests |
-| Backend integration / e2e | `apps/api/src/e2e/*.test.ts` | Vitest + real DB | Per-module end-to-end API flows |
+| Backend integration / e2e | `apps/api/src/e2e/*.test.ts` | Vitest + real DB | Per-module end-to-end API flows (15 suites; Phase 1 coverage only) |
 | Shared schema tests | `packages/shared/src/**/*.test.ts` | Vitest | Validation of Zod schemas + constants |
+| db package tests | `packages/db/src/__tests__/*.test.ts` | Vitest | telemetry-batcher unit tests |
 | Shell e2e scripts | `tests/e2e-scripts/*.sh` | bash + curl | Cross-system smoke (full-test, functional, ingest, live) |
-| Manual QA | `tests/manual-test-cases/TC-*.md` + `tests/test-execution-guides/EG-*.md` | Humans | 25 test cases, 25 execution guides |
+| Manual QA — golden paths | `future/testing/MANUAL_TEST_GUIDE.md` | Humans | 12 step-by-step golden-path scripts |
+
+> **Phase 2/3/4/5 manual test cases were deleted in the 2026-04-29 cleanup** (`tests/manual-test-cases/` had only Phase 1 coverage). Need fresh cases for filter operations, RFID, offline replay, reports, block-change approval, PM My Tasks, admin requests. The closest current automated coverage is `apps/api/src/e2e/` (also Phase 1).
 
 ## How to run
 
@@ -34,22 +37,23 @@ cd tests/e2e-scripts && bash e2e-functional-test.sh
 
 Vitest is configured via `vitest.workspace.ts` at the repo root — the workspace includes `apps/api/vitest.config.ts` and `packages/shared/vitest.config.ts`. Adding a new app to the test matrix means registering it in `vitest.workspace.ts` too.
 
-## File counts (2026-04-20)
+## File counts (2026-04-29, verified by find/grep)
 
-- **74** `.test.ts` files under `apps/api/**`
+- 9 backend lib unit tests under `apps/api/src/lib/__tests__/` (audit, build-context, error-schemas, errors, hash-chain, jwt, password, reauth-check, user-id-validator)
 - **15** e2e test suites in `apps/api/src/e2e/` (audit, auth, checklist-submission, checklist-templates, config, connectivity, entities, health, help-articles, notifications, qr-codes, roles, rule-chains, system-health, users)
-- **~6** schema test suites under `packages/shared/src/` (assets, auth, config, users, audit-templates, + more)
-- **1** repository test in `packages/db` (telemetry-batcher)
-- **4** shell e2e scripts
-- **25 + 25** manual test cases and execution guides (one pair per module, numbered TC/EG-01..25)
+- ~7 schema test suites under `packages/shared/src/` (assets, auth, config, users, audit-templates, + more)
+- 1 repository test in `packages/db` (telemetry-batcher) — known to use 25 `as any` casts (acceptable for mocking)
+- Shell e2e scripts under `tests/e2e-scripts/`
+- 12 golden-path scenarios in `future/testing/MANUAL_TEST_GUIDE.md`
 
 ## What's NOT tested automatically
 
 Known gaps — flag in PRs:
 
-- The frontend has **no component tests** or E2E tests in CI. QA is manual via `tests/manual-test-cases/` + Playwright traces (archived in `old/playwright-artifacts/`).
-- The offline sync engine has no automated integration test — Phase 3 gap noted in project memory.
-- RFID native apps (`rfid_scan_app/` and `RFID/`) are manually tested on the hardware.
+- **Phase 2/3/4/5 e2e tests are missing.** Existing 15 e2e suites cover only Phase 1. Filter operations, RFID, offline replay, reports, block-change approval, PM My Tasks, admin-requests have NO automated coverage.
+- The frontend has **no component tests** or browser E2E tests in CI. QA is manual via `MANUAL_TEST_GUIDE.md` + Playwright traces (archived in `old/playwright-artifacts/`).
+- The offline sync engine has no automated integration test.
+- RFID native apps (`rfid_scan_app/` standalone + `apps/android/.../RfidPlugin.java` bundled in DigiLog APK) are manually tested on hardware.
 - No load / stress tests for MQTT ingestion.
 
 ## What the e2e tests cover

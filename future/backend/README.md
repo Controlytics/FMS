@@ -1,10 +1,10 @@
 # Backend — Quick Tour
 
 **Location:** `apps/api/`
-**Tech:** Fastify 5 + TypeScript (ESM, `"type": "module"`), Prisma 6 (PostgreSQL), raw `pg` pool (TimescaleDB), BullMQ + Redis, EMQX/MQTT, Puppeteer for PDF.
+**Tech:** Fastify 5.2 + TypeScript (ESM, `"type": "module"`), Prisma 6.3 (PostgreSQL 18), raw `pg` pool (TimescaleDB), BullMQ 5.70 + Memurai (Redis ≥5), EMQX 5/MQTT, Puppeteer 24.40 for PDF, `jose` 6 for JWT, `ldapts` 8.1 for LDAP.
 **Entry:** `apps/api/src/app.ts`
 **Dev:** `cd apps/api && npm run dev` → `tsx watch src/app.ts`
-**Build + run:** `npm run build` (tsc) → `node dist/app.js` (PM2 uses this path in production)
+**Build + run (prod-style local):** `npm run build` (tsc) → `node dist/app.js`. PM2 / EC2 are no longer in scope (removed in commit `251be95`).
 
 ## Directory map
 
@@ -44,9 +44,9 @@ Defined in `plugins/auth.ts`:
 
 | Plugin | File | Role |
 |---|---|---|
-| `authPlugin` | `plugins/auth.ts` | JWT verification + user injection, public-path bypass, session/role caches |
-| `rbacPlugin` | `plugins/rbac.ts` | Per-route permission gating via Fastify decorators |
-| `auditLoggerPlugin` | `plugins/audit-logger.ts` | Hooks into mutations and writes audit rows (hash-chained) |
+| `authPlugin` | `plugins/auth.ts` | JWT verification + user injection, public-path bypass, session/role caches; maintains `PUBLIC_GET_PATHS` allowlist |
+| `rbacPlugin` | `plugins/rbac.ts` | `requirePermission(perm)` (single perm) AND `requireAnyPermission(...perms)` (granular toggle fallback for `FCP_* OR CHECKLIST_*`, `ASSET_* OR EG_*`, etc.); `enforceReauth(action, req, reply)` accepts `string \| string[]` |
+| `auditLoggerPlugin` | `plugins/audit-logger.ts` | Hooks into mutations and writes audit rows (SHA-256 hash-chained per-org); applies `audit-templates.ts` so UUIDs don't leak in the audit UI |
 
 ## Cross-cutting libs (`src/lib/`)
 
@@ -62,6 +62,7 @@ Defined in `plugins/auth.ts`:
 | `swagger.ts` | Registers `@fastify/swagger` + `@fastify/swagger-ui` (UI at `/docs`) |
 | `errors.ts` + `error-schemas.ts` | `AppError` class + Fastify error schema helpers |
 | `build-context.ts`, `uns-path.ts`, `org-scope.ts`, `user-id-validator.ts`, `audit.ts` | Context helpers reused across modules |
+| `idempotency.ts` | Offline-replay dedup via `x-client-op-id` header — checks `FilterEvent.attributes.clientOpId` for match; returns cached `current-state` on duplicate, so retries never produce duplicate cycles, double advances, or repeat checklist submissions |
 
 ## Workers (`src/workers/`)
 
@@ -92,24 +93,26 @@ Start/stop helpers (`startIngestionWorker`, `startMaintenanceWorker`) are invoke
 | CORS | `CORS_ORIGIN`, `ALLOWED_ORIGINS` |
 | Uploads | `UPLOAD_DIR`, `MAX_FILE_SIZE` |
 
-## Build + deploy cheatsheet
+## Build + run cheatsheet (local Windows)
 
 ```bash
-# local dev
+# local dev (auto-reload)
 cd apps/api && npm run dev
 
-# compile for PM2
-cd /home/ubuntu/21cfrlogbook
-npx tsc -p apps/api/tsconfig.json
-pm2 restart digilog-api
+# prod-style local build
+npx tsc -p apps/api/tsconfig.json   # outputs to apps/api/dist/
+node apps/api/dist/app.js
 
 # run tests
-cd apps/api && npm test         # all unit + e2e
-vitest run --testPathPattern=e2e # e2e only
+cd apps/api && npm test                          # all unit + e2e
+cd apps/api && vitest run --testPathPattern=e2e  # e2e only
+
+# package for distribution to a target Windows machine
+powershell -ExecutionPolicy Bypass -File scripts/package-for-production.ps1
 ```
 
 ## Where to read next
 
-- **`MODULES.md`** — every feature module, one paragraph each.
-- **`API_ENDPOINTS.md`** — full endpoint list with HTTP verb and intent.
-- **`ENV_SETUP.md`** — local dev + EC2 setup steps.
+- **`MODULES.md`** — every feature module, one paragraph each, with grep-grounded endpoint counts.
+- **`API_ENDPOINTS.md`** — full endpoint list with HTTP verb, auth, and notes.
+- **`ENV_SETUP.md`** — local dev setup steps (Windows-only — no EC2).

@@ -19,7 +19,7 @@ Per-feature "it's done when…" bullets. QA signs a feature off only when every 
 - User CRUD works for the 11 user endpoints under `/api/users`.
 - Role CRUD works; deleting a role fails if any active users are assigned to it.
 - `GET /api/roles/active` is reachable without auth (contact-admin page depends on it).
-- Permission catalog is exhaustive — all 95 permissions enumerated in `@digilog/shared/PERMISSIONS` appear in the backend `permissions/all` response.
+- Permission catalog is exhaustive — all **109** permissions enumerated in `@digilog/shared/PERMISSIONS` appear in the backend `permissions/all` response.
 - Creatable-role matrix enforces that e.g. an ADMIN cannot create a SUPER_ADMIN.
 - Bulk delete removes multiple users in one call with appropriate audit rows.
 - Enable / disable / unlock / reset-password all log to audit with the actor.

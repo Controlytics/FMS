@@ -6,8 +6,8 @@ An annotated pointer to the files that a new contributor must know about. Everyt
 
 | File | Why it matters |
 |---|---|
-| `src/main.tsx` | The only router. Registers 70+ routes. `<ErrorBoundary>` → `<ToastProvider>` → `<SWRConfig>` → `<BrowserRouter>`. Lazy-loads every heavy route. |
-| `src/app.css` | Tailwind entry. |
+| `src/main.tsx` | The only router. Registers **81 `<Route>` definitions**. `<ErrorBoundary>` → `<ToastProvider>` → `<SWRConfig>` → `<BrowserRouter>`. Lazy-loads every heavy route. |
+| `src/app.css` | Tailwind entry + theme utility classes (`.text-theme-primary`, `.bg-theme-gradient`, `.bg-theme-gradient-br`, etc.) — codemod target replacing inline `style={{ color: 'var(--theme-primary)' }}`. |
 | `src/components/layout/app-layout.tsx` | Sidebar + header + outlet. Mounts `useRfidGuard()`, `use-branding`, `use-session`, single-tab check. |
 | `src/components/layout/sidebar.tsx` | Permission-filtered sidebar. Reads `SIDEBAR_ITEMS` from `@digilog/shared` and filters by `SIDEBAR_PRIVILEGE_MAP`. Collapses to hamburger below `lg`. |
 | `src/components/layout/header.tsx` | Notifications bell, unread count, connectivity/offline indicator, user menu. |
@@ -22,8 +22,10 @@ An annotated pointer to the files that a new contributor must know about. Everyt
 
 | File | Why it matters |
 |---|---|
-| `src/lib/api-client.ts` | fetch wrapper. Adds `Authorization`, parses JSON, normalizes errors. **Maps backend's `details` → `connectionInfo` on errors** (required; backend convention). Exposes `.status` on errors so SWR can suppress 403s. |
+| `src/lib/api-client.ts` | fetch wrapper. Adds `Authorization`, parses JSON, normalizes errors. **Line 58 maps `err.details ?? err.connectionInfo`** — required for the block-change-required popup to fire (backend sends 409 with structured `details`). Exposes `.status` on errors so SWR can suppress 403s. |
 | `src/lib/swr-config.ts` | Default fetcher, revalidate-on-focus rules, dedup interval. |
+| `src/lib/connectivity.ts` | Single source of truth for online state. Fans out three signals: Capacitor Network plugin (OS-level on tablet) + `navigator.onLine` + `/api/health` probe every 15 s + on `visibilitychange`. **Always import from here, never read `navigator.onLine` directly.** |
+| `src/lib/rfid-bridge.ts` | React-side wrapper for the native Capacitor `RfidPlugin`. When the RFID reader is in SDK / answer mode, the OS does not inject keystrokes — the native side opens the USB device via `Reader_Usb.jar` and emits a `tag` event for each scan. Subscribe via `subscribeRfidTags()`. No-op on non-Capacitor platforms. |
 
 ## Auth + session
 
@@ -40,14 +42,15 @@ An annotated pointer to the files that a new contributor must know about. Everyt
 
 | File | Why it matters |
 |---|---|
-| `src/lib/offline-store.ts` | IndexedDB wrapper. Stores: operations queue, filter cache, generic cache. |
-| `src/lib/sync-engine.ts` | Auto-sync on reconnect, FIFO replay, event emitter. |
-| `src/lib/offline-sync-service.ts` | Higher-level batching/state transitions for offline cycles. |
-| `src/hooks/use-offline.ts` | Page-facing API: `online`, `pendingCount`, `syncing`, `executeOrQueue`. |
-| `src/hooks/use-rfid-guard.ts` | Global keydown interceptor. Any keyboard burst that looks like an RFID read is blocked unless the target element has `data-rfid="true"`. |
-| `src/routes/mobile/mobile-operations.tsx` | Tablet operations page. All cleaning actions wrap `executeOrQueue`. Same component serves both tablet and web (unified — do not fork it). |
-| `src/routes/mobile/mobile-wrapper.tsx` | Mobile shell + stage cards. |
-| `src/routes/mobile/mobile-login.tsx` | Tablet-specific login with cached-auth restore. |
+| `src/lib/offline-store.ts` | IndexedDB wrapper. 3 stores: `operations` (queued ops), `cache` (TTL-keyed snapshots — 24 h for filter-state, 7 d compaction), `filters` (filter snapshots with LRU eviction). |
+| `src/lib/sync-engine.ts` | Auto-sync on reconnect, FIFO replay, idempotency-key-aware (`x-client-op-id`), JWT refresh during replay, emits `'interrupted'` event on network drop. Filter-state caches preserved on success. |
+| `src/lib/offline-sync-service.ts` | Centralized 9-data-type login hydration (filter instances, templates, cleaning reasons, identifiers, profile pipelines, equipment groups + instruments, approved block changes, branding, field IDs). |
+| `src/hooks/use-offline.ts` | Page-facing API: `online`, `pendingCount`, `syncing`, `executeOrQueue`. Health-check uses `apiClient` (CapacitorHttp under the hood) to tolerate self-signed certs. |
+| `src/hooks/use-rfid-guard.ts` | Global keydown interceptor. Any keyboard burst that looks like an RFID read is blocked unless the target element has `data-rfid="true"`. Burst threshold 150 ms; first-keystroke seeded into buffer (commit `f9721af`). |
+| `src/routes/mobile/mobile-wrapper.tsx` | Mobile home screen with stage cards (6 individual stage buttons) + My Tasks + Approvals + Status + Logout. Features gated by `/api/config/tablet-access/my-features`. |
+| `src/routes/mobile/mobile-operations.tsx` | Per-stage scan + batch queue + checklist + DRY_IN countdown panel. Cleaning actions wrap `executeOrQueue`. Used both on tablet and (via routing) for desktop variants. P0.1 fix extracted `validateOfflineGate` helper so `handleSubmit` and `handleSubmitQueue` share validation. |
+| `src/routes/mobile/mobile-login.tsx` | Tablet-specific login with cached-auth restore + show/hide password + lockout-progress UI. |
+| `src/routes/mobile/mobile-forgot-password.tsx` | Tablet password reset request flow. |
 
 ## Theming & branding
 
@@ -62,20 +65,24 @@ An annotated pointer to the files that a new contributor must know about. Everyt
 
 | File | Why it matters |
 |---|---|
-| `src/routes/filter-management/filter-operations.tsx` | Desktop + stage-URL variants share this component. The cycle state machine runs through here. Reauth, error popups, offline queue all wire in. |
-| `src/routes/checklist/*` | Standalone checklist form — intentionally outside AppLayout. |
-| `src/routes/cleaning-cycles/*` | History + timeline of cycles. |
-| `src/routes/config/filter-cleaning-reasons.tsx`, `equipment-groups.tsx`, `cleaning-profile-assignment.tsx`, `ahu-filter-set-config.tsx` | Config pages specific to the filter domain. |
-| `src/routes/pm-schedules/*` + `my-tasks/*` | PM schedule list + detail + per-user task views. |
+| `src/routes/filter-management/filter-operations.tsx` | Desktop + stage-URL variants share this component (1928 LOC — bloat audit P0.2 outstanding). The cycle state machine runs through here. Reauth, error popups, offline queue, DRY_IN two-step flow, block-change popup all wire in. |
+| `src/routes/filter-management/filter-list.tsx` | Filter table + Block→Area→AHU→Filter hierarchy tree + RFID assign + bulk upload + Create/Edit/Delete dialogs (2433 LOC — bloat audit P0.2 outstanding). |
+| `src/routes/checklist-form/*` | Standalone end-user checklist submission — intentionally outside AppLayout (renamed from `checklist/` in P1.4). |
+| `src/routes/checklist-admin/*` | Admin CRUD for checklist templates (renamed from `checklists/` in P1.4). |
+| `src/routes/cleaning-cycles/*` | History + timeline of cycles; reads DRY_IN dryerTemp from readings event. |
+| `src/routes/config/filter-cleaning-reasons.tsx`, `equipment-groups.tsx`, `cleaning-profile-assignment.tsx`, `ahu-filter-set-config.tsx`, `alarm-columns.tsx`, `audit-templates.tsx`, `access-matrix.tsx`, `tablet-access.tsx` | Filter-domain + governance config pages added in Phases 4-5. |
+| `src/routes/pm-schedules/*` + `my-tasks/*` | PM schedule list + detail + per-user task views. PM QA approval workflow: PENDING/APPROVED/REJECTED with mandatory remarks; `getDueTasks` returns APPROVED only. |
 
 ## Admin / governance
 
 | File | Why it matters |
 |---|---|
-| `src/routes/admin-requests/index.tsx` | Admin request creation + approver view. |
-| `src/routes/approvals/index.tsx` | Approvals inbox (block-change + PM). |
-| `src/routes/config/backup.tsx` | Dynamic backup/restore UI. |
-| `src/routes/config/filter-data-management.tsx` | Super-admin data console (reaches `/api/super-admin/data/*`). |
+| `src/routes/admin-requests/index.tsx` | Admin request creation + approver view. Approvals execute the action server-side (create/unlock/reset/modify); requester Employee ID required and audited. |
+| `src/routes/approvals/index.tsx` | Approvals inbox (block-change + PM); remarks mandatory; mobile approvals view also has comment input. |
+| `src/routes/config/backup.tsx` | Dynamic backup/restore UI — covers all 64 tables. |
+| `src/routes/config/filter-data-management.tsx` | **SUPER_ADMIN-only data console with ZERO audit trail** — 10 tabs each mirroring its user-facing page (cycles, events, alarms, PM, audit, notifications, admin requests, block changes, retirements, replacements). Bypasses 21 CFR audit chain by design for emergency data fixes. |
+| `src/routes/config/access-matrix.tsx` | SUPER_ADMIN-only per-module role allowlist; modules without an entry default to visible (back-compat). |
+| `src/routes/config/tablet-access.tsx` | Role × feature matrix gating tablet `/m` access; mobile-login enforces this. |
 | `src/routes/tenant/*` | Super-admin org management. |
 
 ## Reports
@@ -88,7 +95,7 @@ An annotated pointer to the files that a new contributor must know about. Everyt
 
 ## Config surface
 
-`src/routes/config/` has 30+ pages, one per config module. The pattern:
+`src/routes/config/` has **26 pages**, one per config module. The pattern:
 
 1. Each page fetches a `*/current` endpoint with SWR.
 2. Renders a form via react-hook-form + zod resolvers (schema usually comes from `@digilog/shared`).

@@ -655,6 +655,83 @@ Stayed deleted (still confirmed unnecessary):
 - `old/tests-superseded/` (51) — Phase 1 tests superseded by `apps/api/src/e2e/`
 - `apps/web/generate-apk.md` — duplicated in `apps/web/CLAUDE.md` + `DEPLOY-WINDOWS.md`
 
+### Eighth pass — `future/` deep code-vs-doc reconciliation (2026-04-29)
+
+User: "now check all the document files in future and are they upto date with corresponding code, do deep analysis for each subfolder and files and update".
+
+Read every file in `future/` against live filesystem. Patched stale claims in 11 of 14 files.
+
+#### Stale numerical / factual claims fixed
+
+| File | Was | Updated to |
+|---|---|---|
+| `future/README.md` | Cited `ARCHITECTURE.md` + `DEPLOYMENT.md` (deleted) | Removed; added `PHASE_5_RECENT_WORK.md` |
+| `future/README.md` | "old/legacy-documentation/", "old/tasks/", "agents/" exist | Removed (all deleted in cleanup) |
+| `future/overview/CODEBASE_SUMMARY.md` | "PM2 on EC2", "Nginx on EC2" | Local Windows only; EC2 removed |
+| `future/overview/CODEBASE_SUMMARY.md` | "70+ routes" | **81 `<Route>` definitions** (live count) |
+| `future/overview/CODEBASE_SUMMARY.md` | "95 permission constants", "18 granular toggles", "24+ config" | **109 / 91 / 30** (verified by `grep`/`ls`) |
+| `future/overview/CODEBASE_SUMMARY.md` | "tests/", "agents/", "deploy/", "RFID/" listed in monorepo layout | Removed (deleted) or noted as build-cache stray |
+| `future/overview/CODEBASE_SUMMARY.md` | Last commit "17b420b 2026-04-20" | Updated to 2026-04-29 doc-reconciliation pass |
+| `future/overview/CODEBASE_SUMMARY.md` | Did not name native Java plugin | Now references `RfidPlugin.java` location |
+| `future/overview/CODEBASE_SUMMARY.md` | Did not list `lib/connectivity.ts` or `lib/rfid-bridge.ts` | Added to frontend tech stack |
+| `future/overview/CODEBASE_SUMMARY.md` | "How to find things" missing `audit-actions.ts`, `audit-templates.ts`, `alarm-columns.ts`, `sidebar-privilege-map.ts`, migrations, static-routes | All added with file counts |
+| `future/overview/CURRENT_STATUS.md` | "95/82/69" perms/privs/reauth | **109/91/81** + 26 sidebar items |
+| `future/overview/CURRENT_STATUS.md` | "24+ config defs" | **30 config defs / 26 pages** |
+| `future/overview/CURRENT_STATUS.md` | Did not mention Phase 5 work (offline overhaul, RFID SDK plugin, decision tape, Filter Data Mgmt) | Added as full sections |
+| `future/overview/CURRENT_STATUS.md` | Latest commit `17b420b` | Updated to recent commit chain through `5eb9db8` |
+| `future/overview/CURRENT_STATUS.md` | Gotchas listed PM2 | Replaced with `tsx`/local-build path; added cycle profile_id frozen |
+| `future/overview/CURRENT_STATUS.md` | Did not flag Filter Data Mgmt console as zero-audit-trail escape hatch | Added compliance note |
+| `future/overview/API_LIST.md` | "394 endpoints across 47 route files (2026-04-20)" | **~398 across 59 route files (2026-04-29)** verified by grep |
+| `future/backend/README.md` | "PM2 uses this path in production" | "PM2 / EC2 are no longer in scope (commit 251be95)" |
+| `future/backend/README.md` | Did not mention `idempotency.ts` | Added to lib table |
+| `future/backend/README.md` | rbac plugin showed only `requirePermission` | Added `requireAnyPermission` + `enforceReauth(string\|string[])` |
+| `future/backend/README.md` | auth plugin missing PUBLIC_GET_PATHS detail | Added |
+| `future/backend/README.md` | "compile for PM2" + `/home/ubuntu/...` build cheatsheet | Replaced with Windows-local commands + `package-for-production.ps1` |
+| `future/backend/ENV_SETUP.md` | "Production (EC2 / PM2)" section | Replaced with "Production-style local build" using PowerShell scripts |
+| `future/backend/ENV_SETUP.md` | "production: /docs disabled" — accurate but referenced via PUBLIC_PATHS — kept |
+| `future/frontend/README.md` | "70+ routes", "served by Nginx in prod" | **81 `<Route>`s**; "optional Nginx; packaged into APK" |
+| `future/frontend/README.md` | Tech list missing reactflow / @dnd-kit / recharts / monaco / signature_pad / qrcode.react / vite-plugin-pwa | All added |
+| `future/frontend/README.md` | Directory map missing `connectivity.ts`, `rfid-bridge.ts`, `format-by-least-count.ts`, `vite-env.d.ts` | All added |
+| `future/frontend/README.md` | `routes/checklist/`, `routes/checklists/` (pre-rename) | Updated to `checklist-form/`, `checklist-admin/` (P1.4 done) |
+| `future/frontend/README.md` | "30+ config pages" | "26 config pages" with new entries enumerated |
+| `future/frontend/README.md` | Mobile section missing `mobile-forgot-password.tsx` | Added |
+| `future/frontend/README.md` | Offline model missing idempotency-key + stale-profile banner | Added as steps 7-8 |
+| `future/frontend/KEY_FILES.md` | "70+ routes" | **81 `<Route>`s** + theme utility classes detail |
+| `future/frontend/KEY_FILES.md` | Did not document `connectivity.ts` or `rfid-bridge.ts` | Added |
+| `future/frontend/KEY_FILES.md` | api-client mapping description | Pinpointed line 58 + block-change popup dependency |
+| `future/frontend/KEY_FILES.md` | Did not mention `mobile-forgot-password.tsx` | Added |
+| `future/frontend/KEY_FILES.md` | Filter operations section missing LOC counts + bloat audit P0.2 + DRY_IN flow | Added |
+| `future/frontend/KEY_FILES.md` | `routes/checklist/` (pre-rename) | Updated to `checklist-form/` and `checklist-admin/` |
+| `future/frontend/KEY_FILES.md` | Filter Data Mgmt missing zero-audit-trail compliance footnote | Added |
+| `future/frontend/KEY_FILES.md` | Missing access-matrix + tablet-access pages | Added |
+| `future/frontend/KEY_FILES.md` | "30+ config pages" | "26 config pages" |
+| `future/qa/README.md` | EC2 prod URL (34.232.224.0), prod EMQX URL | Replaced with Windows-local URLs + `scripts/...` deployment |
+| `future/qa/README.md` | "pm2 logs digilog-api" | Replaced with stdout / NSSM service logs |
+| `future/qa/FEATURE_CHECKLIST.md` | "95 permissions" | **109 permissions** + added 91 privileges + 26 sidebar items |
+| `future/qa/FEATURE_CHECKLIST.md` | "30+ config pages" | "26 config pages" |
+| `future/qa/FEATURE_CHECKLIST.md` | "69 reauth actions" | **81 reauth actions** |
+| `future/qa/ACCEPTANCE_CRITERIA.md` | "95 permissions" | **109 permissions** |
+| `future/qa/KNOWN_ISSUES.md` | "PM2 runs compiled JS" gotcha | Replaced with `tsx watch` dev / `node dist/app.js` prod-style |
+| `future/qa/KNOWN_ISSUES.md` | `navigator.onLine` gotcha generic | Pointed at `lib/connectivity.ts` 3-signal fan-out |
+| `future/qa/KNOWN_ISSUES.md` | Did not mention cycle `profile_id` frozen | Added |
+| `future/testing/README.md` | Cited deleted `tests/manual-test-cases/` and `tests/test-execution-guides/` | Replaced with `future/testing/MANUAL_TEST_GUIDE.md` + note that Phase 1 manual cases were deleted |
+| `future/testing/README.md` | "74 .test.ts files" — correct in 2026-04-20 snapshot | Updated to current per-folder counts |
+| `future/testing/README.md` | "RFID/" folder reference | Removed (build-cache directory, not a code surface) |
+| `future/testing/README.md` | Did not flag Phase 2/3/4/5 gap | Added as known gap |
+
+Files NOT meaningfully changed (already current after prior reconciliation pass):
+- `future/testing/MANUAL_TEST_GUIDE.md` (12 golden paths still apply)
+- `future/testing/TEST_INVENTORY.md` (live test file enumeration — names match current code)
+- `future/qa/ACCEPTANCE_CRITERIA.md` body (only the perm count was stale)
+
+#### Live-code verification commands run during this pass
+- `grep -E '"(fastify|prisma|jose|ldapts|bullmq|puppeteer)"' apps/api/package.json` → versions confirmed
+- `grep -E '"(react|vite|swr|reactflow|@dnd-kit|recharts|signature_pad|vite-plugin-pwa)"' apps/web/package.json` → versions confirmed
+- `grep -E '"@capacitor"' apps/android/package.json` → 8.3.0 + Network 8.0.1 confirmed
+- `grep -cE "<Route" apps/web/src/main.tsx` → **81** (was claimed 70+)
+- `find apps/api/src/modules -name "*.ts" | xargs grep -l "app\.\(get\|post\|put\|patch\|delete\)" | wc -l` → **59 route files** (was claimed 47)
+- `grep -cE "app\.(get|post|put|patch|delete)" apps/api/src/modules/**/*.ts` → **~398** endpoint registrations
+
 ### How to roll back
 ```bash
 git diff --stat HEAD~1 HEAD             # see what changed

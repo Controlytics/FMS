@@ -1,27 +1,28 @@
 # Frontend — Quick Tour
 
 **Location:** `apps/web/`
-**Tech:** React 19 + Vite 6 + TailwindCSS 4 + SWR + React Router 7 + react-hook-form + zod.
-**Entry:** `apps/web/src/main.tsx`
-**Dev:** `cd apps/web && npm run dev` → Vite on port 5173
-**Build:** `npm run build` (tsc -b + vite build) → output to `apps/web/dist/` (served by Nginx in prod; packaged into the APK by Capacitor)
+**Tech:** React 19 + Vite 6 + TailwindCSS 4 + SWR 2 + React Router 7 + react-hook-form + zod 4. Plus `reactflow` 11, `@dnd-kit/*`, `recharts`, `@monaco-editor/react`, `signature_pad`, `qrcode.react`, `vite-plugin-pwa`.
+**Entry:** `apps/web/src/main.tsx` (**81 `<Route>` definitions**)
+**Dev:** `cd apps/web && npm run dev` → Vite on port 5173 (5175 on some configurations)
+**Build:** `npm run build` (tsc -b + vite build) → output to `apps/web/dist/` (served by optional Nginx; packaged into the APK by Capacitor 8)
 
 ## Directory map
 
 ```
 apps/web/src/
-├── main.tsx            Router, global providers (ErrorBoundary, ToastProvider, SWRConfig, BrowserRouter), 70+ routes
-├── app.css             Tailwind entry
-├── components/
-│   ├── layout/          app-layout, header, sidebar (hamburger <lg)
+├── main.tsx            Router, global providers (ErrorBoundary, ToastProvider, SWRConfig, BrowserRouter), 81 <Route> definitions
+├── app.css             Tailwind entry + theme utility classes (.text-theme-primary, .bg-theme-gradient, etc.)
+├── vite-env.d.ts       Vite ambient types
+├── components/         (7 top-level + layout/ + ui/)
+│   ├── layout/          app-layout, header, sidebar (26 items, hamburger <lg)
 │   ├── ui/              alarm-badge, badge, button, card, code-snippet, connectivity-indicator, dialog, error-popup, help-button, input, select, table, toast
 │   ├── error-boundary.tsx, route-error-boundary.tsx
 │   ├── reauth-dialog.tsx           21 CFR reauth
 │   ├── report-page-wrapper.tsx     Consistent report header/footer/pagination driven by report settings
-│   ├── require-role.tsx            Route permission + role gate
+│   ├── require-role.tsx            Route permission + role gate (SUPER_ADMIN bypass)
 │   └── toast-provider.tsx
-├── hooks/
-│   ├── use-auth.ts                  Current user + login/logout
+├── hooks/              (14 hooks)
+│   ├── use-auth.ts                  Current user + login/logout + permissions
 │   ├── use-branding.ts              Applies theme CSS variables to :root
 │   ├── use-datetime-format.ts       User-configured date formatting
 │   ├── use-entity-websocket.ts      Subscribes to /api/ws for per-entity updates
@@ -35,27 +36,32 @@ apps/web/src/
 │   ├── use-session.ts
 │   ├── use-single-tab.ts            Disables duplicate tabs for auditability
 │   └── use-toast.ts
-├── lib/
-│   ├── api-client.ts                fetch wrapper, Authorization header, maps `details` → `connectionInfo`
+├── lib/                (15 modules)
+│   ├── api-client.ts                fetch wrapper, Authorization header, maps `err.details ?? err.connectionInfo` (line 58 — required for block-change popup)
 │   ├── cn.ts                        `clsx` + `tailwind-merge`
-│   ├── offline-store.ts             IndexedDB: operations queue, cache, filters
-│   ├── offline-sync-service.ts      Batched offline sync orchestration
-│   ├── sync-engine.ts               auto-sync on reconnect, FIFO replay
+│   ├── connectivity.ts              Single source of truth for online state — Capacitor Network plugin + navigator.onLine + /api/health probe every 15s + visibilitychange
+│   ├── rfid-bridge.ts               React wrapper for native Capacitor RfidPlugin (Reader_Usb.jar SDK); subscribes to "tag" events; no-op on non-Capacitor platforms
+│   ├── offline-store.ts             IndexedDB: operations queue, TTL cache, filters
+│   ├── offline-sync-service.ts      Centralized 9-data-type login hydration
+│   ├── sync-engine.ts               auto-sync on reconnect, FIFO replay, idempotency-key-aware, JWT refresh during replay, emits 'interrupted' event
 │   ├── swr-config.ts                Default fetcher + revalidation policy
 │   ├── themes.ts                    10 preset themes
-│   ├── theme-styles.ts
-│   ├── pdf-report.ts                Client-side PDF helpers
-│   ├── password-utils.ts, filter-constants.ts, format-by-least-count.ts, url-utils.ts
-├── routes/
+│   ├── theme-styles.ts              Utility-class wrappers (bloat audit P1.1 codemod target)
+│   ├── pdf-report.ts                Client-side PDF (jspdf + jspdf-autotable)
+│   ├── format-by-least-count.ts     Instrument-reading number formatting (LC integer → 25; 0.1 → 25.0; 0.01 → 25.00)
+│   ├── password-utils.ts, filter-constants.ts, url-utils.ts
+├── routes/             (23 route folders/files)
 │   ├── auth/                        login, forgot-password, change-password, contact-admin
-│   ├── mobile/                      mobile-login, mobile-wrapper, mobile-operations
-│   ├── dashboard.tsx
+│   ├── mobile/                      mobile-login, mobile-forgot-password, mobile-wrapper (home), mobile-operations (cleaning view)
+│   ├── dashboard.tsx                Single file (not a folder)
 │   ├── profile/, users/, admin-requests/, approvals/
 │   ├── assets/, filter-management/, cleaning-cycles/, my-tasks/, pm-schedules/
-│   ├── checklist/, checklists/, rule-chains/, report-templates/, reports/
+│   ├── checklist-form/              End-user checklist submission (renamed from checklist/ in P1.4)
+│   ├── checklist-admin/             Admin CRUD for checklist templates (renamed from checklists/ in P1.4)
+│   ├── rule-chains/, report-templates/, reports/
 │   ├── alarms/, audit/, notifications/, system-health/, debug/
 │   ├── tenant/                      super-admin org management
-│   └── config/                      30+ config pages (branding, roles, field-ids, reauth, audit-templates, etc.)
+│   └── config/                      26 config pages (branding, role-access, field-ids, action-reauth, audit-templates, alarm-columns, access-matrix, ahu-filter-set-config, cleaning-profile-assignment, filter-data-management, tablet-access, etc.)
 └── types/                           Ambient typings
 ```
 
@@ -82,7 +88,9 @@ apps/web/src/
 3. When offline, mutations are validated against the cached pipeline graph and queued with an `offlinePerformedAt` timestamp.
 4. On reconnect, `sync-engine.ts` replays the queue FIFO; the backend accepts an `x-offline-replay: true` header and uses `offlinePerformedAt` for the event time.
 5. Conflicts (e.g., server state has diverged) are skipped, surfaced in the UI, and logged.
-6. `navigator.onLine` is **unreliable** on Capacitor WebViews — use the `/api/health` poll every 15 s + `visibilitychange` (already implemented in `use-offline.ts`).
+6. `navigator.onLine` is **unreliable** on Capacitor WebViews — `lib/connectivity.ts` fans out three signals: Capacitor Network plugin (OS-level on tablet) + `navigator.onLine` + `/api/health` probe every 15 s + on `visibilitychange`.
+7. Idempotency: every queued mutation carries a generated `clientOpId` UUID. The sync engine sends it both as `x-client-op-id` header and in the body. Server `lib/idempotency.ts` dedups via `FilterEvent.attributes.clientOpId` match.
+8. Stale-profile yellow banner appears when `cycle.profile_id != live block-assignment` after offline replay.
 
 Full architecture: `OFFLINE_SYNC_ARCHITECTURE.md` at repo root.
 

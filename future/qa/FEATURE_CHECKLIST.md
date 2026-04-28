@@ -26,12 +26,14 @@ Legend: ☐ to verify, ✅ verified, ❌ blocked.
 - ☐ Password reset self-requests appear in `/users/reset-requests`
 - ☐ Roles: create, edit, delete, clone-from-template; `creatable` matrix gates who can create whom
 - ☐ `/api/roles/active` is public (contact-admin page must render without auth)
-- ☐ Permission catalog has **95 permissions** (verify against `PERMISSIONS` in `@digilog/shared`)
+- ☐ Permission catalog has **109 permissions** (verify against `PERMISSIONS` in `@digilog/shared`)
+- ☐ **91 feature privileges** + `FEATURE_TO_PERMISSION_MAP` (each maps to BOTH frontend visibility perm AND backend route perm)
+- ☐ **26 sidebar items** + `SIDEBAR_PRIVILEGE_MAP` filters by current role
 - ☐ Role scope (`ORGANIZATION`, `TENANT`, etc.) respected on every listing endpoint
 
 **Where:** `/users`, `/config/roles`, `/config/access-matrix`.
 
-## 3. Config surface (30+ config pages)
+## 3. Config surface (26 config pages)
 
 - ☐ Each config page loads from `/api/config/.../current` (or `/api/config/:key`)
 - ☐ `PUT` sends only the page's own fields; unrelated fields are preserved server-side
@@ -40,7 +42,7 @@ Legend: ☐ to verify, ✅ verified, ❌ blocked.
 - ☐ Datetime (locale + format)
 - ☐ User-ID (dynamic prefix/sequence rules, `/validate` endpoint)
 - ☐ Field IDs (label + required overrides per field)
-- ☐ Action reauth (69 reauth actions; category grouping)
+- ☐ Action reauth (**81** reauth actions across 16 categories)
 - ☐ Audit templates (default + category + custom overrides)
 - ☐ Alarm columns (which columns appear in the alarm table)
 - ☐ Pagination (rows per page default)

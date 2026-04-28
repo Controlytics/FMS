@@ -42,33 +42,29 @@ If you're testing the APK against your local dev box, set `API_HTTPS=true`. The 
 
 The APK bakes in `https://192.168.1.22:3000` as its API base, so if you change your dev host address you must rebuild the APK.
 
-## Production (EC2 / PM2)
+## Production-style local build
 
-The production API runs on Ubuntu via PM2.
+DigiLog is now Windows-local-only. EC2 / PM2 / Linux are no longer in scope (removed in commit `251be95`).
 
 ```bash
-# on the EC2 instance (see CLAUDE.md for IP, SSH key path)
-cd /home/ubuntu/21cfrlogbook
-
-# pull latest
-git pull
-
-# compile TypeScript — PM2 runs the compiled JS, not tsx
+# compile TypeScript
 npx tsc -p apps/api/tsconfig.json
 
-# restart
-pm2 restart digilog-api
-pm2 logs digilog-api --lines 50
+# run the compiled JS
+node apps/api/dist/app.js
+
+# or package for transport to a target Windows machine
+powershell -ExecutionPolicy Bypass -File scripts/package-for-production.ps1
+# then on the target box (after unzipping):
+powershell -ExecutionPolicy Bypass -File scripts/install-on-target.ps1
 ```
 
-**Always** run `npx tsc` before `pm2 restart`. Forgetting it is a top-N source of confusion ("my change isn't live!").
-
-Nginx fronts the API — see `deploy/nginx-digilog.conf` for the current prod config. The app SPA is served from `apps/web/dist/`.
+The optional Nginx reverse proxy fronts the API at port 80/443; the SPA is served from `apps/web/dist/`. Without Nginx, point clients directly at `https://localhost:3000` (with `API_HTTPS=true`).
 
 ## Swagger
 
-- Local dev: `http://localhost:3000/docs` (public)
-- Production: `/docs` is disabled when `NODE_ENV=production` (see `plugins/auth.ts` `PUBLIC_PATHS`)
+- Local dev: `https://localhost:3000/docs` (public)
+- `NODE_ENV=production` disables `/docs` (see `plugins/auth.ts` `PUBLIC_PATHS`)
 
 ## Database tips
 

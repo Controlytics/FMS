@@ -16,12 +16,14 @@ Pharmaceutical plants that need to manage HVAC filters and AHUs under **21 CFR P
 
 | Target | URL | Notes |
 |---|---|---|
-| Dev (web) | `http://localhost:5173` | Needs `cd apps/web && npm run dev` |
-| Dev (API) | `http://localhost:3000` | `cd apps/api && npm run dev` |
-| Dev API docs | `http://localhost:3000/docs` | Swagger UI — dev only |
-| Prod (EC2) | `http://34.232.224.0` | See `CLAUDE.md` for SSH details |
-| Prod MQTT admin | `http://34.232.224.0:18083` | EMQX dashboard |
-| Mobile / tablet | launch **DigiLog** APK | APK bakes in `https://192.168.1.22:3000` — adjust for your dev box |
+| Dev (web) | `http://localhost:5173` (or 5175) | Needs `cd apps/web && npm run dev` |
+| Dev (API) | `https://localhost:3000` (when `API_HTTPS=true`) | `cd apps/api && npm run dev` |
+| Dev API docs | `https://localhost:3000/docs` | Swagger UI — dev only |
+| Local prod (Windows) | `http://localhost` (Nginx) or `https://localhost:3000` (direct) | Built via `scripts/package-for-production.ps1` + `install-on-target.ps1` |
+| Local MQTT admin | `http://localhost:18083` | EMQX dashboard |
+| Mobile / tablet | launch **DigiLog** APK | APK bakes in `https://192.168.1.22:3000` — rebuild if your dev box IP differs |
+
+> EC2 / cloud production is no longer in scope (removed in commit `251be95`). DigiLog runs Windows-locally only.
 
 ## Default test credentials
 
@@ -46,10 +48,11 @@ Create additional users via `/admin-requests` (recommended) or `/users/create` (
 
 ## Log access
 
-- Backend logs on EC2: `pm2 logs digilog-api --lines 200`
+- Backend logs in dev: stdout from `npm run dev` (pino pretty-printed)
+- Backend logs in prod-style local build: stdout from `node apps/api/dist/app.js` or service logs if registered via NSSM
 - Browser DevTools Console for frontend issues
 - Tablet WebView logs via `chrome://inspect/#devices` with USB debugging
-- EMQX logs via the dashboard
+- EMQX logs via the dashboard at `http://localhost:18083`
 
 ## How to file a bug (suggested template)
 
