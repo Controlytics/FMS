@@ -57,10 +57,16 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 - **Password:** `Admin@123` (forced change on first login)
 
 ## Key Local URLs
-- App: http://localhost:5175
-- API: https://localhost:3000 (HTTPS required for APK login)
+- App: http://localhost:5175 (Vite dev)
+- API: https://localhost:3000 — `API_HTTPS=true` in `apps/api/.env` (mkcert certs at `certs/server.{key,crt}` rooted by `certs/rootCA.pem`)
 - Swagger: https://localhost:3000/docs
 - EMQX dashboard: http://localhost:18083
+
+### TLS notes
+- **APK requires HTTPS** — `apps/web/.env.production` pins `VITE_API_URL=https://192.168.1.22:3000`; plain HTTP causes Capacitor TLS parse error on login. Tablet must trust `rootCA.pem` (Settings → Security → Install certificate).
+- **Browser dev** — `http://localhost:5175 → https://localhost:3000` is fine (browser allows it; no mixed-content issue for fetch).
+- **Verify TLS up** — `curl -sk -o /dev/null -w "%{http_code}" https://localhost:3000/health` should return a code (even 401 means TLS is up).
+- **Don't use HTTPS with self-signed in Capacitor *dev* mode** — WebView's `fetch()` rejects self-signed certs (Capacitor's `BridgeActivity` overrides the WebViewClient after `onCreate`). Keep dev cleartext if testing in-WebView, or install root CA on the device.
 
 ## System Stats (current — 2026-04-29)
 - **Backend:** 34 API modules, 200+ endpoints

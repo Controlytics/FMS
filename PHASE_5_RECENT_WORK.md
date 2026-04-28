@@ -8,6 +8,13 @@ This doc captures the architecture and behavior changes that landed **after** th
 
 Server-side report generation engine that resolves variable tags, renders HTML with charts, converts to PDF via Puppeteer, and serves downloadable reports.
 
+### Schema + permissions
+- **4 Prisma models**: `ReportTemplate`, `ReportTemplateVersion`, `ReportInstance`, `ReportSignature`
+- **2 enums**: `ReportTemplateStatus`, `ReportStatus`
+- **9 `REPORT_*` permissions**, **6 reauth actions**, **2 sidebar items** (`report-templates`, `reports`)
+- **Status workflow**: `DRAFT → PENDING_SIGNATURE → SIGNED / REJECTED`
+- **Storage**: PDFs at `uploads/reports/`, metadata in `ReportInstance` table
+
 ### Architecture
 Single synchronous request-response pipeline:
 
@@ -63,9 +70,10 @@ The Phase 3 offline implementation reconstructed pipeline logic client-side, lea
 - **JWT refresh during replay** — queued ops can outlive their original token; replay path acquires a fresh token before retry
 
 ### In-code overhaul (commit `0c8de53`)
-- **Stale-profile guard** — replay refuses to apply ops against a profile version that has changed; surfaces `STALE_PROFILE` error
-- **Pre-cache on login** — full master-data hydration as soon as the user is authenticated (not lazy)
-- **Server-side `stageLookup`** — resolves stage chains across multiple consecutive CHECKLIST nodes (was: client tried to walk the graph and got it wrong with chained checklists)
+- **Stale-profile guard** — replay refuses to apply ops against a profile version that has changed; surfaces a yellow banner ("This filter's cleaning profile has changed since this cycle started") when `cycle.profile_id != live block-assignment`
+- **Pre-cache on login** — full master-data hydration as soon as the user is authenticated (not lazy). Cached: cleaning-profile-assignment, active profiles, branding, field-ids, my-reauth-actions, approved block-change requests
+- **Server-side `stageLookup`** — pre-computed per-stage `{nextStages, pendingChecklistProfileIds, leadsToEnd}` on `/current-state` response, so client doesn't need to walk the graph. Was: client walked the graph and missed chained CHECKLIST nodes (e.g. `WASH_IN → CHECKLIST_A → CHECKLIST_B → WASH_OUT` only saw `CHECKLIST_A`)
+- **Filter-state cache TTL** raised 30 min → 24 h so long offline shifts don't invalidate cached cycle state
 
 ### Capacitor + APK (commit `b8e003e`)
 - **Capacitor Network plugin** — replaces unreliable `navigator.onLine` on Android WebView
@@ -99,7 +107,8 @@ The data-management console at `/data/filters/:id` exposes filter-related rows f
 
 | Tab | Mirrors | Key columns |
 |---|---|---|
-| Filter | `/filter-list/:id` | template fields, parent hierarchy |
+| Retirements | `/filter-management/retirement` | retirement reason, date, performer |
+| Replacements | `/filter-management/replacement` | replaced filter, replacement filter, date |
 | Cleaning Cycles | `/cleaning-cycles/history` | profile, stage, status, performer |
 | Filter Events | `/filter-traceability/:id` | event type, timestamp, performer, payload |
 | Alarms | `/alarms` | severity, threshold, value |
@@ -193,12 +202,63 @@ Proposal only — not implemented. Current implementation still computes a `next
 
 ## 9. Other Phase 5 work
 
-- **Forgot-password flow + show/hide password + lockout-progress UI** on tablet (`a5fc98f`)
-- **Admin requests approval execution** — approvals actually create/unlock/reset/modify users; requester Employee ID required; UUIDs hidden in audit
-- **Block-change request lifecycle** — cross-block approval popup (desktop + mobile); single-use consumption; remarks mandatory (memory `project_block_change_approval`)
-- **PM "My Tasks" v1** — CSV bulk upload, `/api/pm-schedules/due`, expandable AHU cards, filter-set modes (memory `project_pm_my_tasks`)
-- **Capacitor online detection** — poll `/api/health` every 15 s + on `visibilitychange` (memory `feedback_capacitor_online_detection`)
-- **className codemod merge rule** — when replacing inline-style with className, merge into existing className attribute (memory `feedback_codemod_className_merge`)
+### Filter CRUD + hierarchy edit/delete (session 04-18)
+- **5 new permissions**: `FILTER_CREATE`, `FILTER_EDIT`, `FILTER_DELETE`, `FILTER_HIERARCHY_EDIT`, `FILTER_HIERARCHY_DELETE`
+- **5 new reauth actions**: `CREATE_FILTER`, `EDIT_FILTER`, `DELETE_FILTER`, `EDIT_HIERARCHY_NODE`, `DELETE_HIERARCHY_NODE`
+- "Create Filter" dialog next to "Bulk Upload"; Edit / Delete icons on filter rows; hover-reveal Edit / Delete on AHU + Area nodes in the hierarchy diagram
+- **Block deletion** — Delete button on filter-list block cards (`ASSET_DELETE` + `DELETE_ASSET` reauth)
+
+### Tablet access matrix (session 04-18)
+- New SUPER_ADMIN-only config `/config/access-matrix` — per-module role allowlist; modules without an entry default to visible (back-compat)
+- New tablet feature `rfid_assign` in `/config/tablet-access` — search/select filter, view tags with Remove, scan/type new tag, Assign Tag
+- Mobile login enforces tablet-access feature list; rejects roles whose allowed list is non-empty but doesn't include `login`
+
+### Backend RBAC plumbing (session 04-18)
+- **`app.requireAnyPermission(...perms)`** decorator — accepts any of the listed perms with `_MANAGE`/`_VIEW→_READ` fallbacks
+- **`enforceReauth(action, req, reply)`** extended to accept `string | string[]` — reauth if any configured for role
+- Wired across granular toggles: equipment-groups, checklist-profiles, cleaning-profiles, PM schedules, filter ops, asset identifiers, bulk-upload
+
+### Compliance + security hardening (sessions 04-20, 04-25)
+- **Skip Block removed** for stages with `needsBlock: true` (WASH_IN, DRY_IN) — was setting `selectedBlock.id = null` and silently bypassing all block-change approval logic
+- **Notification ownership check** — `assertNotificationVisible()` on mark-read / mark-unread / delete (was: any user could mutate any notification)
+- **`enforceReauth('UPDATE_EMAIL_CONFIG' / 'UPDATE_SMS_CONFIG')`** added to notification-delivery routes
+- **Org scoping on `getEvents` / `getCycles`** when `filterId` not specified — closes cross-tenant read leak for non-admin roles
+- **Instrument readings stored with `leastCount`** so historical PDFs format numbers forever at the right precision
+
+### Config cleanup (session 04-20)
+- **4 dead config defs removed** — `offline-sync`, `rfid-scanner`, `role-privileges`, `sidebar-config`
+- `cleanupDeadConfigKeys()` migration in `config-discovery.ts` removes stale DB rows on next API start
+- Two nav cards removed from `config/index.tsx`
+- **Merged `pm-schedule-settings` + `filter-pm-schedule`** — config-discovery one-time migration copies the old `enabled` into the merged config and deletes the old row
+
+### UI / formatting polish (session 04-20)
+- **Least-count number formatting** — `apps/web/src/lib/format-by-least-count.ts`: integer LC → `25`, 0.1 → `25.0`, 0.01 → `25.00`. Applied everywhere instrument readings render
+- Login app-name gradient now uses `backgroundImage` + explicit `backgroundClip: text` (the shorthand `background` was wiping the clip)
+- Dashboard welcome + stat-cards + quick-actions now use `var(--theme-gradient-from/to)` and `var(--theme-primary)` / `var(--theme-accent)`
+- Equipment Groups save toast, Help content pre-fetch on edit, dynamic-config empty-dropdown label, AHU dashboard truncation warning at >1000 filters
+- Dashboard-cards backend validation rejects unknown card keys with 400
+
+### Folder renames (session 04-21, P1.4 from bloat audit)
+- `routes/checklist/` → `routes/checklist-form/` (end-user submission)
+- `routes/checklists/` → `routes/checklist-admin/` (admin CRUD for templates)
+- URL routes unchanged; only import paths differ
+
+### Handover artifacts (session 04-20)
+- `PROJECT_HANDOVER/APPLICATION_FLOW.md` — concise overview with 14 Mermaid diagrams
+- `PROJECT_HANDOVER/APPLICATION_FLOW.docx` — detailed Word doc
+- `PROJECT_HANDOVER/APPLICATION_FLOW_OVERVIEW.docx` — summary
+- `PROJECT_HANDOVER/convert-to-docx.mjs` regenerates docx from md (uses pandoc + `@mermaid-js/mermaid-cli`)
+
+### CWH stuck cycles fix (session 04-25)
+- 7 IN_PROGRESS cycles bound to obsolete `test` profile terminated via `scripts/reset-cwh-cycles.sql` (status=TERMINATED + asset_instances cleared)
+
+### Smaller items
+- Forgot-password flow + show/hide password + lockout-progress UI on tablet (`a5fc98f`)
+- Admin requests approval execution — approvals actually create/unlock/reset/modify users; requester Employee ID required; UUIDs hidden in audit (memory `project_admin_requests_flow`)
+- Block-change request lifecycle — cross-block approval popup (desktop + mobile); single-use consumption; remarks mandatory (memory `project_block_change_approval`)
+- PM "My Tasks" v1 — CSV bulk upload, `/api/pm-schedules/due`, expandable AHU cards, filter-set modes (memory `project_pm_my_tasks`)
+- Capacitor online detection — poll `/api/health` every 15 s + on `visibilitychange` (memory `feedback_capacitor_online_detection`)
+- className codemod merge rule — when replacing inline-style with className, merge into existing className attribute (memory `feedback_codemod_className_merge`)
 
 ---
 
@@ -221,13 +281,22 @@ These were archived (not deleted) because the work is shipped — but the docs r
 
 ## 11. Outstanding work (carried forward from bloat audit)
 
-- **P0.2 — split monster files**:
-  - `apps/web/src/routes/filter-management/filter-list.tsx` (2433 LOC)
-  - `apps/web/src/routes/rule-chains/editor.tsx` (2140 LOC)
-  - `apps/web/src/routes/filter-management/filter-operations.tsx` (1928 LOC)
-  - `apps/api/src/modules/filter-operations/filter-operations.service.ts` (1617 LOC)
-- **P2.1 — in-memory state migration to Redis** (rate-limit, cooldown, retries) — needed before horizontal scaling
-- **P2.2 — BullMQ queue/worker connection factories**
-- **P3.2 — `.playwright-mcp/` accumulation policy** (gitignore + Stop hook)
-- **Decision tape** — design + prototype if pipeline drift recurs
-- **Phase 2/3/4/5 test cases** — `tests/manual-test-cases/` only had Phase 1 cases; archived to `old/tests-superseded/`. Need fresh cases for filter operations, RFID, offline replay, reports, block-change approval.
+- **P0.2 — split monster files** (the only bloat-audit item still open). Recommended order from session 04-21:
+  1. `apps/web/src/routes/checklist-form/index.tsx` (1561 LOC) — lowest risk, mostly presentational
+  2. `apps/api/src/modules/pm-schedules/pm-schedule.service.ts` (1042) — has natural seams
+  3. `apps/api/src/modules/filter-operations/filter-operations.service.ts` (1617) — split into `state-machine.ts` + `cycle-workflow.ts`
+  4. `apps/web/src/routes/assets/templates.tsx` (1090) + `template-form-editor.tsx` (1070)
+  5. `apps/web/src/routes/debug/index.tsx` (1145)
+  6. `apps/web/src/routes/filter-management/filter-operations.tsx` (1928) — desktop mirror; must stay behaviorally identical to mobile-operations.tsx
+  7. `apps/web/src/routes/filter-management/filter-list.tsx` (2433)
+  8. `apps/web/src/routes/rule-chains/editor.tsx` (2140) — most intricate (ReactFlow + 77 node editors)
+- **P3.2 — `.playwright-mcp/` accumulation policy** (gitignore + session-end cleanup hook)
+- **Decision tape** — design + prototype if pipeline drift recurs (currently mitigated by `stageLookup`)
+- **Phase 2/3/4/5 manual test cases** — `tests/manual-test-cases/` only had Phase 1; archived to `old/tests-superseded/`. Need fresh cases for filter operations, RFID, offline replay, reports, block-change approval, PM My Tasks, admin requests.
+- **Multi-filter batch checklist dialog** — currently opens for first item only (session 04-20 known follow-up)
+- **Cleaning-profile version pinning in offline cache** — stale graph risk if admin edits mid-shift; currently surfaces as sync error rather than pre-validated (mitigation: stale-profile yellow banner)
+- **Root working-tree noise** — test PNGs, `.playwright-mcp/`, `backups/` not gitignored (session 04-20 follow-up)
+
+### N/A (no longer apply)
+- **P2.1 — in-memory state migration to Redis** — closed N/A: app is local-Windows-only single-instance after EC2 removal (commit `251be95`); no horizontal-scaling concern.
+- **P2.2 — BullMQ queue/worker connection factories** — done in session 04-21 (`getWorkerConnection()` per-call, `getQueueConnection()` singleton).

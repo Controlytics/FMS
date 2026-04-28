@@ -196,6 +196,47 @@ Cross-checked each archive bucket:
 
 Conclusion: every archived file was correctly classified. The only loss-of-knowledge risk was the design specs, which is now mitigated via index pointers.
 
+### Memory cross-check audit (2026-04-29)
+
+User asked me to refer to memory and cross-verify the Phase 5 capture. Read all 11 session memories (04-13 → 04-25) plus 6 project memories. Found and corrected:
+
+#### Errors fixed
+- **HTTPS dev story** — `CLAUDE.md` previously said "HTTPS required for APK login" without explaining the dev setup. Per `reference_apk_tls_setup.md`: `API_HTTPS=true` in `apps/api/.env`, mkcert certs at `certs/server.{key,crt}`, browser dev (`localhost:5175 → https://localhost:3000`) works fine, APK *requires* HTTPS, but Capacitor in-WebView fetch rejects self-signed (per `feedback_no_https_dev.md`). Added a TLS-notes block.
+- **Filter Data Mgmt console — 9 vs 10 tabs** — added missing **Retirements** + **Replacements** tabs (memory `project_session_2026_04_25` lists all 10).
+- **Outstanding "P2.1 — in-memory state to Redis"** — incorrectly listed as outstanding. Per `project_session_2026_04_21`: closed N/A since EC2/horizontal-scaling removed (commit `251be95`). Moved to "N/A" subsection.
+- **Outstanding "P2.2 — BullMQ connection factories"** — already done in session 04-21 (`getWorkerConnection()` + `getQueueConnection()` exist now). Moved to "N/A".
+- **Stale-profile guard description** — added the user-visible yellow banner detail (per session 04-25), not just the replay refusal.
+- **`stageLookup` description** — added the actual server contract (`{nextStages, pendingChecklistProfileIds, leadsToEnd}` per stage) and the bug it fixes (`WASH_IN → CHECKLIST_A → CHECKLIST_B → WASH_OUT` only saw `CHECKLIST_A`).
+- **Filter-state cache TTL** — added the 30 min → 24 h raise (session 04-20).
+
+#### Gaps closed (added to Phase 5 doc § 9)
+- **Filter CRUD + hierarchy edit/delete** — 5 new permissions, 5 new reauth actions, Edit/Delete UI on filter rows + AHU/Area hierarchy nodes (session 04-18)
+- **Block deletion** on filter-list cards (session 04-16)
+- **Tablet access matrix** — `/config/access-matrix` SUPER_ADMIN-only + `/config/tablet-access` `rfid_assign` feature + login enforcement (session 04-18)
+- **`requireAnyPermission` decorator + `enforceReauth(string|string[])`** — backend RBAC plumbing (session 04-18)
+- **Skip Block removal** for `needsBlock: true` stages — was bypassing block-change approval (session 04-20)
+- **Notification ownership check** `assertNotificationVisible()` (session 04-20)
+- **`enforceReauth` on `UPDATE_EMAIL_CONFIG` / `UPDATE_SMS_CONFIG`** (session 04-20)
+- **Org scoping on `getEvents` / `getCycles`** when `filterId` not specified (session 04-20)
+- **Instrument readings with `leastCount`** stored for forever-correct PDF formatting (session 04-20)
+- **4 dead config defs removed** — `offline-sync`, `rfid-scanner`, `role-privileges`, `sidebar-config` + `cleanupDeadConfigKeys()` migration (session 04-20)
+- **Merged `pm-schedule-settings` + `filter-pm-schedule`** (session 04-18)
+- **Least-count number formatting** — `lib/format-by-least-count.ts` (session 04-20)
+- **Folder renames** `routes/checklist/` → `checklist-form/`, `routes/checklists/` → `checklist-admin/` (session 04-21, P1.4)
+- **PROJECT_HANDOVER artifacts** — `APPLICATION_FLOW.{md,docx}` + 14 Mermaid diagrams + `convert-to-docx.mjs` (session 04-20)
+- **CWH stuck-cycle SQL fix** — `scripts/reset-cwh-cycles.sql` terminated 7 cycles bound to obsolete `test` profile (session 04-25)
+- **4 Prisma report models** + **9 REPORT_* permissions** + **6 reauth actions** + **2 sidebar items** + **status workflow** (session 04-15)
+
+#### Live-code verification (not just memory)
+- `apps/api/.env` confirms `API_HTTPS=true` ✅
+- `apps/web/src/routes/checklist-form/index.tsx` + `routes/checklist-admin/{list,detail}.tsx` exist (post-rename) ✅
+- 12 files in `apps/api/src/modules/reports/` — exact match with memory `project_reports_module` ✅
+- `apps/web/src/routes/{my-tasks,reports,report-templates,approvals}/` all exist ✅
+- `mobile-operations.tsx` still exists (memory 04-15 was wrong about deletion; was re-added or never removed)
+
+#### Knowledge state after corrections
+The active root docs (`PROJECT_SUMMARY.md`, `PROJECT_ARCHITECTURE.md`, `API_REFERENCE.md`, `BACKEND_GUIDE.md`, `FRONTEND_GUIDE.md`, `OFFLINE_SYNC_ARCHITECTURE.md`, `PHASE_5_RECENT_WORK.md`, `CHANGELOG.md`, `README.md`, `CLAUDE.md`) now match memory + live code. No further drift detected on this scan.
+
 ### How to roll back
 ```bash
 git diff --stat HEAD~1 HEAD             # see what changed
