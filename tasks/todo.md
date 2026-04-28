@@ -352,6 +352,79 @@ User pushed back further: "you missed 20 more changes find them". Walked every c
 
 All captured in: `BACKEND_GUIDE.md` (lib + plugins + static-routes), `PROJECT_ARCHITECTURE.md` (repo-level infrastructure section + Android plugin location), `PHASE_5_RECENT_WORK.md` § 9 (idempotency, requireAnyPermission, audit templates, deployment artifacts, static-routes split table), `packages/shared/CLAUDE.md` (full type inventory + version-corrected stats).
 
+### Fifth and final pass — code-audit + documentation-expert mode
+
+User again: "recheck if you still missed anything, be a sincere code auditor and documentation expert". Walked the entire tree exhaustively. Found 17 more concrete items + 7 working-tree noise issues.
+
+#### Backend module internals never broken down (4 modules)
+
+**Data Ingestion** (`apps/api/src/modules/data-ingestion/`, 11 files):
+- `routes.ts`, `debug-trace.routes.ts` (separate `/api/debug/traces` surface), `ingestion.service.ts`, `ingestion.repository.ts`, `ingestion-config.service.ts`, `entity-resolver.ts`, `message-normalizer.ts`, `pipeline-tracer.ts`, `connectivity-tracker.ts`, `dlq-manager.ts`, `rpc-handler.ts`
+- Now fully tabled in BACKEND_GUIDE with each file's role.
+
+**Rule Chain Engine** (`apps/api/src/modules/rule-chain/`):
+- `rule-engine.ts` (VM-sandboxed `node:vm` execution), `node-registry.ts` (77 nodes), `default-chain-builder.ts`, `debug-recorder.ts`, `types.ts`
+- `nodes/` directory: 8 category files + 2 specialized notification nodes (email, sms) + index.ts
+- Now tabled in BACKEND_GUIDE.
+
+**Queries** (`apps/api/src/modules/queries/`):
+- 4-file split: `telemetry.routes.ts`, `alarm.routes.ts`, `export.routes.ts`, `retention.routes.ts` + `index.ts`
+- Now tabled in BACKEND_GUIDE.
+
+**Assets** (`apps/api/src/modules/assets/`):
+- Largest module — 4 sub-folders (`routes/`, `services/`, `repositories/`, `helpers/`)
+- 4 routes files + 5 services + 4 repositories
+- `bulk-upload-filter.service.ts` does dynamic CSV from template `attributeSchema`
+- Now structured in BACKEND_GUIDE.
+
+#### Other code surfaces (4)
+- **`apps/api/src/types/context.ts`** — `RequestContext` shape (consumed by `org-scope`, `build-context`, every service) — added to BACKEND_GUIDE.
+- **`apps/api/src/e2e/`** — 15 automated test suites + `test-helper.ts`. Phase 1 only; Phase 2/3/4/5 e2e gap re-confirmed. Added to BACKEND_GUIDE.
+- **`packages/shared/src/schemas/`** — 8 Zod schemas enumerated (auth, users, assets, templates, hierarchy, audit, config, action-reauth). Added to packages/shared/CLAUDE.md. Plus stray `config.ts.patch` flagged.
+- **`apps/web/src/main.tsx`** — main entry with lazy routes + error boundaries (already in FRONTEND_GUIDE briefly but not as a deep file).
+
+#### Build / test infrastructure (4)
+- **`turbo.json`** — Turborepo task graph
+- **`vitest.workspace.ts`** — Vitest workspace config
+- **`test-engine.mjs`** at repo root — standalone rule-chain VM-sandbox tester
+- **Root `package.json`** — workspace root post-bloat-audit cleanup
+
+All added to PROJECT_ARCHITECTURE.md "Build / test infrastructure" section.
+
+#### `rfid_scan_app/` internals (4)
+- `app/` Kotlin sources + AndroidManifest + layouts
+- `build.gradle.kts`, `gradle.properties`, `settings.gradle.kts`, `gradlew[.bat]` — wrapper
+- **`rfid-key.jks`** — Android signing keystore (SENSITIVE)
+- `RFID_Scanner_User_Manual.html` — end-user docs
+
+Now tabled in PROJECT_ARCHITECTURE.
+
+#### Working-tree noise / cleanup flagged (7)
+- **`RFID/` directory at repo root** — stray Gradle build cache for an older standalone Kotlin project, separate from `rfid_scan_app/`. ~1.2 MB of gradle artifacts. Should `.gitignore` or delete.
+- **`rootCA.pem` at repo root** — duplicate of `certs/rootCA.pem`.
+- **`apps/android/apps/web/public/sw.js`** — stray service worker file from a misplaced relative-path build.
+- **`rfid_scan_app/rfid-key.jks`** — signing keystore committed; security risk; rotate + gitignore `*.jks`.
+- **`rfid_scan_app/local.properties`** — per-machine SDK paths.
+- **`packages/shared/src/schemas/config.ts.patch`** — stray patch file in source tree.
+- **`.playwright-mcp/*.yml`** when present — Playwright MCP traces (bloat audit P3.2 still open).
+
+All added to a new "Working-tree noise (cleanup candidates)" subsection in PROJECT_ARCHITECTURE — these are flagged for the user to decide on, not auto-deleted (per the "destructive actions need approval" rule).
+
+#### Phase 5 + earlier knowledge confirmed in active docs
+After this fifth pass, the active root docs (`CLAUDE.md`, `README.md`, `PROJECT_SUMMARY.md`, `PROJECT_ARCHITECTURE.md`, `API_REFERENCE.md`, `BACKEND_GUIDE.md`, `FRONTEND_GUIDE.md`, `OFFLINE_SYNC_ARCHITECTURE.md`, `PHASE_5_RECENT_WORK.md`, `CHANGELOG.md`, `apps/{api,web}/CLAUDE.md`, `packages/shared/CLAUDE.md`, `docs/index.md`) cover:
+
+- Every backend module + its internal file structure for the 4 most complex (`data-ingestion`, `rule-chain`, `queries`, `assets`)
+- Every backend lib helper, plugin, transport file, worker
+- Every frontend route folder, hook, lib helper, component
+- Every package source file (db, queue, shared types + schemas)
+- Every config def + corresponding page (30 + 26)
+- Native Android plugin code location + standalone Kotlin app contents
+- All deployment scripts + cert infrastructure + TimescaleDB bootstrap
+- Every Phase 5 feature with implementation file paths + design rationale
+- Working-tree noise items flagged for cleanup
+
+Memory + CHANGELOG + git log + live filesystem all reconciled. Numerical stats cross-verified by `grep`/`ls`. Outstanding items (monster-file split, multi-batch checklist, Phase 2-5 e2e tests, stale-profile pre-validation) are listed as outstanding work, not silent gaps.
+
 ### How to roll back
 ```bash
 git diff --stat HEAD~1 HEAD             # see what changed

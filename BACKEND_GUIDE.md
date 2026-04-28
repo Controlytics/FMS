@@ -174,6 +174,105 @@ The main application file registers everything in this order:
 | Ingestion | `workers/ingestion.worker.ts` | 10 | Continuous (BullMQ consumer) |
 | Maintenance | `workers/maintenance.worker.ts` | 1 | DLQ: 60s, Connectivity: 60s, Retention: 24h |
 
+## Data Ingestion Pipeline (`apps/api/src/modules/data-ingestion/`, 11 files)
+
+The single biggest pipeline in the system — accepts MQTT + HTTP telemetry / attributes / events / RPC / binary uploads, routes through 11 stages, persists to TimescaleDB, and triggers alarms / notifications.
+
+| File | Role |
+|---|---|
+| `routes.ts` | HTTP endpoints (`/api/data/telemetry`, `/attributes`, `/events`, `/rpc`, `/binary`) |
+| `debug-trace.routes.ts` | Separate routes file — `/api/debug/traces` for pipeline trace inspection (rule-chain debug page) |
+| `ingestion.service.ts` | Orchestrator — receives normalized message, dispatches through pipeline |
+| `ingestion.repository.ts` | DB writes — telemetry batcher, attribute upsert, event log |
+| `ingestion-config.service.ts` | Per-org ingestion limits, IP allowlists, rate-limit config |
+| `entity-resolver.ts` | Device-token → `AssetInstance` resolution (cached) |
+| `message-normalizer.ts` | Normalize MQTT / HTTP / binary payloads into common message shape |
+| `pipeline-tracer.ts` | Records every pipeline stage outcome to `ts_pipeline_traces` for the debug UI |
+| `connectivity-tracker.ts` | Tracks device online/offline state → `ConnectivityStatus` table |
+| `dlq-manager.ts` | Dead Letter Queue — failed messages, requeue / discard, audit |
+| `rpc-handler.ts` | Bidirectional MQTT RPC for device commands |
+
+## Rule Chain Engine (`apps/api/src/modules/rule-chain/`)
+
+| File / Dir | Role |
+|---|---|
+| `routes.ts` | Rule chain CRUD + execution + debug endpoints |
+| `rule-engine.ts` | VM-sandboxed execution (`node:vm` with timeout); each chain compiles to an in-memory graph |
+| `node-registry.ts` | Registry of all 77 node types across 8 categories |
+| `nodes/` | Per-category implementations: `input-nodes.ts`, `filter-nodes.ts`, `enrichment-nodes.ts`, `action-nodes.ts`, `analytics-nodes.ts`, `flow-nodes.ts`, `external-nodes.ts`, `email-notification-node.ts`, `sms-notification-node.ts` (+ `index.ts` barrel) |
+| `default-chain-builder.ts` | Factory for the default rule chain seeded on org creation |
+| `debug-recorder.ts` | Captures step-by-step execution traces for the debug UI |
+| `types.ts` | Rule-chain TypeScript types |
+
+## Queries module (`apps/api/src/modules/queries/`, 4 route files)
+
+Aggregates four query surfaces under one module folder:
+| File | Surface |
+|---|---|
+| `telemetry.routes.ts` | `/api/telemetry/*` — latest, history, aggregation, delta |
+| `alarm.routes.ts` | `/api/alarms/*` — alarm lifecycle with e-signatures |
+| `export.routes.ts` | `/api/export/*` — CSV/JSON/Excel export with BullMQ background jobs |
+| `retention.routes.ts` | `/api/retention/*` — per-table retention policy management |
+| `index.ts` | Registration barrel |
+
+## Assets module (`apps/api/src/modules/assets/`)
+
+The largest single module — split into per-domain layers:
+
+```
+assets/
+├── routes/              4 route files (identifier, instance, relationship, template)
+├── services/            5 services (identifier, instance, relationship, template, bulk-upload-filter)
+├── repositories/        4 Prisma access layers (identifier, instance, relationship, template)
+├── helpers/             Shared helpers
+└── index.ts             Registration barrel
+```
+
+`bulk-upload-filter.service.ts` handles the dynamic CSV bulk upload that reads the Filter template's `attributeSchema` to decide columns + validation.
+
+## Shared `RequestContext` type (`apps/api/src/types/context.ts`)
+
+Single source of truth for "who is making this request":
+
+```typescript
+interface RequestContext {
+  userId: string;
+  username: string;
+  fullName: string;
+  role: string;
+  organizationId: string;
+  scope: string;
+  permissions: string[];
+}
+```
+
+Built by `lib/build-context.ts`, consumed by `lib/org-scope.ts` (`orgWhere(ctx)`) and every service method that performs org-scoped queries.
+
+## E2E Tests (`apps/api/src/e2e/`)
+
+Automated end-to-end test suites (`*.test.ts`) — Vitest-driven, hits a live test database. Run via `npx vitest run e2e`:
+
+| Suite | Coverage |
+|---|---|
+| `auth.test.ts` | Login, logout, session, JWT refresh |
+| `users.test.ts` | User CRUD, enable/disable/unlock |
+| `roles.test.ts` | Role CRUD, permission assignment |
+| `entities.test.ts` | Asset templates + instances + relationships |
+| `audit.test.ts` | Audit trail hash-chain integrity |
+| `checklist-submission.test.ts` | Checklist field validation, sig flow |
+| `checklist-templates.test.ts` | Checklist profile + question CRUD |
+| `config.test.ts` | Config defs, registry, partial update |
+| `connectivity.test.ts` | Device tokens + status |
+| `health.test.ts` | `/api/health` endpoint |
+| `help-articles.test.ts` | Help CRUD + versioning |
+| `notifications.test.ts` | In-app notification flow |
+| `qr-codes.test.ts` | QR generation + lookup |
+| `rule-chains.test.ts` | Rule chain CRUD + execution |
+| `system-health.test.ts` | System metrics |
+| `test-helper.ts` | Shared bootstrapper (sets up + tears down test DB) |
+
+**Note:** Phase 2/3/4/5 features (filter operations, RFID, offline replay, reports, block-change, PM My Tasks) do NOT yet have e2e tests. The archived `tests/manual-test-cases/` only covered Phase 1 — those remain a gap (logged in `PHASE_5_RECENT_WORK.md` § 11).
+
 ## Database Schema (64 models, 22 enums)
 
 ### Core Models

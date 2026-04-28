@@ -68,7 +68,22 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 | `audit-templates.ts` | Templates that hide UUIDs in audit UI (e.g. `"<RequestType> — <Name> (<EmployeeID>)"`) |
 | `alarm-columns.ts` | Alarm column metadata for `/config/alarm-columns` |
 
-Plus `schemas/` (Zod validation), `index.ts` (barrel).
+Plus `index.ts` (barrel).
+
+`packages/shared/src/schemas/` contains **8 Zod validation schemas** (+ `.test.ts` siblings):
+
+| File | Purpose |
+|---|---|
+| `auth.ts` | Login, logout, change-password, force-login |
+| `users.ts` | Create / update / role-assignment user payloads |
+| `assets.ts` | Asset template + instance + relationship + identifier payloads |
+| `templates.ts` | Asset template body schema (`attributeSchema`, alarm rules) |
+| `hierarchy.ts` | Block / Area / AHU hierarchy create payloads |
+| `audit.ts` | Audit query schema |
+| `config.ts` | All config-page payload schemas (password-policy, branding, datetime, etc.) |
+| `action-reauth.ts` | Reauth-action request schema |
+
+> Stray file: `config.ts.patch` exists in this folder — clean up.
 
 ## Notes
 - Prisma schema (extended over Phases 2–5) has **64 models, 22 enums** in `apps/api/prisma/schema.prisma`

@@ -104,6 +104,15 @@
         └── priorities.ts          Job priority levels (1-8)
 ```
 
+## Build / test infrastructure
+
+| File | Purpose |
+|---|---|
+| `turbo.json` | Turborepo task graph — build/test pipelines for all workspaces |
+| `vitest.workspace.ts` | Vitest workspace config — discovers tests across `apps/*` and `packages/*` |
+| `test-engine.mjs` (root) | Standalone rule-chain VM-sandbox tester (`node:vm` runner) — used to debug a single chain in isolation |
+| `package.json` (root) | Workspace root, holds turbo + dev tools (NOT app deps — those live in workspaces; bloat audit P3.1 cleanup done) |
+
 ## Repo-level Infrastructure
 
 ```
@@ -123,11 +132,30 @@
 │   └── reset-cwh-cycles.sql        Emergency SQL to terminate IN_PROGRESS cycles bound to obsolete profile (used 04-25 for 7 stuck CWH cycles)
 │
 ├── rfid_scan_app/                 (Standalone Kotlin app — predates RFID SDK plugin in DigiLog APK)
+│   ├── app/                        Kotlin sources, AndroidManifest, layout XMLs
+│   ├── build.gradle.kts            Root Gradle config
+│   ├── gradle.properties / settings.gradle.kts / gradlew[.bat]  Gradle wrapper
+│   ├── rfid-key.jks                **SENSITIVE** signing keystore (should not be committed — see Working-tree noise)
+│   └── RFID_Scanner_User_Manual.html  End-user manual for the standalone scanner
 ├── start-digilog.bat / stop-digilog.bat  Local Windows service launchers
 ├── docker-compose.yml             (Optional Docker dev stack — see docs/deployment-methods/method-b)
 ├── init-tsdb.sql                  (Convenience init for digilog_tsdb)
 └── DigiLog-FilterOps.apk          Built APK at repo root after gradlew assembleDebug
 ```
+
+## Working-tree noise (cleanup candidates)
+
+Items present in the working tree that are NOT canonical — these should be `.gitignored` or removed:
+
+| Path | Status | Action |
+|---|---|---|
+| `RFID/` (top-level dir) | Stray Gradle build cache for an older standalone Kotlin project, separate from `rfid_scan_app/` | Add `RFID/` to `.gitignore` or delete |
+| `rootCA.pem` (top-level file) | Duplicate of `certs/rootCA.pem` | Use only the `certs/` copy |
+| `apps/android/apps/web/public/sw.js` | Stray nested service-worker file (misplaced relative path during a build) | Compare with `apps/web/public/sw.js`; remove the nested duplicate |
+| `rfid_scan_app/rfid-key.jks` | Android signing keystore — **sensitive, should NOT be committed** | Move to operator-only secrets store; add `*.jks` to `.gitignore`; rotate key if already pushed |
+| `rfid_scan_app/local.properties` | Per-machine SDK paths | Already gitignored normally; verify |
+| `packages/shared/src/schemas/config.ts.patch` | Stray patch file in source tree | Apply or delete |
+| `.playwright-mcp/*.yml` (when present) | Per-session Playwright MCP traces | Add `.playwright-mcp/` to `.gitignore` (bloat audit P3.2 still open) |
 
 ## Backend Architecture (apps/api/)
 
