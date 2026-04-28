@@ -1,0 +1,50 @@
+# Known Issues & Gotchas
+
+These are real-world constraints verified from code + project memory, not speculation. Don't file bugs for these unless the underlying cause has changed.
+
+## Environment / infrastructure
+
+- **PM2 runs compiled JS.** Forgetting `npx tsc -p apps/api/tsconfig.json` before `pm2 restart digilog-api` means your change does not go live. Always compile first.
+- **TimescaleDB database is `digilog_tsdb`, not `digilog_db`.** Connecting TSDB_* env vars to `digilog_db` fails silently on some queries and spectacularly on others.
+- **Redis must be ≥5.** BullMQ requires it. Old Redis 3 on Windows crashes the API at boot. Memurai ≥5 is the supported Windows substitute.
+- **Fastify strips response fields not declared in the schema.** If a property "disappears" over the wire, the schema is the likely suspect, not the handler.
+- **Role permissions go stale after a DB restore.** `roles` table is rewritten — either reseed from `seed.ts` or `UPDATE` directly. Symptom: users suddenly lose access after a restore test.
+- **Local HTTPS requires `certs/server.key` + `certs/server.crt`.** `API_HTTPS=true` without the cert files crashes startup.
+
+## Frontend + APK
+
+- **`navigator.onLine` is unreliable on Android WebViews.** We poll `/api/health` every 15 s + listen for `visibilitychange`. Do not rely on the browser event alone.
+- **Capacitor WebView ignores `network_security_config` for `fetch()`.** Trying to `fetch()` a self-signed HTTPS API fails. Either use `CapacitorHttp` (already configured) or install a properly-trusted cert (mkcert) system-wide on the tablet.
+- **The APK bakes in `https://192.168.1.22:3000`.** If you change the dev host IP or run the API on a different host, you must rebuild the APK (`apps/android` → `cap sync` → `gradlew assembleDebug`).
+- **No frontend unit tests.** Any React change rides on manual QA + Playwright traces. Be deliberate.
+
+## Offline model
+
+- **Offline cycles replay FIFO, skip conflicts.** If the server state has diverged (e.g., another operator already advanced the cycle), the replay is skipped and the UI surfaces it. Don't assume every queued op lands.
+- **Cached auth enables tablet reload without re-login.** Rotating the JWT secret invalidates cached auth — users see a login screen on the next action.
+- **Pipeline graph is cached, but only the active one.** If you swap cleaning profiles while the tablet is offline, the old pipeline is still in effect until the tablet re-syncs.
+
+## Permissions + config
+
+- **Config tabs are independent.** Don't expect changes on one tab to "auto-sync" to another. Sidebar, permissions, reauth — all separate. User feedback rule is explicit about this.
+- **SUPER_ADMIN bypasses frontend permission checks** (`isSuperAdmin || perms.includes`). Don't rely on a permission missing from a super-admin to hide UI — use roles for that.
+- **Feature toggle needs 12 touchpoints.** Missing any of them leads to a UI-vs-API mismatch that's expensive to track down. Check `future/frontend/PATTERNS.md` section 10.
+- **"Compile clean" doesn't mean "works".** Always curl endpoints after backend changes (user rule).
+
+## 21 CFR / audit
+
+- **UUIDs are hidden in the audit trail.** If a QA reviewer complains about not seeing IDs, that's intentional for anti-tamper reasons.
+- **Mandatory remarks on every approval/decision UI** except filter cleaning stages (documented exception).
+
+## Historical / not currently active
+
+- **Phase 1 IoT platform features** (UNS, rule chains, alarms) are still present but not the Phase-3/4 focus. Regressions there are still P1 because pharma deployments depend on them.
+- **LDAP integration** is present but not widely tested in production environments — flag any issue here as P1 and attach the LDAP config (sanitised).
+
+## Open, unresolved decisions
+
+Flagged here so QA knows these are not bugs, just pending product decisions:
+
+- Windows deployment path (A–H including IIS) — not chosen yet.
+- RFID UKB vs SDK mode as the default shipping configuration.
+- `RFID` branch → `main` merge strategy.

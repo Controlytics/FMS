@@ -173,8 +173,14 @@ See `LOCAL_SETUP_WINDOWS.md` for the full step-by-step setup, and `DEPLOY-WINDOW
 | `OFFLINE_SYNC_ARCHITECTURE.md` | Tablet APK + offline IndexedDB queue + sync engine |
 | `PHASE_5_RECENT_WORK.md` | Post-Phase-4 architecture changes (Apr 15–29) — reports, offline hardening, RFID SDK, decision tape |
 | `CHANGELOG.md` | Full chronological history |
+| `future/README.md` | Onboarding pack — overview + reading order |
+| `future/overview/CODEBASE_SUMMARY.md` | Most-comprehensive single-file tech stack with version pins (React 19 / Vite 6 / Fastify 5 / Prisma 6 / Capacitor 8 / `jose` / `ldapts`), feature areas verified by directory inspection, "How to find things" cookbook |
+| `future/overview/CURRENT_STATUS.md` | Snapshot @ 2026-04-20 + **KNOWN GOTCHAS** taxonomy (Capacitor WebView fetch, Redis ≥5, `digilog_tsdb`, Fastify schema stripping, roles after DB restore, PM2 compiled JS) |
+| `future/overview/API_LIST.md` | Compact 394-endpoint index with `*` public markers |
 | `future/backend/{README,MODULES,API_ENDPOINTS,ENV_SETUP}.md` | Backend onboarding — directory map, request lifecycle + PUBLIC_PATHS taxonomy, per-module verified endpoint counts, full canonical endpoint table, env-setup walkthrough |
 | `future/frontend/{README,KEY_FILES,PATTERNS}.md` | Frontend onboarding — directory map, annotated file index ("why it matters"), conventions for routes / SWR / forms / offline-safe mutations / dynamic attribute forms |
+| `future/qa/{README,FEATURE_CHECKLIST,ACCEPTANCE_CRITERIA,KNOWN_ISSUES}.md` | QA pack — user personas (Engineer / Supervisor / QA / Admin / Super-admin), per-feature verification steps, "done-when" bullets, gotchas grouped by env / frontend / offline / permissions |
+| `future/testing/{README,MANUAL_TEST_GUIDE,TEST_INVENTORY}.md` | 4 test surfaces breakdown, 12 golden-path scripts, every `*.test.ts` enumerated by surface |
 | `CLAUDE.md` | Instructions for AI coding assistants |
 | `AGENTS.md` | Agent-mode instructions |
 | `DEPLOY-WINDOWS.md` | Windows deployment options |

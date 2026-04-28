@@ -572,6 +572,89 @@ Updated `README.md` doc map to point at the restored files.
 
 When deleting "old" or "future" folders, read each file's actual content for unique knowledge before deleting — labels like `future/` don't mean obsolete; they may mean "onboarding pack created during reorg with detail not yet absorbed elsewhere".
 
+### Second restore — all of future/ (2026-04-29)
+
+User: "recheck each file that was present in future folder thoroughly and if it's not useful or that knowledge is thoroughly present any here only then delete".
+
+Re-read each remaining file in `future/` carefully. Every single one has unique knowledge that is NOT duplicated in the current root docs.
+
+#### Restored (now keeping all of `future/`)
+
+**`future/README.md`** — onboarding pack overview + reading order. Useful as the entry point.
+
+**`future/overview/CODEBASE_SUMMARY.md`** — the most-comprehensive single-file overview. Has:
+- Tech stack with **version pins** (React 19, Vite 6, Fastify 5, Prisma 6, Capacitor 8, `jose` for JWT, `ldapts` for LDAP, `chartjs-node-canvas`, etc.) — root docs don't pin versions
+- Feature areas verified by directory inspection at the abstraction level above what BACKEND_GUIDE provides
+- "How to find things" cookbook — where's a permission, sidebar item, audit-action, DB schema. NOT in any other doc.
+
+**`future/overview/CURRENT_STATUS.md`** — snapshot @ 2026-04-20 with the **KNOWN GOTCHAS** section (load-bearing for new contributors):
+- PM2 compiled JS gotcha
+- TimescaleDB is `digilog_tsdb` not `digilog_db`
+- Redis ≥5 (BullMQ requirement)
+- Fastify schema stripping
+- Role permissions go stale after DB restore
+- `API_HTTPS=true` requires `certs/server.{key,crt}`
+- `navigator.onLine` unreliable on Capacitor WebView
+- Capacitor WebView ignores `network_security_config` for fetch
+- APK bakes in API URL at build time
+- Cycle FIFO replay skips conflicts
+- Cached auth survives reload
+- Cached pipeline graph stale on profile swap
+- Config tabs are independent (no auto-sync)
+- SUPER_ADMIN bypasses frontend permission checks
+
+**`future/overview/API_LIST.md`** — compact 394-endpoint index across 47 route files (verified via grep 2026-04-20), with `*` markers on public endpoints. Complements BACKEND_GUIDE but at compact-catalog level.
+
+**`future/qa/README.md`** — user personas (Engineer/Operator, Supervisor, QA, Admin, Super-admin) with role-specific test orientation. NOT in any other doc.
+
+**`future/qa/FEATURE_CHECKLIST.md`** — QA-friendly enumeration with verification steps. Unique format (☐ to verify, ✅ verified, ❌ blocked).
+
+**`future/qa/ACCEPTANCE_CRITERIA.md`** — per-feature "done-when" bullets. Unique format.
+
+**`future/qa/KNOWN_ISSUES.md`** — gotchas categorized by Environment / Frontend+APK / Offline / Permissions. Unique organization.
+
+**`future/testing/README.md`** — 4 distinct test surfaces breakdown:
+- Backend unit (`apps/api/src/lib/*.test.ts` + `modules/**/__tests__/*.test.ts`) — 74 .test.ts files
+- Backend e2e (`apps/api/src/e2e/*.test.ts`) — 15 suites
+- Shared schemas (`packages/shared/src/**/*.test.ts`)
+- Shell e2e scripts (`tests/e2e-scripts/*.sh`)
+With per-surface run commands. NOT in any other doc.
+
+**`future/testing/MANUAL_TEST_GUIDE.md`** — 12 golden-path scripts. The closest thing we have to live Phase 2-5 manual tests.
+
+**`future/testing/TEST_INVENTORY.md`** — every automated test file enumerated by surface (15 e2e + 9 lib unit + others). Unique enumeration.
+
+#### Lesson hardened
+
+When the user asks to "delete unnecessary documentation":
+1. Read every file's actual content
+2. Compare line-by-line against current root docs for unique knowledge
+3. Only delete if the knowledge is *thoroughly* duplicated, not just "covered at a higher level"
+4. When in doubt, restore — git is cheap, lost knowledge isn't
+
+I deleted future/overview/qa/testing on the first pass, then partially restored only future/{backend,frontend} after the first pushback. The user had to push back twice. Both pushbacks were correct. **Default to restore-then-delete-only-if-confirmed-redundant.**
+
+#### Final state of documentation
+
+- 14 active root docs
+- `apps/{api,web}/{CLAUDE,DECISIONS}.md` + `packages/shared/CLAUDE.md`
+- `docs/` active subtree (index, getting-started, compliance, deployment-methods, administration, user-guide)
+- **`future/` complete** — README + overview/(3) + backend/(4) + frontend/(3) + qa/(4) + testing/(3) = 18 files, all kept
+- `old/docs-superseded/superpowers-{plans,specs}/` (referenced design rationale)
+- `old/docs-superseded/{ARCHITECTURE,bloat,offline-sync-design}.md` (historical reference)
+- `old/{apks,db-backups,playwright-artifacts,reports-specs,screenshots}/` (binary artifacts)
+- `.github/ISSUE_TEMPLATE/bug_report.md`
+- `tasks/todo.md`
+
+Stayed deleted (still confirmed unnecessary):
+- `agents/` (13 files) — redundant with current plugin agents
+- `old/docs-superseded/api-reference-old/` (16) — replaced by `API_REFERENCE.md`
+- `old/docs-superseded/phases/` (13) — pre-DigiLog history in `CHANGELOG.md`
+- `old/legacy-documentation/` — pre-DigiLog text docs not referenced
+- `old/tasks/` — old code reviews; findings rolled into `bloat.md`
+- `old/tests-superseded/` (51) — Phase 1 tests superseded by `apps/api/src/e2e/`
+- `apps/web/generate-apk.md` — duplicated in `apps/web/CLAUDE.md` + `DEPLOY-WINDOWS.md`
+
 ### How to roll back
 ```bash
 git diff --stat HEAD~1 HEAD             # see what changed
