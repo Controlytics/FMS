@@ -259,6 +259,48 @@ Proposal only — not implemented. Current implementation still computes a `next
 ### CWH stuck cycles fix (session 04-25)
 - 7 IN_PROGRESS cycles bound to obsolete `test` profile terminated via `scripts/reset-cwh-cycles.sql` (status=TERMINATED + asset_instances cleared)
 
+### Backend offline-replay primitive (`apps/api/src/lib/idempotency.ts`)
+- Server-side dedup for offline-replayed mutations
+- Flow: client generates UUID → queues op locally with `clientOpId` → sync engine replays with `x-client-op-id: <uuid>` header + body field → server checks `FilterEvent.attributes.clientOpId` match → returns cached `current-state` response on duplicate
+- Every mutation writer must persist `clientOpId` inside `FilterEvent.attributes` for the dedup to fire on retry
+- Net result: offline replay is safe to retry without producing duplicate cycles, double advances, or repeat checklist submissions (foundation commit `3c99973`)
+
+### `requireAnyPermission` decorator (session 04-18, `apps/api/src/plugins/rbac.ts`)
+- `app.requireAnyPermission(...perms)` — accepts ANY of the listed perms (with `_MANAGE`/`_VIEW→_READ` fallbacks)
+- Used for the granular toggle layer where two permission families satisfy the same route: e.g. equipment-groups accepts `ASSET_*` OR `EG_*`; checklist-profiles accepts `FCP_*` OR `CHECKLIST_*`; PM accepts `PM_READ/CREATE/UPDATE` OR `PM_DOWNLOAD_TEMPLATE/UPLOAD/EDIT_ENTRY/RESUBMIT`; filter ops accepts `FILTER_OPERATE` OR `FILTER_RETIRE/REPLACE`; bulk-upload accepts `ASSET_CREATE` OR `FILTER_BULK_UPLOAD`
+- Paired with `enforceReauth(action, req, reply)` extended to accept `string | string[]` — reauth fires if any configured for the role
+
+### Audit-template UUID hiding (session 04-18, `packages/shared/src/types/audit-templates.ts`)
+- New `AUDIT_TEMPLATE_DEFINITIONS` system: registers per-action templates like `"<RequestType> — <Name> (<EmployeeID>)"` for `ADMIN_REQUEST_*` actions
+- Audit Trail UI applies these templates so UUIDs no longer leak in the rendered name field
+- New `audit-actions.ts` companion type lists every recognized audit action constant
+- New `permission-categories.ts` groups perms for the role-access UI
+
+### Production deployment artifacts (Windows)
+- **`scripts/package-for-production.ps1`** — builds API (compiled JS) + Web (vite build) + shared package; bundles into `digilog-production.zip` ready for transport
+- **`scripts/install-on-target.ps1`** — run-once installer on target Windows machine; assumes Node.js 20+, PostgreSQL 18 + TimescaleDB, Memurai, EMQX, Nginx already installed; runs migrations, registers PM2/NSSM service
+- **`certs/`** — mkcert-generated TLS infrastructure for HTTPS API: `rootCA.pem` (install on tablet system cert store), `server.crt`/`server.key` (localhost), `ssl.conf` (OpenSSL config)
+- **`tsdb-migration/init-hypertables.sql`** — TimescaleDB hypertable bootstrap; converts 5 PostgreSQL tables to hypertables with 7-day chunk_time_interval on `ts_telemetry`. Run once after `createdb digilog_tsdb`.
+
+### Static-routes split (`apps/api/src/modules/config/static-routes/`, 11 files)
+Bloat audit P2.3 follow-through. Each config tab gets its own `<surface>.routes.ts` file; top-level `routes.ts` is just a registration loop (~170 LOC, was 1003).
+
+| File | Surface |
+|---|---|
+| `access-matrix.routes.ts` | `/config/access-matrix` |
+| `action-reauth.routes.ts` | `/config/action-reauth` |
+| `alarm-columns.routes.ts` | `/config/alarm-columns` |
+| `audit-templates.routes.ts` | `/config/audit-templates` |
+| `branding.routes.ts` | `/config/branding` (10 themes + logo) |
+| `cleaning-profile-assignment.routes.ts` | `/config/cleaning-profile-assignment` |
+| `dashboard-cards.routes.ts` | `/config/dashboard-cards` (rejects unknown card keys with 400) |
+| `field-ids.routes.ts` | `/config/field-ids` |
+| `roles.routes.ts` | `/config/role-access` |
+| `tablet-access.routes.ts` | `/config/tablet-access` (+ `/my-features` endpoint for mobile login enforcement) |
+| `user-id.routes.ts` | `/config/user-id` |
+
+Adding a new config tab now requires: create `<surface>.routes.ts` + register it in `routes.ts` (one `await <surface>Routes(app)` line) + the existing 12 touchpoints from `feedback_config_sync.md`.
+
 ### PM QA Approval Workflow (session 04-13)
 - Upload → entries land in `PENDING` state (SUPER_ADMIN auto-approves on upload)
 - QA approves/rejects per-entry with mandatory remarks

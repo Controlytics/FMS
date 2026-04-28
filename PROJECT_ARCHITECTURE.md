@@ -80,7 +80,10 @@
 │
 ├── apps/android/                  (Capacitor Android wrapper)
 │   ├── capacitor.config.ts        Server URL, plugins config
-│   └── android/                   Native Android project
+│   └── android/
+│       └── app/src/main/java/com/digilog/filtermanagement/
+│           ├── MainActivity.java   Capacitor BridgeActivity entry
+│           └── RfidPlugin.java     Native Capacitor plugin wrapping Reader_Usb.jar — opens USB device, emits "tag" events to JS via plugin bridge (paired with apps/web/src/lib/rfid-bridge.ts)
 │
 ├── packages/shared/               (Shared types & schemas)
 │   └── src/
@@ -95,10 +98,35 @@
 │
 └── packages/queue/                (Job queue)
     └── src/
-        ├── connection.ts          Redis/Memurai connection
+        ├── connection.ts          getQueueConnection() singleton + getWorkerConnection() per-call (BullMQ best practice; bloat audit P2.2 done)
         ├── queues.ts              5 BullMQ queue definitions
         ├── schemas.ts             Zod schemas for job payloads
         └── priorities.ts          Job priority levels (1-8)
+```
+
+## Repo-level Infrastructure
+
+```
+21cfrlogbook-DigitalFMS/
+├── certs/                         (mkcert-generated TLS — for HTTPS API)
+│   ├── rootCA.pem                 Install on tablet system cert store for APK trust
+│   ├── rootCA.key                 mkcert root key
+│   ├── server.crt / server.key    Localhost cert pair used by API_HTTPS=true
+│   └── ssl.conf                   OpenSSL config for cert generation
+│
+├── tsdb-migration/                (TimescaleDB hypertable bootstrap)
+│   └── init-hypertables.sql       Converts 5 PG tables to hypertables (ts_telemetry 7-day chunks, ts_attributes, ts_device_events, ts_checklist_responses, ts_pipeline_traces). Run once after creating digilog_tsdb.
+│
+├── scripts/                       (Windows deployment automation)
+│   ├── package-for-production.ps1  Builds API + Web + shared, zips into digilog-production.zip
+│   ├── install-on-target.ps1       Run-once on target Windows: installs deps, runs migrations, registers PM2 / NSSM service
+│   └── reset-cwh-cycles.sql        Emergency SQL to terminate IN_PROGRESS cycles bound to obsolete profile (used 04-25 for 7 stuck CWH cycles)
+│
+├── rfid_scan_app/                 (Standalone Kotlin app — predates RFID SDK plugin in DigiLog APK)
+├── start-digilog.bat / stop-digilog.bat  Local Windows service launchers
+├── docker-compose.yml             (Optional Docker dev stack — see docs/deployment-methods/method-b)
+├── init-tsdb.sql                  (Convenience init for digilog_tsdb)
+└── DigiLog-FilterOps.apk          Built APK at repo root after gradlew assembleDebug
 ```
 
 ## Backend Architecture (apps/api/)

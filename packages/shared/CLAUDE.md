@@ -16,8 +16,7 @@ npx nx build shared
 
 ## Key Exports
 - `schemas/` — Zod validation schemas (login, user, config, etc.)
-- `types/` — TypeScript interfaces and enums
-- `constants/` — PERMISSIONS enum, role hierarchy, field definitions, alarm column definitions
+- `types/` — TypeScript interfaces, enums, and constants (10 files; see Live Type Inventory below)
 - `index.ts` — Barrel export
 
 ## Usage
@@ -52,12 +51,29 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 - `INVERSE_RELATIONSHIP_MAP` — Bidirectional relationship type pairs
 - Default audit text templates
 
-## Phase 2 Notes
-- No new shared types added for Phase 2 (types are co-located in API modules)
-- Prisma schema extended with Phase 2 models (57 total models, 17 enums) in `apps/api/prisma/schema.prisma`
-- Known issue: Phase 2 types (filter operations, cleaning profiles, etc.) should be extracted to shared package for frontend type safety
-- 78 field IDs across all modules (including filter management fields)
-- 95 permission constants, 82 feature privileges, 69 reauth actions
+## Live Type Inventory (verified 2026-04-29)
+
+`packages/shared/src/types/` contains **10 type files**:
+
+| File | Purpose |
+|---|---|
+| `permissions.ts` | **109** permission constants (PERMISSIONS enum + ALL_PERMISSIONS list) |
+| `feature-privileges.ts` | **91** feature privileges + `FEATURE_TO_PERMISSION_MAP` |
+| `reauth-actions.ts` | **81** reauth actions across 16 categories |
+| `roles.ts` | Role constants + hierarchy + display labels |
+| `permission-categories.ts` | Permission grouping for the role-access UI |
+| `sidebar-items.ts` | **26** sidebar items |
+| `sidebar-privilege-map.ts` | Sidebar item → privilege binding |
+| `audit-actions.ts` | Audit action constants for `AuditTrail.action` |
+| `audit-templates.ts` | Templates that hide UUIDs in audit UI (e.g. `"<RequestType> — <Name> (<EmployeeID>)"`) |
+| `alarm-columns.ts` | Alarm column metadata for `/config/alarm-columns` |
+
+Plus `schemas/` (Zod validation), `index.ts` (barrel).
+
+## Notes
+- Prisma schema (extended over Phases 2–5) has **64 models, 22 enums** in `apps/api/prisma/schema.prisma`
+- Phase 2 types (filter operations, cleaning profiles) are still co-located in API modules (not yet extracted)
+- 78+ field IDs across all modules (including filter management fields)
 
 ---
 
@@ -81,12 +97,16 @@ See `CHANGELOG.md` for full details.
 
 ## Phase 4 Update (2026-04-14)
 
-**Permissions & Privileges:**
-- 95 permission constants in `types/permissions.ts`
-- 82 feature privileges in `types/feature-privileges.ts` with FEATURE_TO_PERMISSION_MAP
-- Each mapping includes both frontend visibility permission + backend route permission
-- 69 reauth actions in `types/reauth-actions.ts` across 16 categories
+**Permissions & Privileges (snapshot at release; current totals are higher — see Live Type Inventory):**
+- Each FEATURE_TO_PERMISSION_MAP mapping includes both frontend visibility permission + backend route permission
+- 16 reauth categories
 - `colorTheme` field added to `brandingConfigSchema` in `schemas/config.ts`
 - Sidebar privilege map updated with new toggle IDs for Filters/Checklist/Cleaning Profile/Equipment Group/PM page controls
 
 See `CHANGELOG.md` for full details.
+
+## Phase 5 Updates (2026-04-15..29)
+
+- New audit-template + audit-action types added (UUIDs no longer leak in admin-request audit UI)
+- New permission/reauth additions: `FILTER_CREATE/EDIT/DELETE/HIERARCHY_EDIT/HIERARCHY_DELETE`, `PM_APPROVE`, 9 `REPORT_*` permissions, `BLOCK_CHANGE_REQUEST/APPROVE`
+- `requireAnyPermission(...perms)` decorator pattern requires shared types to expose permission lists in tuple form (used by backend RBAC plugin to check "any of")

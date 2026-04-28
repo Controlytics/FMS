@@ -102,7 +102,9 @@ The main application file registers everything in this order:
 
 | Module | Prefix | Endpoints | Key Features |
 |---|---|---|---|
-| `config` | `/api/config` | 40+ | 24 config definitions, role/user config, field IDs, reauth |
+| `config` | `/api/config` | 40+ | 30 config definitions (`config/defs/`), `dynamic-routes.ts` for registry-discovered surfaces + `static-routes/` per-tab files (split done in bloat audit P2.3) |
+
+**Static-routes split** (`apps/api/src/modules/config/static-routes/`, 11 files): `access-matrix.routes.ts`, `action-reauth.routes.ts`, `alarm-columns.routes.ts`, `audit-templates.routes.ts`, `branding.routes.ts`, `cleaning-profile-assignment.routes.ts`, `dashboard-cards.routes.ts`, `field-ids.routes.ts`, `roles.routes.ts`, `tablet-access.routes.ts`, `user-id.routes.ts`. Top-level `routes.ts` is now a registration loop (~170 LOC, was 1003).
 
 ### Infrastructure
 
@@ -146,14 +148,15 @@ The main application file registers everything in this order:
 | `swagger.ts` | OpenAPI/Swagger configuration |
 | `uns-path.ts` | ISA-95 UNS path utilities |
 | `user-id-validator.ts` | Custom user ID format validation |
+| `idempotency.ts` | **Offline replay dedup** — checks `x-client-op-id` header against `FilterEvent.attributes.clientOpId`; returns cached state for duplicate replays so retries never produce duplicate cycles, double advances, or repeat checklist submissions. |
 
 ## Plugins (apps/api/src/plugins/)
 
 | Plugin | Purpose |
 |---|---|
-| `auth.ts` | JWT verification, user lookup from DB, attach `req.user` |
-| `rbac.ts` | `requirePermission(perm)` — check user has permission |
-| `audit-logger.ts` | Auto-log mutations with before/after values |
+| `auth.ts` | JWT verification, user lookup from DB, attach `req.user`; maintains `PUBLIC_GET_PATHS` allowlist for unauthenticated endpoints (`/api/health`, `/api/auth/login`, `/api/admin-requests/user-lookup`, `/api/config/password-policy/current`, `/api/config/report-settings/current`, `/api/roles/active`, etc.) |
+| `rbac.ts` | `requirePermission(perm)` — single perm check; `requireAnyPermission(...perms)` — accepts any of the listed perms (used for granular toggle fallbacks like `FCP_* OR CHECKLIST_*`); `enforceReauth(action, req, reply)` accepts `string \| string[]` and reauths if any configured for role. |
+| `audit-logger.ts` | Auto-log mutations with before/after values; SHA-256 hash-chained per-org. |
 
 ## Transport Layer
 
@@ -171,7 +174,7 @@ The main application file registers everything in this order:
 | Ingestion | `workers/ingestion.worker.ts` | 10 | Continuous (BullMQ consumer) |
 | Maintenance | `workers/maintenance.worker.ts` | 1 | DLQ: 60s, Connectivity: 60s, Retention: 24h |
 
-## Database Schema (63 models)
+## Database Schema (64 models, 22 enums)
 
 ### Core Models
 `Organization`, `User`, `Role`, `Session`, `PasswordHistory`, `PasswordResetRequest`, `SystemConfig`, `FieldIdConfig`, `RoleConfig`, `UserConfig`

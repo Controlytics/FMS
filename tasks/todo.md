@@ -306,6 +306,52 @@ All added in this commit to `PHASE_5_RECENT_WORK.md` § 9 + `FRONTEND_GUIDE.md` 
 
 Conclusion: documentation now reflects every code surface I could find. If any new module/page/lib gets added next session, this audit checklist is a known-good template.
 
+### Fourth pass — 20 more uncaptured surfaces (2026-04-29)
+
+User pushed back further: "you missed 20 more changes find them". Walked every code surface again — `apps/api/src/lib/`, `apps/api/src/plugins/`, `apps/api/src/transport/`, `apps/api/src/modules/config/static-routes/`, `apps/web/src/components/`, `packages/shared/src/types/`, `apps/android/.../java/`, `scripts/`, `certs/`, `tsdb-migration/`. Found and captured:
+
+#### Backend lib helpers (1 missing in BACKEND_GUIDE)
+1. **`apps/api/src/lib/idempotency.ts`** — offline-replay dedup primitive. `x-client-op-id` header + `clientOpId` field; checks `FilterEvent.attributes.clientOpId` for match; returns cached `current-state` on duplicate. Added to BACKEND_GUIDE lib table + PHASE_5 § 9.
+
+#### Backend plugins (now properly enumerated)
+2. **`auth.ts` PUBLIC_GET_PATHS allowlist** — was implicit; now explicit. Includes `/api/health`, `/api/auth/login`, `/api/admin-requests/user-lookup`, `/api/config/password-policy/current`, `/api/config/report-settings/current`, `/api/roles/active`.
+3. **`rbac.ts` `requireAnyPermission(...perms)`** decorator — accepts ANY of listed perms; documented now with the granular-toggle fallback list (equipment-groups, checklist-profiles, PM, filter ops, bulk-upload).
+4. **`rbac.ts` `enforceReauth(action, req, reply)`** — accepts `string | string[]`, reauths if any configured for role.
+
+#### Static-routes split (11 files never enumerated)
+5. All 11 files in `apps/api/src/modules/config/static-routes/` now listed in BACKEND_GUIDE + PHASE_5 § 9: `access-matrix`, `action-reauth`, `alarm-columns`, `audit-templates`, `branding`, `cleaning-profile-assignment`, `dashboard-cards`, `field-ids`, `roles`, `tablet-access`, `user-id`.
+
+#### Shared types (5 files never enumerated in `packages/shared/CLAUDE.md`)
+6. **`audit-actions.ts`** — audit action constants for `AuditTrail.action`
+7. **`audit-templates.ts`** — UUID-hiding templates (`"<RequestType> — <Name> (<EmployeeID>)"`)
+8. **`permission-categories.ts`** — permission grouping for role-access UI
+9. **`roles.ts`** — role constants, hierarchy, display labels
+10. **`sidebar-privilege-map.ts`** — sidebar item → privilege binding
+11. **`alarm-columns.ts`** — alarm column metadata for `/config/alarm-columns`
+    Plus fixed stale "57 models / 17 enums / 95 perms / 82 privileges / 69 reauth" claims throughout that file.
+
+#### Native Android plugin (location never given)
+12. **`apps/android/android/app/src/main/java/com/digilog/filtermanagement/RfidPlugin.java`** — Capacitor plugin wrapping `Reader_Usb.jar`; opens USB device, emits `tag` events to JS bridge; paired with `apps/web/src/lib/rfid-bridge.ts`.
+13. **`apps/android/android/app/src/main/java/com/digilog/filtermanagement/MainActivity.java`** — Capacitor `BridgeActivity` entry point.
+
+#### Production deployment artifacts (entirely undocumented)
+14. **`scripts/package-for-production.ps1`** — builds API + Web + shared, bundles `digilog-production.zip`.
+15. **`scripts/install-on-target.ps1`** — run-once installer; assumes deps already installed; runs migrations + registers PM2/NSSM service.
+16. **`scripts/reset-cwh-cycles.sql`** — emergency SQL to terminate IN_PROGRESS cycles bound to obsolete profiles.
+17. **`tsdb-migration/init-hypertables.sql`** — TimescaleDB hypertable bootstrap (5 hypertables, 7-day chunks on `ts_telemetry`).
+18. **`certs/`** — mkcert TLS infrastructure: `rootCA.pem` (tablet system cert store), `server.crt`/`server.key` (localhost), `ssl.conf` (OpenSSL config).
+
+#### Repo-root infrastructure files
+19. **`docker-compose.yml`** — optional Docker dev stack (referenced by `docs/deployment-methods/method-b`).
+20. **`init-tsdb.sql`** at repo root — convenience init for `digilog_tsdb`.
+21. **`DigiLog-FilterOps.apk`** at repo root — built APK output location after `gradlew assembleDebug`.
+
+#### Misc backend hardening already in code but not in docs
+22. **`config/dynamic-routes.ts` vs `static-routes/`** — registry-discovered surfaces vs per-tab files; the split is now explicit.
+23. **`packages/queue/connection.ts`** docstring updated to note `getQueueConnection()` (singleton, producers) vs `getWorkerConnection()` (per-call, workers) — bloat audit P2.2 done.
+
+All captured in: `BACKEND_GUIDE.md` (lib + plugins + static-routes), `PROJECT_ARCHITECTURE.md` (repo-level infrastructure section + Android plugin location), `PHASE_5_RECENT_WORK.md` § 9 (idempotency, requireAnyPermission, audit templates, deployment artifacts, static-routes split table), `packages/shared/CLAUDE.md` (full type inventory + version-corrected stats).
+
 ### How to roll back
 ```bash
 git diff --stat HEAD~1 HEAD             # see what changed
