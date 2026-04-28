@@ -118,6 +118,13 @@ The data-management console at `/data/filters/:id` exposes filter-related rows f
 | Admin Requests | `/admin-requests` | requester, type, status |
 | Block Changes | `/approvals` | from-block, to-block, status |
 
+### ⚠️ Compliance note (Super Admin escape hatch)
+The Filter Data Mgmt console at `/config/filter-data-management` is a **SUPER_ADMIN-only** raw-edit surface:
+- **All columns are inline-editable**, every record is deletable
+- **Zero audit trail** — edits/deletes through this console produce **no audit entries** (deliberate; for emergency data fixes)
+- **Unretire flow** — `_preRetireParentId` saved in `customAttributes` during retirement; unretire restores original parent AHU + deletes the replacement filter + removes all traces
+- This bypasses the 21 CFR Part 11 audit-chain on purpose; access must be restricted to break-glass admins only.
+
 Each tab also has an **Edit modal** matching the user-facing page's edit dialog.
 
 Captured by memory `feedback_filter_data_mgmt_mirrors_pages.md`.
@@ -252,6 +259,54 @@ Proposal only — not implemented. Current implementation still computes a `next
 ### CWH stuck cycles fix (session 04-25)
 - 7 IN_PROGRESS cycles bound to obsolete `test` profile terminated via `scripts/reset-cwh-cycles.sql` (status=TERMINATED + asset_instances cleared)
 
+### PM QA Approval Workflow (session 04-13)
+- Upload → entries land in `PENDING` state (SUPER_ADMIN auto-approves on upload)
+- QA approves/rejects per-entry with mandatory remarks
+- Rejected → user edits inline + resubmits
+- Edit-after-approval → pending edit fields stored, old values stay active until QA re-approves
+- `getDueTasks` only returns `APPROVED` entries — rejected/pending entries do not surface as due
+- Schema: `PmEntryApprovalStatus` enum + 11 new columns on `PmScheduleEntry`
+- New permission `PM_APPROVE`
+- Config: `pm-schedule-approval` def with configurable `approvalRole`
+
+### PM My Tasks system (session 04-11, hardened 04-13)
+- CSV / XLSX bulk upload on PM Schedules page; rows = `(ahu_name, scheduled_date, tolerance_days)`
+- **Past-date validation** (CSV only) — amber popup listing affected AHUs; user must click "Proceed Anyway"
+- `GET /api/pm-schedules/due` returns entries in tolerance window + 30-day overdue horizon
+- Desktop My Tasks at `/my-tasks`; Mobile My Tasks as a view inside `/m`
+- **Per-AHU filter-set mode** (`/config/ahu-filter-set-config`) — 4 modes: `BOTH`, `SET_A`, `SET_B`, `DISABLED`; null `filterSet` filters included in BOTH only
+- **PM auto-reason on mobile** — wash-in skips reason dialog when AHU has active PM window; `/current-state` returns `isPmDue` + `pmReasonKey`
+- 21/21 audit tests passed (PM Schedules 7/7, Block Change 7/7, Filter Count 7/7) on 2026-04-13
+
+### Visual Hierarchy Tree (session 04-13)
+- Filters page List/Tree toggle
+- Tree shows `Block → Area → AHU → Filter` with CSS connector lines
+- Expandable/collapsible at each level
+- Create buttons: `New Block`, `Add Area`, `Add AHU`
+- Hover-reveal Edit / Delete on AHU + Area nodes (added 04-18)
+- Create dialog renders dynamic fields from template `attributeSchema` (per `feedback_dynamic_template_fields`)
+- Area template activated in DB
+
+### RFID Tag Management on Filters Page (session 04-13)
+- New RFID Tag column in the filter table
+- RFID action button in each row's actions column
+- Slide panel: view assigned tags, unassign, scan / type new tag
+- `data-rfid="true"` attribute on the tag input — works with `use-rfid-guard.ts`
+- Permissions: `ASSET_IDENTIFIER_CREATE` / `ASSET_IDENTIFIER_DELETE` (category: "RFID & Identifiers")
+
+### Block Change Approval — implementation details (session 04-10..13)
+- Trigger: filter belongs to Block A, user tries to clean in Block B → `/api/filters/:id/current-state?cleaningAreaId=B` returns `blockChangeStatus: 'REQUIRED'`
+- Both desktop (`filter-operations.tsx`) and mobile (`mobile-operations.tsx`) show a "Request Block Change / Cancel" popup upfront
+- Approved requests are **single-use**: status `APPROVED → EXPIRED` on cycle start
+- Backend `AppError` sends `BLOCK_CHANGE_REQUIRED` (409) with structured `details: { filterId, homeBlockId, homeBlockName, requestedBlockId, requestedBlockName }`
+- **Critical wiring**: `api-client.ts` line 58 maps `err.details ?? err.connectionInfo` — without this fix the popup never appeared
+- Mobile approvals view requires comment input (added 04-13); remarks mandatory on all approval screens
+
+### Configuration page restructure (session 04-13)
+- General Settings (all admins): Password, DateTime, Backup
+- Super Admin Settings: 22+ cards including new ones — RFID Scanner *(later removed as dead config)*, Offline Sync *(later removed as dead config)*, Cleaning Reasons, PM Schedule Settings, PM Schedule Approval, Block Change Approval, Filter Data Management, Tablet Access, Access Matrix, AHU Filter Set, Alarm Columns, Audit Templates, Cleaning Profile Assignment, Role Access
+- Dynamic config modules section also SUPER_ADMIN-only
+
 ### Smaller items
 - Forgot-password flow + show/hide password + lockout-progress UI on tablet (`a5fc98f`)
 - Admin requests approval execution — approvals actually create/unlock/reset/modify users; requester Employee ID required; UUIDs hidden in audit (memory `project_admin_requests_flow`)
@@ -259,6 +314,7 @@ Proposal only — not implemented. Current implementation still computes a `next
 - PM "My Tasks" v1 — CSV bulk upload, `/api/pm-schedules/due`, expandable AHU cards, filter-set modes (memory `project_pm_my_tasks`)
 - Capacitor online detection — poll `/api/health` every 15 s + on `visibilitychange` (memory `feedback_capacitor_online_detection`)
 - className codemod merge rule — when replacing inline-style with className, merge into existing className attribute (memory `feedback_codemod_className_merge`)
+- DateTime format support — DD-MM-YYYY in PM upload; PM upload upserts (no duplicates); admin-requests theme migrated indigo→cyan; bat-file errorlevel syntax fixed
 
 ---
 

@@ -60,14 +60,14 @@
 ├── apps/api/                      (Fastify backend)
 │   ├── src/
 │   │   ├── app.ts                 Entry point — registers all plugins, routes, handlers
-│   │   ├── modules/               34 feature modules (routes.ts + *.service.ts)
+│   │   ├── modules/               37 feature modules (routes.ts + *.service.ts)
 │   │   ├── plugins/               auth.ts, rbac.ts, audit-logger.ts
 │   │   ├── transport/             mqtt-client.ts, mqtt-handler.ts, ws-handler.ts
 │   │   ├── workers/               ingestion.worker.ts, maintenance.worker.ts
 │   │   ├── lib/                   Shared utilities (audit, jwt, sanitize, prisma, etc.)
 │   │   └── types/                 TypeScript type definitions
 │   └── prisma/
-│       ├── schema.prisma          63 models, 23 enums
+│       ├── schema.prisma          64 models, 22 enums
 │       └── seed.ts                Default roles, superadmin, configs
 │
 ├── apps/web/                      (React SPA)
@@ -85,7 +85,7 @@
 ├── packages/shared/               (Shared types & schemas)
 │   └── src/
 │       ├── schemas/               8 Zod validation schemas
-│       └── types/                 Permissions (95), privileges (82), reauth (69), sidebar
+│       └── types/                 Permissions (109), privileges (91), reauth (81), sidebar items (26)
 │
 ├── packages/db/                   (Database utilities)
 │   └── src/
@@ -136,7 +136,7 @@ modules/
     └── __tests__/             Vitest unit tests
 ```
 
-### 34 API Modules
+### 37 API Modules
 
 | Category | Modules |
 |---|---|
@@ -146,11 +146,11 @@ modules/
 | **Filter Operations** | filter-operations, filter-profiles, cleaning-profiles, checklist-profiles |
 | **Scheduling** | pm-schedules, equipment-groups, entity-assignments |
 | **Approvals** | block-change-requests, admin-requests |
-| **Reports** | report-templates, reports |
+| **Reports** | report-templates (CRUD + versioning), reports (generation engine + PDF + signatures) |
 | **Data Pipeline** | data-ingestion, queries (telemetry/alarms/retention/export) |
 | **Rule Engine** | rule-chain (77 node types, 8 categories) |
 | **Notifications** | notifications, notification-rules, notification-delivery |
-| **Config** | config (24 definitions with auto-discovery) |
+| **Config** | config (30 definitions with auto-discovery; monolith split into `static-routes/` per surface) |
 | **Infrastructure** | connectivity, qr-code, uns, uploads, help, ldap |
 | **System** | audit, backup, system-health, deployment-check, dashboards |
 
@@ -168,7 +168,7 @@ Token Refresh:
 
 Re-authentication:
   POST /api/auth/verify → password check → 5-min verification token
-  (required for 69 sensitive operations)
+  (required for 81 sensitive operations)
 
 Session Management:
   - Single active session per user (force login terminates existing)

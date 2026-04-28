@@ -134,28 +134,47 @@ React 19 SPA built with Vite 6, styled with Tailwind CSS 4, served by Nginx in p
 | `/organizations` | OrganizationsPage (lazy) | ORG_VIEW |
 | `/organizations/:id` | OrgDetailPage (lazy) | ORG_VIEW |
 
-### Configuration (20+ pages)
+### Configuration (26 pages — verified by `ls apps/web/src/routes/config/*.tsx`)
 
-| Path | Page | Permission |
+| Path | Page | Permission / Notes |
 |---|---|---|
-| `/config` | ConfigIndexPage | CONFIG_READ |
-| `/config/branding` | BrandingConfigPage | SUPER_ADMIN |
-| `/config/roles` | RoleAccessPage | ROLE_MANAGE |
-| `/config/backup` | BackupRestorePage | CONFIG_UPDATE |
+| `/config` | ConfigIndexPage | CONFIG_READ — registry-discovered cards |
+| `/config/access-matrix` | AccessMatrixPage | SUPER_ADMIN — per-module role allowlist |
 | `/config/action-reauth` | ActionReauthPage | SUPER_ADMIN |
-| `/config/equipment-groups` | EquipmentGroupsConfigPage | EG_VIEW |
-| `/config/report-settings` | ReportSettingsPage | CONFIG_UPDATE |
-| `/config/filter-data-management` | FilterDataManagementPage | ORG_MANAGE |
-| `/config/tablet-access` | TabletAccessConfigPage | CONFIG_UPDATE |
+| `/config/ahu-filter-set-config` | AhuFilterSetConfigPage | SUPER_ADMIN — `/my-tasks` per-AHU mode (BOTH/SET_A/SET_B/DISABLED) |
+| `/config/alarm-columns` | AlarmColumnsPage | CONFIG_UPDATE — column visibility + role-based |
+| `/config/audit-templates` | AuditTemplatesPage | SUPER_ADMIN — templates that hide UUIDs in audit UI |
+| `/config/backup` | BackupRestorePage | CONFIG_UPDATE — dynamic 64-table export |
+| `/config/branding` | BrandingConfigPage | SUPER_ADMIN — 10 color themes + logo |
+| `/config/cleaning-profile-assignment` | CleaningProfileAssignmentPage | CONFIG_UPDATE — block→profile binding |
+| `/config/dashboard-cards` | DashboardCardsPage | CONFIG_UPDATE |
+| `/config/datetime` | DateTimeConfigPage | CONFIG_READ |
 | `/config/dynamic/:moduleKey` | DynamicConfigPage | CONFIG_READ |
-| ... | 10+ more config pages | Various |
+| `/config/equipment-groups` | EquipmentGroupsConfigPage | EG_VIEW |
+| `/config/field-ids` | FieldIdsPage | SUPER_ADMIN |
+| `/config/filter-cleaning-reasons` | FilterCleaningReasonsPage | CONFIG_UPDATE |
+| `/config/filter-data-management` | FilterDataManagementPage | **SUPER_ADMIN — escape hatch with NO audit trail** |
+| `/config/help` | HelpAdminPage | HELP_MANAGE |
+| `/config/ldap` | LdapConfigPage | SUPER_ADMIN |
+| `/config/notification-rules` | NotificationRulesPage | CONFIG_UPDATE |
+| `/config/notification-settings` | NotificationSettingsPage | CONFIG_UPDATE — email/SMS/Telegram/Slack |
+| `/config/pagination` | PaginationConfigPage | CONFIG_READ |
+| `/config/password-policy` | PasswordPolicyPage | SUPER_ADMIN |
+| `/config/report-settings` | ReportSettingsPage | CONFIG_UPDATE — header/footer/layout |
+| `/config/retention` | RetentionPage | RETENTION_VIEW |
+| `/config/role-access` | RoleAccessPage | ROLE_MANAGE |
+| `/config/tablet-access` | TabletAccessConfigPage | SUPER_ADMIN — role × feature matrix; controls `/m` access |
+| `/config/uns` | UnsConfigPage | UNS_VIEW |
+| `/config/user-id` | UserIdConfigPage | SUPER_ADMIN — username format rules |
 
 ### Mobile (lazy-loaded, standalone layout)
 
 | Path | Page | Description |
 |---|---|---|
-| `/m/login` | MobileLoginPage | Tablet login |
-| `/m` | MobileOperationsPage | Tablet cleaning operations |
+| `/m/login` | MobileLoginPage (`mobile-login.tsx`) | Tablet login with show/hide password + lockout-progress UI |
+| `/m/forgot-password` | MobileForgotPasswordPage (`mobile-forgot-password.tsx`) | Tablet password reset request |
+| `/m` | MobileWrapper (`mobile-wrapper.tsx`) | Home: Filter Cleaning, My Tasks, Approvals, Status, Logout — features gated by `/api/config/tablet-access/my-features` |
+| `/m` (cleaning view) | MobileOperationsPage (`mobile-operations.tsx`) | Per-stage scan + batch queue + checklist + DRY_IN countdown panel; same component used as cleaning operations across desktop and tablet |
 
 ## Custom Hooks (14)
 
@@ -195,7 +214,7 @@ React 19 SPA built with Vite 6, styled with Tailwind CSS 4, served by Nginx in p
 | Component | File | Purpose |
 |---|---|---|
 | `AppLayout` | `layout/app-layout.tsx` | Main wrapper: sidebar + header + page outlet |
-| `Sidebar` | `layout/sidebar.tsx` | 27-item navigation, permission-filtered, collapsible |
+| `Sidebar` | `layout/sidebar.tsx` | 26-item navigation, permission-filtered, collapsible |
 | `Header` | `layout/header.tsx` | Top bar: menu toggle, profile, logout |
 
 ### Auth & Guard Components
@@ -232,21 +251,25 @@ React 19 SPA built with Vite 6, styled with Tailwind CSS 4, served by Nginx in p
 | `ReportPageWrapper` | `report-page-wrapper.tsx` | Wraps report tables with header/footer |
 | `ToastProvider` | `toast-provider.tsx` | SWR error toast registration |
 
-## Utility Libraries
+## Utility Libraries (15 modules)
 
 | File | Purpose |
 |---|---|
-| `lib/api-client.ts` | HTTP client (get/post/put/delete), auto-attach token, 401 redirect, reauth methods |
+| `lib/api-client.ts` | HTTP client (get/post/put/delete), auto-attach token, 401 redirect, reauth methods, maps `err.details` to `connectionInfo` |
 | `lib/swr-config.ts` | SWR defaults (5s dedup, 2 retries, no focus revalidation) |
 | `lib/themes.ts` | 10 color presets, `applyTheme()` sets CSS vars on `:root` |
-| `lib/theme-styles.ts` | Tailwind theme customization utilities |
+| `lib/theme-styles.ts` | Tailwind theme utility-class wrappers (`.text-theme-primary`, `.bg-theme-gradient`, etc.) — codemod target replacing inline `style={{ color: 'var(--theme-primary)' }}` |
 | `lib/cn.ts` | Class name merger (clsx-like) |
 | `lib/password-utils.ts` | Password strength validation |
 | `lib/url-utils.ts` | URL parsing, safe redirect checking |
 | `lib/filter-constants.ts` | Filter stage type constants |
-| `lib/pdf-report.ts` | PDF generation for reports |
-| `lib/offline-store.ts` | IndexedDB offline cache (operations, filters, identifiers) |
-| `lib/sync-engine.ts` | Offline sync engine (FIFO, skip conflicts, auto-sync on reconnect) |
+| `lib/pdf-report.ts` | jspdf + jspdf-autotable client-side report rendering |
+| `lib/format-by-least-count.ts` | Least-count number formatting — integer LC → `25`, 0.1 → `25.0`, 0.01 → `25.00`. Applied everywhere instrument readings render. |
+| `lib/connectivity.ts` | **Single source of truth for "are we online?"** — fans out 3 signals: Capacitor Network plugin (OS-level on tablet) + `navigator.onLine` + `/api/health` probe every 15s + on `visibilitychange`. Replaces unreliable `navigator.onLine` alone. |
+| `lib/rfid-bridge.ts` | **React-side wrapper for the native `RfidPlugin` (Capacitor)** — when the RFID reader is in SDK / answer mode, the OS does not inject keystrokes; the native side opens USB via `Reader_Usb.jar` and emits a `tag` event per scan. Exposes `subscribeRfidTags()`. No-op on non-Capacitor platforms. |
+| `lib/offline-store.ts` | IndexedDB offline cache — 3 stores: `operations` (queued ops), `cache` (TTL-keyed snapshots), `filters` (filter snapshots) |
+| `lib/offline-sync-service.ts` | Centralized sync of 9 data types on login: filter instances, templates, cleaning reasons, identifiers, profile pipelines, equipment groups + instruments, approved block changes, branding, field IDs |
+| `lib/sync-engine.ts` | Offline sync engine — FIFO, skip-on-conflict, auto-sync on reconnect, idempotency-key-aware, JWT refresh during replay, emits `interrupted` event on network drop |
 
 ## Authentication Flow
 

@@ -13,8 +13,8 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 | Layer | Technology | Details |
 |---|---|---|
 | **Frontend** | React 19 + TypeScript | Vite SPA, Tailwind CSS, SWR, ReactFlow |
-| **Backend** | Node.js + Fastify 5 | TypeScript, 34 API modules, 200+ endpoints |
-| **Primary DB** | PostgreSQL 18 | 63 Prisma models, 23 enums |
+| **Backend** | Node.js + Fastify 5 | TypeScript, 37 API modules, 200+ endpoints |
+| **Primary DB** | PostgreSQL 18 | 64 Prisma models, 22 enums |
 | **Time-Series DB** | TimescaleDB | 7 hypertables for telemetry data |
 | **Cache / Queue** | Redis 7 (Memurai on Windows) | BullMQ job queues, pub/sub |
 | **MQTT Broker** | EMQX 5.x | IoT device communication |
@@ -89,17 +89,20 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 
 | Metric | Count |
 |---|---|
-| Prisma models | 63 |
-| Database enums | 23 |
-| Permission constants | 95 |
-| Feature privileges | 82 |
-| Re-auth actions | 69 |
-| API modules | 34 |
+| Prisma models | 64 |
+| Database enums | 22 |
+| Permission constants | 109 |
+| Feature privileges | 91 |
+| Re-auth actions | 81 |
+| Sidebar items | 26 |
+| API modules | 37 |
 | API endpoints | 200+ |
 | Rule chain node types | 77 |
-| Config definitions | 24 |
+| Config definitions | 30 |
+| Config pages | 26 |
 | Frontend routes | 85+ |
 | Custom React hooks | 14 |
+| Frontend lib modules | 15 |
 | BullMQ job queues | 5 |
 
 ## Security & Compliance

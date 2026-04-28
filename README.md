@@ -39,7 +39,7 @@ For end-to-end details, start with `PROJECT_SUMMARY.md` (overview), `PROJECT_ARC
 - **Audit trail** — Tamper-evident SHA-256 hash-chain log with before/after snapshots
 - **Notifications** — In-app + email (SMTP/OAuth2) + SMS (AWS SNS / Twilio) + Telegram + Slack
 - **Backup/restore** — Full DB export covering all 64 tables (`pg_tables` + `jsonb_populate_recordset`), SHA-256 integrity verification
-- **RBAC** — 6 hierarchical roles, **95 permissions**, **82 feature toggles**, **69 reauthentication actions**
+- **RBAC** — 6 hierarchical roles, **109 permissions**, **91 feature toggles**, **81 reauthentication actions**, **26 sidebar items**
 - **Help articles** — 40+ versioned in-app docs across 8 categories
 - **LDAP integration** — Active Directory / OpenLDAP with group→role mapping
 
@@ -154,7 +154,7 @@ See `LOCAL_SETUP_WINDOWS.md` for the full step-by-step setup, and `DEPLOY-WINDOW
 ## Database
 
 ### PostgreSQL (`digilog_db` — Prisma)
-**63 models, 23 enums** covering users, roles, sessions, entities, templates, relationships, identifiers, rule chains, alarms, audit, notifications, configs, help articles, electronic signatures, filter cleaning profiles, filter profiles, cleaning cycles, filter events, PM schedules, checklist profiles, equipment groups, report templates, block-change requests, admin requests.
+**64 models, 22 enums** covering users, roles, sessions, entities, templates, relationships, identifiers, rule chains, alarms, audit, notifications, configs, help articles, electronic signatures, filter cleaning profiles, filter profiles, cleaning cycles, filter events, PM schedules + entries + executions, checklist profiles + questions, equipment groups + instruments, report templates + versions + instances + signatures, block-change requests, admin requests, dashboards + widgets + assignments, password history + reset requests.
 
 ### TimescaleDB (`digilog_tsdb`)
 **7 hypertables**: `ts_telemetry`, `ts_attributes`, `ts_checklist_responses`, `ts_device_events`, `ts_binary_data`, `ts_pipeline_traces`, `ts_alarm_history`.

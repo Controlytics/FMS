@@ -17,9 +17,10 @@ node apps/api/dist/app.js
 - Source: `apps/api/src/`
 - Compiled: `apps/api/dist/`
 - Entry: `apps/api/src/app.ts`
-- Prisma schema: `apps/api/prisma/schema.prisma` (63 models, 23 enums)
-- Config definitions: `apps/api/src/modules/config/defs/` (24 files)
-- Route modules: `apps/api/src/modules/` (34 modules)
+- Prisma schema: `apps/api/prisma/schema.prisma` (64 models, 22 enums)
+- Config definitions: `apps/api/src/modules/config/defs/` (30 files)
+- Route modules: `apps/api/src/modules/` (37 modules)
+- Config routes: monolith split into `apps/api/src/modules/config/static-routes/<surface>.routes.ts` per tab; top-level `routes.ts` is just a registration loop (~170 LOC, was 1003)
 
 ## Architecture
 - 34 route modules registered via `apps/api/src/modules/*/routes.ts`
@@ -34,7 +35,7 @@ node apps/api/dist/app.js
 admin-requests, assets (templates/instances/relationships/identifiers), audit, auth, backup, checklist-profiles, cleaning-profiles, config (23 definitions), connectivity, dashboards, data-ingestion (10-stage pipeline), deployment-check, entity-assignments, equipment-groups, filter-operations, filter-profiles, help, ldap, notification-delivery (email/SMS/Telegram/Slack), notification-rules, notifications, org-admin, pm-schedules, qr-code, queries (telemetry/alarm/retention/export), roles, rule-chain (77 node types), super-admin, system-health, tenant-admin, uns, uploads, user-groups, users
 
 ## Databases
-- **digilog_db** (PostgreSQL 18 via Prisma) — application data (63 models, 23 enums)
+- **digilog_db** (PostgreSQL 18 via Prisma) — application data (64 models, 22 enums)
 - **digilog_tsdb** (TimescaleDB via pg pool) — time-series data (7 hypertables)
 
 ## Key Libs (`apps/api/src/lib/`)

@@ -68,14 +68,14 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 - **Verify TLS up** — `curl -sk -o /dev/null -w "%{http_code}" https://localhost:3000/health` should return a code (even 401 means TLS is up).
 - **Don't use HTTPS with self-signed in Capacitor *dev* mode** — WebView's `fetch()` rejects self-signed certs (Capacitor's `BridgeActivity` overrides the WebViewClient after `onCreate`). Keep dev cleartext if testing in-WebView, or install root CA on the device.
 
-## System Stats (current — 2026-04-29)
-- **Backend:** 34 API modules, 200+ endpoints
-- **Database:** 63 Prisma models, 23 enums; TimescaleDB with 7 hypertables
-- **Permissions:** 95 constants, 82 feature privileges, 69 reauth actions
+## System Stats (current — 2026-04-29, verified against live code)
+- **Backend:** 37 API modules under `apps/api/src/modules/`, 200+ endpoints
+- **Database:** **64 Prisma models, 22 enums**; TimescaleDB with 7 hypertables
+- **Permissions:** **109** constants, **91** feature privileges, **81** reauth actions, **26** sidebar items
 - **Rule chain:** 77 node types across 8 categories
-- **Config:** 24 config definitions with auto-discovery
+- **Config:** **30 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **26** corresponding pages
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
-- **Frontend:** 22 route modules, ~85 pages, 14 custom hooks
+- **Frontend:** 23 route folders/files, ~85 pages, **14** custom hooks, **15** lib modules
 - **BullMQ queues:** 5 (ingestion, notification, export, reports, maintenance)
 
 ## Important Notes

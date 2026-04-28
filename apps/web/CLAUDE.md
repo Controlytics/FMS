@@ -41,7 +41,7 @@ cd apps/android/android && ./gradlew assembleDebug
 - Force login (`force: true`) to terminate existing sessions
 
 ## Key Features
-- 24 config pages (auto-discovered from registry)
+- 26 config pages (auto-discovered from registry)
 - Entity tree with drag-and-drop hierarchy
 - Rule chain editor with 77 node types across 8 categories
 - Alarm dashboard with real-time updates and role-based column visibility

@@ -237,6 +237,75 @@ User asked me to refer to memory and cross-verify the Phase 5 capture. Read all 
 #### Knowledge state after corrections
 The active root docs (`PROJECT_SUMMARY.md`, `PROJECT_ARCHITECTURE.md`, `API_REFERENCE.md`, `BACKEND_GUIDE.md`, `FRONTEND_GUIDE.md`, `OFFLINE_SYNC_ARCHITECTURE.md`, `PHASE_5_RECENT_WORK.md`, `CHANGELOG.md`, `README.md`, `CLAUDE.md`) now match memory + live code. No further drift detected on this scan.
 
+### Deep code-vs-doc audit (2026-04-29, third pass)
+
+User pushed back: "be extra cautious i dont want any code that's written or edited but not captured properly". Re-audited live filesystem against every doc.
+
+#### Numerical drift (live counts — verified by `ls`/`grep`)
+
+| Stat | Old docs | Actual | Verified by |
+|---|---|---|---|
+| Backend modules | 34 | **37** | `ls apps/api/src/modules/ | wc -l = 37` |
+| Prisma models | 63 | **64** | `grep -c "^model " schema.prisma = 64` |
+| Prisma enums | 23 | **22** | `grep -c "^enum " schema.prisma = 22` |
+| Permissions | 95 | **109** | `grep -c "^\s+[A-Z_]+:\s*'" permissions.ts = 109` |
+| Reauth actions | 69 | **81** | `grep -c "^\s+[A-Z_]+:" reauth-actions.ts = 81` |
+| Feature privileges | 82 | **91** | `grep -c "^\s+\{ id:" feature-privileges.ts = 91` |
+| Sidebar items | (none) | **26** | `grep -c "^\s+\{" sidebar-items.ts = 26` |
+| Config defs | 24 | **30** | `ls config/defs/*.def.ts | wc -l = 30` |
+| Config pages | 23 | **26** | `ls routes/config/*.tsx | wc -l = 26` |
+| Frontend lib modules | (none) | **15** | `ls apps/web/src/lib/ = 15 files` |
+
+Patched in: `CLAUDE.md`, `README.md`, `PROJECT_SUMMARY.md`, `PROJECT_ARCHITECTURE.md`, `docs/index.md`, `apps/api/CLAUDE.md`, `apps/web/CLAUDE.md`.
+
+#### Live code that was previously undocumented
+
+**Frontend lib helpers (5 modules never mentioned):**
+- `lib/connectivity.ts` — single source of truth for online state; fans out Capacitor Network + `navigator.onLine` + `/api/health` probe. Critical for offline UX on Android WebView.
+- `lib/rfid-bridge.ts` — React-side wrapper for native `RfidPlugin`; subscribes to `tag` events from `Reader_Usb.jar` SDK; no-op on non-Capacitor platforms.
+- `lib/theme-styles.ts` — utility-class wrappers (`.text-theme-primary`, `.bg-theme-gradient`) — bloat audit P1.1 codemod target.
+- `lib/format-by-least-count.ts` — instrument-reading number formatting (per session 04-20).
+- `lib/offline-sync-service.ts` — centralized 9-data-type login hydration (per session 04-16).
+
+**Config pages never enumerated (6 of 26):**
+- `access-matrix.tsx` — SUPER_ADMIN-only per-module role allowlist
+- `ahu-filter-set-config.tsx` — per-AHU filter-set mode for `/my-tasks` (BOTH/SET_A/SET_B/DISABLED)
+- `alarm-columns.tsx` — column visibility configuration
+- `audit-templates.tsx` — templates that hide UUIDs in audit UI
+- `cleaning-profile-assignment.tsx` — block→profile binding
+- `role-access.tsx` — role permission management
+- `filter-data-management.tsx` — *Was* mentioned in PHASE_5 § 4 but its compliance footnote was missing (zero audit trail SUPER_ADMIN escape hatch)
+
+**Mobile routes (1 missed):**
+- `mobile-forgot-password.tsx` — separate from `mobile-login.tsx`
+
+**API modules (3 missed in count):**
+- `block-change-requests/`, `report-templates/`, `reports/` (the latter two are separate modules — `report-templates` is CRUD + versioning, `reports` is generation engine + PDF + signatures)
+
+**Features (5 not in active docs):**
+- **PM QA Approval Workflow** — entry-level PENDING/APPROVED/REJECTED, `getDueTasks` filters APPROVED only, `PmEntryApprovalStatus` enum + 11 columns
+- **PM My Tasks** complete picture — past-date validation, `/api/pm-schedules/due`, per-AHU filter-set mode, PM auto-reason on mobile (`isPmDue` + `pmReasonKey`)
+- **Visual Hierarchy Tree** — Block→Area→AHU→Filter with create/connect/delete + dynamic template fields
+- **RFID Tag Management slide panel** on filters page — view/unassign/scan
+- **Block Change Approval implementation** — 409 + `details` payload, `api-client.ts` line 58 mapping, single-use APPROVED→EXPIRED on cycle start
+- **Filter Data Mgmt console — ZERO audit trail** compliance footnote (deliberate escape hatch; bypasses 21 CFR Part 11 audit chain)
+
+All added in this commit to `PHASE_5_RECENT_WORK.md` § 9 + `FRONTEND_GUIDE.md` config-pages + lib + mobile sections.
+
+#### Live-filesystem verification (commands run)
+- `ls apps/api/src/modules/` → 37 ✅
+- `ls apps/api/src/modules/config/defs/*.def.ts | wc -l` → 30 ✅
+- `ls apps/web/src/routes/config/*.tsx | wc -l` → 26 ✅
+- `ls apps/web/src/lib/` → 15 files ✅
+- `ls apps/web/src/hooks/` → 14 files ✅
+- `apps/api/.env` has `API_HTTPS=true` ✅
+- `apps/api/src/modules/config/static-routes/` exists (split done) ✅
+- `routes/checklist-form/`, `routes/checklist-admin/` exist (renames done) ✅
+- 12 files in `apps/api/src/modules/reports/` ✅ matches memory
+- `routes/{my-tasks,reports,report-templates,approvals}/` all exist ✅
+
+Conclusion: documentation now reflects every code surface I could find. If any new module/page/lib gets added next session, this audit checklist is a known-good template.
+
 ### How to roll back
 ```bash
 git diff --stat HEAD~1 HEAD             # see what changed
