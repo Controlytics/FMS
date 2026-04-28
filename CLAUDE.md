@@ -13,7 +13,7 @@ apps/api/         — Fastify backend (TypeScript, port 3000)
 apps/web/         — React SPA (Vite, port 5175 dev)
 apps/android/     — Capacitor Android wrapper (DigiLog-FilterOps.apk)
 rfid_scan_app/    — Native Kotlin RFID scanner (KC-series UHF readers)
-packages/shared/  — Permissions (95), privileges (82), reauth (69), zod schemas
+packages/shared/  — Permissions (109), privileges (91), reauth (81), sidebar items (26), zod schemas
 packages/db/      — Prisma client + TimescaleDB pool + telemetry batcher
 packages/queue/   — BullMQ queues (5) + Redis connection
 docs/             — Project docs (current)
@@ -127,39 +127,6 @@ GET  /api/config/password-policy/current — Password policy (public endpoint)
 
 ---
 
-## Workflow Orchestration
-
-### 1. Plan Mode Default
-Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions). If something goes sideways, STOP and re-plan immediately. Use plan mode for verification steps too. Write detailed specs upfront.
-
-### 2. Subagent Strategy
-Use subagents liberally to keep main context clean. Offload research, exploration, and parallel analysis. One task per subagent.
-
-### 3. Self-Improvement Loop
-After ANY correction from the user: update memory or `tasks/lessons.md` with the pattern. Ruthlessly iterate on these lessons.
-
-### 4. Verification Before Done
-Never mark a task complete without proving it works. Run tests, check logs, demonstrate correctness.
-
-### 5. Demand Elegance (Balanced)
-For non-trivial changes: pause and ask "is there a more elegant way?" If a fix feels hacky, refactor it. Skip for simple, obvious fixes.
-
-### 6. Autonomous Bug Fixing
-Just fix bugs when given. Point at logs, errors, failing tests — then resolve them.
-
-## Task Management
-- **Plan First** — Write plan to `tasks/todo.md` with checkable items
-- **Verify Plan** — Check in before starting implementation
-- **Track Progress** — Mark items complete as you go
-- **Document Results** — Add review section when done
-- **Capture Lessons** — Update memory after corrections
-
-## Core Principles
-- **Simplicity First** — Every change as simple as possible
-- **No Laziness** — Find root causes; no temp fixes; senior-developer standards
-- **Minimal Impact** — Touch only what's necessary; don't introduce regressions
-
----
 
 ## Documentation Sync Rule (MANDATORY — read before any code change)
 
@@ -284,3 +251,28 @@ This rule exists because deleting `future/` was reverted twice during the 04-29 
 6. `PHASE_5_RECENT_WORK.md` for the most recent architecture decisions
 
 The pack under `future/` is one abstraction level higher than the root `*_GUIDE.md` files — it tells you where to look, not how every detail works.
+
+
+## Defaults, not absolutes
+If a rule below would produce a worse outcome in a specific case, say so 
+and explain — don't silently comply with a rule that's misfiring.
+
+## Never
+- Don't swallow exceptions to silence errors.
+- Don't hardcode values or comment out assertions to make tests pass.
+- Don't invent APIs, function signatures, or config keys. If unsure, check or ask.
+- Say "I don't know" when you don't know. Don't guess at fixes.
+- Confirm before destructive actions (deleting files, dropping data, 
+  rewriting git history).
+- State assumptions explicitly in your response so I can correct them.
+-while testing front end check for unlined Ui elements and consle logs that return unexpceted responses
+
+## Correctness
+- Find root causes. No temporary fixes, no swallowing symptoms.
+- Before claiming a task is done: run tests if they exist, otherwise at 
+  minimum execute the changed code. If you couldn't verify it, say so 
+  explicitly — don't say "this should work."
+
+## Multi-session work
+- For tasks spanning multiple sessions or 5+ steps, maintain `tasks/todo.md` 
+  with checkable items. Skip this for smaller tasks.
