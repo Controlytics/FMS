@@ -74,12 +74,18 @@ For end-to-end details, start with `PROJECT_SUMMARY.md` (overview), `PROJECT_ARC
 - **69 reauthentication actions** across 16 categories
 - **Block change request/approval** workflow with single-use consumption
 
-### Recent (April 2026)
-- **Offline overhaul** — TTLs, idempotency keys, tombstones, LRU cache, JWT refresh on replay, server-side `stageLookup` walker for chained CHECKLIST nodes, batch + single submit parity
-- **Filter Data Management console** — 10 tabs mirroring user-facing pages (cycles, events, alarms, PM, audit, notifications, admin requests, block changes, etc.)
-- **Capacitor Network plugin + service-worker hook** — reliable online detection on Android WebView (replaces unreliable `navigator.onLine`)
-- **Forgot-password flow + lockout-progress UI** on tablet
-- **Decision-tape proposal** — future architecture to remove client/server pipeline drift (see `docs/`)
+### Phase 5 — April 15–29, 2026 (live on `RFID` branch)
+Detailed in `PHASE_5_RECENT_WORK.md`:
+
+- **Reports module — phases A–F complete** — visual template designer + PDF generation engine (Puppeteer + chartjs-node-canvas + Handlebars) + 5-source variable resolver + digital signatures
+- **Offline hardening (14-issue overhaul)** — TTL cache, idempotency keys, tombstones, LRU eviction, JWT refresh on replay, server-side `stageLookup` walker for chained CHECKLIST nodes, Capacitor Network plugin + Service Worker hook
+- **RFID SDK plugin baked into DigiLog APK** — `Reader_Usb.jar` via `RfidPlugin.java` — KC-series readers work in SDK and UKB modes
+- **Filter Data Management console** — 10 tabs each mirroring its user-facing page (cycles, events, alarms, PM, audit, notifications, admin requests, block changes, etc.) with Edit modals
+- **DRY_IN two-step flow** — SET_DURATION → SUBMIT_READINGS, "Currently Drying" countdown panel persisted across navigation/offline
+- **Dynamic backup/restore** — covers all 64 tables via `pg_tables` + `jsonb_populate_recordset`, non-superuser compatible
+- **Admin requests approval execution** — approvals now actually create/unlock/reset/modify users
+- **Bloat audit follow-up** — 12/14 items resolved (SPIS submit-path parity, dependency cleanup, config monolith split, inline-style codemod, EC2 assets removed, lint rule for `as any`)
+- **Decision-tape proposal** — future architecture to eliminate client/server pipeline drift (proposed, not yet implemented)
 
 ---
 
@@ -165,6 +171,7 @@ See `LOCAL_SETUP_WINDOWS.md` for the full step-by-step setup, and `DEPLOY-WINDOW
 | `BACKEND_GUIDE.md` | Backend dev guide — module patterns, plugins, auth |
 | `FRONTEND_GUIDE.md` | Frontend dev guide — routes, hooks, state |
 | `OFFLINE_SYNC_ARCHITECTURE.md` | Tablet APK + offline IndexedDB queue + sync engine |
+| `PHASE_5_RECENT_WORK.md` | Post-Phase-4 architecture changes (Apr 15–29) — reports, offline hardening, RFID SDK, decision tape |
 | `CHANGELOG.md` | Full chronological history |
 | `CLAUDE.md` | Instructions for AI coding assistants |
 | `AGENTS.md` | Agent-mode instructions |

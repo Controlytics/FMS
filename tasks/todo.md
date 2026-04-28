@@ -171,6 +171,31 @@ Total: 37 files moved (or 88 if tests are archived).
 - Stray `apps/android/apps/web/public/sw.js` (misplaced built file from a relative-path build) — left untouched; not a doc issue
 - Untracked `docs/deployment-methods/**` — will commit alongside doc cleanup
 
+### Follow-up — Phase 5 cross-check (after user feedback "we have moved very ahead of phase-4")
+
+User flagged that the prior commit's "Recent (April 2026)" framing under-represented post-2026-04-14 work. Re-scanned `git log` (2026-04-15 → 2026-04-29) and memory (sessions 04-15 through 04-25). Captured everything:
+
+- [x] Verified archived superpowers specs / plans hold unique design rationale (problem statements, data models, validation logic) not duplicated in code or CHANGELOG. They were correctly archived as completed, but needed to remain findable.
+- [x] Created `PHASE_5_RECENT_WORK.md` capturing 11 sections: Reports module, Offline hardening (14-issue overhaul), RFID SDK plugin, Filter Data Mgmt console, DRY_IN two-step flow, Dynamic backup/restore, Bloat audit + reorg, Decision tape proposal, Other Phase 5 work, Pointer to historical design specs, Outstanding work.
+- [x] Appended `CHANGELOG.md` with `[2.4.0] — 2026-04-21` and `[2.5.0] — 2026-04-25` release notes.
+- [x] Wired `PHASE_5_RECENT_WORK.md` into `README.md` (replaced thin "Recent" section with proper Phase 5 framing + doc-map link), `docs/index.md` (Phase 5 section + design-specs pointer), and `CLAUDE.md` (Phase 5 snapshot).
+
+### Verification of "files we considered unnecessary are really so"
+
+Cross-checked each archive bucket:
+
+| Archived | Verified status |
+|---|---|
+| `docs/api-reference/**` (16 files) | Confirmed — covered Phase 1 only; no `/api/filters/*`, `/api/cleaning-cycles`, `/api/pm-schedules`, `/api/reports`, `/api/block-change-requests`. Replaced by `API_REFERENCE.md`. |
+| `docs/phases/PHASE_A..K` (12 files) | Confirmed — pre-DigiLog ThingsBoard build plans, summarized in `CHANGELOG 0.9.0`. |
+| `docs/superpowers/{plans,specs}/**` (6 files) | Confirmed completed work. **But** they hold unique design rationale — pointers added from `docs/index.md` and `PHASE_5_RECENT_WORK.md` so they remain discoverable. |
+| `docs/offline-sync-design.md` | Confirmed — content captured in `OFFLINE_SYNC_ARCHITECTURE.md`. |
+| `bloat.md` | Confirmed — 12/14 resolved; final status now in `PHASE_5_RECENT_WORK.md` § 7. |
+| `tests/manual-test-cases/**` + `test-execution-guides/**` (51 files) | Confirmed Phase 1 only; **gap remains** — no Phase 2/3/4/5 test cases written. Listed in `PHASE_5_RECENT_WORK.md` § 11 outstanding work. |
+| `ARCHITECTURE.md` | Confirmed — superseded by `PROJECT_ARCHITECTURE.md`. |
+
+Conclusion: every archived file was correctly classified. The only loss-of-knowledge risk was the design specs, which is now mitigated via index pointers.
+
 ### How to roll back
 ```bash
 git diff --stat HEAD~1 HEAD             # see what changed

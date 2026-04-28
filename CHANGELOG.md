@@ -1,5 +1,62 @@
 # Changelog
 
+## [2.5.0] — 2026-04-25 — Offline Hardening, RFID SDK, Filter Data Console
+
+### Added
+- **Offline overhaul foundation** — TTL-based cache invalidation, idempotency keys on every queued op, tombstones for deleted entities, LRU eviction, JWT refresh during replay (queued ops carry refreshed tokens) — commits `3c99973`, `0c8de53`, `b8e003e`
+- **Server-side stage lookup walker** — `stageLookup` resolves stage chains across multiple consecutive CHECKLIST nodes (fixes wrong-stage / missing prompts)
+- **Capacitor Network plugin + Service Worker hook** — reliable online detection on Android WebView (replaces unreliable `navigator.onLine`)
+- **RFID SDK plugin in DigiLog APK** — `RfidPlugin.java` bundles `Reader_Usb.jar`, so KC-series readers work in SDK mode inside the main APK (commit `39ccd1c`)
+- **Filter Data Management console** — 10 tabs each mirroring its corresponding user-facing page (cleaning cycles, filter events, alarms, PM entries, audit trail, notifications, admin requests, block changes), instead of raw DB rows
+- **Edit modals** for cleaning-cycles and filter-events tabs in the Filter Data Mgmt console
+- **Forgot-password flow + show/hide password + lockout-progress UI** on tablet/mobile login
+- **Create-filter dialog** now renders the Filter entity template's `attributeSchema` fields dynamically
+- **`?expand=questions`** query param honored on `GET /api/checklist-profiles` so offline cache contains questions
+
+### Fixed
+- Mobile RFID scan input losing focus after first scan
+- RFID-burst capture in UKB mode missing first keystroke (seed buffer + raise burst threshold to 150 ms)
+- `pm-schedule-approval` config def returning 404 (now registered in `config-discovery.ts`)
+- Offline checklist prompts missing or showing wrong stage when two CHECKLIST nodes were chained
+- Offline checklist cache empty because list endpoint silently dropped questions
+
+### Changed
+- Filter Data Mgmt console columns trimmed to those visible on the matching user-facing pages (no extra DB-only fields)
+
+---
+
+## [2.4.0] — 2026-04-21 — Reports, Reorg, Dynamic Backup, Bloat Audit
+
+### Added
+- **Reports module — phases A through F complete**: report template designer (visual editor), report generation engine (Puppeteer + chartjs-node-canvas + Handlebars), digital signatures, PDF storage, frontend pages, schema, variable resolver with 5 data sources (attribute / identifier / telemetry / timestamp / meta)
+- **Dynamic backup/restore** — covers all 64 tables via `pg_tables` + `jsonb_populate_recordset`; non-superuser-compatible; two-pass fixup for self-referencing rows
+- **Admin requests approval execution flow** — approvals now actually create/unlock/reset/modify users; requester Employee ID required; audit trail hides UUIDs
+- **DRY_IN two-step flow** — separate SET_DURATION and SUBMIT_READINGS events; "Currently Drying" panel with countdown + temperature (web + tablet + offline)
+- **Batch scan mode** in mobile operations
+- **Stage cards** on tablet home page
+- **Pipeline enforcement on offline path** — replay re-walks the pipeline to enforce checklist-as-stage rules
+- **Block deletion**, RBAC fixes (roles drift after DB restore)
+- **Entity org auto-assign** for admin-created entities
+- **Reorg**: `old/` archive for superseded material, `future/` for forward-looking design notes
+
+### Fixed
+- Cycle `profile_id` frozen at start (reassigning a block's profile no longer corrupts in-progress cycles)
+- DRY_IN temperature not showing in cleaning cycle history (now read from readings event)
+- Offline DRY_IN sync skipping half-time check on replay
+- Lenient offline cycle detection + preserve graph data in online cache
+- Backend pipeline bypass at DRY_IN for both SET_DURATION and SUBMIT_READINGS
+- Lifecycle state cleared on offline cycle completion so next cycle starts fresh
+- Sync health check tolerant of self-signed certs (avoids false cycle-completion signals)
+
+### Changed
+- **Removed all EC2 / Linux production assets** — app runs on local Windows only (commit `251be95`); CLAUDE.md / per-app CLAUDE.md de-EC2'd
+- **`apps/api/src/modules/config/routes.ts`** monolith split into per-tab files registered via auto-discovery (was 1003 lines / 40 endpoints)
+- **Inline-style → theme-class codemod** across 54 TSX files (~200 occurrences eliminated)
+- **Bloat audit** (`bloat.md`, archived) — 12 / 14 items resolved (SPIS submit-path parity, monster-file split, dependency drift cleanup, lint rule for `as any`, timer audit)
+- **`packages/shared`** rebuild required after permissions / privileges / reauth changes
+
+---
+
 ## [2.3.0] — 2026-04-14 — Permissions, Themes & Reports
 
 ### Added

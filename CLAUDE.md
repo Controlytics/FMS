@@ -94,8 +94,8 @@ RFID Scanner Android app (Reader_Usb.jar SDK), web RFID keyboard guard, offline 
 ### Phase 4 — Permissions, Themes, Reports
 18 granular feature toggles (Filters / Checklists / Cleaning Profiles / Equipment / PM), 10 color themes, configurable report header/footer/layout, dynamic bulk upload from template attributeSchema, 69 reauth actions.
 
-### Recent (April 2026)
-Offline overhaul (TTLs, idempotency, tombstones, JWT refresh, stage lookup, decision tape proposal), RFID SDK plugin in DigiLog APK, Filter Data Management console mirroring 10 user-facing pages, dynamic backup/restore covering all 64 tables.
+### Phase 5 — Reports, Offline Hardening, RFID SDK, Filter Data Console (Apr 15–29, 2026)
+Reports module A–F complete (visual template designer + Puppeteer/chartjs/Handlebars PDF engine + digital signatures), offline overhaul (TTL cache, idempotency keys, tombstones, LRU, JWT refresh, server-side `stageLookup`, Capacitor Network plugin + SW hook), RFID SDK plugin in DigiLog APK (`Reader_Usb.jar` via `RfidPlugin.java`), Filter Data Management console mirroring 10 user-facing pages, DRY_IN two-step flow with persisted countdown panel, dynamic backup/restore covering all 64 tables, bloat audit 12/14 resolved, EC2/PM2 production assets removed (local-Windows-only), decision-tape proposal for future client/server pipeline drift elimination. Full architectural detail in `PHASE_5_RECENT_WORK.md`.
 
 ## Key API Endpoints (filter operations)
 ```

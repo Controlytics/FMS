@@ -19,6 +19,7 @@ For a top-down view, prefer the docs at the repo root:
 - [`BACKEND_GUIDE.md`](../BACKEND_GUIDE.md) — backend dev guide
 - [`FRONTEND_GUIDE.md`](../FRONTEND_GUIDE.md) — frontend dev guide
 - [`OFFLINE_SYNC_ARCHITECTURE.md`](../OFFLINE_SYNC_ARCHITECTURE.md) — tablet + offline architecture
+- [`PHASE_5_RECENT_WORK.md`](../PHASE_5_RECENT_WORK.md) — post-Phase-4 work (Apr 15–29) including reports, offline hardening, RFID SDK, decision-tape proposal
 - [`CHANGELOG.md`](../CHANGELOG.md) — chronological history
 
 ## Getting Started
@@ -112,4 +113,23 @@ All filter operations are recorded as immutable events with SHA-256 checksums, e
 - Dynamic CSV bulk upload from template attributeSchema
 - 69 reauth actions
 
-See `CHANGELOG.md` for full release history.
+## Phase 5 — Reports, Offline Hardening, RFID SDK, Filter Data Console (Apr 15–29, 2026)
+- Reports module phases A–F complete (template designer + generation engine + signatures)
+- Offline overhaul: TTLs, idempotency keys, tombstones, LRU, JWT refresh on replay, server-side `stageLookup`, Capacitor Network plugin + Service Worker hook
+- RFID SDK plugin baked into DigiLog APK (KC-series via `Reader_Usb.jar`)
+- Filter Data Mgmt console — 10 tabs mirroring user-facing pages
+- DRY_IN two-step flow with persisted countdown panel
+- Dynamic backup/restore covering all 64 tables
+- EC2 / PM2 production assets removed; Windows-local-only
+- Bloat audit (12/14 items resolved)
+- Decision-tape proposal (future architecture)
+
+See `PHASE_5_RECENT_WORK.md` for the full architectural breakdown and `CHANGELOG.md` for the release-note view.
+
+## Historical design specs (archived but live features)
+The implementation plans + design specs for several Phase 4/5 features sit in `old/docs-superseded/superpowers-{plans,specs}/`. They contain problem statements, data models, and validation logic that aren't duplicated in code:
+- Block change approval (`2026-04-10-*`)
+- PM "My Tasks" system (`2026-04-11-*`)
+- Report template designer + generation engine (`2026-04-15-*`)
+- DRY_IN state persistence (`2026-04-17-*`)
+- Bloat audit (`old/docs-superseded/bloat.md`)
