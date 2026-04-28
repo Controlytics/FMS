@@ -35,3 +35,6 @@ CREDENTIALS.md
 
 # Playwright MCP session traces (regenerated each run)
 .playwright-mcp/
+
+# Git worktrees (isolated subagent workspaces)
+.worktrees/
