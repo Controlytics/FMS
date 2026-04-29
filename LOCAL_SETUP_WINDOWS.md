@@ -20,10 +20,15 @@
   - Run the TimescaleDB installer, select your PostgreSQL 18 installation
   - Restart PostgreSQL service after TimescaleDB install
 
-### 1.3 Redis 5
-- Use the Windows Redis 5 binary at: `C:\Users\hello\redis5\redis-server.exe`
-- Port: **6379** (default)
-- No password needed for local dev
+### 1.3 Redis (optional — non-queue pub/sub only)
+- Phase 2 Task 2.10 moved the job queue onto Postgres via graphile-worker, so
+  Redis is no longer required for the queue path.
+- Redis is still used by the WebSocket pub/sub, RPC routing, pipeline tracer,
+  and debug recorder. If you skip Redis these features degrade silently
+  (login + REST APIs + ingestion pipeline still work).
+- If you do want full functionality, the Windows Redis 5 binary at
+  `C:\Users\hello\redis5\redis-server.exe` (port **6379**, no password) is
+  fine. Memurai works equally well.
 
 ### 1.4 Git
 - Download: https://git-scm.com/download/win
@@ -107,7 +112,9 @@ MQTT_BROKER_WSS_PORT=8084
 MQTT_AUTH_CALLBACK_URL=http://localhost:3000/api/internal/mqtt
 EMQX_ADMIN_PASSWORD=public
 
-# --- Redis (BullMQ + Pub/Sub) ---
+# --- Redis (optional — pub/sub only; queue is on Postgres) ---
+# Required for: WebSocket events, RPC routing, pipeline tracer, debug recorder.
+# Safe to leave unset for a queue-only smoke test.
 REDIS_HOST=localhost
 REDIS_PORT=6379
 REDIS_PASSWORD=
@@ -194,7 +201,7 @@ npm run build
 This runs `turbo build` which builds all packages in dependency order:
 1. `@digilog/shared` (shared types)
 2. `@digilog/db` (Prisma client wrapper)
-3. `@digilog/queue` (BullMQ wrapper)
+3. `@digilog/queue` (graphile-worker wrapper)
 4. `@digilog/api` (Fastify backend — TypeScript -> JavaScript)
 5. `@digilog/web` (React frontend — Vite build)
 
@@ -222,7 +229,7 @@ Frontend runs on http://localhost:5175
 
 ### 8.2 Using Batch Scripts
 ```bash
-start-digilog.bat    # Starts Redis, EMQX, API, and Frontend
+start-digilog.bat    # Starts Redis (pub/sub only), EMQX, API, and Frontend
 stop-digilog.bat     # Stops all services
 ```
 
@@ -290,7 +297,7 @@ curl http://localhost:3000/api/health
 ├── packages/
 │   ├── shared/                 # Shared types & Zod schemas
 │   ├── db/                     # Prisma client + TimescaleDB pool
-│   └── queue/                  # BullMQ wrapper
+│   └── queue/                  # graphile-worker wrapper (Postgres-backed)
 ├── init-tsdb.sql               # TimescaleDB hypertable creation
 ├── turbo.json                  # Turborepo build config
 ├── start-digilog.bat           # Windows start script
@@ -308,7 +315,7 @@ curl http://localhost:3000/api/health
 | Web Dev Port | 5175 | Vite dev server |
 | PostgreSQL | localhost:5432 | User: digilog, DB: digilog_db (PG 18) |
 | TimescaleDB | localhost:5432 | DB: digilog_tsdb (same PG instance) |
-| Redis | localhost:6379 | Redis 5, no password for local dev |
+| Redis | localhost:6379 | Optional — pub/sub only (queue moved to Postgres) |
 | MQTT (EMQX) | localhost:1883 | Optional — set MQTT_ENABLED=false to skip |
 | Default Login | superadmin / Admin@123 | Created by seed |
 
@@ -397,10 +404,10 @@ npm run build
 
 ## 15. Architecture Summary
 
-- **Backend:** Fastify 5 + TypeScript + Prisma ORM + BullMQ job queue
+- **Backend:** Fastify 5 + TypeScript + Prisma ORM + graphile-worker job queue
 - **Frontend:** React 19 + Vite 6 + Tailwind CSS 4 + SWR + React Router 7
 - **Database:** PostgreSQL 18 + TimescaleDB (time-series) + Prisma migrations
-- **Queue:** Redis 5 + BullMQ (data ingestion pipeline, maintenance workers)
+- **Queue:** PostgreSQL + graphile-worker (data ingestion pipeline, maintenance workers, cron)
 - **Auth:** JWT tokens with bcrypt password hashing, session management
 - **MQTT:** EMQX broker for IoT device connectivity (optional for local dev)
 

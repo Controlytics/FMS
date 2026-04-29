@@ -1,11 +1,11 @@
 /**
- * Retention cleanup logic — shared between the legacy BullMQ Worker
- * (`maintenance.worker.bullmq.ts`) and the graphile-worker `retentionCleanupTask`
- * in `maintenance.worker.ts`.
+ * Retention cleanup logic — invoked from the graphile-worker
+ * `retentionCleanupTask` in `maintenance.worker.ts`.
  *
- * Extracted out so both queue paths run the same cleanup. Removed alongside
- * the BullMQ sibling in Task 2.10 once `retentionCleanupTask` is the only
- * caller — at which point this can fold back into `maintenance.worker.ts`.
+ * Originally extracted so both the BullMQ Worker and the graphile-worker
+ * task could run the same cleanup. Task 2.10 dropped the BullMQ Worker, so
+ * this could fold back into `maintenance.worker.ts` — kept separate for now
+ * because the body is meaty (~200 LOC) and the task module stays clean.
  */
 
 import { prisma } from '../lib/prisma.js';

@@ -15,7 +15,7 @@ apps/android/     — Capacitor Android wrapper (DigiLog-FilterOps.apk)
 rfid_scan_app/    — Native Kotlin RFID scanner (KC-series UHF readers)
 packages/shared/  — Permissions (109), privileges (91), reauth (81), sidebar items (26), zod schemas
 packages/db/      — Prisma client + TimescaleDB pool + telemetry batcher
-packages/queue/   — BullMQ queues (5) + Redis connection
+packages/queue/   — graphile-worker job queue (Postgres-backed)
 docs/             — Project docs (current)
 old/              — Archived superseded docs and tasks
 future/           — Forward-looking design notes
@@ -24,8 +24,10 @@ future/           — Forward-looking design notes
 ## Local Dev Environment (Windows)
 The app runs ONLY on local Windows for development. There is no live EC2 / Linux production environment to push to.
 
-- Node.js 20+, PostgreSQL 18 + TimescaleDB, Memurai (Redis ≥5), EMQX 5.x
-- Memurai required (old Redis 3 crashes BullMQ); start: `C:\Users\hello\redis5\redis-server.exe`
+- Node.js 20+, PostgreSQL 18 + TimescaleDB, EMQX 5.x
+- Job queue runs on Postgres via graphile-worker — no separate Redis/Memurai service needed.
+  (Redis/Memurai is still used for non-queue pub/sub: WebSocket events, RPC routing,
+  pipeline tracing, debug recorder. Phase 4 will replace those with Postgres LISTEN/NOTIFY.)
 - EMQX optional unless testing MQTT ingest: `C:\Users\hello\emqx\bin\emqx.cmd`
 - Convenience: `start-digilog.bat` / `stop-digilog.bat`
 - API runs via `tsx watch` in dev (no PM2 locally), Vite serves frontend
@@ -76,7 +78,7 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 - **Config:** **30 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **26** corresponding pages
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
 - **Frontend:** 23 route folders/files, ~85 pages, **14** custom hooks, **15** lib modules
-- **BullMQ queues:** 5 (ingestion, notification, export, reports, maintenance)
+- **Queue backend:** graphile-worker (Postgres-backed); 3 queues (ingestion, notification, maintenance)
 
 ## Important Notes
 - TimescaleDB is `digilog_tsdb`, NOT `digilog_db` (PG models live in `digilog_db`)

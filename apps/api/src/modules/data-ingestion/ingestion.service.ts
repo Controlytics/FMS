@@ -14,8 +14,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { computeChecksum } from '../../lib/hash-chain.js';
 import { flushAll } from '@digilog/db';
-import { Queue } from 'bullmq';
-import { getRedisConnection, QUEUES, JOB_PRIORITY } from '@digilog/queue';
+import { QUEUES, JOB_PRIORITY, getProducer } from '@digilog/queue';
 import IORedis from 'ioredis';
 import type { IngestionMessage } from './message-normalizer.js';
 import { getConfigOrDefault } from './ingestion-config.service.js';
@@ -40,8 +39,6 @@ import {
 import { addToDLQ } from './dlq-manager.js';
 import { addDeviceEventRow } from '@digilog/db';
 import { dispatchNotification } from "../notification-delivery/notification-dispatcher.js";
-import { isFeatureEnabled, FEATURE_FLAGS } from '../../lib/feature-flags.js';
-import { getProducer } from '@digilog/queue';
 
 // ─── Redis publisher for Stage 11 ──────────────────────
 
@@ -60,159 +57,77 @@ function getRedisPublisher(): IORedis {
   return redisPub;
 }
 
-// ─── Notification enqueue helper (USE_PG_QUEUE branch) ─
-// Mirrors the ingestion enqueue helper below. Notification has no BullMQ
-// Worker in the current codebase — jobs are produced here but nothing
-// dequeues them on the BullMQ side. The PG path will dequeue via the
-// single Runner registered in Task 2.8 (notificationTask handler).
-
-let bullmqNotificationQueue: Queue | null = null;
-
-function getBullMqNotificationQueue(): Queue {
-  if (!bullmqNotificationQueue) {
-    bullmqNotificationQueue = new Queue(QUEUES.NOTIFICATION.name, {
-      connection: getRedisConnection(),
-      defaultJobOptions: QUEUES.NOTIFICATION.defaultJobOptions,
-    });
-  }
-  return bullmqNotificationQueue;
-}
+// ─── Notification enqueue helper ────────────────────────
+// Notification has no in-process consumer in the current codebase — jobs are
+// produced here but nothing dequeues them yet. A real notification handler
+// will be wired in a follow-up phase; until then the jobs accumulate in
+// graphile_worker.jobs and can be inspected by ops.
 
 export interface EnqueueNotificationOptions {
-  /** BullMQ + graphile-worker both honour priority (lower number = sooner). */
+  /** Lower number = sooner (graphile-worker priority). */
   priority?: number;
-  /** Idempotency key. Maps to BullMQ `jobId` and graphile-worker `jobKey`. */
+  /** Idempotency key — maps to graphile-worker `jobKey`. */
   jobId?: string;
 }
 
 /**
- * Enqueue a notification job onto whichever backend is currently active.
- *
- * - USE_PG_QUEUE=true  → graphile-worker `addJob('notification', payload, …)`
- * - USE_PG_QUEUE=false → BullMQ `queue.add(jobName, payload, { priority, jobId })`
- *
- * `jobName` is preserved in the BullMQ branch so the BullMQ UI can group by
- * the call site (`alarm_notification` vs `rule_chain_notification`). The PG
- * branch uses a fixed task identifier (`'notification'`) — the discriminator
- * lives inside the payload (`payload.type`) for graphile-worker.
- *
- * `maxAttempts` for the PG branch is read from
- * QUEUES.NOTIFICATION.defaultJobOptions.attempts so the two backends stay in
- * lock-step if the constant is bumped.
+ * Enqueue a notification job. The fixed task identifier `'notification'`
+ * means the discriminator lives inside the payload (`payload.type`) rather
+ * than in the task name — kept this way so the existing call sites
+ * (`alarm_notification`, `rule_chain_notification`, etc.) don't need to
+ * change. `maxAttempts` is read from QUEUES.NOTIFICATION.defaultJobOptions
+ * .attempts so the constant is the single source of truth.
  */
 export async function enqueueNotificationJob(
-  jobName: string,
+  _jobName: string,
   payload: Record<string, unknown>,
   options: EnqueueNotificationOptions = {},
 ): Promise<void> {
-  if (isFeatureEnabled(FEATURE_FLAGS.USE_PG_QUEUE)) {
-    const producer = await getProducer();
-    await producer.addJob(
-      'notification',
-      payload,
-      {
-        priority: options.priority,
-        jobKey: options.jobId,
-        maxAttempts: QUEUES.NOTIFICATION.defaultJobOptions.attempts,
-      },
-    );
-    return;
-  }
-
-  await getBullMqNotificationQueue().add(jobName, payload, {
-    priority: options.priority,
-    jobId: options.jobId,
-  });
+  const producer = await getProducer();
+  await producer.addJob(
+    'notification',
+    payload,
+    {
+      priority: options.priority,
+      jobKey: options.jobId,
+      maxAttempts: QUEUES.NOTIFICATION.defaultJobOptions.attempts,
+    },
+  );
 }
 
-/**
- * Close the cached BullMQ notification queue. Must be called BEFORE
- * `closeRedisConnection` during shutdown — Queue.close() needs the
- * underlying ioredis connection alive to flush pending writes. Safe to call
- * when the queue was never instantiated (e.g. USE_PG_QUEUE=true the whole run).
- */
-export async function closeNotificationQueue(): Promise<void> {
-  if (bullmqNotificationQueue) {
-    await bullmqNotificationQueue.close();
-    bullmqNotificationQueue = null;
-  }
-}
-
-// ─── Ingestion enqueue helper (USE_PG_QUEUE branch) ────
-// Single chokepoint for enqueueing into the ingestion queue. Branches on the
-// USE_PG_QUEUE feature flag so callers (mqtt-handler, HTTP routes, dlq-manager)
-// remain identical regardless of backend. Removed BullMQ branch in Task 2.10.
-
-let bullmqIngestionQueue: Queue | null = null;
-
-function getBullMqIngestionQueue(): Queue {
-  if (!bullmqIngestionQueue) {
-    bullmqIngestionQueue = new Queue(QUEUES.INGESTION.name, {
-      connection: getRedisConnection(),
-      defaultJobOptions: QUEUES.INGESTION.defaultJobOptions,
-    });
-  }
-  return bullmqIngestionQueue;
-}
+// ─── Ingestion enqueue helper ───────────────────────────
+// Single chokepoint for enqueueing into the ingestion queue. Callers
+// (mqtt-handler, HTTP routes, dlq-manager) all funnel through here.
 
 export interface EnqueueIngestionOptions {
-  /** BullMQ + graphile-worker both honour priority (lower number = sooner). */
+  /** Lower number = sooner (graphile-worker priority). */
   priority?: number;
-  /** Idempotency key. Maps to BullMQ `jobId` and graphile-worker `jobKey`. */
+  /** Idempotency key — maps to graphile-worker `jobKey`. */
   jobId?: string;
 }
 
 /**
- * Enqueue an ingestion message onto whichever backend is currently active.
- *
- * - USE_PG_QUEUE=true  → graphile-worker `addJob('ingestion', { msg }, …)`
- * - USE_PG_QUEUE=false → BullMQ `queue.add(msg.messageType, msg, { priority, jobId })`
- *
- * The graphile-worker payload wraps the message in `{ msg }` so the task can
- * destructure a single, well-defined shape (vs. a bare message object whose
- * fields could collide with future task-level metadata). The BullMQ branch
- * still uses `msg.messageType` as the job name to preserve the per-type
- * grouping the BullMQ UI relies on. graphile-worker's `jobKey` (replace-mode
- * by default) replaces BullMQ's `jobId` for idempotency.
- *
- * `maxAttempts` for the PG branch is read from QUEUES.INGESTION.defaultJobOptions
- * .attempts so the two backends stay in lock-step if the constant is bumped.
+ * Enqueue an ingestion message via graphile-worker. The payload wraps the
+ * message in `{ msg }` so the task handler can destructure a single,
+ * well-defined shape (vs. a bare message object whose fields could collide
+ * with future task-level metadata). `maxAttempts` is read from
+ * QUEUES.INGESTION.defaultJobOptions.attempts so the constant is the single
+ * source of truth.
  */
 export async function enqueueIngestionJob(
   msg: IngestionMessage,
   options: EnqueueIngestionOptions = {},
 ): Promise<void> {
-  if (isFeatureEnabled(FEATURE_FLAGS.USE_PG_QUEUE)) {
-    const producer = await getProducer();
-    await producer.addJob(
-      'ingestion',
-      { msg },
-      {
-        priority: options.priority,
-        jobKey: options.jobId,
-        maxAttempts: QUEUES.INGESTION.defaultJobOptions.attempts,
-      },
-    );
-    return;
-  }
-
-  await getBullMqIngestionQueue().add(msg.messageType, msg, {
-    priority: options.priority,
-    jobId: options.jobId,
-  });
-}
-
-/**
- * Close the cached BullMQ ingestion queue. Must be called BEFORE
- * `closeRedisConnection` during shutdown — Queue.close() needs the underlying
- * ioredis connection alive to flush pending writes. Safe to call when the
- * queue was never instantiated (e.g. USE_PG_QUEUE=true the whole run).
- */
-export async function closeIngestionQueue(): Promise<void> {
-  if (bullmqIngestionQueue) {
-    await bullmqIngestionQueue.close();
-    bullmqIngestionQueue = null;
-  }
+  const producer = await getProducer();
+  await producer.addJob(
+    'ingestion',
+    { msg },
+    {
+      priority: options.priority,
+      jobKey: options.jobId,
+      maxAttempts: QUEUES.INGESTION.defaultJobOptions.attempts,
+    },
+  );
 }
 
 // ─── Rate limiting state (in-memory) ───────────────────
@@ -244,7 +159,7 @@ export interface PipelineResult {
 
 /**
  * Process a single ingestion message through the pipeline.
- * Called by the BullMQ worker for each job.
+ * Called by the graphile-worker `ingestionTask` for each job.
  */
 export async function processIngestionMessage(msg: IngestionMessage): Promise<PipelineResult> {
   const warnings: string[] = [];
@@ -623,9 +538,10 @@ export async function processIngestionMessage(msg: IngestionMessage): Promise<Pi
     const failedStage = trace?.failedStage ?? 'unknown';
     await addToDLQ(msg, errorMessage, failedStage);
 
-    // NOTE: Returning { success: false } instead of re-throwing so BullMQ marks
-    // the job as completed (DLQ handles retries). Re-throwing would cause infinite
-    // BullMQ retries for permanently invalid messages.
+    // NOTE: Returning { success: false } instead of re-throwing so the queue
+    // worker marks the job as completed (DLQ handles retries). Re-throwing
+    // would cause graphile-worker to retry until maxAttempts for permanently
+    // invalid messages.
     return {
       success: false,
       messageId: msg.messageId,

@@ -40,11 +40,12 @@ Configuration is all in `.env` and `certs/`.
 ```
 ┌─────────────── target Windows machine ───────────────┐
 │                                                       │
-│  ┌─────────┐   ┌────────┐   ┌────────┐   ┌────────┐  │
-│  │ Node 20+│   │Postgres│   │Memurai │   │ EMQX   │  │
-│  │ API     │←──│ +Timsc │   │(Redis) │   │ MQTT   │  │
-│  │ :3000   │   │:5432   │   │:6379   │   │:1883   │  │
-│  └────┬────┘   └────────┘   └────────┘   └────────┘  │
+│  ┌─────────┐   ┌────────┐   ┌──────────┐  ┌────────┐  │
+│  │ Node 20+│   │Postgres│   │Memurai   │  │ EMQX   │  │
+│  │ API     │←──│ +Timsc │   │(optional │  │ MQTT   │  │
+│  │ :3000   │   │ +queue │   │ pub/sub) │  │ :1883  │  │
+│  │         │   │:5432   │   │ :6379    │  │        │  │
+│  └────┬────┘   └────────┘   └──────────┘  └────────┘  │
 │       │                                               │
 │  ┌────┴────────────────────┐                          │
 │  │  PM2 keeps API alive    │                          │
@@ -68,6 +69,12 @@ Configuration is all in `.env` and `certs/`.
 Five components run on the server. Four of them are **off-the-shelf downloads**
 (Postgres, Memurai, EMQX, Nginx). The fifth is **your built application**.
 
+> **Phase 2 Task 2.10 update (2026):** the job queue moved from BullMQ-on-Redis
+> to graphile-worker-on-Postgres. Memurai/Redis is now **optional** — the API
+> still uses it for non-queue pub/sub (WebSocket events, RPC, pipeline tracer,
+> debug recorder). For a queue-only smoke test you can skip Memurai; full
+> functionality still wants it.
+
 ---
 
 ## 3. Prerequisites to install on the target machine
@@ -80,7 +87,7 @@ Each is a Next-Next-Finish installer.
 | **Node.js LTS** | 20.x or 22.x | https://nodejs.org/ | Accept default options. Ensures `node` and `npm` are on PATH. |
 | **PostgreSQL** | 18 | https://www.postgresql.org/download/windows/ | Remember the password for the `postgres` superuser — you'll need it. Install **Stack Builder** and use it to add the **TimescaleDB** extension afterwards. |
 | **TimescaleDB** | latest for PG 18 | https://docs.timescale.com/self-hosted/latest/install/installation-windows/ | Needed for time-series data. Follow their Windows guide — it's a DLL copy + one `CREATE EXTENSION` statement. |
-| **Memurai** | Developer Edition | https://www.memurai.com/get-memurai | Redis-compatible server for Windows. The free Developer Edition is enough. |
+| **Memurai** | Developer Edition | https://www.memurai.com/get-memurai | Optional after Task 2.10 — only needed for Redis pub/sub (WebSocket events, RPC routing, tracer, debug recorder). The job queue runs on Postgres now. Free Developer Edition is enough if you do install it. |
 | **EMQX** | 5.x Windows | https://www.emqx.io/downloads | MQTT broker. Extract the ZIP and run `bin/emqx.cmd start`. |
 | **Nginx** | Windows stable | http://nginx.org/en/download.html | Serves the built web SPA and reverse-proxies the API. |
 | **Git (optional)** | any | https://git-scm.com/ | Only needed if you'll pull source updates later. |
@@ -296,9 +303,9 @@ After the install script finishes, verify everything in this order:
 # 1. PostgreSQL is responding
 psql -U digilog -d digilog_db -c "SELECT now();"
 
-# 2. Memurai (Redis) is responding
+# 2. Memurai (Redis) is responding — only required for pub/sub features
 redis-cli -p 6379 ping
-# → should print PONG
+# → should print PONG (skip if not using pub/sub features)
 
 # 3. EMQX dashboard is reachable
 # Browser: http://localhost:18083  (default login: admin / public)
@@ -396,7 +403,8 @@ When you ship a new build:
 | Tablet login fails with "unable to parse tls packet header" | API is running plain HTTP | Check `.env` has `API_HTTPS=true` and restart: `pm2 restart digilog-api` |
 | Tablet login fails with "certificate not trusted" | `rootCA.pem` not installed on the tablet | Re-do section 5.6 for that tablet |
 | API 500 errors, log says "TimescaleDB extension not found" | Extension not installed on `digilog_tsdb` | `psql -d digilog_tsdb -c "CREATE EXTENSION timescaledb;"` |
-| API 500, log says "BullMQ connection refused" | Memurai not running | `net start Memurai` |
+| API 500, log says "Cannot connect to Postgres on queue connection" | DATABASE_URL/DATABASE_URL_QUEUE wrong, or Postgres down | Verify `psql -U digilog -d digilog_db -c "SELECT 1;"` works; check `pm2 logs digilog-api` |
+| WebSocket events / RPC / debug-recorder failing | Memurai not running (queue still works) | `net start Memurai` — these features are optional after Task 2.10 |
 | Login works but no data loads | CORS rejecting the origin | Add the LAN IP/hostname to `ALLOWED_ORIGINS` in `.env` and `pm2 restart digilog-api` |
 | Can't find superadmin login after install | Seed didn't run | `cd C:\DigiLog\api && node -e "require('./dist/prisma/seed.js')"` (or run `npx prisma db seed`) |
 | PM2 not starting on boot | Startup script not installed | `pm2 save; pm2-startup install` |
@@ -410,7 +418,7 @@ Give the customer a printed copy of this list:
 
 - [ ] Windows machine meets the prerequisites (section 3)
 - [ ] Received `digilog-production.zip`
-- [ ] Installed Node.js, PostgreSQL 18 + TimescaleDB, Memurai, EMQX, Nginx
+- [ ] Installed Node.js, PostgreSQL 18 + TimescaleDB, EMQX, Nginx (Memurai optional — only for non-queue pub/sub)
 - [ ] Unzipped to `C:\DigiLog\`
 - [ ] Created `digilog_db` + `digilog_tsdb` databases (section 5.2)
 - [ ] Filled in `.env` — **database password + JWT secrets changed from defaults**

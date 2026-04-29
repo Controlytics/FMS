@@ -46,17 +46,15 @@ import wsHandler from './transport/ws-handler.js';
 import { initMqttClient, closeMqttClient } from './transport/mqtt-client.js';
 import { closeWsRedis } from './transport/ws-handler.js';
 import { closeRpcRedis } from './modules/data-ingestion/rpc-handler.js';
-import { closePipelineRedis, closeIngestionQueue, closeNotificationQueue } from './modules/data-ingestion/ingestion.service.js';
+import { closePipelineRedis } from './modules/data-ingestion/ingestion.service.js';
 import { closeTracerRedis } from './modules/data-ingestion/pipeline-tracer.js';
 import { closeDebugRedis } from './modules/rule-chain/debug-recorder.js';
 import { initializeNodes } from './modules/rule-chain/nodes/index.js';
 import notificationDeliveryRoutes from './modules/notification-delivery/routes.js';
 import userGroupRoutes from './modules/user-groups/routes.js';
 import notificationRulesRoutes from './modules/notification-rules/routes.js';
-import { startIngestionWorker, stopIngestionWorker, ingestionTask } from './workers/ingestion.worker.js';
+import { ingestionTask } from './workers/ingestion.worker.js';
 import {
-  startMaintenanceWorker,
-  stopMaintenanceWorker,
   dlqCheckTask,
   connectivityCheckTask,
   retentionCleanupTask,
@@ -320,55 +318,33 @@ try {
     app.log.warn(batchErr);
   }
 
-  // Phase 2 Task 2.8 — when USE_PG_QUEUE=true, run a single graphile-worker
-  // Runner that registers ALL task identifiers + the maintenance crontab
-  // (replaces the two BullMQ Workers below). When false, fall through to the
-  // legacy BullMQ boot path so dev defaults stay unchanged.
-  if (isFeatureEnabled(FEATURE_FLAGS.USE_PG_QUEUE)) {
-    try {
-      // crontab.txt lives at <repo>/packages/queue/crontab.txt; src/app.ts is
-      // at <repo>/apps/api/src/app.ts so the relative hop is 3 dot-dots.
-      // Override via MAINTENANCE_CRONTAB_PATH for non-default monorepo layouts.
-      const crontabPath =
-        process.env.MAINTENANCE_CRONTAB_PATH ??
-        path.resolve(__dirname, '../../../packages/queue/crontab.txt');
-      await startJobRunner({
-        taskList: {
-          ingestion: ingestionTask,
-          // NOTE: no `notification` task is registered here yet — there is no
-          // consumer for it in the current codebase, so notification jobs
-          // would fall through to the same black-hole behavior they had on
-          // the BullMQ path. A real notification handler will be wired in a
-          // follow-up phase.
-          dlq_check: dlqCheckTask,
-          connectivity_check: connectivityCheckTask,
-          retention_cleanup: retentionCleanupTask,
-        },
-        crontabPath,
-      });
-      app.log.info('graphile-worker job runner started (USE_PG_QUEUE=true)');
-    } catch (runnerErr) {
-      app.log.warn('graphile-worker job runner failed to start — server continuing');
-      app.log.warn(runnerErr);
-    }
-  } else {
-    // Start ingestion pipeline worker (Phase C)
-    try {
-      await startIngestionWorker();
-      app.log.info('Ingestion worker started');
-    } catch (workerErr) {
-      app.log.warn('Ingestion worker failed to start — server continuing without worker');
-      app.log.warn(workerErr);
-    }
-
-    // Start maintenance worker (Phase C)
-    try {
-      await startMaintenanceWorker();
-      app.log.info('Maintenance worker started');
-    } catch (maintErr) {
-      app.log.warn('Maintenance worker failed to start — server continuing');
-      app.log.warn(maintErr);
-    }
+  // Phase 2 — single graphile-worker Runner registers ALL task identifiers
+  // and the maintenance crontab (Task 2.8). The legacy BullMQ path was
+  // dropped in Task 2.10; graphile-worker is the only queue backend now.
+  try {
+    // crontab.txt lives at <repo>/packages/queue/crontab.txt; src/app.ts is
+    // at <repo>/apps/api/src/app.ts so the relative hop is 3 dot-dots.
+    // Override via MAINTENANCE_CRONTAB_PATH for non-default monorepo layouts.
+    const crontabPath =
+      process.env.MAINTENANCE_CRONTAB_PATH ??
+      path.resolve(__dirname, '../../../packages/queue/crontab.txt');
+    await startJobRunner({
+      taskList: {
+        ingestion: ingestionTask,
+        // NOTE: no `notification` task is registered here yet — there is no
+        // consumer for it in the current codebase, so notification jobs
+        // accumulate in graphile_worker.jobs until a real handler is wired
+        // in a follow-up phase.
+        dlq_check: dlqCheckTask,
+        connectivity_check: connectivityCheckTask,
+        retention_cleanup: retentionCleanupTask,
+      },
+      crontabPath,
+    });
+    app.log.info('graphile-worker job runner started');
+  } catch (runnerErr) {
+    app.log.warn('graphile-worker job runner failed to start — server continuing');
+    app.log.warn(runnerErr);
   }
 } catch (err) {
   app.log.error(err);
@@ -385,12 +361,7 @@ const shutdown = async (signal: string) => {
   shutdownTimeout.unref();
 
   try {
-    if (isFeatureEnabled(FEATURE_FLAGS.USE_PG_QUEUE)) {
-      await stopJobRunner();
-    } else {
-      await stopIngestionWorker();
-      await stopMaintenanceWorker();
-    }
+    await stopJobRunner();
     await closeTelemetryBatcher();
     await closeMqttClient();
     await closeWsRedis();
@@ -399,14 +370,8 @@ const shutdown = async (signal: string) => {
     await closeTracerRedis();
     await closeDebugRedis();
     await app.close();
-    // Close cached BullMQ ingestion queue BEFORE the redis connection is
-    // quit — Queue.close() needs the underlying ioredis client alive to
-    // flush pending writes. Closes a pre-existing gap (the prior 3 per-file
-    // Queue instances were never closed either).
-    try { await closeIngestionQueue(); } catch {}
-    try { await closeNotificationQueue(); } catch {}
+    try { const { closeProducer } = await import('@digilog/queue'); await closeProducer(); } catch {}
     try { const { closeTsdbPool } = await import('@digilog/db'); await closeTsdbPool(); } catch {}
-    try { const { closeRedisConnection } = await import('@digilog/queue'); await closeRedisConnection(); } catch {}
   } catch (err) {
     app.log.error(err as Error, 'Error during shutdown');
   }

@@ -18,9 +18,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "bullmq": "^5.70.1",
     "graphile-worker": "0.16.6",
-    "ioredis": "^5.9.3",
     "pg": "^8.18.0",
     "zod": "^3.24.0"
   },
