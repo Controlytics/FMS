@@ -166,7 +166,7 @@ The main application file registers everything in this order:
 | `transport/mqtt-handler.ts` | MQTT message processing (subscribe to `digilog/v1/#`); enqueues ingestion jobs via graphile-worker. |
 | `transport/mosquitto-acl-generator.ts` | Pure async function that translates active `DeviceCredential` rows into Mosquitto v2 dynamic-security JSON (5 publish + 8 subscribe ACLs per device, scoped to each device's UNS path). |
 | `transport/mosquitto-refresh-routes.ts` | `POST /api/internal/mqtt/refresh-acl` — regenerates `dynamic-security.json` from the DB on demand. Bearer-auth via `MOSQUITTO_REFRESH_TOKEN`. Atomic write via tmp + rename. |
-| `transport/mqtt-auth-routes.ts` | Legacy EMQX webhook endpoints (`/api/internal/mqtt/auth`, `/acl`). Conditionally registered when `USE_MOSQUITTO=false`. Slated for deletion in Phase 4. |
+| `transport/mqtt-auth-routes.ts` | Legacy EMQX webhook endpoints (`/api/internal/mqtt/auth`, `/acl`). Remain conditionally registered when `USE_MOSQUITTO=false` to support EMQX fallback; full removal deferred to a future cleanup phase once no env still has `USE_MOSQUITTO=false` in production. |
 | `transport/ws-handler.ts` | WebSocket handler for real-time data push |
 
 ## Workers

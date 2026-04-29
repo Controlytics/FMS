@@ -167,7 +167,7 @@
 │
 ├── scripts/                       (Windows deployment automation)
 │   ├── package-for-production.ps1  Builds API + Web + shared, zips into digilog-production.zip
-│   ├── install-on-target.ps1       Run-once on target Windows: installs deps, runs migrations, registers NSSM Windows service
+│   ├── install-on-target.ps1       Run-once on target Windows: installs deps, runs migrations, invokes install-mosquitto.ps1, opens firewall, enables LongPathsEnabled, checks for msedge.exe; prints smoke-test launch instructions. Does NOT register a managed service — see DEPLOY-WINDOWS.md § 7 for the NSSM stopgap.
 │   └── reset-cwh-cycles.sql        Emergency SQL to terminate IN_PROGRESS cycles bound to obsolete profile (used 04-25 for 7 stuck CWH cycles)
 │
 ├── rfid_scan_app/                 (Standalone Kotlin app — predates RFID SDK plugin in DigiLog APK)

@@ -401,17 +401,21 @@ These were archived (not deleted) because the work is shipped — but the docs r
 
 ---
 
-## 12. Windows-friendly rewrite (Phases 1–3 complete; 4–5 outstanding)
+## 12. Windows-friendly rewrite (all phases complete; deployment-side service launcher pending)
 
 `docs/plans/2026-04-29-windows-friendly-rewrite.md` is a 5-phase plan to make the API run on bare Windows Server with no MSVC, no node-gyp, no paid Memurai, and no bundled Chromium. As of 2026-04-29:
 
 | Phase | Status | What landed |
 |---|---|---|
-| 1 — Mosquitto MQTT swap | ✅ | `feature/phase1-mosquitto-rewrite` (commits `510f903..7d33dbf`) + service-bootable conf fix `0ecc151`. Replaces EMQX with Mosquitto 2.0 + a dynamic-security generator + `POST /api/internal/mqtt/refresh-acl`. Live e2e verified. |
-| 2 — graphile-worker queue | ✅ | `feature/phase2-pg-queue` (cut-over `7832af1`). Drops BullMQ + ioredis + the Memurai dependency for queue work. graphile-worker on Postgres uses `LISTEN/NOTIFY`, `SELECT … FOR UPDATE SKIP LOCKED`, `pg_advisory_lock`, JSONB payloads — all native PG18. |
-| 3 — Reports Windows hardening | ✅ | `feature/phase3-reports-edge` (`79937b7..d72d44c`). `puppeteer` → `puppeteer-core` + Edge via `detectEdgePath()`; `chartjs-node-canvas` → `@napi-rs/canvas` (prebuilt N-API). Plus a major test-suite cleanup (`06bcb95`, `b2c3b37`) bringing apps/api Vitest sweep from 30 failed files / 65 failed tests down to 0 failed. |
-| 4 — Tooling cleanup | 🟡 pending | `install-on-target.ps1`, `package-for-production.ps1`, `.env.example`, doc sync across the active doc set, `windowsIssues.md` resolution receipts. |
-| 5 — Verification & docs finalization | 🟡 pending | `tests/integration/windows-server-stack.test.ts` (INTEGRATION_TEST=1 gated), `scripts/verify-windows-deployment.ps1`, push + PR. |
+| 1 — Mosquitto MQTT swap | ✅ complete | `feature/phase1-mosquitto-rewrite` (commits `510f903..7d33dbf`) + service-bootable conf fix `0ecc151`. Replaces EMQX with Mosquitto 2.0 + a dynamic-security generator + `POST /api/internal/mqtt/refresh-acl`. Live e2e verified. |
+| 2 — graphile-worker queue | ✅ complete | `feature/phase2-pg-queue` (cut-over `7832af1`). Drops BullMQ + ioredis + the Memurai dependency for queue work. graphile-worker on Postgres uses `LISTEN/NOTIFY`, `SELECT … FOR UPDATE SKIP LOCKED`, `pg_advisory_lock`, JSONB payloads — all native PG18. |
+| 3 — Reports Windows hardening | ✅ complete | `feature/phase3-reports-edge` (`79937b7..d72d44c`). `puppeteer` → `puppeteer-core` + Edge via `detectEdgePath()`; `chartjs-node-canvas` → `@napi-rs/canvas` (prebuilt N-API). Plus a major test-suite cleanup (`06bcb95`, `b2c3b37`) bringing apps/api Vitest sweep from 30 failed files / 65 failed tests down to 0 failed. |
+| 4 — Tooling cleanup | ✅ complete | `feature/phase4-tooling` cut-over `127f25d..60d3c90` — `install-on-target.ps1` and `package-for-production.ps1` rewritten honest about the post-Phase-1+2+3 stack (Mosquitto, graphile-worker, puppeteer-core+Edge); `start-digilog.ps1`/`stop-digilog.ps1` shells dropped (referenced PM2 + EMQX); `.env.example` Mosquitto + graphile-worker block. Plus Phase 4 doc-sync `99ca7ad..c9d94a1` swept the operationally-load-bearing prose files. |
+| 5.1 — Integration test | ✅ complete | `tests/integration/windows-server-stack.test.ts` (`INTEGRATION_TEST=1` gated) — full e2e suite: API boot + `/api/health`, MQTT publish 100 messages via in-process aedes broker → assert `ts_telemetry` rows, graphile-worker enqueue → handler fires within 15 s, PDF render → `%PDF-` magic bytes (commits `a51628d`, review-fix `24620c0`). |
+| 5.2 — verify-windows-deployment.ps1 | ✅ complete | `scripts/verify-windows-deployment.ps1` — operator-facing 4-check smoke: `/api/health`, Mosquitto :1883, graphile-worker schema via psql, real PDF render via login → reports/generate. PS 5.1 + 7+ compatible (commits `b4ad539`, review-fix `ad07280`). |
+| 5.3 — Phase 5 doc-sync sweep | ✅ complete | This commit's parent `29712d6` — closes the four files Phase 4 explicitly deferred (PROJECT_ARCHITECTURE diagram, API_REFERENCE EMQX prose, FRONTEND_GUIDE Nginx mention, OFFLINE_SYNC EMQX/Redis/63-models block) plus 30+ stale references across the rest of the active doc set + `future/` + `docs/` + `PROJECT_HANDOVER/`. |
+
+> **Still pending (Phase 5+ follow-up, not blocking):** a managed Windows-service launcher that registers the API as a Windows service with restart policies, log rotation, and boot persistence. Today the install path is "foreground smoke-test (`cd api; node dist/app.js`)" with the NSSM stopgap documented in `DEPLOY-WINDOWS.md` § 7 covering teams that need auto-restart now.
 
 `windows_dep` is the integration branch. Test pass-rate at end of Phase 3: `apps/api 1123/1123 + packages/shared 150/150 + packages/queue 6/6 = 1279/1279, all green`. Live e2e verified end-to-end (device → Mosquitto → API → graphile-worker → ts_pipeline_traces → reports/generate → 59 KB PDF with `%PDF-1.4` header).
 

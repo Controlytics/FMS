@@ -384,7 +384,7 @@ POST /api/internal/mqtt/refresh-acl   Regenerate dynamic-security.json from acti
                                        C:\Program Files\mosquitto\ and Restart-Service mosquitto.
 ```
 
-> Legacy EMQX webhook endpoints (`/api/internal/mqtt/auth`, `/acl`, `/superuser`) remain conditionally registered when `USE_MOSQUITTO=false`; they are slated for deletion in Phase 4 of the windows-friendly-rewrite.
+> Legacy EMQX webhook endpoints (`/api/internal/mqtt/auth`, `/acl`, `/superuser`) remain conditionally registered when `USE_MOSQUITTO=false` to support EMQX fallback; full removal deferred to a future cleanup phase once no env still has `USE_MOSQUITTO=false` in production.
 
 ---
 

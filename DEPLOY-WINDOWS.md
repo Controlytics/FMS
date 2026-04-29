@@ -308,7 +308,7 @@ nssm set digilog-api AppStderr C:\DigiLog\logs\api.err.log
 nssm start digilog-api
 ```
 
-The forthcoming Phase 5 `verify-windows-deployment.ps1` will automate the NSSM-or-`sc.exe` registration with proper log-rotation, restart policies, and health-check probes.
+`scripts/verify-windows-deployment.ps1` (shipped in Phase 5.2 — commit `b4ad539`, review-fix `ad07280`) provides a smoke-check today: API `/api/health`, Mosquitto port 1883, graphile-worker schema, and end-to-end PDF generation. A fully managed-service launcher (with restart policies, log rotation, and boot persistence) remains Phase 5+ work — the NSSM stopgap above covers it for now.
 
 ---
 
