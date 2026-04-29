@@ -102,7 +102,7 @@ Detailed in `PHASE_5_RECENT_WORK.md`:
 | Pub/sub (non-queue) | Memurai / Redis (optional — WebSocket events, RPC routing, pipeline tracer, debug recorder) |
 | PDF + charts | puppeteer-core + Microsoft Edge + @napi-rs/canvas (no bundled Chromium, no node-gyp) |
 | Mobile | Capacitor Android APK + native Kotlin RFID app |
-| Reverse proxy | Nginx (production deployment) |
+| Reverse proxy | Optional / customer-choice (no longer bundled — Fastify on `:3000` direct is the default; see `DEPLOY-WINDOWS.md` § 7 for the NSSM stopgap until Phase 5 ships a managed-service launcher) |
 
 ---
 

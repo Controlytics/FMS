@@ -918,9 +918,24 @@ Branch: `feature/phase4-tooling`. Cut-over commits `127f25d..60d3c90` (4 commits
 
 - `LOCAL_SETUP_WINDOWS.md` — `d6bdd7c` (Phase 3 doc-sync) already removed every PM2/EMQX reference from the local-dev guide and the `.env` template already lists the Mosquitto vars. Re-read end-to-end during this pass; nothing further to add for Phase 4 (the file is about *local dev*, not the production install path the scripts target).
 - `apps/api/CLAUDE.md` — `d6bdd7c` already swapped the local-services list to Mosquitto. The "Phase 4 Update (2026-04-14)" section in that file refers to a different "Phase 4" (the in-app permissions/themes/reports phase, not the windows-friendly-rewrite Phase 4). Leaving as-is.
-- `README.md` — `d6bdd7c` already updated the tech-stack table to Mosquitto / graphile-worker / puppeteer-core / @napi-rs/canvas, and the "Memurai/Redis is optional" note. No new content from Phase 4 changes the stack — only the install path — which is `DEPLOY-WINDOWS.md`'s job.
-- `CLAUDE.md` (root) — same reasoning. The env list already reads `Node.js 20+, PostgreSQL 18 + TimescaleDB, Mosquitto 2.0`. No PM2 or Nginx mention.
-- `PHASE_5_RECENT_WORK.md` — Phase 5 of the windows-friendly-rewrite (managed-service launcher + integration test) hasn't shipped yet; updating that file is the job of the Phase 5 doc sync.
+- `CLAUDE.md` (root) — `d6bdd7c` already updated the env list to read `Node.js 20+, PostgreSQL 18 + TimescaleDB, Mosquitto 2.0`. No PM2 or Nginx mention.
+
+> **Update — caught in code-reviewer follow-up pass (commit on top of `99ca7ad`):** `README.md` line 105 still listed `Reverse proxy | Nginx (production deployment)`, `BACKEND_GUIDE.md` line 10 still said `Production: pm2 start dist/app.js --name digilog-api`, and `PHASE_5_RECENT_WORK.md` line 281 still claimed `install-on-target.ps1` "assumes Node.js 20+, PostgreSQL 18 + TimescaleDB, Memurai, EMQX, optional Nginx already installed; runs migrations, registers NSSM Windows service" — all three were operationally wrong post-Phase-4 and are fixed in the follow-up commit. The CHANGELOG also had a `DATABASE_URL_QUEUE` claim that didn't match what the packager template actually writes; rewritten to match the real text. The `install-on-target.ps1` footer's "section 5.6 / 5.7" pointers were stale (DEPLOY-WINDOWS.md had been renumbered after dropping the old 5.5 Nginx-config section); fixed to 5.5 / 5.6.
+
+### Known follow-ups (Phase 5 doc sync)
+
+These four architecture-diagram-heavy docs still carry stale Nginx / EMQX / Memurai references. They were intentionally not touched in this Phase 4 doc-sync because the prose is woven into system-architecture diagrams that should be redrawn once the Phase 5 managed-service launcher actually ships and the install topology is final. Listed here so the deferral is on the record:
+
+- `PROJECT_ARCHITECTURE.md` — system-architecture diagram still shows Nginx + Memurai boxes
+- `API_REFERENCE.md` — header prose still mentions Memurai/EMQX as required services
+- `FRONTEND_GUIDE.md` — deployment context still references Nginx as reverse proxy
+- `OFFLINE_SYNC_ARCHITECTURE.md` — prose still references the EMQX broker by name
+
+Other things noticed during the follow-up fix pass:
+
+- The `PHASE_5_RECENT_WORK.md` `### Production deployment artifacts (Windows)` section is the right home for a future "What changed in Phase 4 vs Phase 5" subsection once Phase 5 lands. The current Phase-4-fix-pass edit just made the existing bullet honest about today's behavior.
+- `DEPLOY-WINDOWS.md` § 7 (NSSM stopgap) is now referenced from three places (README.md tech-stack row, BACKEND_GUIDE.md production launch line, PHASE_5_RECENT_WORK.md install-on-target.ps1 description). Phase 5 should replace that one section with the real managed-service launcher recipe and update the three back-references in lockstep.
+- No `.env.example` or `.env.production` audit was done in this pass; if the customer-facing template ever gains new fields, the inline mirror in `package-for-production.ps1` needs to track them — the explicit-scope comment added in `60d3c90` is the only thing keeping that connection visible right now.
 
 ### Verification commands run before doc updates
 

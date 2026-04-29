@@ -175,8 +175,8 @@ Write-Host "        (verify-windows-deployment.ps1 + service registration)." -Fo
 Write-Host ""
 Write-Host "  Next steps:" -ForegroundColor White
 Write-Host "    1. Verify smoke tests in DEPLOY-WINDOWS.md section 6"
-Write-Host "    2. Install rootCA.pem on tablets (section 5.6)"
-Write-Host "    3. Install DigiLog-FilterOps.apk on tablets (section 5.7)"
+Write-Host "    2. Install rootCA.pem on tablets (section 5.5)"
+Write-Host "    3. Install DigiLog-FilterOps.apk on tablets (section 5.6)"
 Write-Host "    4. CHANGE THE DEFAULT PASSWORD on first login"
 Write-Host ""
 Write-Host "  Default login: superadmin / Admin@123   (CHANGE THIS IMMEDIATELY)"

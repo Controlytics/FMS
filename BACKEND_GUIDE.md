@@ -2,12 +2,12 @@
 
 ## Overview
 
-Fastify 5 backend with TypeScript, **37 API modules**, ~398 endpoints across 59 route files. Runs locally on Windows: `tsx watch` in dev, compiled JS for prod-style local builds (registered as a Windows service via NSSM in installations). PM2 / EC2 are no longer in scope.
+Fastify 5 backend with TypeScript, **37 API modules**, ~398 endpoints across 59 route files. Runs locally on Windows: `tsx watch` in dev, compiled JS for prod-style local builds. Production launch is currently `node dist/app.js` in the foreground (Phase 4 of windows-friendly-rewrite retired PM2; an NSSM stopgap is documented in `DEPLOY-WINDOWS.md` § 7 until Phase 5 ships a managed-service launcher). EC2 is no longer in scope.
 
 **Entry point:** `apps/api/src/app.ts`
 **Dev:** `cd apps/api && npx tsx watch src/app.ts` (port 3000)
 **Build:** `npx tsc -p apps/api/tsconfig.json` → `apps/api/dist/`
-**Production:** `pm2 start dist/app.js --name digilog-api`
+**Production smoke-test:** `cd api && node dist/app.js` (foreground, from inside the unpacked deployment package — no auto-restart, no boot persistence). An NSSM-as-stopgap recipe for surviving reboots is documented in `DEPLOY-WINDOWS.md` § 7; the proper managed-service launcher (`verify-windows-deployment.ps1` + `sc.exe`-registered service) is Phase 5 work of the windows-friendly-rewrite plan. PM2 was retired in Phase 4 (commits `127f25d..60d3c90` on `feature/phase4-tooling`).
 
 ## App Setup (app.ts)
 
