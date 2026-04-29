@@ -99,16 +99,20 @@ export interface EnqueueIngestionOptions {
 /**
  * Enqueue an ingestion message onto whichever backend is currently active.
  *
- * - USE_PG_QUEUE=true  → graphile-worker `addJob('ingestion', { messageType, msg }, …)`
- * - USE_PG_QUEUE=false → BullMQ `queue.add(messageType, msg, { priority, jobId })`
+ * - USE_PG_QUEUE=true  → graphile-worker `addJob('ingestion', { msg }, …)`
+ * - USE_PG_QUEUE=false → BullMQ `queue.add(msg.messageType, msg, { priority, jobId })`
  *
- * The graphile-worker payload wraps the message so the task can preserve
- * BullMQ's job-name-as-routing-tag semantics (graphile-worker uses a single
- * task name `'ingestion'` for all message types). graphile-worker's `jobKey`
- * (replace-mode by default) replaces BullMQ's `jobId` for idempotency.
+ * The graphile-worker payload wraps the message in `{ msg }` so the task can
+ * destructure a single, well-defined shape (vs. a bare message object whose
+ * fields could collide with future task-level metadata). The BullMQ branch
+ * still uses `msg.messageType` as the job name to preserve the per-type
+ * grouping the BullMQ UI relies on. graphile-worker's `jobKey` (replace-mode
+ * by default) replaces BullMQ's `jobId` for idempotency.
+ *
+ * `maxAttempts` for the PG branch is read from QUEUES.INGESTION.defaultJobOptions
+ * .attempts so the two backends stay in lock-step if the constant is bumped.
  */
 export async function enqueueIngestionJob(
-  messageType: string,
   msg: IngestionMessage,
   options: EnqueueIngestionOptions = {},
 ): Promise<void> {
@@ -116,20 +120,33 @@ export async function enqueueIngestionJob(
     const producer = await getProducer();
     await producer.addJob(
       'ingestion',
-      { messageType, msg },
+      { msg },
       {
         priority: options.priority,
         jobKey: options.jobId,
-        maxAttempts: 3,
+        maxAttempts: QUEUES.INGESTION.defaultJobOptions.attempts,
       },
     );
     return;
   }
 
-  await getBullMqIngestionQueue().add(messageType, msg, {
+  await getBullMqIngestionQueue().add(msg.messageType, msg, {
     priority: options.priority,
     jobId: options.jobId,
   });
+}
+
+/**
+ * Close the cached BullMQ ingestion queue. Must be called BEFORE
+ * `closeRedisConnection` during shutdown — Queue.close() needs the underlying
+ * ioredis connection alive to flush pending writes. Safe to call when the
+ * queue was never instantiated (e.g. USE_PG_QUEUE=true the whole run).
+ */
+export async function closeIngestionQueue(): Promise<void> {
+  if (bullmqIngestionQueue) {
+    await bullmqIngestionQueue.close();
+    bullmqIngestionQueue = null;
+  }
 }
 
 // ─── Rate limiting state (in-memory) ───────────────────

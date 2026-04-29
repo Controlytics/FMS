@@ -94,7 +94,7 @@ async function enqueueMessage(
 
   const priority = priorityOverride ?? JOB_PRIORITY.TELEMETRY;
 
-  await enqueueIngestionJob(messageType, msg, { priority, jobId: msg.messageId });
+  await enqueueIngestionJob(msg, { priority, jobId: msg.messageId });
 
   return { messageId: msg.messageId };
 }
@@ -125,7 +125,7 @@ async function enqueueBatch(
   const messageIds: string[] = [];
 
   for (const msg of messages) {
-    await enqueueIngestionJob(messageType, msg, { priority, jobId: msg.messageId });
+    await enqueueIngestionJob(msg, { priority, jobId: msg.messageId });
     messageIds.push(msg.messageId);
   }
 
@@ -312,7 +312,7 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
       },
     });
 
-    await enqueueIngestionJob('POST_CHECKLIST', msg, {
+    await enqueueIngestionJob(msg, {
       priority: JOB_PRIORITY.CHECKLIST_SUBMISSION,
       jobId: msg.messageId,
     });

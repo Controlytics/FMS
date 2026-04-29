@@ -9,8 +9,7 @@ const {
   mockUpdateMany,
   mockCount,
   mockAlarmCreate,
-  mockQueueAdd,
-  mockGetRedisConnection,
+  mockEnqueueIngestionJob,
   mockGetConfigOrDefault,
 } = vi.hoisted(() => ({
   mockCreate: vi.fn(),
@@ -19,8 +18,7 @@ const {
   mockUpdateMany: vi.fn(),
   mockCount: vi.fn(),
   mockAlarmCreate: vi.fn(),
-  mockQueueAdd: vi.fn(),
-  mockGetRedisConnection: vi.fn(),
+  mockEnqueueIngestionJob: vi.fn(),
   mockGetConfigOrDefault: vi.fn(),
 }));
 
@@ -40,11 +38,10 @@ vi.mock('../../../lib/prisma.js', () => ({
 }));
 
 vi.mock('@digilog/queue', () => ({
-  getRedisConnection: mockGetRedisConnection,
   QUEUES: {
     INGESTION: {
       name: 'ingestion',
-      defaultJobOptions: { removeOnComplete: true, removeOnFail: false },
+      defaultJobOptions: { attempts: 3, removeOnComplete: true, removeOnFail: false },
     },
   },
   JOB_PRIORITY: {
@@ -52,10 +49,12 @@ vi.mock('@digilog/queue', () => ({
   },
 }));
 
-vi.mock('bullmq', () => ({
-  Queue: class MockQueue {
-    add = mockQueueAdd;
-  },
+// Mock ingestion.service so dlq-manager's `enqueueIngestionJob` import does
+// not transitively pull in `@digilog/db` (which vitest-vite cannot resolve
+// as a workspace package in this test environment). The DLQ manager itself
+// only needs the helper to be callable; we assert on the helper directly.
+vi.mock('../ingestion.service.js', () => ({
+  enqueueIngestionJob: mockEnqueueIngestionJob,
 }));
 
 vi.mock('../ingestion-config.service.js', () => ({
@@ -110,7 +109,6 @@ function makeDLQEntry(overrides?: Record<string, unknown>) {
 describe('dlq-manager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetRedisConnection.mockReturnValue({});
   });
 
   // ── addToDLQ ─────────────────────────────────────────────────────────
@@ -180,13 +178,13 @@ describe('dlq-manager', () => {
       expect(result).toEqual({ requeued: 0, dead: 0 });
       expect(mockFindMany).toHaveBeenCalledTimes(1);
       expect(mockUpdate).not.toHaveBeenCalled();
-      expect(mockQueueAdd).not.toHaveBeenCalled();
+      expect(mockEnqueueIngestionJob).not.toHaveBeenCalled();
     });
 
     it('should re-enqueue entries that are under max retries', async () => {
       const entry = makeDLQEntry({ retryCount: 1, maxRetries: 3 });
       mockFindMany.mockResolvedValue([entry]);
-      mockQueueAdd.mockResolvedValue({});
+      mockEnqueueIngestionJob.mockResolvedValue(undefined);
       mockUpdate.mockResolvedValue({});
       mockGetConfigOrDefault.mockResolvedValue(100);
       mockCount.mockResolvedValue(0);
@@ -194,9 +192,10 @@ describe('dlq-manager', () => {
       const result = await processDLQ();
 
       expect(result).toEqual({ requeued: 1, dead: 0 });
-      expect(mockQueueAdd).toHaveBeenCalledTimes(1);
-      expect(mockQueueAdd).toHaveBeenCalledWith(
-        'TELEMETRY',
+      expect(mockEnqueueIngestionJob).toHaveBeenCalledTimes(1);
+      // After Task 2.3 review fixes, enqueueIngestionJob takes (msg, options) —
+      // messageType is read from msg itself, not passed separately.
+      expect(mockEnqueueIngestionJob).toHaveBeenCalledWith(
         entry.payload,
         {
           priority: 5,
@@ -225,7 +224,7 @@ describe('dlq-manager', () => {
         where: { id: entry.id },
         data: { status: 'DEAD' },
       });
-      expect(mockQueueAdd).not.toHaveBeenCalled();
+      expect(mockEnqueueIngestionJob).not.toHaveBeenCalled();
     });
 
     it('should handle a mixed batch with some requeued and some dead', async () => {
@@ -235,7 +234,7 @@ describe('dlq-manager', () => {
       const retryableEntry2 = makeDLQEntry({ id: 'dlq-retry-2', retryCount: 0, maxRetries: 3 });
 
       mockFindMany.mockResolvedValue([retryableEntry, deadEntry1, deadEntry2, retryableEntry2]);
-      mockQueueAdd.mockResolvedValue({});
+      mockEnqueueIngestionJob.mockResolvedValue(undefined);
       mockUpdate.mockResolvedValue({});
       mockGetConfigOrDefault.mockResolvedValue(100);
       mockCount.mockResolvedValue(0);
@@ -254,7 +253,7 @@ describe('dlq-manager', () => {
       expect(deadIds).toContain('dlq-dead-2');
 
       // Verify retryable entries were re-enqueued
-      expect(mockQueueAdd).toHaveBeenCalledTimes(2);
+      expect(mockEnqueueIngestionJob).toHaveBeenCalledTimes(2);
       const retryUpdateCalls = mockUpdate.mock.calls.filter(
         (c: any[]) => c[0].data.status === 'RETRYING',
       );
@@ -298,16 +297,16 @@ describe('dlq-manager', () => {
       await expect(processDLQ()).resolves.toEqual({ requeued: 0, dead: 0 });
     });
 
-    it('should not throw when queue.add fails for re-enqueue', async () => {
+    it('should not throw when enqueueIngestionJob fails for re-enqueue', async () => {
       const entry = makeDLQEntry({ retryCount: 0, maxRetries: 3 });
       mockFindMany.mockResolvedValue([entry]);
-      mockQueueAdd.mockRejectedValue(new Error('Redis down'));
+      mockEnqueueIngestionJob.mockRejectedValue(new Error('Queue down'));
       mockGetConfigOrDefault.mockResolvedValue(100);
       mockCount.mockResolvedValue(0);
 
       const result = await processDLQ();
 
-      // Entry was not requeued because queue.add failed
+      // Entry was not requeued because the helper threw
       expect(result).toEqual({ requeued: 0, dead: 0 });
       // The status update to RETRYING should not have been called
       const retryingCalls = mockUpdate.mock.calls.filter(

@@ -63,7 +63,7 @@ export async function processDLQ(): Promise<{ requeued: number; dead: number }> 
     // Re-enqueue to ingestion queue
     try {
       const payload = entry.payload as unknown as IngestionMessage;
-      await enqueueIngestionJob(payload.messageType, payload, {
+      await enqueueIngestionJob(payload, {
         priority: JOB_PRIORITY.TELEMETRY,
         jobId: `dlq-retry-${entry.id}-${entry.retryCount + 1}`,
       });
