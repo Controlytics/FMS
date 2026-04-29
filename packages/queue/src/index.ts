@@ -23,3 +23,6 @@ export {
   getRedisConnection,
   closeRedisConnection,
 } from './connection.js';
+
+export { getProducer, getRunnerOptions, closeProducer } from './connection.js';
+export type { DigilogRunnerOptions } from './connection.js';
