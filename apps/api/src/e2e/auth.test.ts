@@ -81,7 +81,9 @@ describe('Auth endpoints', () => {
 
       expect(res.statusCode).toBe(401);
       const body = JSON.parse(res.body);
-      expect(body.error).toBe('INVALID_CREDENTIALS');
+      // The service distinguishes USER_NOT_FOUND from INVALID_PASSWORD; both
+      // are 401 to the client, only the message differs (operator UX).
+      expect(body.error).toBe('INVALID_PASSWORD');
     });
 
     it('returns 401 for non-existent user', async () => {

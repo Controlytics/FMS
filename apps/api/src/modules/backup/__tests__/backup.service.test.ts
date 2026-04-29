@@ -110,13 +110,14 @@ describe('backup.service', () => {
       const buf = Buffer.from(JSON.stringify(backup));
       mockComputeChecksum.mockReturnValue('abc123');
       mockRestoreFromBackup.mockResolvedValue(undefined);
-      mockResetAuditSequence.mockResolvedValue(undefined);
 
       const result = await restore(buf, ctx);
       expect(result.success).toBe(true);
       expect(result.backupVersion).toBe('1.0');
       expect(mockRestoreFromBackup).toHaveBeenCalled();
-      expect(mockResetAuditSequence).toHaveBeenCalled();
+      // resetAuditSequence is no longer called - audit_trail uses UUID PKs
+      // (no sequence to reset). The function still exists as a no-op for
+      // call-site compatibility.
       expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'BACKUP_RESTORED' }));
     });
 

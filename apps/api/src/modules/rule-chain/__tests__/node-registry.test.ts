@@ -43,9 +43,11 @@ describe('Node Registry', () => {
     expect(node).toBeUndefined();
   });
 
-  it('getNodesByCategory("FILTER") returns 5 filter nodes', () => {
+  // Counts mirror src/modules/rule-chain/nodes/*-nodes.ts. Update both
+  // when adding or removing nodes in a category.
+  it('getNodesByCategory("FILTER") returns 12 filter nodes', () => {
     const filterNodes = getNodesByCategory('FILTER');
-    expect(filterNodes).toHaveLength(5);
+    expect(filterNodes).toHaveLength(12);
     filterNodes.forEach((n) => expect(n.category).toBe('FILTER'));
   });
 
@@ -521,15 +523,47 @@ describe('FLOW Nodes', () => {
 
 describe('ENRICHMENT Nodes', () => {
   describe('tenant-attributes', () => {
-    it('adds tenantId to metadata and returns "Success"', async () => {
-      const node = getNode('tenant-attributes')!;
-      const msg = { temp: 72 };
-      const result = await node.execute(msg, {}, mockContext);
+    it('reads systemConfig rows, adds sys_<key> entries to metadata, and emits "Success"', async () => {
+      // The node reads up to 20 systemConfig rows and prepends 'sys_' to each
+      // configKey before writing into metadata. Stub findMany so this stays a
+      // unit test - we don't rely on the live digilog_db state here.
+      const { prisma } = await import('../../../lib/prisma.js');
+      const spy = vi.spyOn(prisma.systemConfig, 'findMany').mockResolvedValue([
+        { configKey: 'site_name', configValue: 'DigiLog' } as never,
+        { configKey: 'tz', configValue: 'Asia/Kolkata' } as never,
+      ]);
 
-      expect(result.output).toBe('Success');
-      expect(result.metadata).toBeDefined();
-      expect(result.metadata!.tenantId).toBe('default');
-      expect(result.message).toEqual(msg);
+      try {
+        const node = getNode('tenant-attributes')!;
+        const msg = { temp: 72 };
+        const result = await node.execute(msg, {}, mockContext);
+
+        expect(result.output).toBe('Success');
+        expect(result.message).toEqual(msg);
+        expect(result.metadata).toBeDefined();
+        expect(result.metadata!.sys_site_name).toBe('DigiLog');
+        expect(result.metadata!.sys_tz).toBe('Asia/Kolkata');
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('falls back to existing metadata and still emits "Success" on DB error', async () => {
+      const { prisma } = await import('../../../lib/prisma.js');
+      const spy = vi
+        .spyOn(prisma.systemConfig, 'findMany')
+        .mockRejectedValue(new Error('db unavailable'));
+
+      try {
+        const node = getNode('tenant-attributes')!;
+        const ctxWith = { ...mockContext, metadata: { existing: 'kept' } };
+        const result = await node.execute({ temp: 1 }, {}, ctxWith);
+
+        expect(result.output).toBe('Success');
+        expect(result.metadata?.existing).toBe('kept');
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 });
@@ -538,24 +572,26 @@ describe('ENRICHMENT Nodes', () => {
 // Category Count Verification
 // ═══════════════════════════════════════════════════════
 
+// Counts mirror src/modules/rule-chain/nodes/*-nodes.ts. Update these
+// when adding or removing nodes in a category.
 describe('Node Category Counts', () => {
-  it('ENRICHMENT has 4 nodes', () => {
-    expect(getNodesByCategory('ENRICHMENT')).toHaveLength(4);
+  it('ENRICHMENT has 11 nodes', () => {
+    expect(getNodesByCategory('ENRICHMENT')).toHaveLength(11);
   });
 
-  it('TRANSFORM has 5 nodes', () => {
-    expect(getNodesByCategory('TRANSFORM')).toHaveLength(5);
+  it('TRANSFORM has 12 nodes', () => {
+    expect(getNodesByCategory('TRANSFORM')).toHaveLength(12);
   });
 
-  it('ACTION has 8 nodes', () => {
-    expect(getNodesByCategory('ACTION')).toHaveLength(8);
+  it('ACTION has 20 nodes', () => {
+    expect(getNodesByCategory('ACTION')).toHaveLength(20);
   });
 
-  it('EXTERNAL has 4 nodes', () => {
-    expect(getNodesByCategory('EXTERNAL')).toHaveLength(4);
+  it('EXTERNAL has 12 nodes', () => {
+    expect(getNodesByCategory('EXTERNAL')).toHaveLength(12);
   });
 
-  it('FLOW has 4 nodes', () => {
-    expect(getNodesByCategory('FLOW')).toHaveLength(4);
+  it('FLOW has 5 nodes', () => {
+    expect(getNodesByCategory('FLOW')).toHaveLength(5);
   });
 });

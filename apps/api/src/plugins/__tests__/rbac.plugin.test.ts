@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const { mockPrisma, mockAuditLog } = vi.hoisted(() => ({
   mockPrisma: {
-    role: { findUnique: vi.fn() },
+    role: {
+      // rbac.ts uses role.findFirst (WHERE name=$role), so mock that.
+      // findUnique kept for forward-compat if a call-site switches to
+      // exact-PK lookup later.
+      findFirst: vi.fn(),
+      findUnique: vi.fn(),
+    },
   },
   mockAuditLog: vi.fn(),
 }));
@@ -54,7 +60,7 @@ describe('rbacPlugin', () => {
 
       await middleware(req, reply);
       expect(reply.code).not.toHaveBeenCalled();
-      expect(mockPrisma.role.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.role.findFirst).not.toHaveBeenCalled();
     });
 
     it('allows when role has required permission', async () => {
@@ -62,7 +68,7 @@ describe('rbacPlugin', () => {
       const req = makeReq();
       const reply = makeReply();
 
-      mockPrisma.role.findUnique.mockResolvedValue({
+      mockPrisma.role.findFirst.mockResolvedValue({
         permissions: ['ASSET_VIEW', 'ASSET_CREATE'],
       });
 
@@ -75,7 +81,7 @@ describe('rbacPlugin', () => {
       const req = makeReq();
       const reply = makeReply();
 
-      mockPrisma.role.findUnique.mockResolvedValue({
+      mockPrisma.role.findFirst.mockResolvedValue({
         permissions: ['ASSET_VIEW'],
       });
 
@@ -88,7 +94,7 @@ describe('rbacPlugin', () => {
       const req = makeReq();
       const reply = makeReply();
 
-      mockPrisma.role.findUnique.mockResolvedValue(null);
+      mockPrisma.role.findFirst.mockResolvedValue(null);
 
       await middleware(req, reply);
       expect(reply.code).toHaveBeenCalledWith(403);
@@ -108,7 +114,7 @@ describe('rbacPlugin', () => {
       const req = makeReq();
       const reply = makeReply();
 
-      mockPrisma.role.findUnique.mockResolvedValue({
+      mockPrisma.role.findFirst.mockResolvedValue({
         permissions: null,
       });
 

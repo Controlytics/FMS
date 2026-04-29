@@ -94,12 +94,16 @@ describe('authService', () => {
       expect(result.user.username).toBe('admin');
     });
 
-    it('throws INVALID_CREDENTIALS for unknown user', async () => {
+    it('throws USER_NOT_FOUND when no user matches the username', async () => {
       mockRepo.findUserByUsername.mockResolvedValue(null);
       mockVerifyPassword.mockResolvedValue(false); // dummy hash timing
 
+      // The service distinguishes "username unknown" (USER_NOT_FOUND) from
+      // "wrong password" (INVALID_PASSWORD) at the message level. Both
+      // surface 401 to the client; only the message differs so support
+      // staff can triage failed-login telemetry.
       await expect(authService.login('nobody', 'pass', '127.0.0.1', undefined))
-        .rejects.toThrow('Invalid user ID or password');
+        .rejects.toThrow('User ID is incorrect.');
     });
 
     it('throws ACCOUNT_DISABLED for disabled user', async () => {
@@ -141,7 +145,7 @@ describe('authService', () => {
       mockRepo.updateUser.mockResolvedValue(user);
 
       await expect(authService.login('admin', 'wrong', '127.0.0.1', undefined))
-        .rejects.toThrow('Invalid user ID or password');
+        .rejects.toThrow('Password is incorrect.');
 
       expect(mockRepo.updateUser).toHaveBeenCalledWith(user.id, expect.objectContaining({ failedLoginAttempts: 1 }));
     });
@@ -303,7 +307,12 @@ describe('authService', () => {
         return false;
       });
       mockRepo.getPasswordPolicyConfig.mockResolvedValue({ minLength: 8, preventReuseCount: 5 });
-      mockRepo.getPasswordHistory.mockResolvedValue([{ passwordHash: 'old-hash' }]);
+      // Service filters history to entries created within the last 12 months,
+      // so we need a fresh-ish createdAt or the entry gets dropped before
+      // the reuse comparison runs.
+      mockRepo.getPasswordHistory.mockResolvedValue([
+        { passwordHash: 'old-hash', createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      ]);
 
       await expect(authService.changePassword('user-1', 'Old@1234', 'Reused@123', '127.0.0.1', 'agent', 'sess-1'))
         .rejects.toThrow('last');

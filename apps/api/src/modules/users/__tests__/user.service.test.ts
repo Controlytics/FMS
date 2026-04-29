@@ -121,7 +121,9 @@ describe('userService', () => {
       mockUserRepo.findRole.mockResolvedValueOnce({ name: 'OPERATOR', hierarchyLevel: 2, isActive: true });
 
       const result = await userService.create({
-        username: 'EMP001', fullName: 'Test', email: 't@t.com', role: 'OPERATOR', password: 'Pass@123',
+        // Password must satisfy the active password-policy systemConfig
+        // (minLength is 10 in the seeded dev DB). 'Pass@123' was 8 chars.
+        username: 'EMP001', fullName: 'Test', email: 't@t.com', role: 'OPERATOR', password: 'Test@Pass1234',
       }, adminCtx);
 
       expect(result.username).toBe('EMP001');

@@ -178,16 +178,22 @@ describe('createDefaultRuleChain', () => {
 
   // ── Test 4: Creates input + filter + alarm + save nodes ──
 
-  it('creates input, script-filter, create-alarm, and save-timeseries nodes for one alarm rule', async () => {
+  it('creates input, script-filter, create-alarm, clear-alarm, and save-timeseries for one alarm rule', async () => {
     await createDefaultRuleChain('tpl-1', 'Reactor', singleAlarmRule);
 
-    // 1 alarm rule => 4 nodes: input, filter, alarm, save-timeseries
-    expect(mockNodeCreate).toHaveBeenCalledTimes(4);
+    // 1 alarm rule => 5 nodes: input, filter, create-alarm, clear-alarm, save
+    expect(mockNodeCreate).toHaveBeenCalledTimes(5);
 
     const nodeTypes = mockNodeCreate.mock.calls.map(
       (call) => call[0].data.type,
     );
-    expect(nodeTypes).toEqual(['input', 'script-filter', 'create-alarm', 'save-timeseries']);
+    expect(nodeTypes).toEqual([
+      'input',
+      'script-filter',
+      'create-alarm',
+      'clear-alarm',
+      'save-timeseries',
+    ]);
 
     const nodeNames = mockNodeCreate.mock.calls.map(
       (call) => call[0].data.name,
@@ -196,6 +202,7 @@ describe('createDefaultRuleChain', () => {
       'Input',
       'Filter: High Temperature',
       'Alarm: High Temperature',
+      'Clear: High Temperature',
       'Save Timeseries',
     ]);
   });
@@ -205,12 +212,14 @@ describe('createDefaultRuleChain', () => {
   it('creates connections between nodes in the correct topology', async () => {
     await createDefaultRuleChain('tpl-1', 'Reactor', singleAlarmRule);
 
-    // 1 alarm rule => 4 connections:
+    // 1 alarm rule => 6 connections:
     //   input -> filter (Success)
     //   filter -> alarm (True)
+    //   filter -> clear (False)
     //   input -> save (Success)
     //   alarm -> save (Success)
-    expect(mockConnectionCreate).toHaveBeenCalledTimes(4);
+    //   clear -> save (Success)
+    expect(mockConnectionCreate).toHaveBeenCalledTimes(6);
 
     const connections = mockConnectionCreate.mock.calls.map((call) => ({
       from: call[0].data.fromNodeId,
@@ -218,14 +227,13 @@ describe('createDefaultRuleChain', () => {
       label: call[0].data.label,
     }));
 
-    // input (node-1) -> filter (node-2)
+    // node-1 input, node-2 filter, node-3 alarm, node-4 clear, node-5 save
     expect(connections[0]).toEqual({ from: 'node-1', to: 'node-2', label: 'Success' });
-    // filter (node-2) -> alarm (node-3)
     expect(connections[1]).toEqual({ from: 'node-2', to: 'node-3', label: 'True' });
-    // input (node-1) -> save (node-4)
-    expect(connections[2]).toEqual({ from: 'node-1', to: 'node-4', label: 'Success' });
-    // alarm (node-3) -> save (node-4)
-    expect(connections[3]).toEqual({ from: 'node-3', to: 'node-4', label: 'Success' });
+    expect(connections[2]).toEqual({ from: 'node-2', to: 'node-4', label: 'False' });
+    expect(connections[3]).toEqual({ from: 'node-1', to: 'node-5', label: 'Success' });
+    expect(connections[4]).toEqual({ from: 'node-3', to: 'node-5', label: 'Success' });
+    expect(connections[5]).toEqual({ from: 'node-4', to: 'node-5', label: 'Success' });
   });
 
   // ── Test 6: Creates version 1 snapshot ────────────────────
@@ -248,8 +256,8 @@ describe('createDefaultRuleChain', () => {
     expect(snapshot.name).toBe('Default: Reactor');
     expect(snapshot.version).toBe(1);
     expect(snapshot.firstRuleNodeId).toBe('node-1');
-    expect((snapshot.nodes as unknown[]).length).toBe(4);
-    expect((snapshot.connections as unknown[]).length).toBe(4);
+    expect((snapshot.nodes as unknown[]).length).toBe(5);
+    expect((snapshot.connections as unknown[]).length).toBe(6);
   });
 
   // ── Test 8: Invalid alarm rule entries are filtered out ───
@@ -279,30 +287,30 @@ describe('createDefaultRuleChain', () => {
     const result = await createDefaultRuleChain('tpl-1', 'Reactor', mixed);
 
     expect(result).toBe('chain-1');
-    // 1 valid alarm rule => 4 nodes
-    expect(mockNodeCreate).toHaveBeenCalledTimes(4);
+    // 1 valid alarm rule => 5 nodes (input, filter, alarm, clear, save)
+    expect(mockNodeCreate).toHaveBeenCalledTimes(5);
   });
 
-  it('creates 6 nodes and 8 connections for two alarm rules', async () => {
+  it('creates 8 nodes and 11 connections for two alarm rules', async () => {
     await createDefaultRuleChain('tpl-1', 'Reactor', twoAlarmRules);
 
-    // 2 alarm rules => 6 nodes: input, filter1, alarm1, filter2, alarm2, save
-    expect(mockNodeCreate).toHaveBeenCalledTimes(6);
+    // 2 alarm rules => 8 nodes: input + (filter, create-alarm, clear-alarm)*2 + save
+    expect(mockNodeCreate).toHaveBeenCalledTimes(8);
 
     const nodeTypes = mockNodeCreate.mock.calls.map((call) => call[0].data.type);
     expect(nodeTypes).toEqual([
       'input',
-      'script-filter', 'create-alarm',
-      'script-filter', 'create-alarm',
+      'script-filter', 'create-alarm', 'clear-alarm',
+      'script-filter', 'create-alarm', 'clear-alarm',
       'save-timeseries',
     ]);
 
-    // 2 alarm rules => 7 connections:
-    //   input -> filter1 (Success), filter1 -> alarm1 (True)
-    //   input -> filter2 (Success), filter2 -> alarm2 (True)
-    //   input -> save (Success)
-    //   alarm1 -> save (Success), alarm2 -> save (Success)
-    expect(mockConnectionCreate).toHaveBeenCalledTimes(7);
+    // 2 alarm rules => 11 connections:
+    //   per rule (3): input->filter (Success), filter->alarm (True), filter->clear (False)
+    //   shared (1):   input->save (Success)
+    //   per rule (2): alarm->save (Success), clear->save (Success)
+    //   total = 3*2 + 1 + 2*2 = 11
+    expect(mockConnectionCreate).toHaveBeenCalledTimes(11);
   });
 
   it('sets firstRuleNodeId to the input node after creation', async () => {
@@ -320,7 +328,7 @@ describe('createDefaultRuleChain', () => {
 
     // Second node is the script-filter
     const filterConfig = mockNodeCreate.mock.calls[1][0].data.configuration;
-    expect(filterConfig.scriptBody).toBe("return msg['temp'] > 100;");
+    expect(filterConfig.script).toBe("return msg['temp'] > 100;");
     expect(filterConfig.sourceField).toBe('temp');
     expect(filterConfig.condition).toBe('>');
     expect(filterConfig.threshold).toBe(100);
@@ -431,9 +439,9 @@ describe('updateDefaultRuleChain', () => {
 
     await updateDefaultRuleChain('chain-1', 'Reactor', twoAlarmRules);
 
-    // 2 rules => 6 nodes, 7 connections
-    expect(mockNodeCreate).toHaveBeenCalledTimes(6);
-    expect(mockConnectionCreate).toHaveBeenCalledTimes(7);
+    // 2 rules => 8 nodes, 11 connections (matching the create path topology)
+    expect(mockNodeCreate).toHaveBeenCalledTimes(8);
+    expect(mockConnectionCreate).toHaveBeenCalledTimes(11);
   });
 
   it('handles empty alarm rules by building a graph with only input and save nodes', async () => {

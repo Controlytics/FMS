@@ -4,12 +4,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const {
   mockUpsert,
+  mockFindUnique,
   mockFindMany,
   mockUpdate,
   mockAssetFindUnique,
   mockAddDeviceEventRow,
 } = vi.hoisted(() => ({
   mockUpsert: vi.fn(),
+  mockFindUnique: vi.fn(),
   mockFindMany: vi.fn(),
   mockUpdate: vi.fn(),
   mockAssetFindUnique: vi.fn(),
@@ -19,6 +21,11 @@ const {
 vi.mock('../../../lib/prisma.js', () => ({
   prisma: {
     connectivityStatus: {
+      // markOnline / markOffline read the previous status before upserting so
+      // we can detect transitions (OFFLINE -> ONLINE etc) and emit the right
+      // device event. Mock it to return null by default (= no row yet); tests
+      // that care about transitions override this.
+      findUnique: mockFindUnique,
       upsert: mockUpsert,
       findMany: mockFindMany,
       update: mockUpdate,
@@ -31,6 +38,14 @@ vi.mock('../../../lib/prisma.js', () => ({
 
 vi.mock('@digilog/db', () => ({
   addDeviceEventRow: mockAddDeviceEventRow,
+}));
+
+// connectivity-tracker calls notification-dispatcher when devices flip
+// offline. The dispatcher itself reads notificationRule.findMany and writes
+// notifications - none of which are under test here. Stub it out so tests
+// don't pull a real Prisma client into the picture.
+vi.mock('../../notification-delivery/notification-dispatcher.js', () => ({
+  dispatchNotification: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { markOnline, markOffline, checkInactivityTimeouts } from '../connectivity-tracker.js';
