@@ -882,3 +882,53 @@ git diff --name-only feature/phase2-pg-queue..windows_dep                       
 ```
 
 Pass-rate at audit time: `apps/api 1123/1123 + packages/shared 150/150 + packages/queue 6/6 = 1279/1279, all green`.
+
+---
+
+## 2026-04-29 — windows-friendly-rewrite Phase 4 — Tooling cleanup (Install + Packaging)
+
+Branch: `feature/phase4-tooling`. Cut-over commits `127f25d..60d3c90` (4 commits, all on the worktree). No code changes — only the two installer/packager scripts and the `.env.example` template were touched. The point of the phase: make the scripts honest about the post-Phase-1+2+3 stack (Mosquitto, graphile-worker, puppeteer-core+Edge, @napi-rs/canvas) instead of pretending the customer needed Memurai / EMQX / PM2 / a baked-in Nginx config.
+
+### Code changes (commits in chronological order)
+
+- `127f25d chore(install): drop Memurai/EMQX/PM2 from install-on-target.ps1; add Mosquitto + Edge + LongPaths` — removed the Memurai/Redis prereq probe, the EMQX firewall rule + 18083 dashboard port, the PM2 install/start/save blocks, and the inline Nginx-config drop. Added `install-mosquitto.ps1` invocation, `LongPathsEnabled = 1` registry edit (try/catch), Microsoft Edge presence probe (warns if missing), and renamed firewall rule for 1883 to `DigiLog Mosquitto MQTT`. Footer reduced to 9 numbered steps.
+- `5dd0eab fix(install): correct footer launch instructions and unreliable error checks` — review-fix. Footer rewritten to honest "smoke-test only" wording (`cd api; node dist/app.js` in foreground, no auto-restart, no boot persistence, no log rotation; managed-Windows-service launcher tracked as Phase 5 work). Removed bogus `$LASTEXITCODE` check that was always passing on the fail path. Dropped a `2>&1` redirection from `npx prisma db seed` that wraps native stderr in NativeCommandError records and trips `$ErrorActionPreference = 'Stop'` even on exit-code-zero.
+- `bcfd621 chore(packaging): align package-for-production.ps1 with Mosquitto/graphile-worker/puppeteer-core stack` — dropped copies of the broken `start-digilog.ps1` / `stop-digilog.ps1` shells. `install-on-target.ps1` and `install-mosquitto.ps1` are now hard-required (throws on missing). Copies the repo's `mosquitto/` config dir to the output zip. Replaced inline `.env.example` template's MQTT(EMQX) + Redis blocks with a single Mosquitto block + graphile-worker note + commented `PUPPETEER_EXECUTABLE_PATH` override.
+- `60d3c90 fix(packaging): clarify partial mirror of .env.example, normalize Mosquitto placeholders, repair Write-Host -f bug` — review-fix. Added explicit-scope comment naming the inline template as a partial mirror of `apps/api/.env.example`. Fixed pre-existing `Write-Host -f` bug where the parameter alias was treated as a positional. Normalized `MOSQUITTO_ADMIN_PASSWORD` + `MOSQUITTO_REFRESH_TOKEN` placeholder strings to SHOUTY_SNAKE so the file matches the packager output. `apps/api/.env.example` updated for the same.
+
+### Doc updates done in this audit pass
+
+- `CHANGELOG.md` — new "[Unreleased] — Phase 4 of windows-friendly-rewrite — Tooling cleanup (Install + Packaging)" section at top. Lists all four commit hashes and what changed in operator-facing language.
+- `DEPLOY-WINDOWS.md` — full rewrite of:
+  - Section 1 (what's in the box) — drops `start-digilog.ps1`/`stop-digilog.ps1`, adds `mosquitto/` directory + `install-mosquitto.ps1`
+  - Section 2 (architecture diagram) — drops PM2 + Nginx boxes, swaps in foreground-smoke-test note
+  - Section 3 (prereqs table) — Nginx removed entirely, Memurai marked optional, Mosquitto marked "installed by script", Edge entry expanded with override hint, plus the Phase-4 disclaimer paragraph
+  - Section 5.4 (install script does) — rewritten to actual 9 steps shipped in `127f25d`/`5dd0eab`, plus the foreground-smoke-test launch
+  - Section 5.5 (was Nginx config) — **deleted entirely**; remaining sections renumbered (5.5 cert-on-tablet, 5.6 APK install)
+  - Section 6 (smoke tests) — renumbered to 8 steps; explicit `Test-NetConnection localhost -Port 1883`, graphile-worker schema check via `information_schema.tables`, TimescaleDB extversion check; PM2/Nginx-specific steps removed; SPA now served by Fastify directly on `:3000`
+  - Section 7 (auto-start) — replaced PM2/Nginx-via-NSSM block with NSSM-as-stopgap-for-API-only block + Phase 5 deferred note
+  - Section 9 (update path) — replaced `pm2 stop`/`pm2 restart`/`nginx -s reload` with manual Ctrl-C + relaunch (or NSSM if registered)
+  - Section 10 (troubleshooting) — `pm2 logs` references swapped to console output / NSSM logs; new row for missing-Edge PDF failure; PM2-startup row swapped for Phase-5-deferred note
+  - Section 11 (handover checklist) — PM2/Nginx items removed; smoke-test count bumped from 6 → 8; NSSM stopgap line added
+  - Section 12 (support) — `pm2 logs` swapped for console output / NSSM log path
+- `windowsIssues.md` — § 14 (Optional Nginx) gained a "Phase 4 status (2026-04-29)" footnote with the four commit hashes and a pointer to `DEPLOY-WINDOWS.md § 7` for the NSSM stopgap.
+- `tasks/todo.md` — this entry.
+
+### Files NOT touched in this pass (and why)
+
+- `LOCAL_SETUP_WINDOWS.md` — `d6bdd7c` (Phase 3 doc-sync) already removed every PM2/EMQX reference from the local-dev guide and the `.env` template already lists the Mosquitto vars. Re-read end-to-end during this pass; nothing further to add for Phase 4 (the file is about *local dev*, not the production install path the scripts target).
+- `apps/api/CLAUDE.md` — `d6bdd7c` already swapped the local-services list to Mosquitto. The "Phase 4 Update (2026-04-14)" section in that file refers to a different "Phase 4" (the in-app permissions/themes/reports phase, not the windows-friendly-rewrite Phase 4). Leaving as-is.
+- `README.md` — `d6bdd7c` already updated the tech-stack table to Mosquitto / graphile-worker / puppeteer-core / @napi-rs/canvas, and the "Memurai/Redis is optional" note. No new content from Phase 4 changes the stack — only the install path — which is `DEPLOY-WINDOWS.md`'s job.
+- `CLAUDE.md` (root) — same reasoning. The env list already reads `Node.js 20+, PostgreSQL 18 + TimescaleDB, Mosquitto 2.0`. No PM2 or Nginx mention.
+- `PHASE_5_RECENT_WORK.md` — Phase 5 of the windows-friendly-rewrite (managed-service launcher + integration test) hasn't shipped yet; updating that file is the job of the Phase 5 doc sync.
+
+### Verification commands run before doc updates
+
+```bash
+git log --oneline 5f56cec..HEAD                                          # confirmed 4 today's commits on feature/phase4-tooling
+grep -nE "PM2|pm2|EMQX|18083|nginx|Nginx" DEPLOY-WINDOWS.md              # found 9 stale references; all rewritten or footnoted
+grep -nE "PM2|pm2|EMQX" windowsIssues.md                                 # only § 14 Nginx mentions; added Phase 4 footnote
+grep -nE "PM2|EMQX|nginx|Memurai" LOCAL_SETUP_WINDOWS.md                 # already clean from d6bdd7c
+```
+
+No code, no tests run — pure script + docs. End-to-end install-script proof will land in **Phase 5.1** (windows-server-stack integration test).

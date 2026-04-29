@@ -16,19 +16,21 @@ The customer should receive a ZIP named `digilog-production.zip` containing:
 ```
 digilog-production/
 ├── api/                           ← compiled Fastify backend (dist + node_modules + prisma)
-├── web/                           ← built React SPA (static files for nginx / serve)
+├── web/                           ← built React SPA (static files served by Fastify or any static server)
 ├── certs/                         ← HTTPS certs (mkcert-generated)
 │   ├── server.crt
 │   ├── server.key
 │   └── rootCA.pem                 ← install this on every tablet
 ├── DigiLog-FilterOps.apk          ← Android APK for tablets
+├── mosquitto/                     ← Mosquitto config + dynamic-security.json regen target
 ├── scripts/
-│   ├── install-on-target.ps1      ← run once on the target machine
-│   ├── start-digilog.ps1          ← start everything
-│   └── stop-digilog.ps1           ← stop everything
+│   ├── install-on-target.ps1      ← run once on the target machine (also runs install-mosquitto.ps1)
+│   └── install-mosquitto.ps1      ← invoked by install-on-target.ps1
 ├── .env.example                   ← copy to .env and edit
 └── DEPLOY-WINDOWS.md              ← this file
 ```
+
+> **Phase 4 (windows-friendly-rewrite) note:** the bundled `start-digilog.ps1` / `stop-digilog.ps1` shells were dropped because they referenced PM2 + EMQX. Smoke-test launch is now `cd api; node dist/app.js` in the foreground; a managed Windows-service launcher is tracked as Phase 5 work.
 
 Anything the customer shouldn't need to touch stays inside `api/` and `web/`.
 Configuration is all in `.env` and `certs/`.
@@ -44,35 +46,23 @@ Configuration is all in `.env` and `certs/`.
 │  │ Node 20+│   │Postgres│   │Memurai   │  │Mosquitto ││
 │  │ API     │←──│ +Timsc │   │(optional │  │ MQTT     ││
 │  │ :3000   │   │ +queue │   │ pub/sub) │  │ :1883    ││
-│  │         │   │:5432   │   │ :6379    │  │ (service)││
+│  │  HTTPS  │   │:5432   │   │ :6379    │  │ (service)││
 │  └────┬────┘   └────────┘   └──────────┘  └──────────┘│
 │       │                                               │
-│  ┌────┴────────────────────┐                          │
-│  │  PM2 keeps API alive    │                          │
-│  └─────────────────────────┘                          │
-│                                                       │
-│  ┌────────────────────────┐                           │
-│  │  Nginx :80 :443        │  ← serves the SPA         │
-│  │  static files + proxy  │    and proxies /api/* →   │
-│  │                        │    https://localhost:3000 │
-│  └────────────────────────┘                           │
-└───────────────────────────────────────────────────────┘
-                    ▲
-                    │ https
-    ┌───────────────┴───────────────┐
+│       │  Foreground smoke-test:  cd api; node dist/app.js
+│       │  (managed Windows-service launcher = Phase 5) │
+└───────┼───────────────────────────────────────────────┘
+        │
+        │ https://<server-ip>:3000
+        ▼
+    ┌───────────────────────────────┐
     │ Tablets with DigiLog APK      │
     │ (rootCA.pem installed in      │
     │  system cert store)           │
     └───────────────────────────────┘
 ```
 
-Five components run on the server. Four of them are **off-the-shelf downloads**
-(Postgres, Memurai-optional, Mosquitto-via-script, Nginx). The fifth is **your
-built application**. Phase 1+2 of the windows-friendly-rewrite swapped EMQX
-for Mosquitto and made Memurai optional (queue moved to graphile-worker on
-Postgres); Phase 3 swapped the PDF/chart pipeline to puppeteer-core + Edge
-and @napi-rs/canvas, eliminating ~150 MB of bundled Chromium and the
-node-gyp / MSVC / Cairo build chain.
+Three components run on the server: **PostgreSQL 18 + TimescaleDB**, **Mosquitto 2.0**, and **the built API + SPA**. Phase 1+2 of the windows-friendly-rewrite swapped EMQX for Mosquitto and moved the job queue to graphile-worker on Postgres (Memurai/Redis is now optional, only used for non-queue pub/sub: WebSocket events, RPC routing, pipeline tracer, debug recorder). Phase 3 swapped the PDF/chart pipeline to puppeteer-core + Edge and @napi-rs/canvas, eliminating ~150 MB of bundled Chromium and the node-gyp / MSVC / Cairo build chain. Phase 4 retired PM2 and the bundled Nginx config from the customer-facing install path — the API runs in the foreground for smoke-test, and a managed Windows-service launcher is Phase 5 work.
 
 > **Phase 2 Task 2.10 update (2026):** the job queue moved from BullMQ-on-Redis
 > to graphile-worker-on-Postgres. Memurai/Redis is now **optional** — the API
@@ -92,11 +82,12 @@ Each is a Next-Next-Finish installer.
 | **Node.js LTS** | 20.x or 22.x | https://nodejs.org/ | Accept default options. Ensures `node` and `npm` are on PATH. |
 | **PostgreSQL** | 18 | https://www.postgresql.org/download/windows/ | Remember the password for the `postgres` superuser — you'll need it. Install **Stack Builder** and use it to add the **TimescaleDB** extension afterwards. |
 | **TimescaleDB** | latest for PG 18 | https://docs.timescale.com/self-hosted/latest/install/installation-windows/ | Needed for time-series data. Follow their Windows guide — it's a DLL copy + one `CREATE EXTENSION` statement. |
-| **Memurai** | Developer Edition | https://www.memurai.com/get-memurai | Optional after Phase 2 of windows-friendly-rewrite — only needed for Redis pub/sub (WebSocket events, RPC routing, tracer, debug recorder). The job queue runs on Postgres now. Free Developer Edition is enough if you do install it. |
-| **Mosquitto** | 2.0.x | Bundled — install via `scripts/install-mosquitto.ps1` | MQTT broker. Run the script from an **elevated** PowerShell; it downloads the official 2.0.18 installer, registers the Windows service, deploys the conf, and rewrites paths to absolute (the SCM-managed broker has CWD=System32, no stdout — relative paths and `log_dest stdout` would silently exit it). |
-| **Microsoft Edge** | preinstalled on Win10+/Server 2019+ | n/a | Used by `puppeteer-core` for PDF report rendering. No manual install needed unless on Windows Server Core (use Chrome instead). |
-| **Nginx** | Windows stable | http://nginx.org/en/download.html | Serves the built web SPA and reverse-proxies the API. |
+| **Memurai** *(optional)* | Developer Edition | https://www.memurai.com/get-memurai | Phase 2 of windows-friendly-rewrite moved the job queue onto Postgres (graphile-worker). Memurai/Redis is **only** needed if you want the non-queue pub/sub features (WebSocket events, RPC routing, pipeline tracer, debug recorder). Free Developer Edition is enough if you do install it. |
+| **Mosquitto** *(installed by script)* | 2.0.x | Bundled — `install-on-target.ps1` invokes `install-mosquitto.ps1` automatically | MQTT broker. **No separate install step.** Step 3/9 of `install-on-target.ps1` runs `install-mosquitto.ps1`, which downloads the official 2.0.18 installer, registers the Windows service, deploys the conf, and rewrites paths to absolute (the SCM-managed broker has CWD=System32, no stdout — relative paths and `log_dest stdout` would silently exit it). |
+| **Microsoft Edge** | preinstalled on Win10+/Server 2019+ | https://www.microsoft.com/edge | Used by `puppeteer-core` for PDF report rendering. The installer probes for `msedge.exe` and warns if missing. On Windows Server Core, install Chrome and set `PUPPETEER_EXECUTABLE_PATH` in `.env`. |
 | **Git (optional)** | any | https://git-scm.com/ | Only needed if you'll pull source updates later. |
+
+> **Phase 4 retired Nginx and PM2 from the customer-facing path.** The Fastify API serves the SPA's static bundle directly on `:3000` (HTTPS), and the API is launched manually for smoke-test (`cd api; node dist/app.js`). A managed Windows-service launcher is Phase 5 work — for now there is no auto-restart-on-crash and no boot persistence. If you want a reverse proxy or SPA-only static server, install Nginx or IIS yourself; nothing in the install script depends on it.
 
 > **Windows Server SKU note:** Phase 3 of windows-friendly-rewrite swapped
 > the PDF/chart pipeline to puppeteer-core + @napi-rs/canvas, so **Windows
@@ -215,75 +206,29 @@ cd C:\DigiLog
 powershell -ExecutionPolicy Bypass -File scripts\install-on-target.ps1
 ```
 
-This does:
-1. `cd api && npm ci --omit=dev` — installs API dependencies from lockfile
-2. `npx prisma migrate deploy` — applies every migration to `digilog_db`
-3. `npx prisma db seed` (or runs the seed via a node script) — creates the
-   SUPER_ADMIN role and default superadmin user
-4. Installs **PM2** globally (`npm i -g pm2`) and its Windows startup helper
-5. Starts the API under PM2 as `digilog-api`
-6. Starts the web static file server (Nginx config is copied into place)
-7. Opens Windows Firewall for ports **80**, **443**, **3000**, **1883**, **18083**
+This does (9 steps):
+1. **Sanity checks** — verifies `api/`, `.env`, Node.js, npm, `psql` (warns if missing), Microsoft Edge (warns if missing — needed for PDF reports)
+2. **Enables Windows long-paths** — sets `HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled = 1`
+3. **Installs Mosquitto 2.0** — invokes `scripts/install-mosquitto.ps1` (idempotent — silently installs MSI, registers the Windows service, copies the conf, rewrites paths to absolute)
+4. **Copies `.env` into `api/`** — so the compiled API can read it
+5. **`npm ci --omit=dev`** in `api/` — installs production dependencies from the lockfile
+6. **`npx prisma generate`** — generates the Prisma client against the deployed schema
+7. **`npx prisma migrate deploy`** — applies every migration to `digilog_db`
+8. **`npx prisma db seed`** — creates the SUPER_ADMIN role and default superadmin user (config registry also auto-seeds on first API start, so this is best-effort)
+9. **Opens Windows Firewall** — ports **80**, **443**, **3000**, **1883**
 
-### 5.5 Configure Nginx
-
-The script drops a baseline `nginx.conf` next to your Nginx install.
-Edit the `server_name` and cert paths if your Nginx lives somewhere else:
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name digilog.local 192.168.1.100;
-
-    ssl_certificate     C:/DigiLog/certs/server.crt;
-    ssl_certificate_key C:/DigiLog/certs/server.key;
-
-    root C:/DigiLog/web;
-    index index.html;
-
-    # SPA fallback — any unknown path serves index.html
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # Proxy API calls to the Fastify backend (which is running HTTPS)
-    location /api/ {
-        proxy_pass https://127.0.0.1:3000/api/;
-        proxy_ssl_verify off;           # self-signed internal cert
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # Swagger docs (optional — remove in prod if you don't want it exposed)
-    location /docs {
-        proxy_pass https://127.0.0.1:3000/docs;
-        proxy_ssl_verify off;
-    }
-}
-
-# Redirect plain HTTP to HTTPS
-server {
-    listen 80;
-    server_name _;
-    return 301 https://$host$request_uri;
-}
-```
-
-Reload Nginx:
+After the script finishes, **launch the API manually for smoke-test:**
 
 ```powershell
-cd C:\nginx
-.\nginx.exe -s reload
+cd C:\DigiLog\api
+node dist/app.js
 ```
 
-### 5.6 Install the HTTPS cert on client tablets
+> **Phase 4 honest disclaimer:** the API runs in the foreground in this console window. There is no auto-restart on crash, no boot persistence, no log rotation. This is for smoke-testing only. A managed Windows-service launcher (NSSM or `sc.exe`-registered service via `verify-windows-deployment.ps1`) is tracked as **Phase 5 work** of the windows-friendly-rewrite plan.
 
-The APK connects to `https://<server-ip>:3000` (or `:443` if you've set up
-Nginx for port 443). Android requires the signing CA to be trusted. On every
-tablet:
+### 5.5 Install the HTTPS cert on client tablets
+
+The APK connects to `https://<server-ip>:3000`. Android requires the signing CA to be trusted. On every tablet:
 
 1. Copy `certs/rootCA.pem` to the tablet via USB or email.
 2. Android → **Settings → Security → Install from storage → CA certificate**.
@@ -292,7 +237,7 @@ tablet:
 
 Without this step the APK will fail to connect with an SSL error.
 
-### 5.7 Install the APK on every tablet
+### 5.6 Install the APK on every tablet
 
 ```powershell
 # On the tablet (USB connected, USB debugging enabled):
@@ -306,66 +251,64 @@ file browser, accept "Install from unknown sources".
 
 ## 6. First-run verification
 
-After the install script finishes, verify everything in this order:
+Launch the API in one console (`cd C:\DigiLog\api; node dist/app.js`) and run these in another. **All commands are PowerShell:**
 
 ```powershell
 # 1. PostgreSQL is responding
 psql -U digilog -d digilog_db -c "SELECT now();"
 
-# 2. Memurai (Redis) is responding — only required for pub/sub features
-redis-cli -p 6379 ping
-# → should print PONG (skip if not using pub/sub features)
+# 2. TimescaleDB extension is loaded on the time-series DB
+psql -U digilog -d digilog_tsdb -c "SELECT extversion FROM pg_extension WHERE extname='timescaledb';"
+# → should print one row with the extension version
 
-# 3. Mosquitto service is running
+# 3. graphile-worker schema bootstrapped on first API connect
+psql -U digilog -d digilog_db -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='graphile_worker';"
+# → should print a non-zero count (jobs, job_queues, known_crontabs, migrations, etc.). Schema auto-creates on first API start; if zero, the API hasn't connected yet.
+
+# 4. Memurai (Redis) — ONLY required for pub/sub features (WebSocket events, RPC, tracer, debug recorder)
+redis-cli -p 6379 ping
+# → should print PONG (skip if Memurai is not installed)
+
+# 5. Mosquitto service is running
 Get-Service mosquitto
 # → Status: Running, StartType: Automatic
 Test-NetConnection -ComputerName localhost -Port 1883
 # → TcpTestSucceeded : True
 
-# 4. API is running under PM2 and responding
-pm2 list
-# → digilog-api should be online
+# 6. API is responding (run AFTER you start the API console with `cd api; node dist/app.js`)
 curl -k https://localhost:3000/health
-# → returns {"error":"UNAUTHORIZED","message":"Missing token"}  (expected — it means the server is up)
+# → returns {"error":"UNAUTHORIZED","message":"Missing token"}  (expected — TLS handshake succeeded, route requires auth)
 
-# 5. Nginx is serving the SPA
-curl -k https://localhost
+# 7. SPA is being served by the API directly (Phase 4: no Nginx)
+curl -k https://localhost:3000/
 # → returns HTML containing <title>DigiLog</title>
 
-# 6. Can log in
-# Open a desktop browser on the server itself:  https://localhost
+# 8. Can log in
+# Open a desktop browser on the server itself:  https://localhost:3000
 # Default credentials: superadmin / Admin@123
 # CHANGE the superadmin password immediately after first login.
 ```
 
-If step 4 fails, check:
-```powershell
-pm2 logs digilog-api --lines 50
-```
-
-Most likely cause: `DATABASE_URL` wrong or TimescaleDB extension missing.
+If step 6 fails, check the API console output directly (it's running in the foreground). Most likely causes: `DATABASE_URL` wrong, TimescaleDB extension missing, or `MOSQUITTO_ADMIN_PASSWORD` / `MOSQUITTO_REFRESH_TOKEN` blank in `.env` (the API refuses to start with a blank token when `USE_MOSQUITTO=true`).
 
 ---
 
-## 7. Auto-start on boot
+## 7. Auto-start on boot — Phase 5 work
+
+**There is no auto-start in this phase.** PM2 was retired in Phase 4 of the windows-friendly-rewrite, and a managed Windows-service launcher has not yet shipped. PostgreSQL, Mosquitto, and (if installed) Memurai all register as Windows services by default and auto-start on reboot — only the **API** needs manual relaunch right now.
+
+If you need auto-restart today, the simplest stopgap is **NSSM**:
 
 ```powershell
-pm2 save
-pm2-startup install
+# Download nssm from https://nssm.cc/download
+nssm install digilog-api "C:\Program Files\nodejs\node.exe" "C:\DigiLog\api\dist\app.js"
+nssm set digilog-api AppDirectory C:\DigiLog\api
+nssm set digilog-api AppStdout C:\DigiLog\logs\api.out.log
+nssm set digilog-api AppStderr C:\DigiLog\logs\api.err.log
+nssm start digilog-api
 ```
 
-This registers PM2 as a Windows service so the API auto-restarts on reboot.
-Memurai, PostgreSQL, and EMQX install as Windows services by default and
-auto-start already.
-
-For **Nginx on boot**, use **nssm**:
-
-```powershell
-# Download nssm from https://nssm.cc/download and extract nssm.exe somewhere
-nssm install nginx C:\nginx\nginx.exe
-nssm set nginx AppDirectory C:\nginx
-nssm start nginx
-```
+The forthcoming Phase 5 `verify-windows-deployment.ps1` will automate the NSSM-or-`sc.exe` registration with proper log-rotation, restart policies, and health-check probes.
 
 ---
 
@@ -389,20 +332,20 @@ cloud, or file share).
 When you ship a new build:
 
 1. On your dev machine, run `scripts/package-for-production.ps1` again.
-2. On the target machine, **stop the API first**:
-   ```powershell
-   pm2 stop digilog-api
-   ```
+2. On the target machine, **stop the API first** — Ctrl-C in the API console, or `nssm stop digilog-api` if you registered it as a service.
 3. Replace `C:\DigiLog\api\` and `C:\DigiLog\web\` with the new folders from the ZIP. **Do NOT overwrite `.env` or `certs/`.**
 4. Apply any new migrations:
    ```powershell
    cd C:\DigiLog\api
    npx prisma migrate deploy
    ```
-5. Restart:
+5. Restart the API:
    ```powershell
-   pm2 restart digilog-api
-   C:\nginx\nginx.exe -s reload
+   # Foreground smoke-test:
+   cd C:\DigiLog\api
+   node dist/app.js
+   # OR if you registered it via NSSM:
+   nssm restart digilog-api
    ```
 6. Install the new APK on tablets (same `adb install -r` command — `-r` keeps user data).
 
@@ -412,15 +355,16 @@ When you ship a new build:
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Tablet login fails with "unable to parse tls packet header" | API is running plain HTTP | Check `.env` has `API_HTTPS=true` and restart: `pm2 restart digilog-api` |
-| Tablet login fails with "certificate not trusted" | `rootCA.pem` not installed on the tablet | Re-do section 5.6 for that tablet |
+| Tablet login fails with "unable to parse tls packet header" | API is running plain HTTP | Check `.env` has `API_HTTPS=true` and restart the API console (Ctrl-C, `node dist/app.js` again) |
+| Tablet login fails with "certificate not trusted" | `rootCA.pem` not installed on the tablet | Re-do section 5.5 for that tablet |
 | API 500 errors, log says "TimescaleDB extension not found" | Extension not installed on `digilog_tsdb` | `psql -d digilog_tsdb -c "CREATE EXTENSION timescaledb;"` |
-| API 500, log says "Cannot connect to Postgres on queue connection" | DATABASE_URL/DATABASE_URL_QUEUE wrong, or Postgres down | Verify `psql -U digilog -d digilog_db -c "SELECT 1;"` works; check `pm2 logs digilog-api` |
-| WebSocket events / RPC / debug-recorder failing | Memurai not running (queue still works) | `net start Memurai` — these features are optional after Task 2.10 |
-| Login works but no data loads | CORS rejecting the origin | Add the LAN IP/hostname to `ALLOWED_ORIGINS` in `.env` and `pm2 restart digilog-api` |
-| Can't find superadmin login after install | Seed didn't run | `cd C:\DigiLog\api && node -e "require('./dist/prisma/seed.js')"` (or run `npx prisma db seed`) |
-| PM2 not starting on boot | Startup script not installed | `pm2 save; pm2-startup install` |
+| API 500, log says "Cannot connect to Postgres on queue connection" | DATABASE_URL/DATABASE_URL_QUEUE wrong, or Postgres down | Verify `psql -U digilog -d digilog_db -c "SELECT 1;"` works; check the API console output |
+| WebSocket events / RPC / debug-recorder failing | Memurai not running (queue still works) | `Start-Service Memurai` — these features are optional after Phase 2 of windows-friendly-rewrite |
+| Login works but no data loads | CORS rejecting the origin | Add the LAN IP/hostname to `ALLOWED_ORIGINS` in `.env` and restart the API console |
+| Can't find superadmin login after install | Seed didn't run | `cd C:\DigiLog\api; npx prisma db seed` (or restart the API — config registry auto-seeds on first start) |
+| API doesn't survive reboots | No managed-service launcher yet | Phase 5 work; for now use NSSM (see section 7) or relaunch manually after reboot |
 | MQTT (data ingestion) not working | Mosquitto service not running, firewall, or stale dynsec | `Restart-Service mosquitto`; check Windows Firewall allows port 1883; verify `Get-Content "C:\Program Files\mosquitto\mosquitto.log"` for plugin / auth errors. After every `POST /api/internal/mqtt/refresh-acl`, copy `<repo>/mosquitto/dynamic-security.json` into `C:\Program Files\mosquitto\` and restart the service. |
+| Reports/PDF generation fails with "executable not found" | Microsoft Edge missing on the host | Install Edge from https://www.microsoft.com/edge OR set `PUPPETEER_EXECUTABLE_PATH` in `.env` to a Chromium-family browser path |
 
 ---
 
@@ -430,18 +374,18 @@ Give the customer a printed copy of this list:
 
 - [ ] Windows machine meets the prerequisites (section 3)
 - [ ] Received `digilog-production.zip`
-- [ ] Installed Node.js, PostgreSQL 18 + TimescaleDB, Nginx (Memurai optional — only for non-queue pub/sub). Mosquitto installs via `scripts/install-mosquitto.ps1` during deploy.
+- [ ] Installed Node.js, PostgreSQL 18 + TimescaleDB. (Memurai optional — only for non-queue pub/sub. Mosquitto installs automatically via `scripts/install-on-target.ps1`.)
 - [ ] Unzipped to `C:\DigiLog\`
 - [ ] Created `digilog_db` + `digilog_tsdb` databases (section 5.2)
-- [ ] Filled in `.env` — **database password + JWT secrets changed from defaults**
-- [ ] Ran `scripts\install-on-target.ps1`
-- [ ] Ran `pm2 save; pm2-startup install`
-- [ ] Configured Nginx with cert paths (section 5.5) and set auto-start
-- [ ] Verified all 6 smoke tests (section 6) pass
+- [ ] Filled in `.env` — **database password + JWT secrets + Mosquitto admin password + Mosquitto refresh token changed from defaults**
+- [ ] Ran `scripts\install-on-target.ps1` (which also runs `install-mosquitto.ps1`)
+- [ ] Launched the API for smoke-test (`cd api; node dist/app.js`)
+- [ ] Verified all 8 smoke tests (section 6) pass
 - [ ] Changed superadmin password from `Admin@123`
-- [ ] Installed `rootCA.pem` on each tablet (section 5.6)
-- [ ] Installed `DigiLog-FilterOps.apk` on each tablet (section 5.7)
+- [ ] Installed `rootCA.pem` on each tablet (section 5.5)
+- [ ] Installed `DigiLog-FilterOps.apk` on each tablet (section 5.6)
 - [ ] Logged in from each tablet successfully
+- [ ] (Optional, until Phase 5 lands) Registered the API as an NSSM service for auto-restart (section 7)
 - [ ] Configured daily backups (section 8)
 - [ ] Saved the admin password and DB password in a password manager
 
@@ -453,6 +397,6 @@ For technical questions during or after installation, contact the
 development team with:
 
 - The exact step number from this guide where the issue occurred
-- The output of `pm2 logs digilog-api --lines 100`
+- The last 100 lines of the API console output (or, if running under NSSM, the contents of `C:\DigiLog\logs\api.err.log`)
 - Screenshots of any error messages
 - The target OS version (run `systeminfo | findstr /B /C:"OS Name" /C:"OS Version"`)

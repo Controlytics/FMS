@@ -208,6 +208,8 @@ icacls apps\api\uploads /grant 'NT SERVICE\digilog-api:(OI)(CI)M'
 - Use **IIS with URL Rewrite + ARR** for reverse-proxying `/api` to Fastify, OR
 - **Skip the proxy entirely** — Fastify on `:3000` direct + Capacitor APK pointed at it. This is the simpler default for local-Windows deployments.
 
+> **Phase 4 status (2026-04-29):** the bundled Nginx config and PM2 startup helper were both retired from `scripts/install-on-target.ps1` (commits `127f25d`..`60d3c90` on `feature/phase4-tooling`). The customer-facing path is now Fastify-direct on `:3000`. NSSM-as-stopgap is documented in `DEPLOY-WINDOWS.md` § 7 until Phase 5 ships a managed-service launcher (`verify-windows-deployment.ps1`).
+
 ### 15. `.gradle/`, `.kotlin/`, `node_modules/` cleanup
 
 **Files:** stray `RFID/` directory at repo root (~1.2 MB Gradle cache, separate from `rfid_scan_app/`)
