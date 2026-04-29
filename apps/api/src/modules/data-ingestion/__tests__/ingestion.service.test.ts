@@ -6,6 +6,7 @@ const {
   mockDeviceCredentialFindUnique,
   mockAssetTemplateFindUnique,
   mockAlarmUpdateMany,
+  mockAlarmFindFirst,
   mockAuditTrailCreate,
   mockAssetInstanceFindUnique,
   mockComputeChecksum,
@@ -33,6 +34,10 @@ const {
   mockDeviceCredentialFindUnique: vi.fn(),
   mockAssetTemplateFindUnique: vi.fn(),
   mockAlarmUpdateMany: vi.fn(),
+  // Stage 7 (rule chain) does an alarm.findFirst dedup check before
+  // creating a new alarm. Default to null = no existing active alarm so
+  // createAlarm fires.
+  mockAlarmFindFirst: vi.fn().mockResolvedValue(null),
   mockAuditTrailCreate: vi.fn(),
   mockAssetInstanceFindUnique: vi.fn(),
   mockComputeChecksum: vi.fn(),
@@ -70,6 +75,7 @@ vi.mock('../../../lib/prisma.js', () => ({
     },
     alarm: {
       updateMany: mockAlarmUpdateMany,
+      findFirst: mockAlarmFindFirst,
     },
     auditTrail: {
       create: mockAuditTrailCreate,

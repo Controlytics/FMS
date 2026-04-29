@@ -11,8 +11,10 @@ import {
 // =============================================
 
 describe('AUDIT_TEMPLATE_CATEGORIES', () => {
-  it('has 7 categories', () => {
-    expect(AUDIT_TEMPLATE_CATEGORIES).toHaveLength(7);
+  // Mirror src/types/audit-templates.ts. Update both when adding a new
+  // top-level audit category.
+  it('has 12 categories', () => {
+    expect(AUDIT_TEMPLATE_CATEGORIES).toHaveLength(12);
   });
 
   it('contains all expected categories', () => {
@@ -24,6 +26,11 @@ describe('AUDIT_TEMPLATE_CATEGORIES', () => {
       'Backup',
       'Data & Approvals',
       'Entity Management',
+      'Filter Operations',
+      'Cleaning Profiles',
+      'Filter Profiles',
+      'Equipment Groups',
+      'PM Schedules',
     ];
     for (const cat of expected) {
       expect(AUDIT_TEMPLATE_CATEGORIES).toContain(cat);

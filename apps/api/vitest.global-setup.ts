@@ -21,6 +21,23 @@ export default async function setup(): Promise<void> {
       );
     }
 
+    // Ensure VIEWER exists too. Older dev DBs were seeded before VIEWER was
+    // added (e2e/roles.test.ts asserts it as a default system role); upsert
+    // is idempotent so this is safe to run on every test launch.
+    await prisma.role.upsert({
+      where: { name: 'VIEWER' },
+      update: {},
+      create: {
+        name: 'VIEWER',
+        displayName: 'Viewer',
+        description: 'View-only access (test fixture)',
+        hierarchyLevel: 1,
+        permissions: ['AUDIT_READ', 'ASSET_VIEW', 'ASSET_READ', 'ALARM_VIEW', 'DASHBOARD_VIEW'],
+        color: 'bg-gradient-to-r from-slate-400 to-slate-500',
+        isSystem: true,
+      },
+    });
+
     const passwordHash = await hashPassword('Admin@123');
 
     const existing = await prisma.user.findUnique({ where: { username: 'admin' } });
@@ -59,6 +76,38 @@ export default async function setup(): Promise<void> {
           forcePasswordChange: false,
           isTemporaryPassword: false,
           organizationId: org.id,
+        },
+      });
+    }
+
+    // checklist-submission.test.ts (and any other test that needs a
+    // non-admin actor) logs in as RB0001 / Test@1234 to verify operator
+    // RBAC paths. Upsert idempotently with the OPERATOR role.
+    const operatorPassword = await hashPassword('Test@1234');
+    const operatorOrg = await prisma.organization.findFirst({ select: { id: true } });
+    if (operatorOrg) {
+      await prisma.user.upsert({
+        where: { username: 'RB0001' },
+        update: {
+          passwordHash: operatorPassword,
+          role: 'OPERATOR',
+          status: 'ENABLED',
+          forcePasswordChange: false,
+          isTemporaryPassword: false,
+          failedLoginAttempts: 0,
+          lockedAt: null,
+          lockoutUntil: null,
+        },
+        create: {
+          username: 'RB0001',
+          email: 'rb0001-test@digilog.local',
+          fullName: 'Test Operator',
+          role: 'OPERATOR',
+          status: 'ENABLED',
+          passwordHash: operatorPassword,
+          forcePasswordChange: false,
+          isTemporaryPassword: false,
+          organizationId: operatorOrg.id,
         },
       });
     }

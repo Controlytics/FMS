@@ -95,7 +95,15 @@ export default async function configRoutes(app: FastifyInstance) {
       // Hardcoded re-auth: always required for sensitive config changes.
       // Skip if dynamic enforceReauth already verified the password.
       if (requiresReauth && !(req as any)._reauthVerified) {
-        const currentPassword = body._currentPassword as string | undefined;
+        // Accept the password from either the body (UI submits via
+        // _currentPassword) or the x-reauth-password header (matches
+        // enforceReauth and the e2e test helpers). Without this fallback,
+        // configs that aren't in the dynamic action-reauth registry (eg
+        // datetime) would always 401 even when the caller did supply the
+        // header.
+        const currentPassword =
+          (body._currentPassword as string | undefined)
+          ?? (req.headers['x-reauth-password'] as string | undefined);
         if (!currentPassword) {
           return reply.code(401).send({ error: 'REAUTH_REQUIRED', message: 'Current password is required to modify this configuration.' });
         }
