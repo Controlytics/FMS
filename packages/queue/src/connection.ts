@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import {
   makeWorkerUtils,
   type WorkerUtils,
@@ -16,6 +17,15 @@ import {
 export interface DigilogRunnerOptions {
   taskList: TaskList;
   concurrency?: number;
+  /**
+   * Optional absolute path to a graphile-worker crontab file. When set, the
+   * file is read synchronously at boot and its contents are passed through
+   * as the runner's `crontab` option. Used by the maintenance migration in
+   * Task 2.7 to schedule the 3 cron-style jobs (DLQ check, connectivity
+   * check, retention cleanup). Reading sync is fine — the file is small and
+   * static.
+   */
+  crontabPath?: string;
 }
 
 /**
@@ -50,6 +60,7 @@ export function getRunnerOptions(input: DigilogRunnerOptions): RunnerOptions {
     concurrency: input.concurrency ?? 10,
     pollInterval: 1000,
     taskList: input.taskList,
+    crontab: input.crontabPath ? readFileSync(input.crontabPath, 'utf8') : undefined,
   };
 }
 
