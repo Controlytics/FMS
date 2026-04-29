@@ -1,0 +1,6 @@
+# packages/queue/crontab.txt — Maintenance cron schedules for graphile-worker
+# Loaded by the Runner in apps/api/src/app.ts when USE_PG_QUEUE=true.
+# Cron format: minute hour day-of-month month day-of-week
+* * * * * dlq_check
+* * * * * connectivity_check
+0 2 * * * retention_cleanup
