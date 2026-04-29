@@ -49,7 +49,24 @@ $WindowsConfSrc = Join-Path $ConfigSrc 'mosquitto.windows.conf'
 if (-not (Test-Path $WindowsConfSrc)) {
     throw "Missing $WindowsConfSrc - cannot configure Windows install"
 }
-Copy-Item -Path $WindowsConfSrc -Destination (Join-Path $InstallDir 'mosquitto.conf') -Force
+$DeployedConfPath = Join-Path $InstallDir 'mosquitto.conf'
+Copy-Item -Path $WindowsConfSrc -Destination $DeployedConfPath -Force
+
+# 3a. Rewrite relative paths to absolute install-dir paths.
+#     The source conf uses './data/' and './dynamic-security.json' so it still
+#     works in dev when launched from mosquitto/ as CWD. The Windows service
+#     runs with CWD = System32, so those relative paths fail. Substitute
+#     absolute paths in the deployed copy only.
+Write-Output "Rewriting deployed conf paths to absolute (service CWD is System32) ..."
+$confText = Get-Content -Path $DeployedConfPath -Raw
+# Mosquitto config uses forward slashes on Windows; keep that convention.
+$AbsInstallDirFwd = $InstallDir -replace '\\','/'
+$confText = $confText -replace 'persistence_location \./data/', "persistence_location $AbsInstallDirFwd/data/"
+$confText = $confText -replace 'plugin_opt_config_file \./dynamic-security\.json', "plugin_opt_config_file $AbsInstallDirFwd/dynamic-security.json"
+# Windows service mode has no stdout — `log_dest stdout` causes silent exit
+# on the first log write. Redirect to a file under the install dir.
+$confText = $confText -replace 'log_dest stdout', "log_dest file $AbsInstallDirFwd/mosquitto.log"
+Set-Content -Path $DeployedConfPath -Value $confText -Encoding ASCII -NoNewline
 
 # 3a. Bootstrap dynamic-security.json from the example skeleton if the
 #     runtime file is missing. The runtime file is gitignored because
