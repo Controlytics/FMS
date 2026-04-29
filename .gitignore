@@ -35,3 +35,9 @@ CREDENTIALS.md
 
 # Playwright MCP session traces (regenerated each run)
 .playwright-mcp/
+
+# Mosquitto dynamic-security: contains bcrypt hashes after first
+# /refresh-acl call, never commit. Use mosquitto/dynamic-security.json.example
+# as the bootstrap (the installer copies it on first run).
+mosquitto/dynamic-security.json
+mosquitto/dynamic-security.json.tmp

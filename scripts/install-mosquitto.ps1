@@ -44,6 +44,21 @@ if (-not (Test-Path $ConfigSrc)) {
 Write-Output "Copying repo mosquitto/ config files into $InstallDir ..."
 Copy-Item -Path (Join-Path $ConfigSrc 'mosquitto.conf') -Destination $InstallDir -Force
 
+# 3a. Bootstrap dynamic-security.json from the example skeleton if the
+#     runtime file is missing. The runtime file is gitignored because
+#     /refresh-acl rewrites it with bcrypt hashes; the .example skeleton
+#     is committed so the broker starts cleanly on a fresh host.
+$DynsecRuntime  = Join-Path $ConfigSrc 'dynamic-security.json'
+$DynsecExample  = Join-Path $ConfigSrc 'dynamic-security.json.example'
+if (-not (Test-Path $DynsecRuntime)) {
+    if (-not (Test-Path $DynsecExample)) {
+        throw "Missing both $DynsecRuntime and $DynsecExample - cannot bootstrap dynsec"
+    }
+    Write-Output "Bootstrapping $DynsecRuntime from dynamic-security.json.example ..."
+    Copy-Item -Path $DynsecExample -Destination $DynsecRuntime
+}
+Copy-Item -Path $DynsecRuntime -Destination $InstallDir -Force
+
 # 4. Ensure data/ subdir exists (for persistence)
 $DataDir = Join-Path $InstallDir 'data'
 if (-not (Test-Path $DataDir)) {

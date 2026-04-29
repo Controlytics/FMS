@@ -51,6 +51,10 @@ services:
       # - "8883:8883"     # MQTT/TLS
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      # NOT :ro — the dynsec plugin writes back to this file when it
+      # processes MQTT control commands. The API's /refresh-acl endpoint
+      # also overwrites it atomically (tmp + rename).
+      - ./mosquitto/dynamic-security.json:/mosquitto/config/dynamic-security.json
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
     restart: unless-stopped
