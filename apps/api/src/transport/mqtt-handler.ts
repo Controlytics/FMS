@@ -13,27 +13,15 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { Queue } from 'bullmq';
-import { getRedisConnection, QUEUES, JOB_PRIORITY } from '@digilog/queue';
+import { JOB_PRIORITY } from '@digilog/queue';
 import { normalizeMessage, normalizeBatch } from '../modules/data-ingestion/message-normalizer.js';
 import type { MessageType } from '../modules/data-ingestion/message-normalizer.js';
 import { onRpcResponse } from '../modules/data-ingestion/rpc-handler.js';
+import { enqueueIngestionJob } from '../modules/data-ingestion/ingestion.service.js';
 import { prisma } from '../lib/prisma.js';
 
 const UNS_ROOT = process.env.UNS_ROOT_PREFIX ?? 'digilog/v1';
 const UNS_ROOT_SEGMENTS = UNS_ROOT.split('/').length; // e.g. "digilog/v1" → 2
-
-let ingestionQueue: Queue | null = null;
-
-function getIngestionQueue(): Queue {
-  if (!ingestionQueue) {
-    ingestionQueue = new Queue(QUEUES.INGESTION.name, {
-      connection: getRedisConnection(),
-      defaultJobOptions: QUEUES.INGESTION.defaultJobOptions,
-    });
-  }
-  return ingestionQueue;
-}
 
 interface ParsedTopic {
   enterprise: string;
@@ -212,16 +200,11 @@ export async function handleMqttMessage(topic: string, payload: Buffer): Promise
     ruleChainId: entity.template.defaultRuleChainId,
   });
 
-  // Enqueue to BullMQ
-  const queue = getIngestionQueue();
+  // Enqueue to ingestion queue (BullMQ or graphile-worker, gated by USE_PG_QUEUE)
   const priority = getJobPriority(messageType);
 
   for (const msg of messages) {
-    await queue.add(
-      messageType,
-      msg,
-      { priority, jobId: msg.messageId },
-    );
+    await enqueueIngestionJob(messageType, msg, { priority, jobId: msg.messageId });
   }
 
   // Update connectivity status last activity
@@ -297,8 +280,7 @@ async function handleLwtMessage(unsPath: string, data: Record<string, unknown>):
     traceId: randomUUID(),
   };
 
-  const queue = getIngestionQueue();
-  await queue.add('CONNECTIVITY_EVENT', msg, {
+  await enqueueIngestionJob('CONNECTIVITY_EVENT', msg, {
     priority: JOB_PRIORITY.DEVICE_EVENT,
     jobId: msg.messageId,
   });
