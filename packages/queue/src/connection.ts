@@ -9,10 +9,8 @@ import {
 // graphile-worker producer + runner factories.
 //
 // Phase 2 of the windows-friendly rewrite (see docs/plans/2026-04-29-windows-friendly-rewrite.md
-// § Task 2.2) introduces a Postgres-backed job queue alongside the legacy BullMQ-on-Redis path.
-// During the migration window the BullMQ exports are still re-exported below from
-// connection.bullmq.ts so existing call sites compile until they migrate one at a time
-// (Tasks 2.3 – 2.7). They are removed entirely in Task 2.10.
+// § Task 2.2) replaced the legacy BullMQ-on-Redis path with a Postgres-backed job queue.
+// Task 2.10 removed the BullMQ shims; graphile-worker is now the sole queue backend.
 
 export interface DigilogRunnerOptions {
   taskList: TaskList;
@@ -70,11 +68,3 @@ export async function closeProducer(): Promise<void> {
     cachedProducer = null;
   }
 }
-
-// --- BullMQ-compatible shims (kept during migration; removed in Task 2.10) ---
-export {
-  getQueueConnection,
-  getWorkerConnection,
-  getRedisConnection,
-  closeRedisConnection,
-} from './connection.bullmq.js';

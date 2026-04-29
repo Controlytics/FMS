@@ -10,7 +10,6 @@
  */
 export const FEATURE_FLAGS = {
   USE_MOSQUITTO: 'USE_MOSQUITTO',
-  USE_PG_QUEUE: 'USE_PG_QUEUE',
   USE_EDGE_PDF: 'USE_EDGE_PDF',
 } as const;
 

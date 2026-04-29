@@ -26,7 +26,6 @@
     "@prisma/client": "^6.3.0",
     "adm-zip": "^0.5.16",
     "bcrypt": "^5.1.1",
-    "bullmq": "^5.70.1",
     "chart.js": "^4.5.1",
     "chartjs-node-canvas": "^5.0.0",
     "csv-parse": "^6.2.1",

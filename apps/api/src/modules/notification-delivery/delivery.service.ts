@@ -86,7 +86,8 @@ export async function sendNotification(payload: NotificationPayload): Promise<De
 
 /**
  * Retry a failed notification delivery.
- * TODO: Replace setTimeout retries with BullMQ delayed jobs for durability across restarts
+ * TODO: Replace setTimeout retries with graphile-worker delayed jobs (`runAt`)
+ * for durability across restarts.
  */
 async function scheduleRetry(logId: string, payload: NotificationPayload, attempt: number): Promise<void> {
   if (attempt >= MAX_RETRIES) {

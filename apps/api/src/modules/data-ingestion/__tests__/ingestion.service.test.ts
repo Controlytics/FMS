@@ -27,8 +27,8 @@ const {
   mockAddDeviceEventRow,
   mockPublish,
   mockQuit,
-  mockQueueAdd,
-  mockGetRedisConnection,
+  mockGetProducer,
+  mockAddJob,
 } = vi.hoisted(() => ({
   mockDeviceCredentialFindUnique: vi.fn(),
   mockAssetTemplateFindUnique: vi.fn(),
@@ -54,8 +54,8 @@ const {
   mockAddDeviceEventRow: vi.fn(),
   mockPublish: vi.fn(),
   mockQuit: vi.fn(),
-  mockQueueAdd: vi.fn(),
-  mockGetRedisConnection: vi.fn(),
+  mockGetProducer: vi.fn(),
+  mockAddJob: vi.fn(),
 }));
 
 // ── vi.mock declarations ───────────────────────────────────────────────
@@ -128,22 +128,16 @@ vi.mock('ioredis', () => ({
   },
 }));
 
-vi.mock('bullmq', () => ({
-  Queue: class MockQueue {
-    add = mockQueueAdd;
-  },
-}));
-
 vi.mock('@digilog/queue', () => ({
-  getRedisConnection: mockGetRedisConnection,
+  getProducer: mockGetProducer,
   QUEUES: {
     NOTIFICATION: {
       name: 'notification',
-      defaultJobOptions: { removeOnComplete: true, removeOnFail: false },
+      defaultJobOptions: { attempts: 3, removeOnComplete: true, removeOnFail: false },
     },
     INGESTION: {
       name: 'ingestion',
-      defaultJobOptions: { removeOnComplete: true, removeOnFail: false },
+      defaultJobOptions: { attempts: 3, removeOnComplete: true, removeOnFail: false },
     },
   },
   JOB_PRIORITY: {
@@ -209,7 +203,8 @@ beforeEach(() => {
   mockComputeChecksum.mockReturnValue('test-checksum');
   mockAuditTrailCreate.mockResolvedValue({ id: 'audit-001' });
   mockPublish.mockResolvedValue(1);
-  mockQueueAdd.mockResolvedValue({ id: 'job-001' });
+  mockAddJob.mockResolvedValue({ id: 'job-001' });
+  mockGetProducer.mockResolvedValue({ addJob: mockAddJob, release: vi.fn() });
   mockMarkOnline.mockResolvedValue(undefined);
   mockAddToDLQ.mockResolvedValue(undefined);
   mockFinalizeTrace.mockResolvedValue(undefined);

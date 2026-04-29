@@ -53,9 +53,8 @@ cd apps/api && npx vitest run   # Run unit tests
 
 ## Environment
 - API_PORT=3000, TSDB_DATABASE=digilog_tsdb
-- Redis / Memurai: localhost:6379 (BullMQ job queue)
 - EMQX: localhost:1883 (MQTT), 18083 (dashboard)
-- PostgreSQL: localhost:5432
+- PostgreSQL: localhost:5432 (also hosts the graphile-worker job queue)
 
 ## Phase 2: Digital Filter Management System
 

@@ -103,7 +103,7 @@ function getMessageType(suffix: string): MessageType | null {
 }
 
 /**
- * Get BullMQ job priority based on message type.
+ * Get queue job priority based on message type.
  */
 function getJobPriority(messageType: MessageType): number {
   switch (messageType) {
@@ -117,7 +117,8 @@ function getJobPriority(messageType: MessageType): number {
 
 /**
  * Handle an incoming MQTT message.
- * Parses the topic, determines message type, normalizes, and enqueues to BullMQ.
+ * Parses the topic, determines message type, normalizes, and enqueues to the
+ * graphile-worker ingestion queue.
  */
 export async function handleMqttMessage(topic: string, payload: Buffer): Promise<void> {
   const parsed = parseTopic(topic);
@@ -200,7 +201,7 @@ export async function handleMqttMessage(topic: string, payload: Buffer): Promise
     ruleChainId: entity.template.defaultRuleChainId,
   });
 
-  // Enqueue to ingestion queue (BullMQ or graphile-worker, gated by USE_PG_QUEUE)
+  // Enqueue to graphile-worker ingestion queue
   const priority = getJobPriority(messageType);
 
   for (const msg of messages) {
