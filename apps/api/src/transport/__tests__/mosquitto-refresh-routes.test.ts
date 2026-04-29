@@ -16,10 +16,18 @@ vi.mock('../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 // Mock fs/promises so the test does not actually write
 vi.mock('node:fs/promises', () => ({
   writeFile: vi.fn().mockResolvedValue(undefined),
+  rename: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Mock the audit logger so we can assert it was called and prevent
+// it from hitting prisma.auditTrail.create at test time
+const { mockAuditLog } = vi.hoisted(() => ({
+  mockAuditLog: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('../../lib/audit.js', () => ({ auditLog: mockAuditLog }));
+
 import mosquittoRefreshRoutes from '../mosquitto-refresh-routes.js';
-import { writeFile } from 'node:fs/promises';
+import { writeFile, rename } from 'node:fs/promises';
 
 const prisma = mockPrisma;
 
@@ -70,12 +78,103 @@ describe('mosquitto-refresh-routes', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body).toMatchObject({ wroteFile: true, deviceCount: 0 });
+
+    // Atomic write: writeFile to tmp, then rename onto the target
     expect(writeFile).toHaveBeenCalledTimes(1);
-    const [path, contents] = (writeFile as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(path).toBe('./test-dynsec.json');
+    const [tmpPath, contents] = (writeFile as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(tmpPath).toBe('./test-dynsec.json.tmp');
     const parsed = JSON.parse(contents as string);
     expect(parsed).toHaveProperty('clients');
     expect(parsed.clients).toHaveLength(1); // admin only
+
+    expect(rename).toHaveBeenCalledTimes(1);
+    expect(rename).toHaveBeenCalledWith('./test-dynsec.json.tmp', './test-dynsec.json');
+  });
+
+  it('writes to <path>.tmp then renames onto target (atomic write)', async () => {
+    (prisma.deviceCredential.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/internal/mqtt/refresh-acl',
+      headers: { authorization: 'Bearer shared-secret' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    // The tmp path is the target with `.tmp` suffix
+    expect((writeFile as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe(
+      './test-dynsec.json.tmp'
+    );
+    // Rename moves tmp → target
+    expect((rename as ReturnType<typeof vi.fn>).mock.calls[0]).toEqual([
+      './test-dynsec.json.tmp',
+      './test-dynsec.json',
+    ]);
+    // writeFile was called BEFORE rename
+    const writeOrder = (writeFile as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    const renameOrder = (rename as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    expect(writeOrder).toBeLessThan(renameOrder);
+  });
+
+  it('returns 500 WRITE_FAILED when rename fails', async () => {
+    (prisma.deviceCredential.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (rename as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('EACCES: permission denied'));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/internal/mqtt/refresh-acl',
+      headers: { authorization: 'Bearer shared-secret' },
+    });
+
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toMatchObject({
+      error: 'WRITE_FAILED',
+      message: 'EACCES: permission denied',
+    });
+    // Audit must NOT fire on a failed write
+    expect(mockAuditLog).not.toHaveBeenCalled();
+  });
+
+  it('writes audit log MOSQUITTO_ACL_REFRESH on success', async () => {
+    (prisma.deviceCredential.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/internal/mqtt/refresh-acl',
+      headers: { authorization: 'Bearer shared-secret' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockAuditLog).toHaveBeenCalledTimes(1);
+    const entry = mockAuditLog.mock.calls[0][0];
+    expect(entry).toMatchObject({
+      action: 'MOSQUITTO_ACL_REFRESH',
+      targetType: 'mqtt-broker',
+      targetId: 'global',
+      afterValue: {
+        deviceCount: 0,
+        skippedCount: 0,
+        path: './test-dynsec.json',
+      },
+    });
+    expect(entry.signatureMeaning).toBeDefined();
+    expect(entry.ipAddress).toBeDefined();
+  });
+
+  it('still returns 200 if audit log itself fails (broker state already mutated)', async () => {
+    (prisma.deviceCredential.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    mockAuditLog.mockRejectedValueOnce(new Error('audit DB down'));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/internal/mqtt/refresh-acl',
+      headers: { authorization: 'Bearer shared-secret' },
+    });
+
+    // File write succeeded, broker config is already on disk —
+    // audit failure must NOT undo it (and must NOT 500).
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ wroteFile: true, deviceCount: 0 });
   });
 
   it('resolves device unsPath via unsMapping then falls back to assetInstance', async () => {
