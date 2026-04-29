@@ -15,16 +15,18 @@
   "scripts": {
     "build": "tsc",
     "lint": "tsc --noEmit",
-    "test": "echo \"No tests yet\""
+    "test": "vitest run"
   },
   "dependencies": {
     "bullmq": "^5.70.1",
     "graphile-worker": "0.16.6",
     "ioredis": "^5.9.3",
+    "pg": "^8.18.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@types/pg": "^8.11.0",
     "typescript": "^5.7.0",
-    "vitest": "^4.0.18"
+    "vitest": "^3.0.0"
   }
 }
