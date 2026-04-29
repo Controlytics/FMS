@@ -10,7 +10,7 @@ describe('generateDynamicSecurity', () => {
     expect(result).toHaveProperty('groups');
     expect(result).toHaveProperty('roles');
     expect(result.clients).toEqual([
-      expect.objectContaining({ username: 'admin', password: expect.any(String) }),
+      expect.objectContaining({ username: 'admin', encoded_password: expect.any(String) }),
     ]);
   });
 
@@ -39,10 +39,13 @@ describe('generateDynamicSecurity', () => {
     ]);
   });
 
-  it('hashes admin password using bcrypt-compatible scheme', async () => {
+  it('encodes admin password in Mosquitto $7$ PBKDF2-SHA512 format', async () => {
     const result = await generateDynamicSecurity({ devices: [], adminPassword: ADMIN_PW });
     const admin = result.clients[0];
-    expect(admin.password).toMatch(/^\$2[aby]\$\d{2}\$.{53}$/); // bcrypt
+    // $7$<iterations>$<base64-salt>$<base64-hash> — Mosquitto v2 dynsec format.
+    // 64-byte SHA-512 dk → 88 base64 chars (with padding); 12-byte salt → 16.
+    // 64-byte salt → 88 base64 chars (last 4 always == padding); 64-byte hash → same.
+    expect(admin.encoded_password).toMatch(/^\$7\$1000\$[A-Za-z0-9+/]{86}==\$[A-Za-z0-9+/]{86}==$/);
   });
 
   it('emits the exact 5 publish ACLs + 8 subscribe ACLs per device', async () => {

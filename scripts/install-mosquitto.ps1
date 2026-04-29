@@ -42,7 +42,14 @@ if (-not (Test-Path $ConfigSrc)) {
     throw "Repo Mosquitto config dir not found: $ConfigSrc"
 }
 Write-Output "Copying repo mosquitto/ config files into $InstallDir ..."
-Copy-Item -Path (Join-Path $ConfigSrc 'mosquitto.conf') -Destination $InstallDir -Force
+# Windows: copy mosquitto.windows.conf and rename to mosquitto.conf at the
+# install dir (Mosquitto's service expects 'mosquitto.conf'). Linux/Docker
+# uses mosquitto.linux.conf via the docker-compose bind mount.
+$WindowsConfSrc = Join-Path $ConfigSrc 'mosquitto.windows.conf'
+if (-not (Test-Path $WindowsConfSrc)) {
+    throw "Missing $WindowsConfSrc - cannot configure Windows install"
+}
+Copy-Item -Path $WindowsConfSrc -Destination (Join-Path $InstallDir 'mosquitto.conf') -Force
 
 # 3a. Bootstrap dynamic-security.json from the example skeleton if the
 #     runtime file is missing. The runtime file is gitignored because

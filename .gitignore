@@ -13,6 +13,7 @@ packages/*/dist/
 # Environment files
 .env
 apps/*/.env
+apps/*/.env.backup-*
 
 # IDE
 .vscode/

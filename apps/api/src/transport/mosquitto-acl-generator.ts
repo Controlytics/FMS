@@ -14,13 +14,19 @@
  * topics use `subscribeLiteral` (a literal subscribe ACL would otherwise match
  * the `#` character itself, not the wildcard).
  *
- * Note: this generator is **not** deterministic. bcrypt salts each call, so
+ * Note: this generator is **not** deterministic. PBKDF2 salts each call, so
  * identical input yields different password hashes on every run. Callers that
  * diff the existing dynsec file before writing should compare on
  * `(username, roles[].rolename)` rather than the full JSON document.
+ *
+ * Password format: Mosquitto v2's dynamic-security plugin reads `encoded_password`
+ * in the form `$7$<iterations>$<base64-salt>$<base64-hash>` (PBKDF2-SHA512,
+ * 64-byte derived key, base64 padded). bcrypt is NOT supported by the dynsec
+ * plugin even though Mosquitto links libcrypt — only its own `$7$` format works.
+ * Reference: `mosquitto_ctrl dynsec init` reproduces this exact shape.
  */
 
-import bcrypt from 'bcrypt';
+import { pbkdf2Sync, randomBytes } from 'node:crypto';
 
 interface Device {
   token: string;
@@ -43,7 +49,7 @@ interface Role {
 
 interface Client {
   username: string;
-  password: string;
+  encoded_password: string;
   roles: { rolename: string }[];
 }
 
@@ -54,8 +60,24 @@ export interface DynamicSecurityConfig {
   defaultACLAccess: { publishClientSend: boolean; publishClientReceive: boolean; subscribe: boolean; unsubscribe: boolean };
 }
 
-const BCRYPT_COST = 10;
+// PBKDF2 parameters MUST match what Mosquitto's mosquitto_passwd / mosquitto_ctrl
+// dynsec init writes — verified empirically on Mosquitto 2.1.2 Windows: 1000
+// iterations, 64-byte salt, 64-byte SHA-512 derived key. The dynsec plugin
+// reads the iteration count and salt length from the field, but the in-tree
+// tools always emit these values; staying consistent avoids surprises and
+// keeps our hashes bit-identical in shape to what an operator would generate
+// with mosquitto_passwd for debugging.
+const PBKDF2_ITERATIONS = 1000;
+const PBKDF2_SALT_BYTES = 64;
+const PBKDF2_KEY_BYTES = 64;
+const PBKDF2_DIGEST = 'sha512';
 const MIN_ADMIN_PASSWORD_LEN = 12;
+
+function encodePassword(plaintext: string): string {
+  const salt = randomBytes(PBKDF2_SALT_BYTES);
+  const hash = pbkdf2Sync(plaintext, salt, PBKDF2_ITERATIONS, PBKDF2_KEY_BYTES, PBKDF2_DIGEST);
+  return `$7$${PBKDF2_ITERATIONS}$${salt.toString('base64')}$${hash.toString('base64')}`;
+}
 
 function buildDeviceAcls(unsPath: string): Role['acls'] {
   return [
@@ -105,11 +127,14 @@ export async function generateDynamicSecurity(input: Input): Promise<DynamicSecu
     seenUnsPaths.add(device.unsPath);
   }
 
-  // -- Hash admin + all device tokens in parallel -----------------------------
-  const [adminHash, deviceHashes] = await Promise.all([
-    bcrypt.hash(input.adminPassword, BCRYPT_COST),
-    Promise.all(input.devices.map((d) => bcrypt.hash(d.token, BCRYPT_COST))),
-  ]);
+  // -- Encode admin + all device tokens to Mosquitto $7$ format ---------------
+  // pbkdf2Sync is synchronous + CPU-bound; with the default 101 iterations and
+  // 14 devices it's <5 ms total, so we don't bother with the worker_threads
+  // pbkdf2() variant. Salt is per-client so two devices with the same token
+  // (which the dedupe check above already disallows) would still produce
+  // different hashes.
+  const adminEncoded = encodePassword(input.adminPassword);
+  const deviceEncoded = input.devices.map((d) => encodePassword(d.token));
 
   // -- Roles ------------------------------------------------------------------
   const roles: Role[] = [
@@ -124,7 +149,7 @@ export async function generateDynamicSecurity(input: Input): Promise<DynamicSecu
 
   // -- Clients ----------------------------------------------------------------
   const clients: Client[] = [
-    { username: 'admin', password: adminHash, roles: [{ rolename: 'admin-role' }] },
+    { username: 'admin', encoded_password: adminEncoded, roles: [{ rolename: 'admin-role' }] },
   ];
 
   for (let i = 0; i < input.devices.length; i++) {
@@ -137,7 +162,7 @@ export async function generateDynamicSecurity(input: Input): Promise<DynamicSecu
     });
     clients.push({
       username: device.token,
-      password: deviceHashes[i],
+      encoded_password: deviceEncoded[i],
       roles: [{ rolename: roleName }],
     });
   }
