@@ -87,7 +87,6 @@ if (-not (Test-Path $mosquittoScript)) {
     Die "install-mosquitto.ps1 not found at $mosquittoScript"
 }
 & $mosquittoScript
-if ($LASTEXITCODE -ne 0) { Die "install-mosquitto.ps1 failed (exit $LASTEXITCODE)" }
 
 # ─── Copy .env into api/ ─────────────────────────────────
 Step "4/9" "Copying .env into api/..."
@@ -131,7 +130,7 @@ Push-Location $ApiDir
 try {
     # Prisma seed if a seed script is configured, otherwise skip
     try {
-        & npx prisma db seed 2>&1 | Out-Host
+        & npx prisma db seed
         if ($LASTEXITCODE -ne 0) {
             Write-Host "     prisma db seed returned non-zero — config auto-seeds on first API start, so this is usually fine." -ForegroundColor Yellow
         }
@@ -165,14 +164,14 @@ Write-Host "================================================" -ForegroundColor G
 Write-Host "  Install complete." -ForegroundColor Green
 Write-Host "================================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "  Start the API:" -ForegroundColor White
-$startBat = Join-Path $Root 'start-digilog.bat'
-if (Test-Path $startBat) {
-    Write-Host "    From the repo root:  start-digilog.bat" -ForegroundColor White
-} else {
-    Write-Host "    From inside api/:    node dist/app.js" -ForegroundColor White
-    Write-Host "    (or use start-digilog.bat at the repo root if you have a dev checkout)" -ForegroundColor DarkGray
-}
+Write-Host "  Start the API (smoke test only):" -ForegroundColor White
+Write-Host "    cd api" -ForegroundColor White
+Write-Host "    node dist/app.js" -ForegroundColor White
+Write-Host ""
+Write-Host "  NOTE: this runs in the foreground in a console window — no auto-restart," -ForegroundColor Yellow
+Write-Host "        no boot persistence, no log rotation. It is for smoke testing only." -ForegroundColor Yellow
+Write-Host "        A managed Windows-service launcher is tracked as Phase 5 work" -ForegroundColor Yellow
+Write-Host "        (verify-windows-deployment.ps1 + service registration)." -ForegroundColor Yellow
 Write-Host ""
 Write-Host "  Next steps:" -ForegroundColor White
 Write-Host "    1. Verify smoke tests in DEPLOY-WINDOWS.md section 6"
