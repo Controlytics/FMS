@@ -247,8 +247,10 @@ await app.register(assetRoutes, { prefix: '/api/assets' });
 // dynamic-security refresh endpoint instead of the EMQX auth-webhook
 // routes. See docs/plans/2026-04-29-windows-friendly-rewrite.md.
 if (isFeatureEnabled(FEATURE_FLAGS.USE_MOSQUITTO)) {
+  app.log.info('MQTT broker mode: Mosquitto (USE_MOSQUITTO=true)');
   await app.register(mosquittoRefreshRoutes, { prefix: '/api/internal/mqtt' });
 } else {
+  app.log.info('MQTT broker mode: EMQX (legacy, USE_MOSQUITTO=false)');
   await app.register(mqttAuthRoutes, { prefix: '/api/internal/mqtt' });
 }
 await app.register(dataIngestionRoutes, { prefix: '/api/data' });

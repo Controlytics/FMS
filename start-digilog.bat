@@ -34,25 +34,44 @@ if errorlevel 1 (
 )
 echo       Memurai OK
 
-:: --- 2. Start EMQX ---
-echo [2/5] Starting EMQX MQTT Broker...
-cmd /c ""C:\Users\hello\emqx\bin\emqx.cmd" ping" >NUL 2>&1
-if %ERRORLEVEL%==0 (
-    echo       EMQX already running - skipping
-) else (
-    start "DigiLog EMQX" /MIN cmd /c "call C:\Users\hello\emqx\bin\emqx.cmd start"
-    set EMQX_READY=0
-    for /L %%i in (1,1,12) do (
-        if !EMQX_READY! == 0 (
-            timeout /t 5 /nobreak >NUL
-            cmd /c ""C:\Users\hello\emqx\bin\emqx.cmd" ping" >NUL 2>&1
-            if !ERRORLEVEL! == 0 set EMQX_READY=1
+:: --- 2. Start MQTT broker (Mosquitto if USE_MOSQUITTO=true, else EMQX) ---
+:: Read USE_MOSQUITTO flag from apps/api/.env (case-insensitive match in IF below).
+set USE_MOSQUITTO=
+for /f "tokens=2 delims==" %%a in ('findstr /B /I "USE_MOSQUITTO=" apps\api\.env 2^>nul') do set USE_MOSQUITTO=%%a
+
+if /i "%USE_MOSQUITTO%"=="true" (
+    echo [2/5] Starting Mosquitto MQTT Broker [USE_MOSQUITTO=true]...
+    sc query mosquitto | findstr /I "RUNNING" >NUL 2>&1
+    if !ERRORLEVEL! == 0 (
+        echo       Mosquitto already running - skipping
+    ) else (
+        net start mosquitto >NUL 2>&1
+        if !ERRORLEVEL! == 0 (
+            echo       Mosquitto started on port 1883
+        ) else (
+            echo       [WARNING] Mosquitto failed to start. Run: powershell -ExecutionPolicy Bypass -File scripts\install-mosquitto.ps1
         )
     )
-    if !EMQX_READY! == 1 (
-        echo       EMQX started on port 1883
+) else (
+    echo [2/5] Starting EMQX MQTT Broker [USE_MOSQUITTO=false]...
+    cmd /c ""C:\Users\hello\emqx\bin\emqx.cmd" ping" >NUL 2>&1
+    if %ERRORLEVEL%==0 (
+        echo       EMQX already running - skipping
     ) else (
-        echo       [WARNING] EMQX failed to start within 60s! Check logs.
+        start "DigiLog EMQX" /MIN cmd /c "call C:\Users\hello\emqx\bin\emqx.cmd start"
+        set EMQX_READY=0
+        for /L %%i in (1,1,12) do (
+            if !EMQX_READY! == 0 (
+                timeout /t 5 /nobreak >NUL
+                cmd /c ""C:\Users\hello\emqx\bin\emqx.cmd" ping" >NUL 2>&1
+                if !ERRORLEVEL! == 0 set EMQX_READY=1
+            )
+        )
+        if !EMQX_READY! == 1 (
+            echo       EMQX started on port 1883
+        ) else (
+            echo       [WARNING] EMQX failed to start within 60s! Check logs.
+        )
     )
 )
 
