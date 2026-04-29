@@ -17,12 +17,14 @@
  *   When the gate is on, this suite hits the same `digilog_db` and
  *   `digilog_tsdb` the dev stack uses. No mocks. Cleanup runs in `afterAll`
  *   keyed by a per-run UUID so leftover rows from a crash don't pollute the
- *   next dev run.
+ *   next dev run. Cleanup steps log their failures rather than swallow them
+ *   (per CLAUDE.md "Never swallow exceptions") so a partial-cleanup state is
+ *   visible in CI logs.
  *
  * Out of scope (per task spec)
- *   - The pre-existing ts_telemetry Stage-9 write loss issue. If the MQTT
- *     pipeline never lands rows in `ts_telemetry` we report the failure and
- *     leave the root cause to a separate investigation.
+ *   - The pre-existing ts_telemetry Stage-9 write-loss issue. If the MQTT
+ *     pipeline never lands rows in `ts_telemetry` we surface a diagnostic
+ *     and let the assertion fail; the root cause is a separate investigation.
  *   - Orphan UNS mapping cleanup.
  *   - CI wiring for `INTEGRATION_TEST=1`.
  */
@@ -46,6 +48,12 @@ const ENTITY_NAME = `phase5-verify-${RUN_ID.slice(0, 8)}`;
 const TEMPLATE_NAME = `phase5-tpl-${RUN_ID.slice(0, 8)}`;
 const UNS_PATH = `digilog/v1/test/phase5/${RUN_ID.slice(0, 8)}`;
 const MQTT_TOPIC = `${UNS_PATH}/telemetry`;
+
+// The API's MQTT client identifies itself with this clientId in
+// apps/api/src/transport/mqtt-client.ts:58. Keep in sync if that changes —
+// CRITICAL 1 (subscribe handshake) depends on us recognising the API's
+// SUBSCRIBE packet.
+const API_MQTT_CLIENT_ID = 'digilog-server';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -88,16 +96,40 @@ describe.skipIf(!GATED)('windows-server-stack (Phase 5 end-to-end)', () => {
   let entityId: string;
   let unsMappingId: string;
 
+  // Buffer for Test 3 — populated by the phase5_verification_ping task.
+  // Declared here (above beforeAll) so the closure inside startJobRunner
+  // captures the correct binding at the point the task list is built.
+  const phase5PingPayloads: unknown[] = [];
+
+  // Track every MqttClient we create so afterAll can close them even if a
+  // test throws mid-publish. IMPORTANT 2 — without this the publisher's TCP
+  // socket leaks on assertion failure.
+  const cleanupClients: MqttClient[] = [];
+
   beforeAll(async () => {
     // ─── 1. Boot test fixtures: DB, broker, runner ────────────────────────
+    // Fail loud if the e2e env wasn't loaded — better to surface a
+    // misconfiguration here than to silently fall back to magic strings
+    // ('digilog123') and hit an opaque "password authentication failed"
+    // 60 seconds into the suite. setupFiles loads apps/api/.env which
+    // populates these.
+    const requiredTsdbEnv = ['TSDB_HOST', 'TSDB_PORT', 'TSDB_DATABASE', 'TSDB_USER', 'TSDB_PASSWORD'];
+    const missing = requiredTsdbEnv.filter((k) => !process.env[k]);
+    if (missing.length > 0) {
+      throw new Error(
+        `[phase5-verify] Missing TSDB env vars: ${missing.join(', ')}. ` +
+          `apps/api/.env not loaded? setupFiles in vitest.config.ts should populate these.`,
+      );
+    }
+
     const { PrismaClient } = await import('@prisma/client');
     prisma = new PrismaClient();
     tsdb = new Pool({
-      host: process.env.TSDB_HOST ?? 'localhost',
-      port: parseInt(process.env.TSDB_PORT ?? '5432', 10),
-      database: process.env.TSDB_DATABASE ?? 'digilog_tsdb',
-      user: process.env.TSDB_USER ?? 'digilog',
-      password: process.env.TSDB_PASSWORD ?? 'digilog123',
+      host: process.env.TSDB_HOST,
+      port: parseInt(process.env.TSDB_PORT!, 10),
+      database: process.env.TSDB_DATABASE,
+      user: process.env.TSDB_USER,
+      password: process.env.TSDB_PASSWORD,
     });
 
     // ─── 2. Stand up an aedes broker on a random free port ────────────────
@@ -106,6 +138,11 @@ describe.skipIf(!GATED)('windows-server-stack (Phase 5 end-to-end)', () => {
     // production credential check is exercised in
     // apps/api/src/transport/__tests__/mqtt-broker-integration.test.ts.
     aedes.authenticate = (_client, _username, _password, done) => done(null, true);
+    // `aedes.handle` is typed as `(stream, request?) => Client` (returns the
+    // newly-attached aedes Client), while `node:net.createServer`'s connection
+    // listener wants `(socket: Socket) => void`. Node ignores the return value
+    // and aedes only reads the duplex stream, so the cast is safe; `as never`
+    // is just the quietest way past the structural mismatch.
     brokerServer = createServer(aedes.handle as never);
     await new Promise<void>((resolve) =>
       brokerServer.listen(0, '127.0.0.1', () => resolve()),
@@ -129,15 +166,39 @@ describe.skipIf(!GATED)('windows-server-stack (Phase 5 end-to-end)', () => {
     };
     app = await buildApp();
 
+    // CRITICAL 1 — subscribe-handshake race. mqtt-client.ts resolves
+    // initMqttClient() on the broker's CONNACK, but client.subscribe() is
+    // fire-and-forget. Without this gate, our publisher's first messages
+    // can hit aedes BEFORE the API's SUBSCRIBE / SUBACK round-trip
+    // completes, and aedes silently drops them. Hook on the broker side and
+    // wait for the API client's SUBSCRIBE packet, then proceed.
+    const apiSubscribed = new Promise<void>((resolve) => {
+      aedes.on('subscribe', (_subs, c: { id?: string } | null) => {
+        if (c?.id === API_MQTT_CLIENT_ID) resolve();
+      });
+    });
+
     // Initialize the API's MQTT client — this is the post-Phase-1 swap path
     // (reads MQTT_BROKER_HOST/PORT, USE_MOSQUITTO, MOSQUITTO_ADMIN_PASSWORD).
     // We're verifying THAT plumbing, so we must drive it via the production
     // initMqttClient(), not bypass to handleMqttMessage directly.
-    const { initMqttClient, closeMqttClient: _close } = await import(
-      '../../apps/api/src/transport/mqtt-client.js'
-    );
-    void _close;
+    const { initMqttClient } = await import('../../apps/api/src/transport/mqtt-client.js');
     await initMqttClient();
+
+    await Promise.race([
+      apiSubscribed,
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                `API client '${API_MQTT_CLIENT_ID}' never SUBSCRIBEd to MQTT broker within 5s`,
+              ),
+            ),
+          5_000,
+        ),
+      ),
+    ]);
 
     // Initialize the telemetry batcher so Stage 9 has somewhere to write.
     const { initTelemetryBatcher } = await import('../../packages/db/src/telemetry-batcher.js');
@@ -154,6 +215,14 @@ describe.skipIf(!GATED)('windows-server-stack (Phase 5 end-to-end)', () => {
     }
     orgId = existingOrg.id;
 
+    // CRITICAL 2 — verified via grep: schema currently has NO FK from
+    // asset_instances.template_version to asset_template_versions and no
+    // trigger that auto-populates the join table. The production
+    // createTemplate(...) service writes a row in asset_template_versions
+    // for change-tracking, but it isn't enforced at the DB level. Direct
+    // prisma.assetTemplate.create + prisma.assetInstance.create with
+    // templateVersion: 1 is therefore safe; revisit this fixture if a FK
+    // or trigger is added later.
     const template = await prisma.assetTemplate.create({
       data: {
         name: TEMPLATE_NAME,
@@ -213,20 +282,34 @@ describe.skipIf(!GATED)('windows-server-stack (Phase 5 end-to-end)', () => {
   }, 120_000);
 
   afterAll(async () => {
-    // Close in reverse order: producer/runner → app → broker → batcher → DB pools.
+    // Close in reverse order: queue runner → mqtt clients → app → broker →
+    // batcher → DB pools. Every step logs its own failure (CLAUDE.md
+    // "Never swallow exceptions") but doesn't rethrow — we WANT the
+    // remaining cleanup steps to run even if an earlier one bombs.
+
     try {
       const { stopJobRunner, closeProducer } = await import('../../packages/queue/src/index.js');
       await stopJobRunner();
       await closeProducer();
-    } catch {
-      /* ignore */
+    } catch (err) {
+      console.error('[phase5-cleanup] stop graphile-worker failed:', err);
+    }
+
+    // Close any MqttClient created by tests BEFORE we tear the broker down,
+    // so each socket gets a clean disconnect rather than a half-open ECONNRESET.
+    for (const client of cleanupClients) {
+      try {
+        await new Promise<void>((resolve) => client.end(true, undefined, () => resolve()));
+      } catch (err) {
+        console.error('[phase5-cleanup] close test mqtt client failed:', err);
+      }
     }
 
     try {
       const { closeMqttClient } = await import('../../apps/api/src/transport/mqtt-client.js');
       await closeMqttClient();
-    } catch {
-      /* ignore */
+    } catch (err) {
+      console.error('[phase5-cleanup] closeMqttClient (API) failed:', err);
     }
 
     try {
@@ -234,8 +317,8 @@ describe.skipIf(!GATED)('windows-server-stack (Phase 5 end-to-end)', () => {
         '../../packages/db/src/telemetry-batcher.js'
       );
       await closeTelemetryBatcher();
-    } catch {
-      /* ignore */
+    } catch (err) {
+      console.error('[phase5-cleanup] closeTelemetryBatcher failed:', err);
     }
 
     try {
@@ -243,47 +326,73 @@ describe.skipIf(!GATED)('windows-server-stack (Phase 5 end-to-end)', () => {
         '../../apps/api/src/modules/reports/renderers/pdf-renderer.js'
       );
       await closeBrowser();
-    } catch {
-      /* ignore */
+    } catch (err) {
+      console.error('[phase5-cleanup] closeBrowser (puppeteer) failed:', err);
     }
 
     if (app) {
       try {
         await app.close();
-      } catch {
-        /* ignore */
+      } catch (err) {
+        console.error('[phase5-cleanup] app.close() failed:', err);
       }
     }
 
     if (brokerServer) {
-      await new Promise<void>((resolve) => brokerServer.close(() => resolve()));
+      try {
+        await new Promise<void>((resolve) => brokerServer.close(() => resolve()));
+      } catch (err) {
+        console.error('[phase5-cleanup] brokerServer.close() failed:', err);
+      }
     }
     if (aedes) {
-      await new Promise<void>((resolve) => aedes.close(() => resolve()));
+      try {
+        await new Promise<void>((resolve) => aedes.close(() => resolve()));
+      } catch (err) {
+        console.error('[phase5-cleanup] aedes.close() failed:', err);
+      }
     }
 
     // ─── DB cleanup — only rows we created ────────────────────────────────
     if (prisma) {
       try {
         if (unsMappingId) {
-          await prisma.unsMapping.delete({ where: { id: unsMappingId } }).catch(() => {});
+          await prisma.unsMapping
+            .delete({ where: { id: unsMappingId } })
+            .catch((err: unknown) => {
+              console.error('[phase5-cleanup] delete UnsMapping failed:', err);
+            });
         }
         // ConnectivityStatus is upserted by mqtt-handler on first publish;
         // remove it too so the entity row can be deleted cleanly.
         if (entityId) {
           await prisma.connectivityStatus
             .deleteMany({ where: { entityId } })
-            .catch(() => {});
+            .catch((err: unknown) => {
+              console.error('[phase5-cleanup] delete ConnectivityStatus failed:', err);
+            });
           await prisma.deviceCredential
             .deleteMany({ where: { entityId } })
-            .catch(() => {});
-          await prisma.assetInstance.delete({ where: { id: entityId } }).catch(() => {});
+            .catch((err: unknown) => {
+              console.error('[phase5-cleanup] delete DeviceCredential failed:', err);
+            });
+          await prisma.assetInstance
+            .delete({ where: { id: entityId } })
+            .catch((err: unknown) => {
+              console.error('[phase5-cleanup] delete AssetInstance failed:', err);
+            });
         }
         if (templateId) {
-          await prisma.assetTemplate.delete({ where: { id: templateId } }).catch(() => {});
+          await prisma.assetTemplate
+            .delete({ where: { id: templateId } })
+            .catch((err: unknown) => {
+              console.error('[phase5-cleanup] delete AssetTemplate failed:', err);
+            });
         }
       } finally {
-        await prisma.$disconnect();
+        await prisma.$disconnect().catch((err: unknown) => {
+          console.error('[phase5-cleanup] prisma.$disconnect() failed:', err);
+        });
       }
     }
 
@@ -294,14 +403,11 @@ describe.skipIf(!GATED)('windows-server-stack (Phase 5 end-to-end)', () => {
     if (tsdb) {
       try {
         await tsdb.end();
-      } catch {
-        /* ignore */
+      } catch (err) {
+        console.error('[phase5-cleanup] tsdb.end() failed:', err);
       }
     }
   }, 60_000);
-
-  // Buffer for Test 3 — populated by the phase5_verification_ping task.
-  const phase5PingPayloads: unknown[] = [];
 
   // ─── Test 1 — Boot API (Phase 0 sanity) ──────────────────────────────────
   it('API boots in test mode and serves /api/health', async () => {
@@ -324,67 +430,105 @@ describe.skipIf(!GATED)('windows-server-stack (Phase 5 end-to-end)', () => {
       reconnectPeriod: 0,
       connectTimeout: 5_000,
     });
-    await new Promise<void>((resolve, reject) => {
-      publisher.once('connect', () => resolve());
-      publisher.once('error', reject);
-    });
+    // Register for cleanup BEFORE we await connect; if connect throws, the
+    // socket may still be half-open and afterAll needs to drain it.
+    cleanupClients.push(publisher);
 
-    const MESSAGE_COUNT = 100;
-    for (let i = 0; i < MESSAGE_COUNT; i++) {
-      const payload = JSON.stringify({
-        runId: RUN_ID,
-        seq: i,
-        temperature: 20 + (i % 10) * 0.5,
-        ts: new Date().toISOString(),
-      });
+    // IMPORTANT 2 — wrap the whole publish + assert path in try/finally so
+    // the publisher's TCP socket is closed even if an assertion throws.
+    try {
       await new Promise<void>((resolve, reject) => {
-        publisher.publish(MQTT_TOPIC, payload, { qos: 1 }, (err) =>
-          err ? reject(err) : resolve(),
-        );
+        publisher.once('connect', () => resolve());
+        publisher.once('error', reject);
       });
+
+      const MESSAGE_COUNT = 100;
+      for (let i = 0; i < MESSAGE_COUNT; i++) {
+        const payload = JSON.stringify({
+          runId: RUN_ID,
+          seq: i,
+          temperature: 20 + (i % 10) * 0.5,
+          ts: new Date().toISOString(),
+        });
+        await new Promise<void>((resolve, reject) => {
+          publisher.publish(MQTT_TOPIC, payload, { qos: 1 }, (err) =>
+            err ? reject(err) : resolve(),
+          );
+        });
+      }
+
+      // The pipeline writes to ts_telemetry via the batcher (flushIntervalMs
+      // is 500ms in this suite). Give the queue + pipeline + batcher up to
+      // 60s wall-clock to land at least one row keyed to our entity. We
+      // don't assert on the exact count — Stage 9 has a known write-loss
+      // issue (see resume note); reporting "≥1 row landed" is enough to
+      // verify the Phase 1 broker swap end-to-end.
+      const wrote = await waitFor(
+        async () => {
+          const r = await tsdb.query(
+            'SELECT COUNT(*)::int AS n FROM ts_telemetry WHERE entity_id = $1',
+            [entityId],
+          );
+          return (r.rows[0] as { n: number }).n > 0;
+        },
+        { timeoutMs: 60_000, pollMs: 500 },
+      );
+
+      const final = await tsdb.query(
+        'SELECT COUNT(*)::int AS n FROM ts_telemetry WHERE entity_id = $1',
+        [entityId],
+      );
+      const landed = (final.rows[0] as { n: number }).n;
+
+      // Log BEFORE the assertion so a failure surfaces the actual count
+      // ("0 landed") in CI logs rather than swallowing it on throw.
+      // eslint-disable-next-line no-console
+      console.log(
+        `[phase5-verify] published=${MESSAGE_COUNT}, landed_in_ts_telemetry=${landed}`,
+      );
+
+      // IMPORTANT 3 — real diagnostic. graphile_worker.jobs lives in
+      // digilog_db (the application DB), not digilog_tsdb. Use the prisma
+      // client (already on digilog_db) for the queue snapshot, and pull
+      // ConnectivityStatus to see whether the message ever reached
+      // mqtt-handler at all (mqtt-handler.ts:212 upserts that row on every
+      // recognised publish, BEFORE enqueueing).
+      if (!wrote) {
+        try {
+          const queueSnapshot = await prisma.$queryRawUnsafe<
+            Array<{ id: string; task_identifier: string; attempts: number; last_error: string | null }>
+          >(
+            `SELECT id, task_identifier, attempts, last_error
+               FROM graphile_worker.jobs
+              WHERE payload::text LIKE $1
+              LIMIT 5`,
+            `%${RUN_ID}%`,
+          );
+          console.error('[phase5-diag] graphile_worker.jobs at fail:', queueSnapshot);
+        } catch (err) {
+          console.error('[phase5-diag] graphile_worker.jobs query failed:', err);
+        }
+        try {
+          const connRows = await prisma.connectivityStatus.findMany({
+            where: { entityId },
+          });
+          console.error('[phase5-diag] connectivity_status rows for entity:', connRows);
+        } catch (err) {
+          console.error('[phase5-diag] connectivityStatus.findMany failed:', err);
+        }
+      }
+
+      expect(
+        wrote,
+        'Expected at least one ts_telemetry row for the test entity within 60s',
+      ).toBe(true);
+      // Soft assertion — known Stage-9 write loss may drop some, just record.
+      expect(landed).toBeGreaterThan(0);
+    } finally {
+      await new Promise<void>((resolve) =>
+        publisher.end(false, undefined, () => resolve()),
+      );
     }
-
-    await new Promise<void>((resolve) => publisher.end(false, undefined, () => resolve()));
-
-    // The pipeline writes to ts_telemetry via the batcher (flushIntervalMs
-    // is 500ms in this suite). Give the queue + pipeline + batcher up to
-    // 60s wall-clock to land at least one row keyed to our entity. We don't
-    // assert on the exact count — Stage 9 has a known write-loss issue
-    // (see resume note); reporting "≥1 row landed" is enough to verify the
-    // Phase 1 broker swap end-to-end.
-    const wrote = await waitFor(
-      async () => {
-        const r = await tsdb.query(
-          'SELECT COUNT(*)::int AS n FROM ts_telemetry WHERE entity_id = $1',
-          [entityId],
-        );
-        return (r.rows[0] as { n: number }).n > 0;
-      },
-      { timeoutMs: 60_000, pollMs: 500 },
-    );
-
-    if (!wrote) {
-      // Surface a diagnostic — was the message even consumed by mqtt-handler?
-      const queueRows = await tsdb.query<{ count: string }>(
-        // graphile_worker.jobs lives in digilog_db, not digilog_tsdb. This
-        // diagnostic query against the wrong DB will just error — swallow
-        // and let the assertion below fail with a useful message.
-        'SELECT 0 AS count',
-      ).catch(() => ({ rows: [] }));
-      void queueRows;
-    }
-
-    expect(wrote, 'Expected at least one ts_telemetry row for the test entity within 60s').toBe(true);
-
-    const final = await tsdb.query(
-      'SELECT COUNT(*)::int AS n FROM ts_telemetry WHERE entity_id = $1',
-      [entityId],
-    );
-    const landed = (final.rows[0] as { n: number }).n;
-    // Soft assertion — known Stage-9 write loss may drop some, just record.
-    expect(landed).toBeGreaterThan(0);
-    // eslint-disable-next-line no-console
-    console.log(`[phase5-verify] published=${MESSAGE_COUNT}, landed_in_ts_telemetry=${landed}`);
   }, 120_000);
 
   // ─── Test 3 — graphile-worker enqueue + dispatch (Phase 2) ─────────────
