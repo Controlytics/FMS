@@ -40,6 +40,8 @@ import {
 import { addToDLQ } from './dlq-manager.js';
 import { addDeviceEventRow } from '@digilog/db';
 import { dispatchNotification } from "../notification-delivery/notification-dispatcher.js";
+import { isFeatureEnabled, FEATURE_FLAGS } from '../../lib/feature-flags.js';
+import { getProducer } from '@digilog/queue';
 
 // ─── Redis publisher for Stage 11 ──────────────────────
 
@@ -68,6 +70,66 @@ function getNotificationQueue(): Queue {
     });
   }
   return notificationQueue;
+}
+
+// ─── Ingestion enqueue helper (USE_PG_QUEUE branch) ────
+// Single chokepoint for enqueueing into the ingestion queue. Branches on the
+// USE_PG_QUEUE feature flag so callers (mqtt-handler, HTTP routes, dlq-manager)
+// remain identical regardless of backend. Removed BullMQ branch in Task 2.10.
+
+let bullmqIngestionQueue: Queue | null = null;
+
+function getBullMqIngestionQueue(): Queue {
+  if (!bullmqIngestionQueue) {
+    bullmqIngestionQueue = new Queue(QUEUES.INGESTION.name, {
+      connection: getRedisConnection(),
+      defaultJobOptions: QUEUES.INGESTION.defaultJobOptions,
+    });
+  }
+  return bullmqIngestionQueue;
+}
+
+export interface EnqueueIngestionOptions {
+  /** BullMQ + graphile-worker both honour priority (lower number = sooner). */
+  priority?: number;
+  /** Idempotency key. Maps to BullMQ `jobId` and graphile-worker `jobKey`. */
+  jobId?: string;
+}
+
+/**
+ * Enqueue an ingestion message onto whichever backend is currently active.
+ *
+ * - USE_PG_QUEUE=true  → graphile-worker `addJob('ingestion', { messageType, msg }, …)`
+ * - USE_PG_QUEUE=false → BullMQ `queue.add(messageType, msg, { priority, jobId })`
+ *
+ * The graphile-worker payload wraps the message so the task can preserve
+ * BullMQ's job-name-as-routing-tag semantics (graphile-worker uses a single
+ * task name `'ingestion'` for all message types). graphile-worker's `jobKey`
+ * (replace-mode by default) replaces BullMQ's `jobId` for idempotency.
+ */
+export async function enqueueIngestionJob(
+  messageType: string,
+  msg: IngestionMessage,
+  options: EnqueueIngestionOptions = {},
+): Promise<void> {
+  if (isFeatureEnabled(FEATURE_FLAGS.USE_PG_QUEUE)) {
+    const producer = await getProducer();
+    await producer.addJob(
+      'ingestion',
+      { messageType, msg },
+      {
+        priority: options.priority,
+        jobKey: options.jobId,
+        maxAttempts: 3,
+      },
+    );
+    return;
+  }
+
+  await getBullMqIngestionQueue().add(messageType, msg, {
+    priority: options.priority,
+    jobId: options.jobId,
+  });
 }
 
 // ─── Rate limiting state (in-memory) ───────────────────

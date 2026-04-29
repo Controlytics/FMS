@@ -3,13 +3,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const {
   mockGetConfigOrDefault,
   mockProcessIngestionMessage,
-  mockGetRedisConnection,
+  mockGetWorkerConnection,
   mockWorkerOn,
   mockWorkerClose,
 } = vi.hoisted(() => ({
   mockGetConfigOrDefault: vi.fn(),
   mockProcessIngestionMessage: vi.fn(),
-  mockGetRedisConnection: vi.fn(),
+  mockGetWorkerConnection: vi.fn(),
   mockWorkerOn: vi.fn(),
   mockWorkerClose: vi.fn().mockResolvedValue(undefined),
 }));
@@ -23,7 +23,7 @@ vi.mock('../../modules/data-ingestion/ingestion.service.js', () => ({
 }));
 
 vi.mock('@digilog/queue', () => ({
-  getRedisConnection: mockGetRedisConnection,
+  getWorkerConnection: mockGetWorkerConnection,
   QUEUES: {
     INGESTION: { name: 'ingestion', defaultJobOptions: {} },
   },
@@ -44,7 +44,12 @@ vi.mock('bullmq', () => ({
   },
 }));
 
-import { startIngestionWorker, stopIngestionWorker } from '../ingestion.worker.js';
+import {
+  startIngestionWorker,
+  stopIngestionWorker,
+  ingestionTask,
+} from '../ingestion.worker.js';
+import type { IngestionMessage } from '../../modules/data-ingestion/message-normalizer.js';
 
 describe('ingestion.worker', () => {
   beforeEach(async () => {
@@ -122,6 +127,66 @@ describe('ingestion.worker', () => {
     it('is safe to call when worker not started', async () => {
       await stopIngestionWorker();
       expect(mockWorkerClose).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── graphile-worker Task tests (Task 2.3) ───────────────
+  describe('ingestionTask (graphile-worker)', () => {
+    function makeMsg(messageId: string): IngestionMessage {
+      return {
+        messageId,
+        timestamp: new Date().toISOString(),
+        protocol: 'mqtt',
+        entityId: 'ent-1',
+        entityName: 'AHU-01',
+        templateId: 'tpl-1',
+        unsPath: 'digilog/v1/site/area/ahu',
+        credentialId: 'cred-1',
+        sourceIp: '',
+        messageType: 'POST_TELEMETRY',
+        data: { temperature: 22.5 },
+        metadata: {},
+        ruleChainId: 'rc-1',
+        traceId: 'trace-1',
+      };
+    }
+
+    function makeHelpers() {
+      const warn = vi.fn();
+      const helpers = { logger: { info: vi.fn(), warn, error: vi.fn() } } as never;
+      return { warn, helpers };
+    }
+
+    it('processes a wrapped { messageType, msg } payload via processIngestionMessage', async () => {
+      mockProcessIngestionMessage.mockResolvedValueOnce({
+        success: true,
+        messageId: 'msg-ok',
+        warnings: [],
+      });
+      const msg = makeMsg('msg-ok');
+      const { helpers, warn } = makeHelpers();
+
+      await expect(
+        ingestionTask({ messageType: 'POST_TELEMETRY', msg }, helpers),
+      ).resolves.not.toThrow();
+
+      expect(mockProcessIngestionMessage).toHaveBeenCalledWith(msg);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('logs a warning via helpers.logger.warn when processIngestionMessage returns success: false', async () => {
+      mockProcessIngestionMessage.mockResolvedValueOnce({
+        success: false,
+        messageId: 'msg-fail',
+        warnings: [],
+      });
+      const msg = makeMsg('msg-fail');
+      const { helpers, warn } = makeHelpers();
+
+      await ingestionTask({ messageType: 'POST_TELEMETRY', msg }, helpers);
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toEqual(expect.stringContaining('msg-fail'));
     });
   });
 });
