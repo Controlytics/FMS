@@ -16,8 +16,10 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 | **Backend** | Node.js + Fastify 5 | TypeScript, 37 API modules, 200+ endpoints |
 | **Primary DB** | PostgreSQL 18 | 64 Prisma models, 22 enums |
 | **Time-Series DB** | TimescaleDB | 7 hypertables for telemetry data |
-| **Cache / Queue** | Redis 7 (Memurai on Windows) | BullMQ job queues, pub/sub |
-| **MQTT Broker** | EMQX 5.x | IoT device communication |
+| **Job Queue** | graphile-worker on PostgreSQL | LISTEN/NOTIFY + SKIP LOCKED + advisory locks; no separate Redis service |
+| **Pub/sub (optional)** | Redis 7 / Memurai | WebSocket events, RPC routing, pipeline tracer, debug recorder |
+| **MQTT Broker** | Mosquitto 2.0 | Windows-native service via `scripts/install-mosquitto.ps1` (Phase 1 of windows-friendly-rewrite swapped from EMQX) |
+| **PDF + charts** | puppeteer-core + Edge + @napi-rs/canvas | No bundled Chromium, no node-gyp / MSVC (Phase 3 of windows-friendly-rewrite) |
 | **Mobile** | Capacitor (Android APK) | Wraps web app for tablet use |
 | **RFID** | Kotlin Android app | KC-series UHF reader integration |
 
@@ -133,7 +135,7 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 - Firewall rules auto-configured
 
 ### Prerequisites
-- Node.js 20+, PostgreSQL 18 + TimescaleDB, Memurai (Redis), EMQX 5.x, Nginx
+- Node.js 20+, PostgreSQL 18 + TimescaleDB, Mosquitto 2.0, Nginx (Memurai/Redis optional — non-queue pub/sub only)
 
 ### Default Login
 - Username: `superadmin`

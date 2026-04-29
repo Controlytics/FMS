@@ -22,7 +22,7 @@ The main application file registers everything in this order:
 7. **RBAC plugin** — `requirePermission()` decorator
 8. **Audit logger plugin** — SHA-256 hash-chain logging
 9. **34 route modules** — registered under `/api/` prefix
-10. **MQTT client** — connects to EMQX broker
+10. **MQTT client** — connects to Mosquitto broker (Phase 1 of windows-friendly-rewrite swapped from EMQX)
 11. **WebSocket handler** — real-time data at `/ws`
 12. **Ingestion worker** — BullMQ consumer (concurrency: 10)
 13. **Maintenance worker** — DLQ check, connectivity check, retention cleanup
@@ -162,17 +162,19 @@ The main application file registers everything in this order:
 
 | File | Purpose |
 |---|---|
-| `transport/mqtt-client.ts` | EMQX MQTT client wrapper |
-| `transport/mqtt-handler.ts` | MQTT message processing (subscribe to `digilog/v1/#`) |
-| `transport/mqtt-auth-routes.ts` | EMQX webhook endpoints (`/api/internal/mqtt/auth`, `/acl`) |
+| `transport/mqtt-client.ts` | MQTT client wrapper. Mode-flag-driven: `USE_MOSQUITTO=true` → admin/`MOSQUITTO_ADMIN_PASSWORD`; legacy EMQX path on `USE_MOSQUITTO=false`. |
+| `transport/mqtt-handler.ts` | MQTT message processing (subscribe to `digilog/v1/#`); enqueues ingestion jobs via graphile-worker. |
+| `transport/mosquitto-acl-generator.ts` | Pure async function that translates active `DeviceCredential` rows into Mosquitto v2 dynamic-security JSON (5 publish + 8 subscribe ACLs per device, scoped to each device's UNS path). |
+| `transport/mosquitto-refresh-routes.ts` | `POST /api/internal/mqtt/refresh-acl` — regenerates `dynamic-security.json` from the DB on demand. Bearer-auth via `MOSQUITTO_REFRESH_TOKEN`. Atomic write via tmp + rename. |
+| `transport/mqtt-auth-routes.ts` | Legacy EMQX webhook endpoints (`/api/internal/mqtt/auth`, `/acl`). Conditionally registered when `USE_MOSQUITTO=false`. Slated for deletion in Phase 4. |
 | `transport/ws-handler.ts` | WebSocket handler for real-time data push |
 
 ## Workers
 
 | Worker | File | Concurrency | Schedule |
 |---|---|---|---|
-| Ingestion | `workers/ingestion.worker.ts` | 10 | Continuous (BullMQ consumer) |
-| Maintenance | `workers/maintenance.worker.ts` | 1 | DLQ: 60s, Connectivity: 60s, Retention: 24h |
+| Ingestion | `workers/ingestion.worker.ts` | 10 | Continuous (graphile-worker consumer; PG `LISTEN/NOTIFY` for instant dispatch, `SELECT … FOR UPDATE SKIP LOCKED` for concurrency) |
+| Maintenance | `workers/maintenance.worker.ts` | 1 | DLQ: 60s, Connectivity: 60s, Retention: 24h (graphile-worker cron via `pg_advisory_lock` for leader election) |
 
 ## Data Ingestion Pipeline (`apps/api/src/modules/data-ingestion/`, 11 files)
 
@@ -309,13 +311,18 @@ TSDB_DATABASE=digilog_tsdb
 TSDB_USER=digilog
 TSDB_PASSWORD=password
 
-# MQTT (EMQX)
+# MQTT (Mosquitto)
 MQTT_ENABLED=true
 MQTT_BROKER_HOST=localhost
 MQTT_BROKER_PORT=1883
-EMQX_ADMIN_PASSWORD=password
+USE_MOSQUITTO=true
+MOSQUITTO_ADMIN_PASSWORD=random-12-or-more-chars
+MOSQUITTO_REFRESH_TOKEN=random-hex-token
+# Optional: explicit dynsec path; defaults to <repo>/mosquitto/dynamic-security.json
+# MOSQUITTO_DYNSEC_PATH=C:/Program Files/mosquitto/dynamic-security.json
 
-# Redis (BullMQ)
+# Redis (non-queue pub/sub only — WebSocket events, RPC routing, pipeline tracer, debug recorder)
+# Job queue lives on Postgres now (graphile-worker); REDIS_* is optional for the queue path.
 REDIS_HOST=localhost
 REDIS_PORT=6379
 

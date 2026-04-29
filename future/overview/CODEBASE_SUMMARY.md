@@ -42,11 +42,11 @@
 - **Framework:** Fastify 5.2 (`@fastify/cors`, `helmet`, `rate-limit`, `multipart`, `static`, `websocket`, `swagger`, `swagger-ui`)
 - **Auth:** JWT via `jose` 6, bcrypt for passwords
 - **DB:** Prisma 6.3 (PostgreSQL 18) + raw `pg` pool for TimescaleDB telemetry
-- **Queue:** BullMQ 5.70 on `ioredis`
-- **Transport:** `mqtt` (EMQX), native WebSocket via `@fastify/websocket`
+- **Queue:** `graphile-worker` on PostgreSQL (Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis). Uses PG `LISTEN/NOTIFY`, `SELECT … FOR UPDATE SKIP LOCKED`, `pg_advisory_lock` for cron leader election, JSONB payloads.
+- **Transport:** `mqtt` (Mosquitto 2.0 — Phase 1 of windows-friendly-rewrite swapped from EMQX), native WebSocket via `@fastify/websocket`
 - **LDAP:** `ldapts` 8.1
 - **Mail:** `nodemailer`
-- **Docs / reports:** `handlebars`, `puppeteer` 24.40, `chart.js` + `chartjs-node-canvas`, `qrcode`, `xlsx`, `csv-parse`, `adm-zip`
+- **Docs / reports:** `handlebars`, `puppeteer-core` 24.42, `chart.js` 4 + `@napi-rs/canvas` + `chartjs-adapter-date-fns`, `qrcode`, `xlsx`, `csv-parse`, `adm-zip`. (Phase 3 of windows-friendly-rewrite swapped `puppeteer` → `puppeteer-core` driving Edge via `detectEdgePath()`, and `chartjs-node-canvas` → `@napi-rs/canvas` to drop the bundled-Chromium download and the node-gyp/MSVC/Cairo build chain.)
 - **Validation:** `zod` (shared with frontend via `@digilog/shared`)
 - **Idempotency:** custom `idempotency.ts` for offline-replay dedup via `x-client-op-id`
 - **Dev:** `tsx watch` for hot reload; `tsc -p` to compile for prod-style local builds
@@ -77,10 +77,11 @@
 - Final build lives in repo root as `DigiLog-FilterOps.apk`
 
 ### Infrastructure (Windows-local-only; see `DEPLOY-WINDOWS.md`)
-- **Platform target:** Windows local install (PostgreSQL 18 + TimescaleDB extension, Memurai ≥5, EMQX 5, optional Nginx as reverse proxy)
-- **Databases:** PostgreSQL 18 (`digilog_db` for app, `digilog_tsdb` for telemetry with TimescaleDB)
-- **Broker:** EMQX 5 (MQTT 1883, dashboard 18083)
-- **Cache / queue:** Memurai ≥5 (Windows Redis substitute)
+- **Platform target:** Windows local install (PostgreSQL 18 + TimescaleDB extension, Mosquitto 2.0, optional Nginx as reverse proxy). Memurai/Redis is now optional — only required for non-queue pub/sub features.
+- **Databases:** PostgreSQL 18 (`digilog_db` for app + `graphile_worker` schema for queue, `digilog_tsdb` for telemetry with TimescaleDB)
+- **Broker:** Mosquitto 2.0 (MQTT 1883, no web dashboard — dynsec configured via API). Install via `scripts/install-mosquitto.ps1`.
+- **Job queue:** graphile-worker on PostgreSQL (no separate queue service)
+- **Cache / pub-sub:** Memurai ≥5 / Redis (optional — WebSocket events, RPC routing, pipeline tracer, debug recorder only; queue moved to Postgres in Phase 2)
 - **Production deployment:** PowerShell scripts at `scripts/{package-for-production,install-on-target}.ps1`
 - **Optional:** `docker-compose.yml` for a containerized dev stack
 
@@ -118,7 +119,7 @@
 - **PM schedules:** CSV upload template, approve / reject / resubmit, due tasks; `PmEntryApprovalStatus` enum + 11 columns; `PM_APPROVE` permission
 - **PM My Tasks:** `/my-tasks`, per-AHU filter-set mode (BOTH / SET_A / SET_B / DISABLED), PM auto-reason on mobile
 - **Equipment groups, checklist profiles, filter profiles**
-- **Reports module (complete):** 4 Prisma models (ReportTemplate, ReportTemplateVersion, ReportInstance, ReportSignature), 9 `REPORT_*` permissions, template designer with `@dnd-kit`, PDF engine via Puppeteer + chartjs-node-canvas + Handlebars, 5 data sources (attribute / identifier / telemetry / timestamp / meta), digital signatures, `DRAFT → PENDING_SIGNATURE → SIGNED / REJECTED` workflow
+- **Reports module (complete):** 4 Prisma models (ReportTemplate, ReportTemplateVersion, ReportInstance, ReportSignature), 9 `REPORT_*` permissions, template designer with `@dnd-kit`, PDF engine via puppeteer-core + Microsoft Edge + @napi-rs/canvas + Handlebars (Phase 3 of windows-friendly-rewrite swapped from `puppeteer` + `chartjs-node-canvas`), 5 data sources (attribute / identifier / telemetry / timestamp / meta), digital signatures, `DRAFT → PENDING_SIGNATURE → SIGNED / REJECTED` workflow
 
 ### Phase 5: RFID + offline operations (April 15–29 work on `RFID` branch)
 - **Native RFID SDK plugin in DigiLog APK** — `RfidPlugin.java` wraps `Reader_Usb.jar`, paired with `apps/web/src/lib/rfid-bridge.ts`
@@ -157,7 +158,7 @@ See `overview/CURRENT_STATUS.md` for the running punch list.
 
 ## How to run it locally (short version)
 
-1. Install prerequisites: Node 22, npm 11, PostgreSQL 18 + TimescaleDB extension, Memurai (Redis ≥5), EMQX, JDK 21 + Android SDK (only if building APK).
+1. Install prerequisites: Node 22, npm 11, PostgreSQL 18 + TimescaleDB extension, Mosquitto 2.0 (via `scripts/install-mosquitto.ps1`, only if testing MQTT), Microsoft Edge (preinstalled on Win10+/Server 2019+, used by puppeteer-core for PDF rendering), JDK 21 + Android SDK (only if building APK). Memurai/Redis is optional — only needed for non-queue pub/sub features.
 2. `npm install` at the repo root.
 3. Copy `.env.example` → `.env`, adjust DB URLs and secrets. Set `API_HTTPS=true` if connecting from APK.
 4. `psql -f init-tsdb.sql` on the TimescaleDB DB; or run `tsdb-migration/init-hypertables.sql`.

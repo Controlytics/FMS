@@ -397,4 +397,22 @@ These were archived (not deleted) because the work is shipped — but the docs r
 
 ### N/A (no longer apply)
 - **P2.1 — in-memory state migration to Redis** — closed N/A: app is local-Windows-only single-instance after EC2 removal (commit `251be95`); no horizontal-scaling concern.
-- **P2.2 — BullMQ queue/worker connection factories** — done in session 04-21 (`getWorkerConnection()` per-call, `getQueueConnection()` singleton).
+- **P2.2 — BullMQ queue/worker connection factories** — done in session 04-21 (`getWorkerConnection()` per-call, `getQueueConnection()` singleton). Then superseded entirely by Phase 2 of windows-friendly-rewrite (commit `7832af1 chore(queue): drop BullMQ + Redis; graphile-worker is sole backend`) — no more queue connection factories at all, graphile-worker manages its own pool against the existing Postgres connection.
+
+---
+
+## 12. Windows-friendly rewrite (Phases 1–3 complete; 4–5 outstanding)
+
+`docs/plans/2026-04-29-windows-friendly-rewrite.md` is a 5-phase plan to make the API run on bare Windows Server with no MSVC, no node-gyp, no paid Memurai, and no bundled Chromium. As of 2026-04-29:
+
+| Phase | Status | What landed |
+|---|---|---|
+| 1 — Mosquitto MQTT swap | ✅ | `feature/phase1-mosquitto-rewrite` (commits `510f903..7d33dbf`) + service-bootable conf fix `0ecc151`. Replaces EMQX with Mosquitto 2.0 + a dynamic-security generator + `POST /api/internal/mqtt/refresh-acl`. Live e2e verified. |
+| 2 — graphile-worker queue | ✅ | `feature/phase2-pg-queue` (cut-over `7832af1`). Drops BullMQ + ioredis + the Memurai dependency for queue work. graphile-worker on Postgres uses `LISTEN/NOTIFY`, `SELECT … FOR UPDATE SKIP LOCKED`, `pg_advisory_lock`, JSONB payloads — all native PG18. |
+| 3 — Reports Windows hardening | ✅ | `feature/phase3-reports-edge` (`79937b7..d72d44c`). `puppeteer` → `puppeteer-core` + Edge via `detectEdgePath()`; `chartjs-node-canvas` → `@napi-rs/canvas` (prebuilt N-API). Plus a major test-suite cleanup (`06bcb95`, `b2c3b37`) bringing apps/api Vitest sweep from 30 failed files / 65 failed tests down to 0 failed. |
+| 4 — Tooling cleanup | 🟡 pending | `install-on-target.ps1`, `package-for-production.ps1`, `.env.example`, doc sync across the active doc set, `windowsIssues.md` resolution receipts. |
+| 5 — Verification & docs finalization | 🟡 pending | `tests/integration/windows-server-stack.test.ts` (INTEGRATION_TEST=1 gated), `scripts/verify-windows-deployment.ps1`, push + PR. |
+
+`windows_dep` is the integration branch. Test pass-rate at end of Phase 3: `apps/api 1123/1123 + packages/shared 150/150 + packages/queue 6/6 = 1279/1279, all green`. Live e2e verified end-to-end (device → Mosquitto → API → graphile-worker → ts_pipeline_traces → reports/generate → 59 KB PDF with `%PDF-1.4` header).
+
+The four `windowsIssues.md` 🔴 hard blockers (§1 Puppeteer, §2 chartjs-node-canvas, §3 EMQX, §7 Memurai) are all marked resolved with the commit hashes that closed them.

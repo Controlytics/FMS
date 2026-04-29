@@ -41,16 +41,24 @@
 │  ┌───────┼──────────────────────────────────────────────┐       │
 │  │       ▼          DATA LAYER                          │       │
 │  │  ┌──────────┐ ┌──────────┐ ┌────────┐ ┌──────────┐  │       │
-│  │  │PostgreSQL│ │TimescaleDB│ │ Redis  │ │  EMQX    │  │       │
+│  │  │PostgreSQL│ │TimescaleDB│ │ Redis  │ │Mosquitto │  │       │
 │  │  │  :5432   │ │  :5432   │ │ :6379  │ │  :1883   │  │       │
-│  │  │ 64 models│ │ 7 hyper- │ │BullMQ  │ │  MQTT    │  │       │
-│  │  │ Prisma   │ │ tables   │ │Pub/Sub │ │  Broker  │  │       │
-│  │  │digilog_db│ │digilog_  │ │Memurai │ │  IoT     │  │       │
-│  │  │          │ │tsdb      │ │        │ │  devices │  │       │
+│  │  │ 64 models│ │ 7 hyper- │ │ pub/sub│ │  MQTT    │  │       │
+│  │  │ Prisma   │ │ tables   │ │only-now│ │  Broker  │  │       │
+│  │  │digilog_db│ │digilog_  │ │optional│ │  IoT     │  │       │
+│  │  │ +queue   │ │tsdb      │ │ Memurai│ │  devices │  │       │
+│  │  │(graphile)│ │          │ │        │ │          │  │       │
 │  │  └──────────┘ └──────────┘ └────────┘ └──────────┘  │       │
 │  └──────────────────────────────────────────────────────┘       │
 └──────────────────────────────────────────────────────────────────┘
 ```
+
+> **Tech-stack swap (windows-friendly-rewrite Phases 1+2+3, 2026-04-29):**
+> EMQX → Mosquitto 2.0 (Phase 1); BullMQ on Redis/Memurai → graphile-worker
+> on PostgreSQL (Phase 2); Puppeteer (bundled Chromium) + chartjs-node-canvas
+> → puppeteer-core + Edge + @napi-rs/canvas (Phase 3). Redis/Memurai is now
+> only used for non-queue pub/sub (WebSocket events, RPC routing, pipeline
+> tracer, debug recorder); Phase 4 will move those to PG `LISTEN/NOTIFY`.
 
 ## Monorepo Package Architecture
 
@@ -274,8 +282,8 @@ Session Management:
 
 ```
 IoT Device
-  → MQTT (EMQX :1883) or HTTP (POST /api/data/telemetry)
-    → EMQX Auth Webhook (/api/internal/mqtt/auth)
+  → MQTT (Mosquitto :1883) or HTTP (POST /api/data/telemetry)
+    → Mosquitto dynsec lookup (configured via /api/internal/mqtt/refresh-acl)
     → Message Normalization
     → BullMQ Ingestion Queue (Redis)
       → Ingestion Worker (10 concurrent)
@@ -414,7 +422,7 @@ System:
 | ts_events | General system events | Time (daily) |
 | ts_exports | Export request tracking | Time (daily) |
 
-### Redis (Memurai) — Usage
+### Redis (Memurai) — Usage (post-Phase-2: pub/sub only, optional)
 
 | Feature | Redis Data Structure |
 |---|---|
@@ -436,7 +444,7 @@ System:
 │  Layer 2: Authentication                            │
 │    └── JWT (8h expiry, 30-min refresh)              │
 │    └── Device tokens (64-char hex, per entity)      │
-│    └── EMQX webhook auth (for MQTT devices)         │
+│    └── Mosquitto dynsec auth (DeviceCredential → dynamic-security.json via /refresh-acl)         │
 │                                                     │
 │  Layer 3: Authorization                             │
 │    └── RBAC (109 permissions, role-based)            │
@@ -465,5 +473,5 @@ System:
 | MQTT | 1883 | IoT device telemetry | Device access token |
 | WSS | 443 | Real-time updates (via Nginx /ws) | JWT token |
 | PostgreSQL | 5432 | Database connections | Username/password |
-| Redis | 6379 | Cache + job queue | No auth (local only) |
-| EMQX Dashboard | 18083 | MQTT broker management | Admin credentials |
+| Redis | 6379 | Pub/sub only (WebSocket events, RPC routing, pipeline tracer, debug recorder); job queue moved to Postgres in Phase 2 | No auth (local only) |
+| Mosquitto control | n/a | Dynsec is configured via the API's `POST /api/internal/mqtt/refresh-acl`, not a standalone dashboard | `MOSQUITTO_REFRESH_TOKEN` (timing-safe compare) |

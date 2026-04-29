@@ -32,7 +32,7 @@ For end-to-end details, start with `PROJECT_SUMMARY.md` (overview), `PROJECT_ARC
 ### Phase 1 — Core Platform
 - **Entity management** — Hierarchical asset modeling, 12 relationship types, identifiers (QR / RFID / NFC / Barcode)
 - **Rule chain engine** — Visual DAG editor with **77 node types** across 8 categories
-- **Data ingestion** — MQTT (EMQX) + HTTP with rate limiting, IP allowlists, schema validation
+- **Data ingestion** — MQTT (Mosquitto) + HTTP with rate limiting, IP allowlists, schema validation
 - **Alarm system** — Threshold / rate-of-change / absence alarms with electronic-signature acknowledgment
 - **Unified Namespace (UNS)** — ISA-95 hierarchical topic structure
 - **Digital checklists** — 10+ field types, photo capture, 3-step approval workflow
@@ -77,7 +77,7 @@ For end-to-end details, start with `PROJECT_SUMMARY.md` (overview), `PROJECT_ARC
 ### Phase 5 — April 15–29, 2026 (live on `RFID` branch)
 Detailed in `PHASE_5_RECENT_WORK.md`:
 
-- **Reports module — phases A–F complete** — visual template designer + PDF generation engine (Puppeteer + chartjs-node-canvas + Handlebars) + 5-source variable resolver + digital signatures
+- **Reports module — phases A–F complete** — visual template designer + PDF generation engine (puppeteer-core + Microsoft Edge + @napi-rs/canvas + Handlebars) + 5-source variable resolver + digital signatures. (Phase 3 of windows-friendly-rewrite swapped from `puppeteer` + `chartjs-node-canvas` to drop the bundled-Chromium download and the node-gyp/MSVC dependency.)
 - **Offline hardening (14-issue overhaul)** — TTL cache, idempotency keys, tombstones, LRU eviction, JWT refresh on replay, server-side `stageLookup` walker for chained CHECKLIST nodes, Capacitor Network plugin + Service Worker hook
 - **RFID SDK plugin baked into DigiLog APK** — `Reader_Usb.jar` via `RfidPlugin.java` — KC-series readers work in SDK and UKB modes
 - **Filter Data Management console** — 10 tabs each mirroring its user-facing page (cycles, events, alarms, PM, audit, notifications, admin requests, block changes, etc.) with Edit modals
@@ -97,8 +97,10 @@ Detailed in `PHASE_5_RECENT_WORK.md`:
 | Frontend | React 19 + Vite 6 (TypeScript, Tailwind CSS 4, port 5175 dev) |
 | Database | PostgreSQL 18 + Prisma ORM |
 | Time-series DB | TimescaleDB extension on PG 18 |
-| MQTT broker | EMQX (1883 / 18083) |
-| Cache / queue | Memurai (Redis 7) + BullMQ |
+| MQTT broker | Mosquitto 2.0 (Windows-native service, port 1883) |
+| Job queue | graphile-worker on PostgreSQL (LISTEN/NOTIFY + SKIP LOCKED + advisory locks) |
+| Pub/sub (non-queue) | Memurai / Redis (optional — WebSocket events, RPC routing, pipeline tracer, debug recorder) |
+| PDF + charts | puppeteer-core + Microsoft Edge + @napi-rs/canvas (no bundled Chromium, no node-gyp) |
 | Mobile | Capacitor Android APK + native Kotlin RFID app |
 | Reverse proxy | Nginx (production deployment) |
 
@@ -106,7 +108,7 @@ Detailed in `PHASE_5_RECENT_WORK.md`:
 
 ## Quick Start (Windows local dev)
 
-**Prerequisites:** Node.js 20+, PostgreSQL 18 with TimescaleDB, Memurai (Redis ≥5), EMQX 5.x (optional unless testing MQTT).
+**Prerequisites:** Node.js 20+, PostgreSQL 18 with TimescaleDB, Mosquitto 2.0 via `scripts/install-mosquitto.ps1` (optional unless testing MQTT). Memurai/Redis is optional — only required for non-queue pub/sub features.
 
 ```bash
 # Clone
@@ -125,8 +127,8 @@ npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma
 npx prisma db seed --schema=apps/api/prisma/schema.prisma
 
 # Start services (or use start-digilog.bat)
-C:\Users\hello\redis5\redis-server.exe        # Memurai / Redis
-C:\Users\hello\emqx\bin\emqx.cmd              # EMQX (optional)
+C:\Users\hello\redis5\redis-server.exe        # Memurai / Redis (optional — pub/sub only)
+Get-Service mosquitto                          # Mosquitto runs as a Windows service after install-mosquitto.ps1
 
 # Run API and web in two terminals
 cd apps/api && npx tsx watch src/app.ts       # API on :3000
@@ -147,7 +149,7 @@ See `LOCAL_SETUP_WINDOWS.md` for the full step-by-step setup, and `DEPLOY-WINDOW
 | Web (Vite dev) | http://localhost:5175 |
 | API | https://localhost:3000 |
 | Swagger docs | https://localhost:3000/docs |
-| EMQX dashboard | http://localhost:18083 |
+| Mosquitto | tcp://localhost:1883 (no web dashboard; dynsec via `POST /api/internal/mqtt/refresh-acl`) |
 
 ---
 

@@ -40,12 +40,12 @@ Configuration is all in `.env` and `certs/`.
 ```
 ┌─────────────── target Windows machine ───────────────┐
 │                                                       │
-│  ┌─────────┐   ┌────────┐   ┌──────────┐  ┌────────┐  │
-│  │ Node 20+│   │Postgres│   │Memurai   │  │ EMQX   │  │
-│  │ API     │←──│ +Timsc │   │(optional │  │ MQTT   │  │
-│  │ :3000   │   │ +queue │   │ pub/sub) │  │ :1883  │  │
-│  │         │   │:5432   │   │ :6379    │  │        │  │
-│  └────┬────┘   └────────┘   └──────────┘  └────────┘  │
+│  ┌─────────┐   ┌────────┐   ┌──────────┐  ┌──────────┐│
+│  │ Node 20+│   │Postgres│   │Memurai   │  │Mosquitto ││
+│  │ API     │←──│ +Timsc │   │(optional │  │ MQTT     ││
+│  │ :3000   │   │ +queue │   │ pub/sub) │  │ :1883    ││
+│  │         │   │:5432   │   │ :6379    │  │ (service)││
+│  └────┬────┘   └────────┘   └──────────┘  └──────────┘│
 │       │                                               │
 │  ┌────┴────────────────────┐                          │
 │  │  PM2 keeps API alive    │                          │
@@ -67,7 +67,12 @@ Configuration is all in `.env` and `certs/`.
 ```
 
 Five components run on the server. Four of them are **off-the-shelf downloads**
-(Postgres, Memurai, EMQX, Nginx). The fifth is **your built application**.
+(Postgres, Memurai-optional, Mosquitto-via-script, Nginx). The fifth is **your
+built application**. Phase 1+2 of the windows-friendly-rewrite swapped EMQX
+for Mosquitto and made Memurai optional (queue moved to graphile-worker on
+Postgres); Phase 3 swapped the PDF/chart pipeline to puppeteer-core + Edge
+and @napi-rs/canvas, eliminating ~150 MB of bundled Chromium and the
+node-gyp / MSVC / Cairo build chain.
 
 > **Phase 2 Task 2.10 update (2026):** the job queue moved from BullMQ-on-Redis
 > to graphile-worker-on-Postgres. Memurai/Redis is now **optional** — the API
@@ -87,14 +92,18 @@ Each is a Next-Next-Finish installer.
 | **Node.js LTS** | 20.x or 22.x | https://nodejs.org/ | Accept default options. Ensures `node` and `npm` are on PATH. |
 | **PostgreSQL** | 18 | https://www.postgresql.org/download/windows/ | Remember the password for the `postgres` superuser — you'll need it. Install **Stack Builder** and use it to add the **TimescaleDB** extension afterwards. |
 | **TimescaleDB** | latest for PG 18 | https://docs.timescale.com/self-hosted/latest/install/installation-windows/ | Needed for time-series data. Follow their Windows guide — it's a DLL copy + one `CREATE EXTENSION` statement. |
-| **Memurai** | Developer Edition | https://www.memurai.com/get-memurai | Optional after Task 2.10 — only needed for Redis pub/sub (WebSocket events, RPC routing, tracer, debug recorder). The job queue runs on Postgres now. Free Developer Edition is enough if you do install it. |
-| **EMQX** | 5.x Windows | https://www.emqx.io/downloads | MQTT broker. Extract the ZIP and run `bin/emqx.cmd start`. |
+| **Memurai** | Developer Edition | https://www.memurai.com/get-memurai | Optional after Phase 2 of windows-friendly-rewrite — only needed for Redis pub/sub (WebSocket events, RPC routing, tracer, debug recorder). The job queue runs on Postgres now. Free Developer Edition is enough if you do install it. |
+| **Mosquitto** | 2.0.x | Bundled — install via `scripts/install-mosquitto.ps1` | MQTT broker. Run the script from an **elevated** PowerShell; it downloads the official 2.0.18 installer, registers the Windows service, deploys the conf, and rewrites paths to absolute (the SCM-managed broker has CWD=System32, no stdout — relative paths and `log_dest stdout` would silently exit it). |
+| **Microsoft Edge** | preinstalled on Win10+/Server 2019+ | n/a | Used by `puppeteer-core` for PDF report rendering. No manual install needed unless on Windows Server Core (use Chrome instead). |
 | **Nginx** | Windows stable | http://nginx.org/en/download.html | Serves the built web SPA and reverse-proxies the API. |
 | **Git (optional)** | any | https://git-scm.com/ | Only needed if you'll pull source updates later. |
 
-> **Windows Server SKU note:** On Windows Server 2019/2022, install the
-> "Desktop Experience" version so the PostgreSQL and EMQX installers can run.
-> On Windows Core, use the headless Postgres installer.
+> **Windows Server SKU note:** Phase 3 of windows-friendly-rewrite swapped
+> the PDF/chart pipeline to puppeteer-core + @napi-rs/canvas, so **Windows
+> Server Core works** for the API itself (Mosquitto and graphile-worker run
+> headless; PDFs use Edge headless which doesn't require `dwm.exe`). The
+> remaining "Desktop Experience" requirement is the PostgreSQL installer GUI
+> — use the headless installer or run the install via psql on Core.
 
 ---
 
@@ -307,8 +316,11 @@ psql -U digilog -d digilog_db -c "SELECT now();"
 redis-cli -p 6379 ping
 # → should print PONG (skip if not using pub/sub features)
 
-# 3. EMQX dashboard is reachable
-# Browser: http://localhost:18083  (default login: admin / public)
+# 3. Mosquitto service is running
+Get-Service mosquitto
+# → Status: Running, StartType: Automatic
+Test-NetConnection -ComputerName localhost -Port 1883
+# → TcpTestSucceeded : True
 
 # 4. API is running under PM2 and responding
 pm2 list
@@ -408,7 +420,7 @@ When you ship a new build:
 | Login works but no data loads | CORS rejecting the origin | Add the LAN IP/hostname to `ALLOWED_ORIGINS` in `.env` and `pm2 restart digilog-api` |
 | Can't find superadmin login after install | Seed didn't run | `cd C:\DigiLog\api && node -e "require('./dist/prisma/seed.js')"` (or run `npx prisma db seed`) |
 | PM2 not starting on boot | Startup script not installed | `pm2 save; pm2-startup install` |
-| MQTT (data ingestion) not working | EMQX not running or firewall | `cd C:\emqx && bin\emqx.cmd start`; check Windows Firewall allows port 1883 |
+| MQTT (data ingestion) not working | Mosquitto service not running, firewall, or stale dynsec | `Restart-Service mosquitto`; check Windows Firewall allows port 1883; verify `Get-Content "C:\Program Files\mosquitto\mosquitto.log"` for plugin / auth errors. After every `POST /api/internal/mqtt/refresh-acl`, copy `<repo>/mosquitto/dynamic-security.json` into `C:\Program Files\mosquitto\` and restart the service. |
 
 ---
 
@@ -418,7 +430,7 @@ Give the customer a printed copy of this list:
 
 - [ ] Windows machine meets the prerequisites (section 3)
 - [ ] Received `digilog-production.zip`
-- [ ] Installed Node.js, PostgreSQL 18 + TimescaleDB, EMQX, Nginx (Memurai optional — only for non-queue pub/sub)
+- [ ] Installed Node.js, PostgreSQL 18 + TimescaleDB, Nginx (Memurai optional — only for non-queue pub/sub). Mosquitto installs via `scripts/install-mosquitto.ps1` during deploy.
 - [ ] Unzipped to `C:\DigiLog\`
 - [ ] Created `digilog_db` + `digilog_tsdb` databases (section 5.2)
 - [ ] Filled in `.env` — **database password + JWT secrets changed from defaults**

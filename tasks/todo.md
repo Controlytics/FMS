@@ -827,3 +827,58 @@ git mv old/docs-superseded/ARCHITECTURE.md ARCHITECTURE.md
 ```
 
 Everything is reversible — nothing was deleted.
+
+---
+
+## 2026-04-29 (evening) — windows-friendly-rewrite Phases 1 install-fix + 3 + apps/api test cleanup + doc sync
+
+Branch: `feature/phase3-reports-edge` → `windows_dep` at `b2c3b37` plus a follow-up doc-sync commit landing this audit entry.
+
+### Code changes (commits in chronological order)
+
+- `0ecc151 fix(mosquitto): make install script produce a service-bootable conf` — Phase 1 follow-up. Live Windows-Server e2e found that the SCM-managed Mosquitto service has CWD=System32 and no stdout, so the source `mosquitto.windows.conf`'s relative `./data/`, `./dynamic-security.json`, and `log_dest stdout` silently exited the broker on every launch. Install script now rewrites the deployed copy with absolute paths + file logging.
+- `79937b7 feat(reports): edge-detector helper for puppeteer-core executablePath` — new `apps/api/src/modules/reports/renderers/edge-detector.ts`. Probes `PUPPETEER_EXECUTABLE_PATH` → Windows Edge → Windows Chrome → Linux Chromium → macOS `.app` bundles. 6 vitest cases.
+- `abdc9dd feat(reports): switch pdf-renderer from puppeteer to puppeteer-core + Edge` — drops `puppeteer` (~150 MB Chromium download), adds `puppeteer-core` driving Edge. Cold-start render time 34 s → 1.9 s.
+- `d72d44c feat(reports): replace chartjs-node-canvas with @napi-rs/canvas` — drops `chartjs-node-canvas` (transitive `canvas` needs Cairo + node-gyp + MSVC + Python), adds `@napi-rs/canvas` (prebuilt N-API binaries) + `chartjs-adapter-date-fns` for time-axis charts. Renderer adds explicit white background fill.
+- `06bcb95 fix(tests): bring apps/api vitest suite back from 30 failed files / 65 failed tests to 11 / 14` — vitest infra (env loader, admin-user globalSetup, `fileParallelism: false`) + 11 service/plugin/test mock fixes.
+- `b2c3b37 fix(tests): zero failed tests across the workspace` — finishing pass: e2e snippets/UUIDs, RB0001 + VIEWER fixtures, config-route reauth header fallback (real impl bug), real-schema in user-id validator, ingestion alarm.findFirst mock, plus four `packages/shared` assertion drifts (limit caps + audit-template count). Also restored `userQuerySchema.limit.max(100).default(20)` and `assetQuerySchema/templateQuerySchema.limit.max(100).default(50)` because unbounded list-endpoint limits is a DoS surface.
+
+### Doc updates done in this audit pass
+
+- `windowsIssues.md` — §1 (Puppeteer), §2 (chartjs-node-canvas), §3 (EMQX), §7 (Memurai) marked resolved with commit hashes; "Recommended deployment stance" table updated to reflect Mosquitto + graphile-worker + puppeteer-core + Edge + @napi-rs/canvas.
+- `CHANGELOG.md` — new "[Unreleased] — Phase 3 of windows-friendly-rewrite + test cleanup" section at top with full Added/Changed/Removed/Fixed/Verified-live/Resolved-windowsIssues breakdown.
+- `LOCAL_SETUP_WINDOWS.md` — § 1.5 rewritten for Mosquitto silent install via `scripts/install-mosquitto.ps1`; `.env` template swapped from `EMQX_ADMIN_PASSWORD` → `MOSQUITTO_ADMIN_PASSWORD` + `MOSQUITTO_REFRESH_TOKEN`; service / port / troubleshooting tables updated.
+- `DEPLOY-WINDOWS.md` — architecture diagram, install table, first-run verification, troubleshooting, summary checklist all updated; "Server Core works for the API itself" note added (Phase 3 made this true).
+- `BACKEND_GUIDE.md` — Transport Layer table now lists `mosquitto-acl-generator.ts` + `mosquitto-refresh-routes.ts`; `mqtt-auth-routes` flagged as legacy/Phase-4-deletion-target; Workers table mentions `LISTEN/NOTIFY` + `SKIP LOCKED`; env-var template updated.
+- `apps/api/CLAUDE.md` — Mosquitto replaces EMQX in the local-services list.
+- `CLAUDE.md` (root) — env list (`Mosquitto 2.0` replaces `EMQX 5.x`), Key Local URLs (Mosquitto port + dynsec note instead of EMQX dashboard), Phase 5 narrative updated to reference puppeteer-core + @napi-rs/canvas.
+- `PHASE_5_RECENT_WORK.md` — new "§ 12 Windows-friendly rewrite (Phases 1–3 complete; 4–5 outstanding)" section with the cut-over commit hashes and pass-rate snapshot.
+- This `tasks/todo.md` audit entry.
+- Memory: 4 entries (`feedback_mosquitto_windows_service_install`, `feedback_mosquitto_dynsec_install_dir`, `project_orphan_uns_mapping_cwhf0500`, `feedback_doc_sync_each_phase`).
+
+### Outstanding doc work for Phase 4
+
+When Phase 4.1–4.3 land (script + env-file edits), update:
+- `apps/api/.env.example` itself
+- `future/overview/CODEBASE_SUMMARY.md` tech stack section
+- `future/overview/CURRENT_STATUS.md` gotchas section
+- `future/qa/KNOWN_ISSUES.md` — drop the Memurai + EMQX entries
+- `docs/index.md` stats line
+- `README.md` if it mentions any of the swapped deps
+- `PROJECT_SUMMARY.md` and `PROJECT_ARCHITECTURE.md` tech-stack lines
+
+The above weren't touched in this pass because they're either count-bearing
+(need a fresh live-count run) or describe the stack at a level that should
+land alongside the `install-on-target.ps1` / `package-for-production.ps1`
+script edits in Phase 4.
+
+### Verification commands run before doc updates
+
+```bash
+git log --oneline 7832af1..HEAD                                                  # confirmed 6 today's commits
+grep -cE "^model "                       apps/api/prisma/schema.prisma           # 64 unchanged
+grep -nE "Memurai|EMQX|Puppeteer|chartjs-node-canvas" windowsIssues.md           # found § 1/2/3/7 to mark
+git diff --name-only feature/phase2-pg-queue..windows_dep                        # full file list
+```
+
+Pass-rate at audit time: `apps/api 1123/1123 + packages/shared 150/150 + packages/queue 6/6 = 1279/1279, all green`.

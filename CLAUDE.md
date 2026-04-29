@@ -24,11 +24,14 @@ future/           — Forward-looking design notes
 ## Local Dev Environment (Windows)
 The app runs ONLY on local Windows for development. There is no live EC2 / Linux production environment to push to.
 
-- Node.js 20+, PostgreSQL 18 + TimescaleDB, EMQX 5.x
+- Node.js 20+, PostgreSQL 18 + TimescaleDB, Mosquitto 2.0
 - Job queue runs on Postgres via graphile-worker — no separate Redis/Memurai service needed.
   (Redis/Memurai is still used for non-queue pub/sub: WebSocket events, RPC routing,
   pipeline tracing, debug recorder. Phase 4 will replace those with Postgres LISTEN/NOTIFY.)
-- EMQX optional unless testing MQTT ingest: `C:\Users\hello\emqx\bin\emqx.cmd`
+- Mosquitto optional unless testing MQTT ingest. Install via `scripts/install-mosquitto.ps1`
+  from an elevated PowerShell — registers a Windows service and rewrites the deployed
+  conf with absolute paths + file logging (the SCM-managed broker has CWD=System32 and
+  no stdout, so the dev-mode source conf would silently exit).
 - Convenience: `start-digilog.bat` / `stop-digilog.bat`
 - API runs via `tsx watch` in dev (no PM2 locally), Vite serves frontend
 - See `LOCAL_SETUP_WINDOWS.md` and `DEPLOY-WINDOWS.md` for full details
@@ -62,7 +65,7 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 - App: http://localhost:5175 (Vite dev)
 - API: https://localhost:3000 — `API_HTTPS=true` in `apps/api/.env` (mkcert certs at `certs/server.{key,crt}` rooted by `certs/rootCA.pem`)
 - Swagger: https://localhost:3000/docs
-- EMQX dashboard: http://localhost:18083
+- Mosquitto: tcp://localhost:1883 (no web dashboard; dynsec configured via `POST /api/internal/mqtt/refresh-acl`)
 
 ### TLS notes
 - **APK requires HTTPS** — `apps/web/.env.production` pins `VITE_API_URL=https://192.168.1.22:3000`; plain HTTP causes Capacitor TLS parse error on login. Tablet must trust `rootCA.pem` (Settings → Security → Install certificate).
@@ -103,7 +106,7 @@ RFID Scanner Android app (Reader_Usb.jar SDK), web RFID keyboard guard, offline 
 18 granular feature toggles introduced (Filters / Checklists / Cleaning Profiles / Equipment / PM) — total privileges grew to 91 over Phases 4 + 5; 10 color themes; configurable report header/footer/layout; dynamic bulk upload from template attributeSchema; reauth actions grew to 81 across 16 categories.
 
 ### Phase 5 — Reports, Offline Hardening, RFID SDK, Filter Data Console (Apr 15–29, 2026)
-Reports module A–F complete (visual template designer + Puppeteer/chartjs/Handlebars PDF engine + digital signatures), offline overhaul (TTL cache, idempotency keys, tombstones, LRU, JWT refresh, server-side `stageLookup`, Capacitor Network plugin + SW hook), RFID SDK plugin in DigiLog APK (`Reader_Usb.jar` via `RfidPlugin.java`), Filter Data Management console mirroring 10 user-facing pages, DRY_IN two-step flow with persisted countdown panel, dynamic backup/restore covering all 64 tables, bloat audit 12/14 resolved, EC2/PM2 production assets removed (local-Windows-only), decision-tape proposal for future client/server pipeline drift elimination. Full architectural detail in `PHASE_5_RECENT_WORK.md`.
+Reports module A–F complete (visual template designer + puppeteer-core/Edge / @napi-rs/canvas / Handlebars PDF engine + digital signatures — Phase 3 of windows-friendly-rewrite swapped from `puppeteer` + `chartjs-node-canvas` to eliminate the bundled Chromium download and the node-gyp/MSVC dependency), offline overhaul (TTL cache, idempotency keys, tombstones, LRU, JWT refresh, server-side `stageLookup`, Capacitor Network plugin + SW hook), RFID SDK plugin in DigiLog APK (`Reader_Usb.jar` via `RfidPlugin.java`), Filter Data Management console mirroring 10 user-facing pages, DRY_IN two-step flow with persisted countdown panel, dynamic backup/restore covering all 64 tables, bloat audit 12/14 resolved, EC2/PM2 production assets removed (local-Windows-only), decision-tape proposal for future client/server pipeline drift elimination. Full architectural detail in `PHASE_5_RECENT_WORK.md`.
 
 ## Key API Endpoints (filter operations)
 ```
