@@ -26,3 +26,6 @@ export {
 
 export { getProducer, getRunnerOptions, closeProducer } from './connection.js';
 export type { DigilogRunnerOptions } from './connection.js';
+
+export { startJobRunner, stopJobRunner } from './job-runner.js';
+export type { StartJobRunnerOptions } from './job-runner.js';
