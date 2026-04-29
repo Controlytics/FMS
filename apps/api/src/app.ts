@@ -53,8 +53,15 @@ import { initializeNodes } from './modules/rule-chain/nodes/index.js';
 import notificationDeliveryRoutes from './modules/notification-delivery/routes.js';
 import userGroupRoutes from './modules/user-groups/routes.js';
 import notificationRulesRoutes from './modules/notification-rules/routes.js';
-import { startIngestionWorker, stopIngestionWorker } from './workers/ingestion.worker.js';
-import { startMaintenanceWorker, stopMaintenanceWorker } from './workers/maintenance.worker.js';
+import { startIngestionWorker, stopIngestionWorker, ingestionTask } from './workers/ingestion.worker.js';
+import {
+  startMaintenanceWorker,
+  stopMaintenanceWorker,
+  dlqCheckTask,
+  connectivityCheckTask,
+  retentionCleanupTask,
+} from './workers/maintenance.worker.js';
+import { startJobRunner, stopJobRunner } from '@digilog/queue';
 import { getTsdbPool, initTelemetryBatcher, closeTelemetryBatcher } from '@digilog/db';
 import { AppError } from './lib/errors.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
@@ -313,22 +320,55 @@ try {
     app.log.warn(batchErr);
   }
 
-  // Start ingestion pipeline worker (Phase C)
-  try {
-    await startIngestionWorker();
-    app.log.info('Ingestion worker started');
-  } catch (workerErr) {
-    app.log.warn('Ingestion worker failed to start — server continuing without worker');
-    app.log.warn(workerErr);
-  }
+  // Phase 2 Task 2.8 — when USE_PG_QUEUE=true, run a single graphile-worker
+  // Runner that registers ALL task identifiers + the maintenance crontab
+  // (replaces the two BullMQ Workers below). When false, fall through to the
+  // legacy BullMQ boot path so dev defaults stay unchanged.
+  if (isFeatureEnabled(FEATURE_FLAGS.USE_PG_QUEUE)) {
+    try {
+      // crontab.txt lives at <repo>/packages/queue/crontab.txt; src/app.ts is
+      // at <repo>/apps/api/src/app.ts so the relative hop is 3 dot-dots.
+      // Override via MAINTENANCE_CRONTAB_PATH for non-default monorepo layouts.
+      const crontabPath =
+        process.env.MAINTENANCE_CRONTAB_PATH ??
+        path.resolve(__dirname, '../../../packages/queue/crontab.txt');
+      await startJobRunner({
+        taskList: {
+          ingestion: ingestionTask,
+          // NOTE: no `notification` task is registered here yet — there is no
+          // consumer for it in the current codebase, so notification jobs
+          // would fall through to the same black-hole behavior they had on
+          // the BullMQ path. A real notification handler will be wired in a
+          // follow-up phase.
+          dlq_check: dlqCheckTask,
+          connectivity_check: connectivityCheckTask,
+          retention_cleanup: retentionCleanupTask,
+        },
+        crontabPath,
+      });
+      app.log.info('graphile-worker job runner started (USE_PG_QUEUE=true)');
+    } catch (runnerErr) {
+      app.log.warn('graphile-worker job runner failed to start — server continuing');
+      app.log.warn(runnerErr);
+    }
+  } else {
+    // Start ingestion pipeline worker (Phase C)
+    try {
+      await startIngestionWorker();
+      app.log.info('Ingestion worker started');
+    } catch (workerErr) {
+      app.log.warn('Ingestion worker failed to start — server continuing without worker');
+      app.log.warn(workerErr);
+    }
 
-  // Start maintenance worker (Phase C)
-  try {
-    await startMaintenanceWorker();
-    app.log.info('Maintenance worker started');
-  } catch (maintErr) {
-    app.log.warn('Maintenance worker failed to start — server continuing');
-    app.log.warn(maintErr);
+    // Start maintenance worker (Phase C)
+    try {
+      await startMaintenanceWorker();
+      app.log.info('Maintenance worker started');
+    } catch (maintErr) {
+      app.log.warn('Maintenance worker failed to start — server continuing');
+      app.log.warn(maintErr);
+    }
   }
 } catch (err) {
   app.log.error(err);
@@ -345,8 +385,12 @@ const shutdown = async (signal: string) => {
   shutdownTimeout.unref();
 
   try {
-    await stopIngestionWorker();
-    await stopMaintenanceWorker();
+    if (isFeatureEnabled(FEATURE_FLAGS.USE_PG_QUEUE)) {
+      await stopJobRunner();
+    } else {
+      await stopIngestionWorker();
+      await stopMaintenanceWorker();
+    }
     await closeTelemetryBatcher();
     await closeMqttClient();
     await closeWsRedis();
