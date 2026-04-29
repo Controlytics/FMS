@@ -947,3 +947,78 @@ grep -nE "PM2|EMQX|nginx|Memurai" LOCAL_SETUP_WINDOWS.md                 # alrea
 ```
 
 No code, no tests run — pure script + docs. End-to-end install-script proof will land in **Phase 5.1** (windows-server-stack integration test).
+
+---
+
+## 2026-04-29 — windows-friendly-rewrite Phase 5 — FULL doc-sync sweep (active set + future/)
+
+Branch: `feature/phase5-verification` (worktree at `.worktrees/phase5-verification`). Single docs commit on top of `24620c0` (Phase 5.1 + 5.2 — integration test + `verify-windows-deployment.ps1`). No code changes.
+
+### What this pass closes
+
+Phase 4 doc-sync (`99ca7ad` + `c9d94a1`) explicitly **deferred** four architecture-diagram-heavy docs to Phase 5. This sweep finishes those plus everything else in the CLAUDE.md "Active doc set" that still carried stale Nginx / EMQX / Memurai / BullMQ / PM2 / "63 models" / "57 models" / "95 perms" references.
+
+### Phase 4 deferred files — closed
+
+- `PROJECT_ARCHITECTURE.md` — system-architecture diagram redrawn (Fastify-direct on `:3000`; reverse proxy is optional/customer-choice; queue moved to graphile-worker on Postgres; broker is Mosquitto 2.0). Request flow, data-ingestion-pipeline, queue-architecture table (BullMQ → graphile-worker tasks + cron), security-layers (Nginx SSL → Fastify TLS), and protocols table (HTTPS :443 → :3000) all updated. `63 models` → `64 models`. Redis usage scoped to "pub/sub only" with Phase 4 follow-up note.
+- `API_REFERENCE.md` — base URL prose drops "via Nginx"; "Internal Endpoints (EMQX callbacks)" section rewritten as "Internal Endpoints (Mosquitto dynamic-security)" pointing at `POST /api/internal/mqtt/refresh-acl`; "Permission Reference (95 total)" updated to live count of 109 with the verification command.
+- `FRONTEND_GUIDE.md` — "served by Nginx in production" rewritten to "served by Fastify on `:3000`; reverse proxy optional/customer-choice"; reauth count `69` → `81`.
+- `OFFLINE_SYNC_ARCHITECTURE.md` — APK/web connection diagram drops Nginx box, route-modules count `34` → `37`, `63 models` → `64`, `EMQX — MQTT broker` → `Mosquitto 2.0`, `Redis/Memurai — BullMQ job queues` → `graphile-worker on Postgres — job queues; Redis (optional) — non-queue pub/sub only`.
+
+### Other active-doc-set fixes
+
+- `AGENTS.md` — `34` → `37`, `57/17` → `64/22`, `52+ permissions` → `109/91/81/26`. "BullMQ jobs" → "graphile-worker jobs".
+- `PROJECT_SUMMARY.md` — monorepo tree refreshed (graphile-worker, dropped `deploy/`, `scripts/` description). `BullMQ job queues 5` → graphile-worker `5` cron + tasks. `95 granular controls` → `109` with verification cmd. "Production Deployment (Windows Server)" rewritten honestly.
+- `README.md` — `packages/queue/` line in the contents table swapped to graphile-worker prose.
+- `apps/api/CLAUDE.md` — module count `34` → `37`; module list refreshed to include `report-templates`/`reports` and `30` defs (was `23`); "Phase 4 Update" disambiguated; `95 total permission constants` → live count of `109`.
+- `apps/api/DECISIONS.md` — Decision #26 (BullMQ for Ingestion Queue) updated to record the Phase 2 swap; Decision #39 (Force IPv4 SMTP) flagged as historical-EC2-era.
+- `apps/web/CLAUDE.md` — `# Build (for Nginx serving or APK packaging)` comment swapped; `20+ page modules` → `23 route folders/files; ~85 pages; 81 <Route>`.
+- `windowsIssues.md` — added "Phase 5 status footnote" pointing at `tests/integration/windows-server-stack.test.ts` (Phase 5.1) + `scripts/verify-windows-deployment.ps1` (Phase 5.2). "Things that work fine" list updated.
+
+### Reference docs (`docs/`, `future/`, `PROJECT_HANDOVER/`)
+
+- `docs/getting-started/system-requirements.md` — full rewrite; legacy port table marked as "no longer part of standard install".
+- `docs/getting-started/what-is-digilog.md` — architecture stack list updated.
+- `docs/compliance/21-cfr-part-11.md` — "HTTPS support via Nginx" → Fastify TLS via mkcert.
+- `docs/user-guide/connectivity/mqtt.md` — full rewrite for Mosquitto 2.0.
+- `docs/user-guide/telemetry/telemetry.md` — `via EMQX broker` → `via Mosquitto 2.0`.
+- `docs/user-guide/data-export/data-export.md` — `via BullMQ` → `via graphile-worker on Postgres`.
+- `docs/user-guide/entities/entities-and-hierarchy.md` — `57/17` → `64/22`.
+- `docs/deployment-methods/{README,method-a,method-b,method-d,method-e,comparison}.md` — added Phase 4/5 status banners pointing at root `DEPLOY-WINDOWS.md`; original prose preserved as historical context.
+- `future/overview/CODEBASE_SUMMARY.md` — `BullMQ queue definitions` → graphile-worker.
+- `future/overview/API_LIST.md` — EMQX webhook footer note rewritten.
+- `future/backend/README.md` — Tech stack line, transport block, env-var table, workers note all rewritten.
+- `future/backend/API_ENDPOINTS.md` — MQTT topics note updated.
+- `future/backend/ENV_SETUP.md` — prereqs list, Memurai section, Nginx mention all rewritten.
+- `future/frontend/README.md` — `served by optional Nginx` rewritten to Fastify-direct + Capacitor APK.
+- `future/qa/README.md` — local prod URL no longer points at Nginx; EMQX dashboard reference removed.
+- `future/qa/FEATURE_CHECKLIST.md` — EMQX webhook check rewritten as Mosquitto refresh-acl.
+- `future/qa/ACCEPTANCE_CRITERIA.md` — `/api/system-health` expected outputs adjusted.
+- `PROJECT_HANDOVER/APPLICATION_FLOW.md` — header banner added; existing Mermaid diagrams + .docx renders preserved as historical Phase-4 snapshot.
+- `CHANGELOG.md` — new top-of-file `[Unreleased] — Phase 5 doc-sync sweep` entry summarising all of the above.
+
+### Files NOT touched in this pass (and why)
+
+- `docs/runbooks/queue-cutover.md` — this **is** the cutover runbook itself (describes the BullMQ → graphile-worker migration). Mentions of BullMQ + Memurai + the cut-over flag are correct in that role; rewriting would erase the runbook's purpose.
+- `docs/plans/2026-04-29-windows-friendly-rewrite.md` — the source-of-truth plan for the rewrite phases. Mentions the old stack on purpose.
+- `docs/CONTRIBUTING.md` — references EC2 / PM2 in historical receipts about what was found and removed; correct as historical receipts.
+- `apps/web/DECISIONS.md` line 13 — small inline parenthetical "(nginx) would handle this"; correctly describes original design intent.
+- `LOCAL_SETUP_WINDOWS.md`, `DEPLOY-WINDOWS.md`, `BACKEND_GUIDE.md` (mostly), root `CLAUDE.md`, `PHASE_5_RECENT_WORK.md`, `packages/shared/CLAUDE.md`, `future/overview/CURRENT_STATUS.md`, `future/qa/KNOWN_ISSUES.md`, `future/README.md`, `future/frontend/KEY_FILES.md`, `future/testing/*`, `future/backend/MODULES.md`, `docs/index.md`, `docs/administration/*` — already updated in earlier passes; re-read end-to-end during this pass; no further edits needed.
+- `PROJECT_HANDOVER/diagrams/*.png` + `APPLICATION_FLOW.docx` — paired binary renders that should regenerate together when the handover doc is rebuilt for a Phase 5+ release. Out of scope for a docs-only sweep.
+
+### Verification commands run before doc updates
+
+```bash
+git log --oneline 24620c0..HEAD                                                  # baseline (Phase 5.1 + 5.2 already on the worktree)
+grep -cE "^model "                       apps/api/prisma/schema.prisma           # 64
+grep -cE "^enum "                        apps/api/prisma/schema.prisma           # 22
+grep -cE "^\s+[A-Z_]+:\s*'"              packages/shared/src/types/permissions.ts  # 109
+grep -cE "^\s+[A-Z_]+:"                  packages/shared/src/types/reauth-actions.ts # 81
+ls apps/api/src/modules/ | wc -l                                                  # 37
+ls apps/api/src/modules/config/defs/*.def.ts | wc -l                              # 30
+ls apps/web/src/routes/config/*.tsx | wc -l                                       # 26
+grep -cE "<Route" apps/web/src/main.tsx                                           # 81
+grep -rln -iE "emqx|memurai|bullmq|nginx|pm2" --include="*.md" .                  # before edits: ~30 files; after: residual matches are explicit historical / runbook / plan references
+```
+
+No code changes, no tests run. Pure docs-only commit. Phase 5.1's `tests/integration/windows-server-stack.test.ts` (`INTEGRATION_TEST=1`) and Phase 5.2's `scripts/verify-windows-deployment.ps1` shipped before this sweep, so the prose can describe their existence honestly.

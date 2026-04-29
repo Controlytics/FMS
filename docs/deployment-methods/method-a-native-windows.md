@@ -1,6 +1,8 @@
 # Method A: Native Windows Install
 
-**Status: RECOMMENDED**
+**Status: RECOMMENDED — HISTORICAL EVALUATION DOC**
+
+> **2026-04-29 update:** the windows-friendly-rewrite has shipped Phases 1–4 and superseded the stack described below. The current install path is **Mosquitto 2.0** (not EMQX), **graphile-worker on Postgres** (not Memurai/BullMQ), **`puppeteer-core` + Edge + `@napi-rs/canvas`** (not bundled puppeteer + chartjs-node-canvas), and **Fastify-direct on `:3000` (HTTPS via mkcert)** (not Nginx-fronted with PM2). For the current runbook see root `DEPLOY-WINDOWS.md`. The prose below is preserved as the original evaluation rationale.
 
 Install PostgreSQL, Memurai, EMQX, Nginx, and Node.js directly on Windows. PM2 manages the API process.
 

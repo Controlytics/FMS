@@ -21,17 +21,17 @@ The main application file registers everything in this order:
 6. **Auth plugin** — JWT verification, user lookup, session validation
 7. **RBAC plugin** — `requirePermission()` decorator
 8. **Audit logger plugin** — SHA-256 hash-chain logging
-9. **34 route modules** — registered under `/api/` prefix
+9. **37 route modules** — registered under `/api/` prefix
 10. **MQTT client** — connects to Mosquitto broker (Phase 1 of windows-friendly-rewrite swapped from EMQX)
 11. **WebSocket handler** — real-time data at `/ws`
-12. **Ingestion worker** — BullMQ consumer (concurrency: 10)
-13. **Maintenance worker** — DLQ check, connectivity check, retention cleanup
+12. **Ingestion worker** — graphile-worker `ingestion` task consumer (concurrency: 10) — Phase 2 swapped from BullMQ
+13. **Maintenance worker** — graphile-worker cron tasks for DLQ check, connectivity check, retention cleanup (`pg_advisory_lock` for leader election)
 14. **Config discovery** — auto-registers 30 config definitions
 15. **Static uploads** — serves `/uploads/` directory
 16. **Health check** — `GET /api/health`
 17. **Error handler** — unified error responses (AppError → HTTP codes)
 
-## 34 API Modules
+## 37 API Modules
 
 ### Auth & User Management
 
@@ -213,7 +213,7 @@ Aggregates four query surfaces under one module folder:
 |---|---|
 | `telemetry.routes.ts` | `/api/telemetry/*` — latest, history, aggregation, delta |
 | `alarm.routes.ts` | `/api/alarms/*` — alarm lifecycle with e-signatures |
-| `export.routes.ts` | `/api/export/*` — CSV/JSON/Excel export with BullMQ background jobs |
+| `export.routes.ts` | `/api/export/*` — CSV/JSON/Excel export with graphile-worker background jobs |
 | `retention.routes.ts` | `/api/retention/*` — per-table retention policy management |
 | `index.ts` | Registration barrel |
 
@@ -350,7 +350,7 @@ MAX_FILE_SIZE=5242880
 1. **Module pattern** — Each feature is a self-contained module with routes + service + repository
 2. **Organization scoping** — `orgScope(ctx)` adds `organizationId` filter to all queries
 3. **Permission-based RBAC** — `requirePermission('PERM')` on every protected route
-4. **Re-authentication** — `enforceReauth('ACTION', req, reply)` for 69 sensitive operations
+4. **Re-authentication** — `enforceReauth('ACTION', req, reply)` for 81 sensitive operations
 5. **Audit logging** — Every mutation auto-logged with SHA-256 hash chain
 6. **Input sanitization** — All text fields stripped of HTML via `sanitize.ts`
 7. **Config registry** — 30 config definitions auto-discovered at startup

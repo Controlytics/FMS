@@ -100,9 +100,9 @@
 **Decision:** Convert high-volume tables to TimescaleDB hypertables (7 hypertables total) with automatic time partitioning.
 **Rationale:** Time-series data (telemetry readings, alarms, events) grows unboundedly. TimescaleDB provides automatic partitioning by time (7-day chunks), compression, and retention policies without application code changes. Queries filtering by time range benefit from chunk pruning. The `digilog_tsdb` database runs alongside `digilog_db` on the same PostgreSQL instance.
 
-## 26. BullMQ for Ingestion Queue (not in-process)
-**Decision:** Use BullMQ with Redis as the ingestion job queue rather than processing data inline in the HTTP handler.
-**Rationale:** Data ingestion from IoT devices can burst to high volumes. Queueing decouples HTTP acceptance (fast 202 response) from processing (pipeline stages). BullMQ provides job persistence, retry with backoff, dead letter queue, and rate limiting. Redis is already used for rule chain caching, so no additional infrastructure. Two workers: ingestion (processes payloads) and maintenance (DLQ cleanup, connectivity staleness checks).
+## 26. Out-of-process queue for Ingestion (not inline)
+**Decision:** Use an out-of-process job queue for the ingestion pipeline rather than processing data inline in the HTTP handler. Originally BullMQ + Redis; **swapped to graphile-worker on Postgres in Phase 2 of the windows-friendly-rewrite (commit `7832af1`, 2026-04-29)** to drop the Redis/Memurai dependency on Windows.
+**Rationale:** Data ingestion from IoT devices can burst to high volumes. Queueing decouples HTTP acceptance (fast 202 response) from processing (pipeline stages). Both queue backends provide job persistence, retry with backoff, dead letter queue, and rate limiting. graphile-worker uses PG `LISTEN/NOTIFY` for instant dispatch, `SELECT … FOR UPDATE SKIP LOCKED` for concurrency, and `pg_advisory_lock` for cron leader election — all native PG18 features, no extensions. `addJob()` runs in the caller's PG transaction, so jobs don't fire if the business txn rolls back (a feature BullMQ never offered). Two workers: ingestion (processes payloads) and maintenance (DLQ cleanup, connectivity staleness checks).
 
 ## 27. Sandboxed VM for Rule Chain Scripts (not eval/Function)
 **Decision:** Execute user-defined rule chain scripts (77 node types total across 8 categories) in Node.js `vm.runInNewContext()` with a 1-second timeout and restricted global scope (no `process`, `require`, `global`, `Buffer`, `setTimeout`).
@@ -152,9 +152,9 @@
 **Decision:** Changed notification rules from single `eventType` (enum) to `eventTypes` (enum array). Both fields are maintained: `eventType` = first element (backward compat), `eventTypes` = full array.
 **Rationale:** Users need a single rule to trigger on multiple event types (e.g., all alarm events). Storing as PostgreSQL enum array with Prisma `NotificationEventType[]` allows efficient `has` queries. The dispatcher uses `eventTypes: { has: eventType }` to match. Frontend uses a grouped checkbox dropdown component (`MultiSelectEventTypes`).
 
-## 39. Force IPv4 for SMTP Connections
+## 39. Force IPv4 for SMTP Connections (historical — was an EC2 era fix)
 **Decision:** Added `family: 4` to all nodemailer `createTransport()` options (both OAuth2 and basic auth) via `as any` type cast.
-**Rationale:** EC2 instances in ap-south-1 cannot reach IPv6 addresses. When `smtp.office365.com` resolves to IPv6 first (e.g., `2603:1036:30d:401::2:587`), connections fail with `ENETUNREACH`. Forcing IPv4 ensures reliable SMTP delivery. The `as any` cast is needed because nodemailer's TypeScript types don't expose the `family` option from Node.js `net.connect`.
+**Rationale:** Originally added because EC2 instances in ap-south-1 could not reach IPv6 addresses — when `smtp.office365.com` resolved to IPv6 first (e.g., `2603:1036:30d:401::2:587`), connections failed with `ENETUNREACH`. The setting still applies in the current Windows-local-only deployment (EC2 was retired in commit `251be95`); IPv4 SMTP is universally reachable so the cast remains a safe defensive default. The `as any` cast is needed because nodemailer's TypeScript types don't expose the `family` option from Node.js `net.connect`.
 
 ## 40. Strip Computed Fields on Notification Rule Update
 **Decision:** The PUT handler for notification rules destructures and removes `eventTypeMeta`, `eventTypesMeta`, `createdAt`, `updatedAt`, `createdBy`, and `id` before passing data to Prisma `update()`. Empty string values for UUID fields (`emailTemplateId`, `smsTemplateId`) are converted to `null`.

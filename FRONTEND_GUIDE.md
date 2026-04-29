@@ -2,7 +2,7 @@
 
 ## Overview
 
-React 19 SPA built with Vite 6, styled with Tailwind CSS 4, served by Nginx in production. No component library — all UI built with Tailwind utility classes.
+React 19 SPA built with Vite 6, styled with Tailwind CSS 4. The built `apps/web/dist/` bundle is served directly by the Fastify API on port 3000 in the standard local-Windows install (Phase 4 of the windows-friendly-rewrite retired the bundled Nginx config; a reverse proxy is now optional / customer-choice). The same bundle is also packaged into the Capacitor APK for tablets. No component library — all UI built with Tailwind utility classes.
 
 **Entry point:** `apps/web/src/main.tsx`
 **Dev server:** `npx vite --host` (port 5175)
@@ -347,7 +347,7 @@ Cached Data (IndexedDB):
 2. **apiClient for all writes** — post/put/delete with token attachment
 3. **Lazy loading** — heavy pages code-split via `React.lazy()`
 4. **Permission gating** — `<RequireRole>` wrapper + `isSuperAdmin` bypass
-5. **Re-authentication** — `useReauth()` + `ReauthDialog` for 69 sensitive actions
+5. **Re-authentication** — `useReauth()` + `ReauthDialog` for 81 sensitive actions
 6. **Toast notifications** — success/error feedback (never `alert()`)
 7. **Light theme only** — bg-white cards, bg-slate-50 sections, no dark mode
 8. **Responsive** — sidebar collapses to hamburger on mobile, reduced padding

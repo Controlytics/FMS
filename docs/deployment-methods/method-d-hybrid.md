@@ -1,6 +1,8 @@
 # Method D: Hybrid (Docker Infra + Native App)
 
-**Status: Niche use case — only for technical teams**
+**Status: Niche use case — only for technical teams — HISTORICAL EVALUATION DOC**
+
+> **2026-04-29 update:** windows-friendly-rewrite changed the stack: EMQX → Mosquitto 2.0, BullMQ + Memurai → graphile-worker on Postgres (no separate queue service), Nginx + PM2 → Fastify-direct on `:3000`. This evaluation predates those swaps; for the current shipping install runbook see root `DEPLOY-WINDOWS.md`.
 
 PostgreSQL, Redis, and EMQX run in Docker containers. API and Nginx run natively on Windows.
 

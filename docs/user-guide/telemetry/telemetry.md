@@ -3,8 +3,8 @@
 Time-series data from devices stored in TimescaleDB (database: digilog_tsdb).
 
 ## Ingestion
-- MQTT: topic v1/devices/me/telemetry (via EMQX broker)
-- HTTP: POST /api/v1/{token}/telemetry
+- MQTT: topic `v1/devices/me/telemetry` (via Mosquitto 2.0 broker — Phase 1 of windows-friendly-rewrite swapped from EMQX)
+- HTTP: `POST /api/v1/{token}/telemetry`
 - Payload formats: simple (`{"temp": 72}`), timestamped (`{"ts": ..., "values": {...}}`), batch (`[{...}, ...]`)
 
 ## Storage

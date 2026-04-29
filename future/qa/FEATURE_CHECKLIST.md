@@ -86,7 +86,7 @@ Legend: ☐ to verify, ✅ verified, ❌ blocked.
 ## 6. IoT ingestion + rule chain + queries
 
 - ☐ HTTP: `/api/data/telemetry`, `/attributes`, `/checklist`, `/binary`, `/event`, `/rpc` all accept device-token auth
-- ☐ MQTT: EMQX auth + ACL webhooks (`/api/internal/mqtt/*`) work; telemetry topic posts hit the pipeline
+- ☐ MQTT: Mosquitto 2.0 dynamic-security regenerates via `POST /api/internal/mqtt/refresh-acl` (Bearer-auth via `MOSQUITTO_REFRESH_TOKEN`); telemetry topic posts hit the pipeline. (Legacy EMQX auth/ACL webhooks remain conditionally registered when `USE_MOSQUITTO=false`.)
 - ☐ Rule chain editor supports all **77 node types** (verify against `/api/rule-chains/node-types`)
 - ☐ Chain save compiles; `/debug` shows traces
 - ☐ Queries: telemetry latest/timeseries/keys, attributes + history, checklist responses + history + specific

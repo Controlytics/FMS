@@ -16,7 +16,7 @@ The platform is monorepo-based (Turborepo) with a Fastify backend, a React/Vite 
 | `rfid_scan_app/` | Native Kotlin app for KC-series UHF RFID readers (USB) |
 | `packages/shared/` | Permissions, privileges, reauth actions, Zod schemas |
 | `packages/db/` | Prisma client + TimescaleDB pool + telemetry batcher |
-| `packages/queue/` | BullMQ queue definitions |
+| `packages/queue/` | graphile-worker queue producer + runner (Postgres-backed; Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis) |
 | `docs/` | Active project documentation |
 | `old/` | Archived superseded docs (kept for reference) |
 | `future/` | Forward-looking design notes |

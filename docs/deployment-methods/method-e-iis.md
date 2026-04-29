@@ -1,6 +1,8 @@
 # Method E: IIS Instead of Nginx
 
-**Status: Only if client mandates IIS**
+**Status: Only if client mandates IIS — HISTORICAL EVALUATION DOC**
+
+> **2026-04-29 update:** Phase 4 of the windows-friendly-rewrite retired the bundled Nginx config from the standard install path. Fastify now serves the SPA + `/api/*` directly on `:3000`, so a reverse proxy is **optional**. If a customer requires IIS in front of Fastify, this evaluation still applies; otherwise the IIS step can be skipped entirely. EMQX → Mosquitto 2.0 (Phase 1); BullMQ + Memurai → graphile-worker on Postgres (Phase 2) also apply. See root `DEPLOY-WINDOWS.md` for the current install runbook.
 
 Same as Method A but replace Nginx with IIS (Windows' built-in web server). Use IIS URL Rewrite + Application Request Routing (ARR) for reverse proxy.
 

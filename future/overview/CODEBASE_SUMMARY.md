@@ -17,7 +17,7 @@
 ├── packages/
 │   ├── shared/           Zod schemas, role / permission / privilege / sidebar / audit constants
 │   ├── db/               Prisma client wrapper + TimescaleDB pg Pool + telemetry batcher
-│   └── queue/            BullMQ queue definitions (getQueueConnection vs getWorkerConnection)
+│   └── queue/            graphile-worker producer + runner over Postgres (Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis)
 ├── rfid_scan_app/        Standalone native Kotlin app for KC-series UHF RFID readers
 ├── tsdb-migration/       One-off SQL migration helpers for TimescaleDB hypertables
 ├── docs/                 In-repo documentation tree (administration, compliance, user-guide, deployment-methods, etc.)

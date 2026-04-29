@@ -29,16 +29,15 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 21cfrlogbook-DigitalFMS/
 ├── apps/
 │   ├── api/            — Fastify backend (37 modules, TypeScript)
-│   ├── web/            — React SPA (22 route modules, Vite + Tailwind)
-│   └── android/        — Capacitor wrapper for Android APK
+│   ├── web/            — React SPA (23 route folders/files, Vite + Tailwind)
+│   └── android/        — Capacitor wrapper for Android APK (incl. RfidPlugin.java for SDK-mode RFID)
 ├── packages/
 │   ├── shared/         — Zod schemas, permissions, types (109 permissions, 91 privileges, 81 reauth actions, 26 sidebar items)
 │   ├── db/             — Prisma client, TimescaleDB pool, telemetry batcher
-│   └── queue/          — BullMQ job queues (5 queues) + Redis connection
-├── rfid_scan_app/      — Native Kotlin Android RFID scanner
-├── deploy/             — Nginx config, Linux setup scripts
-├── scripts/            — Windows PowerShell deployment scripts
-├── certs/              — SSL certificates (server.crt, server.key, rootCA.pem)
+│   └── queue/          — graphile-worker job queue (Postgres-backed; Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis)
+├── rfid_scan_app/      — Native Kotlin Android RFID scanner (predates RfidPlugin in DigiLog APK)
+├── scripts/            — Windows PowerShell deployment scripts (package + install + install-mosquitto)
+├── certs/              — mkcert TLS infrastructure (server.crt, server.key, rootCA.pem)
 └── docs/               — Full documentation site
 ```
 
@@ -105,7 +104,7 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 | Frontend routes | 85+ |
 | Custom React hooks | 14 |
 | Frontend lib modules | 15 |
-| BullMQ job queues | 5 |
+| graphile-worker queues / cron tasks | 5 (`ingestion`, `notification`, `dlq_check`, `connectivity_check`, `retention_cleanup` — Phase 2 swap) |
 
 ## Security & Compliance
 
@@ -113,7 +112,7 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 - **Electronic signatures**: Password re-authentication for sensitive operations
 - **Audit trail**: Every mutation logged with SHA-256 hash-chain verification
 - **Immutable records**: Filter events stored with checksums, cannot be modified
-- **Access control**: Role-based permissions with 95 granular controls
+- **Access control**: Role-based permissions with 109 granular controls (verified by `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts`)
 - **Session management**: Auto-logout on inactivity, single-tab enforcement
 - **Password policies**: Configurable complexity, expiry, and history requirements
 
@@ -129,13 +128,14 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 
 ### Production Deployment (Windows Server)
 - Self-contained ZIP package via `scripts/package-for-production.ps1`
-- PowerShell-based automated installation via `scripts/install-on-target.ps1`
-- NSSM for Windows Service registration (the API runs as a Windows service)
-- Optional Nginx reverse proxy for SPA + API
-- Firewall rules auto-configured
+- PowerShell-based automated installation via `scripts/install-on-target.ps1` (also runs `install-mosquitto.ps1` for the broker)
+- API serves SPA + `/api/*` directly on `:3000` over HTTPS (mkcert)
+- Reverse proxy (Nginx / IIS) is optional / customer-choice — not bundled after Phase 4 of the windows-friendly-rewrite
+- Managed Windows-service launcher is Phase 5 work; NSSM stopgap documented in `DEPLOY-WINDOWS.md` § 7
+- Firewall rules auto-configured (80, 443, 3000, 1883)
 
 ### Prerequisites
-- Node.js 20+, PostgreSQL 18 + TimescaleDB, Mosquitto 2.0, Nginx (Memurai/Redis optional — non-queue pub/sub only)
+- Node.js 20+, PostgreSQL 18 + TimescaleDB, Mosquitto 2.0 (installed by script). Memurai/Redis is **optional** — only required for non-queue pub/sub features (queue moved to graphile-worker on Postgres in Phase 2).
 
 ### Default Login
 - Username: `superadmin`

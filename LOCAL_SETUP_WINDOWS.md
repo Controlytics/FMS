@@ -199,14 +199,14 @@ npx prisma generate
 npx prisma migrate deploy
 ```
 
-> This creates all 57 model tables including the Phase 2 filter management tables, equipment groups, and checklist profiles.
+> This creates all 64 model tables (verified 2026-04-29) including the Phase 2 filter management tables, equipment groups, and checklist profiles.
 
 ### 6.3 Seed the Database
 ```bash
 npx prisma db seed
 ```
 
-> This creates: 6 default roles (SUPER_ADMIN through VIEWER), superadmin user (username: `superadmin`, password: `Admin@123`), 23+ system config entries, 52+ permissions, and sample organizations.
+> This creates: 6 default roles (SUPER_ADMIN through VIEWER), superadmin user (username: `superadmin`, password: `Admin@123`), 30+ system config entries (auto-discovered), 109 permissions, and sample organizations (counts verified 2026-04-29).
 
 ```bash
 cd ../..
@@ -301,12 +301,12 @@ curl http://localhost:3000/api/health
 ├── apps/
 │   ├── api/                    # Fastify backend (TypeScript)
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma   # Database schema (57 models, 17 enums)
+│   │   │   ├── schema.prisma   # Database schema (64 models, 22 enums — verified 2026-04-29)
 │   │   │   ├── seed.ts         # Database seeder
 │   │   │   └── migrations/     # SQL migrations
 │   │   └── src/
 │   │       ├── app.ts          # Entry point
-│   │       ├── modules/        # 34 API modules
+│   │       ├── modules/        # 37 API modules (verified 2026-04-29)
 │   │       ├── plugins/        # Auth, CORS, etc.
 │   │       └── lib/            # Shared utilities
 │   ├── web/                    # React frontend (Vite + Tailwind)

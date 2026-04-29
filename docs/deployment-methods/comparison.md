@@ -1,5 +1,7 @@
 # Deployment Methods — Side-by-Side Comparison & Final Verdict
 
+> **2026-04-29 status banner — HISTORICAL EVALUATION:** the windows-friendly-rewrite has shipped Phases 1–4 and changed the underlying stack referenced in the comparisons below. Mosquitto 2.0 (not EMQX), graphile-worker on Postgres (not BullMQ + Redis/Memurai), `puppeteer-core` + Edge + `@napi-rs/canvas` (not bundled puppeteer + chartjs-node-canvas), Fastify-direct on `:3000` (not Nginx + PM2). The evaluation matrix below remains useful for choosing **whether** to add Docker / IIS / a reverse proxy, but the per-component tooling has changed. See root `DEPLOY-WINDOWS.md` for the current shipping install runbook.
+
 ---
 
 ## Feature Comparison

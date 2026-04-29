@@ -254,15 +254,15 @@ New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' `
 
 ## 🟢 Things that work fine on Windows Server
 
-- Fastify, Prisma client, ioredis, BullMQ (assuming Memurai), all pure-JS code
+- Fastify, Prisma client, graphile-worker on Postgres, all pure-JS code (BullMQ + ioredis was retired in Phase 2 of windows-friendly-rewrite, commit `7832af1`)
 - React 19 + Vite 6 build (frontend) — pure JS
 - ESLint, Vitest, TypeScript — pure JS
 - `jose` (JWT), `ldapts` (LDAP), `nodemailer` — pure JS
-- PostgreSQL 18 itself
-- `mqtt` npm package (the **client**, talking to whatever broker)
+- PostgreSQL 18 itself (now also hosts the graphile-worker queue schema)
+- `mqtt` npm package (the **client**, talking to whatever broker — Mosquitto 2.0 in the current shipping install)
 - HTTPS via mkcert (after the cert-import step in §6)
-- Windows Service registration via NSSM
-- Memurai (Redis substitute, paid)
+- Windows Service registration via NSSM (stopgap until Phase 5 ships a managed-service launcher)
+- Memurai (Redis substitute, paid) — **optional** post-Phase-2; only used for non-queue pub/sub features
 - The 30 config defs + 26 config pages + 109 permissions — all pure JS
 
 ---
@@ -290,7 +290,16 @@ For a **Windows Server production deployment**, the realistic stance is:
 1. **Before deployment:** read this top-to-bottom, audit each 🔴 item against your target environment
 2. **During `install-on-target.ps1` development:** every 🟡 mitigation should be enforced or documented in the script
 3. **When adding a new dependency to `apps/api/package.json` or `apps/web/package.json`:** check whether it has native bindings or external runtime requirements; add an entry to this document if Windows-hostile
-4. **When upgrading PG / Node / EMQX:** verify the Windows builds are still in lockstep before upgrading dev environments
+4. **When upgrading PG / Node / Mosquitto:** verify the Windows builds are still in lockstep before upgrading dev environments
+
+## Phase 5 status footnote (2026-04-29)
+
+Phase 5 of the windows-friendly-rewrite did **not** close any of the 18 issue entries directly — Phase 1 (EMQX), Phase 2 (Memurai), Phase 3 (Puppeteer + chartjs-node-canvas), and Phase 4 (Nginx + PM2) had already resolved the four 🔴 hard blockers and reduced the 🟡 surface for §14. What Phase 5 delivers is the **verification gap** that prior phases left open:
+
+- `tests/integration/windows-server-stack.test.ts` (`INTEGRATION_TEST=1`-gated) exercises the post-Phase-1+2+3 stack end-to-end — Mosquitto round-trip → graphile-worker pickup → TimescaleDB hypertable insert → reports/generate → PDF magic bytes — so future regressions surface in CI rather than during a live customer install.
+- `scripts/verify-windows-deployment.ps1` (Phase 5.2) gives an operator a one-shot smoke-check that hits the same path on a deployed box, so the receipts in this doc can be re-validated after every install or upgrade.
+
+The two remaining open items — a managed Windows-service launcher (replaces the NSSM stopgap in `DEPLOY-WINDOWS.md` § 7) and end-to-end install-script proof on a fresh box — remain Phase 5+ work.
 
 ## Cross-references
 

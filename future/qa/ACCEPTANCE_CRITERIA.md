@@ -122,7 +122,7 @@ Per-feature "it's done when…" bullets. QA signs a feature off only when every 
 
 ## System health
 
-- `/api/system-health` returns green for Postgres, TimescaleDB, Redis, EMQX, ingestion worker, maintenance worker.
+- `/api/system-health` returns green for Postgres, TimescaleDB, Mosquitto (or "skipped" when `MQTT_ENABLED=false`), ingestion worker (graphile-worker), maintenance worker (graphile-worker cron). Redis is reported only when configured (post-Phase-2 it's optional and only used for non-queue pub/sub).
 - The `/system-health` page renders per-service status cards, refresh on 15-s interval.
 
 ---

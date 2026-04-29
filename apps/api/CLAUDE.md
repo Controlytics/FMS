@@ -23,7 +23,7 @@ node apps/api/dist/app.js
 - Config routes: monolith split into `apps/api/src/modules/config/static-routes/<surface>.routes.ts` per tab; top-level `routes.ts` is just a registration loop (~170 LOC, was 1003)
 
 ## Architecture
-- 34 route modules registered via `apps/api/src/modules/*/routes.ts`
+- 37 route modules registered via `apps/api/src/modules/*/routes.ts`
 - Config auto-discovery at startup via `lib/config-discovery.ts`
 - Config registry pattern via `lib/config-registry.ts` (self-registering config modules)
 - Rule chain node registry: `modules/rule-chain/nodes/index.ts` (77 node types, 8 categories)
@@ -31,8 +31,8 @@ node apps/api/dist/app.js
 - JWT auth with 30-min refresh, session management, re-auth for sensitive ops
 - Permission-based RBAC via `requirePermission()` on all protected routes
 
-## 34 API Modules
-admin-requests, assets (templates/instances/relationships/identifiers), audit, auth, backup, checklist-profiles, cleaning-profiles, config (23 definitions), connectivity, dashboards, data-ingestion (10-stage pipeline), deployment-check, entity-assignments, equipment-groups, filter-operations, filter-profiles, help, ldap, notification-delivery (email/SMS/Telegram/Slack), notification-rules, notifications, org-admin, pm-schedules, qr-code, queries (telemetry/alarm/retention/export), roles, rule-chain (77 node types), super-admin, system-health, tenant-admin, uns, uploads, user-groups, users
+## 37 API Modules
+admin-requests, assets (templates/instances/relationships/identifiers), audit, auth, backup, checklist-profiles, cleaning-profiles, config (30 auto-discovered definitions), connectivity, dashboards, data-ingestion (11-file pipeline), deployment-check, entity-assignments, equipment-groups, filter-operations, filter-profiles, help, ldap, notification-delivery (email/SMS/Telegram/Slack), notification-rules, notifications, org-admin, pm-schedules, qr-code, queries (telemetry/alarm/retention/export), report-templates, reports, roles, rule-chain (77 node types), super-admin, system-health, tenant-admin, uns, uploads, user-groups, users — plus block-change-requests / admin-requests under their own modules.
 
 ## Databases
 - **digilog_db** (PostgreSQL 18 via Prisma) — application data (64 models, 22 enums)
@@ -120,15 +120,17 @@ See `CHANGELOG.md` for full details.
 
 ---
 
-## Phase 4 Update (2026-04-14)
+## Phase 4 Update (2026-04-14) — in-app permissions/themes/reports phase
+
+> Note: a separate "Phase 4" appears in the windows-friendly-rewrite plan (tooling cleanup of `install-on-target.ps1` + `package-for-production.ps1`). The two are unrelated.
 
 **New Config Definitions:**
 - `report-settings.def.ts` — Report header/footer/layout configuration
 - Public endpoint: `GET /api/config/report-settings/current`
 - Public endpoint: `GET /api/config/password-policy/current`
 
-**Permissions Updates:**
-- 95 total permission constants (was ~60)
+**Permissions Updates (snapshot at release; current totals are higher — see live counts in root `CLAUDE.md`):**
+- ~95 permission constants at release (now 109 — verify with `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts`)
 - 81 reauth actions across 16 categories
 - FEATURE_TO_PERMISSION_MAP entries include both frontend + backend permissions
 - Block change requests GET endpoint accepts BLOCK_CHANGE_REQUEST OR BLOCK_CHANGE_APPROVE

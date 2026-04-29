@@ -4,7 +4,7 @@
 **Tech:** React 19 + Vite 6 + TailwindCSS 4 + SWR 2 + React Router 7 + react-hook-form + zod 4. Plus `reactflow` 11, `@dnd-kit/*`, `recharts`, `@monaco-editor/react`, `signature_pad`, `qrcode.react`, `vite-plugin-pwa`.
 **Entry:** `apps/web/src/main.tsx` (**81 `<Route>` definitions**)
 **Dev:** `cd apps/web && npm run dev` → Vite on port 5173 (5175 on some configurations)
-**Build:** `npm run build` (tsc -b + vite build) → output to `apps/web/dist/` (served by optional Nginx; packaged into the APK by Capacitor 8)
+**Build:** `npm run build` (tsc -b + vite build) → output to `apps/web/dist/`. The bundle is served by the Fastify API at `:3000` (Phase 4 of the windows-friendly-rewrite retired the bundled Nginx config; a reverse proxy is now optional / customer-choice). Capacitor 8 also packages `dist/` into the Android APK.
 
 ## Directory map
 

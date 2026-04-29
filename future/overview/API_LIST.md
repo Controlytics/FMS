@@ -105,7 +105,7 @@ This file is an **index** — for handler-level detail (request/response shapes,
 
 ## Internal MQTT auth — `/api/internal/mqtt`
 
-- (EMQX webhook endpoints for auth/ACL — called by the broker, not the UI.)
+- (`/refresh-acl` regenerates Mosquitto dynamic-security; legacy EMQX webhooks `/auth` + `/acl` remain conditionally registered when `USE_MOSQUITTO=false` — both are broker-facing, not UI-facing.)
 
 ## Data ingestion — `/api/data`
 

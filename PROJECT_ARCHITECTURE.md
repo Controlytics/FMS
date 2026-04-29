@@ -11,45 +11,41 @@
 │  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘  └──────┬───────┘  │
 └────────┼───────────────┼───────────────┼───────────────┼─────────┘
          │               │               │               │
-         │  HTTPS :443   │  HTTPS :443   │  HTTPS :443   │ MQTT :1883
+         │  HTTPS :3000  │  HTTPS :3000  │  HTTPS :3000  │ MQTT :1883
          ▼               ▼               ▼               ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │                      SERVER (Windows)                            │
 │                                                                  │
-│  ┌────────────────────────────────────────┐                      │
-│  │          Nginx (:80 / :443)            │                      │
-│  │  ┌──────────────────┐ ┌─────────────┐ │                      │
-│  │  │  Static SPA      │ │  /api/*     │ │                      │
-│  │  │  React build     │ │  proxy →    │ │                      │
-│  │  │  (apps/web/dist) │ │  :3000      │ │                      │
-│  │  └──────────────────┘ └──────┬──────┘ │                      │
-│  └──────────────────────────────┼────────┘                      │
-│                                 │                                │
-│  ┌──────────────────────────────▼────────┐                      │
-│  │       Fastify API (:3000)             │                      │
-│  │  ┌──────────┐ ┌──────────┐ ┌────────┐│                      │
-│  │  │ 34 Route │ │  Auth    │ │ RBAC   ││                      │
-│  │  │ Modules  │ │  Plugin  │ │ Plugin ││                      │
-│  │  └────┬─────┘ └──────────┘ └────────┘│                      │
-│  │       │  ┌──────────┐ ┌────────────┐ │                      │
-│  │       │  │ Workers  │ │ WebSocket  │ │                      │
-│  │       │  │ Ingestion│ │ Handler    │ │                      │
-│  │       │  │ Maint.   │ │ (real-time)│ │                      │
-│  │       │  └──────────┘ └────────────┘ │                      │
-│  └───────┼──────────────────────────────┘                      │
-│          │                                                      │
-│  ┌───────┼──────────────────────────────────────────────┐       │
-│  │       ▼          DATA LAYER                          │       │
-│  │  ┌──────────┐ ┌──────────┐ ┌────────┐ ┌──────────┐  │       │
-│  │  │PostgreSQL│ │TimescaleDB│ │ Redis  │ │Mosquitto │  │       │
-│  │  │  :5432   │ │  :5432   │ │ :6379  │ │  :1883   │  │       │
-│  │  │ 64 models│ │ 7 hyper- │ │ pub/sub│ │  MQTT    │  │       │
-│  │  │ Prisma   │ │ tables   │ │only-now│ │  Broker  │  │       │
-│  │  │digilog_db│ │digilog_  │ │optional│ │  IoT     │  │       │
-│  │  │ +queue   │ │tsdb      │ │ Memurai│ │  devices │  │       │
-│  │  │(graphile)│ │          │ │        │ │          │  │       │
-│  │  └──────────┘ └──────────┘ └────────┘ └──────────┘  │       │
-│  └──────────────────────────────────────────────────────┘       │
+│  ┌──────────────────────────────────────────────────────┐        │
+│  │       Fastify API (:3000)                             │        │
+│  │  Serves the static SPA (apps/web/dist) AND /api/*     │        │
+│  │  routes directly over HTTPS (mkcert). A reverse       │        │
+│  │  proxy (Nginx / IIS) is optional / customer-choice;   │        │
+│  │  not bundled after Phase 4 of the                     │        │
+│  │  windows-friendly-rewrite.                            │        │
+│  │  ┌──────────┐ ┌──────────┐ ┌────────┐                 │        │
+│  │  │ 37 Route │ │  Auth    │ │ RBAC   │                 │        │
+│  │  │ Modules  │ │  Plugin  │ │ Plugin │                 │        │
+│  │  └────┬─────┘ └──────────┘ └────────┘                 │        │
+│  │       │  ┌──────────┐ ┌────────────┐                  │        │
+│  │       │  │ Workers  │ │ WebSocket  │                  │        │
+│  │       │  │ Ingestion│ │ Handler    │                  │        │
+│  │       │  │ Maint.   │ │ (real-time)│                  │        │
+│  │       │  └──────────┘ └────────────┘                  │        │
+│  └───────┼──────────────────────────────────────────────┘        │
+│          │                                                       │
+│  ┌───────┼──────────────────────────────────────────────┐        │
+│  │       ▼          DATA LAYER                          │        │
+│  │  ┌──────────┐ ┌──────────┐ ┌────────┐ ┌──────────┐   │        │
+│  │  │PostgreSQL│ │TimescaleDB│ │ Redis  │ │Mosquitto │   │        │
+│  │  │  :5432   │ │  :5432   │ │ :6379  │ │  :1883   │   │        │
+│  │  │ 64 models│ │ 7 hyper- │ │ pub/sub│ │  MQTT    │   │        │
+│  │  │ Prisma   │ │ tables   │ │only-now│ │  Broker  │   │        │
+│  │  │digilog_db│ │digilog_  │ │optional│ │  IoT     │   │        │
+│  │  │ +queue   │ │tsdb      │ │ Memurai│ │  devices │   │        │
+│  │  │(graphile)│ │          │ │        │ │          │   │        │
+│  │  └──────────┘ └──────────┘ └────────┘ └──────────┘   │        │
+│  └──────────────────────────────────────────────────────┘        │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -106,8 +102,8 @@
 │
 └── packages/queue/                (Job queue)
     └── src/
-        ├── connection.ts          getQueueConnection() singleton + getWorkerConnection() per-call (BullMQ best practice; bloat audit P2.2 done)
-        ├── queues.ts              5 BullMQ queue definitions
+        ├── index.ts               getProducer() + getRunner() over graphile-worker on Postgres (Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis; commit `7832af1`)
+        ├── crontab.txt            graphile-worker cron file (dlq_check, connectivity_check, retention_cleanup)
         ├── schemas.ts             Zod schemas for job payloads
         └── priorities.ts          Job priority levels (1-8)
 ```
@@ -208,9 +204,7 @@ Items present in the working tree that are NOT canonical — these should be `.g
 ### Request Flow
 
 ```
-HTTP Request
-  → Nginx (SSL termination, static files)
-    → Fastify (:3000)
+HTTPS Request → Fastify (:3000, mkcert TLS, serves SPA + /api/*)
       → Helmet (security headers)
       → CORS (origin validation)
       → Rate Limiter (500 req/min)
@@ -220,10 +214,12 @@ HTTP Request
         → Service Layer (data processing)
           → Prisma (PostgreSQL)
           → TimescaleDB Pool (time-series)
-          → BullMQ (async jobs)
+          → graphile-worker (async jobs on Postgres)
         → Audit Logger (SHA-256 hash chain)
       → Response (JSON)
 ```
+
+> Reverse proxy (Nginx / IIS) is optional and customer-choice, not bundled after Phase 4 of the windows-friendly-rewrite. Direct Fastify-on-3000 is the default install path.
 
 ### Module Structure
 
@@ -285,7 +281,7 @@ IoT Device
   → MQTT (Mosquitto :1883) or HTTP (POST /api/data/telemetry)
     → Mosquitto dynsec lookup (configured via /api/internal/mqtt/refresh-acl)
     → Message Normalization
-    → BullMQ Ingestion Queue (Redis)
+    → graphile-worker `ingestion` task (Postgres-backed; LISTEN/NOTIFY + SKIP LOCKED)
       → Ingestion Worker (10 concurrent)
         → Entity Resolution (device token → asset instance)
         → UNS Path Mapping
@@ -296,15 +292,17 @@ IoT Device
         → Dead Letter Queue (failed messages)
 ```
 
-### Job Queue Architecture (BullMQ)
+### Job Queue Architecture (graphile-worker on Postgres)
 
-| Queue | Purpose | Priority | Concurrency | Retry |
-|---|---|---|---|---|
-| `ingestion` | Telemetry, attributes, events | 1-8 | 10 | 3x exponential |
-| `notification` | Email, SMS, in-app delivery | — | 5 | 3x exponential |
-| `export` | CSV/Excel/PDF data export | — | 2 | 2x |
-| `reports` | Report PDF generation | — | 2 | 2x |
-| `maintenance` | DLQ check, connectivity, cleanup | — | 1 | 1x |
+Phase 2 of the windows-friendly-rewrite swapped from BullMQ + Redis/Memurai to graphile-worker against `digilog_db` (uses `LISTEN/NOTIFY` for instant dispatch, `SELECT … FOR UPDATE SKIP LOCKED` for concurrency, `pg_advisory_lock` for cron leader election). No separate queue service.
+
+| Task | Purpose | Trigger | Concurrency |
+|---|---|---|---|
+| `ingestion` | Telemetry, attributes, events | enqueued by HTTP/MQTT handler | 10 (`addJob` + worker pool) |
+| `notification` | Email, SMS, in-app delivery | enqueued by alarm/event hooks | shared pool |
+| `dlq_check` | Dead letter queue scan | cron 60 s (`packages/queue/crontab.txt`) | 1 leader |
+| `connectivity_check` | Device online/offline staleness | cron 60 s | 1 leader |
+| `retention_cleanup` | TimescaleDB retention policy | cron 24 h | 1 leader |
 
 ## Frontend Architecture (apps/web/)
 
@@ -369,7 +367,7 @@ Heavy pages are lazy-loaded for performance:
 
 ## Database Architecture
 
-### PostgreSQL (digilog_db) — 63 Models
+### PostgreSQL (digilog_db) — 64 Models
 
 ```
 Core:
@@ -426,11 +424,14 @@ System:
 
 | Feature | Redis Data Structure |
 |---|---|
-| BullMQ job queues | Sorted sets, lists, hashes |
 | Pub/sub (WebSocket events) | Channels (ws:events) |
+| RPC routing (device commands) | Channels |
+| Pipeline tracer / debug recorder | Channels |
 | Re-auth token cache | Key-value with 10s TTL |
 | Rule chain graph cache | Key-value with hash |
 | Session validation cache | Key-value |
+
+> Job queues moved off Redis to graphile-worker on Postgres in Phase 2 of the windows-friendly-rewrite (commit `7832af1`). Phase 4 will move the remaining pub/sub channels above to PG `LISTEN/NOTIFY` to drop the dependency entirely.
 
 ## Security Architecture
 
@@ -439,7 +440,7 @@ System:
 │                 SECURITY LAYERS                      │
 │                                                     │
 │  Layer 1: HTTPS (TLS)                               │
-│    └── All traffic encrypted (Nginx SSL termination) │
+│    └── All traffic encrypted (Fastify TLS via mkcert; reverse proxy optional) │
 │                                                     │
 │  Layer 2: Authentication                            │
 │    └── JWT (8h expiry, 30-min refresh)              │
@@ -468,10 +469,9 @@ System:
 
 | Protocol | Port | Purpose | Authentication |
 |---|---|---|---|
-| HTTPS | 443 | Web UI + API (via Nginx) | JWT token |
-| HTTPS | 3000 | Direct API access | JWT token |
-| MQTT | 1883 | IoT device telemetry | Device access token |
-| WSS | 443 | Real-time updates (via Nginx /ws) | JWT token |
-| PostgreSQL | 5432 | Database connections | Username/password |
+| HTTPS | 3000 | Web UI + API (Fastify direct; reverse proxy optional) | JWT token |
+| WSS | 3000 | Real-time updates on `/ws` | JWT token |
+| MQTT | 1883 | IoT device telemetry (Mosquitto 2.0) | Device access token (Mosquitto dynsec) |
+| PostgreSQL | 5432 | Database connections (also hosts the graphile-worker queue schema) | Username/password |
 | Redis | 6379 | Pub/sub only (WebSocket events, RPC routing, pipeline tracer, debug recorder); job queue moved to Postgres in Phase 2 | No auth (local only) |
 | Mosquitto control | n/a | Dynsec is configured via the API's `POST /api/internal/mqtt/refresh-acl`, not a standalone dashboard | `MOSQUITTO_REFRESH_TOKEN` (timing-safe compare) |

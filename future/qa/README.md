@@ -19,8 +19,8 @@ Pharmaceutical plants that need to manage HVAC filters and AHUs under **21 CFR P
 | Dev (web) | `http://localhost:5173` (or 5175) | Needs `cd apps/web && npm run dev` |
 | Dev (API) | `https://localhost:3000` (when `API_HTTPS=true`) | `cd apps/api && npm run dev` |
 | Dev API docs | `https://localhost:3000/docs` | Swagger UI — dev only |
-| Local prod (Windows) | `http://localhost` (Nginx) or `https://localhost:3000` (direct) | Built via `scripts/package-for-production.ps1` + `install-on-target.ps1` |
-| Local MQTT admin | `http://localhost:18083` | EMQX dashboard |
+| Local prod (Windows) | `https://localhost:3000` (Fastify direct) | Built via `scripts/package-for-production.ps1` + `install-on-target.ps1`. Reverse proxy is optional / customer-choice after Phase 4 of windows-friendly-rewrite. |
+| Local MQTT admin | _(no web dashboard)_ | Mosquitto 2.0 — dynsec configured via `POST /api/internal/mqtt/refresh-acl`; logs at `C:\Program Files\mosquitto\mosquitto.log` |
 | Mobile / tablet | launch **DigiLog** APK | APK bakes in `https://192.168.1.22:3000` — rebuild if your dev box IP differs |
 
 > EC2 / cloud production is no longer in scope (removed in commit `251be95`). DigiLog runs Windows-locally only.
@@ -52,7 +52,7 @@ Create additional users via `/admin-requests` (recommended) or `/users/create` (
 - Backend logs in prod-style local build: stdout from `node apps/api/dist/app.js` or service logs if registered via NSSM
 - Browser DevTools Console for frontend issues
 - Tablet WebView logs via `chrome://inspect/#devices` with USB debugging
-- EMQX logs via the dashboard at `http://localhost:18083`
+- Mosquitto logs at `C:\Program Files\mosquitto\mosquitto.log` (Phase 1 swap — EMQX dashboard at 18083 is no longer used)
 
 ## How to file a bug (suggested template)
 
