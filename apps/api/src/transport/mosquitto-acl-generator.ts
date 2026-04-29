@@ -96,6 +96,20 @@ function buildDeviceAcls(unsPath: string): Role['acls'] {
     { acltype: 'subscribePattern', topic: `${unsPath}/config/#`, allow: true },
     { acltype: 'subscribeLiteral', topic: `${unsPath}/ota`, allow: true },
     { acltype: 'subscribePattern', topic: `${unsPath}/ota/#`, allow: true },
+    // Receive ACLs — Mosquitto's defaultACLAccess.publishClientReceive=false
+    // would otherwise silently drop server→device deliveries. Subscribe alone
+    // is not enough: subscribe controls the broker's accept of SUBSCRIBE,
+    // publishClientReceive controls whether matching messages are actually
+    // delivered. Mirror the subscribe topics so the device can both subscribe
+    // and receive on rpc/request, attributes/shared, config, and ota.
+    { acltype: 'publishClientReceive', topic: `${unsPath}/rpc/request`, allow: true },
+    { acltype: 'publishClientReceive', topic: `${unsPath}/rpc/request/#`, allow: true },
+    { acltype: 'publishClientReceive', topic: `${unsPath}/attributes/shared`, allow: true },
+    { acltype: 'publishClientReceive', topic: `${unsPath}/attributes/shared/#`, allow: true },
+    { acltype: 'publishClientReceive', topic: `${unsPath}/config`, allow: true },
+    { acltype: 'publishClientReceive', topic: `${unsPath}/config/#`, allow: true },
+    { acltype: 'publishClientReceive', topic: `${unsPath}/ota`, allow: true },
+    { acltype: 'publishClientReceive', topic: `${unsPath}/ota/#`, allow: true },
   ];
 }
 
@@ -143,6 +157,11 @@ export async function generateDynamicSecurity(input: Input): Promise<DynamicSecu
       acls: [
         { acltype: 'publishClientSend', topic: '#', allow: true },
         { acltype: 'subscribePattern', topic: '#', allow: true },
+        // Without publishClientReceive on '#', Mosquitto silently drops
+        // every device→admin message even though the subscribe was accepted.
+        // The API is the admin client and consumes everything under digilog/v1/#
+        // for ingestion; this grant is what makes that consumption work.
+        { acltype: 'publishClientReceive', topic: '#', allow: true },
       ],
     },
   ];

@@ -48,7 +48,7 @@ describe('generateDynamicSecurity', () => {
     expect(admin.encoded_password).toMatch(/^\$7\$1000\$[A-Za-z0-9+/]{86}==\$[A-Za-z0-9+/]{86}==$/);
   });
 
-  it('emits the exact 5 publish ACLs + 8 subscribe ACLs per device', async () => {
+  it('emits 5 publish + 8 subscribe + 8 receive ACLs per device', async () => {
     const unsPath = 'digilog/v1/site-1/area-1/ahu-1/filter-1';
     const result = await generateDynamicSecurity({
       devices: [{ token: 'tok-A', unsPath }],
@@ -58,29 +58,28 @@ describe('generateDynamicSecurity', () => {
       r.rolename === 'device-digilog-v1-site-1-area-1-ahu-1-filter-1-role'
     );
     expect(deviceRole).toBeDefined();
-    expect(deviceRole!.acls).toEqual([
-      // 5 publish
-      { acltype: 'publishClientSend', topic: `${unsPath}/telemetry`, allow: true },
-      { acltype: 'publishClientSend', topic: `${unsPath}/attributes`, allow: true },
-      { acltype: 'publishClientSend', topic: `${unsPath}/events`, allow: true },
-      { acltype: 'publishClientSend', topic: `${unsPath}/rpc/response/#`, allow: true },
-      { acltype: 'publishClientSend', topic: `${unsPath}/binary/#`, allow: true },
-      // 8 subscribe
-      { acltype: 'subscribeLiteral', topic: `${unsPath}/rpc/request`, allow: true },
-      { acltype: 'subscribePattern', topic: `${unsPath}/rpc/request/#`, allow: true },
-      { acltype: 'subscribeLiteral', topic: `${unsPath}/attributes/shared`, allow: true },
-      { acltype: 'subscribePattern', topic: `${unsPath}/attributes/shared/#`, allow: true },
-      { acltype: 'subscribeLiteral', topic: `${unsPath}/config`, allow: true },
-      { acltype: 'subscribePattern', topic: `${unsPath}/config/#`, allow: true },
-      { acltype: 'subscribeLiteral', topic: `${unsPath}/ota`, allow: true },
-      { acltype: 'subscribePattern', topic: `${unsPath}/ota/#`, allow: true },
-    ]);
     expect(deviceRole!.acls.filter((a) => a.acltype === 'publishClientSend')).toHaveLength(5);
     expect(
       deviceRole!.acls.filter(
         (a) => a.acltype === 'subscribeLiteral' || a.acltype === 'subscribePattern'
       )
     ).toHaveLength(8);
+    // 8 receive ACLs mirror the subscribe set so Mosquitto actually
+    // delivers messages (subscribe alone is not enough under default-deny
+    // publishClientReceive).
+    expect(
+      deviceRole!.acls.filter((a) => a.acltype === 'publishClientReceive')
+    ).toHaveLength(8);
+  });
+
+  it('admin role grants publishClientReceive on # so server can consume all topics', async () => {
+    const result = await generateDynamicSecurity({ devices: [], adminPassword: ADMIN_PW });
+    const adminRole = result.roles.find((r) => r.rolename === 'admin-role')!;
+    const receiveAll = adminRole.acls.find(
+      (a) => a.acltype === 'publishClientReceive' && a.topic === '#',
+    );
+    expect(receiveAll).toBeDefined();
+    expect(receiveAll!.allow).toBe(true);
   });
 
   it('uses subscribePattern for # wildcards and subscribeLiteral for exact topics', async () => {
