@@ -157,7 +157,7 @@ describe('ingestion.worker', () => {
       return { warn, helpers };
     }
 
-    it('processes a wrapped { messageType, msg } payload via processIngestionMessage', async () => {
+    it('processes a wrapped { msg } payload via processIngestionMessage', async () => {
       mockProcessIngestionMessage.mockResolvedValueOnce({
         success: true,
         messageId: 'msg-ok',
@@ -167,7 +167,7 @@ describe('ingestion.worker', () => {
       const { helpers, warn } = makeHelpers();
 
       await expect(
-        ingestionTask({ messageType: 'POST_TELEMETRY', msg }, helpers),
+        ingestionTask({ msg }, helpers),
       ).resolves.not.toThrow();
 
       expect(mockProcessIngestionMessage).toHaveBeenCalledWith(msg);
@@ -183,10 +183,21 @@ describe('ingestion.worker', () => {
       const msg = makeMsg('msg-fail');
       const { helpers, warn } = makeHelpers();
 
-      await ingestionTask({ messageType: 'POST_TELEMETRY', msg }, helpers);
+      await ingestionTask({ msg }, helpers);
 
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0]?.[0]).toEqual(expect.stringContaining('msg-fail'));
+    });
+
+    it('throws on a malformed payload (no msg key)', async () => {
+      const error = vi.fn();
+      const helpers = { logger: { info: vi.fn(), warn: vi.fn(), error } } as never;
+
+      await expect(
+        ingestionTask({ wrong: 'shape' } as never, helpers),
+      ).rejects.toThrow('INVALID_INGESTION_PAYLOAD');
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(mockProcessIngestionMessage).not.toHaveBeenCalled();
     });
   });
 });

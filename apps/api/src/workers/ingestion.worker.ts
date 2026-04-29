@@ -18,17 +18,36 @@ import { processIngestionMessage } from '../modules/data-ingestion/ingestion.ser
 
 /**
  * Payload shape produced by `enqueueIngestionJob` in ingestion.service.ts.
- * `messageType` is also available on `msg.messageType` but we keep the wrapper
- * so the queue payload mirrors BullMQ's job-name-as-routing-tag semantics
- * (graphile-worker has a single task name `'ingestion'` for all message types).
+ * `messageType` is intentionally NOT a top-level field — it lives on `msg`
+ * itself, so wrapping it again would just duplicate state that can drift.
  */
 interface IngestionTaskPayload {
-  messageType: string;
   msg: IngestionMessage;
 }
 
+/** Discriminate `unknown` payload as an IngestionTaskPayload. */
+function isIngestionTaskPayload(p: unknown): p is IngestionTaskPayload {
+  return (
+    typeof p === 'object' &&
+    p !== null &&
+    'msg' in p &&
+    typeof (p as { msg: unknown }).msg === 'object' &&
+    (p as { msg: unknown }).msg !== null
+  );
+}
+
 export const ingestionTask: Task = async (payload, helpers) => {
-  const { msg } = payload as IngestionTaskPayload;
+  // graphile-worker types `payload` as unknown — a malformed PG queue row
+  // would otherwise NPE deep in processIngestionMessage. Throwing here lets
+  // graphile-worker retry per maxAttempts, then dead-letter the row.
+  if (!isIngestionTaskPayload(payload)) {
+    helpers.logger.error('Malformed ingestion payload — discarding', {
+      payload: payload as Record<string, unknown>,
+    });
+    throw new Error('INVALID_INGESTION_PAYLOAD');
+  }
+
+  const { msg } = payload;
 
   const result = await processIngestionMessage(msg);
 

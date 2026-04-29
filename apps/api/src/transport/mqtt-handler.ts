@@ -204,7 +204,7 @@ export async function handleMqttMessage(topic: string, payload: Buffer): Promise
   const priority = getJobPriority(messageType);
 
   for (const msg of messages) {
-    await enqueueIngestionJob(messageType, msg, { priority, jobId: msg.messageId });
+    await enqueueIngestionJob(msg, { priority, jobId: msg.messageId });
   }
 
   // Update connectivity status last activity
@@ -280,7 +280,7 @@ async function handleLwtMessage(unsPath: string, data: Record<string, unknown>):
     traceId: randomUUID(),
   };
 
-  await enqueueIngestionJob('CONNECTIVITY_EVENT', msg, {
+  await enqueueIngestionJob(msg, {
     priority: JOB_PRIORITY.DEVICE_EVENT,
     jobId: msg.messageId,
   });
