@@ -24,8 +24,12 @@ Branch: `feature/phase1-mosquitto-rewrite`. Cut-over commits `510f903..7d33dbf`.
 2. Run `powershell -ExecutionPolicy Bypass -File scripts/install-mosquitto.ps1` once on the Windows host.
 3. Restart the API.
 4. Bootstrap the ACL: `curl -X POST -H "Authorization: Bearer $MOSQUITTO_REFRESH_TOKEN" http://localhost:3000/api/internal/mqtt/refresh-acl`.
-5. Verify Mosquitto loaded the file: check Windows Event Log for the `mosquitto` service.
-6. Migrate devices to point at the Mosquitto host (DNS or config redirect).
+5. Restart Mosquitto so the dynsec plugin picks up the new file:
+   - Windows: `Restart-Service mosquitto`
+   - Docker:  `docker compose restart mosquitto`
+   The plugin reads `dynamic-security.json` at broker startup; SIGUSR1 hot-reload is not implemented (and does not exist on Windows). A future phase will publish `$CONTROL/dynamic-security/v1` messages to apply changes live. Repeat this restart after every `/refresh-acl` call.
+6. Verify Mosquitto loaded the file: check Windows Event Log for the `mosquitto` service.
+7. Migrate devices to point at the Mosquitto host (DNS or config redirect).
 
 ### Out of scope for Phase 1
 - Removing `mqtt-auth-routes.ts` — kept registered when flag is off; removed in Phase 4 after cut-over validated.

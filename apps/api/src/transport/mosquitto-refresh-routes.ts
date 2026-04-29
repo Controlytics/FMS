@@ -10,8 +10,16 @@
  * auth with Mosquitto's built-in plugin. Registered at
  * /api/internal/mqtt/refresh-acl when USE_MOSQUITTO=true.
  *
- * Mosquitto picks up file changes when sent SIGUSR1 — see
- * scripts/install-mosquitto.ps1 for the reload trigger.
+ * NOTE — reload contract:
+ *   Mosquitto's dynsec plugin reads dynamic-security.json at broker
+ *   startup. After /refresh-acl writes a new file, an operator must
+ *   restart the Mosquitto service to apply changes:
+ *     - Windows:  Restart-Service mosquitto
+ *     - Docker:   docker compose restart mosquitto
+ *   SIGUSR1 reload is NOT supported on Windows and is not implemented
+ *   for the Linux Docker container either. A future Phase will publish
+ *   $CONTROL/dynamic-security/v1 messages to apply changes live without
+ *   a broker restart.
  *
  * IMPORTANT — operational contract:
  * - Every refresh re-hashes ALL device tokens (bcrypt salts are random
