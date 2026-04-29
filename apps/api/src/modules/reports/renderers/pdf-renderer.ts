@@ -1,10 +1,12 @@
-import puppeteer, { type Browser } from 'puppeteer';
+import puppeteer, { type Browser } from 'puppeteer-core';
+import { detectEdgePath } from './edge-detector.js';
 
 let browser: Browser | null = null;
 
 async function getBrowser(): Promise<Browser> {
   if (!browser || !browser.connected) {
     browser = await puppeteer.launch({
+      executablePath: detectEdgePath(),
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
     });
@@ -26,7 +28,7 @@ export async function renderPdf(html: string, options: PdfOptions): Promise<Buff
     await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30_000 });
 
     const pdfUint8 = await page.pdf({
-      format: (options.pageSize || 'A4') as any,
+      format: (options.pageSize || 'A4') as never,
       landscape: options.orientation === 'landscape',
       margin: {
         top: `${options.margins.top ?? 20}mm`,
