@@ -60,16 +60,82 @@ function getRedisPublisher(): IORedis {
   return redisPub;
 }
 
-let notificationQueue: Queue | null = null;
+// ─── Notification enqueue helper (USE_PG_QUEUE branch) ─
+// Mirrors the ingestion enqueue helper below. Notification has no BullMQ
+// Worker in the current codebase — jobs are produced here but nothing
+// dequeues them on the BullMQ side. The PG path will dequeue via the
+// single Runner registered in Task 2.8 (notificationTask handler).
 
-function getNotificationQueue(): Queue {
-  if (!notificationQueue) {
-    notificationQueue = new Queue(QUEUES.NOTIFICATION.name, {
+let bullmqNotificationQueue: Queue | null = null;
+
+function getBullMqNotificationQueue(): Queue {
+  if (!bullmqNotificationQueue) {
+    bullmqNotificationQueue = new Queue(QUEUES.NOTIFICATION.name, {
       connection: getRedisConnection(),
       defaultJobOptions: QUEUES.NOTIFICATION.defaultJobOptions,
     });
   }
-  return notificationQueue;
+  return bullmqNotificationQueue;
+}
+
+export interface EnqueueNotificationOptions {
+  /** BullMQ + graphile-worker both honour priority (lower number = sooner). */
+  priority?: number;
+  /** Idempotency key. Maps to BullMQ `jobId` and graphile-worker `jobKey`. */
+  jobId?: string;
+}
+
+/**
+ * Enqueue a notification job onto whichever backend is currently active.
+ *
+ * - USE_PG_QUEUE=true  → graphile-worker `addJob('notification', payload, …)`
+ * - USE_PG_QUEUE=false → BullMQ `queue.add(jobName, payload, { priority, jobId })`
+ *
+ * `jobName` is preserved in the BullMQ branch so the BullMQ UI can group by
+ * the call site (`alarm_notification` vs `rule_chain_notification`). The PG
+ * branch uses a fixed task identifier (`'notification'`) — the discriminator
+ * lives inside the payload (`payload.type`) for graphile-worker.
+ *
+ * `maxAttempts` for the PG branch is read from
+ * QUEUES.NOTIFICATION.defaultJobOptions.attempts so the two backends stay in
+ * lock-step if the constant is bumped.
+ */
+export async function enqueueNotificationJob(
+  jobName: string,
+  payload: Record<string, unknown>,
+  options: EnqueueNotificationOptions = {},
+): Promise<void> {
+  if (isFeatureEnabled(FEATURE_FLAGS.USE_PG_QUEUE)) {
+    const producer = await getProducer();
+    await producer.addJob(
+      'notification',
+      payload,
+      {
+        priority: options.priority,
+        jobKey: options.jobId,
+        maxAttempts: QUEUES.NOTIFICATION.defaultJobOptions.attempts,
+      },
+    );
+    return;
+  }
+
+  await getBullMqNotificationQueue().add(jobName, payload, {
+    priority: options.priority,
+    jobId: options.jobId,
+  });
+}
+
+/**
+ * Close the cached BullMQ notification queue. Must be called BEFORE
+ * `closeRedisConnection` during shutdown — Queue.close() needs the
+ * underlying ioredis connection alive to flush pending writes. Safe to call
+ * when the queue was never instantiated (e.g. USE_PG_QUEUE=true the whole run).
+ */
+export async function closeNotificationQueue(): Promise<void> {
+  if (bullmqNotificationQueue) {
+    await bullmqNotificationQueue.close();
+    bullmqNotificationQueue = null;
+  }
 }
 
 // ─── Ingestion enqueue helper (USE_PG_QUEUE branch) ────
@@ -411,8 +477,7 @@ export async function processIngestionMessage(msg: IngestionMessage): Promise<Pi
 
       for (const notification of ruleChainNotifications) {
         try {
-          const queue = getNotificationQueue();
-          await queue.add('rule_chain_notification', {
+          await enqueueNotificationJob('rule_chain_notification', {
             type: notification.type,
             entityId: msg.entityId,
             title: notification.title,
@@ -860,8 +925,7 @@ async function executeStage11(msg: IngestionMessage, warnings: string[]): Promis
   // 2. Enqueue notification if alarm created
   if (msg.messageType === 'ALARM') {
     try {
-      const queue = getNotificationQueue();
-      await queue.add('alarm_notification', {
+      await enqueueNotificationJob('alarm_notification', {
         type: 'ALARM',
         entityId: msg.entityId,
         title: `Alarm: ${msg.data.alarmType ?? 'Unknown'}`,

@@ -46,7 +46,7 @@ import wsHandler from './transport/ws-handler.js';
 import { initMqttClient, closeMqttClient } from './transport/mqtt-client.js';
 import { closeWsRedis } from './transport/ws-handler.js';
 import { closeRpcRedis } from './modules/data-ingestion/rpc-handler.js';
-import { closePipelineRedis, closeIngestionQueue } from './modules/data-ingestion/ingestion.service.js';
+import { closePipelineRedis, closeIngestionQueue, closeNotificationQueue } from './modules/data-ingestion/ingestion.service.js';
 import { closeTracerRedis } from './modules/data-ingestion/pipeline-tracer.js';
 import { closeDebugRedis } from './modules/rule-chain/debug-recorder.js';
 import { initializeNodes } from './modules/rule-chain/nodes/index.js';
@@ -360,6 +360,7 @@ const shutdown = async (signal: string) => {
     // flush pending writes. Closes a pre-existing gap (the prior 3 per-file
     // Queue instances were never closed either).
     try { await closeIngestionQueue(); } catch {}
+    try { await closeNotificationQueue(); } catch {}
     try { const { closeTsdbPool } = await import('@digilog/db'); await closeTsdbPool(); } catch {}
     try { const { closeRedisConnection } = await import('@digilog/queue'); await closeRedisConnection(); } catch {}
   } catch (err) {
