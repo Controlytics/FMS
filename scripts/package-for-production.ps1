@@ -143,8 +143,9 @@ if (Test-Path $MosquittoSrc) {
 }
 
 # .env.example template
-# Source of truth: apps/api/.env.example. Keep MQTT / queue / PDF blocks
-# below in sync with it after every windows-friendly-rewrite phase.
+# MQTT / queue / PDF blocks below mirror apps/api/.env.example (the windows-friendly-
+# rewrite migration-flag file). The other blocks (PostgreSQL, JWT, CORS, etc.) have
+# no upstream source-of-truth file and are maintained inline in this script.
 $EnvExample = @"
 # ─── PostgreSQL ────────────────────────────────────────
 DATABASE_URL=postgresql://digilog:CHANGE_ME_STRONG_PASSWORD@localhost:5432/digilog_db?schema=public
@@ -211,7 +212,7 @@ Write-Host ""
 Write-Host "[8/8] Creating $OutZip..." -ForegroundColor Yellow
 Compress-Archive -Path $OutDir -DestinationPath $OutZip -Force
 $ZipSize = (Get-Item $OutZip).Length / 1MB
-Write-Host "[8/8] Created $OutZip ({0:N1} MB)" -f $ZipSize -ForegroundColor Green
+Write-Host ("[8/8] Created $OutZip ({0:N1} MB)" -f $ZipSize) -ForegroundColor Green
 
 Write-Host ""
 Write-Host "================================================" -ForegroundColor Cyan
