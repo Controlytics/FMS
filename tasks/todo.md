@@ -1048,3 +1048,43 @@ npx vitest run                                                   # workspace: 11
 ### Out of scope this session
 - Running with `INTEGRATION_TEST=1` against live infra — same sandbox limit as prior sessions (no Postgres/Mosquitto/Edge in this worktree).
 - Two leftover NICE-TO-HAVEs flagged in the re-review (timer cleanup, dead `client.end` catch) — left as-is per implementer + reviewer agreement; both are stylistic, not correctness.
+
+## 2026-04-30 — Phase 5+ managed Windows-service launcher (audit log)
+
+Branch: `feature/phase5-verification`. Closes the only open Phase 5+ item documented in `PHASE_5_RECENT_WORK.md` § 12 line 418 ("a managed Windows-service launcher with restart policies, log rotation, and boot persistence"). Plus a build-fix detour and a small encoding gotcha.
+
+### What landed
+
+- `scripts/install-services-phase5.ps1` — NSSM-driven registration of `DigiLogAPI-Phase5` + `DigiLogWeb-Phase5`. Boot-persistent (`Start=SERVICE_AUTO_START`), auto-restart on crash (`AppExit Default=Restart`, 3 s delay), 10 MB rotated logs in `logs/`, `NODE_ENV=production` env, API depends on `postgresql-x64-18`.
+- `scripts/uninstall-services-phase5.ps1` — companion teardown, idempotent.
+- `.gitignore` — added `nssm-path.txt` (per-machine NSSM exe pin) and `logs/` (rotated NSSM logs).
+- Three pre-existing TypeScript build errors on the branch fixed in commit `1697f99` (separate from the launcher work but found in the same session because building the artifacts the launcher needs surfaced them): `checklist-profile.service.list` query type missing `expand?: string`; `deployment-check/routes.ts` reading non-existent `role.privileges` (should be `role.permissions`, schema.prisma:166); `filter-operations.getFilter` select missing `parentId` (retire flow at line 1509 needs it).
+
+### Sequence
+
+1. Stopped foreground processes (the bash-harness API died at 600 s timeout; killed the still-live frontend pid 21016).
+2. `winget install --id NSSM.NSSM` (elevated). Found at `$env:LOCALAPPDATA\Microsoft\WinGet\Packages\NSSM.NSSM_*\nssm-*\win64\nssm.exe`; PATH not refreshed in current shell. Pinned the exe path to worktree-local `nssm-path.txt`.
+3. Wrote `install-services-phase5.ps1`. First elevated run failed with PS 5.1 parse errors. Root cause: the file had Unicode box-drawing characters (`─`, `—`) and was saved without a UTF-8 BOM; PS 5.1 reads BOM-less files as ANSI, mangling the multi-byte UTF-8 sequences and breaking string tokenisation downstream. Rewrote both scripts in ASCII-only form (per the CLAUDE.md "default file encoding is UTF-16 LE with BOM" hint, but ASCII-only is more portable). Verified with `[System.Management.Automation.PSParser]::Tokenize` against PS 5.1.
+4. Elevated install succeeded. Both services started, both ports listening, full auth round-trip green.
+5. Crash test: `Stop-Process` on API node pid (was 14904) → NSSM auto-restarted as pid 7536 within 3 s, service stayed `Running`. Log rotation confirmed working (prior crash's stdout/stderr archived to timestamped files, fresh logs for the live process).
+
+### Doc updates this session
+
+- `PHASE_5_RECENT_WORK.md` § 12 — heading line and lead sentence updated; added a `5+ — Managed service launcher` row to the status table; deleted the "still pending" callout below the table (the gap is closed).
+- `CHANGELOG.md` — top entry `[Unreleased] — Phase 5+ managed Windows-service launcher (2026-04-30)` summarising added scripts, fixed TS errors, and live verification.
+- `.gitignore` — added the two new ignore patterns described above.
+- `tasks/todo.md` — this audit-log entry, per CLAUDE.md "Always-update on any feature change".
+
+### Verification commands (live, post-install)
+
+```powershell
+Get-Service Digi*-Phase5                                         # Running / Automatic
+curl -sk https://localhost:3000/api/health                       # {"status":"ok"}
+curl -sk -o /dev/null -w "%{http_code}" https://localhost:5175/  # 200
+Stop-Process -Id <api-pid> -Force; Start-Sleep 6; Get-Service DigiLogAPI-Phase5  # still Running (NSSM auto-restart)
+```
+
+### Out of scope this session
+
+- Removing the legacy `start-digilog.bat` / `stop-digilog.bat` — those still target the parent repo (not the worktree) and use `tsx watch` / `vite --host` in dev mode, which is a different workflow from the production-style services this work added. Kept as-is for the dev path; the new scripts are the production path.
+- Migrating the parent repo to the same NSSM scripts — the install pattern works for any worktree but the service names hard-pin the worktree path via NSSM `AppDirectory`. Would need a parameterised version. Out of scope; separate follow-up if you want the main install supervised the same way.

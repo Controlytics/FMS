@@ -24,6 +24,11 @@ apps/*/.env.backup-*
 .DS_Store
 nul
 
+# NSSM service runtime artifacts (per-machine; install-services-phase5.ps1
+# pins the NSSM exe path here so subsequent runs find the same one).
+nssm-path.txt
+logs/
+
 
 # Sensitive files - NEVER track
 .env.production
