@@ -468,7 +468,10 @@ function checkEnvironment(): SubCheck[] {
 // ── Check 11: Role Permissions ────────────────────────────────────────
 async function checkRolePermissions(): Promise<SubCheck[]> {
   const checks: SubCheck[] = [];
-  const roles = await prisma.role.findMany({ select: { name: true, privileges: true } });
+  // Role.permissions is a JSON array of permission-string entries (schema.prisma
+  // model Role line 166 — `permissions Json @default("[]")`). The deployment
+  // check verifies each role has at least the minimum number expected.
+  const roles = await prisma.role.findMany({ select: { name: true, permissions: true } });
 
   const minimums: Record<string, number> = {
     SUPER_ADMIN: 50,
@@ -485,7 +488,7 @@ async function checkRolePermissions(): Promise<SubCheck[]> {
       checks.push({ name: roleName, status: 'FAIL', message: 'Role not found. Run: npx prisma db seed' });
       continue;
     }
-    const privCount = (role.privileges as string[])?.length ?? 0;
+    const privCount = (role.permissions as string[])?.length ?? 0;
     checks.push(
       privCount >= minCount
         ? { name: roleName, status: 'PASS', expected: `>=${minCount}`, found: String(privCount) }

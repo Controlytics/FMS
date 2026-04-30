@@ -91,12 +91,14 @@ function orgWhere(ctx: RequestContext) { return orgScope(ctx); }
 
 export class FilterOperationsService {
   private async getFilter(filterId: string, ctx: RequestContext) {
+    // parentId is required by retire() to snapshot the original tree position
+    // into customAttributes._preRetireParentId so unretire can restore it.
     const filter = await prisma.assetInstance.findFirst({
       where: { id: filterId, ...orgWhere(ctx) },
-      select: { id: true, name: true, filterProfileId: true, currentLifecycleState: true, currentCycleId: true, filterSet: true, organizationId: true },
+      select: { id: true, name: true, filterProfileId: true, currentLifecycleState: true, currentCycleId: true, filterSet: true, organizationId: true, parentId: true },
     });
     if (!filter) throw new AppError(404, 'NOT_FOUND', 'Filter not found');
-    return filter as { id: string; name: string | null; filterProfileId: string | null; currentLifecycleState: string | null; currentCycleId: string | null; filterSet: string | null; organizationId: string | null };
+    return filter as { id: string; name: string | null; filterProfileId: string | null; currentLifecycleState: string | null; currentCycleId: string | null; filterSet: string | null; organizationId: string | null; parentId: string | null };
   }
 
   async getFilterHomeBlock(filterId: string): Promise<{ blockId: string; blockName: string } | null> {

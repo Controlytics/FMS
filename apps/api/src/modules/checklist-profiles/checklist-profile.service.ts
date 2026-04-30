@@ -12,7 +12,10 @@ function orgFilter(ctx: RequestContext) {
 }
 
 export class ChecklistProfileService {
-  async list(ctx: RequestContext, query: { page?: number; limit?: number; isActive?: string }) {
+  async list(
+    ctx: RequestContext,
+    query: { page?: number; limit?: number; isActive?: string; expand?: string },
+  ) {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 50, 100);
     const where: any = { ...orgFilter(ctx) };
