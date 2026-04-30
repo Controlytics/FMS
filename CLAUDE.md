@@ -108,6 +108,10 @@ RFID Scanner Android app (Reader_Usb.jar SDK), web RFID keyboard guard, offline 
 ### Phase 5 — Reports, Offline Hardening, RFID SDK, Filter Data Console (Apr 15–29, 2026)
 Reports module A–F complete (visual template designer + puppeteer-core/Edge / @napi-rs/canvas / Handlebars PDF engine + digital signatures — Phase 3 of windows-friendly-rewrite swapped from `puppeteer` + `chartjs-node-canvas` to eliminate the bundled Chromium download and the node-gyp/MSVC dependency), offline overhaul (TTL cache, idempotency keys, tombstones, LRU, JWT refresh, server-side `stageLookup`, Capacitor Network plugin + SW hook), RFID SDK plugin in DigiLog APK (`Reader_Usb.jar` via `RfidPlugin.java`), Filter Data Management console mirroring 10 user-facing pages, DRY_IN two-step flow with persisted countdown panel, dynamic backup/restore covering all 64 tables, bloat audit 12/14 resolved, EC2/PM2 production assets removed (local-Windows-only), decision-tape proposal for future client/server pipeline drift elimination. Full architectural detail in `PHASE_5_RECENT_WORK.md`.
 
+**Phase 5 verification harness** (Apr 29–30, 2026) — closes the verification gap left by Phases 1–4:
+- **5.1** — `tests/integration/windows-server-stack.test.ts` (gated by `INTEGRATION_TEST=1`): in-process aedes MQTT broker + Fastify boot + 100 telemetry publishes → `ts_telemetry`, graphile-worker enqueue → handler fires, puppeteer-core PDF render → `%PDF-` magic bytes (commits `a51628d` + reviewer-fix `24620c0`).
+- **5.2** — `scripts/verify-windows-deployment.ps1`: operator-facing 4-check smoke (health endpoint, Mosquitto :1883, graphile-worker schema via psql, real PDF render via login → reports/generate). PS 5.1 + 7+ compatible (commits `b4ad539` + reviewer-fix `ad07280`).
+
 ## Key API Endpoints (filter operations)
 ```
 POST /api/filters/:id/start-cycle       — Start cleaning cycle

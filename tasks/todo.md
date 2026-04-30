@@ -1022,3 +1022,29 @@ grep -rln -iE "emqx|memurai|bullmq|nginx|pm2" --include="*.md" .                
 ```
 
 No code changes, no tests run. Pure docs-only commit. Phase 5.1's `tests/integration/windows-server-stack.test.ts` (`INTEGRATION_TEST=1`) and Phase 5.2's `scripts/verify-windows-deployment.ps1` shipped before this sweep, so the prose can describe their existence honestly.
+
+## 2026-04-30 — Phase 5.1 reviewer follow-up cycle (audit log)
+
+Branch: `feature/phase5-verification`. Pure-review pass on the integration suite (no new functionality), final verdict `APPROVED` after `24620c0`.
+
+### Sequence
+1. Code-quality reviewer audit on `a51628d` (windows-server-stack integration test, 4 files / 503 LOC) — 12 question prompts from project-manager spec. Verdict: `NEEDS_FIX` (2 CRITICAL + 4 IMPORTANT + 5 NICE-TO-HAVE).
+2. Implementer fix-up commit `24620c0` — addresses every flagged item: MQTT subscribe-handshake race (gated on `aedes.on('subscribe')` + 5 s timeout against API client id `digilog-server`), `afterAll` cleanup error logging (no more `catch { /* ignore */ }`), publisher leak (`cleanupClients[]` + try/finally), real diagnostic block (prisma → `graphile_worker.jobs` + `connectivity_status`, runs before assertion), TSDB env fail-loud check, `aedes.handle as never` cast comment, `phase5PingPayloads` declaration moved above `beforeAll`, `console.log` moved before assertions.
+3. Re-review of `24620c0` — 4 spot-checks per project-manager spec (clientId match, 5 s timeout reject path, per-client cleanup-loop error isolation, prisma diagnostic targets `digilog_db` not `digilog_tsdb`). All pass. Two leftover NICE-TO-HAVEs noted (timer leak when subscribe gate wins, dead error path on `client.end` callback) — non-blocking. Verdict: `APPROVED`.
+4. Doc-sync commits `29712d6` + `98023bd` (already on the worktree before this session) cover the verification work in `CHANGELOG.md`, `PHASE_5_RECENT_WORK.md` § 12 + table, `API_REFERENCE.md`, `BACKEND_GUIDE.md`, `DEPLOY-WINDOWS.md`, `PROJECT_ARCHITECTURE.md`, `windowsIssues.md` footnote.
+
+### Doc updates this session
+- `CLAUDE.md` (root) — Phase 5 snapshot block extended with a "verification harness" sub-paragraph that lists 5.1 + 5.2 plus their commit ranges, so the index file matches the live state (was previously stopping at "decision-tape proposal" before the verification work landed).
+- `tasks/todo.md` — this audit-log entry, per CLAUDE.md "Always-update on any feature change" rule.
+
+### Verification commands run
+```bash
+git status                                                       # tree clean before this session's edits
+git log --oneline -10                                            # confirms 98023bd, 29712d6, 24620c0, a51628d on branch
+npx vitest run tests/integration/windows-server-stack.test.ts    # gate-off: 4 skipped, 0 failed (572 ms)
+npx vitest run                                                   # workspace: 1179 passed / 7 failed / 276 skipped — 0 of the failures involve tests/integration/, baseline preserved
+```
+
+### Out of scope this session
+- Running with `INTEGRATION_TEST=1` against live infra — same sandbox limit as prior sessions (no Postgres/Mosquitto/Edge in this worktree).
+- Two leftover NICE-TO-HAVEs flagged in the re-review (timer cleanup, dead `client.end` catch) — left as-is per implementer + reviewer agreement; both are stylistic, not correctness.
