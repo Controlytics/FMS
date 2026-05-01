@@ -267,6 +267,29 @@ POST   /api/filter-cleaning-profiles/:id/assign-assets   Permission: FCP_UPDATE 
 
 ---
 
+## Filter Profiles
+
+`FilterProfile` binds a filter to a `FilterCleaningProfile` (plus block-restriction policy and applicable templates). Phase A.3 (2026-05-01) added a snapshot-then-bump version sidecar — every `update()` archives the OUTGOING state into `filter_profile_versions` and bumps `FilterProfile.version`. First version is created lazily (the live row IS v1 until first edit).
+
+```
+GET    /api/filter-profiles                              Permission: FP_READ
+GET    /api/filter-profiles/:id                          Permission: FP_READ
+GET    /api/filter-profiles/:id/versions                 Permission: FP_READ                     # Phase A.3
+GET    /api/filter-profiles/:id/versions/:n              Permission: FP_READ                     # Phase A.3 (frozen snapshot)
+POST   /api/filter-profiles                              Permission: FP_CREATE, Reauth
+PUT    /api/filter-profiles/:id                          Permission: FP_UPDATE, Reauth          # snapshot-then-bump
+DELETE /api/filter-profiles/:id                          Permission: FP_DELETE, Reauth          # hard delete; rejects if filters still assigned
+POST   /api/filter-profiles/:id/assign                   Permission: FP_ASSIGN, Reauth
+```
+
+**Versioning notes:**
+- `GET /:id/versions` returns `{ profileId, currentVersion, versions[] }` newest-first; `versions[]` carries metadata only (id, versionNumber, changeNotes, createdAt, createdBy).
+- `GET /:id/versions/:n` returns the frozen snapshot fields (`name`, `description`, `cleaningProfileId`, `applicableTemplates`, `defaultPmScheduleId`, `blockRestriction`, `allowedBlocks`, `maxCleaningCycles`, `isActive`) plus `versionNumber`, `createdAt`, `createdBy`, `changeNotes`.
+- 404 with `"Version N of filter profile … not found"` when the version number is out of range.
+- No cycle-side pin map is needed — cycles already pin `cleaning_cycles.profileId` to a `FilterCleaningProfile` row at start, so FilterProfile drift cannot reach an in-flight cycle.
+
+---
+
 ## PM Schedules
 
 ```

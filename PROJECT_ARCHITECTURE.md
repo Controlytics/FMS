@@ -39,7 +39,7 @@
 │  │  ┌──────────┐ ┌──────────┐ ┌──────────┐               │        │
 │  │  │PostgreSQL│ │TimescaleDB│ │Mosquitto │               │        │
 │  │  │  :5432   │ │  :5432   │ │  :1883   │               │        │
-│  │  │ 66 models│ │ 7 hyper- │ │  MQTT    │               │        │
+│  │  │ 67 models│ │ 7 hyper- │ │  MQTT    │               │        │
 │  │  │ Prisma   │ │ tables   │ │  Broker  │               │        │
 │  │  │digilog_db│ │digilog_  │ │  IoT     │               │        │
 │  │  │ +queue   │ │tsdb      │ │  devices │               │        │
@@ -387,7 +387,8 @@ Assets:
 
 Filter Operations:
   FilterCleaningProfile (lineageId-grouped versions; Phase A.2) → FilterPipelineStage → FilterPipelineConnection
-  FilterProfile → AssetInstance (assignment)
+  FilterProfile (snapshot-then-bump versioning; Phase A.3) → FilterDetails → AssetInstance
+  FilterProfileVersion (Phase A.3 — immutable snapshot sidecar)
   CleaningCycle (frozen profileId + checklistVersionPins JSONB) → FilterEvent (immutable, checksummed)
 
 Scheduling:

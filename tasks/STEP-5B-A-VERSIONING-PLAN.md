@@ -111,10 +111,10 @@ Server flow:
 ## Phases A.2-A.4 — Other versionable entities (separate PRs)
 
 - **A.2** — `FilterCleaningProfile` ✅ **DONE 2026-05-01.** On inspection it was already immutable-rowful (update archives the old row + inserts a new row with `version+1`); cycles already pin `profileId` to a specific row. The actual gap was lineage tracking + version-history endpoints. Implemented: `lineageId UUID NOT NULL` column with `@@unique([lineageId, version])` and `@@index([lineageId])`; `create()` mints `lineageId`, `update()` propagates it; `list()` switched to `distinct: ['lineageId']` (rename-safe); routes `GET /api/filter-cleaning-profiles/:id/versions` and `GET /api/filter-cleaning-profiles/:id/versions/:n` exposed. Did **not** introduce a sidecar `FilterCleaningProfileVersion` table — the existing rowful approach is simpler and equivalent. Cycles continue to pin `profileId`; the `cleaning_cycles.profileVersion` column already records the version int at start.
-- **A.3** — `FilterProfile` (mapping). Per-block override capability needed for Step 7.
+- **A.3** — `FilterProfile` ✅ **DONE 2026-05-01.** Sidecar pattern (mirrors A.1 ChecklistProfile) — FilterProfile mutates in place, so `update()` snapshots the OUTGOING state into `FilterProfileVersion` then bumps `FilterProfile.version`. First version is created lazily (live row IS v1 until first edit). Endpoints `GET /api/filter-profiles/:id/versions` and `/:id/versions/:n`. **No cycle-side pin map** because cycles already pin `cleaning_cycles.profileId` to a FilterCleaningProfile row at start; FilterProfile drift cannot reach an in-flight cycle. Per-block override (originally floated for Step 7) is explicitly out of scope — user confirmed FilterProfile is uniform across all blocks. Hard-delete-with-guard preserved. Schema applied via `prisma db push` against an empty `filter_profiles` table; cascade on `FilterProfileVersion.profileId` drops version rows when the parent is deleted. Model count 66 → 67.
 - **A.4** — Cleaning reasons (config def), equipment-group instruments. Lower priority.
 
-A.3 + A.4 are not in this PR.
+A.4 is not in this PR.
 
 ## Acceptance gates for A.1
 

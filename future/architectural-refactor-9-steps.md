@@ -95,13 +95,15 @@ You cannot consolidate them without either forcing every cleaning checklist thro
 
 **Counts:** 64 → **65** models. Enums unchanged at 22. Modules unchanged at 36.
 
-## Step 7 — Multi-version pipeline rollout (pending)
+## Step 7 — Multi-version pipeline rollout (deprioritized 2026-05-01)
 
-**What:** Add per-block target version on FilterProfile so a new cleaning recipe can be rolled out to one block first, evaluated, then propagated.
+**Original idea:** Add per-block target version on FilterProfile so a new cleaning recipe could be rolled out to one block first, evaluated, then propagated.
 
-**Touchpoints:** schema (FilterProfile.targetCleaningProfileVersion + per-block override table), startCycle service to read the right version per block, FilterProfile UI rollout panel, audit table for version-rollout history.
+**Status (2026-05-01):** Per-block override is **explicitly out of scope** — user confirmed FilterProfile is uniform across all blocks (regulatory caveat below was the operative one). The "FilterProfile is the per-block mapping" framing was wrong; FilterProfile policies bind a cleaning profile to filter templates with optional `blockRestriction`, but mapping itself is global. **Phase A.3 (2026-05-01)** added per-FilterProfile version history (snapshot-then-bump sidecar) which delivers the audit-replay half of this step. The "rollout one block at a time" piece is deferred indefinitely and should not be revived without a fresh customer ask.
 
-**Regulatory caveat:** Pharma SOPs may require uniform recipe across all blocks. Verify with customer before implementing.
+**Original touchpoints (preserved for context only):** schema (FilterProfile.targetCleaningProfileVersion + per-block override table), startCycle service to read the right version per block, FilterProfile UI rollout panel, audit table for version-rollout history.
+
+**Regulatory caveat (the deciding factor):** Pharma SOPs require uniform recipe across all blocks. Confirmed with user.
 
 ## Step 8 — Decision-tape architecture (pending; biggest)
 

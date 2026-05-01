@@ -46,6 +46,43 @@ export default async function filterProfileRoutes(app: FastifyInstance) {
     return service.getById(ctx, id);
   });
 
+  // Phase A.3: list archived versions for audit replay / admin history.
+  app.get('/:id/versions', {
+    preHandler: [app.requirePermission('FP_READ')],
+    schema: {
+      tags: ['Filter Profiles'],
+      summary: 'List archived versions of a filter profile (Phase A.3)',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const { id } = req.params as { id: string };
+    return service.getVersions(ctx, id);
+  });
+
+  // Phase A.3: read a frozen historical version of a filter profile.
+  app.get('/:id/versions/:versionNumber', {
+    preHandler: [app.requirePermission('FP_READ')],
+    schema: {
+      tags: ['Filter Profiles'],
+      summary: 'Get frozen snapshot of filter profile at a specific version (Phase A.3)',
+      params: {
+        type: 'object',
+        required: ['id', 'versionNumber'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          versionNumber: { type: 'integer', minimum: 1 },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const { id, versionNumber } = req.params as { id: string; versionNumber: number };
+    return service.getVersion(ctx, id, Number(versionNumber));
+  });
+
   app.post('/', {
     preHandler: [app.requirePermission('FP_CREATE')],
     schema: {

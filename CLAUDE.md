@@ -78,7 +78,7 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 
 ## System Stats (current — 2026-04-30, verified against live code post-Step-1 + MT removal)
 - **Backend:** 36 API modules under `apps/api/src/modules/`, 200+ endpoints
-- **Database:** **66 Prisma models, 23 enums**; TimescaleDB with 7 hypertables. TemplateKind is a lookup table (admin-editable since Step 1); not an enum.
+- **Database:** **67 Prisma models, 23 enums**; TimescaleDB with 7 hypertables. TemplateKind is a lookup table (admin-editable since Step 1); not an enum. `FilterProfileVersion` sidecar added Phase A.3.
 - **Permissions:** **105** constants, **89** feature privileges, **81** reauth actions, **25** sidebar items
 - **Rule chain:** 77 node types across 8 categories
 - **Config:** **30 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **27** corresponding pages (template-kinds added in Step 1)
@@ -129,6 +129,8 @@ GET  /api/filters/events                — List filter events
 GET  /api/filter-cleaning-profiles                       — List cleaning profiles (latest version per lineage)
 GET  /api/filter-cleaning-profiles/:id/versions          — Phase A.2: list lineage version history
 GET  /api/filter-cleaning-profiles/:id/versions/:n       — Phase A.2: frozen snapshot at version n
+GET  /api/filter-profiles/:id/versions                   — Phase A.3: list archived FilterProfile versions
+GET  /api/filter-profiles/:id/versions/:n                — Phase A.3: frozen FilterProfile snapshot at version n
 GET  /api/checklist-profiles?expand=questions — Used for offline cache
 GET  /api/config/report-settings/current — Report layout config
 GET  /api/config/password-policy/current — Password policy (public endpoint)

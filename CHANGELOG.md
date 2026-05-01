@@ -1,5 +1,58 @@
 # Changelog
 
+## [Unreleased] — Phase A.3: FilterProfile sidecar versioning (2026-05-01)
+
+Branch: `feature/phase5-verification`. Third entry in the universal-versioning rollout (A.1 = ChecklistProfile sidecar, A.2 = FilterCleaningProfile lineage).
+
+### Background
+
+FilterProfile is the per-mapping table that binds a filter to a `FilterCleaningProfile` (plus block-restriction policy, applicable templates, default PM schedule). Unlike FilterCleaningProfile (immutable-rowful), the live FilterProfile row was being mutated in place by `update()` — there was no version history, so an audit replay had no way to reconstruct the mapping that was active at a historical moment. FilterProfile is the same across all blocks (per-block override is explicitly out of scope), so the design follows the A.1 ChecklistProfile sidecar pattern rather than A.2's lineage pattern.
+
+In-flight cycles are unaffected: cycles already pin `cleaning_cycles.profileId` (and `profileVersion`) to a specific FilterCleaningProfile row at start, so FilterProfile drift cannot reach a running cycle. No cycle-side pin map is needed.
+
+### Changes
+
+- **Schema** (`apps/api/prisma/schema.prisma`):
+  - `FilterProfile.version Int @default(1)` — monotonic counter, bumped on every mutation.
+  - New model `FilterProfileVersion` (sidecar): `id`, `profileId`, `versionNumber`, `snapshot Json`, `changeNotes`, `createdAt`, `createdBy`. Cascade-deletes with the parent. `@@unique([profileId, versionNumber])` + `@@index([profileId])`.
+  - Applied via `prisma db push --skip-generate` against an empty `filter_profiles` table — no backfill needed.
+- **Service** (`apps/api/src/modules/filter-profiles/filter-profile.service.ts`):
+  - New private `snapshotAndBump(tx, profileId, changeNotes, ctx)` writes the OUTGOING row's full state into `filter_profile_versions`, then `version: { increment: 1 }`. Mirrors the A.1 helper.
+  - `update()` now wraps the mutation in `prisma.$transaction` with snapshot-then-bump first.
+  - First version is created lazily — `create()` does NOT write a version row; the live row IS v1 until the first edit.
+  - New `getVersions(id)` returns `{ profileId, currentVersion, versions[] }` newest-first with metadata only (id, versionNumber, changeNotes, createdAt, createdBy).
+  - New `getVersion(id, n)` returns the frozen snapshot as `{ profileId, versionNumber, …snapshot fields, createdAt, createdBy, changeNotes }`.
+  - Hard-delete-with-guard preserved (rejects if any FilterDetails still reference the profile). Cascade drops version rows.
+  - Audit log on update now includes `version` in `beforeValue`/`afterValue`.
+- **Routes** (`apps/api/src/modules/filter-profiles/routes.ts`):
+  - `GET /api/filter-profiles/:id/versions` (gated on `FP_READ`).
+  - `GET /api/filter-profiles/:id/versions/:versionNumber` (gated on `FP_READ`).
+
+### Verification
+
+- `npx tsc -p apps/api/tsconfig.json --noEmit` exit 0.
+- `npx tsc -p apps/api/tsconfig.json` (compile to dist) exit 0; new endpoints emit 4 occurrences of "versions" in `dist/modules/filter-profiles/routes.js`.
+- `npx prisma db push --skip-generate` succeeds; `\d filter_profile_versions` confirms columns; `version` column present on `filter_profiles`.
+- `Restart-Service DigiLogAPI-Phase5` clean.
+- End-to-end via curl against the running service:
+  - Seeded one `FilterCleaningProfile` (id `…0a301`) directly in DB so a FilterProfile could reference it.
+  - `POST /api/filter-profiles` → returned `version: 1`. Live row was v1; no version row written yet (lazy first-version, matches A.1).
+  - `PUT /api/filter-profiles/:id` (rename) → `version: 2`; one row in `filter_profile_versions` carrying the v1 snapshot.
+  - Second `PUT` (changed `description` and `blockRestriction` to `ANY_BLOCK`) → `version: 3`; two version rows.
+  - `GET /:id/versions` → `currentVersion: 3` + 2 archived versions newest-first.
+  - `GET /:id/versions/1` → frozen v1 snapshot (original name, original description, `OWN_BLOCK_ONLY`).
+  - `GET /:id/versions/2` → frozen v2 snapshot (renamed, first-edit description, still `OWN_BLOCK_ONLY` — the v3 change isolated correctly).
+  - `GET /:id/versions/99` → clean 404 with "Version 99 of filter profile … not found".
+- Test data fully cleaned up: 0 leftover rows in `filter_profiles`, `filter_profile_versions`, and the seeded `filter_cleaning_profiles` row.
+
+### Notes
+
+- Per-block override capability (originally floated for Step 7) is explicitly NOT in scope — the user confirmed FilterProfile is uniform across all blocks. The Step 7 entry in `future/architectural-refactor-9-steps.md` should be revisited under that constraint.
+- Frontend untouched — existing route shapes are unchanged; new `/versions` endpoints are additive.
+- Model count: **66 → 67** (added `FilterProfileVersion`). Enum count unchanged at 23.
+
+---
+
 ## [Unreleased] — Phase A.2: FilterCleaningProfile lineage-based versioning (2026-05-01)
 
 Branch: `feature/phase5-verification`. Continuation of the universal-versioning rollout (Phase A.1 covered ChecklistProfile).

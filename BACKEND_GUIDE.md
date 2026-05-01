@@ -64,7 +64,7 @@ The main application file registers everything in this order:
 | Module | Prefix | Endpoints | Key Features |
 |---|---|---|---|
 | `filter-operations` | `/api/filters` | 15 | Cycle start/advance/bypass, checklist submit, events |
-| `filter-profiles` | `/api/filter-profiles` | 6 | Filter-to-profile assignments |
+| `filter-profiles` | `/api/filter-profiles` | 8 | Filter-to-profile assignments + Phase A.3 sidecar versioning + version-history endpoints |
 | `cleaning-profiles` | `/api/filter-cleaning-profiles` | 11 | Pipeline profile CRUD, lineage-based versioning (Phase A.2 — `lineageId` UUID), version-history endpoints, validation |
 | `checklist-profiles` | `/api/checklist-profiles` | 9 | Checklist template + question management |
 | `pm-schedules` | `/api/pm-schedules` | 18 | PM scheduling, entries, executions, approvals |
@@ -274,7 +274,7 @@ Automated end-to-end test suites (`*.test.ts`) — Vitest-driven, hits a live te
 
 **Note:** Phase 2/3/4/5 features (filter operations, RFID, offline replay, reports, block-change, PM My Tasks) do NOT yet have e2e tests. The archived `tests/manual-test-cases/` only covered Phase 1 — those remain a gap (logged in `PHASE_5_RECENT_WORK.md` § 11).
 
-## Database Schema (66 models, 23 enums)
+## Database Schema (67 models, 23 enums)
 
 ### Core Models
 `Organization`, `User`, `Role`, `Session`, `PasswordHistory`, `PasswordResetRequest`, `SystemConfig`, `FieldIdConfig`, `RoleConfig`, `UserConfig`
@@ -283,7 +283,7 @@ Automated end-to-end test suites (`*.test.ts`) — Vitest-driven, hits a live te
 `AssetTemplate`, `AssetTemplateVersion`, `AssetInstance`, `AssetRelationship`, `AssetIdentifier`, `TemplateAssignment`, `EntityAssignment`, `DeviceCredential`
 
 ### Filter Operation Models
-`FilterCleaningProfile`, `FilterPipelineStage`, `FilterPipelineConnection`, `FilterProfile`, `CleaningCycle`, `FilterEvent`, `ChecklistProfile`, `ChecklistQuestion`, `ChecklistReview`, `ElectronicSignature`
+`FilterCleaningProfile`, `FilterPipelineStage`, `FilterPipelineConnection`, `FilterProfile`, `FilterProfileVersion` (Phase A.3 sidecar), `CleaningCycle`, `FilterEvent`, `ChecklistProfile`, `ChecklistQuestion`, `ChecklistProfileVersion` (Phase A.1 sidecar), `ChecklistReview`, `ElectronicSignature`
 
 ### Scheduling Models
 `PmSchedule`, `PmScheduleEntry`, `PmExecution`, `EquipmentGroup`, `EquipmentGroupInstrument`, `BlockChangeRequest`
@@ -353,6 +353,6 @@ MAX_FILE_SIZE=5242880
 5. **Audit logging** — Every mutation auto-logged with SHA-256 hash chain
 6. **Input sanitization** — All text fields stripped of HTML via `sanitize.ts`
 7. **Config registry** — 30 config definitions auto-discovered at startup
-8. **Versioning** — Two patterns: (a) **immutable-rowful** for `FilterCleaningProfile` (update archives the old row + inserts a new row with `version+1`; rows in the same lineage share `lineageId UUID`; cycles freeze `profileId` at start) and rule chains/help articles; (b) **sidecar table** for `ChecklistProfile` (mutates in place; mutations snapshot into `ChecklistProfileVersion`; cycles pin via `cycle.checklistVersionPins JSONB`).
+8. **Versioning** — Two patterns: (a) **immutable-rowful** for `FilterCleaningProfile` (update archives the old row + inserts a new row with `version+1`; rows in the same lineage share `lineageId UUID`; cycles freeze `profileId` at start) and rule chains/help articles; (b) **sidecar table** for `ChecklistProfile` (Phase A.1) and `FilterProfile` (Phase A.3) — both mutate in place; mutations snapshot the OUTGOING state into a `*Version` sidecar then bump `version`. ChecklistProfile cycles pin via `cycle.checklistVersionPins JSONB`; FilterProfile needs no cycle pin because cycles already pin `cleaning_cycles.profileId` to a FilterCleaningProfile row at start. First version is created lazily — the live row IS v1 until first edit.
 9. **Immutable events** — Filter events stored with checksums, never modified (21 CFR Part 11)
 10. **Error handling** — `AppError(statusCode, code, message)` → unified JSON error response

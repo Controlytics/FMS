@@ -1371,15 +1371,46 @@ model FilterProfile {
   allowedBlocks       Json?            @map("allowed_blocks") @db.JsonB
   maxCleaningCycles   Int?             @map("max_cleaning_cycles")
   isActive            Boolean          @default(true) @map("is_active")
+  // Monotonic version counter — bumped on every mutation. Snapshot-then-bump
+  // pattern (Phase A.3): the OUTGOING state is frozen into FilterProfileVersion
+  // before the live row is updated, so audit replay can reconstruct the exact
+  // mapping that was active at any historical moment.
+  version             Int              @default(1)
   createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz
 
   cleaningProfile FilterCleaningProfile? @relation(fields: [cleaningProfileId], references: [id])
   pmSchedule      PmSchedule?            @relation(fields: [defaultPmScheduleId], references: [id])
   filterDetails   FilterDetails[]        @relation("FilterProfileFilterDetails")
+  versions        FilterProfileVersion[]
 
   @@index([isActive])
   @@map("filter_profiles")
+}
+
+// Immutable historical snapshot of a FilterProfile at a specific version.
+// Written BEFORE every mutation to the live profile (snapshot-then-bump, Phase A.3).
+// FilterProfile drift cannot affect in-flight cycles because cycles already
+// pin `cleaning_cycles.profileId` to a specific FilterCleaningProfile row at
+// start, so no cycle-side pin map is needed here — versions exist purely for
+// audit replay and admin history.
+model FilterProfileVersion {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId     String   @map("profile_id") @db.Uuid
+  versionNumber Int      @map("version_number")
+  // Full snapshot of the live FilterProfile row: { name, description, cleaningProfileId,
+  // applicableTemplates, defaultPmScheduleId, blockRestriction, allowedBlocks,
+  // maxCleaningCycles, isActive }.
+  snapshot      Json     @db.JsonB
+  changeNotes   String?  @map("change_notes")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdBy     String?  @map("created_by") @db.Uuid
+
+  profile FilterProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, versionNumber])
+  @@index([profileId])
+  @@map("filter_profile_versions")
 }
 
 model CleaningCycle {
