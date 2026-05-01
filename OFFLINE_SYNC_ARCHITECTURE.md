@@ -48,7 +48,7 @@ apps/web/src/  ← Same React source code
 │  └────┬─────┘ └──────────┘ └──────────────────────┘  │
 │       │                                               │
 │  ┌────┴─────────────────────────────────────────┐     │
-│  │  PostgreSQL (digilog_db) — 65 models         │     │
+│  │  PostgreSQL (digilog_db) — 66 models         │     │
 │  │  graphile-worker on Postgres — job queues    │     │
 │  │  Mosquitto 2.0 — MQTT broker for IoT devices │     │
 │  │  Redis (optional) — non-queue pub/sub only   │     │

@@ -181,7 +181,7 @@ Full detail: `LOCAL_SETUP_WINDOWS.md` at root.
 - Audit action → `packages/shared/src/types/audit-actions.ts`
 - Audit-template (UUID-hiding) → `packages/shared/src/types/audit-templates.ts`
 - Alarm column metadata → `packages/shared/src/types/alarm-columns.ts`
-- DB schema → `apps/api/prisma/schema.prisma` (65 models, 22 enums)
+- DB schema → `apps/api/prisma/schema.prisma` (66 models, 22 enums)
 - Migrations → `apps/api/prisma/migrations/`
 - Config def → `apps/api/src/modules/config/defs/<name>.def.ts` (30 files)
 - Config page → `apps/web/src/routes/config/<name>.tsx` (26 files)
