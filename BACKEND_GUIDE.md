@@ -2,7 +2,7 @@
 
 ## Overview
 
-Fastify 5 backend with TypeScript, **37 API modules**, ~398 endpoints across 59 route files. Runs locally on Windows: `tsx watch` in dev, compiled JS for prod-style local builds. Production launch is currently `node dist/app.js` in the foreground (Phase 4 of windows-friendly-rewrite retired PM2; an NSSM stopgap is documented in `DEPLOY-WINDOWS.md` § 7 until Phase 5 ships a managed-service launcher). EC2 is no longer in scope.
+Fastify 5 backend with TypeScript, **36 API modules** (org-admin + tenant-admin removed in MT removal 2026-04-30), ~398 endpoints across 59 route files. Runs locally on Windows: `tsx watch` in dev, compiled JS for prod-style local builds. Production launch is currently `node dist/app.js` in the foreground (Phase 4 of windows-friendly-rewrite retired PM2; an NSSM stopgap is documented in `DEPLOY-WINDOWS.md` § 7 until Phase 5 ships a managed-service launcher). EC2 is no longer in scope.
 
 **Entry point:** `apps/api/src/app.ts`
 **Dev:** `cd apps/api && npx tsx watch src/app.ts` (port 3000)
@@ -42,14 +42,14 @@ The main application file registers everything in this order:
 | `roles` | `/api/roles` | 8 | Role CRUD, permissions, hierarchy, creatable roles |
 | `user-groups` | `/api/user-groups` | 7 | Group CRUD, member management |
 
-### Organization & Admin
+### Admin
 
 | Module | Prefix | Endpoints | Key Features |
 |---|---|---|---|
-| `super-admin` | `/api/super-admin` | 35+ | Platform-wide admin, org management |
-| `org-admin` | `/api/org-admin` | 3 | Organization settings, usage stats |
-| `tenant-admin` | `/api/organizations` | 21+ | Multi-tenant org CRUD, user/entity assignment |
+| `super-admin` | `/api/super-admin` | ~30 | Platform-wide admin, system stats, data management (org CRUD removed in MT removal 2026-04-30) |
 | `admin-requests` | `/api/admin-requests` | 4 | Admin action request workflow |
+
+> **Note (MT removal 2026-04-30):** `org-admin` and `tenant-admin` modules were deleted entirely. DigiLog is now single-tenant.
 
 ### Asset Management
 
@@ -242,13 +242,12 @@ interface RequestContext {
   username: string;
   fullName: string;
   role: string;
-  organizationId: string;
-  scope: string;
+  scope: string;     // always 'GLOBAL' post-MT-removal
   permissions: string[];
 }
 ```
 
-Built by `lib/build-context.ts`, consumed by `lib/org-scope.ts` (`orgWhere(ctx)`) and every service method that performs org-scoped queries.
+Built by `lib/build-context.ts`. (Pre-MT-removal this also carried an `organizationId` and was consumed by `lib/org-scope.ts`'s `orgWhere(ctx)` helper. Both were removed 2026-04-30; every service that previously scoped queries by org now operates against the full table.)
 
 ## E2E Tests (`apps/api/src/e2e/`)
 
@@ -275,7 +274,7 @@ Automated end-to-end test suites (`*.test.ts`) — Vitest-driven, hits a live te
 
 **Note:** Phase 2/3/4/5 features (filter operations, RFID, offline replay, reports, block-change, PM My Tasks) do NOT yet have e2e tests. The archived `tests/manual-test-cases/` only covered Phase 1 — those remain a gap (logged in `PHASE_5_RECENT_WORK.md` § 11).
 
-## Database Schema (64 models, 22 enums)
+## Database Schema (65 models, 22 enums)
 
 ### Core Models
 `Organization`, `User`, `Role`, `Session`, `PasswordHistory`, `PasswordResetRequest`, `SystemConfig`, `FieldIdConfig`, `RoleConfig`, `UserConfig`
@@ -348,7 +347,7 @@ MAX_FILE_SIZE=5242880
 ## Key Architectural Patterns
 
 1. **Module pattern** — Each feature is a self-contained module with routes + service + repository
-2. **Organization scoping** — `orgScope(ctx)` adds `organizationId` filter to all queries
+2. **Single-tenant** — As of MT removal (2026-04-30), there is no per-org scoping; every query operates against the full table.
 3. **Permission-based RBAC** — `requirePermission('PERM')` on every protected route
 4. **Re-authentication** — `enforceReauth('ACTION', req, reply)` for 81 sensitive operations
 5. **Audit logging** — Every mutation auto-logged with SHA-256 hash chain

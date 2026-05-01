@@ -33,7 +33,7 @@ async function getRoleScope(roleName: string): Promise<string> {
   const cached = roleScopeCache.get(roleName);
   if (cached && (now - cached.cachedAt) < ROLE_SCOPE_CACHE_TTL) return cached.scope;
   const roleRecord = await prisma.role.findFirst({ where: { name: roleName }, select: { scope: true } });
-  const scope = (roleRecord?.scope as string) ?? 'ORGANIZATION';
+  const scope = (roleRecord?.scope as string) ?? 'GLOBAL';
   roleScopeCache.set(roleName, { scope, cachedAt: now });
   return scope;
 }
@@ -101,33 +101,24 @@ async function authPlugin(app: FastifyInstance) {
         return reply.code(401).send({ error: 'SESSION_EXPIRED', message: 'Session exceeded maximum duration. Please log in again.' });
       }
 
-      // Check user status and sync role + tenant from DB
+      // Check user status and sync role from DB
       const user = await prisma.user.findUnique({
         where: { id: payload.sub },
-        select: { role: true, username: true, status: true, organizationId: true, forcePasswordChange: true, passwordExpiresAt: true },
+        select: { role: true, username: true, status: true, forcePasswordChange: true, passwordExpiresAt: true },
       });
       if (!user || user.status !== 'ENABLED') {
         return reply.code(401).send({ error: 'ACCOUNT_INACTIVE', message: 'Account is not active' });
       }
 
-      // Check if user's organization is active
-      if (user.organizationId) {
-        const org = await prisma.organization.findUnique({ where: { id: user.organizationId }, select: { isActive: true } });
-        if (org && !org.isActive) {
-          return reply.code(403).send({ error: 'ORG_INACTIVE', message: 'Your organization has been deactivated. Contact administrator.' });
-        }
-      }
-
       // Lookup role scope from DB
       const roleRecord = { scope: await getRoleScope(user.role) };
-      const scope = roleRecord?.scope || (user.role === 'SUPER_ADMIN' ? 'GLOBAL' : 'ORGANIZATION');
+      const scope = roleRecord?.scope || 'GLOBAL';
 
       // Patch req.user with authoritative DB values
       req.user = {
         ...req.user,
         role: user.role,
         username: user.username,
-        organizationId: user.organizationId || undefined,
         scope,
       };
 

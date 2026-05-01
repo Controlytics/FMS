@@ -63,7 +63,6 @@ export function AhuDashboardPage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-bold text-slate-800">{asset?.name ?? 'AHU Dashboard'}</h1>
-          {asset?.organizationId && <span className="px-2 py-1 text-xs bg-slate-100 text-slate-600 rounded">Org: {asset.organizationId}</span>}
           <span className="px-2 py-1 text-xs bg-slate-100 text-slate-500 rounded">{allChildren.length} filter(s)</span>
           {truncated && (
             <span className="px-2 py-1 text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded">

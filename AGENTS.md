@@ -8,7 +8,7 @@ Branch: DigitalFMS (active development).
 ## Current Module Count (verified 2026-04-29)
 - **Backend:** 37 API modules
 - **Frontend:** 23 route folders/files (~85 pages)
-- **Database:** 64 Prisma models, 22 enums
+- **Database:** 65 Prisma models, 22 enums
 - **Permissions:** 109 constants, 91 feature privileges, 81 reauth actions across 16 categories, 26 sidebar items
 
 ## Backend Modules (37)

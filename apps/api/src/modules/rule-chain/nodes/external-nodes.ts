@@ -39,7 +39,17 @@ registerNode({
       });
       clearTimeout(timer);
       if (!response.ok) return { output: 'Failure', message, log: `HTTP ${response.status}: ${response.statusText}` };
-      const responseData = await response.json().catch(() => ({}));
+      // If the upstream API returned 2xx but a non-JSON body, fall back to
+      // an empty object so the rule-chain message can still flow. Log so the
+      // mismatch is visible — silent JSON-parse failures here would mask
+      // misconfigured webhooks.
+      const responseData = await response.json().catch((parseErr) => {
+        console.warn(
+          `[rule-chain external-call] response from ${url} parsed as non-JSON:`,
+          parseErr instanceof Error ? parseErr.message : parseErr,
+        );
+        return {};
+      });
       return { output: 'Success', message: { ...message, _apiResponse: responseData } };
     } catch (err) {
       return { output: 'Failure', message, log: `API call error: ${err instanceof Error ? err.message : String(err)}` };

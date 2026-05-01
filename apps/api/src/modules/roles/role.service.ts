@@ -32,11 +32,6 @@ const updateRoleSchema = z.object({
 // ---------------------------------------------------------------------------
 
 const PERMISSION_META: Record<string, { label: string; category: string }> = {
-  // Organization management
-  [PERMISSIONS.ORG_MANAGE]: { label: 'Manage Organizations', category: 'Organization' },
-  [PERMISSIONS.ORG_VIEW]: { label: 'View Organizations', category: 'Organization' },
-  [PERMISSIONS.ORG_CREATE]: { label: 'Create Organizations', category: 'Organization' },
-  [PERMISSIONS.ORG_DELETE]: { label: 'Delete Organizations', category: 'Organization' },
   // User management
   [PERMISSIONS.USER_CREATE]: { label: 'Create Users', category: 'User Management' },
   [PERMISSIONS.USER_READ]: { label: 'View Users', category: 'User Management' },

@@ -2,11 +2,21 @@ import { prisma } from '../../../lib/prisma.js';
 
 export const templateRepository = {
   async findMany(where: Record<string, unknown>, page: number, limit?: number) {
+    // Sort order: active templates first, then ones that actually have
+    // live instances (descending), then most-recently-created. This keeps
+    // the "real" production templates (Block/Filter/AHU/Area, all of which
+    // have many active instances) at the top of the list and pushes
+    // unused-but-not-deleted e2e fixture templates (which accumulate over
+    // testing and dominate `createdAt DESC` ordering) to the bottom.
     const [templates, total] = await Promise.all([
       prisma.assetTemplate.findMany({
         where: where as any,
         include: { _count: { select: { instances: { where: { isActive: true } } } } },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [
+          { isActive: 'desc' },
+          { instances: { _count: 'desc' } },
+          { createdAt: 'desc' },
+        ],
         ...(limit ? { skip: (page - 1) * limit, take: limit } : {}),
       }),
       prisma.assetTemplate.count({ where: where as any }),
@@ -30,6 +40,7 @@ export const templateRepository = {
     description?: string;
     category?: string;
     icon?: string;
+    templateKind?: 'BLOCK' | 'AREA' | 'AHU' | 'FILTER' | 'EQUIPMENT' | 'OTHER';
     attributeSchema?: any;
     telemetrySchema?: any;
     expectedIdentifiers?: any;
@@ -54,6 +65,7 @@ export const templateRepository = {
         description: data.description,
         category: data.category,
         icon: data.icon,
+        templateKind: data.templateKind,
         version: 1,
         attributeSchema: data.attributeSchema as any,
         telemetrySchema: data.telemetrySchema as any,

@@ -73,15 +73,16 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 - **Verify TLS up** — `curl -sk -o /dev/null -w "%{http_code}" https://localhost:3000/health` should return a code (even 401 means TLS is up).
 - **Don't use HTTPS with self-signed in Capacitor *dev* mode** — WebView's `fetch()` rejects self-signed certs (Capacitor's `BridgeActivity` overrides the WebViewClient after `onCreate`). Keep dev cleartext if testing in-WebView, or install root CA on the device.
 
-## System Stats (current — 2026-04-29, verified against live code)
-- **Backend:** 37 API modules under `apps/api/src/modules/`, 200+ endpoints
-- **Database:** **64 Prisma models, 22 enums**; TimescaleDB with 7 hypertables
-- **Permissions:** **109** constants, **91** feature privileges, **81** reauth actions, **26** sidebar items
+## System Stats (current — 2026-04-30, verified against live code post-Step-1 + MT removal)
+- **Backend:** 36 API modules under `apps/api/src/modules/`, 200+ endpoints
+- **Database:** **65 Prisma models, 22 enums**; TimescaleDB with 7 hypertables. TemplateKind is a lookup table (admin-editable since Step 1); not an enum.
+- **Permissions:** **105** constants, **89** feature privileges, **81** reauth actions, **25** sidebar items
 - **Rule chain:** 77 node types across 8 categories
-- **Config:** **30 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **26** corresponding pages
+- **Config:** **30 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **27** corresponding pages (template-kinds added in Step 1)
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
-- **Frontend:** 23 route folders/files, ~85 pages, **14** custom hooks, **15** lib modules
+- **Frontend:** 22 route folders/files, ~83 pages, **14** custom hooks, **15** lib modules
 - **Queue backend:** graphile-worker (Postgres-backed); 3 queues (ingestion, notification, maintenance)
+- **Tenancy:** **single-tenant, single-site, single-company.** Multi-tenancy was removed 2026-04-30 (`Organization` model + `organizationId` columns + `org-admin`/`tenant-admin` modules dropped). JWT `scope` always stamps `GLOBAL`. The `RoleScope` enum and `AssigneeType` enum are retained but trimmed to one/two values respectively.
 
 ## Important Notes
 - TimescaleDB is `digilog_tsdb`, NOT `digilog_db` (PG models live in `digilog_db`)
@@ -120,8 +121,8 @@ POST /api/filters/:id/submit-checklist  — Submit checklist answers
 POST /api/filters/:id/bypass            — Bypass stage (deviation)
 POST /api/filters/:id/terminate         — Terminate cycle (with reason)
 GET  /api/filters/:id/current-state     — Filter state + next actions (full server snapshot)
-GET  /api/filter/cycles                 — List cleaning cycles
-GET  /api/filter/events                 — List filter events
+GET  /api/filters/cycles                — List cleaning cycles (mounted by filter-operations/events-routes.ts under the /api/filters prefix)
+GET  /api/filters/events                — List filter events
 GET  /api/cleaning-profiles             — List cleaning profiles
 GET  /api/checklist-profiles?expand=questions — Used for offline cache
 GET  /api/config/report-settings/current — Report layout config

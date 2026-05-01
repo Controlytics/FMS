@@ -54,14 +54,6 @@ export const authService = {
       throw new AppError(403, 'ACCOUNT_DISABLED', 'Your account has been disabled. Contact administrator.');
     }
 
-    // Check if user.s organization is active
-    if (user.organizationId) {
-      const org = await prisma.organization.findUnique({ where: { id: user.organizationId }, select: { isActive: true } });
-      if (org && !org.isActive) {
-        throw new AppError(403, "ORG_INACTIVE", "Your organization has been deactivated. Contact administrator.");
-      }
-    }
-
     if (user.status === 'EXPIRED') {
       if (user.role === 'SUPER_ADMIN') {
         // Auto-recover SUPER_ADMIN from EXPIRED status
@@ -221,7 +213,7 @@ export const authService = {
 
     const loginRole = await prisma.role.findFirst({ where: { name: user.role }, select: { scope: true } });
     const token = await signToken({
-      sub: user.id, username: user.username, role: user.role, sessionId: session.id, organizationId: user.organizationId || undefined, scope: loginRole?.scope || "TENANT",
+      sub: user.id, username: user.username, role: user.role, sessionId: session.id, scope: loginRole?.scope || "GLOBAL",
     }, sessionDurationHours);
 
     await authRepository.updateUser(user.id, { failedLoginAttempts: 0, lastLogin: new Date(), lockoutUntil: null });
@@ -287,7 +279,7 @@ export const authService = {
     if (!user) return null;
     const permissions = await authRepository.getRolePermissions(user.role);
     const roleRecord = await prisma.role.findFirst({ where: { name: user.role }, select: { scope: true } });
-    const scope = roleRecord?.scope || "TENANT";
+    const scope = roleRecord?.scope || "GLOBAL";
     return { ...user, permissions, scope };
   },
 

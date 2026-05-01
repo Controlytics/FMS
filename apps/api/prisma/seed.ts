@@ -18,7 +18,6 @@ async function main() {
         'USER_CREATE', 'USER_READ', 'USER_UPDATE', 'USER_DELETE', 'USER_ENABLE_DISABLE', 'USER_UNLOCK', 'USER_RESET_PASSWORD',
         'CONFIG_READ', 'CONFIG_UPDATE', 'FIELD_ID_UPDATE',
         'AUDIT_READ', 'AUDIT_EXPORT', 'ROLE_MANAGE',
-        'ORG_MANAGE', 'ORG_VIEW', 'ORG_CREATE', 'ORG_DELETE',
         'ASSET_TEMPLATE_CREATE', 'ASSET_TEMPLATE_UPDATE', 'ASSET_TEMPLATE_DELETE', 'ASSET_CREATE', 'ASSET_UPDATE', 'ASSET_DELETE',
         'ASSET_RELATIONSHIP_CREATE', 'ASSET_RELATIONSHIP_DELETE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_IDENTIFIER_DELETE', 'ASSET_VIEW', 'ASSET_READ',
         'ENTITY_ASSIGN',
@@ -53,7 +52,6 @@ async function main() {
         'USER_CREATE', 'USER_READ', 'USER_UPDATE', 'USER_DELETE', 'USER_ENABLE_DISABLE', 'USER_UNLOCK', 'USER_RESET_PASSWORD',
         'CONFIG_READ', 'CONFIG_UPDATE', 'FIELD_ID_UPDATE', 'ROLE_MANAGE',
         'AUDIT_READ', 'AUDIT_EXPORT',
-        'ORG_MANAGE', 'ORG_VIEW', 'ORG_CREATE', 'ORG_DELETE',
         'ASSET_TEMPLATE_CREATE', 'ASSET_TEMPLATE_UPDATE', 'ASSET_TEMPLATE_DELETE', 'ASSET_CREATE', 'ASSET_UPDATE', 'ASSET_DELETE',
         'ASSET_RELATIONSHIP_CREATE', 'ASSET_RELATIONSHIP_DELETE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_IDENTIFIER_DELETE', 'ASSET_VIEW', 'ASSET_READ',
         'ENTITY_ASSIGN',
@@ -639,6 +637,26 @@ async function main() {
     });
   }
   console.log('  Created default help articles (40 articles)');
+
+  // 6. Seed system template kinds (BLOCK / AREA / AHU / FILTER / EQUIPMENT / OTHER).
+  //    These are protected (isSystem=true) — admins can edit label/description/sortOrder
+  //    but cannot rename code or delete them. Frontend pages route by code.
+  const systemKinds = [
+    { code: 'BLOCK',     label: 'Block',     description: 'Building wing or pharmacy module', sortOrder: 10 },
+    { code: 'AREA',      label: 'Area',      description: 'Cleanroom / corridor / gowning room', sortOrder: 20 },
+    { code: 'AHU',       label: 'AHU',       description: 'Air Handling Unit (HVAC)', sortOrder: 30 },
+    { code: 'FILTER',    label: 'Filter',    description: 'Replaceable filter cartridge (HEPA / ULPA / pre-filter)', sortOrder: 40 },
+    { code: 'EQUIPMENT', label: 'Equipment', description: 'Cleaning machine / dryer / instrument', sortOrder: 50 },
+    { code: 'OTHER',     label: 'Other',     description: 'Generic / non-canonical template', sortOrder: 999 },
+  ];
+  for (const k of systemKinds) {
+    await prisma.templateKind.upsert({
+      where: { code: k.code },
+      update: { label: k.label, description: k.description, sortOrder: k.sortOrder, isSystem: true },
+      create: { code: k.code, label: k.label, description: k.description, sortOrder: k.sortOrder, isSystem: true, isActive: true },
+    });
+  }
+  console.log(`  Seeded ${systemKinds.length} system template kinds`);
 
   console.log('Seed completed successfully!');
 }

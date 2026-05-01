@@ -230,7 +230,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
 
   // Data — always fetch when online, cache for offline
   const { data: instancesData } = useSWR(online ? '/api/assets/instances?limit=500' : null, { refreshInterval: 15000 });
-  const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=100' : null);
+  const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=1000' : null);
   const { data: reasonsData } = useSWR(online ? '/api/filters/reasons' : null);
   const { data: identifiersData } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null);
   const { data: equipGroupsData } = useSWR(online ? '/api/equipment-groups' : null);
@@ -413,8 +413,8 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const cleaningReasons = online ? ((reasonsData as any)?.reasons ?? reasonsData ?? []) : offlineReasons;
   const templates = (online ? (templatesData?.data ?? []) : offlineTemplates) as any[];
   const instances = online ? ((instancesData?.data ?? []) as any[]) : offlineFilters;
-  const filterTemplateId = templates.find((t: any) => t.name === 'Filter')?.id;
-  const blockTemplateId = templates.find((t: any) => t.name === 'Block')?.id;
+  const filterTemplateId = templates.find((t: any) => t.templateKind === 'FILTER')?.id;
+  const blockTemplateId = templates.find((t: any) => t.templateKind === 'BLOCK')?.id;
   const allFilters = instances.filter((f: any) => f.templateId === filterTemplateId && f.isActive !== false && f.status !== 'Retired');
   const blocks = instances.filter((i: any) => i.templateId === blockTemplateId);
 

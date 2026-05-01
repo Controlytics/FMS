@@ -37,7 +37,7 @@ export function CleaningCycleHistoryPage() {
   const [downloading, setDownloading] = useState(false);
 
   const { data: instancesData } = useSWR<PaginatedResponse<FilterInstance>>('/api/assets/instances?limit=500');
-  const { data: templatesData } = useSWR<PaginatedResponse<{ id: string; name: string }>>('/api/assets/templates?limit=100');
+  const { data: templatesData } = useSWR<PaginatedResponse<{ id: string; name: string }>>('/api/assets/templates?limit=1000');
   const filterTemplateId = (templatesData?.data ?? []).find((t) => t.name === 'Filter')?.id;
   const filterInstances = (instancesData?.data ?? []).filter((i) => i.templateId === filterTemplateId && i.isActive !== false && i.status !== 'Retired');
 

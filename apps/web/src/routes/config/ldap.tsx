@@ -24,7 +24,6 @@ interface LdapConfig {
   connectionTimeout: number;
   roleMappings: RoleMappingRow[];
   defaultRole: string;
-  defaultOrganizationId: string;
   syncAttributes: boolean;
 }
 
@@ -44,14 +43,12 @@ const DEFAULTS: LdapConfig = {
   connectionTimeout: 5000,
   roleMappings: [],
   defaultRole: 'OPERATOR',
-  defaultOrganizationId: '',
   syncAttributes: true,
 };
 
 export default function LdapConfigPage() {
   const { data: savedConfig, mutate } = useSWR<LdapConfig>('/api/ldap/config');
   const { data: rolesData } = useSWR<Array<{ name: string; displayName: string }>>('/api/roles/active');
-  const { data: orgsData } = useSWR<{ data: Array<{ id: string; name: string }> }>('/api/organizations?limit=100');
 
   const [config, setConfig] = useState<LdapConfig>(DEFAULTS);
   const [saving, setSaving] = useState(false);
@@ -327,29 +324,6 @@ export default function LdapConfigPage() {
               className="w-64 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500/30">
               {rolesData?.map(r => <option key={r.name} value={r.name}>{r.displayName}</option>)}
             </select>
-          </div>
-        </div>
-      </div>
-
-      {/* User Provisioning */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
-          <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-            <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
-            User Provisioning
-          </h3>
-        </div>
-        <div className="p-6 space-y-4">
-          <p className="text-sm text-slate-500">Configure how LDAP users are provisioned in DigiLog on first login.</p>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Default Organization</label>
-              <select value={config.defaultOrganizationId || ''} onChange={e => updateField('defaultOrganizationId', e.target.value)}
-                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500/30">
-                <option value="">-- None --</option>
-                {orgsData?.data?.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-              </select>
-            </div>
           </div>
         </div>
       </div>

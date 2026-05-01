@@ -38,6 +38,7 @@ const {
         })),
         updateMany: vi.fn().mockResolvedValue({ count: 0 }),
         findFirst: vi.fn().mockResolvedValue(null),
+        findUnique: vi.fn().mockResolvedValue(null),
       },
       assetRelationship: {
         create: vi.fn().mockImplementation(async (args: { data: Record<string, unknown> }) => ({

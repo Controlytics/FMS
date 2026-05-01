@@ -1,0 +1,136 @@
+# Architectural Refactor — 9 Steps
+
+**Status:** Steps 1, 6 complete (2026-04-30 and 2026-05-01). Step 5 closed as **no-op** (2026-04-30) — investigation found two checklist systems are different domains, not duplicates; see `tasks/STEP-5-CHECKLIST-INVESTIGATION.md`. Step 3 obsolete (superseded by MT removal). Steps 2, 4, 7-9 pending. See task list (#18 - #25), `tasks/RESUME-STATE-2026-04-30-step1-templateKind-done.md`, and `tasks/STEP-6-FILTERDETAILS-PLAN.md` for full state.
+
+## Why this exists
+
+After Phase 5 of the windows-friendly-rewrite shipped, the user asked an adversarial-review question: "is this architecture good or bad? what would you change to make it the best?" The honest assessment surfaced 10 candidate refactors (filter_events partitioning was skipped per user's call). The remaining 9 are this plan.
+
+Each step is its own deliverable. The user's standing rules:
+- "you can delete all data and create again" — DB resets are OK
+- "don't worry about migration" — schema-level rebuilds are OK
+- "operational expectation and functionality should remain as expected" — features must keep working
+- Q4: don't commit until told (work accumulates uncommitted on `feature/phase5-verification`)
+
+## The 9 steps
+
+| Step | Item | Status | Why this position |
+|---|---|---|---|
+| 1 | templateKind enum → admin-editable lookup table | ✅ DONE 2026-04-30 | Foundational; every other change touches templates |
+| 2 | relationshipType Prisma enum + bidirectional check constraint | pending | Small, independent |
+| 3 | AssetInstance.organizationId NOT NULL | ❌ OBSOLETE 2026-04-30 | Superseded by MT removal — column dropped entirely instead of made NOT NULL |
+| 4 | applicableTemplates JSONB → join table (allowedBlocks stays JSONB per the conditional case) | pending | Small |
+| 5 | INVESTIGATE the two checklist systems before deciding (AssetTemplate.checklistSchema vs ChecklistProfile) | ✅ NO-OP 2026-04-30 | Different domains (inspection w/ 3-step e-sig review vs cleaning-cycle gate). Findings: `tasks/STEP-5-CHECKLIST-INVESTIGATION.md` |
+| 6 | FilterDetails 1:1 split off AssetInstance | ✅ DONE 2026-05-01 | Frontend untouched (API shape preserved); 11 backend files updated; 65 models now |
+| 7 | Multi-version pipeline rollout (per-block versioned profiles) | pending | Feature add on FilterProfile |
+| 8 | Decision-tape architecture | pending | Biggest contract change (~2-4 weeks) |
+| 9 | Cycle as event fold (event-source CleaningCycle) | pending | Depends on step 8 to be useful |
+
+## Per-step pattern
+
+For each step:
+1. Enumerate touchpoints (UI, backend, all user types: SUPER_ADMIN / ADMIN / OPERATOR / VIEWER)
+2. Implement
+3. Reset DB if schema changed; reseed
+4. Test all touchpoints across user types
+5. Doc-sync the change immediately (this file's parent rule, `feedback_doc_sync_each_phase` memory)
+
+## Step 1 — DONE
+
+**What:** Replaced the closed `TemplateKind` Prisma enum with a `TemplateKind` lookup table so SUPER_ADMIN can add new kinds (PUMP, VALVE, COMPRESSOR, etc.) without a code migration. The 6 system kinds (BLOCK / AREA / AHU / FILTER / EQUIPMENT / OTHER) are protected — codes immutable, rows non-deletable — so Filter Management / Cleaning Operations / Mobile pages keep routing by code.
+
+**Schema:** `model TemplateKind` (id, code unique, label, description, isSystem, isActive, sortOrder). `AssetTemplate.templateKind` is now String FK to `TemplateKind.code`.
+
+**Backend:** new `apps/api/src/modules/template-kinds/` module with full CRUD under `/api/template-kinds`. Permission gate: `CONFIG_UPDATE` for writes, `ASSET_VIEW` for list. System-protect rules enforced server-side with audit-friendly 409 responses.
+
+**Frontend:** new `/config/template-kinds` page (CRUD UI with lock badge for system rows). Template form dropdown SWR-fetches from `/api/template-kinds?isActive=true`. Templates list shows label looked up from kind code.
+
+**Bug caught during verification:** `template.repository.ts` had `templateKind?` in its type signature but didn't pass it through to Prisma's `data: { ... }`. Every created template was landing with default OTHER. Fixed.
+
+**Counts:** 64→65 models, 37→38 API modules, 26→27 config pages.
+
+## Step 2 — relationshipType enum + bidirectional check (pending)
+
+**What:** `AssetRelationship.relationshipType` is currently `String VarChar(50)` with comment "CONTAINS, CONTAINED_IN, CONNECTED_TO, etc." Free-form. No DB enforcement of the bidirectional pair invariant.
+
+**Plan:**
+- Convert to a Prisma enum (closed set: CONTAINS, CONTAINED_IN, CONNECTED_TO, FEEDS, FED_BY, DEPENDS_ON, DEPENDED_ON_BY, BACKS_UP, BACKED_UP_BY, MONITORS, MONITORED_BY, CUSTOM — pulled from `INVERSE_RELATIONSHIP_MAP` in `packages/shared`)
+- Add a Postgres CHECK or trigger that enforces: for every `(source, target, CONTAINS)` row there must be a `(target, source, CONTAINED_IN)` row, and vice versa
+- `customLabel` field handles the CUSTOM case
+
+**Touchpoints:** schema, packages/shared INVERSE_RELATIONSHIP_MAP (already canonical), all services that write relationships (assets/instance.service, filter-operations, hierarchy), entity-detail Relationships tab in UI, link/attach UI dialogs.
+
+## Step 3 — AssetInstance.organizationId NOT NULL (❌ OBSOLETE 2026-04-30)
+
+**Status:** Superseded by **multi-tenancy removal** (2026-04-30). The `organizationId` column was dropped entirely instead of being made NOT NULL. DigiLog is now single-tenant. See CHANGELOG entry "Multi-Tenancy Removal (2026-04-30)" for the full delta.
+
+## Step 4 — applicableTemplates JSONB → join table (pending)
+
+**What:** `FilterProfile.applicableTemplates` is currently a JSONB array of template UUIDs. No FK enforcement; if a template is deleted, JSON entries dangle.
+
+**Plan:** Replace with a join table `filter_profile_applicable_template (profile_id, template_id)` with FK cascades.
+
+**Skip for `allowedBlocks`:** That field is conditional (only used when `blockRestriction = SPECIFIC_BLOCKS`); JSONB is fine for the conditional case.
+
+**Touchpoints:** schema, FilterProfile create/update services, filter-profile UI dialog, any reads that filter by template applicability.
+
+## Step 5 — Investigate two checklist systems (✅ NO-OP 2026-04-30)
+
+**Investigation outcome:** They are different domains, not duplicates. **Closed without schema work.** Full findings: `tasks/STEP-5-CHECKLIST-INVESTIGATION.md`.
+
+- **System A (`AssetTemplate.checklistSchema`)** — generic per-entity inspection. Submitted via `POST /api/data/checklist`, persisted to `ts_checklist_responses` (TSDB hypertable, hash-bound) and opens a 3-step `ChecklistReview` (Performed → Checked → Verified) e-sig workflow for 21 CFR Part 11 attestation.
+- **System B (`ChecklistProfile`+`ChecklistQuestion`)** — synchronous gate inside a cleaning cycle. Referenced by `FilterPipelineStage.configuration.checklistProfileId` for CHECKLIST nodes. Submitted via `POST /api/filters/:id/submit-checklist`, embedded in `FilterEvent` log, must be answered to unblock `advance()`.
+
+You cannot consolidate them without either forcing every cleaning checklist through a 3-step e-sig review (operationally a nightmare) or stripping the review workflow off System A (regulatorily damaging). Optional cosmetic cleanups documented in the findings doc; none are required.
+
+**No schema change. No code change. Investigation closed.**
+
+## Step 6 — FilterDetails 1:1 split off AssetInstance (✅ DONE 2026-05-01)
+
+**What landed:** Filter-specific cycle state (`filterProfileId`, `currentLifecycleState`, `currentCycleId`, `filterSet`) split off `AssetInstance` into a 1:1 `FilterDetails` sidecar. AssetInstance is now generic again — non-filter rows (BLOCK / AHU / AREA / EQUIPMENT / OTHER) no longer carry meaningless nullable cycle columns.
+
+**Strategy:** API response shape preserved via repository flatten. Frontend code untouched (saved 99 frontend touchpoints out of the 223-site total inventory). Eager FilterDetails creation when `templateKind === 'FILTER'`; no rows for other kinds.
+
+**Files changed (backend, 11):** schema.prisma, instance.repository.ts, instance.service.ts, filter-operations.service.ts, pm-schedule.service.ts, cleaning-profile.service.ts, filter-profile.service.ts, bulk-upload-filter.service.ts, super-admin/routes.ts, plus the new helper `apps/api/src/lib/filter-details.ts`. Plan + verification doc: `tasks/STEP-6-FILTERDETAILS-PLAN.md`.
+
+**Counts:** 64 → **65** models. Enums unchanged at 22. Modules unchanged at 36.
+
+## Step 7 — Multi-version pipeline rollout (pending)
+
+**What:** Add per-block target version on FilterProfile so a new cleaning recipe can be rolled out to one block first, evaluated, then propagated.
+
+**Touchpoints:** schema (FilterProfile.targetCleaningProfileVersion + per-block override table), startCycle service to read the right version per block, FilterProfile UI rollout panel, audit table for version-rollout history.
+
+**Regulatory caveat:** Pharma SOPs may require uniform recipe across all blocks. Verify with customer before implementing.
+
+## Step 8 — Decision-tape architecture (pending; biggest)
+
+**What:** Server emits ordered action tape per filter: `GET /api/filters/:id/current-state` returns `{ state, actions: [{type, params, validations}] }`. Tablet renders buttons/dialogs from `actions`; client has zero pipeline logic. Eliminates the entire client/server pipeline-drift bug class that haunted Phase 3 + Phase 5.
+
+**Touchpoints:** server tape generator (new), frontend renderer (rewrite), offline replay (validate against cached tape), APK rebuild + versioned tape contract.
+
+**Effort:** 2-4 weeks.
+
+## Step 9 — Cycle as event fold (pending; depends on #8)
+
+**What:** Make `CleaningCycle.status` derived from `FilterEvent` log via materialized projection. The hash-chained event log already IS the source of truth for inspection; cycle row becomes a triggered/computed projection.
+
+**Touchpoints:** schema, every status-mutation site in filter-operations.service, all reads that compute cycle status, audit/reporting projections.
+
+**Why after #8:** Decision-tape moves business logic to the server; #9 then makes cycle state purely derivable.
+
+## Out-of-band tracks
+
+These are NOT part of the 9 steps but were discussed during the same conversations:
+
+- **Multi-tenancy removal** — ✅ DONE 2026-04-30. Single-tenant deployment. Step 3 retired. See CHANGELOG.
+- **AWS SNS spawn-aws-CLI** — `notification-delivery/channels/sms-channel.ts:75` shells out to the AWS CLI. Switch to `@aws-sdk/client-sns`. Pending product decision.
+- **Phase 5+ proper Windows-service launcher** — partial via NSSM scripts in `d1ce9f5`; full automation still pending.
+
+## Memory entries that informed this plan
+
+- `feedback_doc_sync_each_phase` — per-step doc-sync rule
+- `feedback_filter_data_mgmt_mirrors_pages` — preserve operational expectation
+- `feedback_dynamic_template_fields` — template-driven UI
+- `feedback_remarks_mandatory` — audit-friendly defaults
+- `feedback_no_auto_sync_config` — config tabs are independent

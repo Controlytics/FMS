@@ -63,6 +63,11 @@ export function TemplateFormEditor({
   onUpdateChecklistItem,
   onRemoveChecklistItem,
 }: TemplateFormEditorProps) {
+  // Fetch active template kinds for the dropdown. Kinds are admin-editable
+  // (Configuration → Template Kinds) so we always pull from the API rather
+  // than hardcode the list. Falls back to seeded codes if the fetch fails.
+  const { data: templateKindsData } = useSWR<{ code: string; label: string; description?: string | null; isSystem: boolean }[]>('/api/template-kinds?isActive=true');
+
   return (
     <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-1">
       {error && (
@@ -111,6 +116,33 @@ export function TemplateFormEditor({
             {ICONS.map((ic) => (
               <option key={ic.value} value={ic.value}>{ic.label}</option>
             ))}
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold text-slate-700">
+            Template Kind
+            <span className="ml-1 text-xs text-slate-400 font-normal">(determines whether Filter Operations / Cleaning pages can resolve this template — manage kinds at Configuration → Template Kinds)</span>
+          </label>
+          <Select
+            value={formData.templateKind ?? 'OTHER'}
+            onChange={(e) => onFormChange({ templateKind: e.target.value as any })}
+            selectSize="md"
+          >
+            {(() => {
+              // SWR result for the kinds list. Fetched once per form mount.
+              const list = (templateKindsData as { code: string; label: string; description?: string | null; isSystem: boolean }[] | undefined) ?? [];
+              if (list.length === 0) {
+                // Fallback while loading or if endpoint fails — shows the seeded codes
+                return ['OTHER', 'BLOCK', 'AREA', 'AHU', 'FILTER', 'EQUIPMENT'].map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ));
+              }
+              return list.map((k) => (
+                <option key={k.code} value={k.code}>
+                  {k.label}{k.isSystem ? ' (system)' : ''}{k.description ? ` — ${k.description}` : ''}
+                </option>
+              ));
+            })()}
           </Select>
         </div>
         <div className="space-y-1.5">

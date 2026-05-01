@@ -13,7 +13,6 @@ export interface FilterInstance {
   currentCycleId: string | null;
   filterProfileId: string | null;
   filterSet: string | null;
-  organizationId?: string | null;
   parentId?: string | null;
   attributes?: Record<string, any>;
   template?: { name: string };
@@ -57,7 +56,6 @@ export interface FilterProfile {
   defaultPmScheduleId?: string | null;
   blockRestriction?: string;
   maxCleaningCycles?: number | null;
-  organizationId: string;
   isActive: boolean;
   cleaningProfileName?: string;
   activeFilterCount?: number;

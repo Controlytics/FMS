@@ -45,7 +45,7 @@ export function BulkUploadFiltersDialog({ open, onClose, ahuId, ahuName, onSucce
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Fetch blocks for dropdown
-  const { data: templatesData } = useSWR(open ? '/api/assets/templates?limit=100' : null);
+  const { data: templatesData } = useSWR(open ? '/api/assets/templates?limit=1000' : null);
   const { data: instancesData } = useSWR(open ? '/api/assets/instances?limit=500' : null);
 
   const blockTemplateId = (templatesData?.data ?? []).find((t: any) => t.name === 'Block')?.id;

@@ -5,22 +5,19 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
-import { orgScope } from '../../lib/org-scope.js';
-
-function orgFilter(ctx: RequestContext) { return orgScope(ctx); }
 
 export class FilterProfileService {
-  async list(ctx: RequestContext, query: { page?: number; limit?: number }) {
+  async list(_ctx: RequestContext, query: { page?: number; limit?: number }) {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
-    const where: any = { ...orgFilter(ctx) };
+    const where: any = {};
 
     const [data, total] = await Promise.all([
       prisma.filterProfile.findMany({
         where,
         include: {
           cleaningProfile: { select: { name: true } },
-          _count: { select: { assetInstances: true } },
+          _count: { select: { filterDetails: true } }, // Step 6: assetInstances → filterDetails
         },
         skip: (page - 1) * limit,
         take: limit,
@@ -29,10 +26,10 @@ export class FilterProfileService {
       prisma.filterProfile.count({ where }),
     ]);
 
-    const enriched = data.map((fp) => ({
+    const enriched = data.map((fp: any) => ({
       ...fp,
       cleaningProfileName: fp.cleaningProfile?.name ?? 'Unknown',
-      activeFilterCount: fp._count.assetInstances,
+      activeFilterCount: fp._count.filterDetails,
       cleaningProfile: undefined,
       _count: undefined,
     }));
@@ -40,9 +37,9 @@ export class FilterProfileService {
     return { data: enriched, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async getById(ctx: RequestContext, id: string) {
+  async getById(_ctx: RequestContext, id: string) {
     const fp = await prisma.filterProfile.findFirst({
-      where: { id, ...orgFilter(ctx) },
+      where: { id },
     });
     if (!fp) throw new AppError(404, 'NOT_FOUND', 'Filter profile not found');
     return fp;
@@ -66,7 +63,6 @@ export class FilterProfileService {
         blockRestriction: blockRestriction ?? 'OWN_BLOCK_ONLY',
         allowedBlocks: allowedBlocks ?? undefined,
         maxCleaningCycles,
-        organizationId: (() => { if (!ctx.organizationId) throw new AppError(400, 'VALIDATION_ERROR', 'Organization context required'); return ctx.organizationId; })(),
       },
     });
 
@@ -118,8 +114,8 @@ export class FilterProfileService {
   async delete(ctx: RequestContext, id: string) {
     const existing = await this.getById(ctx, id);
 
-    // Check if any filters are currently assigned to this profile
-    const assignedCount = await prisma.assetInstance.count({
+    // Check if any filters are currently assigned to this profile (FilterDetails — Step 6).
+    const assignedCount = await prisma.filterDetails.count({
       where: { filterProfileId: id },
     });
     if (assignedCount > 0) {
@@ -141,21 +137,17 @@ export class FilterProfileService {
   async assign(ctx: RequestContext, id: string, filterInstanceIds: string[]) {
     const fp = await this.getById(ctx, id);
 
-    // Validate target filters belong to the same organization
-    if (ctx.organizationId) {
-      const filterCount = await prisma.assetInstance.count({
-        where: { id: { in: filterInstanceIds }, organizationId: ctx.organizationId },
+    // filterProfileId now lives on FilterDetails (Step 6) — upsert per-instance
+    // so legacy non-eager rows still get a sidecar row.
+    let assignedCount = 0;
+    await Promise.all(filterInstanceIds.map(async (assetId) => {
+      await prisma.filterDetails.upsert({
+        where: { assetInstanceId: assetId },
+        update: { filterProfileId: id },
+        create: { assetInstanceId: assetId, filterProfileId: id },
       });
-      if (filterCount !== filterInstanceIds.length) {
-        throw new AppError(400, 'VALIDATION_ERROR', 'Some filters do not belong to your organization');
-      }
-    }
-
-    // Update each filter instance
-    const updated = await prisma.assetInstance.updateMany({
-      where: { id: { in: filterInstanceIds } },
-      data: { filterProfileId: id },
-    });
+      assignedCount++;
+    }));
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'ASSIGNED',
@@ -164,6 +156,6 @@ export class FilterProfileService {
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
     });
 
-    return { success: true, assignedCount: updated.count };
+    return { success: true, assignedCount };
   }
 }

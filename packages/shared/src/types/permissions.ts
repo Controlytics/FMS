@@ -1,13 +1,5 @@
 export const PERMISSIONS = {
 
-  // Organization management
-  ORG_MANAGE: 'ORG_MANAGE',
-  ORG_VIEW: 'ORG_VIEW',
-  ORG_CREATE: 'ORG_CREATE',
-  ORG_DELETE: 'ORG_DELETE',
-
-
-
   // User management
   USER_CREATE: 'USER_CREATE',
   USER_READ: 'USER_READ',

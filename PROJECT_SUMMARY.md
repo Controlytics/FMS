@@ -13,8 +13,8 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 | Layer | Technology | Details |
 |---|---|---|
 | **Frontend** | React 19 + TypeScript | Vite SPA, Tailwind CSS, SWR, ReactFlow |
-| **Backend** | Node.js + Fastify 5 | TypeScript, 37 API modules, 200+ endpoints |
-| **Primary DB** | PostgreSQL 18 | 64 Prisma models, 22 enums |
+| **Backend** | Node.js + Fastify 5 | TypeScript, 36 API modules, 200+ endpoints (org-admin + tenant-admin removed in MT removal 2026-04-30) |
+| **Primary DB** | PostgreSQL 18 | 65 Prisma models, 22 enums (TemplateKind lookup added in Step 1; MT removal 2026-04-30 dropped Organization model; Step 6 2026-05-01 added FilterDetails 1:1 sidecar) |
 | **Time-Series DB** | TimescaleDB | 7 hypertables for telemetry data |
 | **Job Queue** | graphile-worker on PostgreSQL | LISTEN/NOTIFY + SKIP LOCKED + advisory locks; no separate Redis service |
 | **Pub/sub (optional)** | Redis 7 / Memurai | WebSocket events, RPC routing, pipeline tracer, debug recorder |
@@ -28,11 +28,11 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 ```
 21cfrlogbook-DigitalFMS/
 ├── apps/
-│   ├── api/            — Fastify backend (37 modules, TypeScript)
-│   ├── web/            — React SPA (23 route folders/files, Vite + Tailwind)
+│   ├── api/            — Fastify backend (36 modules, TypeScript)
+│   ├── web/            — React SPA (22 route folders/files, Vite + Tailwind)
 │   └── android/        — Capacitor wrapper for Android APK (incl. RfidPlugin.java for SDK-mode RFID)
 ├── packages/
-│   ├── shared/         — Zod schemas, permissions, types (109 permissions, 91 privileges, 81 reauth actions, 26 sidebar items)
+│   ├── shared/         — Zod schemas, permissions, types (105 permissions, 89 privileges, 81 reauth actions, 25 sidebar items)
 │   ├── db/             — Prisma client, TimescaleDB pool, telemetry batcher
 │   └── queue/          — graphile-worker job queue (Postgres-backed; Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis)
 ├── rfid_scan_app/      — Native Kotlin Android RFID scanner (predates RfidPlugin in DigiLog APK)
@@ -44,8 +44,8 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 ## Key Features
 
 ### Phase 1: Core Platform
-- Multi-tenant organization management
-- Role-based access control (RBAC) with 109 permissions
+- Single-tenant deployment (multi-tenancy removed 2026-04-30)
+- Role-based access control (RBAC) with 105 permissions
 - JWT authentication with session management
 - Asset template and instance management (hierarchical)
 - Rule chain engine (77 node types across 8 categories)

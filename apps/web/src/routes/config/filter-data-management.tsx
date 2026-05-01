@@ -240,7 +240,7 @@ export function FilterDataManagementPage() {
   // displays the same joined+computed columns instead of raw DB rows.
   const cyclesEnriched = useSWR<any>(tab === 'cleaning-cycles' ? '/api/filters/cycles?page=1&limit=50&includeEvents=true' : null);
   const cycleInstancesData = useSWR<any>(tab === 'cleaning-cycles' ? '/api/assets/instances?limit=500' : null);
-  const cycleTemplatesData = useSWR<any>(tab === 'cleaning-cycles' ? '/api/assets/templates?limit=100' : null);
+  const cycleTemplatesData = useSWR<any>(tab === 'cleaning-cycles' ? '/api/assets/templates?limit=1000' : null);
   const cycleFilterTemplateId = (cycleTemplatesData.data?.data ?? []).find((t: any) => t.name === 'Filter')?.id;
   const cycleFilterAttrMap = new Map<string, Record<string, any>>();
   (cycleInstancesData.data?.data ?? []).forEach((i: any) => {

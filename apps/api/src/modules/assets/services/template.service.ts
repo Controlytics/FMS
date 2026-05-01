@@ -1,7 +1,29 @@
 import type { RequestContext } from '../../../types/context.js';
 import { auditLog } from '../../../lib/audit.js';
-import { NotFoundError, ConflictError } from '../../../lib/errors.js';
+import { NotFoundError, ConflictError, ValidationError } from '../../../lib/errors.js';
+import { prisma } from '../../../lib/prisma.js';
 import { templateRepository } from '../repositories/template.repository.js';
+
+// Resolve a templateKind code to its row, or throw ValidationError if it
+// doesn't exist. Saves the caller from a generic Postgres FK 500 by
+// surfacing a 400 with a helpful message that lists valid kinds.
+async function assertTemplateKindExists(code: string): Promise<void> {
+  const kind = await prisma.templateKind.findUnique({ where: { code } });
+  if (!kind) {
+    const allKinds = await prisma.templateKind.findMany({
+      where: { isActive: true },
+      select: { code: true },
+      orderBy: { sortOrder: 'asc' },
+    });
+    throw new ValidationError(
+      `Template kind "${code}" not found. Valid kinds: ${allKinds.map((k) => k.code).join(', ')}. ` +
+        'Add new kinds via Configuration → Template Kinds.',
+    );
+  }
+  if (!kind.isActive) {
+    throw new ValidationError(`Template kind "${code}" is currently deactivated. Reactivate it (or pick another) before assigning templates to it.`);
+  }
+}
 
 export const templateService = {
   async list(query: { search?: string; isActive?: string; page: number; limit?: number }, visibilityFilter?: Record<string, unknown>) {
@@ -33,11 +55,17 @@ export const templateService = {
     const existing = await templateRepository.findByName(data.name);
     if (existing) throw new ConflictError('Template name already exists');
 
+    // Pre-check the FK to surface a 400 with a helpful message instead of
+    // letting Postgres raise a generic FK 500. Zod has already enforced
+    // the regex shape; this enforces existence in the lookup table.
+    await assertTemplateKindExists(data.templateKind ?? 'OTHER');
+
     const template = await templateRepository.create({
       name: data.name,
       description: data.description,
       category: data.category,
       icon: data.icon,
+      templateKind: data.templateKind,
       attributeSchema: data.attributeSchema,
       telemetrySchema: data.telemetrySchema,
       expectedIdentifiers: data.expectedIdentifiers,
@@ -112,6 +140,12 @@ export const templateService = {
     const existing = await templateRepository.findById(id);
     if (!existing) throw new NotFoundError('Template not found');
 
+    // Same FK pre-check as create() — only when the caller is changing
+    // templateKind. Saves the operator from a generic Postgres FK 500.
+    if (data.templateKind !== undefined && data.templateKind !== existing.templateKind) {
+      await assertTemplateKindExists(data.templateKind);
+    }
+
     if (data.name && data.name !== existing.name) {
       const dup = await templateRepository.findByName(data.name);
       if (dup) throw new ConflictError('Template name already exists');
@@ -120,7 +154,7 @@ export const templateService = {
     const newVersion = existing.version + 1;
 
     const updateData: Record<string, unknown> = { version: newVersion, updatedBy: ctx.userId };
-    for (const key of ['name', 'description', 'category', 'icon', 'maxParentConnections', 'maxConnections',
+    for (const key of ['name', 'description', 'category', 'icon', 'templateKind', 'maxParentConnections', 'maxConnections',
       'dataIngestionEnabled', 'transportType', 'credentialType', 'inactivityTimeout', 'defaultMaxDataRate', 'autoProvision', 'defaultRuleChainId']) {
       if (data[key] !== undefined) updateData[key] = data[key];
     }

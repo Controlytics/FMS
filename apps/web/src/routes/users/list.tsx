@@ -24,8 +24,8 @@ import { UserPagination } from './components/user-pagination';
 
 type PendingCount = { count: number };
 
-export function UserListPage({ orgId }: { orgId?: string } = {}) {
-  const apiBase = orgId ? `/api/organizations/${orgId}` : `/api`;
+export function UserListPage() {
+  const apiBase = `/api`;
   const { user: currentUser } = useAuth();
   const reauth = useReauth();
   const { toast } = useToast();
@@ -75,8 +75,8 @@ export function UserListPage({ orgId }: { orgId?: string } = {}) {
   if (statusFilter) params.set('status', statusFilter);
 
   const { data: rawData, mutate } = useSWR(`${apiBase}/users?${params}`);
-  const { data: pendingData } = useSWR<PendingCount>(orgId ? null : '/api/users/reset-requests/pending');
-  const { data: userStatsData, mutate: mutateStats } = useSWR<{ total: number; enabled: number; disabled: number; locked: number; expired: number }>(orgId ? null : '/api/users/stats');
+  const { data: pendingData } = useSWR<PendingCount>('/api/users/reset-requests/pending');
+  const { data: userStatsData, mutate: mutateStats } = useSWR<{ total: number; enabled: number; disabled: number; locked: number; expired: number }>('/api/users/stats');
   const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy', { revalidateOnMount: true, dedupingInterval: 5000 });
   const policy = { ...DEFAULT_PASSWORD_POLICY, ...policyData };
 

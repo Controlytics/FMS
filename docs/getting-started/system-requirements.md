@@ -12,7 +12,7 @@
 | Component | Version | Purpose |
 |-----------|---------|---------|
 | Node.js | 20.x or 22.x | Application runtime |
-| PostgreSQL | 18 | Primary database (Prisma ORM, **64 models, 22 enums**) — also hosts the graphile-worker queue schema |
+| PostgreSQL | 18 | Primary database (Prisma ORM, **65 models, 22 enums**) — also hosts the graphile-worker queue schema |
 | TimescaleDB | latest for PG 18 | Time-series extension (database: digilog_tsdb, 7 hypertables) |
 | Mosquitto | 2.0.x | MQTT broker (Phase 1 of windows-friendly-rewrite swapped from EMQX). Install via `scripts/install-mosquitto.ps1`. |
 | Microsoft Edge | preinstalled on Win10+/Server 2019+ | Used by `puppeteer-core` for PDF report rendering (Phase 3 swap) |

@@ -39,7 +39,7 @@ For end-to-end details, start with `PROJECT_SUMMARY.md` (overview), `PROJECT_ARC
 - **Audit trail** — Tamper-evident SHA-256 hash-chain log with before/after snapshots
 - **Notifications** — In-app + email (SMTP/OAuth2) + SMS (AWS SNS / Twilio) + Telegram + Slack
 - **Backup/restore** — Full DB export covering all 64 tables (`pg_tables` + `jsonb_populate_recordset`), SHA-256 integrity verification
-- **RBAC** — 6 hierarchical roles, **109 permissions**, **91 feature toggles**, **81 reauthentication actions** across 16 categories, **26 sidebar items**
+- **RBAC** — 6 hierarchical roles, **105 permissions**, **89 feature toggles**, **81 reauthentication actions** across 16 categories, **25 sidebar items** (single-tenant since 2026-04-30)
 - **Help articles** — 40+ versioned in-app docs across 8 categories
 - **LDAP integration** — Active Directory / OpenLDAP with group→role mapping
 

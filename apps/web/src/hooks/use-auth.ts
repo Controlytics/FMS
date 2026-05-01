@@ -17,7 +17,6 @@ interface User {
   lastLogin: string | null;
   createdAt?: string;
   permissions?: string[];
-  organizationId?: string | null;
   scope?: string | null;
 }
 
@@ -183,7 +182,10 @@ export function useAuth() {
     // Network errors should NOT log the user out — only real 401s should.
     // When offline, SWR sets `error` to a TypeError("Failed to fetch"), but
     // we still have a cached user + token, so the user stays authenticated.
-    isAuthenticated: !!user && (!error || isNetworkError(error)),
+    // Token presence is required so a stale cached user (after a 401 cleared
+    // the token) cannot keep the app authenticated and bounce between
+    // /login → / → /login.
+    isAuthenticated: !!user && !!getToken() && (!error || isNetworkError(error)),
     login,
     logout,
     mutate,

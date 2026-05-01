@@ -5,15 +5,12 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
-import { orgScope } from '../../lib/org-scope.js';
-
-function orgFilter(ctx: RequestContext) { return orgScope(ctx); }
 
 export class CleaningProfileService {
-  async list(ctx: RequestContext, query: { page?: number; limit?: number; status?: string }) {
+  async list(_ctx: RequestContext, query: { page?: number; limit?: number; status?: string }) {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
-    const where: any = { ...orgFilter(ctx) };
+    const where: any = {};
 
     if (query.status === 'ACTIVE') {
       // Show only profiles with ACTIVE status (latest version per name)
@@ -22,7 +19,7 @@ export class CleaningProfileService {
       // Show only profiles that have NO active version at all
       // (i.e. the profile was explicitly disabled, not just an old version)
       const activeNames = await prisma.filterCleaningProfile.findMany({
-        where: { ...orgFilter(ctx), status: 'ACTIVE' },
+        where: { status: 'ACTIVE' },
         select: { name: true },
         distinct: ['name'],
       });
@@ -71,9 +68,9 @@ export class CleaningProfileService {
     };
   }
 
-  async getById(ctx: RequestContext, id: string) {
+  async getById(_ctx: RequestContext, id: string) {
     const profile = await prisma.filterCleaningProfile.findFirst({
-      where: { id, ...orgFilter(ctx) },
+      where: { id },
       include: {
         stages: { orderBy: { sortOrder: 'asc' } },
         connections: true,
@@ -93,7 +90,6 @@ export class CleaningProfileService {
       data: {
         name,
         description,
-        organizationId: (() => { if (!ctx.organizationId) throw new AppError(400, 'VALIDATION_ERROR', 'Organization context required'); return ctx.organizationId; })(),
         flowMode: flowMode ?? 'STRICT',
         alarmOnForwardSkip: alarmOnForwardSkip ?? true,
         alarmOnBackwardJump: alarmOnBackwardJump ?? true,
@@ -167,7 +163,6 @@ export class CleaningProfileService {
       data: {
         name: data.name ?? existing.name,
         description: data.description ?? existing.description,
-        organizationId: existing.organizationId,
         flowMode: data.flowMode ?? existing.flowMode,
         alarmOnForwardSkip: data.alarmOnForwardSkip ?? existing.alarmOnForwardSkip,
         alarmOnBackwardJump: data.alarmOnBackwardJump ?? existing.alarmOnBackwardJump,
@@ -322,24 +317,32 @@ export class CleaningProfileService {
     return { success: true };
   }
 
-  async getAssignedAssets(ctx: RequestContext, id: string) {
+  async getAssignedAssets(_ctx: RequestContext, id: string) {
     // Find all filter profiles that reference this cleaning profile
     const filterProfiles = await prisma.filterProfile.findMany({
-      where: { cleaningProfileId: id, ...orgFilter(ctx) },
+      where: { cleaningProfileId: id },
       select: { id: true },
     });
     const fpIds = filterProfiles.map(fp => fp.id);
 
     if (fpIds.length === 0) return [];
 
-    // Find all assets assigned to these filter profiles
-    const assets = await prisma.assetInstance.findMany({
-      where: { filterProfileId: { in: fpIds } },
-      select: { id: true, name: true, filterSet: true, currentLifecycleState: true, filterProfileId: true },
+    // Find all assets assigned to these filter profiles.
+    // filterSet/currentLifecycleState/filterProfileId now live on FilterDetails (Step 6).
+    const assetsRaw = await prisma.assetInstance.findMany({
+      where: { filterDetails: { is: { filterProfileId: { in: fpIds } } } },
+      select: {
+        id: true, name: true,
+        filterDetails: { select: { filterSet: true, currentLifecycleState: true, filterProfileId: true } },
+      },
       orderBy: { name: 'asc' },
     });
-
-    return assets;
+    return assetsRaw.map(a => ({
+      id: a.id, name: a.name,
+      filterSet: a.filterDetails?.filterSet ?? null,
+      currentLifecycleState: a.filterDetails?.currentLifecycleState ?? null,
+      filterProfileId: a.filterDetails?.filterProfileId ?? null,
+    }));
   }
 
   async assignAssets(ctx: RequestContext, id: string, assetIds: string[]) {
@@ -347,7 +350,7 @@ export class CleaningProfileService {
 
     // Find or create a filter profile for this cleaning profile
     let filterProfile = await prisma.filterProfile.findFirst({
-      where: { cleaningProfileId: id, organizationId: profile.organizationId },
+      where: { cleaningProfileId: id },
     });
 
     if (!filterProfile) {
@@ -355,7 +358,6 @@ export class CleaningProfileService {
         data: {
           name: profile.name,
           cleaningProfileId: id,
-          organizationId: profile.organizationId,
           blockRestriction: 'OWN_BLOCK_ONLY',
         },
       });
@@ -367,18 +369,23 @@ export class CleaningProfileService {
       });
     }
 
-    // Unassign all current assets from this filter profile
-    await prisma.assetInstance.updateMany({
+    // Unassign all current assets from this filter profile (FilterDetails — Step 6).
+    await prisma.filterDetails.updateMany({
       where: { filterProfileId: filterProfile.id },
       data: { filterProfileId: null },
     });
 
-    // Assign selected assets
+    // Assign selected assets. Each asset must already have a FilterDetails row
+    // (eager-created at instance.create time for FILTER-kind templates).
+    // For any asset without a row (legacy / non-filter), upsert is the safe path.
     if (assetIds.length > 0) {
-      await prisma.assetInstance.updateMany({
-        where: { id: { in: assetIds } },
-        data: { filterProfileId: filterProfile.id },
-      });
+      await Promise.all(assetIds.map(assetId =>
+        prisma.filterDetails.upsert({
+          where: { assetInstanceId: assetId },
+          update: { filterProfileId: filterProfile.id },
+          create: { assetInstanceId: assetId, filterProfileId: filterProfile.id },
+        })
+      ));
     }
 
     await auditLog({

@@ -38,8 +38,7 @@ export class ReportService {
     const config = (template.versions[0]?.config ?? {}) as any;
     const version = template.currentVersion;
 
-    // 2. Get org name for meta resolution
-    const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId ?? template.orgId } });
+    // 2. Resolve user for meta resolution
     const user = await prisma.user.findUnique({ where: { id: ctx.userSub } });
 
     const reportName = input.name || `${template.name} - ${new Date().toLocaleDateString()}`;
@@ -51,10 +50,10 @@ export class ReportService {
         start: input.timeRangeStart ? new Date(input.timeRangeStart) : new Date(Date.now() - 86400_000),
         end: input.timeRangeEnd ? new Date(input.timeRangeEnd) : new Date(),
       },
-      orgId: ctx.organizationId ?? template.orgId,
+      orgId: '',
       userId: ctx.userSub,
       userName: user?.fullName ?? ctx.userId,
-      orgName: org?.name ?? '',
+      orgName: '',
       reportName,
       templateName: template.name,
     };
@@ -89,7 +88,6 @@ export class ReportService {
         pdfPath,
         pdfSize: pdfBuffer.length,
         generatedBy: ctx.userSub,
-        orgId: resCtx.orgId,
       },
     });
 
@@ -109,14 +107,11 @@ export class ReportService {
     return report;
   }
 
-  async list(ctx: RequestContext, query: { page?: number; limit?: number; status?: string; templateId?: string }) {
+  async list(_ctx: RequestContext, query: { page?: number; limit?: number; status?: string; templateId?: string }) {
     const page = Math.max(1, query.page ?? 1);
     const limit = Math.min(100, Math.max(1, query.limit ?? 20));
     const where: any = {};
 
-    if (ctx.userRole !== 'SUPER_ADMIN' && ctx.organizationId) {
-      where.orgId = ctx.organizationId;
-    }
     if (query.status) where.status = query.status;
     if (query.templateId) where.templateId = query.templateId;
 

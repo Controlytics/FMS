@@ -124,7 +124,7 @@ export default async function authRoutes(app: FastifyInstance) {
     const durationHours = (sessionCfg?.configValue as any)?.sessionDurationHours ?? 8;
 
     // Read current user from DB to get latest role (in case it was changed by an admin)
-    const currentUser = await prisma.user.findUnique({ where: { id: req.user.sub }, select: { role: true, username: true, status: true, organizationId: true } });
+    const currentUser = await prisma.user.findUnique({ where: { id: req.user.sub }, select: { role: true, username: true, status: true } });
     if (!currentUser || currentUser.status !== 'ENABLED') {
       return reply.code(401).send({ error: 'ACCOUNT_INACTIVE', message: 'Account is not active' });
     }
@@ -135,8 +135,6 @@ export default async function authRoutes(app: FastifyInstance) {
       username: currentUser.username,
       role: currentUser.role,
       sessionId: req.user.sessionId,
-      
-      organizationId: currentUser.organizationId || undefined,
     }, durationHours);
 
     return { token: newToken, expiresIn: `${durationHours}h` };
@@ -195,7 +193,6 @@ export default async function authRoutes(app: FastifyInstance) {
             lastLogin: { type: 'string', nullable: true, format: 'date-time' },
             createdAt: { type: 'string', format: 'date-time' },
             permissions: { type: 'array', items: { type: 'string' } },
-            organizationId: { type: 'string', nullable: true },
             scope: { type: 'string', nullable: true },
           },
         },

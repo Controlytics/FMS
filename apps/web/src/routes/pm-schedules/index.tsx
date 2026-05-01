@@ -139,17 +139,8 @@ export function PmScheduleListPage() {
     globalMutate('/api/pm-schedules/entries/pending-counts');
   };
 
-  // PM disabled check
-  if (pmConfig && !(pmConfig as any)?.enabled && !((pmConfig as any)?.value?.enabled)) {
-    return (
-      <div className="p-6">
-        <div className="bg-white border border-slate-200 rounded-2xl p-16 text-center shadow-sm">
-          <h2 className="text-xl font-semibold text-slate-700 mb-2">PM Module Disabled</h2>
-          <p className="text-slate-500">Enable Preventive Maintenance scheduling in Configuration settings.</p>
-        </div>
-      </div>
-    );
-  }
+  // PM disabled check moved below all hooks (was here before; the early return
+  // skipped the useSWR + useMemo hooks defined further down → React error #300).
 
   const handleDownloadTemplate = async () => {
     try {
@@ -272,6 +263,20 @@ export function PmScheduleListPage() {
     const start = (page - 1) * perPage;
     return entries.slice(start, start + perPage);
   }, [entries, page, perPage]);
+
+  // PM disabled check — must run AFTER all hooks above to avoid React error #300
+  // ("rendered fewer hooks than expected") when the config arrives async and
+  // the page short-circuits on the second render.
+  if (pmConfig && !(pmConfig as any)?.enabled && !((pmConfig as any)?.value?.enabled)) {
+    return (
+      <div className="p-6">
+        <div className="bg-white border border-slate-200 rounded-2xl p-16 text-center shadow-sm">
+          <h2 className="text-xl font-semibold text-slate-700 mb-2">PM Module Disabled</h2>
+          <p className="text-slate-500">Enable Preventive Maintenance scheduling in Configuration settings.</p>
+        </div>
+      </div>
+    );
+  }
 
   // Group paginated entries by AHU for display
   const groupedEntries: Array<{ ahuName: string; ahuId: string; entries: ScheduleEntry[]; filterNames: string[] }> = [];

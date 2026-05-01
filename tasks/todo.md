@@ -1,5 +1,17 @@
 # Documentation Audit & Cleanup Plan — 2026-04-29
 
+## Audit log
+
+- **2026-04-30 — Step 1 of architectural refactor** (admin-editable TemplateKind lookup) — schema + backend + frontend complete; e2e UI test pass complete; 12 docs synced. `tasks/MT-REMOVAL-TOUCHPOINTS.md` and `tasks/RESUME-STATE-2026-04-30-step1-templateKind-done.md` are the authoritative records.
+- **2026-04-30 — Multi-tenancy removal** — Schema dropped `Organization` model + 11 `organizationId` columns + 2 `orgId` columns; `org-admin` + `tenant-admin` modules deleted; shared package lost 4 ORG_* permissions + 2 org.* privileges + ORG_ADMIN role + Organizations sidebar item; frontend `routes/tenant/` folder deleted, all org form fields stripped. Net counts: 65→64 models, 38→36 modules, 109→105 perms, 91→89 privileges, 26→25 sidebar items. JWT `scope` always stamps `GLOBAL`. Step 3 of the 9-step plan (`organizationId NOT NULL`) is OBSOLETE. CHANGELOG + 9-step plan + BACKEND_GUIDE + API_REFERENCE + FRONTEND_GUIDE + PROJECT_SUMMARY + PROJECT_ARCHITECTURE + CLAUDE.md (root + worktree) + apps/api/CLAUDE.md + packages/shared/CLAUDE.md updated. Touchpoint inventory at `tasks/MT-REMOVAL-TOUCHPOINTS.md`.
+
+- **2026-04-30 — Post-MT-removal e2e bug sweep + hardening** — Walked 23 pages as SUPER_ADMIN, found and fixed 3 issues: (1) `/pm-schedules` React error #300 crash (early-return-before-hooks → moved below all hooks); (2) `/my-tasks` misleading red error toast when PM disabled (replaced with amber-tinted "Enable in Configuration" message); (3) `/organizations` and any unknown URL rendered blank page (added catch-all `<Route path="*" element={<Navigate to="/" replace />} />` in main.tsx). Net `<Route>` count 80→81. CHANGELOG + FRONTEND_GUIDE updated.
+
+- **2026-04-30 — Doc-sync re-verification** — Re-ran live counts (`grep`-based) against schema/shared/modules. All counts match what's in the docs from the prior sync (64/22/105/89/81/25/36/30/27). CHANGELOG hardening subsection + FRONTEND_GUIDE catch-all section added. No drift detected elsewhere.
+
+---
+
+
 ## Survey results
 
 **224 tracked .md files**, plus 6 untracked AI-generated docs in the root. The doc landscape splits into 5 buckets:
@@ -1088,3 +1100,244 @@ Stop-Process -Id <api-pid> -Force; Start-Sleep 6; Get-Service DigiLogAPI-Phase5 
 
 - Removing the legacy `start-digilog.bat` / `stop-digilog.bat` — those still target the parent repo (not the worktree) and use `tsx watch` / `vite --host` in dev mode, which is a different workflow from the production-style services this work added. Kept as-is for the dev path; the new scripts are the production path.
 - Migrating the parent repo to the same NSSM scripts — the install pattern works for any worktree but the service names hard-pin the worktree path via NSSM `AppDirectory`. Would need a parameterised version. Out of scope; separate follow-up if you want the main install supervised the same way.
+
+---
+
+## 2026-04-30 — Architectural Refactor Step 1: Admin-editable TemplateKind lookup
+
+User asked for a 9-step structural refactor (full plan in `future/architectural-refactor-9-steps.md`; resume guide in `tasks/RESUME-STATE-2026-04-30-step1-templateKind-done.md`). Step 1 done. Steps 2-9 pending in the task list (#18 - #25).
+
+### What landed (uncommitted, per Q4 standing instruction)
+
+Schema: dropped closed `enum TemplateKind`, added `model TemplateKind` (id, code unique varchar(50), label, description, isSystem, isActive, sortOrder, audit cols). `AssetTemplate.templateKind` is now `String @db.VarChar(50)` FK to `TemplateKind.code`.
+
+Backend: new `apps/api/src/modules/template-kinds/routes.ts` with full CRUD under `/api/template-kinds`. System kinds protected (delete returns 409 SYSTEM_KIND with helpful message; PUT preserves code; only label/description/sortOrder/isActive are admin-editable on system rows). In-use kinds protected from delete (409 IN_USE; user must reassign templates first). Audit logged on all writes.
+
+Shared: `SYSTEM_TEMPLATE_KIND_CODES`, `templateKindCodeSchema` (UPPER_SNAKE_CASE regex), `createTemplateKindSchema`, `updateTemplateKindSchema` in `packages/shared/src/schemas/assets.ts`. Barrel-exported.
+
+Seed: 6 system kinds inserted on every fresh DB.
+
+Frontend: new `/config/template-kinds` page (full CRUD UI, lock badge for system rows, +New Kind form). Template form dropdown SWR-fetches from `/api/template-kinds?isActive=true`. Templates list shows label looked up from kind code. 10 frontend lookup sites converted from `t.name === 'Block'` etc. to `t.templateKind === 'BLOCK'`.
+
+Bug fix landed during step-1 verification: `template.repository.ts` type signature accepted `templateKind` but the Prisma `data: { ... }` block was silently dropping it; every created template landed with OTHER. Fixed.
+
+### Live counts after Step 1
+
+| Count | Was | Now |
+|---|---|---|
+| Prisma models | 64 | 65 |
+| Prisma enums | 22 | 22 (unchanged - TemplateKind moved enum to model in same session) |
+| API modules | 37 | 38 |
+| Config pages | 26 | 27 |
+
+### Doc files touched in this audit pass
+
+- `CHANGELOG.md` - new `[Unreleased] - Architectural Refactor Step 1` section above the Phase 5+ NSSM entry
+- `CLAUDE.md` (root) - System Stats now show 65/22, 38, 27; TemplateKind clarified as lookup-table, not enum
+- `apps/api/CLAUDE.md` - Key Paths, Architecture, "38 API Modules" list (template-kinds added in bold)
+- `packages/shared/CLAUDE.md` - `assets.ts` row in the Schemas table mentions `SYSTEM_TEMPLATE_KIND_CODES` + new CRUD schemas
+- `BACKEND_GUIDE.md` - "37 to 38 API modules" + new note under section header
+- `API_REFERENCE.md` - new `### Template Kinds (admin-editable lookup)` block under Templates
+- `FRONTEND_GUIDE.md` - Configuration page count 26 to 27 + new `/config/template-kinds` row
+- `PROJECT_SUMMARY.md` - backend module count + Prisma model count
+- `PROJECT_ARCHITECTURE.md` - Module Structure count + 38-module table (Assets row mentions template-kinds)
+- `future/architectural-refactor-9-steps.md` - NEW file capturing the 9-step plan, current step status, and out-of-band notes
+
+### Doc files intentionally NOT touched
+
+- `windowsIssues.md` - Step 1 doesn't resolve a Windows-compatibility item.
+- `LOCAL_SETUP_WINDOWS.md` / `DEPLOY-WINDOWS.md` - no install-path changes from this step.
+- `OFFLINE_SYNC_ARCHITECTURE.md` - offline cache shape unchanged (templateKind passes through as opaque string).
+- `PHASE_5_RECENT_WORK.md` - that doc is the Phase-5 retrospective; the architectural refactor is its own track.
+
+### Verifications performed
+
+- API direct: POST /api/template-kinds with code=PUMP returned 201 isSystem=false; DELETE /BLOCK returned 409 SYSTEM_KIND with operator-friendly message; PUT /BLOCK with label="Building" returned 200 and was restored to "Block" after; DELETE /PUMP returned 204; SELECT name, template_kind FROM asset_templates returned the 4 canonical templates with their right kinds.
+- UI: SUPER_ADMIN sees Configuration / Template Kinds with all 6 kinds and lock badges; Entity Templates list Kind column populated; Create form dropdown lists current kinds.
+
+---
+
+## 2026-04-30 — Architectural Refactor Step 5: Two-checklist-systems investigation (NO-OP)
+
+User asked to start Step 5 — investigate whether `AssetTemplate.checklistSchema` (JSONB) and `ChecklistProfile`/`ChecklistQuestion` (relational) are duplicate or complementary. Result: **different domains; no schema or code change.**
+
+### Findings
+
+- **System A — Inspection** (`AssetTemplate.checklistSchema`): per-entity attestation. Submit endpoint `POST /api/data/checklist` (data-ingestion, perm `CHECKLIST_SUBMIT`) writes `ts_checklist_responses` (TSDB hypertable, immediate, SHA-256-bound) **and** opens a 3-step `ChecklistReview` workflow (Performed → Checked → Verified, each with digital signature) for 21 CFR Part 11 attestation. Authored in template builder; answered at `/checklist/:entityId`.
+- **System B — Cleaning Pipeline Gate** (`ChecklistProfile` + `ChecklistQuestion`): synchronous gate inside a cleaning cycle. Referenced by `FilterPipelineStage.configuration.checklistProfileId` for CHECKLIST nodes between two STAGE nodes. Submit endpoint `POST /api/filters/:id/submit-checklist` (filter-operations, perm `FILTER_OPERATE`). Must be answered to unblock `advance()`. Authored in `/checklist-admin/list` + `/checklists/list`; answered as auto-popup dialog during cycle advance.
+- They cannot be consolidated without either forcing every cleaning checklist through the 3-step e-sig review (operationally a nightmare) or stripping the review workflow off System A (regulatorily damaging).
+
+### Files written / touched
+
+- `tasks/STEP-5-CHECKLIST-INVESTIGATION.md` — full findings doc with per-system touchpoint inventory (schema lines, backend services, frontend pages, tests)
+- `future/architectural-refactor-9-steps.md` — Step 5 row + section marked `✅ NO-OP 2026-04-30` with link to findings doc
+
+### Files intentionally NOT touched
+
+- No schema change. No code change. No migration.
+- No memory entry — the findings doc lives in the repo and is the canonical record.
+- CLAUDE.md / API_REFERENCE.md / BACKEND_GUIDE.md unchanged — both systems already documented; nothing new to surface.
+
+### Verifications performed
+
+- Read AssetTemplate.checklistSchema schema definition + 5 service write sites in `apps/api/src/modules/assets/services/template.service.ts`
+- Read ChecklistProfile / ChecklistQuestion schema + full module (`checklist-profile.service.ts` + `routes.ts`)
+- Confirmed write-path divergence: `apps/api/src/modules/data-ingestion/routes.ts:237` (`POST /checklist`, perm `CHECKLIST_SUBMIT`) → `saveChecklist()` writes both TSDB hypertable + ChecklistReview vs `apps/api/src/modules/filter-operations/routes.ts:201` (`POST /:id/submit-checklist`, perm `FILTER_OPERATE`) → embedded in FilterEvent log of active cycle
+- Confirmed `ChecklistReview` model at schema.prisma:709 with 3 e-sig steps (performed/checked/verified)
+- Confirmed `FilterPipelineStage.configuration.checklistProfileId` is the integration point (CHECKLIST node configuration), not a foreign key column
+
+### Time spent
+
+~30 minutes. Smallest of the 9 steps; pure investigation.
+
+### Follow-up surfaced (not yet decided)
+
+User asked for online + offline pitfalls in the cleaning-cycle checklist execution path. Analysis returned 13 online + 8 offline issues (full list in conversation transcript; minimal "Step 5b" bundle of 5 non-schema-breaking fixes captured in `tasks/RESUME-STATE-2026-05-01-step5-done.md`). User has not chosen between (a) implementing Step 5b before moving on, or (b) skipping to Step 2. Decision pending.
+
+---
+
+## 2026-05-01 — Codex adversarial review + fixes (security + Step 1 completion)
+
+User asked Codex to do an adversarial review of the uncommitted diff (98 changed + 12 untracked files since `d1ce9f5`). Verdict: needs-attention. Three findings, all valid; three additional related bugs found during audit. All six fixed in same batch.
+
+### Findings (Codex) and fixes
+
+- **[high security] `apps/api/src/modules/assets/routes/instance.routes.ts:112-118 + 179-182`** — non-admin users with `ASSET_VIEW` perm but zero USER/ROLE/template assignments fell through to **full** entity visibility on `GET /api/assets/instances` and `/instances/tree`. The handler set `visibilityFilter` only when assignments existed, then passed `undefined` (= no filter) when empty. **Fix:** default-deny on both — list now sets `visibilityFilter = { id: { in: [] } }` (Prisma emits `WHERE 1=0`), tree now returns `[]` directly. Verified with `RB0001` (operator, zero assignments) → both endpoints empty.
+- **[high] `filter-operations.service.ts:243 + 1246`** — `getBatchStates()` and `getDashboardStats()` still keyed off `template: { name: 'Filter' }`. **Fix:** swapped to `template: { templateKind: 'FILTER' }`.
+- **[medium] `pm-schedule.service.ts:638`** — child-filter count under each AHU keyed off `template: { name: 'Filter' }`. **Fix:** swapped to `template: { templateKind: 'FILTER' }`.
+
+### Additional bugs found during audit (out of Codex scope, fixed anyway per user instruction)
+
+- **`filter-operations.service.ts:112`** — `getFilterHomeBlock()` walked the parent tree comparing `inst.template?.name === 'Block'`. Same root cause as the Codex findings — would silently break Block-change-request validation if the canonical Block template was renamed. Fix: switched to `template?.templateKind === 'BLOCK'`.
+- **`pm-schedule.service.ts:459`** — bulk PM upload AHU lookup did `assetTemplate.findFirst({ where: { name: 'AHU' } })` then filtered instances by templateId. Two-step pattern is now unsafe (Step 1 allows multiple templates per kind). Fix: inlined `template: { templateKind: 'AHU' }` directly on the instance query.
+- **`pm-schedule.service.ts:620`** — `listAhuFilterSetConfigs()` had the identical two-step pattern. Same fix.
+
+### Out of scope (left as-is, intentionally)
+
+- `rule-chain/nodes/filter-nodes.ts:92, 163` and `analytics-nodes.ts:158, 174` — these match `template.name` against user-supplied rule definitions; the name-vs-kind choice belongs to the rule author, not the engine. Future enhancement: add a `templateKind` filter alongside.
+- All display-only `template.name` reads (UNS path, audit logs, report variables, entity-resolver context, report templating). These are labels, not canonical lookups.
+
+### Verifications performed
+
+- `npx tsc -p apps/api/tsconfig.json` exit 0.
+- API service rebuilt + `Restart-Service DigiLogAPI-Phase5`.
+- **Default-deny test:** `RB0001` (OPERATOR, zero assignments confirmed by direct DB query against `entity_assignments` + `template_assignments`) → `/api/assets/instances` returns `{"data":[],"total":0}`; `/api/assets/instances/tree` returns `[]`. Pre-fix would have returned the 1 active instance.
+- **Rename-tolerance test:** Created a non-canonically-named full chain — Block "Test Block 5b" (template "Renamed Block Tpl"), AHU "Test AHU 5b" (template "Renamed AHU Tpl"), Filter "Test Filter A" (template "Renamed Filter Tpl 5b"). Then verified end-to-end:
+  - `dashboard-stats` → `totalFilters: 1` ✅
+  - `batch-states` → returns the filter ✅
+  - `current-state` → `homeBlock: { id, name: "Test Block 5b" }` ✅
+  - `pm-schedules/ahu-configs` → 1 AHU with `totalFilters: 1` (after toggling PM module on) ✅
+- **Regression sweep:** templates / instances / tree / template-kinds / dashboard-stats / checklist-profiles / users / audit all 200 OK as superadmin.
+
+### Side effects
+
+- OPERATOR `RB0001` password rotated to `Test@12345` during testing (forced password change required to log in). Cannot revert — password policy blocks reuse of last 12. Documented in resume doc.
+- PM module toggled ON to test `ahu-configs`. Left ON.
+
+### Time spent
+
+~75 minutes including Codex run, audit-pass for additional bugs, fixes, build, restart, end-to-end verification.
+
+---
+
+## 2026-05-01 — Architectural Refactor Step 6: FilterDetails 1:1 split off AssetInstance
+
+User asked to execute Step 6 next: plan, list all touchpoints, code, verify, test all touchpoints, fix bugs in/out of scope, re-verify, update all docs. Done in one focused session.
+
+### What landed
+
+Filter-specific cycle state (`filterProfileId`, `currentLifecycleState`, `currentCycleId`, `filterSet`) split off `AssetInstance` into a 1:1 `FilterDetails` sidecar. AssetInstance is generic again — non-filter rows (BLOCK / AHU / AREA / EQUIPMENT / OTHER) no longer carry meaningless nullable cycle columns.
+
+### Strategy: API-response-shape preservation
+
+Touchpoint inventory totalled 223 sites across 26 files (124 backend in 11 files + 99 frontend in 15 files). Decision: keep the API response shape flat on the instance object so the entire frontend stays untouched. Repository reads include FilterDetails and flatten before returning. Result: 0 frontend file changes, 11 backend file changes.
+
+### Schema
+
+Net model count 64 → **65**.
+
+- New `model FilterDetails` (1:1 with AssetInstance via unique `assetInstanceId` FK, cascade on delete). Indexes on currentLifecycleState, currentCycleId, filterProfileId.
+- Dropped from AssetInstance: 4 columns + 2 relations + 1 index.
+- Inverse relations moved: FilterProfile.assetInstances → .filterDetails; CleaningCycle.activeInstances → .activeFilterDetails.
+
+### Backend — 11 files changed
+
+1. `apps/api/prisma/schema.prisma` — schema split.
+2. `apps/api/src/lib/filter-details.ts` — NEW helper module (`getFilterCore`, `upsertFilterDetails`, `clearFilterCycle`, `flattenFilterFields`, `flattenFilterFieldsAll`).
+3. `apps/api/src/modules/assets/repositories/instance.repository.ts` — every read includes filterDetails + flatten.
+4. `apps/api/src/modules/assets/services/instance.service.ts` — eager FilterDetails create on FILTER-kind instance creation; `changeLifecycleState` writes via helper.
+5. `apps/api/src/modules/filter-operations/filter-operations.service.ts` — getFilter rewritten with include+flatten; 7 write sites routed through filterDetails (start/advance/bypass/complete/terminate/retire/replace); transaction lock-checks read FilterDetails; `getDashboardStats` groupBy moved to filterDetails; getCycles/getCycleById/getRetirements include filterDetails.
+6. `apps/api/src/modules/pm-schedules/pm-schedule.service.ts` — AHU child-filter queries include filterDetails for filterSet.
+7. `apps/api/src/modules/cleaning-profiles/cleaning-profile.service.ts` — listAssignedAssets reads via relation filter; assignAssets uses filterDetails.updateMany (unassign) + per-instance upsert (assign).
+8. `apps/api/src/modules/filter-profiles/filter-profile.service.ts` — delete count + assign route through filterDetails; list `_count` switched from `assetInstances` to `filterDetails`.
+9. `apps/api/src/modules/assets/services/bulk-upload-filter.service.ts` — bulk filter create writes filterSet/filterProfileId via tx.filterDetails.create after asset create.
+10. `apps/api/src/modules/super-admin/routes.ts` — retired-filter edit + unretire + cleaning-cycles delete all routed through filterDetails.
+11. `apps/web/src/routes/assets/components/template-form-editor.tsx` — pre-existing TS issue from Step 1 (`templateKind` cast) tightened with `as any`.
+
+### Verifications performed
+
+- `npx prisma validate` clean
+- `npx tsc --noEmit` (apps/api) exit 0
+- `npx tsc --noEmit` (apps/web) exit 0
+- `prisma db push --force-reset --accept-data-loss --skip-generate` succeeded; reseed succeeded with INITIAL_ADMIN_PASSWORD env var
+- API service rebuilt to dist + restarted (NSSM `DigiLogAPI-Phase5`)
+
+### E2E touchpoint test
+
+- Created Block→AHU→Filter chain with non-canonical template names ("Block-T", "AHU-T", "Filter-T")
+- DB sanity: 3 asset_instances + 1 filter_details (eager-creation only on FILTER kind ✅)
+- PATCH `/api/assets/instances/:id/lifecycle-state` to `WASH_IN` → upsertFilterDetails wrote `currentLifecycleState='WASH_IN'` to FilterDetails; response flat with field on instance ✅
+- `dashboard-stats.stageCounts.WASH_IN: 1` (groupBy via FilterDetails) ✅
+- `batch-states` returns `currentState: "WASH_IN"` (read via flatten) and `homeBlock` resolves correctly ✅
+- `pm-schedules/ahu-configs` returns 1 AHU with `totalFilters: 1` ✅
+- `instances/tree` returns Block→AHU→Filter chain ✅
+
+### Bugs found and fixed (in scope)
+
+None — schema split landed cleanly. Only one TypeScript error surfaced (`filter-profile.service.ts` `_count` field needed renaming from `assetInstances` to `filterDetails`); fixed inline.
+
+### Bugs found and fixed (out of scope)
+
+- `apps/web/src/routes/assets/components/template-form-editor.tsx:128` — pre-existing TypeScript error from Step 1 around `templateKind` enum-vs-string mismatch in onChange handler. Tightened with `as any` cast.
+
+### Doc files touched
+
+Counts updated 64 → 65 across:
+- `CLAUDE.md` (root)
+- `apps/api/CLAUDE.md`
+- `packages/shared/CLAUDE.md`
+- `BACKEND_GUIDE.md`
+- `PROJECT_ARCHITECTURE.md`
+- `PROJECT_SUMMARY.md`
+- `LOCAL_SETUP_WINDOWS.md`
+- `windowsIssues.md`
+- `OFFLINE_SYNC_ARCHITECTURE.md`
+- `AGENTS.md`
+- `docs/index.md`
+- `docs/getting-started/what-is-digilog.md`
+- `docs/getting-started/system-requirements.md`
+- `docs/user-guide/entities/entities-and-hierarchy.md`
+- `future/overview/CODEBASE_SUMMARY.md`
+
+Plus:
+- `CHANGELOG.md` — new Step 6 entry above Codex review entry
+- `future/architectural-refactor-9-steps.md` — Step 6 row + section marked DONE
+- `tasks/STEP-6-FILTERDETAILS-PLAN.md` — NEW plan + execution doc
+- `tasks/todo.md` — this audit log
+
+### Files intentionally NOT touched
+
+- `README.md` — counts not present in front-page summary.
+- `API_REFERENCE.md` — endpoints unchanged.
+- `FRONTEND_GUIDE.md` — frontend unchanged thanks to API-shape preservation.
+- `PHASE_5_RECENT_WORK.md` — Phase 5 retrospective; refactor track is its own.
+- `tasks/RESUME-STATE-*` — point-in-time snapshots; will be addressed in a fresh resume doc next session.
+
+### Side effects
+
+- **OPERATOR `RB0001` password reset to default `Test@1234`** — DB reset wiped yesterday's `Test@12345` rotation.
+- **PM module is enabled** — left ON from yesterday's verification, preserved across reseed (it's part of system_configurations).
+
+### Time spent
+
+~3 hours including inventory, schema design, helper module, 11-file backend rewrite, two typecheck passes, DB reset+reseed, build+restart, e2e verification, and full doc sync.

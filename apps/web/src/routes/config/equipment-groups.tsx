@@ -57,7 +57,7 @@ export function EquipmentGroupsConfigPage() {
   const canEdit = isSuperAdmin || perms.includes('EG_EDIT');
   const canDelete = isSuperAdmin || perms.includes('EG_DELETE');
   const { data: instancesData } = useSWR('/api/assets/instances?limit=200');
-  const { data: templatesData } = useSWR('/api/assets/templates?limit=100');
+  const { data: templatesData } = useSWR('/api/assets/templates?limit=1000');
   const [selectedBlockId, setSelectedBlockId] = useState<string>('');
   const { data: groupsData } = useSWR(selectedBlockId ? `/api/equipment-groups?blockId=${selectedBlockId}` : null);
 

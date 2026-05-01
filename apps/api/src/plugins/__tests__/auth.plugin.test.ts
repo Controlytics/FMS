@@ -12,9 +12,6 @@ const { mockVerifyToken, mockPrisma } = vi.hoisted(() => ({
     // Resolve role scope (GLOBAL / ORGANIZATION). Default to ORGANIZATION
     // unless the test overrides for a specific case.
     role: { findFirst: vi.fn().mockResolvedValue({ scope: 'ORGANIZATION' }) },
-    // Looked up only when the user has an organizationId. Tests that don't
-    // set organizationId on the user skip this path entirely.
-    organization: { findUnique: vi.fn().mockResolvedValue({ isActive: true }) },
   },
 }));
 
@@ -103,7 +100,6 @@ describe('authPlugin', () => {
       role: 'ADMIN',
       username: 'admin',
       status: 'ENABLED',
-      organizationId: null,
       forcePasswordChange: false,
       passwordExpiresAt: new Date(Date.now() + 86400000),
     });

@@ -46,7 +46,7 @@ export function FilterOperationsPage() {
   const reauth = useReauth();
   const { online, pendingCount, syncing, executeOrQueue, manualSync, clearQueue, cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
   const { data: instancesData, error: instancesError } = useSWR<PaginatedResponse<FilterInstance>>('/api/assets/instances?limit=500', { refreshInterval: online ? 30000 : 0 });
-  const { data: templatesData, error: templatesError } = useSWR<PaginatedResponse<{ id: string; name: string }>>('/api/assets/templates?limit=100');
+  const { data: templatesData, error: templatesError } = useSWR<PaginatedResponse<{ id: string; name: string }>>('/api/assets/templates?limit=1000');
   const { data: identifiersData } = useSWR<any[]>(online ? '/api/assets/identifiers?limit=1000' : null);
   const { data: reasonsData } = useSWR<any>(online ? '/api/filters/reasons' : null);
   const { data: equipGroupsData } = useSWR<any>(online ? '/api/equipment-groups' : null);
@@ -221,7 +221,7 @@ export function FilterOperationsPage() {
   const templates = (templatesData?.data ?? offlineTemplates) as any[];
 
   // Find the Filter template ID — works with both online (template.name) and offline (templateId) data
-  const filterTemplateId = templates.find((t: any) => t.name === 'Filter')?.id;
+  const filterTemplateId = templates.find((t: any) => t.templateKind === 'FILTER')?.id;
 
   const allFilters = instances.filter((f: any) => {
     // Match by template object (online) OR by templateId (offline cached data)
@@ -260,7 +260,7 @@ export function FilterOperationsPage() {
     mutate('/api/assets/instances?limit=500');
   }, []);
 
-  const blockTemplateId = templates.find((t: any) => t.name === 'Block')?.id;
+  const blockTemplateId = templates.find((t: any) => t.templateKind === 'BLOCK')?.id;
   const blocks = instances.filter((e: any) => e.templateId === blockTemplateId);
 
   const handleStageClick = (stage: typeof CLEANING_STAGES[0]) => {

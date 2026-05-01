@@ -57,11 +57,14 @@ export interface ChecklistItemDef {
   conditionalValue: string; // for CONDITIONAL
 }
 
+export type TemplateKind = 'BLOCK' | 'AREA' | 'AHU' | 'FILTER' | 'EQUIPMENT' | 'OTHER';
+
 export interface TemplateData {
   id: string;
   name: string;
   description: string;
   icon: string;
+  templateKind: TemplateKind;
   version: number;
   attributeSchema: AttributeDef[];
   telemetrySchema: TelemetryDef[];
@@ -86,6 +89,7 @@ export interface FormData {
   name: string;
   description: string;
   icon: string;
+  templateKind: TemplateKind;
   maxParentConnections: number;
   maxConnections: number;
   attributeSchema: AttributeDef[];
@@ -162,6 +166,7 @@ export function emptyForm(): FormData {
     name: '',
     description: '',
     icon: 'box',
+    templateKind: 'OTHER',
     maxParentConnections: 1,
     maxConnections: 10,
     attributeSchema: [],

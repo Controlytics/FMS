@@ -15,8 +15,6 @@ import auditLoggerPlugin from './plugins/audit-logger.js';
 import rbacPlugin from './plugins/rbac.js';
 import superAdminRoutes from "./modules/super-admin/routes.js";
 import ldapRoutes from "./modules/ldap/routes.js";
-import tenantAdminRoutes from "./modules/tenant-admin/routes.js";
-import orgDetailRoutes from "./modules/tenant-admin/org-detail-routes.js";
 import entityAssignmentRoutes from "./modules/entity-assignments/routes.js";
 import dashboardRoutes from "./modules/dashboards/routes.js";
 import authRoutes from './modules/auth/routes.js';
@@ -30,6 +28,7 @@ import notificationRoutes from './modules/notifications/routes.js';
 import roleRoutes from './modules/roles/routes.js';
 import backupRoutes from './modules/backup/routes.js';
 import assetRoutes from './modules/assets/index.js';
+import templateKindRoutes from './modules/template-kinds/routes.js';
 import mqttAuthRoutes from './transport/mqtt-auth-routes.js';
 import mosquittoRefreshRoutes from './transport/mosquitto-refresh-routes.js';
 import { isFeatureEnabled, FEATURE_FLAGS } from './lib/feature-flags.js';
@@ -189,7 +188,15 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
         url: _req.url ?? 'N/A',
         timestamp: new Date().toISOString(),
       },
-    }).catch(() => {}); // Silently ignore dispatch errors to avoid infinite loops
+    }).catch((dispatchErr) => {
+      // Log but do not rethrow — rethrowing would re-enter the error handler
+      // and cause an infinite loop (the SYSTEM_ERROR notification itself
+      // failing would generate another SYSTEM_ERROR notification).
+      app.log.warn(
+        { dispatchErr, originalErr: err.message, url: _req.url },
+        'Failed to dispatch SYSTEM_ERROR notification — original error is still returned to the caller.',
+      );
+    });
   }
   return reply.code(err.statusCode ?? 500).send({
     error: 'INTERNAL_ERROR',
@@ -246,6 +253,7 @@ await app.register(notificationRoutes, { prefix: '/api/notifications' });
 await app.register(roleRoutes, { prefix: '/api/roles' });
 await app.register(backupRoutes, { prefix: '/api/backup' });
 await app.register(assetRoutes, { prefix: '/api/assets' });
+await app.register(templateKindRoutes, { prefix: '/api/template-kinds' });
 
 // Data Ingestion & Transport routes
 // Phase 1 cut-over: when USE_MOSQUITTO=true, expose Mosquitto's
@@ -271,11 +279,9 @@ await app.register(notificationDeliveryRoutes, { prefix: '/api/notification-sett
 await app.register(userGroupRoutes, { prefix: '/api/user-groups' });
 await app.register(notificationRulesRoutes, { prefix: '/api/notification-rules' });
 
-// Multi-tenant management routes
+// Admin + assignment routes
 await app.register(superAdminRoutes, { prefix: "/api/super-admin" });
 await app.register(ldapRoutes, { prefix: "/api/ldap" });
-await app.register(tenantAdminRoutes, { prefix: "/api/organizations" });
-await app.register(orgDetailRoutes, { prefix: "/api/organizations" });
 await app.register(entityAssignmentRoutes, { prefix: "/api/entity-assignments" });
 await app.register(dashboardRoutes, { prefix: "/api/dashboards" });
 await app.register(cleaningProfileRoutes, { prefix: '/api/filter-cleaning-profiles' });await app.register(checklistProfileRoutes, { prefix: '/api/checklist-profiles' });await app.register(filterProfileRoutes, { prefix: '/api/filter-profiles' });
@@ -370,8 +376,21 @@ const shutdown = async (signal: string) => {
     await closeTracerRedis();
     await closeDebugRedis();
     await app.close();
-    try { const { closeProducer } = await import('@digilog/queue'); await closeProducer(); } catch {}
-    try { const { closeTsdbPool } = await import('@digilog/db'); await closeTsdbPool(); } catch {}
+    // Close queue + tsdb in their own try blocks so one failure doesn't
+    // prevent the next teardown step. Each failure is logged so partial-
+    // shutdown state is debuggable (CLAUDE.md "Never swallow exceptions").
+    try {
+      const { closeProducer } = await import('@digilog/queue');
+      await closeProducer();
+    } catch (qErr) {
+      app.log.error({ err: qErr }, 'Shutdown: closeProducer (graphile-worker) failed');
+    }
+    try {
+      const { closeTsdbPool } = await import('@digilog/db');
+      await closeTsdbPool();
+    } catch (tErr) {
+      app.log.error({ err: tErr }, 'Shutdown: closeTsdbPool (TimescaleDB) failed');
+    }
   } catch (err) {
     app.log.error(err as Error, 'Error during shutdown');
   }

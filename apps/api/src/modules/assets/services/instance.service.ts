@@ -9,6 +9,7 @@ import { validateAttributeValues } from '../helpers/attribute-validator.js';
 import { hasContainsCycle } from '../helpers/cycle-detection.js';
 import { collectDescendantIds } from '../helpers/descendant-collector.js';
 import { prisma } from '../../../lib/prisma.js';
+import { upsertFilterDetails } from '../../../lib/filter-details.js';
 import { randomBytes } from 'node:crypto';
 import { provisionUnsMapping } from '../../uns/uns.service.js';
 import { getEntityUnsPath } from '../../../lib/uns-path.js';
@@ -87,7 +88,10 @@ export const instanceService = {
       await validateParent(data.parentId, data.templateId);
     }
 
-    // Atomic: create instance + parent relationship in one transaction
+    // Atomic: create instance + parent relationship in one transaction.
+    // For filter-kind templates, also eagerly create the FilterDetails 1:1 sidecar
+    // (Step 6 — keeps cycle-state writes from needing a "row exists?" check downstream).
+    const isFilterKind = (template as any).templateKind === 'FILTER';
     const { instance, containsRel, containedInRel } = await prisma.$transaction(async (tx) => {
       const inst = await tx.assetInstance.create({
         data: {
@@ -101,10 +105,12 @@ export const instanceService = {
           customAttributes: data.customAttributes as any,
           parentId: data.parentId ?? null,
           createdBy: ctx.userId,
-          // Auto-assign creator's organization so org-scoped users can see it
-          organizationId: data.organizationId ?? ctx.organizationId ?? null,
         } as any,
       });
+
+      if (isFilterKind) {
+        await tx.filterDetails.create({ data: { assetInstanceId: inst.id } });
+      }
 
       let cRel, ciRel;
       if (data.parentId) {
@@ -334,20 +340,23 @@ export const instanceService = {
   async changeLifecycleState(id: string, lifecycleState: string, ctx: RequestContext, remarks: string) {
     const existing = await instanceRepository.findByIdSimple(id);
     if (!existing) throw new NotFoundError('Entity instance not found');
+    const beforeState = (existing as any).currentLifecycleState ?? null;
+    const newState = lifecycleState.trim();
 
-    const instance = await instanceRepository.update(id, {
-      currentLifecycleState: lifecycleState.trim(),
-      updatedBy: ctx.userId,
-    });
+    // currentLifecycleState moved to FilterDetails (Step 6) — write via the helper.
+    await upsertFilterDetails(id, { currentLifecycleState: newState });
+    // Bump updatedBy on the instance for audit/UI freshness.
+    await instanceRepository.update(id, { updatedBy: ctx.userId });
+    const instance = await instanceRepository.findByIdSimple(id);
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,
       action: 'FILTER_LIFECYCLE_STATE_CHANGED',
       targetType: 'asset_instance', targetId: id,
-      beforeValue: { currentLifecycleState: existing.currentLifecycleState },
-      afterValue: { currentLifecycleState: instance.currentLifecycleState },
-      reason: `Lifecycle state: "${existing.currentLifecycleState ?? 'None'}" → "${instance.currentLifecycleState}" — ${remarks}`,
-      signatureMeaning: `Filter "${instance.name}" lifecycle state manually changed from "${existing.currentLifecycleState ?? 'None'}" to "${instance.currentLifecycleState}"`,
+      beforeValue: { currentLifecycleState: beforeState },
+      afterValue: { currentLifecycleState: newState },
+      reason: `Lifecycle state: "${beforeState ?? 'None'}" → "${newState}" — ${remarks}`,
+      signatureMeaning: `Filter "${(instance as any)?.name}" lifecycle state manually changed from "${beforeState ?? 'None'}" to "${newState}"`,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
 

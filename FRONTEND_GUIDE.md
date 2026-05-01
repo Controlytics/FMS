@@ -129,12 +129,13 @@ React 19 SPA built with Vite 6, styled with Tailwind CSS 4. The built `apps/web/
 
 ### Organization Management
 
-| Path | Page | Permission |
-|---|---|---|
-| `/organizations` | OrganizationsPage (lazy) | ORG_VIEW |
-| `/organizations/:id` | OrgDetailPage (lazy) | ORG_VIEW |
+> **Removed 2026-04-30 (MT removal):** `/organizations` and `/organizations/:id` routes were deleted along with the `Organization` model, `ORG_VIEW` / `ORG_MANAGE` permissions, and the `routes/tenant/` page folder. DigiLog is single-tenant.
 
-### Configuration (26 pages — verified by `ls apps/web/src/routes/config/*.tsx`)
+### Catch-all 404 redirect
+
+`apps/web/src/main.tsx` ends with `<Route path="*" element={<Navigate to="/" replace />} />`. Any URL that doesn't match a registered route (e.g. an old `/organizations` bookmark, a typo, a deep link to a deleted page) redirects to the dashboard instead of rendering blank. Added 2026-04-30 in the post-MT-removal hardening pass.
+
+### Configuration (27 pages — verified by `ls apps/web/src/routes/config/*.tsx`; +1 from Step 1 of architectural refactor)
 
 | Path | Page | Permission / Notes |
 |---|---|---|
@@ -164,6 +165,7 @@ React 19 SPA built with Vite 6, styled with Tailwind CSS 4. The built `apps/web/
 | `/config/retention` | RetentionPage | RETENTION_VIEW |
 | `/config/role-access` | RoleAccessPage | ROLE_MANAGE |
 | `/config/tablet-access` | TabletAccessConfigPage | SUPER_ADMIN — role × feature matrix; controls `/m` access |
+| `/config/template-kinds` | TemplateKindsConfigPage | CONFIG_UPDATE — admin-editable Template Kinds lookup (BLOCK/AREA/AHU/FILTER/EQUIPMENT/OTHER seeded as system; admins can add PUMP/VALVE/etc.). System rows show 🔒 badge and Delete is hidden. Step 1 of architectural refactor. |
 | `/config/uns` | UnsConfigPage | UNS_VIEW |
 | `/config/user-id` | UserIdConfigPage | SUPER_ADMIN — username format rules |
 

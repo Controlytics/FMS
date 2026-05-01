@@ -1,6 +1,6 @@
 import { StrictMode, lazy, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { SWRConfig } from 'swr';
 import { swrConfig } from './lib/swr-config';
 import { ErrorBoundary } from './components/error-boundary';
@@ -30,6 +30,7 @@ import { BackupRestorePage } from './routes/config/backup';
 import { DynamicConfigPage } from './routes/config/dynamic-config';
 import { ActionReauthPage } from './routes/config/action-reauth';
 import { AuditTemplatesConfigPage } from './routes/config/audit-templates';
+import TemplateKindsConfigPage from './routes/config/template-kinds';
 import { PaginationConfigPage } from './routes/config/pagination';
 import DashboardCardsConfig from './routes/config/dashboard-cards';
 import { AlarmColumnsConfigPage } from './routes/config/alarm-columns';
@@ -56,9 +57,6 @@ const EmailSettingsPage = lazy(() => import('./routes/config/notification-settin
 const SmsSettingsPage = lazy(() => import('./routes/config/notification-settings/sms-settings').then(m => ({ default: m.SmsSettingsPage })));
 const NotificationRulesPage = lazy(() => import('./routes/config/notification-rules/index').then(m => ({ default: m.NotificationRulesPage })));
 const NotificationLogsPage = lazy(() => import('./routes/config/notification-settings/notification-logs').then(m => ({ default: m.NotificationLogsPage })));
-
-const OrganizationsPage = lazy(() => import("./routes/tenant/organizations"));
-const OrgDetailPage = lazy(() => import("./routes/tenant/org-detail"));
 
 // Phase 2: Digital Filter Management System
 const ChecklistProfileListPage = lazy(() => import("./routes/checklist-admin/list").then(m => ({ default: m.ChecklistProfileListPage })));
@@ -173,6 +171,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/access-matrix" element={<RequireRole roles={['SUPER_ADMIN']}><AccessMatrixPage /></RequireRole>} />
             <Route path="/config/action-reauth" element={<RequireRole roles={['SUPER_ADMIN']}><ActionReauthPage /></RequireRole>} />
             <Route path="/config/audit-templates" element={<RequireRole roles={['SUPER_ADMIN']}><AuditTemplatesConfigPage /></RequireRole>} />
+            <Route path="/config/template-kinds" element={<RequireRole permissions={[PERMISSIONS.CONFIG_UPDATE]}><TemplateKindsConfigPage /></RequireRole>} />
             <Route path="/config/pagination" element={<RequireRole roles={['SUPER_ADMIN']}><PaginationConfigPage /></RequireRole>} />
             <Route path="/config/dashboard-cards" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><DashboardCardsConfig /></RequireRole>} />
             <Route path="/config/alarm-columns" element={<RequireRole roles={['SUPER_ADMIN']}><AlarmColumnsConfigPage /></RequireRole>} />
@@ -181,11 +180,6 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/notification-rules" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><NotificationRulesPage /></Suspense></RequireRole>} />
                 <Route path="/config/notification-logs" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><NotificationLogsPage /></Suspense></RequireRole>} />
             <Route path="/config/dynamic/:moduleKey" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><DynamicConfigPage /></RequireRole>} />
-
-            {/* Multi-Tenant Management */}
-            {/* Organizations */}
-            <Route path="/organizations" element={<RequireRole permissions={[PERMISSIONS.ORG_VIEW, PERMISSIONS.ORG_MANAGE]}><Suspense fallback={<LazyFallback />}><OrganizationsPage /></Suspense></RequireRole>} />
-            <Route path="/organizations/:id" element={<RequireRole permissions={[PERMISSIONS.ORG_VIEW, PERMISSIONS.ORG_MANAGE]}><Suspense fallback={<LazyFallback />}><OrgDetailPage /></Suspense></RequireRole>} />
 
             {/* Entity Management (lazy-loaded) — permission-based */}
             <Route path="/assets" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW, PERMISSIONS.ASSET_READ]}><Suspense fallback={<LazyFallback />}><AssetsPage /></Suspense></RequireRole>} />
@@ -223,7 +217,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/filter-list" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><FilterListPage /></Suspense></RequireRole>} />
             <Route path="/filter-retirements" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><RetirementListPage /></Suspense></RequireRole>} />
             <Route path="/filter-replacements" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><ReplacementListPage /></Suspense></RequireRole>} />
-            <Route path="/config/filter-data-management" element={<RequireRole permissions={[PERMISSIONS.ORG_MANAGE]}><Suspense fallback={<LazyFallback />}><FilterDataManagementPage /></Suspense></RequireRole>} />
+            <Route path="/config/filter-data-management" element={<RequireRole permissions={[PERMISSIONS.CONFIG_UPDATE]}><Suspense fallback={<LazyFallback />}><FilterDataManagementPage /></Suspense></RequireRole>} />
             <Route path="/config/tablet-access" element={<RequireRole permissions={[PERMISSIONS.CONFIG_UPDATE]}><Suspense fallback={<LazyFallback />}><TabletAccessConfigPage /></Suspense></RequireRole>} />
             <Route path="/filters" element={<RequireRole permissions={[PERMISSIONS.FILTER_OPERATE, PERMISSIONS.ASSET_READ]}><FilterOperationsPage /></RequireRole>} />
             <Route path="/filters/stage/:stageKey" element={<RequireRole permissions={[PERMISSIONS.FILTER_OPERATE, PERMISSIONS.ASSET_READ]}><FilterOperationsPage /></RequireRole>} />
@@ -259,6 +253,9 @@ createRoot(document.getElementById('root')!).render(
 
           {/* Standalone checklist form (no sidebar/header, auth handled by component) */}
           <Route path="/checklist/:entityId" element={<Suspense fallback={<LazyFallback />}><ChecklistPage /></Suspense>} />
+
+          {/* Catch-all: any unknown route falls through to here. Redirect to dashboard. */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
     </SWRConfig>

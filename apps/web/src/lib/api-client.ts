@@ -39,6 +39,14 @@ class ApiClient {
         if (!url.includes('/api/auth/login')) {
           sessionStorage.removeItem('access_token');
           localStorage.removeItem('access_token_backup');
+          // Also drop cached user + single-tab keys. Without this, the cached
+          // user kept `isAuthenticated` truthy on /login, /login auto-navigated
+          // back to /, dashboard SWR queries 401'd, and the page ping-ponged
+          // between / and /login forever.
+          localStorage.removeItem('digilog_cached_user');
+          localStorage.removeItem('digilog_active_tab_id');
+          localStorage.removeItem('digilog_tab_heartbeat');
+          localStorage.removeItem('digilog_active_user_id');
           // Redirect to login — use mobile login for /m routes
           const isMobile = window.location.pathname.startsWith('/m');
           const loginPath = isMobile ? '/m/login' : '/login';

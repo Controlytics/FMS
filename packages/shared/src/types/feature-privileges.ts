@@ -31,10 +31,6 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'audit.view', label: 'View Audit Trail', category: 'System', icon: 'clipboard' },
   { id: 'audit.export', label: 'Export Audit Trail', category: 'System', icon: 'clipboard' },
 
-  // Organization Management
-  { id: 'org.view', label: 'View Organizations', category: 'System', icon: 'building' },
-  { id: 'org.manage', label: 'Manage Organizations', category: 'System', icon: 'building' },
-
   // Entity Management
   { id: 'assets.view', label: 'View Entities', category: 'Entity Management', icon: 'eye' },
   { id: 'assets.create', label: 'Create Entities', category: 'Entity Management', icon: 'plus' },
@@ -182,10 +178,6 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'notifications.delete': ['NOTIFICATION_DELETE'],
   'audit.view': ['AUDIT_READ'],
   'audit.export': ['AUDIT_EXPORT', 'AUDIT_READ'],
-
-  // Organization Management
-  'org.view': ['ORG_VIEW'],
-  'org.manage': ['ORG_MANAGE', 'ORG_CREATE', 'ORG_DELETE', 'ORG_VIEW'],
 
   // Entity Management
   'assets.view': ['ASSET_VIEW', 'ASSET_READ'],

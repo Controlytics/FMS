@@ -17,11 +17,6 @@ const INSTRUMENT_DESCRIPTIONS = [
   { description: 'Dryer Temperature', stageKey: 'DRY_IN', sortOrder: 3 },
 ] as const;
 
-function orgWhere(ctx: RequestContext) {
-  if (ctx.scope === 'GLOBAL' || !ctx.organizationId) return {};
-  return { organizationId: ctx.organizationId };
-}
-
 function validateInstrument(inst: any, idx: number) {
   const prefix = `Instrument ${idx + 1} (${INSTRUMENT_DESCRIPTIONS[idx].description})`;
   if (!inst.instrumentId || !inst.instrumentId.trim()) {
@@ -48,8 +43,8 @@ function validateInstrument(inst: any, idx: number) {
 }
 
 export class EquipmentGroupsService {
-  async list(ctx: RequestContext, blockId?: string) {
-    const where: any = { ...orgWhere(ctx), isActive: true };
+  async list(_ctx: RequestContext, blockId?: string) {
+    const where: any = { isActive: true };
     if (blockId) where.blockId = blockId;
 
     return prisma.equipmentGroup.findMany({
@@ -59,18 +54,18 @@ export class EquipmentGroupsService {
     });
   }
 
-  async getById(ctx: RequestContext, id: string) {
+  async getById(_ctx: RequestContext, id: string) {
     const group = await prisma.equipmentGroup.findFirst({
-      where: { id, ...orgWhere(ctx) },
+      where: { id },
       include: { instruments: { orderBy: { sortOrder: 'asc' } }, block: { select: { id: true, name: true } } },
     });
     if (!group) throw new AppError(404, 'NOT_FOUND', 'Equipment group not found');
     return group;
   }
 
-  async getByBlock(ctx: RequestContext, blockId: string) {
+  async getByBlock(_ctx: RequestContext, blockId: string) {
     return prisma.equipmentGroup.findMany({
-      where: { blockId, isActive: true, ...orgWhere(ctx) },
+      where: { blockId, isActive: true },
       include: { instruments: { orderBy: { sortOrder: 'asc' } } },
       orderBy: { name: 'asc' },
     });
@@ -83,11 +78,8 @@ export class EquipmentGroupsService {
     if (!name?.trim()) throw new AppError(400, 'VALIDATION', 'Group name is required');
     if (!blockId) throw new AppError(400, 'VALIDATION', 'Block ID is required');
 
-    // Verify block exists (allow global blocks with null organizationId)
-    const blockWhere = (ctx.scope === 'GLOBAL' || !ctx.organizationId)
-      ? { id: blockId }
-      : { id: blockId, OR: [{ organizationId: ctx.organizationId }, { organizationId: null }] };
-    const block = await prisma.assetInstance.findFirst({ where: blockWhere });
+    // Verify block exists
+    const block = await prisma.assetInstance.findFirst({ where: { id: blockId } });
     if (!block) throw new AppError(404, 'NOT_FOUND', 'Block not found');
 
     if (!instruments || !Array.isArray(instruments) || instruments.length !== 3) {
@@ -97,22 +89,11 @@ export class EquipmentGroupsService {
     // Validate each instrument
     instruments.forEach((inst: any, idx: number) => validateInstrument(inst, idx));
 
-    // Resolve organizationId: prefer user's org, then block's org
-    // For GLOBAL scope users with no org, find the first available organization
-    let orgId = ctx.organizationId || block.organizationId;
-    if (!orgId) {
-      const firstOrg = await prisma.organization.findFirst({ where: { isActive: true }, select: { id: true } });
-      if (!firstOrg) throw new AppError(400, 'VALIDATION', 'No active organization found. Create an organization first.');
-      orgId = firstOrg.id;
-    }
-
-
     const group = await prisma.$transaction(async (tx) => {
       const created = await tx.equipmentGroup.create({
         data: {
           name: name.trim(),
           blockId,
-          organizationId: orgId,
           createdBy: ctx.userSub,
         },
       });
@@ -159,7 +140,7 @@ export class EquipmentGroupsService {
     const { name, instruments } = sanitized;
 
     const existing = await prisma.equipmentGroup.findFirst({
-      where: { id, ...orgWhere(ctx) },
+      where: { id },
       include: { instruments: { orderBy: { sortOrder: 'asc' } } },
     });
     if (!existing) throw new AppError(404, 'NOT_FOUND', 'Equipment group not found');
@@ -215,7 +196,7 @@ export class EquipmentGroupsService {
 
   async delete(ctx: RequestContext, id: string) {
     const existing = await prisma.equipmentGroup.findFirst({
-      where: { id, ...orgWhere(ctx) },
+      where: { id },
     });
     if (!existing) throw new AppError(404, 'NOT_FOUND', 'Equipment group not found');
 

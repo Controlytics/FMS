@@ -58,13 +58,6 @@ export default async function setup(): Promise<void> {
         },
       });
     } else {
-      // Need a default org. Pick any existing one - matches the dev DB shape.
-      const org = await prisma.organization.findFirst({ select: { id: true } });
-      if (!org) {
-        throw new Error(
-          'vitest globalSetup: no Organization rows in digilog_db. Cannot create test admin.',
-        );
-      }
       await prisma.user.create({
         data: {
           username: 'admin',
@@ -75,7 +68,6 @@ export default async function setup(): Promise<void> {
           passwordHash,
           forcePasswordChange: false,
           isTemporaryPassword: false,
-          organizationId: org.id,
         },
       });
     }
@@ -84,33 +76,29 @@ export default async function setup(): Promise<void> {
     // non-admin actor) logs in as RB0001 / Test@1234 to verify operator
     // RBAC paths. Upsert idempotently with the OPERATOR role.
     const operatorPassword = await hashPassword('Test@1234');
-    const operatorOrg = await prisma.organization.findFirst({ select: { id: true } });
-    if (operatorOrg) {
-      await prisma.user.upsert({
-        where: { username: 'RB0001' },
-        update: {
-          passwordHash: operatorPassword,
-          role: 'OPERATOR',
-          status: 'ENABLED',
-          forcePasswordChange: false,
-          isTemporaryPassword: false,
-          failedLoginAttempts: 0,
-          lockedAt: null,
-          lockoutUntil: null,
-        },
-        create: {
-          username: 'RB0001',
-          email: 'rb0001-test@digilog.local',
-          fullName: 'Test Operator',
-          role: 'OPERATOR',
-          status: 'ENABLED',
-          passwordHash: operatorPassword,
-          forcePasswordChange: false,
-          isTemporaryPassword: false,
-          organizationId: operatorOrg.id,
-        },
-      });
-    }
+    await prisma.user.upsert({
+      where: { username: 'RB0001' },
+      update: {
+        passwordHash: operatorPassword,
+        role: 'OPERATOR',
+        status: 'ENABLED',
+        forcePasswordChange: false,
+        isTemporaryPassword: false,
+        failedLoginAttempts: 0,
+        lockedAt: null,
+        lockoutUntil: null,
+      },
+      create: {
+        username: 'RB0001',
+        email: 'rb0001-test@digilog.local',
+        fullName: 'Test Operator',
+        role: 'OPERATOR',
+        status: 'ENABLED',
+        passwordHash: operatorPassword,
+        forcePasswordChange: false,
+        isTemporaryPassword: false,
+      },
+    });
   } finally {
     await prisma.$disconnect();
   }

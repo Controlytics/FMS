@@ -9,7 +9,6 @@ datasource db {
 
 enum RoleScope {
   GLOBAL
-  ORGANIZATION
 }
 
 enum DashboardScope {
@@ -20,78 +19,43 @@ enum DashboardScope {
 
 enum AssigneeType {
   USER
-  ORGANIZATION
   ROLE
 }
 
 // Organization — logical grouping under a tenant
-model Organization {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String   @db.VarChar(200)
-  slug        String   @db.VarChar(100)
-  description String?  @db.VarChar(500)
-  parentOrgId String?  @map("parent_org_id") @db.Uuid
-  isActive    Boolean  @default(true) @map("is_active")
-  metadata    Json     @default("{}") @db.JsonB
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
-  createdBy   String?  @map("created_by") @db.VarChar(50)
-
-  parent   Organization?  @relation("OrgHierarchy", fields: [parentOrgId], references: [id])
-  children Organization[] @relation("OrgHierarchy")
-
-  templateAssignments TemplateAssignment[]
-  entityAssignments   EntityAssignment[]
-
-  // Report relations
-  reportTemplates ReportTemplate[]
-  reportInstances ReportInstance[]
-
-  @@unique([slug])
-  @@index([isActive])
-  @@index([parentOrgId])
-  @@map("organizations")
-}
-
-// Entity Assignment — controls which users/orgs can access which entities
-// Template Assignment - maps templates to orgs/users for visibility
+// Template Assignment — maps templates to users for visibility
 model TemplateAssignment {
-  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  templateId     String       @map("template_id") @db.Uuid
-  assigneeType   AssigneeType @map("assignee_type")
-  userId         String?      @map("user_id") @db.Uuid
-  organizationId String?      @map("organization_id") @db.Uuid
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
-  createdBy      String?      @map("created_by") @db.VarChar(50)
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  templateId   String       @map("template_id") @db.Uuid
+  assigneeType AssigneeType @map("assignee_type")
+  userId       String?      @map("user_id") @db.Uuid
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  createdBy    String?      @map("created_by") @db.VarChar(50)
 
-  template     AssetTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user         User?         @relation("UserTemplateAssignments", fields: [userId], references: [id], onDelete: Cascade)
+  template AssetTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  user     User?         @relation("UserTemplateAssignments", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([templateId])
-  @@index([organizationId])
   @@index([userId])
   @@map("template_assignments")
 }
 
+// Entity Assignment — controls which users can access which entities
 model EntityAssignment {
-  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  entityId       String       @map("entity_id") @db.Uuid
-  assigneeType   AssigneeType @map("assignee_type")
-  userId         String?      @map("user_id") @db.Uuid
-  organizationId String?      @map("organization_id") @db.Uuid
-  roleValue      String?      @map("role_value") @db.VarChar(50)
-  permissions    Json         @default("{\"view\":true,\"control\":false,\"configure\":false}") @db.JsonB
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
-  createdBy      String?      @map("created_by") @db.VarChar(50)
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityId     String       @map("entity_id") @db.Uuid
+  assigneeType AssigneeType @map("assignee_type")
+  userId       String?      @map("user_id") @db.Uuid
+  roleValue    String?      @map("role_value") @db.VarChar(50)
+  permissions  Json         @default("{\"view\":true,\"control\":false,\"configure\":false}") @db.JsonB
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  createdBy    String?      @map("created_by") @db.VarChar(50)
 
-  entity       AssetInstance @relation(fields: [entityId], references: [id], onDelete: Cascade)
-  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user         User?         @relation("UserEntityAssignments", fields: [userId], references: [id], onDelete: Cascade)
+  entity AssetInstance @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  user   User?         @relation("UserEntityAssignments", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([entityId])
   @@index([userId])
-  @@index([organizationId])
   @@map("entity_assignments")
 }
 
@@ -140,19 +104,17 @@ model DashboardWidget {
 
 // Dashboard Assignment — who can see which dashboard
 model DashboardAssignment {
-  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  dashboardId    String       @map("dashboard_id") @db.Uuid
-  assigneeType   AssigneeType @map("assignee_type")
-  userId         String?      @map("user_id") @db.Uuid
-  organizationId String?      @map("organization_id") @db.Uuid
-  roleValue      String?      @map("role_value") @db.VarChar(50)
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dashboardId  String       @map("dashboard_id") @db.Uuid
+  assigneeType AssigneeType @map("assignee_type")
+  userId       String?      @map("user_id") @db.Uuid
+  roleValue    String?      @map("role_value") @db.VarChar(50)
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz
 
   dashboard Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
 
   @@index([dashboardId])
   @@index([userId])
-  @@index([organizationId])
   @@map("dashboard_assignments")
 }
 
@@ -167,7 +129,7 @@ model Role {
   color          String    @default("#6366f1") @db.VarChar(100) // Badge color for UI (CSS class)
   isSystem       Boolean   @default(false) @map("is_system") // System roles cannot be deleted
   isActive       Boolean   @default(true) @map("is_active")
-  scope          RoleScope @default(ORGANIZATION)
+  scope          RoleScope @default(GLOBAL)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   createdBy      String?   @map("created_by") @db.VarChar(50)
@@ -194,7 +156,6 @@ model User {
   department          String?    @db.VarChar(50)
   photoUrl            String?    @map("photo_url") @db.VarChar(500)
   role                String     @db.VarChar(50) // References roles.name
-  organizationId      String?    @map("organization_id") @db.Uuid
   status              UserStatus @default(ENABLED)
   failedLoginAttempts Int        @default(0) @map("failed_login_attempts")
   lockedAt            DateTime?  @map("locked_at") @db.Timestamptz
@@ -223,7 +184,6 @@ model User {
   reportSignatures        ReportSignature[]       @relation("ReportSigner")
 
   @@index([role])
-  @@index([organizationId])
   @@index([status])
   @@map("users")
 }
@@ -424,15 +384,47 @@ model RoleConfig {
 // ASSET MANAGEMENT MODELS
 // =============================================
 
+// Lookup table for the canonical template families that the Filter Management
+// / Cleaning Operations / Mobile pages resolve by code. Stored as a table (not
+// a Prisma enum) so SUPER_ADMIN can add new kinds (e.g. PUMP, VALVE,
+// COMPRESSOR) at runtime via the Configuration UI without a code migration.
+//
+// `code` is the stable, code-level identifier the frontend compares against
+// (`templateKind === 'BLOCK'`). Pages route on code; admins can edit `label`
+// for display.
+//
+// `isSystem=true` rows (BLOCK / AREA / AHU / FILTER / EQUIPMENT / OTHER —
+// seeded by prisma/seed.ts) cannot be deleted and their `code` cannot be
+// renamed; only `label`/`description`/`sortOrder`/`isActive` are admin-
+// editable on system kinds. Non-system kinds are fully editable.
+model TemplateKind {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String   @unique @db.VarChar(50)
+  label       String   @db.VarChar(100)
+  description String?  @db.VarChar(500)
+  isSystem    Boolean  @default(false) @map("is_system")
+  isActive    Boolean  @default(true) @map("is_active")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy   String?  @map("created_by") @db.VarChar(50)
+  updatedBy   String?  @map("updated_by") @db.VarChar(50)
+
+  templates AssetTemplate[]
+
+  @@index([isActive, sortOrder])
+  @@map("template_kinds")
+}
+
 // Asset Template — reusable blueprint for asset types
 model AssetTemplate {
-  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId        String?  @map("organization_id") @db.Uuid
-  name                  String   @unique @db.VarChar(100)
-  description           String?  @db.VarChar(500)
-  category              String   @default("General") @db.VarChar(50) // Equipment, Room, Building, etc.
-  icon                  String   @default("box") @db.VarChar(50) // Icon identifier for UI
-  version               Int      @default(1) // Current version number
+  id                    String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String       @unique @db.VarChar(100)
+  description           String?      @db.VarChar(500)
+  category              String       @default("General") @db.VarChar(50) // Equipment, Room, Building, etc.
+  icon                  String       @default("box") @db.VarChar(50) // Icon identifier for UI
+  templateKind          String       @default("OTHER") @map("template_kind") @db.VarChar(50) // FK code → TemplateKind.code (admin-editable lookup)
+  version               Int          @default(1) // Current version number
   attributeSchema       Json     @default("[]") @map("attribute_schema") @db.JsonB // Array of attribute definitions
   telemetrySchema       Json     @default("[]") @map("telemetry_schema") @db.JsonB // Array of telemetry point definitions
   expectedIdentifiers   Json     @default("[]") @map("expected_identifiers") @db.JsonB // Array of expected identifier types
@@ -461,9 +453,11 @@ model AssetTemplate {
   instances           AssetInstance[]
   templateAssignments TemplateAssignment[]
   defaultRuleChain    RuleChain?             @relation(fields: [defaultRuleChainId], references: [id])
+  templateKindRef     TemplateKind           @relation(fields: [templateKind], references: [code])
 
   @@index([isActive])
   @@index([category])
+  @@index([templateKind])
   @@map("asset_templates")
 }
 
@@ -487,7 +481,6 @@ model AssetTemplateVersion {
 // Asset Instance — actual asset created from a template
 model AssetInstance {
   id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId   String?  @map("organization_id") @db.Uuid
   name             String   @db.VarChar(255)
   description      String?
   templateId       String   @map("template_id") @db.Uuid
@@ -512,20 +505,42 @@ model AssetInstance {
   identifiers           AssetIdentifier[]
   entityAssignments     EntityAssignment[]
   equipmentGroups       EquipmentGroup[]
-  filterProfileId       String?             @map("filter_profile_id") @db.Uuid
-  currentLifecycleState String?             @map("current_lifecycle_state") @db.VarChar(100)
-  currentCycleId        String?             @map("current_cycle_id") @db.Uuid
-  filterSet             FilterSetLabel?     @map("filter_set")
-  filterProfile         FilterProfile?      @relation("FilterProfileInstances", fields: [filterProfileId], references: [id])
-  currentCycle          CleaningCycle?      @relation("CurrentCycleInstance", fields: [currentCycleId], references: [id])
+
+  // Filter-specific 1:1 split (Step 6 — 2026-05-01). FilterDetails is created
+  // eagerly when the instance's template has templateKind='FILTER'. Other
+  // template kinds never get a FilterDetails row.
+  filterDetails         FilterDetails?
 
   @@index([templateId])
   @@index([status])
   @@index([parentId])
   @@index([name])
   @@index([isActive])
-  @@index([organizationId, currentLifecycleState])
   @@map("asset_instances")
+}
+
+// FilterDetails — 1:1 sidecar holding filter-specific cycle state.
+// Split off AssetInstance in Step 6 (2026-05-01) because these fields are
+// meaningless for non-filter rows and were leaking nullable state across
+// every entity in the system.
+model FilterDetails {
+  id                    String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assetInstanceId       String          @unique @map("asset_instance_id") @db.Uuid
+  filterProfileId       String?         @map("filter_profile_id") @db.Uuid
+  currentLifecycleState String?         @map("current_lifecycle_state") @db.VarChar(100)
+  currentCycleId        String?         @map("current_cycle_id") @db.Uuid
+  filterSet             FilterSetLabel? @map("filter_set")
+  createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  assetInstance  AssetInstance  @relation(fields: [assetInstanceId], references: [id], onDelete: Cascade)
+  filterProfile  FilterProfile? @relation("FilterProfileFilterDetails", fields: [filterProfileId], references: [id])
+  currentCycle   CleaningCycle? @relation("CurrentCycleFilterDetails", fields: [currentCycleId], references: [id])
+
+  @@index([currentLifecycleState])
+  @@index([currentCycleId])
+  @@index([filterProfileId])
+  @@map("filter_details")
 }
 
 // Asset Relationship — bidirectional connections between assets
@@ -1266,7 +1281,6 @@ model FilterCleaningProfile {
   id                   String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name                 String                @db.VarChar(255)
   description          String?
-  organizationId       String                @map("organization_id") @db.Uuid
   flowMode             PipelineFlowMode      @default(STRICT) @map("flow_mode")
   alarmOnForwardSkip   Boolean               @default(true) @map("alarm_on_forward_skip")
   alarmOnBackwardJump  Boolean               @default(true) @map("alarm_on_backward_jump")
@@ -1283,7 +1297,7 @@ model FilterCleaningProfile {
   cleaningCycles CleaningCycle[]
   filterProfiles FilterProfile[]
 
-  @@index([organizationId, status])
+  @@index([status])
   @@map("filter_cleaning_profiles")
 }
 
@@ -1333,15 +1347,14 @@ model FilterProfile {
   allowedBlocks       Json?            @map("allowed_blocks") @db.JsonB
   maxCleaningCycles   Int?             @map("max_cleaning_cycles")
   isActive            Boolean          @default(true) @map("is_active")
-  organizationId      String           @map("organization_id") @db.Uuid
   createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz
 
   cleaningProfile FilterCleaningProfile? @relation(fields: [cleaningProfileId], references: [id])
   pmSchedule      PmSchedule?            @relation(fields: [defaultPmScheduleId], references: [id])
-  assetInstances  AssetInstance[]        @relation("FilterProfileInstances")
+  filterDetails   FilterDetails[]        @relation("FilterProfileFilterDetails")
 
-  @@index([organizationId, isActive])
+  @@index([isActive])
   @@map("filter_profiles")
 }
 
@@ -1373,10 +1386,10 @@ model CleaningCycle {
   dryerStartedAt            DateTime? @map("dryer_started_at") @db.Timestamptz
   dryerReadingsSubmitted    Boolean   @default(false) @map("dryer_readings_submitted")
 
-  events          FilterEvent[]
-  equipmentGroup  EquipmentGroup?        @relation(fields: [equipmentGroupId], references: [id])
-  profile         FilterCleaningProfile? @relation(fields: [profileId], references: [id])
-  activeInstances AssetInstance[]        @relation("CurrentCycleInstance")
+  events                FilterEvent[]
+  equipmentGroup        EquipmentGroup?        @relation(fields: [equipmentGroupId], references: [id])
+  profile               FilterCleaningProfile? @relation(fields: [profileId], references: [id])
+  activeFilterDetails   FilterDetails[]        @relation("CurrentCycleFilterDetails")
 
   @@index([filterId, status])
   @@index([ahuId, status])
@@ -1422,21 +1435,20 @@ model FilterEvent {
 // ─── Equipment Groups ──────────────────────────────────────
 
 model EquipmentGroup {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name           String   @db.VarChar(255)
-  blockId        String   @map("block_id") @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  isActive       Boolean  @default(true) @map("is_active")
-  createdBy      String?  @map("created_by") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String   @db.VarChar(255)
+  blockId   String   @map("block_id") @db.Uuid
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   block       AssetInstance              @relation(fields: [blockId], references: [id])
   instruments EquipmentGroupInstrument[]
   cycles      CleaningCycle[]
 
   @@index([blockId])
-  @@index([organizationId, isActive])
+  @@index([isActive])
   @@map("equipment_groups")
 }
 
@@ -1483,18 +1495,17 @@ enum ChecklistQuestionType {
 }
 
 model ChecklistProfile {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name           String   @db.VarChar(255)
-  description    String?
-  organizationId String   @map("organization_id") @db.Uuid
-  isActive       Boolean  @default(true) @map("is_active")
-  createdBy      String?  @map("created_by") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @db.VarChar(255)
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdBy   String?  @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   questions ChecklistQuestion[]
 
-  @@index([organizationId, isActive])
+  @@index([isActive])
   @@map("checklist_profiles")
 }
 
@@ -1543,12 +1554,11 @@ model BlockChangeRequest {
   processedByName  String?           @map("processed_by_name") @db.VarChar(255)
   processedComment String?           @map("processed_comment")
   processedAt      DateTime?         @map("processed_at") @db.Timestamptz
-  organizationId   String?           @map("organization_id") @db.Uuid
   createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz
 
   @@index([filterId, toBlockId, status])
-  @@index([status, organizationId])
+  @@index([status])
   @@index([requestedBy])
   @@map("block_change_requests")
 }
@@ -1577,8 +1587,6 @@ model ReportTemplate {
   description    String?              @db.VarChar(2000)
   status         ReportTemplateStatus @default(ACTIVE)
   currentVersion Int                  @default(1) @map("current_version")
-  orgId          String               @map("org_id") @db.Uuid
-  org            Organization         @relation(fields: [orgId], references: [id])
   createdBy      String               @map("created_by") @db.Uuid
   creator        User                 @relation("ReportTemplateCreator", fields: [createdBy], references: [id])
   createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz
@@ -1587,7 +1595,6 @@ model ReportTemplate {
   versions        ReportTemplateVersion[]
   reportInstances ReportInstance[]
 
-  @@index([orgId])
   @@index([status])
   @@map("report_templates")
 }
@@ -1626,15 +1633,12 @@ model ReportInstance {
   pageCount       Int?           @map("page_count")
   generatedBy     String         @map("generated_by") @db.Uuid
   generator       User           @relation("ReportGenerator", fields: [generatedBy], references: [id])
-  orgId           String         @map("org_id") @db.Uuid
-  org             Organization   @relation(fields: [orgId], references: [id])
   generatedAt     DateTime       @default(now()) @map("generated_at") @db.Timestamptz
   signedAt        DateTime?      @map("signed_at") @db.Timestamptz
   expiresAt       DateTime?      @map("expires_at") @db.Timestamptz
 
   signatures ReportSignature[]
 
-  @@index([orgId])
   @@index([templateId])
   @@index([status])
   @@index([generatedAt])

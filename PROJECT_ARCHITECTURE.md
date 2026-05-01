@@ -39,7 +39,7 @@
 │  │  ┌──────────┐ ┌──────────┐ ┌────────┐ ┌──────────┐   │        │
 │  │  │PostgreSQL│ │TimescaleDB│ │ Redis  │ │Mosquitto │   │        │
 │  │  │  :5432   │ │  :5432   │ │ :6379  │ │  :1883   │   │        │
-│  │  │ 64 models│ │ 7 hyper- │ │ pub/sub│ │  MQTT    │   │        │
+│  │  │ 65 models│ │ 7 hyper- │ │ pub/sub│ │  MQTT    │   │        │
 │  │  │ Prisma   │ │ tables   │ │only-now│ │  Broker  │   │        │
 │  │  │digilog_db│ │digilog_  │ │optional│ │  IoT     │   │        │
 │  │  │ +queue   │ │tsdb      │ │ Memurai│ │  devices │   │        │
@@ -223,7 +223,7 @@ HTTPS Request → Fastify (:3000, mkcert TLS, serves SPA + /api/*)
 
 ### Module Structure
 
-Each of the 37 modules follows this pattern:
+Each of the 36 modules follows this pattern:
 
 ```
 modules/
@@ -234,13 +234,15 @@ modules/
     └── __tests__/             Vitest unit tests
 ```
 
-### 37 API Modules
+### 36 API Modules
+
+> **MT removal 2026-04-30:** `org-admin` and `tenant-admin` modules deleted; DigiLog is single-tenant.
 
 | Category | Modules |
 |---|---|
 | **Auth & Users** | auth, users, roles, user-groups |
-| **Organization** | org-admin, tenant-admin, super-admin |
-| **Assets** | assets (templates/instances/relationships/identifiers) |
+| **Admin** | super-admin (org CRUD endpoints removed in MT removal) |
+| **Assets** | assets (templates/instances/relationships/identifiers), **template-kinds** (admin-editable lookup; Step 1 of architectural refactor) |
 | **Filter Operations** | filter-operations, filter-profiles, cleaning-profiles, checklist-profiles |
 | **Scheduling** | pm-schedules, equipment-groups, entity-assignments |
 | **Approvals** | block-change-requests, admin-requests |
@@ -259,7 +261,8 @@ Login Flow:
   POST /api/auth/login → validate credentials → create Session → return JWT (8h)
 
 JWT Payload:
-  { sub: userId, username, role, sessionId, scope, organizationId }
+  { sub: userId, username, role, sessionId, scope }
+  (scope is always 'GLOBAL' post-MT-removal 2026-04-30)
 
 Token Refresh:
   POST /api/auth/refresh → extend JWT (every 30 min)
@@ -448,7 +451,7 @@ System:
 │    └── Mosquitto dynsec auth (DeviceCredential → dynamic-security.json via /refresh-acl)         │
 │                                                     │
 │  Layer 3: Authorization                             │
-│    └── RBAC (109 permissions, role-based)            │
+│    └── RBAC (105 permissions, role-based)            │
 │    └── Organization scoping (multi-tenant isolation) │
 │    └── Re-authentication (81 sensitive actions)      │
 │                                                     │

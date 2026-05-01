@@ -181,7 +181,16 @@ export const ldapService = {
       };
     } catch (err: any) {
       console.error('[LDAP] Authentication error:', err.message);
-      try { await client.unbind(); } catch {}
+      // Best-effort unbind. If the socket is already torn down by the
+      // server (common on auth failures), unbind() rejects with "client
+      // is not connected" — that's not an actionable error for the caller,
+      // but log so a flood of unbind failures (a real server-side issue)
+      // is still visible.
+      try {
+        await client.unbind();
+      } catch (unbindErr: any) {
+        console.warn('[LDAP] unbind after auth error failed:', unbindErr?.message ?? unbindErr);
+      }
       return null;
     }
   },
@@ -215,7 +224,6 @@ export const ldapService = {
         authSource: 'ldap',
         ldapDn: ldapResult.userDn,
         department: ldapResult.attributes.department || null,
-        organizationId: config.defaultOrganizationId || null,
         status: 'ENABLED',
         forcePasswordChange: false,
         isTemporaryPassword: false,

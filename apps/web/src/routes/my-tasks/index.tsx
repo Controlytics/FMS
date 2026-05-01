@@ -145,11 +145,22 @@ export function MyTasksPage() {
       </div>
 
       {/* ─── Error ─── */}
-      {error && (
-        <div className="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-4 text-sm">
-          Failed to load tasks: {(error as any).message ?? 'unknown error'}
-        </div>
-      )}
+      {error && (() => {
+        const code = (error as any).code ?? (error as any).response?.data?.error;
+        const msg = (error as any).message ?? 'unknown error';
+        if (code === 'PM_DISABLED' || /pm scheduling module is not enabled/i.test(msg)) {
+          return (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-4 text-sm">
+              Preventive Maintenance scheduling is disabled. Enable it in Configuration → PM Schedule Settings to start receiving tasks.
+            </div>
+          );
+        }
+        return (
+          <div className="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-4 text-sm">
+            Failed to load tasks: {msg}
+          </div>
+        );
+      })()}
 
       {/* ─── Loading skeleton ─── */}
       {isLoading && !data && (

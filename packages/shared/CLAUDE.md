@@ -51,18 +51,18 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 - `INVERSE_RELATIONSHIP_MAP` — Bidirectional relationship type pairs
 - Default audit text templates
 
-## Live Type Inventory (verified 2026-04-29)
+## Live Type Inventory (verified 2026-04-30 post-MT-removal)
 
 `packages/shared/src/types/` contains **10 type files**:
 
 | File | Purpose |
 |---|---|
-| `permissions.ts` | **109** permission constants (PERMISSIONS enum + ALL_PERMISSIONS list) |
-| `feature-privileges.ts` | **91** feature privileges + `FEATURE_TO_PERMISSION_MAP` |
+| `permissions.ts` | **105** permission constants (PERMISSIONS enum + ALL_PERMISSIONS list) — 4 ORG_* perms removed in MT removal |
+| `feature-privileges.ts` | **89** feature privileges + `FEATURE_TO_PERMISSION_MAP` — 2 org.* privileges removed in MT removal |
 | `reauth-actions.ts` | **81** reauth actions across 16 categories |
 | `roles.ts` | Role constants + hierarchy + display labels |
 | `permission-categories.ts` | Permission grouping for the role-access UI |
-| `sidebar-items.ts` | **26** sidebar items |
+| `sidebar-items.ts` | **25** sidebar items (Organizations entry removed in MT removal) |
 | `sidebar-privilege-map.ts` | Sidebar item → privilege binding |
 | `audit-actions.ts` | Audit action constants for `AuditTrail.action` |
 | `audit-templates.ts` | Templates that hide UUIDs in audit UI (e.g. `"<RequestType> — <Name> (<EmployeeID>)"`) |
@@ -76,7 +76,7 @@ Plus `index.ts` (barrel).
 |---|---|
 | `auth.ts` | Login, logout, change-password, force-login |
 | `users.ts` | Create / update / role-assignment user payloads |
-| `assets.ts` | Asset template + instance + relationship + identifier payloads |
+| `assets.ts` | Asset template + instance + relationship + identifier + **TemplateKind CRUD** payloads. `SYSTEM_TEMPLATE_KIND_CODES` and `templateKindCodeSchema` exported here (Step 1 of architectural refactor). |
 | `templates.ts` | Asset template body schema (`attributeSchema`, alarm rules) |
 | `hierarchy.ts` | Block / Area / AHU hierarchy create payloads |
 | `audit.ts` | Audit query schema |
@@ -86,7 +86,7 @@ Plus `index.ts` (barrel).
 > Stray file: `config.ts.patch` exists in this folder — clean up.
 
 ## Notes
-- Prisma schema (extended over Phases 2–5) has **64 models, 22 enums** in `apps/api/prisma/schema.prisma`
+- Prisma schema has **65 models, 22 enums** in `apps/api/prisma/schema.prisma` (Step 6 — 2026-05-01 — added `FilterDetails` 1:1 sidecar holding the filter-specific cycle state; was 64 post-MT-removal)
 - Phase 2 types (filter operations, cleaning profiles) are still co-located in API modules (not yet extracted)
 - 78+ field IDs across all modules (including filter management fields)
 

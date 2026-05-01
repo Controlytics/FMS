@@ -115,7 +115,7 @@ Redis/Memurai is still used for non-queue pub/sub (WebSocket events, RPC routing
 
 ### 8. PostgreSQL 18 + TimescaleDB extension
 
-**Files:** `apps/api/prisma/schema.prisma` (64 models, 22 enums), `init-tsdb.sql`, `tsdb-migration/init-hypertables.sql`, `apps/api/prisma/sql/extensions.sql`
+**Files:** `apps/api/prisma/schema.prisma` (65 models, 22 enums), `init-tsdb.sql`, `tsdb-migration/init-hypertables.sql`, `apps/api/prisma/sql/extensions.sql`
 
 **Why caveats:**
 - TimescaleDB on Windows tracks **specific PG patch versions**; when PG 18.x patches, TimescaleDB Windows builds lag 1–2 weeks
@@ -263,7 +263,7 @@ New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' `
 - HTTPS via mkcert (after the cert-import step in §6)
 - Windows Service registration via NSSM (stopgap until Phase 5 ships a managed-service launcher)
 - Memurai (Redis substitute, paid) — **optional** post-Phase-2; only used for non-queue pub/sub features
-- The 30 config defs + 26 config pages + 109 permissions — all pure JS
+- The 30 config defs + 27 config pages + 105 permissions — all pure JS
 
 ---
 

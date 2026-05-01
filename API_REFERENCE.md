@@ -41,7 +41,7 @@ Verification token valid for 5 minutes, used in `x-reauth-password` header.
 ```
 GET /api/auth/me
 Auth: Bearer token
-Response: { id, username, fullName, email, role, permissions[], organizationId, scope }
+Response: { id, username, fullName, email, role, permissions[], scope }
 ```
 
 ### Change Password
@@ -75,7 +75,7 @@ Response: { data: User[], total, page, limit, totalPages }
 POST /api/users
 Permission: USER_CREATE
 Reauth: CREATE_USER
-Body: { username, fullName, email, password, role, department?, organizationId? }
+Body: { username, fullName, email, password, role, department? }
 ```
 
 ### Update User
@@ -173,6 +173,15 @@ PUT    /api/assets/templates/:id       Permission: ASSET_TEMPLATE_UPDATE, Reauth
 DELETE /api/assets/templates/:id       Permission: ASSET_TEMPLATE_DELETE, Reauth
 ```
 
+### Template Kinds (admin-editable lookup, Step 1 of architectural refactor)
+```
+GET    /api/template-kinds             Permission: ASSET_VIEW
+POST   /api/template-kinds             Permission: CONFIG_UPDATE
+PUT    /api/template-kinds/:code       Permission: CONFIG_UPDATE  (code is immutable; updates label/description/sortOrder/isActive)
+DELETE /api/template-kinds/:code       Permission: CONFIG_UPDATE  (rejected with 409 SYSTEM_KIND for system kinds; rejected with 409 IN_USE if any AssetTemplate references this kind)
+```
+System kinds seeded by `prisma/seed.ts`: BLOCK · AREA · AHU · FILTER · EQUIPMENT · OTHER. Their `code` is the stable identifier the Filter Management / Cleaning Operations / Mobile pages compare against; admins can rename `label` but not `code`.
+
 ### Instances
 ```
 GET    /api/assets/instances           Permission: ASSET_VIEW
@@ -223,10 +232,10 @@ Body: { answers: [{ questionId, answer }] }
 
 ### Cycle & Event History
 ```
-GET /api/filter/cycles                 Permission: ASSET_READ
-GET /api/filter/cycles/:cycleId        Permission: ASSET_READ
-GET /api/filter/events                 Permission: ASSET_READ
-GET /api/filter/events/:eventId        Permission: ASSET_READ
+GET /api/filters/cycles                Permission: ASSET_READ
+GET /api/filters/cycles/:cycleId       Permission: ASSET_READ
+GET /api/filters/events                Permission: ASSET_READ
+GET /api/filters/events/:eventId       Permission: ASSET_READ
 ```
 
 ---
@@ -445,4 +454,6 @@ Common error codes:
 `REPORT_TEMPLATE_READ`, `REPORT_TEMPLATE_CREATE`, `REPORT_TEMPLATE_UPDATE`, `REPORT_TEMPLATE_DELETE`, `REPORT_GENERATE`, `REPORT_VIEW`, `REPORT_SIGN`, `REPORT_DELETE`, `REPORT_EXPORT`
 
 ### Other
-`AUDIT_READ`, `AUDIT_EXPORT`, `EVENT_READ`, `CYCLE_READ`, `ALARM_VIEW`, `ALARM_ACKNOWLEDGE`, `ALARM_CLEAR`, `NOTIFICATION_VIEW`, `NOTIFICATION_CREATE`, `NOTIFICATION_UPDATE`, `NOTIFICATION_DELETE`, `NOTIFICATION_MANAGE`, `RULE_CHAIN_VIEW`, `RULE_CHAIN_CREATE`, `RULE_CHAIN_UPDATE`, `RULE_CHAIN_DELETE`, `DASHBOARD_CREATE`, `DASHBOARD_MANAGE`, `DASHBOARD_VIEW`, `DASHBOARD_ASSIGN`, `UNS_VIEW`, `UNS_MANAGE`, `READ_DEBUG_TRACE`, `MANAGE_DEBUG_TRACE`, `BLOCK_CHANGE_REQUEST`, `BLOCK_CHANGE_APPROVE`, `BACKUP_MANAGE`, `ORG_MANAGE`, `ORG_VIEW`, `ORG_CREATE`, `ORG_DELETE`, `EG_VIEW`, `EG_CREATE`, `EG_EDIT`, `EG_DELETE`, `FP_READ`, `FP_CREATE`, `FP_UPDATE`, `FP_DELETE`, `FP_ASSIGN`
+`AUDIT_READ`, `AUDIT_EXPORT`, `EVENT_READ`, `CYCLE_READ`, `ALARM_VIEW`, `ALARM_ACKNOWLEDGE`, `ALARM_CLEAR`, `NOTIFICATION_VIEW`, `NOTIFICATION_CREATE`, `NOTIFICATION_UPDATE`, `NOTIFICATION_DELETE`, `NOTIFICATION_MANAGE`, `RULE_CHAIN_VIEW`, `RULE_CHAIN_CREATE`, `RULE_CHAIN_UPDATE`, `RULE_CHAIN_DELETE`, `DASHBOARD_CREATE`, `DASHBOARD_MANAGE`, `DASHBOARD_VIEW`, `DASHBOARD_ASSIGN`, `UNS_VIEW`, `UNS_MANAGE`, `READ_DEBUG_TRACE`, `MANAGE_DEBUG_TRACE`, `BLOCK_CHANGE_REQUEST`, `BLOCK_CHANGE_APPROVE`, `BACKUP_MANAGE`, `EG_VIEW`, `EG_CREATE`, `EG_EDIT`, `EG_DELETE`, `FP_READ`, `FP_CREATE`, `FP_UPDATE`, `FP_DELETE`, `FP_ASSIGN`
+
+> **Note (MT removal 2026-04-30):** `ORG_MANAGE`, `ORG_VIEW`, `ORG_CREATE`, `ORG_DELETE` permissions and the `/api/organizations` + `/api/org-admin` + `/api/tenant-admin` route prefixes were deleted. DigiLog is now single-tenant.

@@ -96,7 +96,7 @@ export function MobileWrapperPage() {
 
   // SWR for live data while online (refresh intervals for real-time updates)
   const { data: instancesData } = useSWR(online ? '/api/assets/instances?limit=500' : null, { refreshInterval: 15000 });
-  const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=100' : null);
+  const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=1000' : null);
   const { data: identifiersData, mutate: mutateIdentifiers } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null, { refreshInterval: 30000 });
 
   // My Tasks + Approvals
@@ -151,7 +151,7 @@ export function MobileWrapperPage() {
 
   const templates = (online ? (templatesData?.data ?? []) : offlineTemplates) as any[];
   const instances = online ? ((instancesData?.data ?? []) as any[]) : offlineFilters;
-  const filterTemplateId = templates.find((t: any) => t.name === 'Filter')?.id;
+  const filterTemplateId = templates.find((t: any) => t.templateKind === 'FILTER')?.id;
   const allFilters = instances.filter((f: any) => f.templateId === filterTemplateId && f.isActive !== false && f.status !== 'Retired');
 
   const stageCounts: Record<string, number> = {};

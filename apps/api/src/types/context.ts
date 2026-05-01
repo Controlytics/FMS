@@ -9,7 +9,6 @@ export interface RequestContext {
   ipAddress: string;   // req.ip
   userAgent?: string;  // req.headers['user-agent']
   sessionId: string;   // req.user.sessionId
-  organizationId?: string; // req.user.organizationId
   scope?: string;      // GLOBAL | ORGANIZATION
 }
 

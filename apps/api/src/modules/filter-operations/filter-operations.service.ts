@@ -7,8 +7,8 @@ import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { createHash } from 'node:crypto';
 import { sanitizeStrings } from '../../lib/sanitize.js';
-import { orgScope } from '../../lib/org-scope.js';
 import { findExistingByClientOpId } from '../../lib/idempotency.js';
+import { upsertFilterDetails, clearFilterCycle } from '../../lib/filter-details.js';
 
 function computeChecksum(data: Record<string, unknown>): string {
   const canonical = JSON.stringify(data, Object.keys(data).sort());
@@ -87,18 +87,29 @@ async function resolveChecklistQuestions(checklistNodes: any[]): Promise<any[]> 
   return result;
 }
 
-function orgWhere(ctx: RequestContext) { return orgScope(ctx); }
-
 export class FilterOperationsService {
-  private async getFilter(filterId: string, ctx: RequestContext) {
+  private async getFilter(filterId: string, _ctx: RequestContext) {
     // parentId is required by retire() to snapshot the original tree position
     // into customAttributes._preRetireParentId so unretire can restore it.
-    const filter = await prisma.assetInstance.findFirst({
-      where: { id: filterId, ...orgWhere(ctx) },
-      select: { id: true, name: true, filterProfileId: true, currentLifecycleState: true, currentCycleId: true, filterSet: true, organizationId: true, parentId: true },
+    // Filter cycle state lives on FilterDetails (Step 6) — include + flatten so
+    // the rest of this service keeps reading filter.{filterProfileId, currentLifecycleState, currentCycleId, filterSet} unchanged.
+    const inst = await prisma.assetInstance.findFirst({
+      where: { id: filterId },
+      select: {
+        id: true, name: true, parentId: true,
+        filterDetails: { select: { filterProfileId: true, currentLifecycleState: true, currentCycleId: true, filterSet: true } },
+      },
     });
-    if (!filter) throw new AppError(404, 'NOT_FOUND', 'Filter not found');
-    return filter as { id: string; name: string | null; filterProfileId: string | null; currentLifecycleState: string | null; currentCycleId: string | null; filterSet: string | null; organizationId: string | null; parentId: string | null };
+    if (!inst) throw new AppError(404, 'NOT_FOUND', 'Filter not found');
+    return {
+      id: inst.id,
+      name: inst.name ?? null,
+      parentId: inst.parentId ?? null,
+      filterProfileId: inst.filterDetails?.filterProfileId ?? null,
+      currentLifecycleState: inst.filterDetails?.currentLifecycleState ?? null,
+      currentCycleId: inst.filterDetails?.currentCycleId ?? null,
+      filterSet: (inst.filterDetails?.filterSet ?? null) as string | null,
+    };
   }
 
   async getFilterHomeBlock(filterId: string): Promise<{ blockId: string; blockName: string } | null> {
@@ -107,12 +118,12 @@ export class FilterOperationsService {
     while (currentId) {
       if (visited.has(currentId)) break;
       visited.add(currentId);
-      const inst: { id: string; name: string; parentId: string | null; template: { name: string } | null } | null = await prisma.assetInstance.findUnique({
+      const inst: { id: string; name: string; parentId: string | null; template: { templateKind: string } | null } | null = await prisma.assetInstance.findUnique({
         where: { id: currentId },
-        select: { id: true, name: true, parentId: true, template: { select: { name: true } } },
+        select: { id: true, name: true, parentId: true, template: { select: { templateKind: true } } },
       });
       if (!inst) break;
-      if (inst.template?.name === 'Block') {
+      if (inst.template?.templateKind === 'BLOCK') {
         return { blockId: inst.id, blockName: inst.name };
       }
       currentId = inst.parentId;
@@ -239,13 +250,11 @@ export class FilterOperationsService {
    * Returns { states: { [filterId]: stateObject } } for offline caching.
    */
   async getBatchStates(ctx: RequestContext, cleaningAreaId?: string) {
-    const orgWhere = ctx.organizationId ? { organizationId: ctx.organizationId } : {};
     const filters = await prisma.assetInstance.findMany({
       where: {
-        ...orgWhere,
         isActive: true,
         status: { not: 'Retired' },
-        template: { name: 'Filter' },
+        template: { templateKind: 'FILTER' },
       },
       select: { id: true },
     });
@@ -665,15 +674,10 @@ export class FilterOperationsService {
       throw new AppError(400, 'JUSTIFICATION_REQUIRED', 'Justification required (min 10 characters) for this cleaning reason');
     }
 
-    const org = filter.organizationId
-      ? await prisma.organization.findUnique({ where: { id: filter.organizationId }, select: { slug: true } })
-      : null;
-    const orgSlug = (org?.slug ?? 'ORG').toUpperCase().slice(0, 10);
-
     const prevCycleCount = await prisma.cleaningCycle.count({ where: { filterId } });
     const seq = prevCycleCount + 1;
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const cycleCode = `CC-${orgSlug}-${filter.name?.replace(/\s+/g, '').slice(0, 10) ?? filterId.slice(0, 8)}-${String(seq).padStart(3, '0')}-${dateStr}`;
+    const cycleCode = `CC-${filter.name?.replace(/\s+/g, '').slice(0, 10) ?? filterId.slice(0, 8)}-${String(seq).padStart(3, '0')}-${dateStr}`;
 
     // Resolve to cleaning profile — could be a FilterProfile ID or a CleaningProfile ID directly
     const fp = await prisma.filterProfile.findUnique({ where: { id: resolvedProfileIdForCycle } });
@@ -685,10 +689,10 @@ export class FilterOperationsService {
 
     // Use transaction to prevent race conditions on double-start
     const cycle = await prisma["$transaction"](async (tx) => {
-      // Re-check inside transaction
-      const recheck = await tx.assetInstance.findUnique({ where: { id: filterId }, select: { currentCycleId: true } });
-      if (recheck?.currentCycleId) {
-        const active = await tx.cleaningCycle.findFirst({ where: { id: recheck.currentCycleId, status: 'IN_PROGRESS' } });
+      // Re-check inside transaction (currentCycleId now lives on FilterDetails — Step 6)
+      const recheckFD = await tx.filterDetails.findUnique({ where: { assetInstanceId: filterId }, select: { currentCycleId: true } });
+      if (recheckFD?.currentCycleId) {
+        const active = await tx.cleaningCycle.findFirst({ where: { id: recheckFD.currentCycleId, status: 'IN_PROGRESS' } });
         if (active) throw new AppError(409, 'CYCLE_ACTIVE', 'Filter already has an active cleaning cycle');
       }
 
@@ -726,9 +730,11 @@ export class FilterOperationsService {
         },
       });
 
-      await tx.assetInstance.update({
-        where: { id: filterId },
-        data: { currentCycleId: newCycle.id },
+      // currentCycleId moved to FilterDetails (Step 6).
+      await tx.filterDetails.upsert({
+        where: { assetInstanceId: filterId },
+        update: { currentCycleId: newCycle.id },
+        create: { assetInstanceId: filterId, currentCycleId: newCycle.id },
       });
 
       return newCycle;
@@ -998,15 +1004,16 @@ export class FilterOperationsService {
 
     // Wrap all writes in a single transaction
     await prisma.$transaction(async (tx) => {
-      // Re-validate state inside transaction to prevent race conditions
-      const lockedFilter = await tx.assetInstance.findFirst({
-        where: { id: filterId },
+      // Re-validate state inside transaction to prevent race conditions.
+      // (currentLifecycleState + currentCycleId moved to FilterDetails — Step 6.)
+      const lockedFD = await tx.filterDetails.findUnique({
+        where: { assetInstanceId: filterId },
         select: { currentLifecycleState: true, currentCycleId: true },
       });
-      if (lockedFilter?.currentLifecycleState !== currentState) {
+      if (lockedFD?.currentLifecycleState !== currentState) {
         throw new AppError(409, 'STATE_CHANGED', 'Filter state was modified by another user. Please refresh and try again.');
       }
-      if (lockedFilter?.currentCycleId !== cycle.id) {
+      if (lockedFD?.currentCycleId !== cycle.id) {
         throw new AppError(409, 'CYCLE_CHANGED', 'Cleaning cycle changed. Please refresh and try again.');
       }
 
@@ -1060,8 +1067,9 @@ export class FilterOperationsService {
         });
       }
 
-      await tx.assetInstance.update({
-        where: { id: filterId },
+      // currentLifecycleState moved to FilterDetails (Step 6).
+      await tx.filterDetails.update({
+        where: { assetInstanceId: filterId },
         data: { currentLifecycleState: targetState },
       });
 
@@ -1070,8 +1078,9 @@ export class FilterOperationsService {
           where: { id: cycle.id },
           data: { status: 'COMPLETED', completedAt: offlineTime ?? new Date() },
         });
-        await tx.assetInstance.update({
-          where: { id: filterId },
+        // currentCycleId + currentLifecycleState moved to FilterDetails (Step 6).
+        await tx.filterDetails.update({
+          where: { assetInstanceId: filterId },
           data: { currentCycleId: null, currentLifecycleState: null },
         });
 
@@ -1146,12 +1155,12 @@ export class FilterOperationsService {
     const checksum = computeChecksum(eventData);
 
     await prisma.$transaction(async (tx) => {
-      // Re-validate state inside transaction to prevent race conditions
-      const lockedFilter = await tx.assetInstance.findFirst({
-        where: { id: filterId },
+      // Re-validate state inside transaction (FilterDetails — Step 6).
+      const lockedFD = await tx.filterDetails.findUnique({
+        where: { assetInstanceId: filterId },
         select: { currentLifecycleState: true, currentCycleId: true },
       });
-      if (lockedFilter?.currentLifecycleState !== filter.currentLifecycleState) {
+      if (lockedFD?.currentLifecycleState !== filter.currentLifecycleState) {
         throw new AppError(409, 'STATE_CHANGED', 'Filter state was modified by another user. Please refresh and try again.');
       }
 
@@ -1164,8 +1173,9 @@ export class FilterOperationsService {
         },
       });
 
-      await tx.assetInstance.update({
-        where: { id: filterId },
+      // currentLifecycleState moved to FilterDetails (Step 6).
+      await tx.filterDetails.update({
+        where: { assetInstanceId: filterId },
         data: { currentLifecycleState: targetState },
       });
     });
@@ -1191,10 +1201,6 @@ export class FilterOperationsService {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
     const where: any = {};
-    // Org-scope when no filterId was specified (otherwise getFilter already enforced it)
-    if (!query.filterId && ctx.organizationId && ctx.userRole !== 'SUPER_ADMIN' && ctx.userRole !== 'ADMIN') {
-      where.filter = { organizationId: ctx.organizationId };
-    }
     if (query.filterId) where.filterId = query.filterId;
     if (query.cycleId) where.cycleId = query.cycleId;
     if (query.eventType) where.eventType = query.eventType;
@@ -1215,13 +1221,16 @@ export class FilterOperationsService {
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async getDashboardStats(ctx: RequestContext) {
-    const orgWhere = ctx.organizationId ? { filter: { organizationId: ctx.organizationId } } : {};
-
-    // 1. Filters by current lifecycle stage
-    const stageCountsRaw = await prisma.assetInstance.groupBy({
+  async getDashboardStats(_ctx: RequestContext) {
+    // 1. Filters by current lifecycle stage (FilterDetails — Step 6).
+    // Joining through assetInstance lets us preserve the isActive filter on
+    // the asset row even though state lives on the sidecar.
+    const stageCountsRaw = await prisma.filterDetails.groupBy({
       by: ['currentLifecycleState'],
-      where: { isActive: true, currentLifecycleState: { not: null }, ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}) },
+      where: {
+        currentLifecycleState: { not: null },
+        assetInstance: { isActive: true },
+      },
       _count: true,
     });
     const stageCounts: Record<string, number> = {};
@@ -1229,19 +1238,9 @@ export class FilterOperationsService {
       if (row.currentLifecycleState) stageCounts[row.currentLifecycleState] = row._count;
     }
 
-    // Org-scoped filter IDs for cycle queries (prevents cross-tenant data leak)
-    const orgFilterIds = ctx.organizationId
-      ? (await prisma.assetInstance.findMany({
-          where: { organizationId: ctx.organizationId, template: { name: 'Filter' } },
-          select: { id: true },
-        })).map(f => f.id)
-      : null;
-    const cycleOrgWhere = orgFilterIds ? { filterId: { in: orgFilterIds } } : {};
-
     // 2. Cycle status breakdown
     const statusCountsRaw = await prisma.cleaningCycle.groupBy({
       by: ['status'],
-      where: cycleOrgWhere,
       _count: true,
     });
     const statusCounts: Record<string, number> = {};
@@ -1249,45 +1248,31 @@ export class FilterOperationsService {
 
     // 3. Daily cycle counts (last 30 days)
     const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const dailyRaw: any[] = orgFilterIds
-      ? await prisma.$queryRawUnsafe(`
-          SELECT DATE(started_at) as day, COUNT(*)::int as count
-          FROM cleaning_cycles
-          WHERE started_at >= $1 AND filter_id = ANY($2::uuid[])
-          GROUP BY DATE(started_at) ORDER BY day
-        `, thirtyDaysAgo, orgFilterIds)
-      : await prisma.$queryRawUnsafe(`
-          SELECT DATE(started_at) as day, COUNT(*)::int as count
-          FROM cleaning_cycles
-          WHERE started_at >= $1
-          GROUP BY DATE(started_at) ORDER BY day
-        `, thirtyDaysAgo);
+    const dailyRaw: any[] = await prisma.$queryRawUnsafe(`
+      SELECT DATE(started_at) as day, COUNT(*)::int as count
+      FROM cleaning_cycles
+      WHERE started_at >= $1
+      GROUP BY DATE(started_at) ORDER BY day
+    `, thirtyDaysAgo);
     const dailyCycles = dailyRaw.map(r => ({ day: r.day, count: r.count }));
 
     // 4. Monthly cycle counts (last 12 months)
     const twelveMonthsAgo = new Date(); twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
-    const monthlyRaw: any[] = orgFilterIds
-      ? await prisma.$queryRawUnsafe(`
-          SELECT TO_CHAR(started_at, 'YYYY-MM') as month, COUNT(*)::int as count
-          FROM cleaning_cycles
-          WHERE started_at >= $1 AND filter_id = ANY($2::uuid[])
-          GROUP BY TO_CHAR(started_at, 'YYYY-MM') ORDER BY month
-        `, twelveMonthsAgo, orgFilterIds)
-      : await prisma.$queryRawUnsafe(`
-          SELECT TO_CHAR(started_at, 'YYYY-MM') as month, COUNT(*)::int as count
-          FROM cleaning_cycles
-          WHERE started_at >= $1
-          GROUP BY TO_CHAR(started_at, 'YYYY-MM') ORDER BY month
-        `, twelveMonthsAgo);
+    const monthlyRaw: any[] = await prisma.$queryRawUnsafe(`
+      SELECT TO_CHAR(started_at, 'YYYY-MM') as month, COUNT(*)::int as count
+      FROM cleaning_cycles
+      WHERE started_at >= $1
+      GROUP BY TO_CHAR(started_at, 'YYYY-MM') ORDER BY month
+    `, twelveMonthsAgo);
     const monthlyCycles = monthlyRaw.map(r => ({ month: r.month, count: r.count }));
 
     // 5. Total filters + active cycles
     const totalFilters = await prisma.assetInstance.count({
-      where: { isActive: true, ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}), template: { name: 'Filter' } },
+      where: { isActive: true, template: { templateKind: 'FILTER' } },
     });
-    const activeCycles = await prisma.cleaningCycle.count({ where: { status: 'IN_PROGRESS', ...cycleOrgWhere } });
+    const activeCycles = await prisma.cleaningCycle.count({ where: { status: 'IN_PROGRESS' } });
     const completedToday = await prisma.cleaningCycle.count({
-      where: { status: 'COMPLETED', completedAt: { gte: new Date(new Date().toISOString().slice(0, 10)) }, ...cycleOrgWhere },
+      where: { status: 'COMPLETED', completedAt: { gte: new Date(new Date().toISOString().slice(0, 10)) } },
     });
 
     return { stageCounts, statusCounts, dailyCycles, monthlyCycles, totalFilters, activeCycles, completedToday };
@@ -1303,10 +1288,6 @@ export class FilterOperationsService {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
     const where: any = {};
-    // Org-scope when no filterId was specified (otherwise getFilter already enforced it)
-    if (!query.filterId && ctx.organizationId && ctx.userRole !== 'SUPER_ADMIN' && ctx.userRole !== 'ADMIN') {
-      where.filter = { organizationId: ctx.organizationId };
-    }
     if (query.filterId) where.filterId = query.filterId;
     if (query.ahuId) where.ahuId = query.ahuId;
     if (query.status) where.status = query.status;
@@ -1333,10 +1314,12 @@ export class FilterOperationsService {
       ...data.map((c: any) => c.cleaningAreaId).filter(Boolean) as string[],
     ])];
 
-    const allAssets = allAssetIds.length > 0 ? await prisma.assetInstance.findMany({
+    // filterSet moved to FilterDetails (Step 6) — include + flatten via the helper.
+    const allAssetsRaw = allAssetIds.length > 0 ? await prisma.assetInstance.findMany({
       where: { id: { in: allAssetIds } },
-      select: { id: true, name: true, filterSet: true },
+      select: { id: true, name: true, filterDetails: { select: { filterSet: true } } },
     }) : [];
+    const allAssets = allAssetsRaw.map(a => ({ id: a.id, name: a.name, filterSet: a.filterDetails?.filterSet ?? null }));
     const assetMap = new Map(allAssets.map(a => [a.id, a]));
 
     // Resolve performedBy UUIDs to user display names
@@ -1377,11 +1360,12 @@ export class FilterOperationsService {
       await this.getFilter(cycle.filterId, ctx);
     }
 
-    // Enrich with filter name and AHU (parent) name
-    const filter = await prisma.assetInstance.findUnique({
+    // Enrich with filter name and AHU (parent) name (filterSet on FilterDetails — Step 6).
+    const filterRaw = await prisma.assetInstance.findUnique({
       where: { id: cycle.filterId },
-      select: { id: true, name: true, filterSet: true, parentId: true },
+      select: { id: true, name: true, parentId: true, filterDetails: { select: { filterSet: true } } },
     });
+    const filter = filterRaw ? { id: filterRaw.id, name: filterRaw.name, parentId: filterRaw.parentId, filterSet: filterRaw.filterDetails?.filterSet ?? null } : null;
     const ahu = filter?.parentId ? await prisma.assetInstance.findUnique({
       where: { id: filter.parentId },
       select: { name: true },
@@ -1453,8 +1437,9 @@ export class FilterOperationsService {
         where: { id: filter.currentCycleId! },
         data: { status: 'TERMINATED', completedAt: new Date() },
       });
-      await tx.assetInstance.update({
-        where: { id: filterId },
+      // currentCycleId + currentLifecycleState moved to FilterDetails (Step 6).
+      await tx.filterDetails.update({
+        where: { assetInstanceId: filterId },
         data: { currentCycleId: null, currentLifecycleState: null },
       });
       const eventData = {
@@ -1498,18 +1483,22 @@ export class FilterOperationsService {
         });
       }
 
-      // Save original parentId in customAttributes so unretire can restore it
+      // Save original parentId in customAttributes so unretire can restore it.
+      // currentLifecycleState + currentCycleId moved to FilterDetails (Step 6).
       const existingCustom = (filter as any).customAttributes ?? {};
       await tx.assetInstance.update({
         where: { id: filterId },
         data: {
           status: 'Retired',
-          currentLifecycleState: 'RETIRED',
-          currentCycleId: null,
           isActive: false,
           parentId: null,
           customAttributes: { ...existingCustom, _preRetireParentId: filter.parentId },
         },
+      });
+      await tx.filterDetails.upsert({
+        where: { assetInstanceId: filterId },
+        update: { currentLifecycleState: 'RETIRED', currentCycleId: null },
+        create: { assetInstanceId: filterId, currentLifecycleState: 'RETIRED', currentCycleId: null },
       });
 
       // Remove all relationships (CONTAINS/CONTAINED_IN) so retired filter disappears from tree
@@ -1549,10 +1538,18 @@ export class FilterOperationsService {
       newName = oldName + '-01';
     }
 
+    // Snapshot the old filter's FilterDetails BEFORE retire() clears them.
+    // We need filterSet + filterProfileId to copy onto the replacement.
+    const oldDetails = await prisma.filterDetails.findUnique({
+      where: { assetInstanceId: filterId },
+      select: { filterSet: true, filterProfileId: true },
+    });
+
     // Retire old filter first
     await this.retire(ctx, filterId, remarks);
 
-    // Create replacement filter + relationships in a transaction (rollback on failure)
+    // Create replacement filter + relationships in a transaction (rollback on failure).
+    // FilterDetails (filterSet, filterProfileId) live in the sidecar (Step 6).
     let newFilter: any;
     try {
       newFilter = await prisma.$transaction(async (tx) => {
@@ -1562,13 +1559,19 @@ export class FilterOperationsService {
             templateId: instance.templateId,
             templateVersion: instance.templateVersion,
             parentId: instance.parentId,
-            filterSet: instance.filterSet,
-            filterProfileId: instance.filterProfileId,
             attributes: instance.attributes ?? {},
-            organizationId: instance.organizationId,
             status: 'Active',
             isActive: true,
             createdBy: ctx.userId ?? ctx.userSub,
+          },
+        });
+
+        // Eager FilterDetails for the new filter, copying old filterSet + filterProfileId.
+        await tx.filterDetails.create({
+          data: {
+            assetInstanceId: created.id,
+            filterSet: oldDetails?.filterSet ?? null,
+            filterProfileId: oldDetails?.filterProfileId ?? null,
           },
         });
 
@@ -1596,9 +1599,14 @@ export class FilterOperationsService {
       });
     } catch (err) {
       // Re-activate the retired filter if replacement creation fails
+      // (currentLifecycleState moved to FilterDetails — Step 6).
       await prisma.assetInstance.update({
         where: { id: filterId },
-        data: { status: 'Active', currentLifecycleState: null, isActive: true },
+        data: { status: 'Active', isActive: true },
+      });
+      await prisma.filterDetails.update({
+        where: { assetInstanceId: filterId },
+        data: { currentLifecycleState: null },
       });
       throw err;
     }
@@ -1628,15 +1636,21 @@ export class FilterOperationsService {
   /**
    * Get all retired filters.
    */
-  async getRetirements(ctx: RequestContext) {
-    const retirements = await prisma.assetInstance.findMany({
-      where: { status: 'Retired', isActive: false, ...orgWhere(ctx) },
+  async getRetirements(_ctx: RequestContext) {
+    // filterSet moved to FilterDetails (Step 6) — include + flatten.
+    const retirementsRaw = await prisma.assetInstance.findMany({
+      where: { status: 'Retired', isActive: false },
       select: {
         id: true, name: true, updatedAt: true, attributes: true,
-        filterSet: true, parentId: true, customAttributes: true,
+        parentId: true, customAttributes: true,
+        filterDetails: { select: { filterSet: true } },
       },
       orderBy: { updatedAt: 'desc' },
     });
+    const retirements = retirementsRaw.map((r: any) => ({
+      ...r,
+      filterSet: r.filterDetails?.filterSet ?? null,
+    }));
 
     // Resolve original parent names for display
     const parentIds = retirements
@@ -1661,7 +1675,7 @@ export class FilterOperationsService {
   /**
    * Get replacement history from audit trail.
    */
-  async getReplacements(ctx: RequestContext) {
+  async getReplacements(_ctx: RequestContext) {
     const records = await prisma.auditTrail.findMany({
       where: { action: 'FILTER_REPLACED' },
       select: { id: true, userId: true, userName: true, timestamp: true, afterValue: true },
@@ -1681,18 +1695,6 @@ export class FilterOperationsService {
         performedBy: r.userName ?? r.userId,
       };
     });
-
-    // Org-scope: only return replacements where the filter belongs to user's org
-    const orgFilter = orgWhere(ctx);
-    if (orgFilter.organizationId) {
-      const filterIds = [...new Set(mapped.map(r => r.oldFilterId).filter(Boolean) as string[])];
-      const orgFilters = filterIds.length > 0 ? await prisma.assetInstance.findMany({
-        where: { id: { in: filterIds }, organizationId: orgFilter.organizationId },
-        select: { id: true },
-      }) : [];
-      const orgFilterIdSet = new Set(orgFilters.map(f => f.id));
-      return mapped.filter(r => !r.oldFilterId || orgFilterIdSet.has(r.oldFilterId));
-    }
 
     return mapped;
   }

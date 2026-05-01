@@ -60,7 +60,7 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
   try {
     // 1. Templates
     report(steps[currentStep]);
-    const templatesRes = await apiClient.get<any>('/api/assets/templates?limit=100');
+    const templatesRes = await apiClient.get<any>('/api/assets/templates?limit=1000');
     await cacheItem('templates', templatesRes?.data ?? []);
     currentStep++;
 

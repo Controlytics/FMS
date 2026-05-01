@@ -25,7 +25,6 @@ export default async function userRoutes(app: FastifyInstance) {
           password: { type: 'string', minLength: 8 },
           confirmPassword: { type: 'string' },
           status: { type: 'string', enum: ['ENABLED', 'DISABLED'] },
-          organizationId: { type: 'string', format: 'uuid' },
         },
       },
       response: {
@@ -71,8 +70,7 @@ export default async function userRoutes(app: FastifyInstance) {
       },
     },
   }, async (req) => {
-    const organizationId = req.user.role !== 'SUPER_ADMIN' ? req.user.organizationId : undefined;
-    return userService.getStats(req.user.role, organizationId);
+    return userService.getStats(req.user.role);
   });
 
   // POST /api/users/bulk-delete — Requires USER_DELETE permission
@@ -226,9 +224,7 @@ export default async function userRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const query = userQuerySchema.parse(req.query);
-    // Non-SUPER_ADMIN users must only see users within their own organization
-    const organizationId = req.user.role !== 'SUPER_ADMIN' ? req.user.organizationId : undefined;
-    return userService.list({ ...query, organizationId, callerRole: req.user.role });
+    return userService.list({ ...query, callerRole: req.user.role });
   });
 
   // GET /api/users/:id — Get user detail
@@ -276,7 +272,6 @@ export default async function userRoutes(app: FastifyInstance) {
           fullName: { type: 'string' }, email: { type: 'string', format: 'email' },
           department: { type: 'string' }, role: { type: 'string' },
           status: { type: 'string', enum: ['ENABLED', 'DISABLED'] },
-          organizationId: { type: 'string', format: 'uuid' },
         },
       },
       response: {

@@ -50,7 +50,14 @@ function parseCsvContent(csvString: string): Record<string, any>[] {
       let val: any = values[j] ?? '';
       // Try to parse JSON objects/arrays
       if ((val.startsWith('{') && val.endsWith('}')) || (val.startsWith('[') && val.endsWith(']'))) {
-        try { val = JSON.parse(val); } catch {}
+        try {
+          val = JSON.parse(val);
+        } catch {
+          // Cell looks JSON-shaped but isn't valid JSON — treat as a plain
+          // string. This is intentional, not an error: CSV exports of JSON
+          // columns sometimes contain manually-edited cells that lose strict
+          // JSON validity.
+        }
       }
       // Convert "true"/"false" to boolean
       else if (val === 'true') val = true;
@@ -208,7 +215,12 @@ function parseCsvZipBackup(rawBuffer: Buffer): BackupData {
       const meta = JSON.parse(metaEntry.getData().toString('utf-8'));
       generatedBy = meta.generatedBy ?? 'unknown';
       timestamp = meta.timestamp ?? timestamp;
-    } catch {}
+    } catch (err) {
+      // Corrupted _metadata.json. Restore can still proceed with default
+      // metadata, but a malformed metadata file is a real signal that the
+      // backup may be partially corrupt — log so QA can investigate.
+      console.warn('[backup] _metadata.json could not be parsed; using defaults:', err);
+    }
   }
 
   const data: Record<string, any[]> = {};

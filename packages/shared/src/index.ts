@@ -52,10 +52,14 @@ export {
   createAssetInstanceSchema, updateAssetInstanceSchema,
   createAssetRelationshipSchema, createAssetIdentifierSchema,
   assetQuerySchema, templateQuerySchema,
+  SYSTEM_TEMPLATE_KIND_CODES,
+  createTemplateKindSchema, updateTemplateKindSchema,
 } from './schemas/assets.js';
 export type {
   CreateAssetTemplateInput, UpdateAssetTemplateInput,
   CreateAssetInstanceInput, UpdateAssetInstanceInput,
   CreateAssetRelationshipInput, CreateAssetIdentifierInput,
   AssetQueryInput, TemplateQueryInput,
+  SystemTemplateKindCode,
+  CreateTemplateKindInput, UpdateTemplateKindInput,
 } from './schemas/assets.js';

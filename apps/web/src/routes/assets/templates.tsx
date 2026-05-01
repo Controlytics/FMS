@@ -1,5 +1,6 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
+import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
@@ -32,6 +33,13 @@ export function AssetTemplatesPage() {
   const { mutate } = useSWRConfig();
   const reauth = useReauth();
   const { formatDateTime } = useDatetimeFormat();
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const perms = user?.permissions ?? [];
+  const hasPerm = (p: string) => isSuperAdmin || perms.includes(p);
+  const canCreate = hasPerm('ASSET_TEMPLATE_CREATE');
+  const canEdit = hasPerm('ASSET_TEMPLATE_UPDATE');
+  const canDelete = hasPerm('ASSET_TEMPLATE_DELETE');
 
   // Dialog states
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -65,6 +73,15 @@ export function AssetTemplatesPage() {
   );
   const templates = templatesRes?.data;
   const displayedTemplates = templates ?? [];
+
+  // Look up the human label per kind code so the table cell shows "Block"
+  // even when the underlying code is the stable "BLOCK" identifier.
+  const { data: kindsList } = useSWR<{ code: string; label: string }[]>('/api/template-kinds');
+  const kindLabelByCode = useMemo(() => {
+    const m = new Map<string, string>();
+    (kindsList ?? []).forEach((k) => m.set(k.code, k.label));
+    return m;
+  }, [kindsList]);
 
   // Audit history for viewed template
   const [viewAuditTab, setViewAuditTab] = useState(false);
@@ -104,6 +121,7 @@ export function AssetTemplatesPage() {
       name: template.name,
       description: template.description || '',
       icon: template.icon || 'box',
+      templateKind: template.templateKind ?? 'OTHER',
       maxParentConnections: template.maxParentConnections ?? 1,
       maxConnections: template.maxConnections ?? 10,
       attributeSchema: (template.attributeSchema || []).map((a: any) => ({
@@ -324,6 +342,7 @@ export function AssetTemplatesPage() {
       name: formData.name.trim(),
       description: formData.description.trim(),
       icon: formData.icon,
+      templateKind: formData.templateKind,
       maxParentConnections: formData.maxParentConnections,
       maxConnections: formData.maxConnections,
       attributeSchema: formData.attributeSchema
@@ -674,15 +693,17 @@ export function AssetTemplatesPage() {
               </div>
             </div>
           </div>
-          <Button
-            onClick={openCreateDialog}
-            className="bg-white text-purple-600 hover:bg-purple-50 shadow-lg font-semibold"
-          >
-            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Create Template
-          </Button>
+          {canCreate && (
+            <Button
+              onClick={openCreateDialog}
+              className="bg-white text-purple-600 hover:bg-purple-50 shadow-lg font-semibold"
+            >
+              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Create Template
+            </Button>
+          )}
         </div>
       </div>
 
@@ -730,7 +751,7 @@ export function AssetTemplatesPage() {
                   ? 'Try adjusting your search criteria.'
                   : 'Get started by creating your first entity template.'}
               </p>
-              {!debouncedSearch && (
+              {!debouncedSearch && canCreate && (
                 <Button onClick={openCreateDialog} className="bg-gradient-to-r from-purple-500 to-indigo-600">
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -744,6 +765,7 @@ export function AssetTemplatesPage() {
               <TableHeader>
                 <TableRow className="bg-slate-50/80">
                   <TableHead className="font-semibold text-slate-600">Name</TableHead>
+                  <TableHead className="font-semibold text-slate-600 text-center">Kind</TableHead>
                   <TableHead className="font-semibold text-slate-600 text-center">Attributes</TableHead>
                   <TableHead className="font-semibold text-slate-600 text-center">Instances</TableHead>
                   <TableHead className="font-semibold text-slate-600 text-center">Actions</TableHead>
@@ -766,6 +788,15 @@ export function AssetTemplatesPage() {
                           )}
                         </div>
                       </div>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <span className={`text-xs font-medium px-2 py-1 rounded-full ${
+                        template.templateKind === 'OTHER' || !template.templateKind
+                          ? 'bg-slate-100 text-slate-600'
+                          : 'bg-blue-100 text-blue-700'
+                      }`} title={`code: ${template.templateKind ?? 'OTHER'}`}>
+                        {kindLabelByCode.get(template.templateKind ?? 'OTHER') ?? template.templateKind ?? 'OTHER'}
+                      </span>
                     </TableCell>
                     <TableCell className="text-center">
                       <span className="text-sm font-medium text-slate-700">
@@ -791,28 +822,32 @@ export function AssetTemplatesPage() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                           </svg>
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => openEditDialog(template)}
-                          className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
-                          title="Edit template"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                          </svg>
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => openDeleteDialog(template)}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                          title="Delete template"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </Button>
+                        {canEdit && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openEditDialog(template)}
+                            className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                            title="Edit template"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                          </Button>
+                        )}
+                        {canDelete && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openDeleteDialog(template)}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            title="Delete template"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

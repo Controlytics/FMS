@@ -50,7 +50,7 @@ export function CleaningProfileAssignmentPage() {
   const { data: configData } = useSWR<AssignmentConfig>('/api/config/cleaning-profile-assignment');
   const { data: profilesData } = useSWR<{ data: CleaningProfile[] }>('/api/filter-cleaning-profiles?limit=100');
   const { data: instancesData } = useSWR<{ data: AssetInstance[] }>('/api/assets/instances?limit=500');
-  const { data: templatesData } = useSWR<{ data: AssetTemplate[] }>('/api/assets/templates?limit=100');
+  const { data: templatesData } = useSWR<{ data: AssetTemplate[] }>('/api/assets/templates?limit=1000');
 
   const [mode, setMode] = useState<AssignmentMode>('BY_ENTITY');
   const [rules, setRules] = useState<AssignmentRule[]>([]);

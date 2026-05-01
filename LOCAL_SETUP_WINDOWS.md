@@ -206,7 +206,7 @@ npx prisma migrate deploy
 npx prisma db seed
 ```
 
-> This creates: 6 default roles (SUPER_ADMIN through VIEWER), superadmin user (username: `superadmin`, password: `Admin@123`), 30+ system config entries (auto-discovered), 109 permissions, and sample organizations (counts verified 2026-04-29).
+> This creates: 6 default roles (SUPER_ADMIN through VIEWER), superadmin user (username: `superadmin`, password: `Admin@123`), 30+ system config entries (auto-discovered), 105 permissions, and 6 system template kinds (counts verified 2026-04-30 post-MT-removal — DigiLog is single-tenant, no organizations created).
 
 ```bash
 cd ../..
@@ -301,7 +301,7 @@ curl http://localhost:3000/api/health
 ├── apps/
 │   ├── api/                    # Fastify backend (TypeScript)
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma   # Database schema (64 models, 22 enums — verified 2026-04-29)
+│   │   │   ├── schema.prisma   # Database schema (65 models, 22 enums — verified 2026-05-01)
 │   │   │   ├── seed.ts         # Database seeder
 │   │   │   └── migrations/     # SQL migrations
 │   │   └── src/

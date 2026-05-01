@@ -126,7 +126,7 @@ export function FilterListPage() {
   const [deleteBlockDialog, setDeleteBlockDialog] = useState<{ id: string; name: string } | null>(null);
   const [deletingBlock, setDeletingBlock] = useState(false);
 
-  const { data: templatesData } = useSWR('/api/assets/templates?limit=100');
+  const { data: templatesData } = useSWR('/api/assets/templates?limit=1000');
   const { data: instancesData, isLoading } = useSWR('/api/assets/instances?limit=500', { refreshInterval: 30000 });
 
   // Fetch all identifiers to show RFID tags on filters
@@ -135,9 +135,12 @@ export function FilterListPage() {
   const templates = (templatesData?.data ?? []) as any[];
   const instances = (instancesData?.data ?? []) as any[];
 
-  const blockTemplateId = templates.find((t: any) => t.name === 'Block')?.id;
-  const filterTemplateId = templates.find((t: any) => t.name === 'Filter')?.id;
-  const ahuTemplateId = templates.find((t: any) => t.name === 'AHU')?.id;
+  // Resolve canonical templates by kind, NOT by name. This decouples the
+  // page from human-editable template names — admins can rename "Block" to
+  // "Building" without breaking page logic.
+  const blockTemplateId = templates.find((t: any) => t.templateKind === 'BLOCK')?.id;
+  const filterTemplateId = templates.find((t: any) => t.templateKind === 'FILTER')?.id;
+  const ahuTemplateId = templates.find((t: any) => t.templateKind === 'AHU')?.id;
 
   const blocks = useMemo(() =>
     instances.filter((i: any) => i.templateId === blockTemplateId),
@@ -168,7 +171,7 @@ export function FilterListPage() {
     return map;
   }, [identifiersData]);
 
-  const areaTemplateId = templates.find((t: any) => t.name === 'Area' && t.isActive)?.id;
+  const areaTemplateId = templates.find((t: any) => t.templateKind === 'AREA' && t.isActive)?.id;
 
   // Build tree data: block -> areas -> AHUs -> filters
   const treeData = useMemo(() => {
@@ -573,7 +576,7 @@ export function FilterListPage() {
   // ── Bulk upload helpers ──
   // Get Filter template attributeSchema for dynamic CSV columns
   const filterTemplateSchema = useMemo(() => {
-    const tpl = templates.find((t: any) => t.name === 'Filter');
+    const tpl = templates.find((t: any) => t.templateKind === 'FILTER');
     if (!tpl?.attributeSchema) return [];
     const schema = Array.isArray(tpl.attributeSchema) ? tpl.attributeSchema : [];
     return schema as { fieldName: string; dataType?: string; required?: boolean; dropdownOptions?: string[]; unit?: string }[];

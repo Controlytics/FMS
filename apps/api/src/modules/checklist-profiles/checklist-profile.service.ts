@@ -6,19 +6,14 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 
-function orgFilter(ctx: RequestContext) {
-  if (ctx.scope === 'GLOBAL') return {};
-  return { organizationId: ctx.organizationId };
-}
-
 export class ChecklistProfileService {
   async list(
-    ctx: RequestContext,
+    _ctx: RequestContext,
     query: { page?: number; limit?: number; isActive?: string; expand?: string },
   ) {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 50, 100);
-    const where: any = { ...orgFilter(ctx) };
+    const where: any = {};
     if (query.isActive === 'true') where.isActive = true;
     else if (query.isActive === 'false') where.isActive = false;
 
@@ -53,9 +48,9 @@ export class ChecklistProfileService {
     };
   }
 
-  async getById(ctx: RequestContext, id: string) {
+  async getById(_ctx: RequestContext, id: string) {
     const profile = await prisma.checklistProfile.findFirst({
-      where: { id, ...orgFilter(ctx) },
+      where: { id },
       include: { questions: { orderBy: { sortOrder: 'asc' } } },
     });
     if (!profile) throw new AppError(404, 'NOT_FOUND', 'Checklist profile not found');
@@ -63,18 +58,10 @@ export class ChecklistProfileService {
   }
 
   async create(ctx: RequestContext, data: any) {
-    let orgId: string = ctx.organizationId ?? '';
-    if (!orgId) {
-      const firstOrg = await prisma.organization.findFirst({ select: { id: true } });
-      orgId = firstOrg?.id ?? '';
-    }
-    if (!orgId) throw new AppError(400, 'NO_ORG', 'No organization found');
-
     const profile = await prisma.checklistProfile.create({
       data: {
         name: data.name,
         description: data.description ?? null,
-        organizationId: orgId,
         createdBy: ctx.userSub,
       },
     });

@@ -228,7 +228,14 @@ async function checkRedis(): Promise<SubCheck[]> {
   } catch (e: any) {
     checks.push({ name: 'connection', status: 'FAIL', message: e.message });
   } finally {
-    try { redis.disconnect(); } catch {}
+    // Best-effort disconnect. If `redis` was never connected (because the
+    // initial connect threw), `disconnect()` is a no-op. If the socket is
+    // already closed, ioredis throws "Connection is closed" which we don't
+    // care about here — the connection FAIL is already recorded above.
+    try { redis.disconnect(); } catch (discErr) {
+      // Down-grade to debug: this is genuinely cosmetic.
+      console.debug('[deployment-check] redis.disconnect() in finally:', discErr);
+    }
   }
 
   return checks;
