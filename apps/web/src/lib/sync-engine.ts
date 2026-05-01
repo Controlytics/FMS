@@ -46,7 +46,40 @@ function notify(event: Parameters<SyncListener>[0]) {
  * Sends x-offline-replay header so the backend skips re-authentication.
  * For 'start-and-advance' compound ops: runs start-cycle first, then advance.
  */
+/**
+ * Phase 5b B2: pre-replay cycle status check.
+ *
+ * For operations that require an active IN_PROGRESS cycle (advance, bypass,
+ * submit-checklist, terminate), verify the cycle is still alive before we
+ * replay. Catches the case where another user terminated/bypassed the cycle
+ * while this tablet was offline. Without this check, the replay would land
+ * a confusing `400 NO_CYCLE` and the queue would either retry forever or
+ * mark as failed without context.
+ */
+const CYCLE_BOUND_OPS = new Set(['advance', 'bypass', 'submit-checklist', 'terminate']);
+
+async function ensureCycleAlive(filterId: string, opType: string): Promise<void> {
+  if (!CYCLE_BOUND_OPS.has(opType)) return;
+  let state: any;
+  try {
+    state = await apiClient.get<any>(`/api/filters/${filterId}/current-state`);
+  } catch (e: any) {
+    // If the current-state fetch itself fails (e.g. 404 filter retired), let the
+    // replay proceed and surface the underlying error from there.
+    return;
+  }
+  if (state?.currentCycle == null) {
+    const err: any = new Error(`Cycle is no longer active for this filter — operation cannot be replayed`);
+    err.code = 'CYCLE_ENDED';
+    err.stranded = true;
+    throw err;
+  }
+}
+
 async function executeOperation(op: { type: string; filterId: string; payload: Record<string, any>; createdAt: string; clientOpId?: string }): Promise<void> {
+  // Pre-replay guard: cycle-bound ops require the cycle to still be IN_PROGRESS.
+  await ensureCycleAlive(op.filterId, op.type);
+
   // x-client-op-id makes replay idempotent — backend stores it on FilterEvent.attributes
   // and returns the cached response if the same id arrives twice. For start-and-advance
   // we suffix to differentiate the two underlying mutations.
@@ -196,6 +229,15 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
         failed++;
         notify({ type: 'interrupted', error: 'Sync interrupted — will retry in 30s' });
         break;
+      }
+
+      // Phase B2: stranded ops (cycle ended on server) — mark failed immediately,
+      // don't retry. The user has to reconcile manually (cycle is gone).
+      if (e?.stranded || e?.code === 'CYCLE_ENDED') {
+        await updateOperationStatus(op.id, 'failed', `Cycle ended before this operation could sync: ${errMsg}`);
+        failed++;
+        notify({ type: 'error', error: `${op.filterName}: cycle ended before sync — operation discarded` });
+        continue;
       }
 
       // API error: retry up to MAX_RETRIES, then mark as permanently failed
