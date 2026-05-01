@@ -9,6 +9,10 @@
 
 - **2026-04-30 — Doc-sync re-verification** — Re-ran live counts (`grep`-based) against schema/shared/modules. All counts match what's in the docs from the prior sync (64/22/105/89/81/25/36/30/27). CHANGELOG hardening subsection + FRONTEND_GUIDE catch-all section added. No drift detected elsewhere.
 
+- **2026-05-01 — Phase A.1 + 5b.4/5b.5/B2 + Step 2 + Phase 4 (Redis retirement)** — On `feature/phase5-verification`. Five feature commits + two doc-sync commits. Phase 4 retires `ioredis` entirely (in-process EventEmitter bus + Map TTL cache); 13-page UI walk clean. ~30 commits ahead of `origin/docsCleaned`; GitHub unreachable, push deferred. Resume note: `tasks/RESUME-STATE-2026-05-01-phase4-bus.md`.
+
+- **2026-05-01 — Phase A.2: FilterCleaningProfile lineage-based versioning** — Added `lineageId` UUID column + `@@unique([lineageId, version])` + index. `create()` mints lineageId; `update()` propagates it to the new version row. `list()` switched from `distinct: ['name']` to `distinct: ['lineageId']` (rename-safe). New routes `GET /:id/versions` and `GET /:id/versions/:n` exposed under `/api/filter-cleaning-profiles`. New service-level `deleteProfile()` guard. Verified end-to-end via curl: list collapses correctly, both versions endpoints return frozen snapshots, 404s clean. Schema applied via direct DDL on empty `filter_cleaning_profiles`; `prisma db push` reports schema in sync. Doc updates: apps/api/CLAUDE.md key-endpoints section, CHANGELOG entry. Branch `feature/phase5-verification`; not yet committed.
+
 ---
 
 

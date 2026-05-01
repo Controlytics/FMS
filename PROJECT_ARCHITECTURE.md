@@ -386,14 +386,15 @@ Assets:
   TemplateAssignment, EntityAssignment
 
 Filter Operations:
-  FilterCleaningProfile → FilterPipelineStage → FilterPipelineConnection
+  FilterCleaningProfile (lineageId-grouped versions; Phase A.2) → FilterPipelineStage → FilterPipelineConnection
   FilterProfile → AssetInstance (assignment)
-  CleaningCycle → FilterEvent (immutable, checksummed)
+  CleaningCycle (frozen profileId + checklistVersionPins JSONB) → FilterEvent (immutable, checksummed)
 
 Scheduling:
   PmSchedule → PmScheduleEntry → PmExecution
   EquipmentGroup → EquipmentGroupInstrument
   ChecklistProfile → ChecklistQuestion
+  ChecklistProfileVersion (Phase A.1 — immutable snapshot table)
   ChecklistReview → ElectronicSignature
 
 Reports:

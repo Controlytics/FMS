@@ -263,6 +263,59 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
     return service.assignAssets(ctx, id, assetIds);
   });
 
+  // GET /:id/versions — List all versions in this profile's lineage (Phase A.2)
+  app.get('/:id/versions', {
+    preHandler: [app.requireAnyPermission('FCP_READ', 'CP_TOGGLE')],
+    schema: {
+      tags: ['Cleaning Profiles'],
+      summary: 'List all historical versions of this cleaning profile lineage',
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: { id: { type: 'string', format: 'uuid' } },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            lineageId: { type: 'string', format: 'uuid' },
+            versions: { type: 'array', items: { type: 'object', additionalProperties: true } },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const { id } = req.params as { id: string };
+    return service.getVersions(ctx, id);
+  });
+
+  // GET /:id/versions/:versionNumber — Frozen snapshot of a specific version (Phase A.2)
+  app.get('/:id/versions/:versionNumber', {
+    preHandler: [app.requireAnyPermission('FCP_READ', 'CP_TOGGLE')],
+    schema: {
+      tags: ['Cleaning Profiles'],
+      summary: 'Fetch a specific historical version (frozen snapshot)',
+      params: {
+        type: 'object',
+        required: ['id', 'versionNumber'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          versionNumber: { type: 'integer', minimum: 1 },
+        },
+      },
+      response: {
+        200: { type: 'object', additionalProperties: true },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const { id, versionNumber } = req.params as { id: string; versionNumber: number };
+    return service.getVersion(ctx, id, Number(versionNumber));
+  });
+
   // POST /:id/validate — Validate pipeline
   app.post('/:id/validate', {
     preHandler: [app.requireAnyPermission('FCP_READ', 'CP_TOGGLE')],

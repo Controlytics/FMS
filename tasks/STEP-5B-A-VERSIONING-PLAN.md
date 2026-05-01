@@ -110,11 +110,11 @@ Server flow:
 
 ## Phases A.2-A.4 — Other versionable entities (separate PRs)
 
-- **A.2** — `FilterCleaningProfile` already has `version` + `status DRAFT/ACTIVE/ARCHIVED`. Half-versioned. Add `FilterCleaningProfileVersion` immutable table; cycles already pin `profileVersion`.
+- **A.2** — `FilterCleaningProfile` ✅ **DONE 2026-05-01.** On inspection it was already immutable-rowful (update archives the old row + inserts a new row with `version+1`); cycles already pin `profileId` to a specific row. The actual gap was lineage tracking + version-history endpoints. Implemented: `lineageId UUID NOT NULL` column with `@@unique([lineageId, version])` and `@@index([lineageId])`; `create()` mints `lineageId`, `update()` propagates it; `list()` switched to `distinct: ['lineageId']` (rename-safe); routes `GET /api/filter-cleaning-profiles/:id/versions` and `GET /api/filter-cleaning-profiles/:id/versions/:n` exposed. Did **not** introduce a sidecar `FilterCleaningProfileVersion` table — the existing rowful approach is simpler and equivalent. Cycles continue to pin `profileId`; the `cleaning_cycles.profileVersion` column already records the version int at start.
 - **A.3** — `FilterProfile` (mapping). Per-block override capability needed for Step 7.
 - **A.4** — Cleaning reasons (config def), equipment-group instruments. Lower priority.
 
-Not in this PR.
+A.3 + A.4 are not in this PR.
 
 ## Acceptance gates for A.1
 

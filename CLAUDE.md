@@ -126,7 +126,9 @@ POST /api/filters/:id/terminate         — Terminate cycle (with reason)
 GET  /api/filters/:id/current-state     — Filter state + next actions (full server snapshot)
 GET  /api/filters/cycles                — List cleaning cycles (mounted by filter-operations/events-routes.ts under the /api/filters prefix)
 GET  /api/filters/events                — List filter events
-GET  /api/cleaning-profiles             — List cleaning profiles
+GET  /api/filter-cleaning-profiles                       — List cleaning profiles (latest version per lineage)
+GET  /api/filter-cleaning-profiles/:id/versions          — Phase A.2: list lineage version history
+GET  /api/filter-cleaning-profiles/:id/versions/:n       — Phase A.2: frozen snapshot at version n
 GET  /api/checklist-profiles?expand=questions — Used for offline cache
 GET  /api/config/report-settings/current — Report layout config
 GET  /api/config/password-policy/current — Password policy (public endpoint)

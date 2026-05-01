@@ -169,7 +169,7 @@
 
 - **Pipeline as graph, not linear list**: Chose directed graph (stages + connections) over linear array to support future branching, parallel paths, and conditional flows
 - **Checklist as pipeline node, not stage property**: Checklists are first-class CHECKLIST nodes in the graph, not attached to stages. This allows placing checklists between any stages, or multiple checklists in sequence
-- **Versioning via create-new + archive-old**: Updating a cleaning profile creates a new version and archives the old one, preserving historical data for completed cycles
+- **Versioning via create-new + archive-old**: Updating a cleaning profile creates a new version and archives the old one, preserving historical data for completed cycles. **Phase A.2 (2026-05-01)** added `lineageId UUID` to `FilterCleaningProfile` so version chains survive renames; `list()` groups by `distinct: ['lineageId']` (was `['name']`); endpoints `GET /:id/versions` and `/:id/versions/:n` expose history. Did NOT introduce a sidecar `*Version` table — the rowful approach is simpler and equivalent. Contrast with **Phase A.1 ChecklistProfile** which mutates in place and uses a sidecar `ChecklistProfileVersion` snapshot table. Two patterns coexist intentionally.
 - **Events as immutable log**: filter_events table is append-only with SHA-256 checksums for 21 CFR Part 11 compliance
 - **Auto-complete on last stage**: Cycle auto-completes when the last STAGE node leads to END, eliminating a separate "end cycle" step
 - **Server-side checklist enforcement**: advance() checks for pending checklists and blocks if not completed, preventing API-level bypass

@@ -77,7 +77,9 @@ POST /api/filters/:id/bypass         — Bypass stage (deviation)
 GET  /api/filters/:id/current-state  — Get filter state + next actions
 GET  /api/filters/cycles             — List cleaning cycles (events-routes.ts mounts /cycles + /events under the shared /api/filters prefix)
 GET  /api/filters/events             — List filter events
-GET  /api/filter-cleaning-profiles   — List cleaning profiles
+GET  /api/filter-cleaning-profiles                       — List cleaning profiles (latest version per lineage)
+GET  /api/filter-cleaning-profiles/:id/versions          — Phase A.2: list all versions in lineage
+GET  /api/filter-cleaning-profiles/:id/versions/:n       — Phase A.2: fetch frozen snapshot at version n
 GET  /api/filter-profiles            — List filter profiles
 GET  /api/pm-schedules               — List PM schedules
 GET  /api/checklist-profiles                       — List checklist profiles
@@ -93,7 +95,7 @@ GET  /api/equipment-groups           — List equipment groups
 - Server-side checklist enforcement in `advance()`
 - Input sanitization on user-provided text fields
 - Events as immutable log with SHA-256 checksums for 21 CFR Part 11 compliance
-- Versioning via create-new + archive-old for cleaning profiles
+- **FilterCleaningProfile versioning** — immutable-rowful via `lineageId` UUID set at first create; updates archive the old row and insert a new row with `version+1` carrying the same lineageId. Cycles freeze `profileId` at start, so audit replay reads the exact archived row that was active at cycle start. Phase A.2 (2026-05-01) introduced `lineageId` (replacing `name`-based grouping) and exposed version history endpoints.
 - Auto-complete on last stage (STAGE leads to END node)
 
 ### Pipeline Flow

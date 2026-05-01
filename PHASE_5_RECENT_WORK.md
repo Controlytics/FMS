@@ -392,7 +392,7 @@ These were archived (not deleted) because the work is shipped — but the docs r
 - **Decision tape** — design + prototype if pipeline drift recurs (currently mitigated by `stageLookup`)
 - **Phase 2/3/4/5 manual test cases** — `tests/manual-test-cases/` only had Phase 1; **deleted** in the documentation cleanup. Need fresh cases for filter operations, RFID, offline replay, reports, block-change approval, PM My Tasks, admin requests. Backend `apps/api/src/e2e/` has the closest current coverage (Phase 1 only).
 - **Multi-filter batch checklist dialog** — currently opens for first item only (session 04-20 known follow-up)
-- **Cleaning-profile version pinning in offline cache** — stale graph risk if admin edits mid-shift; currently surfaces as sync error rather than pre-validated (mitigation: stale-profile yellow banner)
+- ~~**Cleaning-profile version pinning in offline cache**~~ — Closed by **Phase A.2** (2026-05-01): `FilterCleaningProfile.lineageId UUID` + `@@unique([lineageId, version])` + index. Cycles already pin `profileId` to the exact archived row (rowful immutability). New endpoints `GET /api/filter-cleaning-profiles/:id/versions` and `/:id/versions/:n` expose history. Combined with Phase A.1's `ChecklistProfileVersion` + `cycle.checklistVersionPins`, both the cleaning-pipeline graph and the checklist questions are now version-frozen for any in-flight cycle.
 - **Root working-tree noise** — test PNGs, `.playwright-mcp/`, `backups/` not gitignored (session 04-20 follow-up)
 
 ### N/A (no longer apply)

@@ -1300,6 +1300,7 @@ model PmExecution {
 
 model FilterCleaningProfile {
   id                   String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  lineageId            String                @map("lineage_id") @db.Uuid
   name                 String                @db.VarChar(255)
   description          String?
   flowMode             PipelineFlowMode      @default(STRICT) @map("flow_mode")
@@ -1318,7 +1319,9 @@ model FilterCleaningProfile {
   cleaningCycles CleaningCycle[]
   filterProfiles FilterProfile[]
 
+  @@unique([lineageId, version])
   @@index([status])
+  @@index([lineageId])
   @@map("filter_cleaning_profiles")
 }
 

@@ -252,12 +252,17 @@ GET /api/filters/events/:eventId       Permission: ASSET_READ
 ## Cleaning Profiles
 
 ```
-GET    /api/filter-cleaning-profiles           Permission: ASSET_READ
-GET    /api/filter-cleaning-profiles/:id       Permission: ASSET_READ
-POST   /api/filter-cleaning-profiles           Permission: FILTER_MANAGE, Reauth
-PUT    /api/filter-cleaning-profiles/:id       Permission: FILTER_MANAGE, Reauth
-DELETE /api/filter-cleaning-profiles/:id       Permission: FILTER_MANAGE, Reauth
-POST   /api/filter-cleaning-profiles/:id/validate Permission: FILTER_MANAGE
+GET    /api/filter-cleaning-profiles                     Permission: FCP_READ | CP_TOGGLE
+GET    /api/filter-cleaning-profiles/:id                 Permission: FCP_READ | CP_TOGGLE
+GET    /api/filter-cleaning-profiles/:id/versions        Permission: FCP_READ | CP_TOGGLE     # Phase A.2
+GET    /api/filter-cleaning-profiles/:id/versions/:n     Permission: FCP_READ | CP_TOGGLE     # Phase A.2 (frozen snapshot)
+POST   /api/filter-cleaning-profiles                     Permission: FCP_CREATE | CP_PAGE_CREATE, Reauth
+PUT    /api/filter-cleaning-profiles/:id                 Permission: FCP_UPDATE | CP_PAGE_EDIT, Reauth
+DELETE /api/filter-cleaning-profiles/:id                 Permission: FCP_DELETE | CP_PAGE_DELETE, Reauth   # soft archive
+PATCH  /api/filter-cleaning-profiles/:id/toggle-status   Permission: FCP_UPDATE | CP_PAGE_EDIT
+POST   /api/filter-cleaning-profiles/:id/validate        Permission: FCP_READ | CP_TOGGLE
+GET    /api/filter-cleaning-profiles/:id/assigned-assets Permission: FCP_READ | CP_TOGGLE
+POST   /api/filter-cleaning-profiles/:id/assign-assets   Permission: FCP_UPDATE | CP_PAGE_EDIT
 ```
 
 ---

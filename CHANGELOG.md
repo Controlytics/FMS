@@ -1,5 +1,55 @@
 # Changelog
 
+## [Unreleased] — Phase A.2: FilterCleaningProfile lineage-based versioning (2026-05-01)
+
+Branch: `feature/phase5-verification`. Continuation of the universal-versioning rollout (Phase A.1 covered ChecklistProfile).
+
+### Background
+
+FilterCleaningProfile already used immutable-rowful versioning: `update()` archived the old row (`status=ARCHIVED`) and inserted a new row with `version+1`. Cycles freeze `profileId` at start, so historical replay was already pointing at the exact archived row. The remaining gaps were:
+
+1. The `list()` view grouped by `name` (`distinct: ['name']`), so renaming a profile during an update orphaned the version history into separate "lineages."
+2. There was no API to enumerate version history of a profile.
+3. There was no API to fetch a frozen snapshot at a specific version.
+4. Hard-deleting a profile was protected only by the FK on `cleaning_cycles.profile_id` — no service-level guard with a useful error.
+
+### Changes
+
+- **Schema** (`apps/api/prisma/schema.prisma`):
+  - `FilterCleaningProfile.lineageId String @db.Uuid` (NOT NULL).
+  - `@@unique([lineageId, version])` to enforce one row per (lineage, version).
+  - `@@index([lineageId])` for lineage lookups.
+  - Applied via direct DDL on empty `filter_cleaning_profiles`; `prisma db push` reports schema in sync.
+- **Service** (`apps/api/src/modules/cleaning-profiles/cleaning-profile.service.ts`):
+  - `create()` mints a fresh `lineageId` (`randomUUID()`).
+  - `update()` propagates parent's `lineageId` to the new version row.
+  - `list()` now uses `distinct: ['lineageId']` instead of `distinct: ['name']` — rename-safe.
+  - New `getVersions(id)` and `getVersion(id, n)` methods.
+  - New `deleteProfile(id)` with explicit cycle + filter-profile reference checks (returns 409 with helpful message before relying on the DB FK).
+- **Routes** (`apps/api/src/modules/cleaning-profiles/routes.ts`):
+  - `GET /api/filter-cleaning-profiles/:id/versions` — list all versions in lineage.
+  - `GET /api/filter-cleaning-profiles/:id/versions/:versionNumber` — frozen snapshot.
+  - Both gated on `FCP_READ` or `CP_TOGGLE`.
+
+### Verification
+
+- `npx tsc -p apps/api/tsconfig.json` exit 0.
+- `npx prisma db push --skip-generate` reports "already in sync" (DDL applied directly first).
+- Synthetic seed of two versions sharing one `lineageId`:
+  - `GET /api/filter-cleaning-profiles?page=1&limit=5` → 1 latest entry (collapse correct).
+  - `GET /:v2/versions` → both versions, latest first.
+  - `GET /:v1/versions` → identical lineage response from archived anchor.
+  - `GET /:v1/versions/2` → frozen v2 snapshot with stages/connections.
+  - `GET /:v1/versions/99` → clean 404 with "Version 99 not found in lineage" message.
+- Seed cleaned up post-test (DELETE 2).
+
+### Notes
+
+- `cleaning_cycles.profile_id` FK has no `onDelete: Cascade`, so the DB enforces RESTRICT on hard delete of any cycle-referenced profile. The new service-level guard improves the error UX before the DB blocks it.
+- Frontend untouched — API response shapes unchanged for existing routes; new `/versions` endpoints are additive.
+
+---
+
 ## [Unreleased] — Auth-loop fix: cached-user kept page bouncing /login ↔ / (2026-05-01)
 
 Branch: `feature/phase5-verification`. Surfaced during full UI e2e walk after Step 6 verification, but the bug pre-dates Step 6 — it's a latent issue in the auth state machine that became visible when a session was concurrently invalidated server-side.

@@ -65,7 +65,7 @@ The main application file registers everything in this order:
 |---|---|---|---|
 | `filter-operations` | `/api/filters` | 15 | Cycle start/advance/bypass, checklist submit, events |
 | `filter-profiles` | `/api/filter-profiles` | 6 | Filter-to-profile assignments |
-| `cleaning-profiles` | `/api/filter-cleaning-profiles` | 9 | Pipeline profile CRUD, versioning, validation |
+| `cleaning-profiles` | `/api/filter-cleaning-profiles` | 11 | Pipeline profile CRUD, lineage-based versioning (Phase A.2 — `lineageId` UUID), version-history endpoints, validation |
 | `checklist-profiles` | `/api/checklist-profiles` | 9 | Checklist template + question management |
 | `pm-schedules` | `/api/pm-schedules` | 18 | PM scheduling, entries, executions, approvals |
 | `block-change-requests` | `/api/block-change-requests` | 5 | Block reassignment approval workflow |
@@ -353,6 +353,6 @@ MAX_FILE_SIZE=5242880
 5. **Audit logging** — Every mutation auto-logged with SHA-256 hash chain
 6. **Input sanitization** — All text fields stripped of HTML via `sanitize.ts`
 7. **Config registry** — 30 config definitions auto-discovered at startup
-8. **Versioning** — Cleaning profiles, rule chains, help articles use version-on-update pattern
+8. **Versioning** — Two patterns: (a) **immutable-rowful** for `FilterCleaningProfile` (update archives the old row + inserts a new row with `version+1`; rows in the same lineage share `lineageId UUID`; cycles freeze `profileId` at start) and rule chains/help articles; (b) **sidecar table** for `ChecklistProfile` (mutates in place; mutations snapshot into `ChecklistProfileVersion`; cycles pin via `cycle.checklistVersionPins JSONB`).
 9. **Immutable events** — Filter events stored with checksums, never modified (21 CFR Part 11)
 10. **Error handling** — `AppError(statusCode, code, message)` → unified JSON error response
