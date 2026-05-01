@@ -2,11 +2,12 @@
  * Pipeline Debug Tracer — Records stage-by-stage execution for debugging.
  * Only active when trace is enabled globally, per-entity, or per-template.
  * Writes to ts_pipeline_traces (TSDB) after pipeline completes.
- * Publishes real-time trace data to Redis ws:trace:{entityId}.
+ * Publishes real-time trace data to internal-bus ws:trace:{entityId}
+ * (Phase 4 — was Redis pub/sub).
  */
 
 import { getTsdbPool } from '@digilog/db';
-import IORedis from 'ioredis';
+import { bus } from '../../lib/internal-bus.js';
 import { getConfigOrDefault } from './ingestion-config.service.js';
 
 export interface StageResult {
@@ -38,20 +39,6 @@ export interface PipelineTrace {
   startTime: number;
 }
 
-let redisPub: IORedis | null = null;
-
-function getRedisPublisher(): IORedis {
-  if (!redisPub) {
-    redisPub = new IORedis({
-      host: process.env.REDIS_HOST ?? 'localhost',
-      port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
-      password: process.env.REDIS_PASSWORD || undefined,
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
-    });
-  }
-  return redisPub;
-}
 
 /** Check if tracing is enabled for this message context. */
 export async function isTraceEnabled(entityId?: string, templateId?: string): Promise<boolean> {
@@ -198,22 +185,17 @@ export async function finalizeTrace(trace: PipelineTrace): Promise<void> {
     console.error('[PipelineTracer] Failed to write trace:', err);
   }
 
-  // Publish to Redis for real-time UI streaming
+  // Publish to internal-bus for real-time UI streaming (Phase 4 — was Redis)
   if (trace.entityId) {
-    try {
-      const redis = getRedisPublisher();
-      await redis.publish(`ws:trace:${trace.entityId}`, JSON.stringify({
-        messageId: trace.messageId,
-        entityId: trace.entityId,
-        messageType: trace.messageType,
-        finalStatus: trace.finalStatus,
-        totalDurationMs: trace.totalDurationMs,
-        stages: trace.stages,
-        warnings: trace.warnings,
-      }));
-    } catch {
-      // Non-critical
-    }
+    bus.emit(`ws:trace:${trace.entityId}`, {
+      messageId: trace.messageId,
+      entityId: trace.entityId,
+      messageType: trace.messageType,
+      finalStatus: trace.finalStatus,
+      totalDurationMs: trace.totalDurationMs,
+      stages: trace.stages,
+      warnings: trace.warnings,
+    });
   }
 }
 
@@ -222,10 +204,10 @@ export function markTraceDLQ(trace: PipelineTrace): void {
   trace.finalStatus = 'DLQ';
 }
 
-/** Close the Redis publisher on shutdown. */
+/**
+ * Phase 4 (2026-05-01): no-op for backward compatibility. Bus is in-process —
+ * nothing to close. Retained so existing app shutdown handlers still type-check.
+ */
 export async function closeTracerRedis(): Promise<void> {
-  if (redisPub) {
-    await redisPub.quit();
-    redisPub = null;
-  }
+  /* no-op */
 }

@@ -1,22 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-const { mockRedis, mockVerifyToken, mockPrisma } = vi.hoisted(() => ({
-  mockRedis: {
-    subscribe: vi.fn((_channel: string, cb: Function) => cb(null)),
-    on: vi.fn(),
-    quit: vi.fn().mockResolvedValue('OK'),
-  },
-  mockVerifyToken: vi.fn(),
-  mockPrisma: {
-    systemConfig: { findUnique: vi.fn() },
-    session: { findFirst: vi.fn() },
-  },
-}));
-
-vi.mock('ioredis', () => {
-  function MockIORedis() { return mockRedis; }
-  return { default: MockIORedis };
+const { mockBusOn, mockBusEmit, mockUnsubscribe, mockVerifyToken, mockPrisma } = vi.hoisted(() => {
+  const mockUnsubscribe = vi.fn();
+  return {
+    mockBusOn: vi.fn(() => mockUnsubscribe),
+    mockBusEmit: vi.fn(),
+    mockUnsubscribe,
+    mockVerifyToken: vi.fn(),
+    mockPrisma: {
+      systemConfig: { findUnique: vi.fn() },
+      session: { findFirst: vi.fn() },
+    },
+  };
 });
+
+// Phase 4 (2026-05-01): bus replaces Redis pub/sub.
+vi.mock('../../lib/internal-bus.js', () => ({
+  bus: { on: mockBusOn, emit: mockBusEmit, off: vi.fn(), listenerCount: vi.fn(() => 0) },
+}));
 
 vi.mock('../../lib/jwt.js', () => ({ verifyToken: mockVerifyToken }));
 vi.mock('../../lib/prisma.js', () => ({ prisma: mockPrisma }));
@@ -223,9 +224,11 @@ describe('ws-handler', () => {
   });
 
   describe('closeWsRedis', () => {
-    it('closes redis subscriber', async () => {
+    // Phase 4 (2026-05-01): name kept for shutdown handler compatibility;
+    // body now unsubscribes from the in-process bus.
+    it('unsubscribes from internal-bus', async () => {
       await closeWsRedis();
-      expect(mockRedis.quit).toHaveBeenCalled();
+      expect(mockUnsubscribe).toHaveBeenCalled();
     });
   });
 

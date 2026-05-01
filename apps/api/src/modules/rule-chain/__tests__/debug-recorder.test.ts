@@ -19,14 +19,15 @@ vi.mock('../../data-ingestion/ingestion-config.service.js', () => ({
   getConfigOrDefault: vi.fn().mockResolvedValue(100),
 }));
 
-vi.mock('ioredis', () => {
-  return {
-    default: class MockRedis {
-      publish = mockPublish;
-      quit = mockQuit;
-    },
-  };
-});
+// Phase 4 (2026-05-01): bus.emit replaces redis.publish for the debug stream.
+vi.mock('../../../lib/internal-bus.js', () => ({
+  bus: {
+    emit: mockPublish,
+    on: vi.fn(() => () => {}),
+    off: vi.fn(),
+    listenerCount: vi.fn(() => 0),
+  },
+}));
 
 import {
   recordDebug,
@@ -109,13 +110,14 @@ describe('Debug Recorder', () => {
       expect(getDebugBuffer('chain-2')[0].nodeId).toBe('b1');
     });
 
-    it('publishes record to Redis on each call', () => {
+    it('publishes record to internal-bus on each call', () => {
       const record = makeRecord({ nodeId: 'n-pub' });
       recordDebug('chain-1', record);
 
+      // Phase 4: bus.emit takes the record as a JS object (no JSON.stringify).
       expect(mockPublish).toHaveBeenCalledWith(
         'debug:rulechain:chain-1',
-        JSON.stringify(record),
+        record,
       );
     });
   });
@@ -318,13 +320,11 @@ describe('Debug Recorder', () => {
   // ═══════════════════════════════════════════════════════
 
   describe('closeDebugRedis', () => {
-    it('calls quit on the Redis publisher when one exists', async () => {
-      // Force Redis publisher to be created by recording a debug entry
+    // Phase 4 (2026-05-01): closeDebugRedis is now a no-op (bus is in-process).
+    // Legacy name retained so existing app shutdown handlers still type-check.
+    it('is a no-op that does not throw', async () => {
       recordDebug('chain-1', makeRecord());
-      mockQuit.mockClear();
-
-      await closeDebugRedis();
-      expect(mockQuit).toHaveBeenCalledOnce();
+      await expect(closeDebugRedis()).resolves.not.toThrow();
     });
   });
 });

@@ -127,10 +127,13 @@ vi.mock('@digilog/db', () => ({
   addDeviceEventRow: mockAddDeviceEventRow,
 }));
 
-vi.mock('ioredis', () => ({
-  default: class MockRedis {
-    publish = mockPublish;
-    quit = mockQuit;
+// Phase 4 (2026-05-01): bus.emit replaces redisPub.publish.
+vi.mock('../../../lib/internal-bus.js', () => ({
+  bus: {
+    emit: mockPublish,
+    on: vi.fn(() => () => {}),
+    off: vi.fn(),
+    listenerCount: vi.fn(() => 0),
   },
 }));
 
@@ -667,28 +670,21 @@ describe('processIngestionMessage', () => {
   });
 
   // ── Stage 11: Event Emission ────────────────────────────────────────
-
+  // Phase 4 (2026-05-01): bus.emit is in-process synchronous fire-and-forget.
+  // It cannot fail at runtime the way redis.publish could (no network, no
+  // connection state). The "emit failure → WARN_EMIT_WS_FAILED" path was
+  // removed because it's unreachable. If a listener throws, the bus wrapper
+  // swallows the error so it can't propagate back to the publisher.
   describe('Stage 11 — Event Emission', () => {
-    it('adds warning but returns success:true when emission fails', async () => {
-      // Make Redis publish throw
-      mockPublish.mockRejectedValue(new Error('Redis connection lost'));
-
+    it('publishes event without errors', async () => {
       const msg = makeMessage({
         credentialId: '',
         messageType: 'POST_TELEMETRY',
         data: { temperature: 25.5 },
       });
-
       const result = await processIngestionMessage(msg);
-
-      // Pipeline should still succeed — emit failures are warnings
       expect(result.success).toBe(true);
-      expect(result.warnings).toEqual(
-        expect.arrayContaining([
-          expect.stringContaining('WARN_EMIT'),
-        ]),
-      );
-      // Should NOT route to DLQ
+      expect(mockPublish).toHaveBeenCalledWith('ws:events', expect.any(Object));
       expect(mockAddToDLQ).not.toHaveBeenCalled();
     });
   });

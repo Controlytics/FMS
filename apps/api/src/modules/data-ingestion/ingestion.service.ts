@@ -15,7 +15,7 @@ import { prisma } from '../../lib/prisma.js';
 import { computeChecksum } from '../../lib/hash-chain.js';
 import { flushAll } from '@digilog/db';
 import { QUEUES, JOB_PRIORITY, getProducer } from '@digilog/queue';
-import IORedis from 'ioredis';
+import { bus } from '../../lib/internal-bus.js';
 import type { IngestionMessage } from './message-normalizer.js';
 import { getConfigOrDefault } from './ingestion-config.service.js';
 import { markOnline } from './connectivity-tracker.js';
@@ -40,22 +40,7 @@ import { addToDLQ } from './dlq-manager.js';
 import { addDeviceEventRow } from '@digilog/db';
 import { dispatchNotification } from "../notification-delivery/notification-dispatcher.js";
 
-// ─── Redis publisher for Stage 11 ──────────────────────
-
-let redisPub: IORedis | null = null;
-
-function getRedisPublisher(): IORedis {
-  if (!redisPub) {
-    redisPub = new IORedis({
-      host: process.env.REDIS_HOST ?? 'localhost',
-      port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
-      password: process.env.REDIS_PASSWORD || undefined,
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
-    });
-  }
-  return redisPub;
-}
+// ─── Stage 11 fan-out goes through internal-bus (Phase 4 — was Redis) ──
 
 // ─── Notification enqueue helper ────────────────────────
 // Notification has no in-process consumer in the current codebase — jobs are
@@ -825,18 +810,13 @@ async function executeStage10(msg: IngestionMessage): Promise<void> {
 // ─── Stage 11: Event Emission ───────────────────────────
 
 async function executeStage11(msg: IngestionMessage, warnings: string[]): Promise<void> {
-  // 1. Publish to Redis pub/sub for WebSocket broadcast
-  try {
-    const redis = getRedisPublisher();
-    await redis.publish('ws:events', JSON.stringify({
-      entityId: msg.entityId,
-      type: msg.messageType,
-      data: msg.data,
-      timestamp: msg.timestamp,
-    }));
-  } catch {
-    warnings.push('WARN_EMIT_WS_FAILED');
-  }
+  // 1. Publish to internal-bus for WebSocket broadcast (Phase 4 — was Redis)
+  bus.emit('ws:events', {
+    entityId: msg.entityId,
+    type: msg.messageType,
+    data: msg.data,
+    timestamp: msg.timestamp,
+  });
 
   // 2. Enqueue notification if alarm created
   if (msg.messageType === 'ALARM') {
@@ -978,12 +958,11 @@ async function evaluateTemplateAlarmRules(
   }
 }
 
-/** Close the Redis publisher used by the pipeline and clean up timers. */
+/**
+ * Phase 4 (2026-05-01): bus is in-process — no resources to close. Retained
+ * as a no-op + timer cleanup so existing app shutdown handlers still type-check.
+ */
 export async function closePipelineRedis(): Promise<void> {
   clearInterval(rateLimitCleanupTimer);
   rateLimitMap.clear();
-  if (redisPub) {
-    await redisPub.quit();
-    redisPub = null;
-  }
 }

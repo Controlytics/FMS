@@ -55,11 +55,10 @@ vi.mock('../../../lib/prisma.js', () => ({
   },
 }));
 
-vi.mock('ioredis', () => ({
-  default: class MockRedis {
-    publish = vi.fn();
-    quit = vi.fn();
-  },
+// Phase 4: ioredis dropped — bus is in-process. Mock the bus so tests don't
+// trigger real listener fan-out.
+vi.mock('../../../lib/internal-bus.js', () => ({
+  bus: { emit: vi.fn(), on: vi.fn(() => () => {}), off: vi.fn(), listenerCount: vi.fn(() => 0) },
 }));
 
 import { enqueueNotificationJob } from '../ingestion.service.js';

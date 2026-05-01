@@ -1,12 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { mockRedis, mockPrisma, mockGetMqttClient } = vi.hoisted(() => ({
-  mockRedis: {
-    setex: vi.fn(),
-    get: vi.fn(),
-    ttl: vi.fn(),
-    quit: vi.fn(),
-  },
+const { mockPrisma, mockGetMqttClient } = vi.hoisted(() => ({
   mockPrisma: {
     unsMapping: { findUnique: vi.fn() },
     assetInstance: { findUnique: vi.fn() },
@@ -14,27 +8,24 @@ const { mockRedis, mockPrisma, mockGetMqttClient } = vi.hoisted(() => ({
   mockGetMqttClient: vi.fn(),
 }));
 
-vi.mock('ioredis', () => {
-  function MockIORedis() { return mockRedis; }
-  return { default: MockIORedis };
-});
-
 vi.mock('../../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 vi.mock('../../../transport/mqtt-client.js', () => ({ getMqttClient: mockGetMqttClient }));
 
 import { publishRpcRequest, getRpcResponse, onRpcResponse, closeRpcRedis } from '../rpc-handler.js';
+import { _resetForTests } from '../../../lib/rpc-cache.js';
+
+// Phase 4 (2026-05-01): Redis SETEX-based correlation replaced by an in-process
+// TTL Map (apps/api/src/lib/rpc-cache.ts). These tests now exercise the cache
+// directly rather than mocking ioredis.
 
 describe('rpc-handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockRedis.setex.mockResolvedValue('OK');
-    mockRedis.get.mockResolvedValue(null);
-    mockRedis.ttl.mockResolvedValue(30);
-    mockRedis.quit.mockResolvedValue('OK');
+    _resetForTests();
   });
 
   describe('publishRpcRequest', () => {
-    it('publishes RPC request via MQTT and stores in Redis', async () => {
+    it('publishes RPC request via MQTT and stores in the in-process cache', async () => {
       mockPrisma.unsMapping.findUnique.mockResolvedValue({ unsPath: 'digilog/v1/ent/pump-1' });
       const mockMqttClient = { publishAsync: vi.fn().mockResolvedValue(undefined) };
       mockGetMqttClient.mockReturnValue(mockMqttClient);
@@ -48,7 +39,8 @@ describe('rpc-handler', () => {
         expect.any(String),
         expect.objectContaining({ qos: 1 }),
       );
-      expect(mockRedis.setex).toHaveBeenCalled();
+      // Cache is an in-process Map; we exercise the response path to confirm round-trip works.
+      // (No direct mock to introspect anymore — that's the whole point of dropping ioredis.)
     });
 
     it('falls back to assetInstance.unsPath when no UNS mapping', async () => {
@@ -70,52 +62,38 @@ describe('rpc-handler', () => {
     });
   });
 
-  describe('getRpcResponse', () => {
-    it('returns parsed response from Redis', async () => {
-      const response = { requestId: 'r1', data: { temp: 25 }, receivedAt: '2026-01-01' };
-      mockRedis.get.mockResolvedValue(JSON.stringify(response));
+  describe('round-trip via in-process cache', () => {
+    it('onRpcResponse stores and getRpcResponse returns', async () => {
+      mockPrisma.unsMapping.findUnique.mockResolvedValue({ unsPath: 'digilog/v1/ent/x' });
+      mockGetMqttClient.mockReturnValue({ publishAsync: vi.fn().mockResolvedValue(undefined) });
 
-      const result = await getRpcResponse('r1');
-      expect(result).toEqual(response);
+      const requestId = await publishRpcRequest('entity-x', 'ping', {});
+      // Initially no response cached.
+      expect(await getRpcResponse(requestId)).toBeNull();
+
+      // Simulate response arriving.
+      await onRpcResponse(requestId, { temp: 25 });
+      const result = await getRpcResponse(requestId);
+      expect(result).not.toBeNull();
+      expect(result?.requestId).toBe(requestId);
+      expect(result?.data).toEqual({ temp: 25 });
     });
 
-    it('returns null when no response stored', async () => {
-      mockRedis.get.mockResolvedValue(null);
+    it('getRpcResponse returns null when no response stored', async () => {
       const result = await getRpcResponse('missing');
       expect(result).toBeNull();
     });
-  });
 
-  describe('onRpcResponse', () => {
-    it('stores response in Redis with TTL', async () => {
-      mockRedis.ttl.mockResolvedValue(25);
-
-      await onRpcResponse('r1', { temp: 25 });
-
-      expect(mockRedis.setex).toHaveBeenCalledWith(
-        expect.stringContaining('res:r1'),
-        expect.any(Number),
-        expect.any(String),
-      );
-    });
-
-    it('uses default TTL when request TTL is negative', async () => {
-      mockRedis.ttl.mockResolvedValue(-1);
-
-      await onRpcResponse('r2', { value: 'ok' });
-
-      expect(mockRedis.setex).toHaveBeenCalledWith(
-        expect.stringContaining('res:r2'),
-        60,
-        expect.any(String),
-      );
+    it('onRpcResponse for unknown requestId still stores with default TTL', async () => {
+      await onRpcResponse('orphan-id', { value: 'ok' });
+      const result = await getRpcResponse('orphan-id');
+      expect(result?.data).toEqual({ value: 'ok' });
     });
   });
 
   describe('closeRpcRedis', () => {
-    it('quits redis connection', async () => {
-      await closeRpcRedis();
-      // Should not throw even if called multiple times
+    it('is a no-op (legacy name kept for shutdown handlers)', async () => {
+      await expect(closeRpcRedis()).resolves.not.toThrow();
     });
   });
 });
