@@ -34,7 +34,7 @@ DigiLog uses a modern tech stack (verified 2026-04-29):
 - **Frontend:** React 19 + Vite 6 SPA with Tailwind CSS 4
 - **Database:** PostgreSQL 18 + Prisma 6 + TimescaleDB (time-series), **66 Prisma models, 23 enums**
 - **MQTT:** Mosquitto 2.0 (Phase 1 of windows-friendly-rewrite swapped from EMQX)
-- **Queue:** graphile-worker on PostgreSQL (Phase 2 swapped from BullMQ + Redis/Memurai). Redis is now optional, only used for non-queue pub/sub.
+- **Queue:** graphile-worker on PostgreSQL (Phase 2 swapped from BullMQ + Redis/Memurai). **No Redis dependency** — Phase 4 (2026-05-01) retired it; pub/sub moved to an in-process EventEmitter bus.
 - **PDF / charts:** `puppeteer-core` + Microsoft Edge + `@napi-rs/canvas` (Phase 3 swapped from `puppeteer` + `chartjs-node-canvas`)
 - **Config:** **30 config definitions** with auto-discovery at startup, **26** corresponding pages
 

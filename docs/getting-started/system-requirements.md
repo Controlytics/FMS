@@ -16,7 +16,7 @@
 | TimescaleDB | latest for PG 18 | Time-series extension (database: digilog_tsdb, 7 hypertables) |
 | Mosquitto | 2.0.x | MQTT broker (Phase 1 of windows-friendly-rewrite swapped from EMQX). Install via `scripts/install-mosquitto.ps1`. |
 | Microsoft Edge | preinstalled on Win10+/Server 2019+ | Used by `puppeteer-core` for PDF report rendering (Phase 3 swap) |
-| Memurai (Redis ≥5) | optional | Non-queue pub/sub only (WebSocket events, RPC routing, pipeline tracer, debug recorder); Phase 2 moved the queue to graphile-worker on Postgres |
+| ~~Memurai (Redis)~~ | RETIRED | Phase 4 (2026-05-01): pub/sub moved in-process. Do NOT install. |
 | Reverse proxy (Nginx / IIS) | optional | Customer-choice; not bundled after Phase 4 of the windows-friendly-rewrite. Default is Fastify-direct on `:3000`. |
 | Prisma | 6.x | ORM for PostgreSQL |
 
@@ -26,7 +26,7 @@
 | Node.js | 20.x or 22.x | Application runtime |
 | PostgreSQL | 18 | Primary database with TimescaleDB extension |
 | Mosquitto | 2.0.x | Optional unless testing MQTT ingest |
-| Memurai (Redis) | optional | Non-queue pub/sub features only |
+| ~~Memurai (Redis)~~ | RETIRED | Phase 4: not used by DigiLog anymore |
 | tsx | latest | API dev server (auto-reload) |
 | Vite | latest | Frontend dev server |
 
@@ -44,7 +44,7 @@ packages/queue/  — graphile-worker job queue (Postgres-backed)
 |------|---------|----------|
 | 3000 | Fastify API + SPA (HTTPS via mkcert) | Yes |
 | 5432 | PostgreSQL (app + tsdb + queue schema) | Internal |
-| 6379 | Redis (Memurai) | Optional — non-queue pub/sub only |
+| ~~6379~~ | ~~Redis~~ | RETIRED (Phase 4 — 2026-05-01) |
 | 1883 | MQTT (Mosquitto, TCP) | For devices |
 
 > Legacy ports — 80/443 (Nginx), 18083 (EMQX dashboard), 8883/8083/8084 (EMQX TLS / WS / WSS) — are no longer part of the standard install. Customers who add a reverse proxy in front of Fastify will reintroduce 80/443.

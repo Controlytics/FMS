@@ -320,10 +320,10 @@ MOSQUITTO_REFRESH_TOKEN=random-hex-token
 # Optional: explicit dynsec path; defaults to <repo>/mosquitto/dynamic-security.json
 # MOSQUITTO_DYNSEC_PATH=C:/Program Files/mosquitto/dynamic-security.json
 
-# Redis (non-queue pub/sub only — WebSocket events, RPC routing, pipeline tracer, debug recorder)
-# Job queue lives on Postgres now (graphile-worker); REDIS_* is optional for the queue path.
-REDIS_HOST=localhost
-REDIS_PORT=6379
+# Phase 4 (2026-05-01): Redis fully retired. Pub/sub moved to an in-process
+# EventEmitter bus (apps/api/src/lib/internal-bus.ts); RPC correlation moved
+# to a Map-based TTL cache (apps/api/src/lib/rpc-cache.ts). REDIS_* env vars
+# are no longer read by anything.
 
 # JWT
 JWT_SECRET=random-64-char-string

@@ -111,7 +111,7 @@ Why this kills the issue entirely:
 
 Live-verified: graphile-worker schema auto-bootstraps on first connect, cron task `dlq_check` and `connectivity_check` fire every minute, `ingestion` task processes the live MQTT round-trip (see §3 above).
 
-Redis/Memurai is still used for non-queue pub/sub (WebSocket events, RPC routing, pipeline tracing, debug recorder). Phase 4 of the windows-friendly-rewrite plan will replace those with PG `LISTEN/NOTIFY` for full Redis removal.
+**Phase 4 (2026-05-01) update — RESOLUTION COMPLETE:** non-queue pub/sub (WebSocket events, RPC correlation, pipeline tracer, debug recorder) moved in-process via `apps/api/src/lib/internal-bus.ts` (EventEmitter wrapper) and `apps/api/src/lib/rpc-cache.ts` (Map TTL cache). `ioredis` dependency removed from `apps/api/package.json`. **No Redis-protocol service of any kind is needed.** Memurai install instructions struck from this doc + setup docs. Why in-process beats PG `LISTEN/NOTIFY` here: single-Node-process deployment + 10ns vs 5-20ms latency + zero new infra. Same `bus.emit / bus.on` interface can be backed by a PG LISTEN/NOTIFY adapter the day multi-process scale-out becomes a real requirement; until then, the simpler implementation is correct.
 
 ### 8. PostgreSQL 18 + TimescaleDB extension
 
@@ -262,7 +262,7 @@ New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' `
 - `mqtt` npm package (the **client**, talking to whatever broker — Mosquitto 2.0 in the current shipping install)
 - HTTPS via mkcert (after the cert-import step in §6)
 - Windows Service registration via NSSM (stopgap until Phase 5 ships a managed-service launcher)
-- Memurai (Redis substitute, paid) — **optional** post-Phase-2; only used for non-queue pub/sub features
+- ~~Memurai (Redis substitute, paid)~~ — RETIRED in Phase 4 (2026-05-01); pub/sub now in-process
 - The 30 config defs + 27 config pages + 105 permissions — all pure JS
 
 ---
@@ -276,7 +276,7 @@ For a **Windows Server production deployment**, the realistic stance is:
 | Fastify API | ✅ keep | Compiled JS via NSSM service |
 | React SPA | ✅ keep | Built artifact, served by Fastify static or IIS |
 | PostgreSQL 18 + TimescaleDB | ✅ keep | Pin patch version exactly. Also hosts the graphile-worker job queue. |
-| ~~Memurai~~ | ✅ removed | Phase 2: replaced by graphile-worker on Postgres. Redis still used for non-queue pub/sub; Phase 4 will swap to PG `LISTEN/NOTIFY`. |
+| ~~Memurai~~ | ✅ fully removed | Phase 2: queue → graphile-worker on Postgres. Phase 4 (2026-05-01): pub/sub → in-process EventEmitter bus. `ioredis` dependency dropped. **No Redis service required at all.** |
 | MQTT broker | ✅ Mosquitto (Windows-native) | Phase 1: Mosquitto 2.0 silent install via `scripts/install-mosquitto.ps1`. EMQX gone. |
 | Reports module (PDF + charts) | ✅ Edge + @napi-rs/canvas | Phase 3: puppeteer-core drives preinstalled Edge; @napi-rs/canvas ships prebuilt N-API. No bundled Chromium, no MSVC, no node-gyp. |
 | APK builds | ❌ off-server | Build on dev machine, copy artifact |

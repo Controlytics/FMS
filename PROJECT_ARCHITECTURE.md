@@ -36,25 +36,29 @@
 │          │                                                       │
 │  ┌───────┼──────────────────────────────────────────────┐        │
 │  │       ▼          DATA LAYER                          │        │
-│  │  ┌──────────┐ ┌──────────┐ ┌────────┐ ┌──────────┐   │        │
-│  │  │PostgreSQL│ │TimescaleDB│ │ Redis  │ │Mosquitto │   │        │
-│  │  │  :5432   │ │  :5432   │ │ :6379  │ │  :1883   │   │        │
-│  │  │ 66 models│ │ 7 hyper- │ │ pub/sub│ │  MQTT    │   │        │
-│  │  │ Prisma   │ │ tables   │ │only-now│ │  Broker  │   │        │
-│  │  │digilog_db│ │digilog_  │ │optional│ │  IoT     │   │        │
-│  │  │ +queue   │ │tsdb      │ │ Memurai│ │  devices │   │        │
-│  │  │(graphile)│ │          │ │        │ │          │   │        │
-│  │  └──────────┘ └──────────┘ └────────┘ └──────────┘   │        │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐               │        │
+│  │  │PostgreSQL│ │TimescaleDB│ │Mosquitto │               │        │
+│  │  │  :5432   │ │  :5432   │ │  :1883   │               │        │
+│  │  │ 66 models│ │ 7 hyper- │ │  MQTT    │               │        │
+│  │  │ Prisma   │ │ tables   │ │  Broker  │               │        │
+│  │  │digilog_db│ │digilog_  │ │  IoT     │               │        │
+│  │  │ +queue   │ │tsdb      │ │  devices │               │        │
+│  │  │(graphile)│ │          │ │          │               │        │
+│  │  └──────────┘ └──────────┘ └──────────┘               │        │
+│  │  Phase 4 (2026-05-01): Redis retired — pub/sub now    │        │
+│  │  in-process via EventEmitter bus + RPC TTL Map.       │        │
 │  └──────────────────────────────────────────────────────┘        │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-> **Tech-stack swap (windows-friendly-rewrite Phases 1+2+3, 2026-04-29):**
+> **Tech-stack swap (windows-friendly-rewrite Phases 1+2+3+4):**
 > EMQX → Mosquitto 2.0 (Phase 1); BullMQ on Redis/Memurai → graphile-worker
 > on PostgreSQL (Phase 2); Puppeteer (bundled Chromium) + chartjs-node-canvas
-> → puppeteer-core + Edge + @napi-rs/canvas (Phase 3). Redis/Memurai is now
-> only used for non-queue pub/sub (WebSocket events, RPC routing, pipeline
-> tracer, debug recorder); Phase 4 will move those to PG `LISTEN/NOTIFY`.
+> → puppeteer-core + Edge + @napi-rs/canvas (Phase 3). **Phase 4 (2026-05-01):
+> Redis fully retired** — non-queue pub/sub (WebSocket events, RPC correlation,
+> pipeline tracer, debug recorder) moved to in-process EventEmitter bus
+> (`apps/api/src/lib/internal-bus.ts`) + Map-based TTL cache for RPC
+> (`apps/api/src/lib/rpc-cache.ts`). `ioredis` dependency removed.
 
 ## Monorepo Package Architecture
 
@@ -423,18 +427,20 @@ System:
 | ts_events | General system events | Time (daily) |
 | ts_exports | Export request tracking | Time (daily) |
 
-### Redis (Memurai) — Usage (post-Phase-2: pub/sub only, optional)
+### Redis — RETIRED (Phase 4, 2026-05-01)
 
-| Feature | Redis Data Structure |
+Phase 4 of the windows-friendly-rewrite removed Redis from the codebase entirely. `ioredis` is no longer in `package.json`. No Redis-protocol service is required to run DigiLog.
+
+| Former Redis use | Replacement |
 |---|---|
-| Pub/sub (WebSocket events) | Channels (ws:events) |
-| RPC routing (device commands) | Channels |
-| Pipeline tracer / debug recorder | Channels |
-| Re-auth token cache | Key-value with 10s TTL |
-| Rule chain graph cache | Key-value with hash |
-| Session validation cache | Key-value |
+| Pub/sub (WebSocket events `ws:events`) | In-process EventEmitter bus (`apps/api/src/lib/internal-bus.ts`) |
+| RPC correlation (device commands) | In-process Map TTL cache (`apps/api/src/lib/rpc-cache.ts`) |
+| Pipeline tracer / debug recorder | Same EventEmitter bus, different channels |
+| Re-auth token cache (10s TTL) | In-memory `Map` in `apps/api/src/lib/reauth-check.ts` |
+| Rule chain graph cache | In-memory cache in rule-chain compiler |
+| Session validation cache | Now hits Postgres directly (negligible overhead — reauth-check is the hot path) |
 
-> Job queues moved off Redis to graphile-worker on Postgres in Phase 2 of the windows-friendly-rewrite (commit `7832af1`). Phase 4 will move the remaining pub/sub channels above to PG `LISTEN/NOTIFY` to drop the dependency entirely.
+> Job queues moved off Redis to graphile-worker on Postgres in Phase 2 (commit `7832af1`). Phase 4 (commit `cd03de3`) finished the retirement by moving non-queue pub/sub in-process. Why in-process beats PG `LISTEN/NOTIFY` for DigiLog: single-Node-process deployment model + 10ns vs 5-20ms latency + zero new infra. If multi-process scale-out ever becomes a real requirement, swap the EventEmitter implementation behind the same `bus.emit / bus.on` interface for a PG LISTEN/NOTIFY adapter — zero call-site changes.
 
 ## Security Architecture
 
@@ -476,5 +482,5 @@ System:
 | WSS | 3000 | Real-time updates on `/ws` | JWT token |
 | MQTT | 1883 | IoT device telemetry (Mosquitto 2.0) | Device access token (Mosquitto dynsec) |
 | PostgreSQL | 5432 | Database connections (also hosts the graphile-worker queue schema) | Username/password |
-| Redis | 6379 | Pub/sub only (WebSocket events, RPC routing, pipeline tracer, debug recorder); job queue moved to Postgres in Phase 2 | No auth (local only) |
+| ~~Redis~~ | ~~6379~~ | RETIRED in Phase 4 (2026-05-01) — pub/sub moved in-process, RPC TTL moved in-process | n/a |
 | Mosquitto control | n/a | Dynsec is configured via the API's `POST /api/internal/mqtt/refresh-acl`, not a standalone dashboard | `MOSQUITTO_REFRESH_TOKEN` (timing-safe compare) |

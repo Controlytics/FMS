@@ -25,9 +25,12 @@ future/           — Forward-looking design notes
 The app runs ONLY on local Windows for development. There is no live EC2 / Linux production environment to push to.
 
 - Node.js 20+, PostgreSQL 18 + TimescaleDB, Mosquitto 2.0
-- Job queue runs on Postgres via graphile-worker — no separate Redis/Memurai service needed.
-  (Redis/Memurai is still used for non-queue pub/sub: WebSocket events, RPC routing,
-  pipeline tracing, debug recorder. Phase 4 will replace those with Postgres LISTEN/NOTIFY.)
+- **No Redis dependency.** Phase 2 of windows-friendly-rewrite moved the job
+  queue to graphile-worker on Postgres. Phase 4 (2026-05-01) retired Redis
+  for pub/sub too — WebSocket events, RPC correlation, pipeline tracing, and
+  debug recorder all run through an in-process EventEmitter bus
+  (`apps/api/src/lib/internal-bus.ts`) and a Map-based TTL cache
+  (`apps/api/src/lib/rpc-cache.ts`). `ioredis` is no longer in package.json.
 - Mosquitto optional unless testing MQTT ingest. Install via `scripts/install-mosquitto.ps1`
   from an elevated PowerShell — registers a Windows service and rewrites the deployed
   conf with absolute paths + file logging (the SCM-managed broker has CWD=System32 and

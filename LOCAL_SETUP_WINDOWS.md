@@ -20,15 +20,11 @@
   - Run the TimescaleDB installer, select your PostgreSQL 18 installation
   - Restart PostgreSQL service after TimescaleDB install
 
-### 1.3 Redis (optional — non-queue pub/sub only)
-- Phase 2 Task 2.10 moved the job queue onto Postgres via graphile-worker, so
-  Redis is no longer required for the queue path.
-- Redis is still used by the WebSocket pub/sub, RPC routing, pipeline tracer,
-  and debug recorder. If you skip Redis these features degrade silently
-  (login + REST APIs + ingestion pipeline still work).
-- If you do want full functionality, the Windows Redis 5 binary at
-  `C:\Users\hello\redis5\redis-server.exe` (port **6379**, no password) is
-  fine. Memurai works equally well.
+### 1.3 Redis — RETIRED (Phase 4, 2026-05-01)
+DigiLog no longer uses Redis. **Do not install Memurai or Redis.** Phase 2
+moved the job queue to Postgres (graphile-worker); Phase 4 moved pub/sub
+and RPC correlation in-process (EventEmitter bus + Map TTL cache). Skip
+this section entirely — there is nothing to install for the pub/sub layer.
 
 ### 1.4 Git
 - Download: https://git-scm.com/download/win
@@ -134,12 +130,10 @@ MOSQUITTO_REFRESH_TOKEN=<random hex>
 # Optional: explicit dynsec path if not using the install-script default.
 # MOSQUITTO_DYNSEC_PATH=C:/Program Files/mosquitto/dynamic-security.json
 
-# --- Redis (optional — pub/sub only; queue is on Postgres) ---
-# Required for: WebSocket events, RPC routing, pipeline tracer, debug recorder.
-# Safe to leave unset for a queue-only smoke test.
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_PASSWORD=
+# --- Redis — RETIRED (Phase 4, 2026-05-01) ---
+# Pub/sub moved in-process via EventEmitter bus. RPC correlation moved to
+# Map TTL cache. REDIS_* env vars are no longer read by anything; left here
+# blank for any legacy script that greps for the keys.
 
 # --- SMTP (optional) ---
 SMTP_HOST=smtp.example.com
@@ -251,7 +245,7 @@ Frontend runs on http://localhost:5175
 
 ### 8.2 Using Batch Scripts
 ```bash
-start-digilog.bat    # Starts Redis (pub/sub only), Mosquitto service, API, and Frontend
+start-digilog.bat    # Starts Mosquitto service, API, and Frontend (Phase 4: no Redis)
 stop-digilog.bat     # Stops all services
 ```
 
@@ -337,7 +331,7 @@ curl http://localhost:3000/api/health
 | Web Dev Port | 5175 | Vite dev server |
 | PostgreSQL | localhost:5432 | User: digilog, DB: digilog_db (PG 18) |
 | TimescaleDB | localhost:5432 | DB: digilog_tsdb (same PG instance) |
-| Redis | localhost:6379 | Optional — pub/sub only (queue moved to Postgres) |
+| ~~Redis~~ | ~~localhost:6379~~ | RETIRED (Phase 4) — pub/sub now in-process |
 | MQTT (Mosquitto) | localhost:1883 | Optional — set MQTT_ENABLED=false to skip. Service-managed via `scripts/install-mosquitto.ps1`. |
 | Default Login | superadmin / Admin@123 | Created by seed |
 
@@ -393,7 +387,7 @@ npm run build
 
 ### Database connection errors
 - Check PostgreSQL is running: `pg_isready`
-- Check Redis is running: `redis-cli ping` or check `C:\Users\hello\redis5\redis-server.exe` is running
+- (Phase 4: Redis is no longer used; this step is no longer needed.)
 - Verify .env DATABASE_URL matches your PostgreSQL credentials
 - Ensure both `digilog_db` and `digilog_tsdb` databases exist
 
@@ -406,7 +400,7 @@ npm run build
 - API (3000): `netstat -ano | findstr :3000`
 - Web (5175): `netstat -ano | findstr :5175`
 - PostgreSQL (5432): `netstat -ano | findstr :5432`
-- Redis (6379): `netstat -ano | findstr :6379`
+- (Phase 4: Redis port 6379 is no longer used by DigiLog.)
 
 ### Windows-specific issues
 - Use **Git Bash** or **WSL2** for running commands (not CMD)

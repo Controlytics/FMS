@@ -17,7 +17,7 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 | **Primary DB** | PostgreSQL 18 | 66 Prisma models, 23 enums (TemplateKind lookup; MT removal dropped Organization; Step 6 added FilterDetails 1:1 sidecar; Step 5b A.1 added ChecklistProfileVersion immutable-history table) |
 | **Time-Series DB** | TimescaleDB | 7 hypertables for telemetry data |
 | **Job Queue** | graphile-worker on PostgreSQL | LISTEN/NOTIFY + SKIP LOCKED + advisory locks; no separate Redis service |
-| **Pub/sub (optional)** | Redis 7 / Memurai | WebSocket events, RPC routing, pipeline tracer, debug recorder |
+| **Pub/sub (in-process)** | EventEmitter bus + Map TTL cache | Phase 4 (2026-05-01) retired Redis. WebSocket events, RPC correlation, pipeline tracer, debug recorder all in-process. |
 | **MQTT Broker** | Mosquitto 2.0 | Windows-native service via `scripts/install-mosquitto.ps1` (Phase 1 of windows-friendly-rewrite swapped from EMQX) |
 | **PDF + charts** | puppeteer-core + Edge + @napi-rs/canvas | No bundled Chromium, no node-gyp / MSVC (Phase 3 of windows-friendly-rewrite) |
 | **Mobile** | Capacitor (Android APK) | Wraps web app for tablet use |
@@ -135,7 +135,7 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 - Firewall rules auto-configured (80, 443, 3000, 1883)
 
 ### Prerequisites
-- Node.js 20+, PostgreSQL 18 + TimescaleDB, Mosquitto 2.0 (installed by script). Memurai/Redis is **optional** — only required for non-queue pub/sub features (queue moved to graphile-worker on Postgres in Phase 2).
+- Node.js 20+, PostgreSQL 18 + TimescaleDB, Mosquitto 2.0 (installed by script). **No Redis dependency** — Phase 2 moved the queue to graphile-worker on Postgres; Phase 4 retired Redis pub/sub via in-process EventEmitter bus.
 
 ### Default Login
 - Username: `superadmin`

@@ -42,15 +42,16 @@ Configuration is all in `.env` and `certs/`.
 ```
 ┌─────────────── target Windows machine ───────────────┐
 │                                                       │
-│  ┌─────────┐   ┌────────┐   ┌──────────┐  ┌──────────┐│
-│  │ Node 20+│   │Postgres│   │Memurai   │  │Mosquitto ││
-│  │ API     │←──│ +Timsc │   │(optional │  │ MQTT     ││
-│  │ :3000   │   │ +queue │   │ pub/sub) │  │ :1883    ││
-│  │  HTTPS  │   │:5432   │   │ :6379    │  │ (service)││
-│  └────┬────┘   └────────┘   └──────────┘  └──────────┘│
-│       │                                               │
-│       │  Foreground smoke-test:  cd api; node dist/app.js
-│       │  (managed Windows-service launcher = Phase 5) │
+│  ┌─────────┐   ┌────────┐                ┌──────────┐│
+│  │ Node 20+│   │Postgres│                │Mosquitto ││
+│  │ API     │←──│ +Timsc │                │ MQTT     ││
+│  │ :3000   │   │ +queue │                │ :1883    ││
+│  │  HTTPS  │   │:5432   │                │ (service)││
+│  └────┬────┘   └────────┘                └──────────┘│
+│       │   (Phase 4: Redis retired — pub/sub in-process)│
+│       │  NSSM-managed services:                       │
+│       │    - DigiLogAPI-Phase5                        │
+│       │    - DigiLogWeb-Phase5                        │
 └───────┼───────────────────────────────────────────────┘
         │
         │ https://<server-ip>:3000
@@ -62,13 +63,12 @@ Configuration is all in `.env` and `certs/`.
     └───────────────────────────────┘
 ```
 
-Three components run on the server: **PostgreSQL 18 + TimescaleDB**, **Mosquitto 2.0**, and **the built API + SPA**. Phase 1+2 of the windows-friendly-rewrite swapped EMQX for Mosquitto and moved the job queue to graphile-worker on Postgres (Memurai/Redis is now optional, only used for non-queue pub/sub: WebSocket events, RPC routing, pipeline tracer, debug recorder). Phase 3 swapped the PDF/chart pipeline to puppeteer-core + Edge and @napi-rs/canvas, eliminating ~150 MB of bundled Chromium and the node-gyp / MSVC / Cairo build chain. Phase 4 retired PM2 and the bundled Nginx config from the customer-facing install path — the API runs in the foreground for smoke-test, and a managed Windows-service launcher is Phase 5 work.
+Three components run on the server: **PostgreSQL 18 + TimescaleDB**, **Mosquitto 2.0**, and **the built API + SPA**. Phase 1+2 of the windows-friendly-rewrite swapped EMQX for Mosquitto and moved the job queue to graphile-worker on Postgres. Phase 3 swapped the PDF/chart pipeline to puppeteer-core + Edge and @napi-rs/canvas, eliminating ~150 MB of bundled Chromium and the node-gyp / MSVC / Cairo build chain. **Phase 4 (2026-05-01) retired Redis entirely** — non-queue pub/sub (WebSocket events, RPC correlation, pipeline tracer, debug recorder) moved to an in-process EventEmitter bus + Map-based TTL cache. Phase 5 added managed-Windows-service launchers (DigiLogAPI-Phase5 + DigiLogWeb-Phase5 via NSSM).
 
-> **Phase 2 Task 2.10 update (2026):** the job queue moved from BullMQ-on-Redis
-> to graphile-worker-on-Postgres. Memurai/Redis is now **optional** — the API
-> still uses it for non-queue pub/sub (WebSocket events, RPC, pipeline tracer,
-> debug recorder). For a queue-only smoke test you can skip Memurai; full
-> functionality still wants it.
+> **Phases 2 + 4 (2026):** the job queue moved from BullMQ-on-Redis to
+> graphile-worker-on-Postgres in Phase 2; pub/sub + RPC correlation moved
+> in-process in Phase 4. **No Redis dependency at all.** Memurai is no
+> longer needed for any DigiLog feature.
 
 ---
 
@@ -82,7 +82,7 @@ Each is a Next-Next-Finish installer.
 | **Node.js LTS** | 20.x or 22.x | https://nodejs.org/ | Accept default options. Ensures `node` and `npm` are on PATH. |
 | **PostgreSQL** | 18 | https://www.postgresql.org/download/windows/ | Remember the password for the `postgres` superuser — you'll need it. Install **Stack Builder** and use it to add the **TimescaleDB** extension afterwards. |
 | **TimescaleDB** | latest for PG 18 | https://docs.timescale.com/self-hosted/latest/install/installation-windows/ | Needed for time-series data. Follow their Windows guide — it's a DLL copy + one `CREATE EXTENSION` statement. |
-| **Memurai** *(optional)* | Developer Edition | https://www.memurai.com/get-memurai | Phase 2 of windows-friendly-rewrite moved the job queue onto Postgres (graphile-worker). Memurai/Redis is **only** needed if you want the non-queue pub/sub features (WebSocket events, RPC routing, pipeline tracer, debug recorder). Free Developer Edition is enough if you do install it. |
+| ~~**Memurai**~~ | RETIRED | n/a | Phase 4 (2026-05-01) retired Redis entirely. Pub/sub moved to in-process EventEmitter bus; RPC correlation moved to in-process Map. **Do NOT install Memurai or Redis.** |
 | **Mosquitto** *(installed by script)* | 2.0.x | Bundled — `install-on-target.ps1` invokes `install-mosquitto.ps1` automatically | MQTT broker. **No separate install step.** Step 3/9 of `install-on-target.ps1` runs `install-mosquitto.ps1`, which downloads the official 2.0.18 installer, registers the Windows service, deploys the conf, and rewrites paths to absolute (the SCM-managed broker has CWD=System32, no stdout — relative paths and `log_dest stdout` would silently exit it). |
 | **Microsoft Edge** | preinstalled on Win10+/Server 2019+ | https://www.microsoft.com/edge | Used by `puppeteer-core` for PDF report rendering. The installer probes for `msedge.exe` and warns if missing. On Windows Server Core, install Chrome and set `PUPPETEER_EXECUTABLE_PATH` in `.env`. |
 | **Git (optional)** | any | https://git-scm.com/ | Only needed if you'll pull source updates later. |
@@ -265,9 +265,9 @@ psql -U digilog -d digilog_tsdb -c "SELECT extversion FROM pg_extension WHERE ex
 psql -U digilog -d digilog_db -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='graphile_worker';"
 # → should print a non-zero count (jobs, job_queues, known_crontabs, migrations, etc.). Schema auto-creates on first API start; if zero, the API hasn't connected yet.
 
-# 4. Memurai (Redis) — ONLY required for pub/sub features (WebSocket events, RPC, tracer, debug recorder)
+# 4. (Phase 4: Memurai/Redis fully retired — skip this section.)
 redis-cli -p 6379 ping
-# → should print PONG (skip if Memurai is not installed)
+# → Memurai/Redis no longer used; skip the PING check.
 
 # 5. Mosquitto service is running
 Get-Service mosquitto
@@ -295,7 +295,7 @@ If step 6 fails, check the API console output directly (it's running in the fore
 
 ## 7. Auto-start on boot — Phase 5 work
 
-**There is no auto-start in this phase.** PM2 was retired in Phase 4 of the windows-friendly-rewrite, and a managed Windows-service launcher has not yet shipped. PostgreSQL, Mosquitto, and (if installed) Memurai all register as Windows services by default and auto-start on reboot — only the **API** needs manual relaunch right now.
+**Auto-start ships via NSSM (Phase 5).** PostgreSQL and Mosquitto register as Windows services by default and auto-start on reboot. The API and the static-served SPA run as NSSM services `DigiLogAPI-Phase5` and `DigiLogWeb-Phase5` registered via `scripts/install-services-phase5.ps1`. (Phase 4 retired Memurai entirely; Redis is no longer in the dependency chain.)
 
 If you need auto-restart today, the simplest stopgap is **NSSM**:
 
@@ -359,7 +359,7 @@ When you ship a new build:
 | Tablet login fails with "certificate not trusted" | `rootCA.pem` not installed on the tablet | Re-do section 5.5 for that tablet |
 | API 500 errors, log says "TimescaleDB extension not found" | Extension not installed on `digilog_tsdb` | `psql -d digilog_tsdb -c "CREATE EXTENSION timescaledb;"` |
 | API 500, log says "Cannot connect to Postgres on queue connection" | DATABASE_URL/DATABASE_URL_QUEUE wrong, or Postgres down | Verify `psql -U digilog -d digilog_db -c "SELECT 1;"` works; check the API console output |
-| WebSocket events / RPC / debug-recorder failing | Memurai not running (queue still works) | `Start-Service Memurai` — these features are optional after Phase 2 of windows-friendly-rewrite |
+| WebSocket events / RPC / debug-recorder failing | (Phase 4: pub/sub moved in-process — Memurai is no longer involved.) | Restart the API service: `Restart-Service DigiLogAPI-Phase5` |
 | Login works but no data loads | CORS rejecting the origin | Add the LAN IP/hostname to `ALLOWED_ORIGINS` in `.env` and restart the API console |
 | Can't find superadmin login after install | Seed didn't run | `cd C:\DigiLog\api; npx prisma db seed` (or restart the API — config registry auto-seeds on first start) |
 | API doesn't survive reboots | No managed-service launcher yet | Phase 5 work; for now use NSSM (see section 7) or relaunch manually after reboot |
@@ -374,7 +374,7 @@ Give the customer a printed copy of this list:
 
 - [ ] Windows machine meets the prerequisites (section 3)
 - [ ] Received `digilog-production.zip`
-- [ ] Installed Node.js, PostgreSQL 18 + TimescaleDB. (Memurai optional — only for non-queue pub/sub. Mosquitto installs automatically via `scripts/install-on-target.ps1`.)
+- [ ] Installed Node.js, PostgreSQL 18 + TimescaleDB. (Phase 4: Memurai/Redis NOT required. Mosquitto installs automatically via `scripts/install-on-target.ps1`.)
 - [ ] Unzipped to `C:\DigiLog\`
 - [ ] Created `digilog_db` + `digilog_tsdb` databases (section 5.2)
 - [ ] Filled in `.env` — **database password + JWT secrets + Mosquitto admin password + Mosquitto refresh token changed from defaults**
