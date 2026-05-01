@@ -20,7 +20,7 @@ export const relationshipRepository = {
     return prisma.assetRelationship.findUnique({
       where: {
         sourceAssetId_targetAssetId_relationshipType: {
-          sourceAssetId, targetAssetId, relationshipType,
+          sourceAssetId, targetAssetId, relationshipType: relationshipType as any,
         },
       },
     });
@@ -28,7 +28,7 @@ export const relationshipRepository = {
 
   async findInverse(sourceAssetId: string, targetAssetId: string, relationshipType: string) {
     return prisma.assetRelationship.findFirst({
-      where: { sourceAssetId, targetAssetId, relationshipType },
+      where: { sourceAssetId, targetAssetId, relationshipType: relationshipType as any },
     });
   },
 

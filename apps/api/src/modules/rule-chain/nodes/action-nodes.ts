@@ -184,13 +184,13 @@ registerNode({
       if (!targetId) return { output: 'Failure', message, log: 'No target entity ID' };
       const relationType = (config.relationType as string) ?? 'CONTAINS';
       if (config.removeCurrentRelations) {
-        await prisma.assetRelationship.deleteMany({ where: { sourceAssetId: ctx.entityId, relationshipType: relationType } });
+        await prisma.assetRelationship.deleteMany({ where: { sourceAssetId: ctx.entityId, relationshipType: relationType as any } });
       }
       const INVERSE_MAP: Record<string, string> = { CONTAINS: 'CONTAINED_IN', CONTAINED_IN: 'CONTAINS', FEEDS: 'FED_BY', FED_BY: 'FEEDS', DEPENDS_ON: 'DEPENDED_ON_BY', DEPENDED_ON_BY: 'DEPENDS_ON', BACKS_UP: 'BACKED_UP_BY', BACKED_UP_BY: 'BACKS_UP', MONITORS: 'MONITORED_BY', MONITORED_BY: 'MONITORS' };
       const inverseType = INVERSE_MAP[relationType] ?? relationType;
       await prisma.$transaction([
-        prisma.assetRelationship.create({ data: { sourceAssetId: ctx.entityId, targetAssetId: targetId, relationshipType: relationType } }),
-        prisma.assetRelationship.create({ data: { sourceAssetId: targetId, targetAssetId: ctx.entityId, relationshipType: inverseType } }),
+        prisma.assetRelationship.create({ data: { sourceAssetId: ctx.entityId, targetAssetId: targetId, relationshipType: relationType as any } }),
+        prisma.assetRelationship.create({ data: { sourceAssetId: targetId, targetAssetId: ctx.entityId, relationshipType: inverseType as any } }),
       ]);
       return { output: 'Success', message };
     } catch (err) {
@@ -218,7 +218,7 @@ registerNode({
       const relationType = (config.relationType as string) ?? 'CONTAINS';
       await prisma.assetRelationship.deleteMany({
         where: { OR: [
-          { sourceAssetId: ctx.entityId, targetAssetId: targetId, relationshipType: relationType },
+          { sourceAssetId: ctx.entityId, targetAssetId: targetId, relationshipType: relationType as any },
           { sourceAssetId: targetId, targetAssetId: ctx.entityId },
         ]},
       });

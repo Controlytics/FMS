@@ -543,18 +543,39 @@ model FilterDetails {
   @@map("filter_details")
 }
 
+// Step 2 (2026-05-01): converted from free-form String to a closed enum.
+// Values mirror INVERSE_RELATIONSHIP_MAP in packages/shared/src/schemas/assets.ts.
+// Bidirectional pair invariant is enforced by a deferred constraint trigger
+// applied via apps/api/prisma/sql/invariants.sql at every reseed.
+enum RelationshipType {
+  CONTAINS
+  CONTAINED_IN
+  CONNECTED_TO
+  FEEDS
+  FED_BY
+  DEPENDS_ON
+  DEPENDED_ON_BY
+  BACKS_UP
+  BACKED_UP_BY
+  MONITORS
+  MONITORED_BY
+  CUSTOM
+
+  @@map("relationship_type_enum")
+}
+
 // Asset Relationship — bidirectional connections between assets
 model AssetRelationship {
-  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  sourceAssetId    String   @map("source_asset_id") @db.Uuid
-  targetAssetId    String   @map("target_asset_id") @db.Uuid
-  relationshipType String   @map("relationship_type") @db.VarChar(50) // CONTAINS, CONTAINED_IN, CONNECTED_TO, etc.
-  customLabel      String?  @map("custom_label") @db.VarChar(100) // For CUSTOM type
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sourceAssetId    String           @map("source_asset_id") @db.Uuid
+  targetAssetId    String           @map("target_asset_id") @db.Uuid
+  relationshipType RelationshipType @map("relationship_type")
+  customLabel      String?          @map("custom_label") @db.VarChar(100) // For CUSTOM type
   notes            String?
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
-  createdBy        String?  @map("created_by") @db.VarChar(50)
-  updatedBy        String?  @map("updated_by") @db.VarChar(50)
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy        String?          @map("created_by") @db.VarChar(50)
+  updatedBy        String?          @map("updated_by") @db.VarChar(50)
 
   sourceAsset AssetInstance @relation("SourceAsset", fields: [sourceAssetId], references: [id], onDelete: Cascade)
   targetAsset AssetInstance @relation("TargetAsset", fields: [targetAssetId], references: [id], onDelete: Cascade)
