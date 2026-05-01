@@ -17,7 +17,7 @@ Each step is its own deliverable. The user's standing rules:
 | Step | Item | Status | Why this position |
 |---|---|---|---|
 | 1 | templateKind enum → admin-editable lookup table | ✅ DONE 2026-04-30 | Foundational; every other change touches templates |
-| 2 | relationshipType Prisma enum + bidirectional check constraint | pending | Small, independent |
+| 2 | relationshipType Prisma enum + bidirectional check constraint | ✅ DONE 2026-05-01 | Enum + constraint trigger; commit 51e1110 |
 | 3 | AssetInstance.organizationId NOT NULL | ❌ OBSOLETE 2026-04-30 | Superseded by MT removal — column dropped entirely instead of made NOT NULL |
 | 4 | applicableTemplates JSONB → join table (allowedBlocks stays JSONB per the conditional case) | pending | Small |
 | 5 | INVESTIGATE the two checklist systems before deciding (AssetTemplate.checklistSchema vs ChecklistProfile) | ✅ NO-OP 2026-04-30 | Different domains (inspection w/ 3-step e-sig review vs cleaning-cycle gate). Findings: `tasks/STEP-5-CHECKLIST-INVESTIGATION.md` |
