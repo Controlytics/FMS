@@ -17,7 +17,7 @@ node apps/api/dist/app.js
 - Source: `apps/api/src/`
 - Compiled: `apps/api/dist/`
 - Entry: `apps/api/src/app.ts`
-- Prisma schema: `apps/api/prisma/schema.prisma` (66 models, 22 enums) — Step 1 added the `TemplateKind` lookup model; MT removal (2026-04-30) dropped `Organization` + 11 `organizationId` columns + 2 `orgId` columns; **Step 6 (2026-05-01)** split filter-specific cycle state (`filterProfileId`, `currentLifecycleState`, `currentCycleId`, `filterSet`) off `AssetInstance` into a 1:1 `FilterDetails` sidecar.
+- Prisma schema: `apps/api/prisma/schema.prisma` (66 models, 23 enums) — Step 1 added the `TemplateKind` lookup model; MT removal (2026-04-30) dropped `Organization` + 11 `organizationId` columns + 2 `orgId` columns; **Step 6 (2026-05-01)** split filter-specific cycle state (`filterProfileId`, `currentLifecycleState`, `currentCycleId`, `filterSet`) off `AssetInstance` into a 1:1 `FilterDetails` sidecar.
 - Config definitions: `apps/api/src/modules/config/defs/` (30 files)
 - Route modules: `apps/api/src/modules/` (36 modules — `template-kinds` added in Step 1; `org-admin` and `tenant-admin` deleted in MT removal)
 - Config routes: monolith split into `apps/api/src/modules/config/static-routes/<surface>.routes.ts` per tab; top-level `routes.ts` is just a registration loop (~170 LOC, was 1003)
@@ -35,7 +35,7 @@ node apps/api/dist/app.js
 admin-requests, assets (templates/instances/relationships/identifiers), audit, auth, backup, checklist-profiles, cleaning-profiles, config (30 auto-discovered definitions), connectivity, dashboards, data-ingestion (11-file pipeline), deployment-check, entity-assignments, equipment-groups, filter-operations, filter-profiles, help, ldap, notification-delivery (email/SMS/Telegram/Slack), notification-rules, notifications, pm-schedules, qr-code, queries (telemetry/alarm/retention/export), report-templates, reports, roles, rule-chain (77 node types), super-admin, system-health, **template-kinds** (lookup-table CRUD added in Step 1 — `/api/template-kinds`), uns, uploads, user-groups, users — plus block-change-requests / admin-requests under their own modules. (`org-admin` and `tenant-admin` removed 2026-04-30 with MT removal.)
 
 ## Databases
-- **digilog_db** (PostgreSQL 18 via Prisma) — application data (66 models, 22 enums)
+- **digilog_db** (PostgreSQL 18 via Prisma) — application data (66 models, 23 enums)
 - **digilog_tsdb** (TimescaleDB via pg pool) — time-series data (7 hypertables)
 
 ## Key Libs (`apps/api/src/lib/`)
@@ -63,7 +63,7 @@ cd apps/api && npx vitest run   # Run unit tests
 - `modules/filter-profiles/` — Filter-to-cleaning-profile assignment with org scoping
 - `modules/filter-operations/` — Core operations: cycle start/advance/bypass/checklist/events
 - `modules/pm-schedules/` — Preventive maintenance scheduling with monthly entries and tolerance windows
-- `modules/checklist-profiles/` — Checklist template and question management with usage checks
+- `modules/checklist-profiles/` — Checklist template and question management with usage checks. Phase A.1 (2026-05-01): every mutation is snapshot-then-bump into `ChecklistProfileVersion`; cycles pin the version at start so submissions resolve against the exact schema the operator saw. New endpoints: `GET /:id/versions` and `GET /:id/versions/:versionNumber`.
 - `modules/equipment-groups/` — Equipment group management (AHU dashboard)
 - `modules/entity-assignments/` — Entity-to-group assignments
 - `modules/config/defs/filter-*.def.ts` — Config definitions for filter lifecycle, cleaning reasons
@@ -80,7 +80,9 @@ GET  /api/filters/events             — List filter events
 GET  /api/filter-cleaning-profiles   — List cleaning profiles
 GET  /api/filter-profiles            — List filter profiles
 GET  /api/pm-schedules               — List PM schedules
-GET  /api/checklist-profiles         — List checklist profiles
+GET  /api/checklist-profiles                       — List checklist profiles
+GET  /api/checklist-profiles/:id/versions          — Phase A.1: list archived versions
+GET  /api/checklist-profiles/:id/versions/:n       — Phase A.1: fetch frozen snapshot at version n
 GET  /api/equipment-groups           — List equipment groups
 ```
 

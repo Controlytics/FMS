@@ -1341,3 +1341,109 @@ Plus:
 ### Time spent
 
 ~3 hours including inventory, schema design, helper module, 11-file backend rewrite, two typecheck passes, DB reset+reseed, build+restart, e2e verification, and full doc sync.
+
+---
+
+## 2026-05-01 (later) — Phase 5b A.1+5b.4+5b.5+B2 + Step 2: total seamless online+offline
+
+User asked for "total seamless online+offline" with the constraint that Redis is not available. After a final round of cross-checks and re-evaluation against latest code, executed the full bundle in one focused session.
+
+### Commits (5, all local — push blocked by GitHub:443 outage)
+
+```
+51e1110 feat(schema): Step 2 — relationshipType String → enum + bidirectional pair invariant
+04cb65f docs: sync model count 65→66 across active doc set
+e79c2be feat(offline): Phase 5b B2 — pre-replay cycle status guard
+f9643ed feat(checklist): Phase 5b.4 row-lock + 5b.5 DB invariants
+2d587ba feat(checklist): Phase A.1 — universal versioning + regulatory hardening
+```
+
+### Phase A.1 — ChecklistProfile versioning
+
+Replaced earlier 5b.1 "snapshot on event" half-measure with a full universal-versioning model. Every mutation of a `ChecklistProfile` or its questions snapshots the current state into `ChecklistProfileVersion` and bumps the live `version` counter. Cycles record `checklistVersionPins` at start; all in-cycle resolution reads pinned versions; submitChecklist accepts `expectedProfileVersions` from client and returns 409 SCHEMA_DRIFT on mismatch. Includes the 5b.1 hardening too: offlinePerformedAt as regulatory timestamp, clientOpId persisted into FilterEvent.attributes (idempotency was previously dead code), cycle-scoped clientOpId dedup, reject extra answer keys, structured per-profile snapshot, A5 soft-delete decision (gates frozen at cycle start).
+
+Schema additions:
+- `ChecklistProfile.version Int @default(1)`
+- `model ChecklistProfileVersion` (immutable history, mirrors AssetTemplateVersion pattern)
+- `CleaningCycle.checklistVersionPins Json @default("{}")`
+- New endpoints: `GET /api/checklist-profiles/:id/versions` and `/versions/:versionNumber`
+
+### Phase 5b.4 — SELECT FOR UPDATE row lock
+
+`tx.$queryRaw\`SELECT … FROM filter_details WHERE asset_instance_id = $1 FOR UPDATE\`` at the top of advance/bypass/submitChecklist transactions. Closes concurrent-advance race where two operators on two devices could both pass the state check and both write STAGE_TRANSITIONED.
+
+### Phase 5b.5 — DB-level invariants
+
+`apps/api/prisma/sql/invariants.sql` (new) applied via `applyInvariants()` helper in seed.ts (idempotent, runs after every reseed):
+- Partial unique index `idx_cleaning_cycles_one_in_progress_per_filter` — at most one IN_PROGRESS cycle per filter at the DB level.
+- `trg_filter_event_consistency` trigger — FilterEvent.filterId must match its cycle's filterId.
+- (Step 2 added a third trigger; see below.)
+
+### Phase 5b B2 — pre-replay cycle status guard
+
+`apps/web/src/lib/sync-engine.ts` `executeOperation` now calls `ensureCycleAlive()` for cycle-bound ops (advance, bypass, submit-checklist, terminate). If the cycle ended on the server while the tablet was offline, the queued op is marked failed immediately with a "cycle ended before sync — operation discarded" message rather than retrying MAX_RETRIES times.
+
+B4 (visibilitychange revalidation) was already implemented at sync-engine.ts:249-252 — confirmed during audit.
+
+### Step 2 — relationshipType enum + bidirectional pair invariant
+
+`AssetRelationship.relationshipType` migrated from `String @db.VarChar(50)` to a closed `RelationshipType` enum with 12 values (mirrors INVERSE_RELATIONSHIP_MAP in shared). Existing data preserved via one-shot ALTER TABLE … USING cast.
+
+Added `trg_asset_relationship_pair` constraint trigger (DEFERRABLE INITIALLY DEFERRED) — fires at COMMIT to enforce that every (source, target, type) row has its inverse pair. Verified live: lone INSERT raises check_violation; paired INSERT in one tx commits successfully; paired DELETE removes both cleanly.
+
+### Cross-check: Redis dependency claims in docs vs live code
+
+Re-audited every Redis/Memurai mention in CLAUDE.md, AGENTS.md, README.md, PROJECT_SUMMARY.md, PROJECT_ARCHITECTURE.md, BACKEND_GUIDE.md, OFFLINE_SYNC_ARCHITECTURE.md, LOCAL_SETUP_WINDOWS.md, DEPLOY-WINDOWS.md, windowsIssues.md, docs/getting-started/*. All claims accurate:
+- Redis is "optional, only used for non-queue pub/sub: WebSocket events, RPC routing, pipeline tracer, debug recorder"
+- API boots without Redis (lazy-init via factory functions; only ingestion/WebSocket/debug/RPC paths fail at runtime if it's down)
+- Phase 4 of windows-friendly-rewrite plans to remove Redis entirely via PG LISTEN/NOTIFY
+
+10 files in apps/api/src use ioredis (verified via grep); all guarded behind factory functions. None of today's changes touch Redis.
+
+### Cross-check: Windows dependencies introduced
+
+None. All today's changes use:
+- Prisma with native PG features (enums, JSONB, partial unique indexes, deferred constraint triggers, SELECT FOR UPDATE)
+- Node stdlib only (`node:fs`, `node:path`)
+- No new packages, no new system services, no new build-chain dependencies
+
+### Live counts after this batch
+
+- **66 models** (was 64 → 65 after Step 6 → 66 after Phase A.1)
+- **23 enums** (was 22 → 23 after Step 2 added RelationshipType)
+- 105 permissions (unchanged)
+- 89 feature privileges (unchanged)
+- 81 reauth actions (unchanged)
+- 25 sidebar items (unchanged)
+- 36 API modules (unchanged)
+- 30 config defs (unchanged)
+- 27 config pages (unchanged)
+- 81 routes (unchanged)
+
+### Doc files touched in this batch
+
+- `CLAUDE.md`, `AGENTS.md`, `BACKEND_GUIDE.md`, `PROJECT_ARCHITECTURE.md`, `PROJECT_SUMMARY.md`, `README.md` — counts 65→66 models, 22→23 enums.
+- `windowsIssues.md`, `OFFLINE_SYNC_ARCHITECTURE.md`, `LOCAL_SETUP_WINDOWS.md`, `packages/shared/CLAUDE.md`, `apps/api/CLAUDE.md` — same.
+- `docs/getting-started/system-requirements.md`, `docs/getting-started/what-is-digilog.md`, `docs/index.md`, `docs/user-guide/entities/entities-and-hierarchy.md`, `future/overview/CODEBASE_SUMMARY.md` — same.
+- `apps/api/CLAUDE.md` — `modules/checklist-profiles` blurb expanded with Phase A.1 details + new endpoint listing.
+- `API_REFERENCE.md` — submit-checklist body schema + new versions endpoints documented.
+- `future/architectural-refactor-9-steps.md` — Step 2 row marked DONE.
+- `tasks/STEP-5B-A-VERSIONING-PLAN.md` — new plan doc for Phase A.1.
+
+### Verifications performed
+
+- prisma validate clean; tsc --noEmit (api+web) exit 0 throughout.
+- prisma db push (additive only — no force-reset).
+- API + web rebuilt to dist + NSSM services restarted.
+- API roundtrips: created profile → added 2 questions → version=3 with v1+v2 archived; v1 snapshot=0 questions, v2=1 question — byte-correct.
+- DDL invariants verified live via psql: partial unique index exists, both triggers exist with tgenabled='O'.
+- Bidirectional invariant tested with lone INSERT (rolls back at COMMIT with structured error) + paired INSERT (commits cleanly).
+- Sanity matrix (8 endpoints) post-each-restart all 200 OK.
+
+### Side effects
+
+None this batch (no DB reset). All prior data preserved.
+
+### Time spent
+
+~5 hours including audit + planning + 5 commits + verification rounds + doc sync.

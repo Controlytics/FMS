@@ -75,7 +75,7 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 
 ## System Stats (current — 2026-04-30, verified against live code post-Step-1 + MT removal)
 - **Backend:** 36 API modules under `apps/api/src/modules/`, 200+ endpoints
-- **Database:** **66 Prisma models, 22 enums**; TimescaleDB with 7 hypertables. TemplateKind is a lookup table (admin-editable since Step 1); not an enum.
+- **Database:** **66 Prisma models, 23 enums**; TimescaleDB with 7 hypertables. TemplateKind is a lookup table (admin-editable since Step 1); not an enum.
 - **Permissions:** **105** constants, **89** feature privileges, **81** reauth actions, **25** sidebar items
 - **Rule chain:** 77 node types across 8 categories
 - **Config:** **30 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **27** corresponding pages (template-kinds added in Step 1)

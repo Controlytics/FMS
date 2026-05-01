@@ -14,7 +14,7 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 |---|---|---|
 | **Frontend** | React 19 + TypeScript | Vite SPA, Tailwind CSS, SWR, ReactFlow |
 | **Backend** | Node.js + Fastify 5 | TypeScript, 36 API modules, 200+ endpoints (org-admin + tenant-admin removed in MT removal 2026-04-30) |
-| **Primary DB** | PostgreSQL 18 | 66 Prisma models, 22 enums (TemplateKind lookup; MT removal dropped Organization; Step 6 added FilterDetails 1:1 sidecar; Step 5b A.1 added ChecklistProfileVersion immutable-history table) |
+| **Primary DB** | PostgreSQL 18 | 66 Prisma models, 23 enums (TemplateKind lookup; MT removal dropped Organization; Step 6 added FilterDetails 1:1 sidecar; Step 5b A.1 added ChecklistProfileVersion immutable-history table) |
 | **Time-Series DB** | TimescaleDB | 7 hypertables for telemetry data |
 | **Job Queue** | graphile-worker on PostgreSQL | LISTEN/NOTIFY + SKIP LOCKED + advisory locks; no separate Redis service |
 | **Pub/sub (optional)** | Redis 7 / Memurai | WebSocket events, RPC routing, pipeline tracer, debug recorder |

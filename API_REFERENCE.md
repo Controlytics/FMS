@@ -227,7 +227,16 @@ POST /api/filters/:id/bypass           Permission: FILTER_OPERATE
 Body: { reason, remarks }
 
 POST /api/filters/:id/submit-checklist Permission: FILTER_OPERATE, Reauth: SUBMIT_CHECKLIST
-Body: { answers: [{ questionId, answer }] }
+Body: { answers: { [questionId]: answer },
+        offlinePerformedAt?: ISO timestamp,         // Phase 5b.1: regulatory time
+        clientOpId?: UUID,                          // idempotent replay
+        expectedProfileVersions?: { [profileId]: int } }  // Phase A.1: drift detection
+
+Response 409 SCHEMA_DRIFT (Phase A.1) — body.details.drift = [{ profileId, expected, current }]
+when client's expectedProfileVersions don't match the cycle's pinned versions.
+
+GET  /api/checklist-profiles/:id/versions          List archived versions
+GET  /api/checklist-profiles/:id/versions/:n       Fetch immutable snapshot at version n
 ```
 
 ### Cycle & Event History

@@ -274,7 +274,7 @@ Automated end-to-end test suites (`*.test.ts`) — Vitest-driven, hits a live te
 
 **Note:** Phase 2/3/4/5 features (filter operations, RFID, offline replay, reports, block-change, PM My Tasks) do NOT yet have e2e tests. The archived `tests/manual-test-cases/` only covered Phase 1 — those remain a gap (logged in `PHASE_5_RECENT_WORK.md` § 11).
 
-## Database Schema (66 models, 22 enums)
+## Database Schema (66 models, 23 enums)
 
 ### Core Models
 `Organization`, `User`, `Role`, `Session`, `PasswordHistory`, `PasswordResetRequest`, `SystemConfig`, `FieldIdConfig`, `RoleConfig`, `UserConfig`
