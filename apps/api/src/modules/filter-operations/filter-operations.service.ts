@@ -15,6 +15,15 @@ function computeChecksum(data: Record<string, unknown>): string {
   return createHash('sha256').update(canonical).digest('hex');
 }
 
+/** Pretty-print a stateKey like "WASH_IN" → "Wash In" for operator-facing error messages. */
+function prettyStageLabel(stateKey: string | null | undefined): string {
+  if (!stateKey) return 'this stage';
+  return stateKey
+    .split('_')
+    .map(s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase())
+    .join(' ');
+}
+
 /**
  * Walk the pipeline from a given stage and collect CHECKLIST nodes
  * that sit between it and the next STAGE/END node.
@@ -47,39 +56,88 @@ function collectChecklistsAfterStage(
 
 /**
  * Resolve checklist questions for CHECKLIST pipeline nodes.
+ *
+ * Phase A.1: when `versionPins` is provided (cycle's pinned-version map), we
+ * resolve questions through the immutable ChecklistProfileVersion snapshot
+ * for that exact version. Edits to the live profile after the cycle started
+ * have NO effect on the questions the operator sees. When `versionPins` is
+ * not provided (legacy cycles started before this column existed, or
+ * out-of-cycle preview), we fall back to live profile resolution.
  */
-async function resolveChecklistQuestions(checklistNodes: any[]): Promise<any[]> {
-  // Batch: collect all profile IDs, query once
+async function resolveChecklistQuestions(
+  checklistNodes: any[],
+  versionPins?: Record<string, number> | null,
+): Promise<any[]> {
   const profileIds = [...new Set(
     checklistNodes.map(n => (n.configuration as any)?.checklistProfileId).filter(Boolean),
   )];
   if (profileIds.length === 0) return [];
 
-  const profiles = await prisma.checklistProfile.findMany({
-    where: { id: { in: profileIds }, isActive: true },
-    include: { questions: { orderBy: { sortOrder: 'asc' } } },
-  });
-  const profileMap = new Map(profiles.map(p => [p.id, p]));
+  // Resolve from pinned versions where pinned, live profile otherwise.
+  type ResolvedProfile = { id: string; name: string; version: number; questions: any[] };
+  const resolved = new Map<string, ResolvedProfile>();
+
+  // 1. Pinned-version resolution: load each pin from ChecklistProfileVersion.
+  const pinnedIds: string[] = [];
+  if (versionPins) {
+    for (const id of profileIds) {
+      if (typeof versionPins[id] === 'number') pinnedIds.push(id);
+    }
+  }
+  if (pinnedIds.length > 0) {
+    const versions = await prisma.checklistProfileVersion.findMany({
+      where: {
+        OR: pinnedIds.map(id => ({ profileId: id, versionNumber: versionPins![id] })),
+      },
+    });
+    for (const v of versions) {
+      const snap = (v.snapshot as any) ?? {};
+      resolved.set(v.profileId, {
+        id: v.profileId,
+        name: snap.name ?? '(unnamed)',
+        version: v.versionNumber,
+        questions: Array.isArray(snap.questions) ? snap.questions : [],
+      });
+    }
+  }
+
+  // 2. Live fallback for any unresolved IDs (legacy cycles, out-of-cycle previews).
+  const unresolvedIds = profileIds.filter(id => !resolved.has(id));
+  if (unresolvedIds.length > 0) {
+    const profiles = await prisma.checklistProfile.findMany({
+      where: { id: { in: unresolvedIds } },
+      include: { questions: { orderBy: { sortOrder: 'asc' } } },
+    });
+    for (const p of profiles) {
+      resolved.set(p.id, {
+        id: p.id,
+        name: p.name,
+        version: p.version,
+        questions: p.questions,
+      });
+    }
+  }
 
   const result: any[] = [];
   for (const node of checklistNodes) {
     const checklistProfileId = (node.configuration as any)?.checklistProfileId;
-    const profile = checklistProfileId ? profileMap.get(checklistProfileId) : undefined;
+    const profile = checklistProfileId ? resolved.get(checklistProfileId) : undefined;
     if (!profile) continue;
 
     result.push({
       pipelineNodeId: node.id,
       checklistProfileId: profile.id,
       checklistProfileName: profile.name,
+      profileVersion: profile.version,
       questions: profile.questions.map((q: any) => ({
         id: q.id,
         question: q.question,
         questionType: q.questionType,
         required: q.required,
-        section: q.section,
-        description: q.description,
-        options: q.options,
-        validation: q.validation,
+        section: q.section ?? null,
+        description: q.description ?? null,
+        options: q.options ?? [],
+        validation: q.validation ?? {},
         sortOrder: q.sortOrder,
       })),
     });
@@ -365,8 +423,10 @@ export class FilterOperationsService {
                 });
 
                 if (!answeredEvent) {
-                  // Checklists pending — resolve questions (skips inactive profiles)
-                  pendingChecklist = await resolveChecklistQuestions(checklistNodes);
+                  // Checklists pending — resolve via cycle's pinned versions (Phase A.1).
+                  // currentCycle is in scope here.
+                  const pins = (currentCycle?.checklistVersionPins ?? null) as Record<string, number> | null;
+                  pendingChecklist = await resolveChecklistQuestions(checklistNodes, pins);
                   if (pendingChecklist.length > 0) {
                     // Active checklists pending — block until completed
                     nextAllowedStages = [];
@@ -544,54 +604,119 @@ export class FilterOperationsService {
   async submitChecklist(ctx: RequestContext, filterId: string, data: any) {
     const { answers } = data;
     const clientOpId: string | null = data.clientOpId ?? null;
-    if (clientOpId && await findExistingByClientOpId(filterId, clientOpId)) {
-      return this.getCurrentState(ctx, filterId);
-    }
+    // Honor offlinePerformedAt as the regulatory timestamp (operator's actual answer time).
+    // Without this, every offline-replayed checklist records the server-receive time,
+    // breaking 21 CFR Part 11 audit fidelity for offline operations.
+    const offlineTime: Date | undefined = data.offlinePerformedAt ? new Date(data.offlinePerformedAt) : undefined;
+    // Optional version pin from the offline cache — server compares to live profile
+    // versions to detect schema drift between cache and current state.
+    const expectedProfileVersions: Record<string, number> | null = data.expectedProfileVersions ?? null;
 
     const filter = await this.getFilter(filterId, ctx);
     if (!filter.currentCycleId) throw new AppError(400, 'NO_CYCLE', 'No active cleaning cycle');
+
+    // Cycle-scoped clientOpId dedup: a replay with the same opId for the same cycle
+    // is a no-op success (returns current state); the same opId across different
+    // cycles cannot collide.
+    if (clientOpId && await findExistingByClientOpId(filterId, clientOpId, filter.currentCycleId)) {
+      return this.getCurrentState(ctx, filterId);
+    }
 
     const cycle = await prisma.cleaningCycle.findFirst({
       where: { id: filter.currentCycleId, status: 'IN_PROGRESS' },
     });
     if (!cycle) throw new AppError(400, 'NO_ACTIVE_CYCLE', 'No active cleaning cycle found');
 
-    // Validate answers against checklist profile questions
-    if (answers && typeof answers === 'object') {
-      // Get the pipeline to find checklist nodes for the current stage
-      const resolvedProfileId = await this.resolveFilterProfile(filter);
-      const cp = resolvedProfileId ? await this.getProfilePipeline(resolvedProfileId) : null;
-      if (cp) {
-        const currentStage = cp.stages.find(s => s.stateKey === filter.currentLifecycleState);
-        if (currentStage) {
-          const checklistNodes = collectChecklistsAfterStage(currentStage, cp.stages, cp.connections);
-          const resolvedChecklists = await resolveChecklistQuestions(checklistNodes);
-          // Collect all valid question IDs and required question IDs
-          const validQuestionIds = new Set<string>();
-          const requiredQuestionIds = new Set<string>();
-          for (const cl of resolvedChecklists) {
-            for (const q of cl.questions) {
-              validQuestionIds.add(q.id);
-              if (q.required) requiredQuestionIds.add(q.id);
-            }
-          }
-          // Check required questions have answers
-          for (const qId of requiredQuestionIds) {
-            if (answers[qId] === undefined || answers[qId] === null || answers[qId] === '') {
-              throw new AppError(400, 'VALIDATION_ERROR', `Required checklist question not answered: ${qId}`);
-            }
-          }
-          // Warn about extra answers for non-existent questions
-          const answerKeys = Object.keys(answers);
-          const extraKeys = answerKeys.filter(k => !validQuestionIds.has(k));
-          if (extraKeys.length > 0) {
-            console.warn(`[submitChecklist] Extra answers for non-existent questions: ${extraKeys.join(', ')}`);
-          }
-        }
+    // Resolve checklist nodes for the current stage. Required for: validation,
+    // schema-drift detection, and the per-profile snapshot we persist on the event.
+    // Phase A.1: resolve through the cycle's pinned versions, so the questions
+    // the operator answered against are byte-identical to the questions we
+    // validate here, regardless of any admin edits during the cycle.
+    const cyclePins = ((cycle as any).checklistVersionPins ?? null) as Record<string, number> | null;
+    const resolvedProfileId = await this.resolveFilterProfile(filter);
+    const cp = resolvedProfileId ? await this.getProfilePipeline(resolvedProfileId) : null;
+    let resolvedChecklists: any[] = [];
+    if (cp && filter.currentLifecycleState) {
+      const currentStage = cp.stages.find(s => s.stateKey === filter.currentLifecycleState);
+      if (currentStage) {
+        const checklistNodes = collectChecklistsAfterStage(currentStage, cp.stages, cp.connections);
+        resolvedChecklists = await resolveChecklistQuestions(checklistNodes, cyclePins);
       }
     }
 
-    // Record CHECKLIST_COMPLETED event inside a transaction with duplicate check
+    // Schema-drift check: the offline tablet sends `expectedProfileVersions` as a map
+    // of profileId → version it cached. If the live profile version is newer, the cache
+    // is stale and the operator may have answered against questions that no longer exist
+    // (or missed required questions added later). Reject with a structured payload so
+    // the client can surface "checklist updated since you cached it — please re-review".
+    if (expectedProfileVersions && resolvedChecklists.length > 0) {
+      const drift: Array<{ profileId: string; expected: number; current: number }> = [];
+      for (const cl of resolvedChecklists) {
+        const expected = expectedProfileVersions[cl.checklistProfileId];
+        const current = (cl.profileVersion ?? 1) as number;
+        if (expected !== undefined && expected !== current) {
+          drift.push({ profileId: cl.checklistProfileId, expected, current });
+        }
+      }
+      if (drift.length > 0) {
+        const err = new AppError(409, 'SCHEMA_DRIFT', 'Checklist profile changed since this submission was prepared. Please reload and re-answer.');
+        (err as any).details = { drift };
+        throw err;
+      }
+    }
+
+    // Validation: required questions answered, extras rejected.
+    const validQuestionIds = new Set<string>();
+    const requiredQuestionIds = new Set<string>();
+    for (const cl of resolvedChecklists) {
+      for (const q of cl.questions) {
+        validQuestionIds.add(q.id);
+        if (q.required) requiredQuestionIds.add(q.id);
+      }
+    }
+    if (answers && typeof answers === 'object') {
+      for (const qId of requiredQuestionIds) {
+        if (answers[qId] === undefined || answers[qId] === null || answers[qId] === '') {
+          throw new AppError(400, 'VALIDATION_ERROR', `Required checklist question not answered: ${qId}`);
+        }
+      }
+      // Reject extras (was console.warn before). They would be hash-bound and audit-immutable.
+      const answerKeys = Object.keys(answers);
+      const extraKeys = answerKeys.filter(k => !validQuestionIds.has(k));
+      if (extraKeys.length > 0) {
+        throw new AppError(400, 'INVALID_QUESTIONS', `Unexpected answer keys (not in any active checklist for this stage): ${extraKeys.join(', ')}`);
+      }
+    }
+
+    // Build per-profile snapshot so audit replay is deterministic without re-walking
+    // the pipeline graph or hitting the (possibly-edited-since) ChecklistProfile rows.
+    const checklistsSnapshot = resolvedChecklists.map((cl: any) => {
+      const profileQuestionIds = new Set(cl.questions.map((q: any) => q.id));
+      const perProfileAnswers: Record<string, any> = {};
+      if (answers && typeof answers === 'object') {
+        for (const [qId, val] of Object.entries(answers)) {
+          if (profileQuestionIds.has(qId)) perProfileAnswers[qId] = val;
+        }
+      }
+      return {
+        pipelineNodeId: cl.pipelineNodeId,
+        checklistProfileId: cl.checklistProfileId,
+        checklistProfileName: cl.checklistProfileName,
+        profileVersion: cl.profileVersion ?? 1,
+        questionsSnapshot: cl.questions.map((q: any) => ({
+          id: q.id,
+          question: q.question,
+          questionType: q.questionType,
+          required: q.required,
+          options: q.options,
+        })),
+        answers: perProfileAnswers,
+      };
+    });
+
+    // Record CHECKLIST_COMPLETED event. Attributes shape:
+    //   { afterStage, answers (flat merged — backward compat for cycle-history reader),
+    //     checklists[] (per-profile snapshot — A6), clientOpId (A2), offlinePerformedAt (A1) }
     const eventData = {
       filterId,
       cycleId: cycle.id,
@@ -600,13 +725,16 @@ export class FilterOperationsService {
       attributes: {
         afterStage: filter.currentLifecycleState,
         answers,
+        checklists: checklistsSnapshot,
+        ...(clientOpId ? { clientOpId } : {}),
+        ...(offlineTime ? { offlinePerformedAt: offlineTime.toISOString() } : {}),
       },
       remarks: `Checklist completed after ${filter.currentLifecycleState}`,
     };
     const checksum = computeChecksum(eventData);
 
     await prisma.$transaction(async (tx) => {
-      // Check for duplicate submission
+      // Check for duplicate submission (same stage, same cycle).
       const existing = await tx.filterEvent.findFirst({
         where: {
           filterId,
@@ -615,7 +743,7 @@ export class FilterOperationsService {
           attributes: { path: ['afterStage'], equals: filter.currentLifecycleState ?? undefined },
         },
       });
-      if (existing) throw new AppError(409, 'ALREADY_SUBMITTED', 'Checklist already submitted for this stage');
+      if (existing) throw new AppError(409, 'ALREADY_SUBMITTED', `Checklist already submitted for ${prettyStageLabel(filter.currentLifecycleState)}`);
 
       await tx.filterEvent.create({
         data: {
@@ -623,6 +751,8 @@ export class FilterOperationsService {
           checksum,
           ipAddress: ctx.ipAddress,
           telemetrySnapshot: {},
+          // Operator's true answer time when offline; otherwise default(now()).
+          ...(offlineTime ? { performedAt: offlineTime } : {}),
         },
       });
     });
@@ -630,7 +760,7 @@ export class FilterOperationsService {
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'CHECKLIST_COMPLETED',
       targetType: 'filter', targetId: filterId,
-      afterValue: { stage: filter.currentLifecycleState, answerCount: Object.keys(answers ?? {}).length },
+      afterValue: { stage: filter.currentLifecycleState, answerCount: Object.keys(answers ?? {}).length, profileCount: checklistsSnapshot.length },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
     });
 
@@ -687,6 +817,30 @@ export class FilterOperationsService {
       throw new AppError(400, 'PROFILE_DISABLED', `Cleaning profile "${cp.name}" is disabled. Contact admin to activate it.`);
     }
 
+    // Phase A.1: snapshot the version of every ChecklistProfile referenced by
+    // this pipeline at cycle start. From now on, this cycle resolves checklist
+    // questions through these pinned versions — admin edits to a profile mid-cycle
+    // will NOT change the questions or required-flags the operator sees.
+    const pipelineForPins = await this.getProfilePipeline(resolvedProfileIdForCycle, false);
+    const checklistProfileIdsInPipeline: string[] = pipelineForPins
+      ? [...new Set(
+          pipelineForPins.stages
+            .filter((s: any) => s.nodeType === 'CHECKLIST')
+            .map((s: any) => s.configuration?.checklistProfileId)
+            .filter(Boolean) as string[],
+        )]
+      : [];
+    const checklistVersionPins: Record<string, number> = {};
+    if (checklistProfileIdsInPipeline.length > 0) {
+      const profilesForPins = await prisma.checklistProfile.findMany({
+        where: { id: { in: checklistProfileIdsInPipeline } },
+        select: { id: true, version: true },
+      });
+      for (const p of profilesForPins) {
+        checklistVersionPins[p.id] = p.version;
+      }
+    }
+
     // Use transaction to prevent race conditions on double-start
     const cycle = await prisma["$transaction"](async (tx) => {
       // Re-check inside transaction (currentCycleId now lives on FilterDetails — Step 6)
@@ -709,6 +863,7 @@ export class FilterOperationsService {
           cycleCode, filterId, ahuId: null,
           profileId: resolvedProfileIdForCycle,
           profileVersion: cp?.version ?? 1,
+          checklistVersionPins: checklistVersionPins as any,
           sequenceNumber: seq, cleaningReasonKey,
           cleaningReasonLabel: reason.name,
           cleaningJustification: cleaningJustification ?? null,
@@ -775,7 +930,11 @@ export class FilterOperationsService {
     const cp = await this.getProfilePipeline(resolvedProfileIdForAdvance, true);
     if (!cp) throw new AppError(400, 'PROFILE_DISABLED', 'Cleaning profile is disabled or not found. Contact admin to activate it.');
 
-    // #12: Enforce checklist completion before allowing advance (only for active checklist profiles)
+    // Enforce checklist completion before allowing advance.
+    // A5: gates are FROZEN at cycle start. We do NOT filter by `isActive` — soft-deleting
+    // a profile mid-cycle no longer silently lifts the gate. The cycle keeps using the
+    // pipeline graph it was started with; the gate either was always there or wasn't.
+    // (To stop enforcing a gate mid-cycle, an operator must terminate the cycle.)
     const currentState = filter.currentLifecycleState;
     if (currentState) {
       const currentStageForCL = cp.stages.find(s => s.stateKey === currentState);
@@ -783,20 +942,12 @@ export class FilterOperationsService {
         const pendingCLNodes = collectChecklistsAfterStage(currentStageForCL, cp.stages, cp.connections)
           .filter(n => n.configuration?.checklistProfileId);
 
-        // Only enforce checklists whose profiles are still active (batch query)
-        const clProfileIds = [...new Set(pendingCLNodes.map(n => (n.configuration as any).checklistProfileId).filter(Boolean))];
-        const activeProfiles = clProfileIds.length > 0
-          ? await prisma.checklistProfile.findMany({ where: { id: { in: clProfileIds }, isActive: true }, select: { id: true } })
-          : [];
-        const activeProfileIds = new Set(activeProfiles.map(p => p.id));
-        const activeCLNodes = pendingCLNodes.filter(n => activeProfileIds.has((n.configuration as any).checklistProfileId));
-
-        if (activeCLNodes.length > 0) {
+        if (pendingCLNodes.length > 0) {
           const answered = await prisma.filterEvent.findFirst({
             where: { filterId, cycleId: cycle.id, eventType: 'CHECKLIST_COMPLETED', attributes: { path: ['afterStage'], equals: currentState } },
           });
           if (!answered) {
-            throw new AppError(400, 'CHECKLIST_PENDING', `Please complete the checklist before advancing from ${currentState.replace(/_/g, ' ')}`);
+            throw new AppError(400, 'CHECKLIST_PENDING', `Please complete the checklist before advancing from ${prettyStageLabel(currentState)}`);
           }
         }
       }
@@ -1379,16 +1530,55 @@ export class FilterOperationsService {
     }) : [];
     const userMap = Object.fromEntries(users.map(u => [u.id, u.fullName || u.username]));
 
-    // Resolve checklist question IDs to question text
-    const allQuestionIds = cycle.events
+    // Resolve checklist question IDs to question text.
+    // Phase A.1: prefer the per-event questionsSnapshot (frozen at submit time)
+    // when present; fall back to ChecklistProfileVersion lookup via the cycle's
+    // pinned versions; last resort fall back to live ChecklistQuestion (for
+    // legacy events written before snapshots existed).
+    const questionMap = new Map<string, string>();
+    const cyclePins = ((cycle as any).checklistVersionPins ?? null) as Record<string, number> | null;
+
+    // First pass: harvest text from per-event snapshots.
+    for (const e of cycle.events) {
+      if (e.eventType !== 'CHECKLIST_COMPLETED') continue;
+      const attrs = (e.attributes as any) ?? {};
+      const checklists = Array.isArray(attrs.checklists) ? attrs.checklists : null;
+      if (checklists) {
+        for (const cl of checklists) {
+          for (const q of (cl.questionsSnapshot ?? [])) {
+            if (q?.id && q?.question) questionMap.set(q.id, q.question);
+          }
+        }
+      }
+    }
+
+    // Second pass: anything still unresolved, try the ChecklistProfileVersion
+    // table via the cycle's pinned versions.
+    const allAnswerKeys = cycle.events
       .filter(e => e.eventType === 'CHECKLIST_COMPLETED' && (e.attributes as any)?.answers)
       .flatMap(e => Object.keys((e.attributes as any).answers));
-    const uniqueQuestionIds = [...new Set(allQuestionIds)];
-    const questions = uniqueQuestionIds.length > 0 ? await prisma.checklistQuestion.findMany({
-      where: { id: { in: uniqueQuestionIds } },
-      select: { id: true, question: true },
-    }) : [];
-    const questionMap = new Map(questions.map(q => [q.id, q.question]));
+    const unresolvedQuestionIds = [...new Set(allAnswerKeys)].filter(qId => !questionMap.has(qId));
+    if (unresolvedQuestionIds.length > 0 && cyclePins && Object.keys(cyclePins).length > 0) {
+      const versionRows = await prisma.checklistProfileVersion.findMany({
+        where: { OR: Object.entries(cyclePins).map(([profileId, versionNumber]) => ({ profileId, versionNumber })) },
+      });
+      for (const v of versionRows) {
+        const snap = (v.snapshot as any) ?? {};
+        for (const q of (snap.questions ?? [])) {
+          if (q?.id && q?.question) questionMap.set(q.id, q.question);
+        }
+      }
+    }
+
+    // Third pass: live fallback for fully-legacy cycles.
+    const stillUnresolved = [...new Set(allAnswerKeys)].filter(qId => !questionMap.has(qId));
+    if (stillUnresolved.length > 0) {
+      const liveQs = await prisma.checklistQuestion.findMany({
+        where: { id: { in: stillUnresolved } },
+        select: { id: true, question: true },
+      });
+      for (const q of liveQs) questionMap.set(q.id, q.question);
+    }
 
     const enrichedEvents = cycle.events.map(e => {
       const enriched: any = { ...e, performedByName: e.performedBy ? userMap[e.performedBy] ?? null : null };

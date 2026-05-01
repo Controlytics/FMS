@@ -85,4 +85,17 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
     if (!ok) return;
     return service.reorderQuestions(buildContext(req), (req.params as any).id, (req.body as any).questionIds);
   });
+
+  // ─── Version history (Phase A.1) ────────────────────────────
+  // List historical versions of a profile — cycle audit + offline cache use this.
+  app.get('/:id/versions', {
+    preHandler: [app.requireAnyPermission('FCP_READ', 'CHECKLIST_TOGGLE')],
+    schema: { tags: ['Checklist Profiles'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, response: { 200: { type: 'array', items: { type: 'object', additionalProperties: true } }, ...errorResponses } },
+  }, async (req) => service.listVersions(buildContext(req), (req.params as any).id));
+
+  // Fetch a specific historical version's full snapshot. Immutable, cacheable forever.
+  app.get('/:id/versions/:versionNumber', {
+    preHandler: [app.requireAnyPermission('FCP_READ', 'CHECKLIST_TOGGLE')],
+    schema: { tags: ['Checklist Profiles'], params: { type: 'object', required: ['id', 'versionNumber'], properties: { id: { type: 'string', format: 'uuid' }, versionNumber: { type: 'integer' } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
+  }, async (req) => service.getVersion(buildContext(req), (req.params as any).id, parseInt((req.params as any).versionNumber, 10)));
 }

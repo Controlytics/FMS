@@ -215,6 +215,11 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           },
           offlinePerformedAt: { type: 'string', format: 'date-time' },
           clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay' },
+          expectedProfileVersions: {
+            type: 'object',
+            additionalProperties: { type: 'integer' },
+            description: 'Phase A.1: client-cached version per checklistProfileId. Server returns 409 SCHEMA_DRIFT if any version mismatches the cycle pin.',
+          },
         },
       },
       response: {

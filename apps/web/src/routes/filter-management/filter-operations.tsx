@@ -23,6 +23,9 @@ interface PendingChecklist {
   pipelineNodeId: string;
   checklistProfileId: string;
   checklistProfileName: string;
+  /** Phase A.1: server returns the cycle-pinned version (or live fallback). Sent back
+   *  on submit as expectedProfileVersions[profileId] for drift detection. */
+  profileVersion?: number;
   questions: {
     id: string;
     question: string;
@@ -1285,13 +1288,24 @@ export function FilterOperationsPage() {
     if (!checklistDialog) return;
     setChecklistLoading(true); setChecklistError('');
 
+    // Phase A.1: include the version each profile was rendered against. Server
+    // compares to its cycle pins and returns 409 SCHEMA_DRIFT if the live profile
+    // version moved between when the dialog opened and when we submitted.
+    const expectedProfileVersions: Record<string, number> = {};
+    for (const cl of checklistDialog.checklists) {
+      if (typeof cl.profileVersion === 'number') {
+        expectedProfileVersions[cl.checklistProfileId] = cl.profileVersion;
+      }
+    }
+    const submitPayload = { answers, expectedProfileVersions };
+
     // BATCH MODE: submit same answers for every filter in the snapshot
     if (pendingBatch && pendingBatch.length > 0) {
       const batch = pendingBatch;
       let success = 0; const failed: string[] = [];
       for (const item of batch) {
         try {
-          const { executed } = await executeOrQueue('submit-checklist', item.filterId, item.filterName, { answers });
+          const { executed } = await executeOrQueue('submit-checklist', item.filterId, item.filterName, submitPayload);
           success++;
           if (!executed) failed.push(`${item.filterName}: queued for sync`);
         } catch (e: any) {
@@ -1308,7 +1322,7 @@ export function FilterOperationsPage() {
     }
 
     try {
-      const { executed } = await executeOrQueue('submit-checklist', checklistDialog.filterId, checklistDialog.filterName, { answers });
+      const { executed } = await executeOrQueue('submit-checklist', checklistDialog.filterId, checklistDialog.filterName, submitPayload);
       setChecklistDialog(null);
       setToast({ type: 'success', message: executed ? 'Checklist submitted successfully' : 'Checklist queued for sync' });
       refreshFilters();

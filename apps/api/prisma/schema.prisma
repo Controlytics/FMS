@@ -1386,6 +1386,14 @@ model CleaningCycle {
   dryerStartedAt            DateTime? @map("dryer_started_at") @db.Timestamptz
   dryerReadingsSubmitted    Boolean   @default(false) @map("dryer_readings_submitted")
 
+  // Phase A.1: pinned ChecklistProfile versions at cycle start.
+  // Shape: { [checklistProfileId: string]: versionNumber: int }
+  // All checklist resolution during this cycle reads through these pins,
+  // so admin edits to a profile mid-cycle do NOT change the questions or
+  // required-flags the operator sees. Empty {} for legacy cycles started
+  // before this column existed (fallback to live profile).
+  checklistVersionPins      Json      @default("{}") @map("checklist_version_pins") @db.JsonB
+
   events                FilterEvent[]
   equipmentGroup        EquipmentGroup?        @relation(fields: [equipmentGroupId], references: [id])
   profile               FilterCleaningProfile? @relation(fields: [profileId], references: [id])
@@ -1499,11 +1507,16 @@ model ChecklistProfile {
   name        String   @db.VarChar(255)
   description String?
   isActive    Boolean  @default(true) @map("is_active")
+  // Monotonic version counter — bumped on every mutation of profile or its questions.
+  // Cycles pin the version at start so answers always resolve against the schema
+  // the operator actually saw, even if the live profile is edited later (Phase A.1).
+  version     Int      @default(1)
   createdBy   String?  @map("created_by") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   questions ChecklistQuestion[]
+  versions  ChecklistProfileVersion[]
 
   @@index([isActive])
   @@map("checklist_profiles")
@@ -1527,6 +1540,27 @@ model ChecklistQuestion {
 
   @@index([profileId, sortOrder])
   @@map("checklist_questions")
+}
+
+// Immutable historical snapshot of a checklist profile at a specific version.
+// Created BEFORE every mutation to the live profile or its questions (snapshot-then-bump).
+// Cycles store a pin map { profileId: versionNumber } and resolve questions through here
+// so answers always reproduce against the schema that was active when the cycle started.
+model ChecklistProfileVersion {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId     String   @map("profile_id") @db.Uuid
+  versionNumber Int      @map("version_number")
+  // Full snapshot: { name, description, isActive, questions: [...full ChecklistQuestion shape...] }
+  snapshot      Json     @db.JsonB
+  changeNotes   String?  @map("change_notes")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdBy     String?  @map("created_by") @db.Uuid
+
+  profile ChecklistProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, versionNumber])
+  @@index([profileId])
+  @@map("checklist_profile_versions")
 }
 
 enum BlockChangeStatus {

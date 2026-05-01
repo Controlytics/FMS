@@ -1251,7 +1251,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     for (const cl of checklistDialog.checklists) { for (const q of cl.questions) { if (q.required && (checklistAnswers[q.id] === undefined || checklistAnswers[q.id] === '')) { setError(`Answer required: "${q.question}"`); return; } } }
     setLoading(true); setError('');
     try {
-      const { executed } = await executeOrQueue('submit-checklist', checklistDialog.filterId, checklistDialog.filterName, { answers: checklistAnswers });
+      // Phase A.1: send the version each profile was rendered against — server
+      // returns 409 SCHEMA_DRIFT if the cycle pin doesn't match.
+      const expectedProfileVersions: Record<string, number> = {};
+      for (const cl of checklistDialog.checklists) {
+        if (typeof (cl as any).profileVersion === 'number') {
+          expectedProfileVersions[cl.checklistProfileId] = (cl as any).profileVersion;
+        }
+      }
+      const { executed } = await executeOrQueue('submit-checklist', checklistDialog.filterId, checklistDialog.filterName, { answers: checklistAnswers, expectedProfileVersions });
       setSuccess(`Checklist submitted${executed ? '' : ' (queued)'}`);
       // After checklist answered, update cached state: clear pendingChecklist, compute next stages
       if (!executed) {
