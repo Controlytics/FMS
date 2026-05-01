@@ -1398,6 +1398,9 @@ model CleaningCycle {
   equipmentGroup        EquipmentGroup?        @relation(fields: [equipmentGroupId], references: [id])
   profile               FilterCleaningProfile? @relation(fields: [profileId], references: [id])
   activeFilterDetails   FilterDetails[]        @relation("CurrentCycleFilterDetails")
+  // Phase 5b.5 invariant (DB-side, not Prisma-expressible): at most ONE
+  // IN_PROGRESS cycle per filter, enforced by partial unique index applied
+  // via apps/api/prisma/sql/invariants.sql after every db push.
 
   @@index([filterId, status])
   @@index([ahuId, status])

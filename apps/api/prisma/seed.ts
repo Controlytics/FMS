@@ -1,7 +1,41 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const prisma = new PrismaClient();
+
+/**
+ * Apply DDL invariants Prisma cannot express (Phase 5b.5).
+ * Idempotent — every statement uses IF NOT EXISTS / OR REPLACE.
+ */
+async function applyInvariants() {
+  const sqlPath = join(process.cwd(), 'prisma', 'sql', 'invariants.sql');
+  let sql: string;
+  try {
+    sql = readFileSync(sqlPath, 'utf8');
+  } catch {
+    console.log('  (no invariants.sql found — skipping)');
+    return;
+  }
+  // Strip psql meta-commands (\echo etc.) — only valid via psql CLI.
+  const cleaned = sql.split('\n').filter(l => !l.trim().startsWith('\\')).join('\n');
+  // Split on semicolons but keep PL/pgSQL function bodies intact via $$ delimiters.
+  const statements: string[] = [];
+  let buf = '';
+  let inDollar = false;
+  for (const line of cleaned.split('\n')) {
+    if (line.includes('$$')) inDollar = !inDollar;
+    buf += line + '\n';
+    if (!inDollar && /;\s*$/.test(line)) { statements.push(buf.trim()); buf = ''; }
+  }
+  if (buf.trim()) statements.push(buf.trim());
+  for (const stmt of statements) {
+    if (!stmt || stmt.startsWith('--')) continue;
+    await prisma.$executeRawUnsafe(stmt);
+  }
+  console.log('  Applied DB invariants (Phase 5b.5)');
+}
 
 async function main() {
   console.log('Seeding database...');
@@ -657,6 +691,8 @@ async function main() {
     });
   }
   console.log(`  Seeded ${systemKinds.length} system template kinds`);
+
+  await applyInvariants();
 
   console.log('Seed completed successfully!');
 }

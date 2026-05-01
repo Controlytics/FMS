@@ -734,6 +734,12 @@ export class FilterOperationsService {
     const checksum = computeChecksum(eventData);
 
     await prisma.$transaction(async (tx) => {
+      // Phase 5b.4: SELECT FOR UPDATE on FilterDetails to serialize submitChecklist
+      // against concurrent advance/bypass on the same filter.
+      await tx.$queryRaw`
+        SELECT 1 FROM filter_details WHERE asset_instance_id = ${filterId}::uuid FOR UPDATE
+      `;
+
       // Check for duplicate submission (same stage, same cycle).
       const existing = await tx.filterEvent.findFirst({
         where: {
@@ -1153,18 +1159,23 @@ export class FilterOperationsService {
     }
     checkEnd(targetStage.id);
 
-    // Wrap all writes in a single transaction
+    // Wrap all writes in a single transaction with row-level lock (Phase 5b.4).
     await prisma.$transaction(async (tx) => {
-      // Re-validate state inside transaction to prevent race conditions.
-      // (currentLifecycleState + currentCycleId moved to FilterDetails — Step 6.)
-      const lockedFD = await tx.filterDetails.findUnique({
-        where: { assetInstanceId: filterId },
-        select: { currentLifecycleState: true, currentCycleId: true },
-      });
-      if (lockedFD?.currentLifecycleState !== currentState) {
+      // SELECT ... FOR UPDATE on the FilterDetails row blocks any concurrent
+      // advance/bypass on this filter until this transaction commits. Closes
+      // the read-then-write race where two operators on two devices could both
+      // pass the state check and both write STAGE_TRANSITIONED.
+      const lockedRows = await tx.$queryRaw<Array<{ current_lifecycle_state: string | null; current_cycle_id: string | null }>>`
+        SELECT current_lifecycle_state, current_cycle_id
+        FROM filter_details
+        WHERE asset_instance_id = ${filterId}::uuid
+        FOR UPDATE
+      `;
+      const lockedFD = lockedRows[0];
+      if (lockedFD?.current_lifecycle_state !== currentState) {
         throw new AppError(409, 'STATE_CHANGED', 'Filter state was modified by another user. Please refresh and try again.');
       }
-      if (lockedFD?.currentCycleId !== cycle.id) {
+      if (lockedFD?.current_cycle_id !== cycle.id) {
         throw new AppError(409, 'CYCLE_CHANGED', 'Cleaning cycle changed. Please refresh and try again.');
       }
 
@@ -1306,12 +1317,16 @@ export class FilterOperationsService {
     const checksum = computeChecksum(eventData);
 
     await prisma.$transaction(async (tx) => {
-      // Re-validate state inside transaction (FilterDetails — Step 6).
-      const lockedFD = await tx.filterDetails.findUnique({
-        where: { assetInstanceId: filterId },
-        select: { currentLifecycleState: true, currentCycleId: true },
-      });
-      if (lockedFD?.currentLifecycleState !== filter.currentLifecycleState) {
+      // Phase 5b.4: SELECT FOR UPDATE row lock — prevents concurrent bypass
+      // and concurrent advance from interleaving on the same filter.
+      const lockedRows = await tx.$queryRaw<Array<{ current_lifecycle_state: string | null }>>`
+        SELECT current_lifecycle_state
+        FROM filter_details
+        WHERE asset_instance_id = ${filterId}::uuid
+        FOR UPDATE
+      `;
+      const lockedFD = lockedRows[0];
+      if (lockedFD?.current_lifecycle_state !== filter.currentLifecycleState) {
         throw new AppError(409, 'STATE_CHANGED', 'Filter state was modified by another user. Please refresh and try again.');
       }
 
