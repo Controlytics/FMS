@@ -93,6 +93,13 @@
    - Step 9 (cycle as event fold) — depends on #8.
    - Phase 5+ proper Windows-service launcher full automation — still pending.
 
+## Touchpoint verification (per CLAUDE.md "test all touchpoints")
+
+- **Backend mutation sites for FilterProfile** — only `apps/api/src/modules/filter-profiles/filter-profile.service.ts` (`create`, `update`, `delete`, `assign`). Verified via grep. No other module mutates `prisma.filterProfile`.
+- **Backend read sites for FilterProfile mid-cycle** — `apps/api/src/modules/filter-operations/filter-operations.service.ts` reads FilterProfile only at cycle start (to derive a CleaningProfile, which is then pinned via `cleaning_cycles.profileId`). No mid-cycle FilterProfile reads. **Conclusion:** no cycle-side pin map needed; in-flight cycles cannot drift.
+- **Frontend touchpoints** — single site `apps/web/src/routes/filter-management/filter-profile-list.tsx:7` calls `GET /api/filter-profiles?page=…`. The list-response shape is unchanged (just adds an additive `version` field that the existing TypeScript interface in `apps/web/src/types/filter.ts:51-62` simply ignores — TS structural types don't reject extras). The new `/versions` endpoints have no current FE consumer; that's a future UI task, not part of A.3.
+- **FRONTEND_GUIDE.md** — verified clean of stale FilterProfile and model-count refs (no edits needed).
+
 ## Known network constraint
 GitHub `github.com:443` unreachable for entire three-session run (Phase A.1 + A.2 + A.3 + Phase 4 bus). All commits stay safe locally on `feature/phase5-verification`. ~61 commits ahead of `origin/docsCleaned` once Phase A.3 commit lands on origin.
 
