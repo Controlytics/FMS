@@ -151,6 +151,16 @@ export function FilterOperationsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [popupError, setPopupError] = useState('');
+  // B7.4 (2026-05-02): advisory shown when admin edited the cycle's pinned
+  // EquipmentGroup mid-cycle. Persistent (no auto-clear) — operator can keep
+  // working on the pinned ranges, but should know the live group has moved.
+  // Cleared on closeDialog / clearScanState / stage change.
+  const [equipmentGroupSyncWarning, setEquipmentGroupSyncWarning] = useState<{
+    groupId: string;
+    pinnedVersion: number;
+    liveVersion: number;
+    recommendation: 'CONTINUE_OR_TERMINATE_AND_RESTART';
+  } | null>(null);
   const [recentSubmissions, setRecentSubmissions] = useState<Array<{stage: string; filter: string; block?: string; time: string}>>([]);
   const [submitting, setSubmitting] = useState(false); // double-submit guard
 
@@ -270,15 +280,24 @@ export function FilterOperationsPage() {
     navigate(`/filters/stage/${stage.key}`);
   };
 
-  const handleBlockSelect = (block: any) => { setSelectedBlock(block); setStep('scan'); };
+  const handleBlockSelect = (block: any) => {
+    // B7.4 follow-up (Issue #1): clear stale advisory when switching blocks
+    // intra-stage. The equipmentGroupSyncWarning was bound to the previously
+    // scanned filter on the previously selected block; once the operator
+    // moves to a different block it no longer applies and would leak onto
+    // the next scan view until the next current-state response replaces it.
+    setEquipmentGroupSyncWarning(null);
+    setSelectedBlock(block);
+    setStep('scan');
+  };
 
   // Clear scan state without navigating (used when handing off to sub-dialogs)
   const clearScanState = () => {
-    setScanValue(''); setRemarks(''); setError(''); setScanQueue([]);
+    setScanValue(''); setRemarks(''); setError(''); setScanQueue([]); setEquipmentGroupSyncWarning(null);
   };
   // Close stage screen and go back to landing
   const closeDialog = () => {
-    setActiveStage(null); setSelectedBlock(null); setScanValue(''); setRemarks(''); setError(''); setScanQueue([]);
+    setActiveStage(null); setSelectedBlock(null); setScanValue(''); setRemarks(''); setError(''); setScanQueue([]); setEquipmentGroupSyncWarning(null);
     navigate('/filters');
   };
 
@@ -291,7 +310,7 @@ export function FilterOperationsPage() {
     const stage = CLEANING_STAGES.find(s => s.key === urlStageKey);
     if (!stage) { navigate('/filters'); return; }
     setActiveStage(stage);
-    setError(''); setScanValue(''); setRemarks('');
+    setError(''); setScanValue(''); setRemarks(''); setEquipmentGroupSyncWarning(null);
     if (stage.needsBlock) { setStep('block'); setSelectedBlock(null); }
     else { setStep('scan'); setSelectedBlock(null); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -608,6 +627,11 @@ export function FilterOperationsPage() {
           }
         }
       }
+
+      // B7.4 (2026-05-02): surface the equipmentGroupSyncWarning advisory if
+      // the server reported one. Online responses include it; offline-built
+      // state does not, so this clears any stale value when offline.
+      setEquipmentGroupSyncWarning(state.equipmentGroupSyncWarning ?? null);
 
       // ─── STRICT OFFLINE GATE (parity with mobile) ─────────────────────────
       // Without cached pipeline data we cannot enforce stage ordering — refuse
@@ -1475,6 +1499,18 @@ export function FilterOperationsPage() {
             </div>
           </div>
         )}
+        {/* B7.4 (2026-05-02): equipmentGroupSyncWarning advisory — admin edited
+            the cycle's pinned EquipmentGroup mid-cycle. Persistent (no
+            auto-clear); operator may continue on the pinned ranges or
+            terminate-and-restart. */}
+        {equipmentGroupSyncWarning && (
+          <div className="mx-4 mb-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2">
+            <svg className="w-4 h-4 mt-0.5 shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            <span className="text-sm text-amber-800">
+              Equipment group has been updated by admin (you started on v{equipmentGroupSyncWarning.pinnedVersion}, current is v{equipmentGroupSyncWarning.liveVersion}). Your readings will continue to validate against the version you started with — terminate-and-restart only if you need the new ranges.
+            </span>
+          </div>
+        )}
         <button onClick={closeDialog} className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
           <span>←</span> Back to Stages
         </button>
@@ -1494,7 +1530,13 @@ export function FilterOperationsPage() {
           onRemarksChange={setRemarks}
           onClearError={() => setError('')}
           onBlockSelect={handleBlockSelect}
-          onChangeBlock={() => setStep('block')}
+          onChangeBlock={() => {
+            // B7.4 follow-up (Issue #1): clear stale advisory before
+            // returning to block-picker; otherwise the warning lingers
+            // visually while operator selects a new block.
+            setEquipmentGroupSyncWarning(null);
+            setStep('block');
+          }}
           onAddToQueue={handleAddToQueue}
           onRemoveFromQueue={handleRemoveFromQueue}
           onSubmitBatch={handleSubmitBatch}
@@ -1694,7 +1736,13 @@ export function FilterOperationsPage() {
         onRemarksChange={setRemarks}
         onClearError={() => setError('')}
         onBlockSelect={handleBlockSelect}
-        onChangeBlock={() => setStep('block')}
+        onChangeBlock={() => {
+          // B7.4 follow-up (Issue #1): clear stale advisory before
+          // returning to block-picker; mirror of the fullPage variant
+          // above so both render paths behave identically.
+          setEquipmentGroupSyncWarning(null);
+          setStep('block');
+        }}
         onAddToQueue={handleAddToQueue}
         onRemoveFromQueue={handleRemoveFromQueue}
         onSubmitBatch={handleSubmitBatch}

@@ -73,6 +73,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [recentOps, setRecentOps] = useState<Array<{ stage: string; filter: string; time: string; queued?: boolean }>>([]);
+  // B7.4 (2026-05-02): advisory shown when admin edited the cycle's pinned
+  // EquipmentGroup mid-cycle. Persistent (no auto-clear) — operator can keep
+  // working on the pinned ranges, but should know the live group has moved.
+  // Cleared on goHome / openStage / scan reset.
+  const [equipmentGroupSyncWarning, setEquipmentGroupSyncWarning] = useState<{
+    groupId: string;
+    pinnedVersion: number;
+    liveVersion: number;
+    recommendation: 'CONTINUE_OR_TERMINATE_AND_RESTART';
+  } | null>(null);
 
   // RFID scan input ref + focus management. autoFocus only fires once on mount,
   // so after the first scan succeeds the input loses focus and subsequent RFID
@@ -428,9 +438,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     setActiveStage(stage);
     setView('stage');
     setScanValue(''); setRemarks(''); setError(''); setSuccess(''); setSelectedBlock(null);
+    setEquipmentGroupSyncWarning(null);
   };
 
-  const goHome = () => { setView('home'); setActiveStage(null); setReasonDialog(null); setEquipDialog(null); setChecklistDialog(null); setError(''); setSuccess(''); setScanQueue([]); };
+  const goHome = () => { setView('home'); setActiveStage(null); setReasonDialog(null); setEquipDialog(null); setChecklistDialog(null); setError(''); setSuccess(''); setScanQueue([]); setEquipmentGroupSyncWarning(null); };
 
   const resolveFilter = async (): Promise<{ filterId: string; filterName: string } | null> => {
     let filterId = ''; let filterName = '';
@@ -880,6 +891,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         state = await buildOfflineState();
       }
 
+      // B7.4 (2026-05-02): surface the equipmentGroupSyncWarning advisory if
+      // the server reported one. Online responses include it; offline-built
+      // state does not, so this clears any stale value when offline.
+      setEquipmentGroupSyncWarning(state.equipmentGroupSyncWarning ?? null);
+
       // Block duplicate submission
       const currentLifecycle = state.currentState;
       const nextAllowed = state.nextAllowedStages ?? [];
@@ -1328,6 +1344,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     setActiveStage(washIn);
     setView('stage');
     setScanValue(''); setRemarks(''); setError(''); setSelectedBlock(null);
+    // B7.4 follow-up (Issue #1): mirror openStage — entering a fresh stage
+    // context must drop any advisory tied to a prior cycle.
+    setEquipmentGroupSyncWarning(null);
     setSuccess(`Ready to clean filters from ${task.ahuName}. Scan each filter now.`);
   };
 
@@ -1467,6 +1486,17 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         </div>
       )}
       {error && <div className="mx-4 mt-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 shadow-sm">{error}</div>}
+      {/* B7.4 (2026-05-02): equipmentGroupSyncWarning advisory — admin edited
+          the cycle's pinned EquipmentGroup mid-cycle. Persistent (no auto-clear);
+          operator may continue on the pinned ranges or terminate-and-restart. */}
+      {equipmentGroupSyncWarning && (
+        <div className="mx-4 mt-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 shadow-sm flex items-start gap-2">
+          <svg className="w-4 h-4 mt-0.5 shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+          <span>
+            Equipment group has been updated by admin (you started on v{equipmentGroupSyncWarning.pinnedVersion}, current is v{equipmentGroupSyncWarning.liveVersion}). Your readings will continue to validate against the version you started with — terminate-and-restart only if you need the new ranges.
+          </span>
+        </div>
+      )}
 
       {/* ─── CONTENT ─── */}
       <div className="flex-1 overflow-y-auto">
@@ -1945,7 +1975,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 {selectedBlock && (
                   <div className="flex items-center justify-between bg-cyan-50 border border-cyan-200 rounded-xl px-3 py-2">
                     <span className="text-xs text-cyan-700 font-medium">Block: {selectedBlock.name}</span>
-                    <button onClick={() => setSelectedBlock(null)} className="text-[10px] text-cyan-600 underline">Change</button>
+                    <button onClick={() => {
+                      // B7.4 follow-up (Issue #1): clear the equipment-group
+                      // sync advisory when operator switches block intra-stage.
+                      // The advisory is bound to the previously scanned filter
+                      // and would leak onto the next scan view until the next
+                      // current-state response replaces it. goHome already
+                      // clears this; the in-place block change must too.
+                      setEquipmentGroupSyncWarning(null);
+                      setSelectedBlock(null);
+                    }} className="text-[10px] text-cyan-600 underline">Change</button>
                   </div>
                 )}
 

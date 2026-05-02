@@ -1,5 +1,44 @@
 # Changelog
 
+## [Unreleased] — B7.4: render `equipmentGroupSyncWarning` advisory on operator pages (2026-05-02)
+
+Branch: `feature/phase5-verification`. L3 (commit `d7026ce`) added the `equipmentGroupSyncWarning` field to the `getCurrentState()` API response, but no FE consumer read it — operators got zero signal that an admin had edited the cycle's pinned EquipmentGroup mid-cycle. This closes the L3 advisory loop end-to-end.
+
+### Changes
+
+- `apps/web/src/routes/mobile/mobile-operations.tsx` — new `equipmentGroupSyncWarning` component-state, set after each `getCurrentState` fetch in `handleSubmit` (line ~890) and cleared in `goHome` / `openStage`. Renders a persistent amber advisory card just under the existing red error banner (line ~1485).
+- `apps/web/src/routes/filter-management/filter-operations.tsx` — same pattern. State set after the `apiClient.get<any>('/api/filters/:id/current-state')` call inside `handleSubmitBatch` (line ~620), cleared in `closeDialog` / `clearScanState` / the URL-stage-sync `useEffect`. Renders an amber card on the dedicated stage screen just below the pending-sync banner (line ~1493). Type declared inline at the call site — no `CurrentStateResponse` type added (would be over-engineering for one field).
+- Copy on both pages (verbatim): "Equipment group has been updated by admin (you started on v{pinnedVersion}, current is v{liveVersion}). Your readings will continue to validate against the version you started with — terminate-and-restart only if you need the new ranges."
+- Visual: `bg-amber-50 border-amber-200 text-amber-800` with the standard amber warning triangle SVG. Distinct from the red error banner (so an operator sees both at once if both fire) and persistent (no auto-clear timer — the existing red `error` auto-clears after 6s, this advisory does not).
+
+### Reviewer follow-up (Issue #1) — intra-stage state leak on block change
+
+- Reviewer flagged that `equipmentGroupSyncWarning` was not cleared when the operator changes block within the same stage screen. Scenario: scan Filter A on Block 1 → see amber advisory → "Change Block" → switch to Block 2 → between this and the next scan the advisory is still visible despite no longer applying. Self-corrects on next scan, but leaks briefly.
+- Fix on desktop (`apps/web/src/routes/filter-management/filter-operations.tsx`): added `setEquipmentGroupSyncWarning(null)` to `handleBlockSelect` and to both `onChangeBlock` handlers (the fullPage variant inside the activeStage branch and the modal variant just above the cleaning-reason dialog). All three sites now drop the advisory before transitioning the step.
+- Fix on mobile (`apps/web/src/routes/mobile/mobile-operations.tsx`): the in-place "Change" button next to the selected-block chip (the only intra-stage block-change affordance on mobile — `goHome` and `openStage` already cleared the advisory) now also calls `setEquipmentGroupSyncWarning(null)`. `performTask` (Wash-In jump from My Tasks) was updated symmetrically.
+
+### Notes / known limits
+
+- The advisory is set only after a `getCurrentState` fetch, so an operator already on the stage screen who hasn't scanned yet won't see it until the next scan. This matches the pattern of `profileSyncWarning` (which is also evaluated at scan-time only).
+- **Deferred follow-up (Issue #2) — `DryingFiltersPanel` poller does not surface the advisory:** the panel's SWR poller fetches `/current-state` every 15 s for in-progress DRY_IN cycles but only uses the dryer-countdown shape, not `equipmentGroupSyncWarning`. An admin who edits the EquipmentGroup while the operator is parked on the DRY_IN screen would not see the advisory until they scan the next filter. Tracked as a follow-up; not fixed in this iteration.
+- Offline-built state does not carry `equipmentGroupSyncWarning` (it's a derived comparison between `cycle.equipmentGroupVersionPin` and the live group version, which the offline path can't compute from the cache shape). The `?? null` fallback ensures stale values are cleared when offline.
+- The recommendation is `CONTINUE_OR_TERMINATE_AND_RESTART` — operator is *not* blocked. Mirrors the L3 server-side semantic (validation continues against the pinned snapshot via Phase A.4 P1; new ranges are admin-driven, not safety-driven).
+
+### Verification
+
+- `cd apps/web && npx tsc --noEmit` → exit 0.
+- `cd apps/api && npx tsc --noEmit` → exit 0 (no API changes; sanity check only).
+- `cd apps/web && npx vitest run` → existing B7.1 diff suite still passes (10/10).
+- Visual smoke: not run (no live server in this worktree); the amber-card render shape is straight Tailwind and mirrors the existing `pendingCount` amber banner adjacent to it.
+
+### Out of scope
+
+- No "View pinned snapshot" button on the advisory (CHVH territory; the chips on the cycle timeline page already deep-link).
+- No semantic change to the warning's recommendation.
+- No tests added for the FE rendering — the advisor flagged this as B7.5 doc territory and the component-level test would be over-engineering for a non-blocking advisory.
+
+---
+
 ## [Unreleased] — B7.3: vitest unit tests for `getCurrentState()` L1+L2 invariants (2026-05-02)
 
 Branch: `feature/phase5-verification`. The `filter-operations.service.ts` module had zero unit tests (verified — no `__tests__` folder existed for the module). L1 (cycle-pinned `EquipmentGroupVersion.snapshot` rendering) and L2 (cycle-pinned `FilterCleaningProfile.id` pipeline rendering) had no automated regression coverage. A future refactor could silently revert either path back to live-row reads and we wouldn't notice until an operator complained.
