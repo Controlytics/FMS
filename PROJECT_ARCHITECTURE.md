@@ -39,7 +39,7 @@
 │  │  ┌──────────┐ ┌──────────┐ ┌──────────┐               │        │
 │  │  │PostgreSQL│ │TimescaleDB│ │Mosquitto │               │        │
 │  │  │  :5432   │ │  :5432   │ │  :1883   │               │        │
-│  │  │ 67 models│ │ 7 hyper- │ │  MQTT    │               │        │
+│  │  │ 68 models│ │ 7 hyper- │ │  MQTT    │               │        │
 │  │  │ Prisma   │ │ tables   │ │  Broker  │               │        │
 │  │  │digilog_db│ │digilog_  │ │  IoT     │               │        │
 │  │  │ +queue   │ │tsdb      │ │  devices │               │        │

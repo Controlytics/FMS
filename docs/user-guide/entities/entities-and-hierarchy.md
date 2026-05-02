@@ -1,6 +1,6 @@
 # Entities & Hierarchy
 
-Entities represent physical equipment in a hierarchical tree following ISA-95. Managed via 67 Prisma models with 23 enums (verified 2026-05-01 post Phase A.3 — added FilterProfileVersion sidecar).
+Entities represent physical equipment in a hierarchical tree following ISA-95. Managed via 68 Prisma models with 23 enums (verified 2026-05-02 post Phase A.4 — added EquipmentGroupVersion sidecar).
 
 ## Entity Templates
 Templates define the blueprint: attribute schema (14 data types), alarm rules, checklist fields (14 question types), connectivity settings, and relationship constraints. Every edit creates a new version.

@@ -56,6 +56,43 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
     return service.getById(ctx, id);
   });
 
+  // Phase A.4: list archived versions for audit replay / admin history.
+  app.get('/:id/versions', {
+    preHandler: [app.requireAnyPermission('ASSET_READ', 'EG_VIEW')],
+    schema: {
+      tags: ['Equipment Groups'],
+      summary: 'List archived versions of an equipment group (Phase A.4)',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const { id } = req.params as { id: string };
+    return service.getVersions(ctx, id);
+  });
+
+  // Phase A.4: read a frozen historical version of an equipment group composite.
+  app.get('/:id/versions/:versionNumber', {
+    preHandler: [app.requireAnyPermission('ASSET_READ', 'EG_VIEW')],
+    schema: {
+      tags: ['Equipment Groups'],
+      summary: 'Get frozen snapshot of equipment group at a specific version (Phase A.4)',
+      params: {
+        type: 'object',
+        required: ['id', 'versionNumber'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          versionNumber: { type: 'integer', minimum: 1 },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const { id, versionNumber } = req.params as { id: string; versionNumber: number };
+    return service.getVersion(ctx, id, Number(versionNumber));
+  });
+
   app.get('/by-block/:blockId', {
     preHandler: [app.requireAnyPermission('ASSET_READ', 'EG_VIEW')],
     schema: {

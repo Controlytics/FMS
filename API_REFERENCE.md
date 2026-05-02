@@ -290,6 +290,29 @@ POST   /api/filter-profiles/:id/assign                   Permission: FP_ASSIGN, 
 
 ---
 
+## Equipment Groups
+
+`EquipmentGroup` is a per-block group with exactly 3 instruments (Compressed Air Pressure / RO Water Pressure / Dryer Temperature). Phase A.4 (2026-05-02) added a composite-snapshot version sidecar — every `update()` archives the OUTGOING composite (group + 3 instruments together) into `equipment_group_versions` and bumps `EquipmentGroup.version`. First version is created lazily (the live composite IS v1 until first edit). Cycles do NOT pin a group version; submitted reading drift is already covered by `FilterEvent.attributes.instrumentReadings` (immutable).
+
+```
+GET    /api/equipment-groups                            Permission: ASSET_READ | EG_VIEW
+GET    /api/equipment-groups/:id                        Permission: ASSET_READ | EG_VIEW
+GET    /api/equipment-groups/by-block/:blockId          Permission: ASSET_READ | EG_VIEW
+GET    /api/equipment-groups/:id/versions               Permission: ASSET_READ | EG_VIEW                  # Phase A.4
+GET    /api/equipment-groups/:id/versions/:n            Permission: ASSET_READ | EG_VIEW                  # Phase A.4 (frozen composite)
+POST   /api/equipment-groups                            Permission: ASSET_CREATE | EG_CREATE, Reauth
+PUT    /api/equipment-groups/:id                        Permission: ASSET_UPDATE | EG_EDIT, Reauth        # snapshot-then-bump composite
+DELETE /api/equipment-groups/:id                        Permission: ASSET_DELETE | EG_DELETE, Reauth      # soft-delete (isActive=false); rejects if active cycles reference
+```
+
+**Versioning notes:**
+- `GET /:id/versions` returns `{ groupId, currentVersion, versions[] }` newest-first; `versions[]` carries metadata only.
+- `GET /:id/versions/:n` returns the frozen composite snapshot: `{ groupId, versionNumber, name, blockId, isActive, instruments[] (ordered by sortOrder, full instrument shape), createdAt, createdBy, changeNotes }`.
+- 404 with `"Version N of equipment group … not found"` when out of range.
+- Cleaning reasons (config def `filter-cleaning-reasons`) are NOT versioned — `CleaningCycle.cleaningReasonKey` + `cleaningReasonLabel` columns written at cycle start act as the per-cycle pin (see `CHANGELOG.md` Phase A.4 entry for rationale).
+
+---
+
 ## PM Schedules
 
 ```

@@ -1505,6 +1505,14 @@ model EquipmentGroup {
   name      String   @db.VarChar(255)
   blockId   String   @map("block_id") @db.Uuid
   isActive  Boolean  @default(true) @map("is_active")
+  // Monotonic version counter — bumped on every mutation of the group OR any of
+  // its 3 instruments. Snapshot-then-bump pattern (Phase A.4): the OUTGOING
+  // composite (group + all instruments) is frozen into EquipmentGroupVersion
+  // before the live rows are updated, so admin-edit history is preserved.
+  // Note: cycles do NOT pin a group version — operational drift is already
+  // covered by FilterEvent.attributes.instrumentReadings (immutable snapshot
+  // of description / instrumentCode / uom / leastCount / value at submit time).
+  version   Int      @default(1)
   createdBy String?  @map("created_by") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
@@ -1512,10 +1520,33 @@ model EquipmentGroup {
   block       AssetInstance              @relation(fields: [blockId], references: [id])
   instruments EquipmentGroupInstrument[]
   cycles      CleaningCycle[]
+  versions    EquipmentGroupVersion[]
 
   @@index([blockId])
   @@index([isActive])
   @@map("equipment_groups")
+}
+
+// Immutable historical snapshot of an EquipmentGroup at a specific version.
+// Written BEFORE every mutation to the live group or any of its instruments
+// (snapshot-then-bump, Phase A.4). The composite (group + 3 instruments) is
+// always snapshotted together because update() mutates them as a unit.
+model EquipmentGroupVersion {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  groupId       String   @map("group_id") @db.Uuid
+  versionNumber Int      @map("version_number")
+  // Full snapshot: { name, blockId, isActive, instruments: [{...full
+  // EquipmentGroupInstrument shape, ordered by sortOrder...}] }
+  snapshot      Json     @db.JsonB
+  changeNotes   String?  @map("change_notes")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdBy     String?  @map("created_by") @db.Uuid
+
+  group EquipmentGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, versionNumber])
+  @@index([groupId])
+  @@map("equipment_group_versions")
 }
 
 model EquipmentGroupInstrument {

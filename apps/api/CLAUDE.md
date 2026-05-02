@@ -17,7 +17,7 @@ node apps/api/dist/app.js
 - Source: `apps/api/src/`
 - Compiled: `apps/api/dist/`
 - Entry: `apps/api/src/app.ts`
-- Prisma schema: `apps/api/prisma/schema.prisma` (67 models, 23 enums) — Step 1 added the `TemplateKind` lookup model; MT removal (2026-04-30) dropped `Organization` + 11 `organizationId` columns + 2 `orgId` columns; **Step 6 (2026-05-01)** split filter-specific cycle state (`filterProfileId`, `currentLifecycleState`, `currentCycleId`, `filterSet`) off `AssetInstance` into a 1:1 `FilterDetails` sidecar; **Phase A.3 (2026-05-01)** added the `FilterProfileVersion` sidecar (snapshot-then-bump, mirrors A.1 ChecklistProfileVersion).
+- Prisma schema: `apps/api/prisma/schema.prisma` (68 models, 23 enums) — Step 1 added the `TemplateKind` lookup model; MT removal (2026-04-30) dropped `Organization` + 11 `organizationId` columns + 2 `orgId` columns; **Step 6 (2026-05-01)** split filter-specific cycle state (`filterProfileId`, `currentLifecycleState`, `currentCycleId`, `filterSet`) off `AssetInstance` into a 1:1 `FilterDetails` sidecar; **Phase A.3 (2026-05-01)** added the `FilterProfileVersion` sidecar (snapshot-then-bump); **Phase A.4 (2026-05-02)** added the `EquipmentGroupVersion` sidecar (composite snapshot of group + 3 instruments together).
 - Config definitions: `apps/api/src/modules/config/defs/` (30 files)
 - Route modules: `apps/api/src/modules/` (36 modules — `template-kinds` added in Step 1; `org-admin` and `tenant-admin` deleted in MT removal)
 - Config routes: monolith split into `apps/api/src/modules/config/static-routes/<surface>.routes.ts` per tab; top-level `routes.ts` is just a registration loop (~170 LOC, was 1003)
@@ -35,7 +35,7 @@ node apps/api/dist/app.js
 admin-requests, assets (templates/instances/relationships/identifiers), audit, auth, backup, checklist-profiles, cleaning-profiles, config (30 auto-discovered definitions), connectivity, dashboards, data-ingestion (11-file pipeline), deployment-check, entity-assignments, equipment-groups, filter-operations, filter-profiles, help, ldap, notification-delivery (email/SMS/Telegram/Slack), notification-rules, notifications, pm-schedules, qr-code, queries (telemetry/alarm/retention/export), report-templates, reports, roles, rule-chain (77 node types), super-admin, system-health, **template-kinds** (lookup-table CRUD added in Step 1 — `/api/template-kinds`), uns, uploads, user-groups, users — plus block-change-requests / admin-requests under their own modules. (`org-admin` and `tenant-admin` removed 2026-04-30 with MT removal.)
 
 ## Databases
-- **digilog_db** (PostgreSQL 18 via Prisma) — application data (67 models, 23 enums)
+- **digilog_db** (PostgreSQL 18 via Prisma) — application data (68 models, 23 enums)
 - **digilog_tsdb** (TimescaleDB via pg pool) — time-series data (7 hypertables)
 
 ## Key Libs (`apps/api/src/lib/`)
@@ -83,6 +83,9 @@ GET  /api/filter-cleaning-profiles/:id/versions/:n       — Phase A.2: fetch fr
 GET  /api/filter-profiles            — List filter profiles
 GET  /api/filter-profiles/:id/versions             — Phase A.3: list archived FilterProfile versions
 GET  /api/filter-profiles/:id/versions/:n          — Phase A.3: frozen FilterProfile snapshot at version n
+GET  /api/equipment-groups            — List equipment groups
+GET  /api/equipment-groups/:id/versions            — Phase A.4: list archived EquipmentGroup versions (composite)
+GET  /api/equipment-groups/:id/versions/:n         — Phase A.4: frozen EquipmentGroup composite snapshot at version n
 GET  /api/pm-schedules               — List PM schedules
 GET  /api/checklist-profiles                       — List checklist profiles
 GET  /api/checklist-profiles/:id/versions          — Phase A.1: list archived versions
@@ -99,6 +102,7 @@ GET  /api/equipment-groups           — List equipment groups
 - Events as immutable log with SHA-256 checksums for 21 CFR Part 11 compliance
 - **FilterCleaningProfile versioning** — immutable-rowful via `lineageId` UUID set at first create; updates archive the old row and insert a new row with `version+1` carrying the same lineageId. Cycles freeze `profileId` at start, so audit replay reads the exact archived row that was active at cycle start. Phase A.2 (2026-05-01) introduced `lineageId` (replacing `name`-based grouping) and exposed version history endpoints.
 - **FilterProfile versioning** — Phase A.3 (2026-05-01). Sidecar pattern (mirrors A.1 ChecklistProfile): `FilterProfile.version` is a monotonic counter on the live row; `FilterProfileVersion` is a snapshot-then-bump sidecar capturing the OUTGOING state on every `update()`. First version is created lazily — live row IS v1 until first edit. No cycle pinning needed because cycles already pin `cleaning_cycles.profileId` to a FilterCleaningProfile row at start; FilterProfile drift cannot reach a running cycle. Per-block override is explicitly out of scope (FilterProfile uniform across all blocks).
+- **EquipmentGroup composite versioning** — Phase A.4 (2026-05-02). Composite sidecar pattern (mirrors A.1 ChecklistProfile + questions): `EquipmentGroup.version` is the live counter, `EquipmentGroupVersion` snapshots the WHOLE composite (group + 3 instruments ordered by sortOrder) inside the same transaction as the live mutation. Cycles do NOT pin a group version — operational drift is covered by `FilterEvent.attributes.instrumentReadings`, which immutably snapshots `description / instrumentCode / uom / leastCount / value` at submit time. A.4 versioning serves admin-edit history only. **Cleaning reasons are NOT versioned** — already drift-resistant via `CleaningCycle.cleaningReasonKey` + `cleaningReasonLabel` columns set at cycle start.
 - Auto-complete on last stage (STAGE leads to END node)
 
 ### Pipeline Flow

@@ -115,7 +115,7 @@ Live-verified: graphile-worker schema auto-bootstraps on first connect, cron tas
 
 ### 8. PostgreSQL 18 + TimescaleDB extension
 
-**Files:** `apps/api/prisma/schema.prisma` (67 models, 23 enums), `init-tsdb.sql`, `tsdb-migration/init-hypertables.sql`, `apps/api/prisma/sql/extensions.sql`
+**Files:** `apps/api/prisma/schema.prisma` (68 models, 23 enums), `init-tsdb.sql`, `tsdb-migration/init-hypertables.sql`, `apps/api/prisma/sql/extensions.sql`
 
 **Why caveats:**
 - TimescaleDB on Windows tracks **specific PG patch versions**; when PG 18.x patches, TimescaleDB Windows builds lag 1–2 weeks

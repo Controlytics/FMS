@@ -274,7 +274,7 @@ Automated end-to-end test suites (`*.test.ts`) — Vitest-driven, hits a live te
 
 **Note:** Phase 2/3/4/5 features (filter operations, RFID, offline replay, reports, block-change, PM My Tasks) do NOT yet have e2e tests. The archived `tests/manual-test-cases/` only covered Phase 1 — those remain a gap (logged in `PHASE_5_RECENT_WORK.md` § 11).
 
-## Database Schema (67 models, 23 enums)
+## Database Schema (68 models, 23 enums)
 
 ### Core Models
 `Organization`, `User`, `Role`, `Session`, `PasswordHistory`, `PasswordResetRequest`, `SystemConfig`, `FieldIdConfig`, `RoleConfig`, `UserConfig`
@@ -283,7 +283,7 @@ Automated end-to-end test suites (`*.test.ts`) — Vitest-driven, hits a live te
 `AssetTemplate`, `AssetTemplateVersion`, `AssetInstance`, `AssetRelationship`, `AssetIdentifier`, `TemplateAssignment`, `EntityAssignment`, `DeviceCredential`
 
 ### Filter Operation Models
-`FilterCleaningProfile`, `FilterPipelineStage`, `FilterPipelineConnection`, `FilterProfile`, `FilterProfileVersion` (Phase A.3 sidecar), `CleaningCycle`, `FilterEvent`, `ChecklistProfile`, `ChecklistQuestion`, `ChecklistProfileVersion` (Phase A.1 sidecar), `ChecklistReview`, `ElectronicSignature`
+`FilterCleaningProfile`, `FilterPipelineStage`, `FilterPipelineConnection`, `FilterProfile`, `FilterProfileVersion` (Phase A.3 sidecar), `CleaningCycle`, `FilterEvent`, `ChecklistProfile`, `ChecklistQuestion`, `ChecklistProfileVersion` (Phase A.1 sidecar), `ChecklistReview`, `ElectronicSignature`, `EquipmentGroup`, `EquipmentGroupInstrument`, `EquipmentGroupVersion` (Phase A.4 composite sidecar)
 
 ### Scheduling Models
 `PmSchedule`, `PmScheduleEntry`, `PmExecution`, `EquipmentGroup`, `EquipmentGroupInstrument`, `BlockChangeRequest`
@@ -353,6 +353,6 @@ MAX_FILE_SIZE=5242880
 5. **Audit logging** — Every mutation auto-logged with SHA-256 hash chain
 6. **Input sanitization** — All text fields stripped of HTML via `sanitize.ts`
 7. **Config registry** — 30 config definitions auto-discovered at startup
-8. **Versioning** — Two patterns: (a) **immutable-rowful** for `FilterCleaningProfile` (update archives the old row + inserts a new row with `version+1`; rows in the same lineage share `lineageId UUID`; cycles freeze `profileId` at start) and rule chains/help articles; (b) **sidecar table** for `ChecklistProfile` (Phase A.1) and `FilterProfile` (Phase A.3) — both mutate in place; mutations snapshot the OUTGOING state into a `*Version` sidecar then bump `version`. ChecklistProfile cycles pin via `cycle.checklistVersionPins JSONB`; FilterProfile needs no cycle pin because cycles already pin `cleaning_cycles.profileId` to a FilterCleaningProfile row at start. First version is created lazily — the live row IS v1 until first edit.
+8. **Versioning** — Two patterns: (a) **immutable-rowful** for `FilterCleaningProfile` (update archives the old row + inserts a new row with `version+1`; rows in the same lineage share `lineageId UUID`; cycles freeze `profileId` at start) and rule chains/help articles; (b) **sidecar table** for `ChecklistProfile` (Phase A.1), `FilterProfile` (Phase A.3), and `EquipmentGroup` (Phase A.4 — composite snapshot of group + 3 instruments) — all three mutate in place; mutations snapshot the OUTGOING state into a `*Version` sidecar then bump `version`. ChecklistProfile cycles pin via `cycle.checklistVersionPins JSONB`; FilterProfile and EquipmentGroup need no cycle pin because cycles already pin `cleaning_cycles.profileId` to a FilterCleaningProfile row at start, and submitted instrument readings are immutably snapshotted into `FilterEvent.attributes.instrumentReadings`. First version is created lazily — the live row IS v1 until first edit. Cleaning reasons (config def) are NOT versioned: `CleaningCycle.cleaningReasonKey` + `cleaningReasonLabel` columns written at cycle start act as the per-cycle pin.
 9. **Immutable events** — Filter events stored with checksums, never modified (21 CFR Part 11)
 10. **Error handling** — `AppError(statusCode, code, message)` → unified JSON error response

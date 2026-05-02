@@ -1,5 +1,59 @@
 # Changelog
 
+## [Unreleased] — Phase A.4: EquipmentGroup composite versioning + cleaning-reasons doc note (2026-05-02)
+
+Branch: `feature/phase5-verification`. Final entry in the universal-versioning rollout (A.1 = ChecklistProfile sidecar, A.2 = FilterCleaningProfile lineage, A.3 = FilterProfile sidecar). Closes Phase 5b Path A.
+
+### Background
+
+A.4 had two declared sub-targets: cleaning reasons (config def values) and equipment-group instruments. They turned out to need very different treatments:
+
+1. **Cleaning reasons** are stored in a `SystemConfig` row keyed `filter-cleaning-reasons` as a JSON list of `{ key, label }`. The drift concern (admin renames a reason mid-cycle) was already handled at design time — `CleaningCycle.cleaningReasonKey` and `cleaningReasonLabel` are written at cycle start (`apps/api/prisma/schema.prisma:1431-1432`), so cycles carry their own label snapshot. Editing the config later affects new cycles only. **No code change needed**, only this doc note.
+2. **Equipment-group instruments** mutate in place via `equipment-groups.service.ts → update()`, which mutates the parent group + all 3 instruments together inside one transaction. The natural unit of versioning is therefore the **whole composite** (group + 3 instruments), not each instrument independently — same shape as A.1 ChecklistProfile + questions. Operational drift on submitted readings is already covered by `FilterEvent.attributes.instrumentReadings` (immutable + checksummed; snapshots `description / instrumentCode / uom / leastCount / value` at submit time, `filter-operations.service.ts:1116-1123`). The remaining gap was admin-edit history of the group config itself.
+
+Per-cycle group-version pinning (so reading validation reads operating-range from a pinned version rather than the live row) is intentionally NOT included — that requires a design call on "pin at cycle-start" vs "pin at first-reading" semantics and is left as a separate item.
+
+### Changes
+
+- **Schema** (`apps/api/prisma/schema.prisma`):
+  - `EquipmentGroup.version Int @default(1)` — monotonic counter, bumped on every mutation of the group OR any of its instruments.
+  - New model `EquipmentGroupVersion` (sidecar): `id`, `groupId`, `versionNumber`, `snapshot Json` (carries `name`, `blockId`, `isActive`, `instruments[]` ordered by sortOrder), `changeNotes`, `createdAt`, `createdBy`. Cascade-deletes with the parent. `@@unique([groupId, versionNumber])` + `@@index([groupId])`.
+  - Applied via `prisma db push --skip-generate` against an empty `equipment_groups` table — no backfill needed.
+- **Service** (`apps/api/src/modules/equipment-groups/equipment-groups.service.ts`):
+  - New private `snapshotAndBump(tx, groupId, changeNotes, ctx)` — freezes the OUTGOING composite (group row + all instruments ordered by sortOrder) into `equipment_group_versions`, then `version: { increment: 1 }`. Mirrors A.1/A.3 helpers.
+  - `update()` now wraps the existing transaction with snapshot-then-bump as the first step before the live row mutations.
+  - First version is created lazily — `create()` does NOT write a version row; the live composite IS v1 until first edit (matches A.1/A.3).
+  - New `getVersions(_, id)` returns `{ groupId, currentVersion, versions[] }` newest-first with metadata only.
+  - New `getVersion(_, id, n)` returns the frozen composite snapshot.
+  - Audit log on update now includes `version` in `beforeValue`/`afterValue`.
+- **Routes** (`apps/api/src/modules/equipment-groups/routes.ts`):
+  - `GET /api/equipment-groups/:id/versions` (gated `ASSET_READ` OR `EG_VIEW`).
+  - `GET /api/equipment-groups/:id/versions/:versionNumber` (same gate).
+
+### Verification
+
+- `npx tsc -p apps/api/tsconfig.json --noEmit` exit 0; full compile to dist exit 0; new endpoints emit 4 occurrences of "versions" in `dist/modules/equipment-groups/routes.js`.
+- `prisma db push --skip-generate` reports schema in sync; `\d equipment_group_versions` confirms columns; `version` column present on `equipment_groups`.
+- `Restart-Service DigiLogAPI-Phase5` clean.
+- End-to-end via curl against the running service:
+  - Created a group on existing block `B1` with the 3 standard instruments → returned `version: 1`. Live composite was v1; no version row written yet.
+  - First `PUT` (renamed group + bumped Compressed Air `operatingMax: 6 → 7`) → `version: 2`; one row in `equipment_group_versions` carrying the v1 composite.
+  - Second `PUT` (changed Compressed Air `serialNumber` and `instrumentId`) → `version: 3`; two version rows.
+  - `GET /:id/versions` → `currentVersion: 3` + 2 archived versions newest-first.
+  - `GET /:id/versions/1` → frozen v1 composite (original name, Air `operatingMax: 6`, Air SN `SN-AIR-1`).
+  - `GET /:id/versions/2` → frozen v2 composite (renamed, Air `operatingMax: 7`, Air SN still `SN-AIR-1` — the v3 SN/ID change correctly isolated).
+  - `GET /:id/versions/99` → clean 404.
+- Test data fully cleaned up: 0 leftover rows in `equipment_groups`, `equipment_group_instruments`, `equipment_group_versions` (cascade fired correctly).
+
+### Notes
+
+- Cleaning reasons are NOT versioned and don't need to be — `CleaningCycle.cleaningReasonKey` + `cleaningReasonLabel` already act as the per-cycle pin. This is documented in `BACKEND_GUIDE.md` § "Versioning" and the plan.
+- Per-cycle group-version pinning is NOT included; left as a separate design call.
+- Frontend untouched — existing route shapes unchanged; new `/versions` endpoints are additive.
+- Model count: **67 → 68** (added `EquipmentGroupVersion`). Enum count unchanged at 23.
+
+---
+
 ## [Unreleased] — Phase A.3: FilterProfile sidecar versioning (2026-05-01)
 
 Branch: `feature/phase5-verification`. Third entry in the universal-versioning rollout (A.1 = ChecklistProfile sidecar, A.2 = FilterCleaningProfile lineage).

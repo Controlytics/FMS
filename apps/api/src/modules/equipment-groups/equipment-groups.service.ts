@@ -4,12 +4,74 @@
  *   1. Compressed Air Pressure (WASH_IN)
  *   2. RO Water Pressure (WASH_IN)
  *   3. Dryer Temperature (DRY_IN)
+ *
+ * Phase A.4 versioning (2026-05-02): every mutation is a snapshot-then-bump.
+ * Before applying any change we write the OUTGOING composite (group + all 3
+ * instruments, ordered by sortOrder) into `EquipmentGroupVersion.snapshot`,
+ * then bump `EquipmentGroup.version`. Cycles do NOT pin a group version —
+ * operational drift is already covered by `FilterEvent.attributes
+ * .instrumentReadings`, which immutably records description / instrumentCode
+ * / uom / leastCount / value at submit time. Versions exist purely for
+ * admin-edit history and audit replay.
  */
 import type { RequestContext } from '../../types/context.js';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
+
+type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+/**
+ * Snapshot the current group + instruments composite into the versions table,
+ * then bump the live version pointer. Caller is expected to be inside a
+ * transaction and is responsible for the actual mutation that follows.
+ * Mirrors the A.1 ChecklistProfile / A.3 FilterProfile pattern.
+ */
+async function snapshotAndBump(
+  tx: Tx,
+  groupId: string,
+  changeNotes: string | null,
+  ctx: RequestContext,
+): Promise<void> {
+  const group = await tx.equipmentGroup.findUnique({
+    where: { id: groupId },
+    include: { instruments: { orderBy: { sortOrder: 'asc' } } },
+  });
+  if (!group) throw new AppError(404, 'NOT_FOUND', 'Equipment group not found');
+  await tx.equipmentGroupVersion.create({
+    data: {
+      groupId,
+      versionNumber: group.version,
+      snapshot: {
+        name: group.name,
+        blockId: group.blockId,
+        isActive: group.isActive,
+        instruments: group.instruments.map((i: any) => ({
+          id: i.id,
+          description: i.description,
+          stageKey: i.stageKey,
+          serialNumber: i.serialNumber,
+          instrumentId: i.instrumentId,
+          uom: i.uom,
+          instrumentMin: i.instrumentMin,
+          instrumentMax: i.instrumentMax,
+          operatingMin: i.operatingMin,
+          operatingMax: i.operatingMax,
+          leastCount: i.leastCount,
+          sortOrder: i.sortOrder,
+        })),
+      } as Prisma.InputJsonValue,
+      changeNotes,
+      createdBy: ctx.userSub,
+    },
+  });
+  await tx.equipmentGroup.update({
+    where: { id: groupId },
+    data: { version: { increment: 1 } },
+  });
+}
 
 const INSTRUMENT_DESCRIPTIONS = [
   { description: 'Compressed Air Pressure', stageKey: 'WASH_IN', sortOrder: 1 },
@@ -152,6 +214,11 @@ export class EquipmentGroupsService {
     instruments.forEach((inst: any, idx: number) => validateInstrument(inst, idx));
 
     const group = await prisma.$transaction(async (tx) => {
+      // Phase A.4: snapshot-then-bump. Freeze the OUTGOING composite (group +
+      // 3 instruments, ordered by sortOrder) into the versions table BEFORE
+      // mutating anything live, then bump version on the live group row.
+      await snapshotAndBump(tx, id, data.changeNotes ?? null, ctx);
+
       if (name && name.trim() !== existing.name) {
         await tx.equipmentGroup.update({ where: { id }, data: { name: name.trim() } });
       }
@@ -186,12 +253,51 @@ export class EquipmentGroupsService {
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'EQUIPMENT_GROUP_UPDATED',
       targetType: 'equipment_group', targetId: id,
-      beforeValue: { name: existing.name },
-      afterValue: { name: name?.trim() ?? existing.name },
+      beforeValue: { name: existing.name, version: existing.version },
+      afterValue: { name: name?.trim() ?? existing.name, version: (group?.version ?? existing.version + 1) },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
     });
 
     return group;
+  }
+
+  /**
+   * List archived versions of an equipment group, newest first. The current
+   * live composite is NOT in the versions table (versions only contains
+   * pre-mutation snapshots), so the response is the history strictly BEFORE
+   * the current version pointer.
+   */
+  async getVersions(_ctx: RequestContext, groupId: string) {
+    const group = await prisma.equipmentGroup.findUnique({
+      where: { id: groupId },
+      select: { id: true, version: true },
+    });
+    if (!group) throw new AppError(404, 'NOT_FOUND', 'Equipment group not found');
+    const versions = await prisma.equipmentGroupVersion.findMany({
+      where: { groupId },
+      orderBy: { versionNumber: 'desc' },
+      select: { id: true, versionNumber: true, changeNotes: true, createdAt: true, createdBy: true },
+    });
+    return { groupId, currentVersion: group.version, versions };
+  }
+
+  /**
+   * Read a frozen historical version. Returns the snapshot exactly as it was
+   * when that version was archived (group + 3 instruments composite).
+   */
+  async getVersion(_ctx: RequestContext, groupId: string, versionNumber: number) {
+    const v = await prisma.equipmentGroupVersion.findUnique({
+      where: { groupId_versionNumber: { groupId, versionNumber } },
+    });
+    if (!v) throw new AppError(404, 'NOT_FOUND', `Version ${versionNumber} of equipment group ${groupId} not found`);
+    return {
+      groupId: v.groupId,
+      versionNumber: v.versionNumber,
+      ...(v.snapshot as any),
+      createdAt: v.createdAt,
+      createdBy: v.createdBy,
+      changeNotes: v.changeNotes,
+    };
   }
 
   async delete(ctx: RequestContext, id: string) {
