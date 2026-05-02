@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased] — Step 8 Phase 8.3: offline replay tape-versioning (2026-05-02)
+
+Branch: `feature/phase5-verification`. Adds an optimistic-concurrency guard to all 4 cycle-bound write routes (advance / submit-checklist / bypass / terminate) so a stale offline replay can no longer silently overwrite progress made by another operator on a different device. Renderer surface is ready for Phase 8.4 cutover; consumer wiring (mobile-operations.tsx / filter-operations.tsx) is intentionally untouched.
+
+### What landed
+
+- **EDIT** `apps/api/src/modules/filter-operations/tape/tape-generator.ts` — extracted `computeTapeVersion(profileVersion, filterEventCount)` as the single source of truth for the formula. Generator now calls it; service-side check calls it; tests assert agreement. M3 TODO left at this site — formula aliases when `filterEventCount >= 1000`, deferred to 8.4.
+- **EDIT** `apps/api/src/modules/filter-operations/filter-operations.service.ts` — added `assertTapeVersionFresh()` helper. Wired into all 4 write methods after the clientOpId dedup so idempotent replays still short-circuit. Mismatch throws `409 STALE_TAPE` with `details.currentTapeVersion`. Optional during 8.3 (callers pre-migration omit the field) — server treats absent / null as a no-check. Phase 8.4 will tighten to required.
+- **EDIT** `apps/api/src/modules/filter-operations/routes.ts` — added `tapeVersion: { type: 'integer' }` to the body schema on `/advance`, `/submit-checklist`, `/bypass`, `/terminate-cycle`. Optional for backward compat.
+- **EDIT** `packages/shared/src/types/action-tape.ts` + `packages/shared/src/index.ts` — added `StaleTapeError` interface as a type-guard target (NOT a thrown class). Surfaced on the FE via `(error as any).code === 'STALE_TAPE'` + `currentTapeVersion: number`.
+- **EDIT** `apps/web/src/lib/api-client.ts` — lifted `details.currentTapeVersion` to a top-level field on the rejected Error (mirrors the existing `attemptsRemaining` pattern).
+- **EDIT** `apps/web/src/lib/offline-store.ts` — bumped IDB `DB_VERSION` 2 -> 3, added `tapeVersion: number | null` to the `OfflineOperation` row shape. No `onupgradeneeded` migration needed (row-shape-flexible store; existing rows have undefined tapeVersion which the server's optional schema accepts).
+- **EDIT** `apps/web/src/lib/sync-engine.ts` — replay sends `tapeVersion` for cycle-bound ops (advance / submit-checklist / bypass / terminate); explicitly omitted on start-cycle / start-and-advance start step (not cycle-bound). On 409 STALE_TAPE the op is dropped as `failed` with a refresh-prompt toast — retrying with the same stored version would just keep failing, mirroring the existing `CYCLE_ENDED` stranded path.
+- **EDIT** `apps/web/src/lib/action-tape/ActionRenderer.tsx` — added `tapeVersion?: number` prop to both `ActionRendererProps` and `ActionTapeRendererProps`. Dispatcher seam (single point in the component) merges the prop into every payload before forwarding to the caller. Per-button components unchanged.
+
+### Tests
+
+- `apps/api/src/modules/filter-operations/tape/__tests__/tape-generator.test.ts`: 23 -> 26 (computeTapeVersion direct unit + generator-vs-helper agreement).
+- `apps/api/src/modules/filter-operations/__tests__/tape-version-check.test.ts` (NEW): 3 cases on terminateCycle() — match passes, mismatch -> 409 STALE_TAPE with currentTapeVersion in details, absent -> no-check (backward compat).
+- `apps/web/src/lib/__tests__/sync-engine.test.ts` (NEW): 4 cases — replay carries tapeVersion through, pre-8.3 op (null) replays without the field (server skip path = IDB schema-migration backward-compat req), 409 STALE_TAPE marks failed (no retry), generic 500 marks pending (regular retry).
+- API: 1159 -> 1165. Web: 43 -> 47. Two pre-existing e2e failures (auth.test.ts:210, config.test.ts:596) are unrelated and predate this work.
+
+### Out of scope (deferred to 8.4)
+
+- Tightening the route schema to require `tapeVersion` and removing the optional fallback.
+- Wiring `tapeVersion` into mobile-operations.tsx / filter-operations.tsx callsites.
+- Fixing the M3 formula aliasing.
+
 ## [Unreleased] — Step 8 Phase 8.2: full per-action-type renderers + M1 BYPASS expansion (2026-05-02)
 
 Branch: `feature/phase5-verification`. Two-part batch — replaced the 7 Phase-8.1 stub renderers with full-functionality components (dialogs / validation / typed payloads), and closed the M1 follow-up flagged by the Phase 8.0 reviewer. The renderers still live in isolation — `mobile-operations.tsx` / `filter-operations.tsx` are unchanged. Cutover is Phase 8.4.
