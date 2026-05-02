@@ -1,5 +1,39 @@
 # Changelog
 
+## [Unreleased] — L4: advance() reading-validation snapshot/live equality audit — NO CHANGE (2026-05-02)
+
+Branch: `feature/phase5-verification`. L4 from `tasks/SERVER-ONLINE-WORKLIST.md` was a defense-in-depth audit of `filter-operations.service.ts:1227-1262` (`advance()` reading-validation snapshot vs lazy-first-version live-fallback path). **Outcome: no code change. The path is correct.**
+
+### What was audited
+
+The validator picks `stageInstruments` from one of three sources depending on cycle pin state:
+
+1. Snapshot path (`pin=N`, snap row exists): reads `snapshot.instruments[]`.
+2. Lazy-first-version live-fallback (`pin=N`, no snap row, asserts `live.version === pin`): reads live `equipmentGroupInstrument` rows.
+3. Legacy fallback (`pin=NULL`): reads live rows. Documented drift gap, intentionally kept for backwards-compat with pre-P1 cycles.
+
+The concern was whether the instrument IDs the FE has cached (used to key the submitted `instrumentReadings: {[id]: number}`) could ever diverge from the IDs the validator iterates over.
+
+### Finding: instrument IDs are stable across edits
+
+`equipment-groups.service.ts:163-178` mutates each instrument by `tx.equipmentGroupInstrument.update({where: {id: existingInst.id}, ...})` — fields change, row identity is preserved. There is no replace-instrument code path that creates new rows. Therefore:
+
+- Snapshot path: `snap.instruments[i].id` matches what the FE saw via `getCurrentState()` (which after L1 returns the same snapshot).
+- Lazy-first-version: snapshot doesn't exist yet, both server and FE use the live row's IDs — identical.
+- Legacy: pre-P1 cycle never had a pin, FE always saw live IDs, validator reads live IDs — identical.
+
+### Auto-bind at submit (line ~1199-1216)
+
+When a cycle has no `equipmentGroupId` and a single block-group exists, the validator auto-binds at submit time and stamps `pin = live.version`. The submitted `instrumentReadings` was built from a prior `getCurrentState()` call which returned the live group; validator reads the same live group via the lazy-first-version branch (`pin === live.version` assertion holds). **Synchronous online flow: race-free.**
+
+The narrow offline-batch case (FE rendered against live v1, admin edited to v2 mid-flight, sync replays the readings, validator pins to v2) is reachable but is exactly what Slice B in `future/offline-version-sync-contract.md` is designed to handle. Out of scope for online-side work.
+
+### Decision: no change
+
+L4 closed. Documented here for the record.
+
+---
+
 ## [Unreleased] — L3: equipmentGroupSyncWarning on getCurrentState (2026-05-02)
 
 Branch: `feature/phase5-verification`. Symmetric to the existing `profileSyncWarning` (cleaning-recipe drift) but for the EquipmentGroup pin. Read-only advisory; no functional change to validation.
