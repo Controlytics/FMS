@@ -246,10 +246,13 @@ describe('pipeline-executor barrel exports the expected names', () => {
   });
 });
 
-describe('pipeline-executor — only Commit 2 stub remains', () => {
-  it('computeNextActions still throws NOT_IMPLEMENTED (Commit 2)', () => {
+describe('pipeline-executor — context-loaders deliberately remain stubs', () => {
+  it('computeNextActions returns a tape with actions[] + tapeVersion (Phase 8.5 Commit 2 filled this in)', () => {
     const ctx = makeFixture();
-    expect(() => computeNextActions(ctx)).toThrowError(/^NOT_IMPLEMENTED/);
+    const result = computeNextActions(ctx);
+    expect(result).toHaveProperty('actions');
+    expect(Array.isArray(result.actions)).toBe(true);
+    expect(typeof result.tapeVersion).toBe('number');
   });
   it('loadLocalContext still rejects (real impl lives in apps/api)', async () => {
     await expect(loadLocalContext('filter-1')).rejects.toThrow(/^NOT_IMPLEMENTED/);
