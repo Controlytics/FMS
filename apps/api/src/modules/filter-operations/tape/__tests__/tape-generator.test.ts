@@ -352,6 +352,91 @@ describe('generateTape() — pure-function action emission', () => {
     expect(tape.actions.some(a => a.type === 'BYPASS_STAGE')).toBe(false);
   });
 
+  // M1 (Phase 8.2 fix — 2026-05-02): BYPASS_STAGE emit-set expansion.
+  // The existing in-app UI lets the operator bypass to ANY pipeline STAGE
+  // when flowMode=BYPASS_ENABLED — including step-back (an earlier stage).
+  // The Phase 8.0 generator emitted only reachable stages, which strictly
+  // under-reported the operator's surface. M1 fixes that: emit a BYPASS for
+  // every STAGE node in the pipeline EXCEPT the current state.
+  it('21. M1 BYPASS expansion: in WASH_IN with 4-stage profile → bypass to the OTHER 3 stages, not 4', () => {
+    nextId = 0;
+    const start = stage(null, 'START');
+    const washIn = stage('WASH_IN', 'STAGE');
+    const washOut = stage('WASH_OUT', 'STAGE');
+    const dryIn = stage('DRY_IN', 'STAGE');
+    const dryOut = stage('DRY_OUT', 'STAGE');
+    const end = stage(null, 'END');
+    const profile: TapePinnedProfile = {
+      id: 'p-bypass-1',
+      name: '4-stage bypass',
+      flowMode: 'BYPASS_ENABLED',
+      stages: [start, washIn, washOut, dryIn, dryOut, end],
+      connections: [
+        { fromStageId: start.id, toStageId: washIn.id },
+        { fromStageId: washIn.id, toStageId: washOut.id },
+        { fromStageId: washOut.id, toStageId: dryIn.id },
+        { fromStageId: dryIn.id, toStageId: dryOut.id },
+        { fromStageId: dryOut.id, toStageId: end.id },
+      ],
+    };
+    const tape = generateTape(inputFx({
+      pinnedProfile: profile,
+      filter: { id: 'f-1', currentLifecycleState: 'WASH_IN' },
+    }));
+    const bypasses = tape.actions.filter(a => a.type === 'BYPASS_STAGE') as any[];
+    const bypassTargets = bypasses.map(b => b.params.targetState).sort();
+    expect(bypassTargets).toEqual(['DRY_IN', 'DRY_OUT', 'WASH_OUT']);
+    // Crucially WASH_IN (the current state) is NOT in the emit set.
+    expect(bypassTargets).not.toContain('WASH_IN');
+  });
+
+  it('22. M1 BYPASS expansion: includes step-back targets (earlier stages), not just forward-reachable', () => {
+    // 5-stage profile: filter is at DRY_OUT. Operator must be able to bypass
+    // BACK to WASH_IN (step-back) — that's the surface advance() exposes
+    // server-side via cp.stages.filter(s => nodeType === 'STAGE' && stateKey).
+    nextId = 0;
+    const start = stage(null, 'START');
+    const washIn = stage('WASH_IN', 'STAGE');
+    const washOut = stage('WASH_OUT', 'STAGE');
+    const dryIn = stage('DRY_IN', 'STAGE');
+    const dryOut = stage('DRY_OUT', 'STAGE');
+    const end = stage(null, 'END');
+    const profile: TapePinnedProfile = {
+      id: 'p-bypass-2',
+      name: 'step-back bypass',
+      flowMode: 'BYPASS_ENABLED',
+      stages: [start, washIn, washOut, dryIn, dryOut, end],
+      connections: [
+        { fromStageId: start.id, toStageId: washIn.id },
+        { fromStageId: washIn.id, toStageId: washOut.id },
+        { fromStageId: washOut.id, toStageId: dryIn.id },
+        { fromStageId: dryIn.id, toStageId: dryOut.id },
+        { fromStageId: dryOut.id, toStageId: end.id },
+      ],
+    };
+    const tape = generateTape(inputFx({
+      pinnedProfile: profile,
+      filter: { id: 'f-1', currentLifecycleState: 'DRY_OUT' },
+    }));
+    const bypassTargets = (tape.actions.filter(a => a.type === 'BYPASS_STAGE') as any[])
+      .map(b => b.params.targetState)
+      .sort();
+    expect(bypassTargets).toEqual(['DRY_IN', 'WASH_IN', 'WASH_OUT']);
+    // Step-back specifically: WASH_IN (earlier than current DRY_OUT) IS emitted.
+    expect(bypassTargets).toContain('WASH_IN');
+  });
+
+  it('23. M1 BYPASS expansion: with no current state (fresh cycle) → bypass to ALL STAGE nodes', () => {
+    // currentLifecycleState=null → no exclusion → emit one BYPASS per STAGE.
+    const profile = simpleProfile();
+    profile.flowMode = 'BYPASS_ENABLED';
+    const tape = generateTape(inputFx({ pinnedProfile: profile }));
+    const bypassTargets = (tape.actions.filter(a => a.type === 'BYPASS_STAGE') as any[])
+      .map(b => b.params.targetState)
+      .sort();
+    expect(bypassTargets).toEqual(['DRY_IN', 'WASH_IN']);
+  });
+
   // ── 9. tapeVersion ─────────────────────────────────────────────────────
   it('18. tapeVersion = profileVersion * 1000 + filterEventCount (changes on EVERY filter event)', () => {
     // Zero events.

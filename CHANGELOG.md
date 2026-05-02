@@ -1,5 +1,52 @@
 # Changelog
 
+## [Unreleased] — Step 8 Phase 8.2: full per-action-type renderers + M1 BYPASS expansion (2026-05-02)
+
+Branch: `feature/phase5-verification`. Two-part batch — replaced the 7 Phase-8.1 stub renderers with full-functionality components (dialogs / validation / typed payloads), and closed the M1 follow-up flagged by the Phase 8.0 reviewer. The renderers still live in isolation — `mobile-operations.tsx` / `filter-operations.tsx` are unchanged. Cutover is Phase 8.4.
+
+### What landed
+
+#### Part (a) — Full renderers for all 7 action types
+
+- **NEW** `apps/web/src/lib/action-tape/components/action-dialog.tsx` — shared modal primitive used by the 4 dialog-bearing renderers. Light-theme (`bg-white`, `border-slate-200`, gradient header), backdrop-click dismiss when not loading, role="dialog" + aria-modal for a11y, supports primary / success / warning / danger header+submit variants. Body is an opaque slot so each renderer can build whatever form it needs.
+- **EDIT** `apps/web/src/lib/action-tape/ActionRenderer.tsx` — child contract changed from `onClick: () => void` to `onSubmit: (payload: ActionPayload) => Promise<void>`. Dispatcher now wraps the child's onSubmit to call the caller's `onSubmit(action, payload)` with the loading flag plumbed through. New `ActionPayload` discriminated union mirrors what the corresponding server route accepts (`POST /advance` / `/submit-checklist` / `/bypass` / `/terminate` / etc.) so Phase 8.4 cutover can plug the dispatcher into the existing routes without translation.
+- **EDIT** all 7 components in `apps/web/src/lib/action-tape/components/`:
+  - `CompleteCycleButton.tsx` — single-click submit, no dialog (success/green).
+  - `AdvanceToStageButton.tsx` — single-click submit when no `requiresInstrumentReadings`, dialog with one numeric input per instrument id otherwise. Operating-range hints rendered next to each input as soft amber advisory; out-of-range readings still allowed (mirrors existing service.ts behaviour where ranges are advisory).
+  - `BypassStageButton.tsx` — justification dialog (amber/warning), textarea required, length validated against `action.requiresJustification.minLength` (read from action — not hard-coded).
+  - `TerminateCycleButton.tsx` — justification dialog (red/danger), same `minLength` contract.
+  - `SetDryerDurationButton.tsx` — two number inputs (min/max), validated `1 ≤ min ≤ max ≤ 1440`, integer-only, seeded from `action.params.minMinutes` / `maxMinutes`.
+  - `SubmitDryerReadingsButton.tsx` — one numeric input per `params.instrumentIds`, all required, range advisory rendered.
+  - `SubmitChecklistButton.tsx` — question list (YES/NO/N/A radios + optional remarks per question), required-question gate enforced; remarks always optional (matches the project rule that filter cleaning checklist remarks stay optional). Submit payload mirrors what `POST /:id/submit-checklist` accepts: object-keyed `answers: Record<questionId, value>` with unanswered optionals **omitted** (server rejects extras with 400 INVALID_QUESTIONS — see `filter-operations.service.ts:870-882`). Optional `remarks` map sent under a separate key only when at least one remark is non-empty.
+
+#### Dialog UX semantics — close on success, stay open on error
+
+All 5 dialog-bearing renderers now `await onSubmit(...)` rather than fire-and-forget. On resolve: close the dialog and reset form state. On reject: keep the dialog open and surface the parent's error message inside the dialog so the operator can fix and retry without losing context. The dispatcher's existing `try/finally` (no `catch`) propagates parent errors back through the await chain. Without this, the operator would see a dialog that should have closed staying stuck open and re-clicking would double-submit.
+
+#### Part (b) — Test coverage
+
+- **EDIT** `apps/web/src/lib/action-tape/__tests__/ActionRenderer.test.tsx` — extended from 11 to **33** tests. New cases cover: dialog open-on-click for each dialog renderer, justification min-length validation (BYPASS + TERMINATE), required-question gating + object-keyed answers payload (CHECKLIST), min/max + bounds validation (SET_DRYER_DURATION), readings input + numeric coercion (SUBMIT_DRYER_READINGS), instrument-readings dialog flow (ADVANCE_TO_STAGE with readings), immediate-submit path (ADVANCE without readings + COMPLETE), loading-lock parity with the new contract, the disabled-prop short-circuit (no dialog opens), and three close-on-success / stay-open-on-error tests covering the dialog-lifecycle UX. Existing 11 dispatch tests updated for the new `(action, payload)` signature.
+
+#### Part (c) — M1 follow-up: BYPASS_STAGE emit-set expansion
+
+- **EDIT** `apps/api/src/modules/filter-operations/tape/tape-generator.ts` — when `pinnedProfile.flowMode === 'BYPASS_ENABLED'`, BYPASS_STAGE actions now emit for every pipeline `STAGE` node EXCEPT the current state. Previously the emit-set was restricted to `reachableStages` (forward-walkable from the current node), which under-reported the operator's real bypass surface — specifically step-back (jumping to an earlier pipeline stage), which the existing in-app UI exposes today and which the server's `bypass()` route accepts (`filter-operations.service.ts:1548-1556` validates targetState against `cp.stages.filter(s => s.nodeType === 'STAGE' && s.stateKey)` — i.e. ANY pipeline STAGE is a legal bypass target).
+- **EDIT** `apps/api/src/modules/filter-operations/tape/__tests__/tape-generator.test.ts` — added 3 tests (21–23): full-pipeline bypass set excluding current state (4-stage profile), step-back targets included (filter at DRY_OUT must offer WASH_IN), and no-current-state edge case (fresh cycle → all STAGEs eligible). Test count: 20 → **23**.
+- Parity test `tape-parity.test.ts` was unaffected — its assertions are additive (`some()`), so the expanded BYPASS emit-set falls within the existing parity contract (tape ⊇ existing fields).
+
+### Verification (Phase 8.2)
+
+- `cd packages/shared && npx tsc` → exit 0 (untouched).
+- `cd apps/api && npx tsc -p tsconfig.json --noEmit` → exit 0.
+- `cd apps/web && npx tsc --noEmit` → exit 0.
+- `cd apps/api && npx vitest run src/modules/filter-operations` → 3 files, **38 tests pass** (Phase 8.1 had 35).
+- `cd apps/web && npx vitest run` → 2 files, **43 tests pass** (Phase 8.1 had 21).
+
+### Out of scope (Phase 8.2)
+
+- FE consumption of the tape — Phase 8.4 cutover.
+- Offline replay tape-versioning — Phase 8.3.
+- APK changes — Phase 8.5.
+
 ## [Unreleased] — Step 8 Phase 8.1: shared types + FE action-renderer skeleton + Phase 8.0 review follow-ups (2026-05-02)
 
 Branch: `feature/phase5-verification`. Three parts in one batch — type extraction to `@digilog/shared`, FE renderer skeleton (stub-level — no live consumers yet), and the two Minor cleanups flagged by the Phase 8.0 reviewer (M4 + M6). Strictly additive on the FE side; the FE skeleton is built but not yet consumed by `mobile-operations.tsx` / `filter-operations.tsx` — that's Phase 8.4 cutover.

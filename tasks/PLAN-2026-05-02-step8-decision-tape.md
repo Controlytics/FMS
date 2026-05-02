@@ -120,7 +120,7 @@ A second test file `tape-parity.test.ts` that:
 
 Recorded by code-quality reviewer on commit `1889289`. None blocked Phase 8.0 approval but each gets folded into a later phase.
 
-- **M1 (defer to 8.2):** `BYPASS_STAGE` only emits for `reachableStages` from current state. `advance()` in `BYPASS_ENABLED` mode actually accepts ANY pipeline-stage as targetState (`filter-operations.service.ts:1210` short-circuit). Tape under-reports the operator's real bypass surface. **8.2 must expand the emit-set to all pipeline stages when `flowMode === 'BYPASS_ENABLED'`** before the FE renderer ships, otherwise the renderer silently loses step-back BYPASS capability that the existing UI has today.
+- **M1 ✅ closed in 8.2 (2026-05-02):** BYPASS_STAGE emit-set expanded to every pipeline `STAGE` node except the current state, matching the server's `bypass()` route validation (`filter-operations.service.ts:1548-1556`). Step-back targets (earlier pipeline stages) are now emitted. 3 tape-generator tests added (21–23) covering 4-stage forward set, step-back, and fresh-cycle edge cases.
 - **M3 (defer to 8.4 cutover):** `tapeVersion = profileVersion * 1000 + filterEventCount`. Collides if `filterEventCount >= 1000`. Implausible in practice (cycles have dozens of events) but worth tightening before cutover. Options: `BigInt`, or `(profileVersion << 32) | eventCount`. Pick when 8.4 is scoped.
 - **M4 ✅ closed in 8.1 (2026-05-02):** added `beforeEach(() => { nextId = 0; })` inside the `generateTape()` describe block. Defense-in-depth — the helpers already reset on entry — but makes the file safe under `test.concurrent`.
 - **M6 ✅ closed in 8.1 (2026-05-02):** service.ts flag-on block now reads recent CHECKLIST_COMPLETED events + total event count via `Promise.all([...])`. One less DB round-trip when the flag is on; behaviorally identical.
@@ -167,9 +167,48 @@ Three parts shipped in one batch:
 - Offline replay tape-versioning — Phase 8.3.
 - APK changes — Phase 8.5.
 
-## Phase 8.2-8.5
+## Phase 8.2 ✅ DONE — full per-action-type renderers + M1 closure (2026-05-02)
 
-Skip detail until 8.0 + 8.1 ship.
+Replaced the 7 Phase-8.1 stub renderers with full-functionality components (dialogs / validation / typed payloads) and closed M1.
+
+### Part (a) — Full renderers + shared dialog primitive
+
+- **NEW** `apps/web/src/lib/action-tape/components/action-dialog.tsx` — shared modal primitive for the 4 dialog-bearing renderers. Light theme, gradient header, role="dialog" + aria-modal, backdrop-click dismiss, primary/success/warning/danger header+submit variants.
+- **EDIT** `apps/web/src/lib/action-tape/ActionRenderer.tsx` — child contract changed from `onClick: () => void` to `onSubmit: (payload: ActionPayload) => Promise<void>`. New `ActionPayload` discriminated union mirrors what each server route accepts so Phase 8.4 cutover can plug the dispatcher into existing routes without translation.
+- **EDIT** all 7 components: `CompleteCycleButton` (immediate submit, no dialog), `AdvanceToStageButton` (immediate when no readings, dialog when `requiresInstrumentReadings` non-empty), `BypassStageButton` (justification dialog, amber/warning), `TerminateCycleButton` (justification dialog, red/danger), `SetDryerDurationButton` (min/max number inputs, `1 ≤ min ≤ max ≤ 1440`), `SubmitDryerReadingsButton` (one numeric input per instrument id), `SubmitChecklistButton` (YES/NO/N/A radios + optional remarks per question, required-question gate).
+
+### Part (b) — Tests
+
+- **EDIT** `apps/web/src/lib/action-tape/__tests__/ActionRenderer.test.tsx` — 11 → **33 tests**. Covers per-type dispatch, immediate-submit, dialog-flow validation (justification min-length, required questions, dryer min/max bounds), readings-input numeric coercion, loading lock under the new contract, and 3 close-on-success / stay-open-on-error tests.
+
+### Dialog UX — close on success, stay open on error
+
+All 5 dialog renderers `await onSubmit(...)` and use try/catch:
+- On resolve → close dialog + reset form state.
+- On reject → keep dialog open + surface parent error inside the dialog (operator can fix and retry without losing context).
+
+### Part (c) — M1 follow-up
+
+- **EDIT** `apps/api/src/modules/filter-operations/tape/tape-generator.ts` — BYPASS emit-set now covers every pipeline `STAGE` node except current state. Matches the server's `bypass()` route validation surface.
+- **EDIT** `apps/api/src/modules/filter-operations/tape/__tests__/tape-generator.test.ts` — 20 → **23 tests** (added 21–23 for 4-stage bypass set, step-back, fresh-cycle).
+
+### Verification (Phase 8.2)
+
+- `cd packages/shared && npx tsc` → exit 0 (untouched).
+- `cd apps/api && npx tsc -p tsconfig.json --noEmit` → exit 0.
+- `cd apps/web && npx tsc --noEmit` → exit 0.
+- `cd apps/api && npx vitest run src/modules/filter-operations` → 3 files, 38 tests pass.
+- `cd apps/web && npx vitest run` → 2 files, 43 tests pass.
+
+### Out of scope (Phase 8.2)
+
+- FE consumption of the tape — Phase 8.4 cutover.
+- Offline replay tape-versioning — Phase 8.3.
+- APK changes — Phase 8.5.
+
+## Phase 8.3-8.5
+
+Skip detail until 8.2 ships.
 
 ## Standing rules
 

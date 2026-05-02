@@ -1,21 +1,19 @@
 import type { CompleteCycleAction } from '../types.js';
+import type { ActionPayload } from '../ActionRenderer.js';
 import { BaseActionButton } from './base-action-button.js';
 
 /**
- * Phase 8.1 stub for `COMPLETE_CYCLE`.
- *
- * Cycle completion is a positive terminal action; visual variant is "success"
- * (green). The server auto-advances on accept — there's no extra payload.
- * Stub just emits the action.
+ * `COMPLETE_CYCLE` — terminal positive action. No payload, no validation,
+ * no dialog. Single-click submit. Visual variant is `success` (emerald).
  */
 export interface CompleteCycleButtonProps {
   action: CompleteCycleAction;
   disabled?: boolean;
   loading?: boolean;
-  onClick: () => void;
+  onSubmit: (payload: ActionPayload) => void | Promise<void>;
 }
 
-export function CompleteCycleButton({ action, disabled, loading, onClick }: CompleteCycleButtonProps) {
+export function CompleteCycleButton({ action, disabled, loading, onSubmit }: CompleteCycleButtonProps) {
   return (
     <BaseActionButton
       actionType="COMPLETE_CYCLE"
@@ -23,7 +21,9 @@ export function CompleteCycleButton({ action, disabled, loading, onClick }: Comp
       label={action.label}
       disabled={disabled}
       loading={loading}
-      onClick={onClick}
+      onClick={() => {
+        void onSubmit({ type: 'COMPLETE_CYCLE' });
+      }}
     />
   );
 }

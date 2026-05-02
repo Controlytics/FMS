@@ -9,18 +9,46 @@ import { TerminateCycleButton } from './components/TerminateCycleButton.js';
 import { CompleteCycleButton } from './components/CompleteCycleButton.js';
 
 /**
- * `ActionRenderer` — Phase 8.1 dispatch component for the decision tape.
+ * Phase 8.2 payload shape — one per action type. Renderers call
+ * `onSubmit(payload)`; the dispatcher wraps with the action context and
+ * forwards `(action, payload)` to the caller.
  *
- * Takes a single `Action` (one entry from `ActionTape.actions`) plus an
- * `onSubmit` callback. The renderer:
- *   1. Switches on `action.type` to render the right child stub component.
- *   2. Owns `loading` state for the in-flight submit; passes `disabled` to
- *      the child while the parent's promise hasn't resolved.
- *   3. Honors a caller-provided `disabled` prop (e.g. when the cycle is
- *      blocked by another action elsewhere in the tape).
+ * The shapes mirror what the corresponding server route accepts so the
+ * Phase 8.4 cutover can plug a single dispatcher into all six existing
+ * routes (POST /advance, /submit-checklist, /bypass, /terminate, /complete).
+ */
+export type ActionPayload =
+  | { type: 'ADVANCE_TO_STAGE'; targetState: string; readings?: Record<string, number> }
+  // Note: `answers` is keyed by questionId and only contains questions the
+  // operator actually answered. Mirrors the existing `POST /:id/submit-checklist`
+  // contract (filter-operations.service.ts:870-882) where required-question
+  // enforcement runs server-side and unexpected keys are rejected outright —
+  // unanswered optional questions MUST be omitted, not sent as 'N/A'.
+  | { type: 'SUBMIT_CHECKLIST'; checklistProfileId: string; versionPin: number; afterStage: string; answers: Record<string, string>; remarks?: Record<string, string> }
+  | { type: 'SUBMIT_DRYER_READINGS'; readings: Record<string, number> }
+  | { type: 'SET_DRYER_DURATION'; targetState: 'DRY_IN'; minMinutes: number; maxMinutes: number }
+  | { type: 'BYPASS_STAGE'; targetState: string; justification: string }
+  | { type: 'TERMINATE_CYCLE'; justification: string }
+  | { type: 'COMPLETE_CYCLE' };
+
+/**
+ * `ActionRenderer` — Phase 8.2 dispatch component for the decision tape.
  *
- * Phase 8.2 will swap each stub for a fully-featured component (dialogs,
- * forms, validation rendering) — but the dispatch shape stays the same.
+ * Phase 8.2 contract change (vs 8.1):
+ *   - Children receive `onSubmit(payload: ActionPayload)` instead of `onClick()`.
+ *   - The dispatcher wraps each child's `onSubmit` to call the caller's
+ *     `onSubmit(action, payload)` and to flip `loading` while the parent
+ *     promise is pending.
+ *   - For renderers with no UI gate (COMPLETE_CYCLE, ADVANCE without
+ *     instrument readings), the child calls `onSubmit({})` directly from
+ *     its click handler — single-click submit, no dialog.
+ *   - For dialog-bearing renderers (BYPASS, TERMINATE, SUBMIT_CHECKLIST,
+ *     SUBMIT_DRYER_READINGS, SET_DRYER_DURATION, ADVANCE_TO_STAGE-with-
+ *     readings), the child opens a dialog on click and only fires onSubmit
+ *     after the operator submits the dialog form.
+ *
+ * The exhaustiveness guard (`_exhaustive: never`) still proves that any new
+ * action kind added to the union requires a renderer here.
  *
  * For `<ActionTapeRenderer />` (rendering the WHOLE tape with a single
  * loading-lock across actions), use the convenience wrapper at the bottom
@@ -30,10 +58,11 @@ export interface ActionRendererProps {
   action: Action;
   /**
    * Caller's submit handler. Returns a promise so the renderer can flip the
-   * `loading` state on/off automatically. The action shape passed to the
-   * caller is the SAME shape the server emits — no translation.
+   * `loading` state on/off automatically. Receives both the original action
+   * (so the caller knows which route to call) and the renderer-built payload
+   * (so the caller doesn't have to re-derive any of the dialog fields).
    */
-  onSubmit: (action: Action) => Promise<void> | void;
+  onSubmit: (action: Action, payload: ActionPayload) => Promise<void> | void;
   /**
    * Externally-controlled disabled state. When true, the action button is
    * disabled regardless of in-flight state (e.g. another action elsewhere
@@ -46,11 +75,12 @@ export function ActionRenderer({ action, onSubmit, disabled }: ActionRendererPro
   const [loading, setLoading] = useState(false);
   const isDisabled = !!disabled || loading;
 
-  const handleClick = async () => {
+  /** Wraps the child's onSubmit so the dispatcher owns the loading flag. */
+  const dispatch = async (payload: ActionPayload) => {
     if (isDisabled) return;
     setLoading(true);
     try {
-      await onSubmit(action);
+      await onSubmit(action, payload);
     } finally {
       setLoading(false);
     }
@@ -58,68 +88,19 @@ export function ActionRenderer({ action, onSubmit, disabled }: ActionRendererPro
 
   switch (action.type) {
     case 'ADVANCE_TO_STAGE':
-      return (
-        <AdvanceToStageButton
-          action={action}
-          disabled={isDisabled}
-          loading={loading}
-          onClick={handleClick}
-        />
-      );
+      return <AdvanceToStageButton action={action} disabled={isDisabled} loading={loading} onSubmit={dispatch} />;
     case 'SUBMIT_CHECKLIST':
-      return (
-        <SubmitChecklistButton
-          action={action}
-          disabled={isDisabled}
-          loading={loading}
-          onClick={handleClick}
-        />
-      );
+      return <SubmitChecklistButton action={action} disabled={isDisabled} loading={loading} onSubmit={dispatch} />;
     case 'SUBMIT_DRYER_READINGS':
-      return (
-        <SubmitDryerReadingsButton
-          action={action}
-          disabled={isDisabled}
-          loading={loading}
-          onClick={handleClick}
-        />
-      );
+      return <SubmitDryerReadingsButton action={action} disabled={isDisabled} loading={loading} onSubmit={dispatch} />;
     case 'SET_DRYER_DURATION':
-      return (
-        <SetDryerDurationButton
-          action={action}
-          disabled={isDisabled}
-          loading={loading}
-          onClick={handleClick}
-        />
-      );
+      return <SetDryerDurationButton action={action} disabled={isDisabled} loading={loading} onSubmit={dispatch} />;
     case 'BYPASS_STAGE':
-      return (
-        <BypassStageButton
-          action={action}
-          disabled={isDisabled}
-          loading={loading}
-          onClick={handleClick}
-        />
-      );
+      return <BypassStageButton action={action} disabled={isDisabled} loading={loading} onSubmit={dispatch} />;
     case 'TERMINATE_CYCLE':
-      return (
-        <TerminateCycleButton
-          action={action}
-          disabled={isDisabled}
-          loading={loading}
-          onClick={handleClick}
-        />
-      );
+      return <TerminateCycleButton action={action} disabled={isDisabled} loading={loading} onSubmit={dispatch} />;
     case 'COMPLETE_CYCLE':
-      return (
-        <CompleteCycleButton
-          action={action}
-          disabled={isDisabled}
-          loading={loading}
-          onClick={handleClick}
-        />
-      );
+      return <CompleteCycleButton action={action} disabled={isDisabled} loading={loading} onSubmit={dispatch} />;
     default: {
       // Exhaustiveness guard — if a new action kind is added to the union but
       // not wired here, the typechecker fails. At runtime we render nothing
@@ -134,11 +115,11 @@ export function ActionRenderer({ action, onSubmit, disabled }: ActionRendererPro
 /**
  * Convenience wrapper that renders the WHOLE `actions` list with a shared
  * loading-lock across every button — when one action is in flight, the others
- * are disabled. Phase 8.2 may want this for the operator surface.
+ * are disabled. Phase 8.4 cutover may want this for the operator surface.
  */
 export interface ActionTapeRendererProps {
   actions: Action[];
-  onSubmit: (action: Action) => Promise<void> | void;
+  onSubmit: (action: Action, payload: ActionPayload) => Promise<void> | void;
   /** Externally-controlled disabled (e.g. tape is stale; refetching). */
   disabled?: boolean;
   /** Optional empty-state ReactNode when `actions` is `[]`. */
@@ -152,12 +133,12 @@ export function ActionTapeRenderer({ actions, onSubmit, disabled, emptyState }: 
     return <>{emptyState ?? null}</>;
   }
 
-  const handleSubmit = async (action: Action) => {
+  const handleSubmit = async (action: Action, payload: ActionPayload) => {
     const key = actionKey(action);
     if (busyKey) return;
     setBusyKey(key);
     try {
-      await onSubmit(action);
+      await onSubmit(action, payload);
     } finally {
       setBusyKey(null);
     }

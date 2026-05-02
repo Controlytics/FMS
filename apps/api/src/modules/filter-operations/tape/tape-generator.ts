@@ -294,24 +294,36 @@ export function generateTape(input: TapeInput): ActionTape {
     }
   }
 
-  // 5. BYPASS_STAGE — only when the profile.flowMode permits bypass. v1
-  //    emits a BYPASS_STAGE for every reachable stage (and not for END), so
-  //    the FE can render explicit bypass-target buttons. Existing advance()
-  //    accepts any targetState when `cp.flowMode !== 'BYPASS_ENABLED'` is
-  //    false (line 1116 — i.e. flowMode === 'BYPASS_ENABLED' bypasses
-  //    sequence enforcement).
+  // 5. BYPASS_STAGE — only when the profile.flowMode permits bypass.
   //
-  //    v1 LIMIT: real bypass surface in advance() is "any STAGE node in the
-  //    pipeline that isn't the current one." We emit only reachable stages
-  //    here, which is a strict subset (mirrors what the existing
-  //    `nextAllowedStages` exposes today). Phase 8.2 renderer batch may
-  //    expand this to the full pipeline-stage set if operators need it.
+  //    M1 (Phase 8.2 fix — 2026-05-02): expanded from "reachable stages only"
+  //    to the FULL pipeline-stage set, excluding the current state. This
+  //    matches the actual server-side bypass surface in the `bypass()` route
+  //    (filter-operations.service.ts:1548-1556) which validates targetState
+  //    against `cp.stages.filter(s => s.nodeType === 'STAGE' && s.stateKey)`
+  //    — i.e. ANY pipeline STAGE is a legal bypass target as long as
+  //    flowMode === 'BYPASS_ENABLED' and a justification ≥ minLength is
+  //    provided. The previous emit-set (reachableStages only) under-reported
+  //    the operator's real bypass surface — specifically the step-back case
+  //    (jumping to an earlier stage in the pipeline) which the existing
+  //    in-app UI exposes today.
+  //
+  //    Bypassing INTO the current state is a no-op, so we exclude it.
   if (!checklistsPending && !blockedByDryerHalfTime && pinnedProfile.flowMode === 'BYPASS_ENABLED') {
-    for (const r of reachableStages) {
+    const allBypassTargets = stages
+      .filter(s => s.nodeType === 'STAGE' && s.stateKey && s.stateKey !== state)
+      // Stable order: by sortOrder asc, then by stateKey asc as deterministic tie-break.
+      .slice()
+      .sort((a, b) => {
+        const so = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+        if (so !== 0) return so;
+        return (a.stateKey ?? '').localeCompare(b.stateKey ?? '');
+      });
+    for (const s of allBypassTargets) {
       const byp: BypassStageAction = {
         type: 'BYPASS_STAGE',
-        label: `Bypass to ${prettyStageLabel(r.stateKey)}`,
-        params: { targetState: r.stateKey },
+        label: `Bypass to ${prettyStageLabel(s.stateKey!)}`,
+        params: { targetState: s.stateKey! },
         requiresJustification: { minLength: 10 },
       };
       actions.push(byp);
