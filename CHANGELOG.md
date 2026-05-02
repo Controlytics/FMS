@@ -1,5 +1,85 @@
 # Changelog
 
+## [Unreleased] — Step 8 Phase 8.4: Option D foundation — versioned local cache + shared executor scaffold (2026-05-02)
+
+Branch: `feature/phase5-verification`. The original 8.4 plan (delete the FE graph walker and switch FE to consume server `actions[]`) was reframed after a field-bucket audit on `mobile-operations.tsx` (2486 lines) + `filter-operations.tsx` (2088 lines) showed the cutover was a UX redesign + offline-state-machine rewrite, not a wiring change. The audit classified 48 guards across the 4 write methods as 35 Pure (73%) / 5 Hybrid (10%, already solved by 8.3 tapeVersion + clientOpId) / 8 Server-only (17%, concurrency control that can never move client-side). Conclusion: tablet should become a **versioned local replica** of the server's read model for the offline-relevant slice, with a **shared executor** running the same guard code on both sides. Drift becomes impossible by construction for the 35 pure guards; the 8 server-only guards stay server-side and surface their failures via the existing 8.3 STALE_TAPE / clientOpId reconciliation contract. **No app-visible behavior changed in 8.4** — additive plumbing only. The actual `TAPE_PARALLEL` flag flip + derived-field removal is now scheduled for Phase 8.7 (after 8.5 extraction + 8.6 FE consumption).
+
+### Architecture pivot (Option D)
+
+- **NEW** `tasks/PLAN-2026-05-02-step8-OPTION-D.md` — canonical Step 8 plan (~12 days focused work, 8.4 → 8.8 phase plan, 8 acceptance criteria). Original `tasks/PLAN-2026-05-02-step8-decision-tape.md` is superseded but kept for history.
+- **NEW** `tasks/INVENTORY-2026-05-02-step8.5-guards.md` — full enumeration of 48 guards (file:line, LocalContext inputs, output shape, target shared function name). Drives the 8.5 extraction work.
+
+### 8.4a — ChecklistProfile snapshot-then-bump regression gate (commit `f63207c`)
+
+- **NEW** `apps/api/src/modules/checklist-profile/__tests__/checklist-profile.service.test.ts` — 3 tests against mocked prisma + tx (mirrors `filter-operations/__tests__/get-current-state.test.ts` pattern). `create()` leaves profile at version=1 with NO sidecar row (lazy first-version), `update()` archives the OUTGOING snapshot to `ChecklistProfileVersion` then increments inside the same transaction, `addQuestion()` runs snapshot-then-bump on the question-mutation path that drives offline checklist replay. Schema + service-layer versioning was already shipped in Phase A.1 (2026-05-01); this commit just adds the regression gate that 8.4b's local cache depends on.
+- AssetTemplate already had equivalent coverage in `template.service.test.ts` (lines 63 + 87) — verified passing.
+
+### 8.4b — `/api/sync/since` server endpoint + FE consumer + IDB v5 stores
+
+#### Server (commit `a6ec6e8`)
+- **NEW** `apps/api/src/modules/sync/sync.service.ts` (223 lines) — `SyncService.since()` with `Promise.all` over 4 entity queries (FilterCleaningProfile, FilterProfile, EquipmentGroup, AssetInstance + FilterDetails). Per-entity version cursors (`gt: clientVersion`); Filter rows use `updatedAt` watermark since `AssetInstance` has no version column (query OR's `FilterDetails.updatedAt` so a sidecar-only update still surfaces). 500-row pagination cap per entity; `hasMore` flag fires if any entity hits the cap.
+- **NEW** `apps/api/src/modules/sync/routes.ts` (99 lines) — mounts `GET /api/sync/since` under the global auth hook (any logged-in user; no `requirePermission` per task brief). Response schema declares all 6 entity arrays + `serverTimestamp` + `hasMore` as required at the top level (so empty arrays don't get stripped) and `additionalProperties: true` per item (matches existing `/:id` and version-history pattern; lets Prisma row shapes pass through verbatim).
+- **EDIT** `apps/api/src/app.ts` — registers new module.
+- ChecklistProfile + AssetTemplate are intentionally returned as `[]` in this commit — both have version columns in `schema.prisma` already, but the per-write bump triggers were finalized in 8.4a; populating those two arrays is a follow-up before 8.5.
+- **NEW** 16 tests (13 service, 3 route registration). Pattern follows `tape-version-check.test.ts` — `vi.hoisted` prisma mock, no real DB. Covers cursor handling defaults, 500-cap + hasMore, filter `updatedAt` parse + invalid-date fallback, parent-chain flatten (Filter → AHU → Area → Block) to FE-cache shape, missing parent links don't crash, `applicableTemplates` flattened from Step 4 join rows to `string[]`, route registers at `GET /since` with no preHandler.
+
+#### IDB v5 schema (commit `e5f46cb`)
+- **EDIT** `apps/web/src/lib/offline-store.ts` — bumped `DB_VERSION` 4 → 5; added 7 new object stores: `syncFilterCleaningProfiles`, `syncFilterProfiles`, `syncEquipmentGroups`, `syncChecklistProfiles`, `syncAssetTemplates`, `syncFilters`, `syncVersionState`. All keyed by `id` except `syncVersionState` which is a single-row store with `key='current'` holding `{profileVersion, filterProfileVersion, equipmentGroupVersion, checklistVersion, assetTemplateVersion, filterUpdatedSince, lastSyncedAt}`.
+- **Critical naming choice:** the new filter store is `syncFilters`, not `filters`. The legacy `filters` store at the top of `offline-store.ts` already holds `CachedFilter` rows in a different shape, used by the offline operations queue to optimistically update lifecycle state. Reusing the name would write conflicting shapes into the same store. The two are now parallel additive caches; consolidation is deferred to 8.5/8.6 once the executor is in.
+- New helpers exported (pure pass-throughs over the new stores): `cacheEntities(storeName, rows)`, `getCachedEntity(storeName, id)`, `getAllCachedEntities(storeName)`, `getVersionState()`, `setVersionState(state)`. `SYNC_ID_STORES` const, `SyncEntityStore` type, `VersionState` interface, `DEFAULT_VERSION_STATE` constant — all exported for the sync engine.
+- **NEW** `apps/web/src/lib/__tests__/sync-store-shape.test.ts` — 4 shape tests (full IDB integration would need fake-indexeddb which the workspace doesn't install; same pure-shape pattern as `offline-store.test.ts`). Asserts `SYNC_ID_STORES` order is stable, new stores don't collide with legacy ones, `DEFAULT_VERSION_STATE` shape (5 cursors at 0, 2 timestamps at null), version-state row key is the literal `'current'`.
+
+#### FE sync-since consumer (commit `996d1c1`)
+- **NEW** `apps/web/src/lib/sync-since.ts` (264 lines) — `syncSince()` runs one round-trip (reads versionState from IDB, builds query, calls endpoint, writes results into the 6 sync stores, advances cursor, returns `SyncResult { rowsAdded, hasMore, versionState, serverTimestamp }`). Single in-flight Promise dedupes concurrent calls. `triggerSync(reason)` is the debounced fire-and-forget entry point (1s coalescing window); errors are swallowed (warn log) — next trigger retries. `startSyncPolling()` wires up a 60s online-only timer + `visibilitychange` handler + `online` event handler, all routed through `triggerSync()`. Returns idempotent teardown fn.
+- **Cursor-advance semantics:** each entity's version cursor advances to `max(version)` of returned rows. NEVER goes backward — empty arrays leave the cursor untouched. `filterUpdatedSince` advances to `max(updatedAt, filterDetailsUpdatedAt)` across the filter rows (ISO-8601 string compare is lexicographic-safe for UTC-Z timestamps).
+- Defensive shape: missing entity arrays in the response treat as empty rather than crash — matches the same robustness in `offline-store.ts` that allowed the staged 8.3 → 8.4 rollout.
+- **NEW** `apps/web/src/lib/__tests__/sync-since.test.ts` — 12 tests (mocked api-client + offline-store, follows `sync-engine.test.ts` pattern). Covers default-cursor query, non-default cursor propagation, all 6 stores receive rows, max(version) advance per entity, no-backward on empty, filter watermark = max of `updatedAt + filterDetailsUpdatedAt`, rowsAdded counts, hasMore passthrough, malformed-response defensive empty, concurrent in-flight dedup, debounce coalesces 5 bursts into 1 network call, post-run trigger goes through.
+
+#### App-shell wiring (commit `0e0e2b7`)
+- **EDIT** `apps/web/src/components/layout/app-layout.tsx` — `useEffect` on `isAuthenticated` transition to true: `triggerSync('app-start')` + `startSyncPolling()`; teardown on unmount. Login screen unaffected (effect only runs once auth has resolved).
+- **EDIT** `apps/web/src/routes/mobile/mobile-wrapper.tsx` — parallel `useEffect` alongside the existing `syncAllDataForOffline` path. Different cache (v5 sync stores vs. legacy `cache` key/value blobs); runs additively without replacing. Will subsume the legacy path in 8.6 once the shared executor lands.
+
+### 8.4c — `packages/shared/src/pipeline-executor/` scaffold (commit `3c7c916`)
+
+Empty-body skeleton for the Option D shared executor. Phase 8.5 fills in the 35 pure guards from the inventory.
+
+- **NEW** `packages/shared/src/pipeline-executor/types.ts` (235 lines) — `GuardResult` / `ValidationResult` + slice types projecting the Prisma rows the executor reads. **No `@prisma/client` import** — `packages/shared` must stay runtime-agnostic for the FE bundle, and Block/Area/AHU/Filter are not Prisma models anyway (they're `AssetInstance` rows discriminated by `template.templateKind`). `ProfileNode` / `ProfileEdge` / `ChecklistQuestion` are aliases over the existing `TapeStage` / `TapeConnection` / `TapeQuestion` shapes from `packages/shared/src/types/action-tape.ts` (canonical types the live tape generator already walks). Aliasing avoids duplicate declarations and lets the 8.5 implementer adopt either vocabulary.
+- **NEW** `packages/shared/src/pipeline-executor/context.ts` (115 lines) — `LocalContext` interface + `loadLocalContext` / `loadLocalContextFromCache` stubs. Phase 8.5 relocates the concrete loaders to `apps/api` + `apps/web`.
+- **NEW** 7 module stubs: `transitions.ts`, `checklist.ts`, `dryer.ts`, `bypass.ts`, `terminate.ts` (later renamed/replaced with `instruments.ts` + `justification.ts` + `parameters.ts` per the 8.5 prep), `actions.ts` (`computeNextActions(ctx)` → `ActionTape`).
+- **NEW** `index.ts` — barrel re-export of the public surface.
+- **Stub error format is greppable:** `NOT_IMPLEMENTED -- pipeline-executor/<module>.<fn> -- Phase 8.5`. The smoke test asserts the prefix on every stub.
+- **NEW** `packages/shared/src/pipeline-executor/__tests__/smoke.test.ts` — 20 cases (LocalContext fixture compiles; each of 17 stubs throws NOT_IMPLEMENTED; barrel exports the expected symbols).
+- **EDIT** `packages/shared/src/index.ts` — re-exports `pipeline-executor`.
+
+### 8.5 prep (commits `0c8c159 da756ea 64dc469 d9f52ab ff10952 2981d93`)
+
+Pre-extraction artifacts produced by background subagents (audits + fixtures), uncommitted to docs intentionally — they drive the 8.5 / 8.6 / 8.7 implementation work but are reference material, not code.
+
+- `tasks/AUDIT-2026-05-02-filter-operations-desktop.md` — desktop FE audit
+- `tasks/AUDIT-2026-05-02-mobile-operations.md` — mobile FE audit
+- `tasks/AUDIT-2026-05-02-getcurrentstate-consumers.md` — consumer audit
+- `tasks/AUDIT-2026-05-02-concurrent-operator.md` — concurrent-operator collision audit
+- `tasks/AUDIT-2026-05-02-offline-sync-legacy-deprecation.md` — legacy `offline-sync-service` deprecation audit
+- `packages/shared/src/pipeline-executor/__tests__/fixtures.{ts,test.ts}` — 8 LocalContext scenarios + smoke runner
+
+### Tests
+
+- **API**: 1186 passing (was 1167 after 8.4 Commit 1 / 1165 at 8.3 close). Same 2 pre-existing unrelated failures (`auth.test.ts > forgot-password`, `config.test.ts > PUT /api/config/action-reauth`) that predate Step 8.
+- **Web**: 68 passing (was 52 after 8.4 Commit 1 / 47 at 8.3 close).
+- Net delta vs. 8.3 close: api +21, web +21 across 8.4a (+3 ChecklistProfile snapshot), 8.4 Commit 1 (+5), 8.4b commit 1 (+16 server sync-since), commit 2 (+4 IDB shape), commit 3 (+12 FE sync-since), 8.4c scaffold (+20 smoke), 8.5 prep fixtures (+1).
+
+### Out of scope (deferred to 8.5 → 8.8)
+
+- Filling in the 17 NOT_IMPLEMENTED stubs in `packages/shared/src/pipeline-executor/` — Phase 8.5 (background subagent in flight).
+- Server's 4 write methods rewriting to load context → `executor.canX(ctx)` → 8 server-only guards → transaction — Phase 8.5.
+- Tape generator becoming `(ctx) => executor.computeNextActions(ctx)` — Phase 8.5.
+- `mobile-operations.tsx` + `filter-operations.tsx` building LocalContext from IDB cache and rendering via `executor.computeNextActions(ctx)` — Phase 8.6.
+- Deleting the FE walker + `updateOfflineState()` + `nextAllowedStages` / `pendingChecklist` derivations — Phase 8.6.
+- Removing `TAPE_PARALLEL` flag, tightening `tapeVersion` to required, removing old derived response fields — Phase 8.7.
+- APK rebuild + tablet field QA — Phase 8.8.
+- ChecklistProfile + AssetTemplate hydration in `/sync/since` (currently returned as `[]`) — follow-up before 8.5 closes.
+- Consolidation of legacy `filters` store + legacy `cache` blob path with the new v5 sync stores — 8.6/8.7.
+
 ## [Unreleased] — Step 8 Phase 8.3: offline replay tape-versioning (2026-05-02)
 
 Branch: `feature/phase5-verification`. Adds an optimistic-concurrency guard to all 4 cycle-bound write routes (advance / submit-checklist / bypass / terminate) so a stale offline replay can no longer silently overwrite progress made by another operator on a different device. Renderer surface is ready for Phase 8.4 cutover; consumer wiring (mobile-operations.tsx / filter-operations.tsx) is intentionally untouched.

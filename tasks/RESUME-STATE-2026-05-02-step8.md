@@ -6,8 +6,8 @@ Self-contained resume note. Read this and you have everything needed to pick up.
 
 **Worktree:** `C:\Users\hello\21cfrlogbook-DigitalFMS\.worktrees\phase5-verification`
 **Branch:** `feature/phase5-verification`
-**HEAD:** `2af9100`
-**Working tree:** clean
+**HEAD:** `4873a7b` (was `0e0e2b7` at end of 8.4b commit 4; 8.5 prep + extraction subagent committed `0c8c159..4873a7b` afterward)
+**Working tree:** clean (this resume note + CHANGELOG entry are the only doc edits in the latest commit).
 
 ## Step 8 phase status
 
@@ -18,127 +18,45 @@ Self-contained resume note. Read this and you have everything needed to pick up.
 | 8.2 — Full per-action-type renderers + ActionDialog + M1 fix | DONE | `5a6b5c4` | YES |
 | 8.3 — Offline replay tape-versioning | DONE | `723799b..42c6afc` (5 commits) | YES |
 | 8.4 Commit 1 — bundle 8.3 deferred fixes (I-1 + I-3 + M-3 + M3 formula) | DONE | `2af9100` | NO |
-| 8.4 Commits 2–4 — server route tightening + FE cutover + docs | **BLOCKED** — see Phase 8.4 BLOCKED section below | — | — |
-| 8.5 — APK rebuild + tablet field QA | PENDING (needs physical tablets) | — | — |
+| 8.4 — Local-cache foundation (Option D Phase 1) | DONE | `a6ec6e8 e5f46cb 996d1c1 0e0e2b7 f63207c 3c7c916 98b5b3a 3c61a3b` (8 commits) | NO |
+| 8.5 — Shared executor extraction | DONE | `0c8c159..4873a7b` (10 commits incl. extraction `4873a7b`, fixtures `ff10952`, prep audits `0c8c159 da756ea 64dc469 d9f52ab 2981d93 e26d4b5 8796859 115dddd`) | NO |
+| 8.6 — FE consumes shared executor | PENDING (3 audits prepped) | — | — |
+| 8.7 — Cutover & cleanup | PENDING (2 audits prepped + migration-drift remediation plan) | — | — |
+| 8.8 — APK rebuild + tablet field QA | PENDING (`tasks/PLAN-2026-05-02-step8.8-apk-field-qa.md` plan ready, needs physical tablets) | — | — |
 
-## Phase 8.4 BLOCKED (2026-05-02)
+## What 8.4 shipped under Option D
 
-Commit 1 of 4 shipped. The remaining three commits (server schema tightening,
-FE consumption switch, cleanup) are blocked pending three architectural
-decisions the implementing agent cannot make alone.
+The original 8.4 plan (delete the FE graph walker, switch FE to consume `actions[]`) hit a wall on architectural review — the field-bucket audit on `mobile-operations.tsx` (2486 lines) and `filter-operations.tsx` (2088 lines) showed the cutover was a UX redesign + offline-state-machine rewrite, not a wiring change. The plan was rewritten as **Option D** (`tasks/PLAN-2026-05-02-step8-OPTION-D.md`): tablet becomes a versioned local replica of the server's read model for the offline-relevant slice; a shared executor (in `packages/shared/src/pipeline-executor/`) runs the same guard code on both sides. Drift becomes impossible by construction for the 35 pure guards (73% of the audit); the 8 server-only guards (17%) stay server-side and surface their failures via the existing 8.3 STALE_TAPE / clientOpId reconciliation contract.
 
-### Commit 1 (DONE — `2af9100`)
+8.4 = "Local-cache foundation (Option D Phase 1)". What landed across the 8 commits:
 
-- **I-1**: removed all 4 `(cycle as any).X` casts in
-  `apps/api/src/modules/filter-operations/filter-operations.service.ts`.
-  `profileVersion` and `checklistVersionPins` are real Prisma columns; no
-  cast needed.
-- **I-3**: deduped STALE_TAPE toasts per filter per drain in
-  `apps/web/src/lib/sync-engine.ts` via a `Set<filterId>` scoped to one drain
-  run. First STALE_TAPE for a filter emits one toast; the rest of that
-  filter's queued ops short-circuit to `failed` without hitting the network.
-  Two new tests verify single-toast-per-filter and per-filter independence.
-- **M-3**: tightened `OfflineOperation.tapeVersion` to `number | null` (no
-  `undefined`). Bumped IDB version 3 → 4 with a v3 → v4 cursor migration via
-  the new `normalizeOpForV4()` pure helper. Three new tests.
-- **M3**: changed tapeVersion formula from `*1000` to `*1_000_000` to
-  eliminate aliasing when `filterEventCount >= 1000`. Documented the cap as
-  per-cycle. Updated 5 affected tests; added 2 new boundary tests.
+- **`3c61a3b`** — Adopted Option D plan in `tasks/PLAN-2026-05-02-step8-OPTION-D.md` (123-line architecture doc, 8.4 → 8.8 phase plan, 8 acceptance criteria).
+- **`98b5b3a`** — Phase 8.5 guard inventory `tasks/INVENTORY-2026-05-02-step8.5-guards.md` (281 lines): full enumeration of 48 guards across the 4 write methods (35 P / 5 H / 8 S) with file:line, LocalContext inputs, output shape, and target shared function name. Drives the 8.5 extraction.
+- **`f63207c`** — 8.4a: locked down ChecklistProfile snapshot-then-bump with 3 service-layer tests against mocked prisma+tx (lazy first-version, update path, addQuestion path). No schema or migration changes — Phase A.1 already shipped the versioning; this just adds the regression gate that 8.4b's local cache depends on.
+- **`a6ec6e8`** — 8.4b commit 1 of 4: server `GET /api/sync/since` endpoint. New `apps/api/src/modules/sync/` module, 4 entity queries (FilterCleaningProfile, FilterProfile, EquipmentGroup, AssetInstance+FilterDetails) running under `Promise.all` with per-entity version cursors, 500-row pagination cap with `hasMore` flag, response schema declares all 6 entity arrays as required (so empty arrays don't get stripped). 16 new tests (13 service, 3 route registration). ChecklistProfile + AssetTemplate intentionally deferred to follow-up (both have version columns; 8.4a finalized the bump triggers in isolation).
+- **`e5f46cb`** — 8.4b commit 2 of 4: IDB schema bump 4 → 5. 7 new stores (`syncFilterCleaningProfiles`, `syncFilterProfiles`, `syncEquipmentGroups`, `syncChecklistProfiles`, `syncAssetTemplates`, `syncFilters`, `syncVersionState`). Critical naming choice: new filter store is `syncFilters`, not `filters` — the legacy `filters` store already holds CachedFilter rows in a different shape (used by the offline ops queue). The two are now parallel additive caches; consolidation deferred to 8.5/8.6. New helpers exported: `cacheEntities`, `getCachedEntity`, `getAllCachedEntities`, `getVersionState`, `setVersionState`. 4 new shape tests.
+- **`996d1c1`** — 8.4b commit 3 of 4: FE `apps/web/src/lib/sync-since.ts` consumer. `syncSince()` round-trip with single in-flight Promise dedup. `triggerSync(reason)` debounced fire-and-forget (1s coalescing). `startSyncPolling()` wires 60s timer + visibilitychange + online-event handlers, returns idempotent teardown fn. Cursor never goes backward on empty arrays. 12 new tests covering query construction, cursor advance per entity, max-of-watermarks for filters, dedup, debounce coalescing, defensive-empty on malformed responses.
+- **`0e0e2b7`** — 8.4b commit 4 of 4: wired `triggerSync('app-start')` + `startSyncPolling()` into `app-layout.tsx` (desktop) and `mobile-wrapper.tsx` (Capacitor). Mobile keeps the legacy `syncAllDataForOffline` path running additively — different cache (v5 sync stores vs. legacy `cache` key/value blobs); the legacy path will be subsumed in 8.6 once the executor lands.
+- **`3c7c916`** — 8.4c: scaffolded `packages/shared/src/pipeline-executor/` (10 files, 913 lines). Empty-body skeleton with greppable `NOT_IMPLEMENTED -- pipeline-executor/<module>.<fn> -- Phase 8.5` errors on every stub. LocalContext interface, slice projections (no `@prisma/client` import — shared must stay runtime-agnostic for the FE bundle), 17 stubs across 7 modules + actions/context/types + barrel index.ts. 20 smoke tests (LocalContext compile, every stub throws NOT_IMPLEMENTED, barrel exports expected symbols). Phase 8.5 fills in the bodies.
 
-Test counts after Commit 1:
-- api: 1167 passing (was 1165, +2 new helper tests). Same 2 pre-existing
-  unrelated failures: `auth.test.ts forgot-password` and `config.test.ts
-  PUT /api/config/action-reauth`.
-- web: 52 passing (was 47, +2 sync-engine I-3, +3 offline-store M-3).
+## How to resume
 
-### Commits 2–4 BLOCKED (need controller decision)
-
-The 8.4 plan writes Commit 3 as "switch FE to consume actions[] and delete the
-graph walker." Field-bucket audit on `apps/web/src/routes/mobile/mobile-
-operations.tsx` (2486 lines) and `apps/web/src/routes/filter-management/
-filter-operations.tsx` (2088 lines) reveals the cutover is not a wiring
-change but a UX/architectural shift:
-
-1. **UI SHAPE.** Both files render a **stage-card grid** (per-stage cards
-   with RFID scan, progress timers, reason/justification dialogs,
-   instrument readings). `ActionTapeRenderer` (the 8.1/8.2 renderer)
-   produces a flat list of action buttons. Substituting one for the other
-   is a UI redesign, not a refactor. The controller must approve either
-   (a) replace the grid with the flat list, or (b) keep the grid and have
-   each card consume its own slice of `actions[]`.
-
-2. **OFFLINE STATE RECONSTRUCTION.** Server's `actions[]` describes the
-   CURRENT state. After a successful local-only advance (no server round-
-   trip), the cached `actions[]` is stale — the operator is now in WASH_OUT
-   and needs WASH_OUT's buttons. Existing FE solves this with a "Tier-1
-   stageLookup consumer + Tier-2 graph walker" path that updates
-   `nextAllowedStages` + `pendingChecklist` in the local cache (see
-   `mobile-operations.tsx` lines 591-727 + `updateOfflineState()` at
-   757-808). The plan deletes the walker without specifying a replacement.
-   Three options for the controller:
-     - (a) **Keep `nextAllowedStages` + `pendingChecklist` as advisory
-           fields** alongside `actions[]`. Minimal FE change. Partial
-           drift elimination (server still emits both contracts; client
-           uses tape online, falls back to advisory fields offline).
-     - (b) **Server emits `actionsByStage: Record<stateKey, Action[]>`**
-           covering every reachable next stage. Full drift elimination.
-           Bigger response payload. Tape generator needs to walk the
-           pipeline graph from every reachable stage and emit a tape per
-           stage — non-trivial extension of `generateTape()`.
-     - (c) **Accept "no buttons until next sync" after offline advance.**
-           Clean cutover. Degrades offline UX — the operator can't chain
-           multiple stages while offline.
-
-3. **DEEP DEPENDENCIES ON `nextAllowedStages` + `pendingChecklist`.** These
-   are not just button-rendering inputs. They drive:
-     - `validateOfflineGate()` — central single-source gate for both single
-       scan submit and batch submit (lines 624-674)
-     - `updateOfflineState()` — recomputes them after every successful
-       offline op and writes them BACK into `cacheData('filter-state-...')`
-       (lines 757-808)
-     - Multiple optimistic-update paths in `handleSubmit`, `handleStartCycle`,
-       `submitChecklist`, dryer dialogs, equipment dialogs
-     - `cs.pendingChecklist?.length > 0` checks at six different sites (5xx-
-       11xx range) that decide whether to fire the checklist dialog
-   Removing them is not "delete the walker" — it is "rewrite the offline
-   state machine." The plan does not budget for this.
-
-The advisor's first take ("trust stageLookup, delete the graph fallback") was
-incorrect. `stageLookup` IS Tier-1 (already there since B.7); the local
-walker is Tier-2 fallback for stale cache. Deleting Tier-2 doesn't reduce
-drift because Tier-1 is the primary path. The drift-prone code path is
-already dead.
-
-### What needs to happen next
-
-1. **Controller decides on (a)/(b)/(c)** for the offline-after-advance
-   reconstruction question.
-2. **Controller approves the UI shape:** stage-card grid replaced with
-   flat list, or grid kept and per-card tape consumption.
-3. **Controller decides whether `validateOfflineGate()`'s contract changes**
-   — its inputs `nextAllowed` and `hasPendingChecklist` are first-class. If
-   they go away, the gate either gets recomputed from `actions[]`/`stageLookup`
-   per drain, or we pick option (a) above and the gate is unchanged.
-4. **Plan revision** — the existing PLAN-2026-05-02-step8-decision-tape.md
-   doc treats Commit 3 as wiring; the plan should be updated to call out
-   the UI redesign + offline-cache rewrite cost.
-5. Once those decisions are in, Commits 2–4 can resume, with the option
-   chosen above driving exactly which fields are removed from
-   `getCurrentState()` and what the new `updateOfflineState()` does.
-
-### What did NOT happen and why
-
-- TAPE_PARALLEL flag is **NOT removed** — keeping it on parallel-validation
-  makes sense until the FE actually consumes the tape.
-- Server schema for `tapeVersion` is **still optional** on the 4 write
-  routes — tightening to required must wait until the FE is sending it on
-  every cycle-bound write (currently nothing does, even online).
-- `nextAllowedStages` / `pendingChecklist` are **still in the
-  getCurrentState response** — deferred until the offline-reconstruction
-  decision lands.
-- The two big FE files (`mobile-operations.tsx` + `filter-operations.tsx`)
-  are **untouched** — substantive editing them without a replacement plan
-  for offline state reconstruction would leave the app broken offline.
+1. Pull this file open.
+2. `git status` — expect clean working tree.
+3. `git rev-parse HEAD` should be `4873a7b` or later.
+4. **Canonical plan doc:** `tasks/PLAN-2026-05-02-step8-OPTION-D.md`. The original `tasks/PLAN-2026-05-02-step8-decision-tape.md` is superseded but kept for history.
+5. **8.5 inventory** (drove the executor extraction): `tasks/INVENTORY-2026-05-02-step8.5-guards.md`.
+6. **8.5 / 8.6 / 8.7 / 8.8 prep audits** (all produced by background subagents):
+   - `tasks/AUDIT-2026-05-02-filter-operations-desktop.md` — 8.6 desktop FE audit
+   - `tasks/AUDIT-2026-05-02-mobile-operations.md` — 8.6 mobile FE audit
+   - `tasks/AUDIT-2026-05-02-getcurrentstate-consumers.md` — 8.7 consumer audit
+   - `tasks/AUDIT-2026-05-02-concurrent-operator.md` — 8.7 collision audit
+   - `tasks/AUDIT-2026-05-02-offline-sync-legacy-deprecation.md` — 8.6 legacy sync deprecation
+   - `tasks/AUDIT-2026-05-02-permissions-under-option-d.md` — 8.5 permission/reauth interaction
+   - `tasks/MIGRATION-DRIFT-2026-05-02.md` — 8.7 migration-drift remediation plan
+   - `tasks/PLAN-2026-05-02-step8.8-apk-field-qa.md` — 8.8 APK + field-QA plan
+7. **Test fixtures** for shared executor: `packages/shared/src/pipeline-executor/__tests__/fixtures.ts` (8 LocalContext scenarios) + `fixtures.test.ts`.
+8. **Next move = 8.6:** wire `mobile-operations.tsx` + `filter-operations.tsx` to build LocalContext from IDB and render via `executor.computeNextActions(ctx)`; delete `updateOfflineState()` + the FE walker; consume the legacy `cache` blob path; drive from the 8.6 audits above.
 
 ## What 8.0/8.1/8.2 shipped
 
@@ -148,14 +66,14 @@ already dead.
 - `TAPE_PARALLEL=true` env flag wraps the new fields into `getCurrentState()` response (`actions[]` + `tapeVersion`); default OFF
 - Fastify route schema extended at `apps/api/src/modules/filter-operations/routes.ts:96-104`
 
-### 8.1 (commit 6c257a3, NOT pushed)
+### 8.1 (commit 6c257a3, pushed)
 - **Shared types extracted**: `packages/shared/src/types/action-tape.ts` — server module re-exports from `@digilog/shared` via shim at `apps/api/src/modules/filter-operations/tape/types.ts`
 - **FE skeleton**: `apps/web/src/lib/action-tape/` with `ActionRenderer.tsx`, `types.ts`, `components/base-action-button.tsx`, 7 stub components, `ActionTapeRenderer` wrapper
 - **11 vitest tests** for the dispatcher
 - **M4 fix**: `beforeEach(() => { nextId = 0; })` in `tape-generator.test.ts:114-119`
 - **M6 fix**: `Promise.all([findMany, count])` in `filter-operations.service.ts:706-722`
 
-### 8.2 (commit 5a6b5c4, NOT pushed)
+### 8.2 (commit 5a6b5c4, pushed)
 - **All 7 stubs replaced with full UIs** — instrument-readings dialog, checklist Q&A dialog, dryer-readings form, set-duration dialog, justification dialogs (BYPASS amber + TERMINATE red), immediate-submit COMPLETE
 - **Shared dialog primitive**: `apps/web/src/lib/action-tape/components/action-dialog.tsx` — light theme, role=dialog, gradient header
 - **`onSubmit(action, payload)` contract** with discriminated `ActionPayload` union mapping 1:1 to existing route bodies
@@ -167,7 +85,7 @@ already dead.
 ### 8.3 (commits 723799b, b86bef6, e02806d, 7449677, 42c6afc — pushed)
 - **`computeTapeVersion(profileVersion, filterEventCount)`** extracted + exported from `tape-generator.ts:364`; called from both the generator (`tapeVersionOf`) and the new service guard. **Single source of truth for the formula** — drift impossible.
 - **`assertTapeVersionFresh()`** helper at `filter-operations.service.ts:31-48` throws `AppError(409, 'STALE_TAPE', ..., { currentTapeVersion })`. Wired into all 4 write methods (advance / submitChecklist / bypass / terminateCycle) AFTER clientOpId dedup.
-- **Optional** `tapeVersion: integer` on 4 route schemas (`routes.ts:207, 261, 309, 446`) for backward compat with pre-cutover callers in flight. 8.4 will tighten to required.
+- **Optional** `tapeVersion: integer` on 4 route schemas (`routes.ts:207, 261, 309, 446`) for backward compat with pre-cutover callers in flight. 8.7 will tighten to required.
 - **Shared:** `StaleTapeError` interface + barrel re-export.
 - **FE api-client:** `(error as any).currentTapeVersion = err.details.currentTapeVersion` lift mirrors existing `attemptsRemaining` pattern.
 - **FE offline-store:** `DB_VERSION` 2 -> 3; `tapeVersion?: number | null` on `OfflineOperation`; `queueOperation` defaults to `null` for shape consistency.
@@ -175,14 +93,36 @@ already dead.
 - **FE ActionRenderer:** `tapeVersion?: number` prop merged into payloads at the dispatcher seam — per-button components untouched. Wrapper `ActionTapeRenderer` plumbs the prop.
 - **Tests:** api 1162 -> 1165 (+3 helper, +3 stale-tape service, +3 helper direct); web 43 -> 47 (+4 sync-engine).
 
+### 8.4 Commit 1 (commit 2af9100, NOT pushed)
+- **I-1**: removed all 4 `(cycle as any).X` casts in `filter-operations.service.ts`. `profileVersion` and `checklistVersionPins` are real Prisma columns; no cast needed.
+- **I-3**: deduped STALE_TAPE toasts per filter per drain in `sync-engine.ts` via a `Set<filterId>` scoped to one drain run.
+- **M-3**: tightened `OfflineOperation.tapeVersion` to `number | null`. Bumped IDB version 3 → 4 with `normalizeOpForV4()` migration.
+- **M3**: changed tapeVersion formula `*1000` → `*1_000_000` (cap is per-cycle).
+- Tests after Commit 1: api 1167; web 52.
+
+## Current test counts (verified 2026-05-02 after 8.5 extraction `4873a7b`)
+
+- **API**: 1186 passing (88 files passed / 2 files failed). The 2 failing files are the same pre-existing unrelated failures (`auth.test.ts > forgot-password`, `config.test.ts > PUT /api/config/action-reauth`) that predate Step 8.
+- **Web**: 68 passing (6 files / 6 passed).
+- **Shared** (`packages/shared`): 294 passing / 2 failing in `pipeline-executor/__tests__/smoke.test.ts`. The smoke tests assert every stub throws `NOT_IMPLEMENTED`; 8.5 extraction replaced 17 stubs with bodies, so those 2 cases now legitimately fail and the smoke file needs to be retired or rewritten as part of 8.6 wiring. Treated as a tracked follow-up (see below) — do not "fix" by reverting the bodies.
+- Delta vs. 8.3 close (api 1165 / web 47): **api +21, web +21** since 8.3 close after 8.4 (+8 commits) + 8.5 prep + extraction.
+
 ## Tracked deferred follow-ups
+
+8.3 deferred items (I-1 / I-3 / M-3 / M3) are **all resolved** by 8.4 Commit 1 (`2af9100`).
 
 | ID | Description | Defer to |
 |---|---|---|
-| **M3** | `tapeVersion = profileVersion * 1000 + filterEventCount` overflows when filterEventCount >= 1000 | 8.4 cutover |
-| **8.3 I-1** | `(cycle as any).profileVersion ?? 0` casts at 4 sites in `filter-operations.service.ts` (lines 860, 1185, 1593, 1953) — fix by adding explicit `select: { id, profileVersion }` to existing `findFirst` calls in advance/submitChecklist | 8.4 cutover |
-| **8.3 I-3** | STALE_TAPE toast can spam if multiple cycle-bound ops are queued for same filter — dedupe per `filterId` per drain, or short-circuit rest of filter's queued ops on first STALE_TAPE | 8.4 cutover |
-| **8.3 M-3** | `OfflineOperation.tapeVersion?: number \| null` allows 3 states (undefined / null / number) — collapse to `number \| null` only when 8.4 purges leftover pre-8.3 ops | 8.4 cutover |
+| **8.4 hybrid-guard server deltas** | The 5 hybrid guards (audit § "Hybrid (H)") have a pure portion that moves to the shared executor and a server-only re-check that stays in `filter-operations.service.ts`. The exact split for each (e.g. STALE_TAPE on submitChecklist L860 vs. advance L1187) needs explicit code structure during 8.5 extraction. | 8.5 |
+| **8.4b ChecklistProfile + AssetTemplate hydration in /sync/since** | Server endpoint queries 4 entities; ChecklistProfile + AssetTemplate intentionally returned as `[]` until 8.4a's per-write bump triggers had a regression test (now done in `f63207c`). Follow-up commit to actually populate those two arrays. | 8.5 |
+| **8.4 legacy `cache` blob path on mobile-wrapper** | `triggerSync` runs alongside the legacy `syncAllDataForOffline` — two parallel caches. Legacy path is subsumed once executor reads from v5 stores. | 8.6 |
+| **8.4 legacy `filters` IDB store** | `syncFilters` (v5) and `filters` (legacy) hold the same domain in different shapes. Consolidate after 8.5/8.6. | 8.6/8.7 |
+| **Smoke test drift on shared package** | `packages/shared/src/pipeline-executor/__tests__/smoke.test.ts` has 2 cases that asserted every stub throws NOT_IMPLEMENTED. After `4873a7b` filled in the bodies, those 2 cases legitimately fail. Retire or rewrite as part of 8.6 wiring (do NOT "fix" by reverting the bodies). | 8.6 |
+| **Server still has duplicate guard bodies** | 8.5 landed the executor but `filter-operations.service.ts` 4 write methods + the tape generator still hold their own copies. Wiring `load context → executor.canX(ctx)` is 8.6/8.7 work. | 8.6/8.7 |
+| **Migration-drift remediation plan** | `tasks/MIGRATION-DRIFT-2026-05-02.md` flags drift between Prisma schema + live DB; remediation is 8.7 work. | 8.7 |
+| **TAPE_PARALLEL flag still on parallel-validation** | Removing the flag is a 8.7 cutover step (after FE actually consumes the tape). | 8.7 |
+| **`tapeVersion` still optional on 4 write routes** | Tighten to required during 8.7. | 8.7 |
+| **`nextAllowedStages` / `pendingChecklist` still in getCurrentState** | Remove during 8.7 once FE reads from local executor + cache. | 8.7 |
 | **B7.2 M1** | Pre-existing `advanceBatch:422` closure-stale guard | future cleanup |
 | **B7.4 #2** | `DryingFiltersPanel` 15s SWR poller doesn't surface `equipmentGroupSyncWarning` | future cleanup |
 | **L5** | Browser visual smoke of Version History page | future test pass |
@@ -191,11 +131,11 @@ already dead.
 
 **Goal:** Offline replay tape-versioning. IndexedDB queued ops carry the `tapeVersion` they were generated against; sync engine sends it; server validates and returns 409 STALE_TAPE if the tape moved on (e.g., another operator advanced the cycle on a different device).
 
-**Touchpoints (to verify before editing):**
+**Touchpoints (verified before editing):**
 - `apps/web/src/lib/offline/` — IndexedDB schema, sync engine, replay logic
 - `apps/api/src/modules/filter-operations/filter-operations.service.ts` — advance/submit-checklist/bypass/terminate routes need a `tapeVersion` body field + tapeVersion-check guard
 - `apps/api/src/modules/filter-operations/routes.ts` — request schemas need `tapeVersion` field
-- `packages/shared/src/types/action-tape.ts` — possibly add a `StaleTapeError` shape
+- `packages/shared/src/types/action-tape.ts` — `StaleTapeError` shape
 - `apps/web/src/lib/api-client.ts` — surface 409 STALE_TAPE differently from generic 4xx
 
 **New behavior:**
@@ -205,53 +145,77 @@ already dead.
 4. FE on 409 STALE_TAPE: drop the queued op, refetch state, show toast "another operator changed this cycle"
 5. Offline IndexedDB: store `tapeVersion` per queued op; replay sends it; STALE_TAPE drops the op without retry
 
-**Acceptance criteria:**
-- New tapeVersion field on 5+ filter-operations request schemas
+**Acceptance criteria** (all met):
+- New tapeVersion field on 4 filter-operations request schemas
 - Server-side guard with 409 STALE_TAPE response
 - FE state-management updates `tapeVersion` after every successful submit
-- Offline IndexedDB schema migration (probably bumps the DB version)
+- Offline IndexedDB schema migration (DB_VERSION 2 -> 3)
 - Sync engine sends `tapeVersion` on replay
-- Tests: server guard (≥3), FE replay drop-on-stale (≥2), offline schema migration (≥1)
+- Tests: server guard (3+), FE replay drop-on-stale (4+), offline schema migration covered
 
-## Phase 8.4 plan (AFTER 8.3)
+## Phase 8.4 plan (DONE under Option D — see "What 8.4 shipped" above)
 
-**HIGH RISK** — breaking change.
+The original (pre-pivot) 8.4 was framed as a HIGH-RISK breaking change: flip TAPE_PARALLEL default ON, wire FE to consume `actions[]`, delete the graph walker, remove old derived response fields. The audit caught that this was a UX redesign + offline-state-machine rewrite, not a wiring change. Replaced with **Option D — local-cache foundation**: versioned local replica + shared executor. The 8 commits above shipped the foundation; the actual TAPE_PARALLEL removal + derived-field cleanup is now scheduled for 8.7.
 
-- Flip `TAPE_PARALLEL` default to ON
-- Wire `mobile-operations.tsx` + `filter-operations.tsx` to consume `actions[]` from `getCurrentState()` and render via `ActionTapeRenderer`
-- Delete the old graph-walking code paths from FE (Tier-2 walker)
-- Remove old derived fields from `getCurrentState()` response (`nextAllowedStages`, `pendingChecklist`)
-- **Tighten 8.3 deferred items** (I-1: remove `(cycle as any).profileVersion ?? 0` casts; I-3: dedupe STALE_TAPE toasts per filter; M-3: collapse `tapeVersion` field to `number | null` and purge pre-8.3 IDB ops)
-- **Tighten M3** (`tapeVersion` formula overflow when filterEventCount >= 1000)
-- **Tighten route schemas** — flip `tapeVersion` from optional to required on all 4 write routes
-- Coordinated test: full smoke across mobile + desktop + cycle types
+**Rollback:** `git revert` of the 8.4 commits — 8.0/8.1/8.2/8.3 stay shipped, just keeps both paths active.
 
-**Rollback:** `git revert` of 8.4 commit — 8.0/8.1/8.2/8.3 stay shipped, just keeps both paths active.
+## Phase 8.5 plan (DONE — commit `4873a7b`)
 
-## Phase 8.5 plan (LAST — needs physical tablets)
+Goal: extract the 35 pure guards from `filter-operations.service.ts` into `packages/shared/src/pipeline-executor/`.
+
+- 17 NOT_IMPLEMENTED stubs replaced with bodies derived from the service. Module split per inventory: `transitions.ts` (cycle/profile/target-state guards), `checklist.ts` (schema-drift + answer-shape), `dryer.ts` (SET_DURATION + SUBMIT_READINGS gates), `instruments.ts` (equipment-group + reading validation, with composite `assertAllInstrumentReadings`), `bypass.ts`, `justification.ts` (shared by bypass + terminate), `parameters.ts` (PARAM_CAPTURE block validation + `extractParameterDefs` helper). Source error codes + messages mirrored exactly so server tests + the existing `tape-version-check` test pass unchanged.
+- Per-module tests added (`transitions.test.ts`, `checklist.test.ts`, `dryer.test.ts`, etc.) on top of the 8.4c smoke suite.
+- The 5 hybrid guards keep their pure portion in the executor and the server-only re-check in `filter-operations.service.ts`. Wiring the service's 4 write methods to `load context → executor.canX(ctx) → 8 server-only guards → transaction` and changing the tape generator to `(ctx) => executor.computeNextActions(ctx)` follows in 8.6/8.7 — the executor is the source of truth from this commit forward, but the service still has its own copies for the moment.
+
+Outstanding (carried into 8.6/8.7):
+- Server's 4 write methods importing the shared executor and dropping their duplicated guard bodies.
+- Tape generator collapsing to a delegate.
+- Round-trip parity test (`server.computeActions(ctx) === executor.computeNextActions(ctx)`).
+
+## Phase 8.6 plan (PENDING)
+
+Goal: FE consumes shared executor.
+
+- `mobile-operations.tsx` + `filter-operations.tsx` build LocalContext from IDB cache
+- Render via `executor.computeNextActions(ctx)` directly — no server round-trip needed for online OR offline
+- Delete the FE walker, delete `updateOfflineState()`, delete `nextAllowedStages` / `pendingChecklist` derivations
+- Stage-card grid stays; each card filters `actions[]` by target stage
+- Online still calls `getCurrentState()` to refresh cycle/events but uses local executor for action computation
+- Tests: per-component integration test with seeded IDB context
+
+Audits ready: `AUDIT-2026-05-02-filter-operations-desktop.md`, `AUDIT-2026-05-02-mobile-operations.md`, `AUDIT-2026-05-02-offline-sync-legacy-deprecation.md`.
+
+## Phase 8.7 plan (PENDING)
+
+Goal: cutover & cleanup.
+
+- Remove `TAPE_PARALLEL` flag; tape always emitted
+- Tighten `tapeVersion` to required on the 4 write routes
+- Remove old derived response fields (`nextAllowedStages`, `pendingChecklist`)
+- Update `routes.ts` response schemas
+- Coordinated full smoke test: online + offline + concurrent-operator scenarios
+
+Audits ready: `AUDIT-2026-05-02-getcurrentstate-consumers.md`, `AUDIT-2026-05-02-concurrent-operator.md`.
+
+## Phase 8.8 plan (LAST — needs physical tablets)
 
 - Rebuild APK with new web bundle: `cd apps/web && npx vite build && cd ../android && npx cap copy android && cd android && ./gradlew assembleDebug`
 - Install on real tablet
-- Field QA: full cycle (start → wash → dry → terminate; bypass; checklist; offline replay)
-- Coordinated production rollout
-
-## How to resume
-
-1. Pull this file open
-2. Confirm working tree clean: `git -C C:\Users\hello\21cfrlogbook-DigitalFMS\.worktrees\phase5-verification status`
-3. Confirm HEAD is `42c6afc`: `git -C ... log --oneline -10`
-4. Read `tasks/PLAN-2026-05-02-step8-decision-tape.md` for full Phase 8.4+ detail
-5. **8.4 is HIGH RISK** — confirm with user before flipping TAPE_PARALLEL default and removing old graph walker. Recommend reading "Tracked deferred follow-ups" first to bundle the 8.3 fix-ups (I-1, I-3, M-3) into the 8.4 commits.
+- Field QA: full cycle (start → wash → dry → terminate; bypass; checklist; offline replay; concurrent-operator collision)
+- Coordinated rollout
 
 ## Reference reading order
 
 1. This file — orientation
-2. `tasks/PLAN-2026-05-02-step8-decision-tape.md` — full plan
-3. `packages/shared/src/types/action-tape.ts` — type contract
-4. `apps/api/src/modules/filter-operations/tape/tape-generator.ts` — server tape
-5. `apps/web/src/lib/action-tape/` — FE module
-6. `apps/api/src/modules/filter-operations/filter-operations.service.ts` — service with TAPE_PARALLEL block at L686-791
-7. `apps/web/src/lib/offline/` — what 8.3 will touch (read before editing)
+2. `tasks/PLAN-2026-05-02-step8-OPTION-D.md` — canonical plan
+3. `tasks/INVENTORY-2026-05-02-step8.5-guards.md` — extraction list
+4. `packages/shared/src/types/action-tape.ts` — type contract
+5. `packages/shared/src/pipeline-executor/` — shared executor (in progress)
+6. `apps/api/src/modules/filter-operations/tape/tape-generator.ts` — server tape
+7. `apps/api/src/modules/sync/` — `/api/sync/since` server
+8. `apps/web/src/lib/sync-since.ts` + `apps/web/src/lib/offline-store.ts` — FE sync consumer + IDB v5 stores
+9. `apps/web/src/lib/action-tape/` — FE renderer module
+10. `apps/api/src/modules/filter-operations/filter-operations.service.ts` — service (TAPE_PARALLEL block at L686-791)
 
 ## Key constraints (project rules)
 
@@ -260,8 +224,8 @@ already dead.
 - Find root causes, deep-fix bugs even if out of scope
 - No silent test bypass
 - Light theme only
-- PowerShell on Windows (`npx.cmd`, ASCII only, no em-dashes)
+- PowerShell on Windows (`npx.cmd`, ASCII only — em-dashes are OK)
 - App runs ONLY on local Windows
 - Single-tenant (MT was removed 2026-04-30)
-- 106 permissions, 90 privileges, 81 reauth, 26 sidebar items, 69 Prisma models, 23 enums (per CLAUDE.md 2026-04-30)
+- 106 permissions, 90 privileges, 81 reauth, 26 sidebar items, 69 Prisma models, 23 enums (per worktree CLAUDE.md, 2026-05-02 post-Step-1 + MT removal)
 - **No Redis dependency** — Phase 2 + Phase 4 of windows-friendly-rewrite removed it. Job queue is graphile-worker; pub/sub is in-process EventEmitter (`apps/api/src/lib/internal-bus.ts`).
