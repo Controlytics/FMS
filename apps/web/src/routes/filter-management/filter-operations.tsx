@@ -16,20 +16,12 @@ import { useOffline } from '../../hooks/use-offline';
 import { onSyncEvent } from '../../lib/sync-engine';
 import type { FilterInstance, PaginatedResponse } from '../../types/filter';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
-// Phase 8.6 — shared executor + FE local-context loader. The desktop page
-// delegates its graph-walking helpers to the shared @digilog/shared module
-// so client/server stay in lockstep.
-import {
-  collectChecklistsAfterStage as sharedCollectChecklistsAfterStage,
-  findReachable as sharedFindReachable,
-  type Action,
-} from '@digilog/shared';
-import { loadLocalContextFromCache } from '@/lib/local-context';
-// Phase 8.6 part 2 — action-tape resolver + stage filter. The reachability
-// gate sites consume the executor-computed action list (server-emitted when
-// TAPE_PARALLEL=true, else locally computed) instead of reading the legacy
-// `nextAllowedStages` field.
+// Phase 8.6 — shared executor + action-tape resolver + offline-cache helper.
+// All graph-walking decisions (next-stage, checklist-after-stage, cache
+// rewrites) route through these so client/server stay in lockstep.
+import { findReachable as sharedFindReachable, type Action } from '@digilog/shared';
 import { actionsForStage, getCurrentActions } from '@/lib/action-tape';
+import { recomputeAndCacheFilterState } from '@/lib/offline-cache';
 
 const CLEANING_STAGES = CLEANING_STAGES_OPS;
 
@@ -459,103 +451,22 @@ export function FilterOperationsPage() {
     }
   };
 
-  // After an offline advance, update cached filter state to reflect new stage.
-  // Phase 8.6: Find CHECKLIST nodes immediately after a stage. Delegates to the
-  // shared executor's collectChecklistsAfterStage walker, which handles chained
-  // CHECKLIST → CHECKLIST → STAGE pipelines (the legacy implementation only
-  // looked at direct outConns and silently skipped chained checklists).
-  const findChecklistsAfterStage = (graph: any, stageKey: string): any[] => {
-    if (!graph?.stages || !graph?.connections) return [];
-    const stageNode = graph.stages.find((s: any) => s.stateKey === stageKey);
-    if (!stageNode) return [];
-    return sharedCollectChecklistsAfterStage(stageNode, graph.stages, graph.connections)
-      .filter(n => Boolean((n.configuration as { checklistProfileId?: unknown })?.checklistProfileId));
-  };
-
-  // Build pendingChecklist entries from cached checklist profiles (matches mobile's helper)
-  const buildOfflineChecklist = async (checklistNodes: any[]): Promise<any[]> => {
-    const cachedProfiles = await getCache<any[]>('checklist-profiles') ?? [];
-    const result: any[] = [];
-    for (const node of checklistNodes) {
-      const profileId = node.configuration?.checklistProfileId;
-      if (!profileId) continue;
-      const profile = cachedProfiles.find((p: any) => p.id === profileId && p.isActive !== false);
-      if (!profile) continue;
-      result.push({
-        pipelineNodeId: node.id,
-        checklistProfileId: profileId,
-        checklistProfileName: profile.name,
-        questions: (profile.questions ?? []).sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
-      });
-    }
-    return result;
-  };
-
-  const updateCachedStateAfterAdvance = async (filterId: string, newStageKey: string, cycleStarted?: boolean) => {
-    try {
-      const cachedState = await getCache<any>(`filter-state-${filterId}`) ?? {};
-      const pipeline: any[] = (cachedState.pipelineStages ?? [])
-        .filter((s: any) => s.stateKey)
-        .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-
-      // Compute pendingChecklist from pipeline graph (21 CFR compliance — never skip required checklists offline)
-      const graph = cachedState.pipelineGraph;
-      const checklistNodes = graph ? findChecklistsAfterStage(graph, newStageKey) : [];
-      const pendingChecklist = checklistNodes.length > 0
-        ? await buildOfflineChecklist(checklistNodes)
-        : [];
-
-      // Compute new nextAllowedStages — prefer graph, fall back to linear pipeline.
-      // If checklist is pending, block advancement until it's answered.
-      let nextAllowed: string[] = [];
-      let hasGraphData = false;
-      if (pendingChecklist.length > 0) {
-        nextAllowed = [];
-        hasGraphData = !!graph;
-      } else if (graph?.stages && graph?.connections) {
-        // Phase 8.6: delegate the graph walk to the shared executor's
-        // findReachable() (transitions.ts). Skips CHECKLIST nodes the same
-        // way the server does, so server/client stay in lockstep.
-        const currentNode = graph.stages.find((s: any) => s.stateKey === newStageKey);
-        if (currentNode) {
-          nextAllowed = sharedFindReachable(currentNode.id, graph.stages, graph.connections).reachableStages;
-          hasGraphData = true;
-        }
-      }
-      if (!hasGraphData) {
-        const currentIdx = pipeline.findIndex((s: any) => s.stateKey === newStageKey);
-        nextAllowed = (currentIdx >= 0 && currentIdx < pipeline.length - 1)
-          ? [pipeline[currentIdx + 1].stateKey] : [];
-        hasGraphData = pipeline.length > 0;
-      }
-
-      // Only mark cycle complete if we have pipeline data to verify it AND no checklist pending
-      const cycleComplete = hasGraphData && nextAllowed.length === 0 && pendingChecklist.length === 0 && !cycleStarted;
-      // 24h TTL (matches sync service) — shorter TTLs caused offline cycle state
-      // to appear expired during long shifts, which made downstream checks think
-      // the pipeline hadn't been started.
-      cache(`filter-state-${filterId}`, {
-        ...cachedState,
-        currentState: cycleComplete ? null : newStageKey,
-        nextAllowedStages: cycleComplete ? [] : nextAllowed,
-        pendingChecklist,
-        currentCycle: cycleComplete ? null : (cachedState.currentCycle ?? (cycleStarted ? { id: `offline-cycle-${Date.now()}`, status: 'IN_PROGRESS' } : null)),
-      }, 24 * 60 * 60 * 1000);
-
-      // Also update the filter instance's local state
-      const { updateFilterStateLocally } = await import('@/lib/offline-store');
-      if (cycleComplete) {
-        // Cycle done — clear lifecycle state so next scan starts fresh
-        await updateFilterStateLocally(filterId, '', false);
-      } else {
-        await updateFilterStateLocally(filterId, newStageKey, cycleStarted);
-      }
-      // Clear currentCycleId when cycle completes
-      if (cycleComplete) {
-        const { clearOfflineCycleId } = await import('@/lib/offline-store');
-        await clearOfflineCycleId(filterId);
-      }
-    } catch { /* ignore cache update errors */ }
+  // Phase 8.6 part 2: cache rewrite after a queued offline advance. Wraps
+  // `recomputeAndCacheFilterState` (the lib that replaces the deleted
+  // `findChecklistsAfterStage` / `buildOfflineChecklist` /
+  // `updateCachedStateAfterAdvance` helpers). Same shape as the deleted
+  // helper — every existing call site stays identical.
+  const updateCachedStateAfterAdvance = async (
+    filterId: string,
+    newStageKey: string,
+    cycleStarted?: boolean,
+  ) => {
+    await recomputeAndCacheFilterState(
+      filterId,
+      newStageKey,
+      !!cycleStarted,
+      null,
+    );
   };
 
   const handleSubmitBatch = async () => {
@@ -675,13 +586,18 @@ export function FilterOperationsPage() {
         }
 
         const cycleInProgress = !!state.currentCycle;
-        // New cycle: activeStage must be a legal entry point. Tape-derived —
-        // when no cycle is in progress, computeNextActions() emits
-        // ADVANCE_TO_STAGE actions for the START node's reachable stages.
+        // New cycle: activeStage must be a legal entry point. The action tape
+        // only emits ADVANCE_TO_STAGE entries for in-progress cycles — for the
+        // pre-cycle case we walk the cached pipeline graph from its START
+        // node via the shared executor's `findReachable` helper (same walker
+        // the server tape generator uses internally).
         if (!cycleInProgress && hasGraph) {
-          const firstStages = advanceTargets;
+          const startNode = state.pipelineGraph.stages.find((s: any) => s.nodeType === 'START');
+          const firstStages = startNode
+            ? sharedFindReachable(startNode.id, state.pipelineGraph.stages, state.pipelineGraph.connections ?? []).reachableStages
+            : [];
           if (firstStages.length > 0 && !firstStages.includes(activeStage.key)) {
-            setError(`${first.filterName}: cannot start cycle at ${activeStage.label}. Start at: ${firstStages.map(s => s.replace(/_/g, ' ')).join(', ')}`);
+            setError(`${first.filterName}: cannot start cycle at ${activeStage.label}. Start at: ${firstStages.map((s: string) => s.replace(/_/g, ' ')).join(', ')}`);
             setLoading(false); setSubmitting(false);
             return;
           }

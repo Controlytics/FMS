@@ -9,20 +9,12 @@ import { onSyncEvent } from '../../lib/sync-engine';
 import { DryerDurationDialog } from '../filter-management/components/dryer-duration-dialog';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
 import { subscribeRfidTags } from '@/lib/rfid-bridge';
-// Phase 8.6 — shared executor + FE local-context loader. Lets the mobile
-// operations page derive next-stage / checklist-after-stage decisions from
-// the same pure functions the server uses, killing client/server drift.
-import {
-  collectChecklistsAfterStage as sharedCollectChecklistsAfterStage,
-  findReachable as sharedFindReachable,
-  type Action,
-} from '@digilog/shared';
-import { loadLocalContextFromCache } from '@/lib/local-context';
-// Phase 8.6 part 2 — action-tape resolver + stage filter. The gate sites now
-// consume the executor-computed action list (from the response when
-// TAPE_PARALLEL=true, or locally otherwise) instead of reading the legacy
-// `nextAllowedStages` field directly. Same pure function on both sides.
+// Phase 8.6 — shared executor + action-tape resolver + offline-cache helper.
+// All graph-walking decisions (next-stage, checklist-after-stage, cache
+// rewrites) route through these so client/server stay in lockstep.
+import { findReachable as sharedFindReachable, type Action } from '@digilog/shared';
 import { actionsForStage, getCurrentActions } from '@/lib/action-tape';
+import { recomputeAndCacheFilterState } from '@/lib/offline-cache';
 
 const STAGES = [
   { key: 'WASH_IN', label: 'Wash In', icon: '🚿', gradient: 'from-sky-500 to-sky-600', bg: 'bg-sky-50', border: 'border-sky-200', text: 'text-sky-700', needsBlock: true },
@@ -603,23 +595,6 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       || e.name === 'TypeError';
   };
 
-  // Phase 8.6: compute reachable STAGE keys from a stage. Prefer the server-
-  // provided stageLookup (B.7 — authoritative). Otherwise delegate to the
-  // shared executor's `findReachable` walker so client/server stay in lockstep.
-  const computeNextStages = (graph: any, currentStageKey: string | null, stageLookup?: any): string[] => {
-    // Tier 1: stageLookup from server response (B.7)
-    if (stageLookup && currentStageKey && Array.isArray(stageLookup[currentStageKey]?.nextStages)) {
-      return stageLookup[currentStageKey].nextStages;
-    }
-    if (!graph?.stages || !graph?.connections) return [];
-    // Find the current node by stateKey (or START when no current).
-    const currentNode = currentStageKey
-      ? graph.stages.find((s: any) => s.stateKey === currentStageKey)
-      : graph.stages.find((s: any) => s.nodeType === 'START');
-    if (!currentNode) return [];
-    return sharedFindReachable(currentNode.id, graph.stages, graph.connections).reachableStages;
-  };
-
   // SPIS: single-source offline gate shared by handleSubmit (single scan) and
   // handleSubmitQueue (batch). Every offline/online validation rule lives HERE
   // — both callers must go through this. See memory: feedback_batch_single_parity.md.
@@ -662,13 +637,18 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     if (!g.online && homeMismatch) {
       return { ok: false, reason: 'block change approval required', blockChangeRequired: true };
     }
-    // First-stage validation for brand-new cycles. Tape-derived: when no cycle
-    // is in progress, computeNextActions() emits ADVANCE_TO_STAGE actions for
-    // the START node's reachable stages — same set as `firstStages` was.
-    if (!g.cycleInProgress && g.hasGraph) {
-      const firstStages = advanceTargets;
+    // First-stage validation for brand-new cycles. The action tape only
+    // emits ADVANCE_TO_STAGE entries for in-progress cycles — for the
+    // pre-cycle case we walk the cached pipeline graph from its START node
+    // via the shared executor's `findReachable` helper (same walker the
+    // server tape generator uses internally).
+    if (!g.cycleInProgress && g.hasGraph && g.pipelineGraph?.stages && g.pipelineGraph?.connections) {
+      const startNode = g.pipelineGraph.stages.find((s: any) => s.nodeType === 'START');
+      const firstStages = startNode
+        ? sharedFindReachable(startNode.id, g.pipelineGraph.stages, g.pipelineGraph.connections).reachableStages
+        : [];
       if (firstStages.length > 0 && !firstStages.includes(g.activeStageKey)) {
-        return { ok: false, reason: `cannot start cycle at ${g.activeStageLabel} — start at ${firstStages.map(s => s.replace(/_/g, ' ')).join(', ')}` };
+        return { ok: false, reason: `cannot start cycle at ${g.activeStageLabel} — start at ${firstStages.map((s: string) => s.replace(/_/g, ' ')).join(', ')}` };
       }
     }
     // In-cycle: activeStage must appear as an ADVANCE_TO_STAGE target on the
@@ -693,119 +673,25 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     return { ok: true };
   };
 
-  // Phase 8.6: Find CHECKLIST nodes that fire after a stage in the pipeline
-  // graph. Two-tier resolution:
-  //   1. If the cached state has stageLookup[stageKey].pendingChecklistProfileIds,
-  //      that's authoritative — server already walked the graph for us. Convert
-  //      the profile ids back into pseudo-nodes the buildOfflineChecklist helper
-  //      can resolve against the cached `checklist-profiles` store.
-  //   2. Otherwise delegate to the shared executor's
-  //      `collectChecklistsAfterStage` walker, which handles chained CHECKLIST
-  //      → CHECKLIST → STAGE pipelines (the bug operators reported as
-  //      "checklist not coming at that stage" — fixed once, in shared, for
-  //      both runtimes).
-  const findChecklistsAfterStage = (graph: any, stageKey: string, stageLookup?: any): any[] => {
-    // Tier 1: server-computed authoritative answer
-    if (stageLookup && Array.isArray(stageLookup[stageKey]?.pendingChecklistProfileIds)) {
-      const ids: string[] = stageLookup[stageKey].pendingChecklistProfileIds;
-      // Pseudo-nodes — buildOfflineChecklist only reads node.configuration.checklistProfileId
-      // and node.id, so synthesizing them is fine.
-      return ids.map((profileId, i) => ({
-        id: `${stageKey}-checklist-${i}`,
-        nodeType: 'CHECKLIST',
-        configuration: { checklistProfileId: profileId },
-      }));
-    }
-    // Tier 2: shared executor walker (chained CHECKLIST support).
-    if (!graph?.stages || !graph?.connections) return [];
-    const stageNode = graph.stages.find((s: any) => s.stateKey === stageKey);
-    if (!stageNode) return [];
-    return sharedCollectChecklistsAfterStage(stageNode, graph.stages, graph.connections)
-      .filter(n => Boolean((n.configuration as { checklistProfileId?: unknown })?.checklistProfileId));
-  };
-
-  // Build pendingChecklist from cached checklist profiles for CHECKLIST nodes.
-  // Skips profiles that don't have a `questions` array — happens if the cache
-  // was populated before the API supported ?expand=questions on the list
-  // endpoint. The next online refresh will repopulate with full questions.
-  const buildOfflineChecklist = async (checklistNodes: any[]): Promise<any[]> => {
-    const cachedProfiles = await getCache<any[]>('checklist-profiles') ?? [];
-    const result: any[] = [];
-    for (const node of checklistNodes) {
-      const profileId = node.configuration?.checklistProfileId;
-      if (!profileId) continue;
-      const profile = cachedProfiles.find((p: any) => p.id === profileId && p.isActive !== false);
-      if (profile && (!Array.isArray(profile.questions) || profile.questions.length === 0)) {
-        // Stale cache: profile exists but questions aren't there. Surface this
-        // so operators see a clear "re-sync" hint rather than an empty modal.
-        console.warn('[offline] checklist profile cached without questions', profileId);
-      }
-      if (!profile) continue;
-      result.push({
-        pipelineNodeId: node.id,
-        checklistProfileId: profileId,
-        checklistProfileName: profile.name,
-        questions: (profile.questions ?? []).sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
-      });
-    }
-    return result;
-  };
-
-  // Update cached filter state + IndexedDB after offline operation
-  const updateOfflineState = async (filterId: string, newStage: string, cycleStarted: boolean, blockId?: string) => {
-    try {
-      const { updateFilterStateLocally, cacheData } = await import('@/lib/offline-store');
-      await updateFilterStateLocally(filterId, newStage, cycleStarted);
-
-      const cachedState = await getCache<any>(`filter-state-${filterId}`) ?? {};
-      const graph = cachedState.pipelineGraph;
-      const stageLookup = cachedState.stageLookup; // server-computed (B.7)
-
-      // Check if pipeline has CHECKLIST nodes after the new stage. stageLookup
-      // takes precedence over local graph walk so we match server semantics
-      // (including chained CHECKLIST nodes between the same two stages).
-      const checklistNodes = findChecklistsAfterStage(graph, newStage, stageLookup);
-      const pendingChecklist = checklistNodes.length > 0
-        ? await buildOfflineChecklist(checklistNodes)
-        : [];
-
-      // If checklist is pending, block advancement (nextAllowedStages = [])
-      let nextAllowed: string[] = [];
-      let hasGraphData = false;
-      if (pendingChecklist.length > 0) {
-        nextAllowed = []; // blocked until checklist answered
-      } else if (graph || stageLookup) {
-        nextAllowed = computeNextStages(graph, newStage, stageLookup);
-        hasGraphData = true;
-      } else {
-        const pipeline: any[] = (cachedState.pipelineStages ?? [])
-          .filter((s: any) => s.stateKey)
-          .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-        const idx = pipeline.findIndex((s: any) => s.stateKey === newStage);
-        nextAllowed = (idx >= 0 && idx < pipeline.length - 1) ? [pipeline[idx + 1].stateKey] : [];
-        hasGraphData = pipeline.length > 0;
-      }
-
-      // Only mark cycle complete if we have pipeline data to verify it AND there are truly no next stages
-      const cycleComplete = hasGraphData && nextAllowed.length === 0 && pendingChecklist.length === 0 && !cycleStarted;
-      // Write the filter-state with a 24-hour TTL (matches the sync service).
-      // The default `cache()` helper uses 30 min, which is too short for long offline shifts —
-      // combined with navigator.onLine sometimes flipping to true on Capacitor Android WebViews,
-      // that shorter TTL caused the offline cycle state to appear "expired" and return null,
-      // which in turn made the pipeline appear unstarted after the user's first advance.
-      await cacheData(`filter-state-${filterId}`, {
-        ...cachedState,
-        currentState: cycleComplete ? null : newStage,
-        nextAllowedStages: cycleComplete ? [] : nextAllowed,
-        pendingChecklist,
-        currentCycle: cycleComplete ? null : (cachedState.currentCycle ?? (cycleStarted ? { id: `offline-${Date.now()}`, status: 'IN_PROGRESS', cleaningAreaId: blockId ?? selectedBlock?.id ?? null } : null)),
-      }, 24 * 60 * 60 * 1000);
-      // Clear both currentCycleId and currentLifecycleState in filters store when cycle completes
-      if (cycleComplete) {
-        const { clearOfflineCycleId } = await import('@/lib/offline-store');
-        await clearOfflineCycleId(filterId);
-      }
-    } catch { /* ignore */ }
+  // Phase 8.6 part 2: cache rewrite after a queued offline advance. Wraps
+  // `recomputeAndCacheFilterState` from `lib/offline-cache.ts` (the lib that
+  // replaces the deleted `computeNextStages` / `findChecklistsAfterStage` /
+  // `buildOfflineChecklist` / `updateOfflineState` helpers) with a refresh
+  // hook so the offline filter list re-renders after every cache rewrite.
+  // Same shape as the deleted helper — every existing call site stays
+  // identical.
+  const updateOfflineState = async (
+    filterId: string,
+    newStage: string,
+    cycleStarted: boolean,
+    blockId?: string,
+  ) => {
+    await recomputeAndCacheFilterState(
+      filterId,
+      newStage,
+      cycleStarted,
+      blockId ?? selectedBlock?.id ?? null,
+    );
     refreshOfflineData();
   };
 
@@ -828,9 +714,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         const cachedState = await getCache<any>(`filter-state-${filterId}`) ?? {};
 
         const currentLifecycle = cached?.currentLifecycleState || cachedState.currentState || null;
+        // Phase 8.6 part 2: derive nextAllowedStages from the resolved tape so
+        // offline cache hydration matches what the gate sites consume. Cache
+        // wins when present (most callers populate it after every advance);
+        // executor fallback covers the cold-cache case.
         let nextAllowed: string[] = cachedState.nextAllowedStages ?? [];
-        if (nextAllowed.length === 0 && cachedState.pipelineGraph) {
-          nextAllowed = computeNextStages(cachedState.pipelineGraph, currentLifecycle);
+        if (nextAllowed.length === 0) {
+          const tape = await getCurrentActions(filterId, cachedState.actions);
+          nextAllowed = tape
+            .filter(a => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION')
+            .map(a => (a as { params: { targetState: string } }).params.targetState);
         }
 
         // Active cycle: server returns currentCycle with id+status, offline has cached version
@@ -851,6 +744,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           pmReasonKey: cachedState.pmReasonKey ?? null,
           blockChangeStatus: cachedState.blockChangeStatus ?? null,
           homeBlock: cachedState.homeBlock ?? null,
+          actions: cachedState.actions ?? null,
         };
       };
 
@@ -1317,16 +1211,30 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       }
       const { executed } = await executeOrQueue('submit-checklist', checklistDialog.filterId, checklistDialog.filterName, { answers: checklistAnswers, expectedProfileVersions });
       setSuccess(`Checklist submitted${executed ? '' : ' (queued)'}`);
-      // After checklist answered, update cached state: clear pendingChecklist, compute next stages
+      // After checklist answered offline: force-clear pendingChecklist on
+      // the cache. The empty pending + has-CHECKLIST-after + current-stage
+      // combination is the "operator just submitted offline" footprint the
+      // loader's CHECKLIST_COMPLETED synthesis (`local-context.ts:459`)
+      // looks for — clearing pending IS what unblocks the gate next read.
+      // Then re-derive nextAllowedStages + actions from the tape so other
+      // gate sites see the unblocked state immediately.
       if (!executed) {
         try {
-          const cs = await getCache<any>(`filter-state-${checklistDialog.filterId}`) ?? {};
-          const currentStage = cs.currentState;
-          // Walk past checklist nodes to find next STAGE nodes — prefer
-          // server-computed stageLookup so we match what the next /current-state
-          // would return after the answered checklist syncs back online.
-          const nextAllowed = computeNextStages(cs.pipelineGraph, currentStage, cs.stageLookup);
-          cache(`filter-state-${checklistDialog.filterId}`, { ...cs, pendingChecklist: [], nextAllowedStages: nextAllowed }, 24 * 60 * 60 * 1000);
+          const filterIdCl = checklistDialog.filterId;
+          const cs = await getCache<any>(`filter-state-${filterIdCl}`) ?? {};
+          const clearedRow = { ...cs, pendingChecklist: [] };
+          await cache(`filter-state-${filterIdCl}`, clearedRow, 24 * 60 * 60 * 1000);
+          // Now the loader will synthesize CHECKLIST_COMPLETED → executor
+          // emits the unblocked tape. Persist it on the cache row.
+          const tape = await getCurrentActions(filterIdCl, null);
+          const newAllowed = tape
+            .filter(a => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION')
+            .map(a => (a as { params: { targetState: string } }).params.targetState);
+          await cache(
+            `filter-state-${filterIdCl}`,
+            { ...clearedRow, nextAllowedStages: newAllowed, actions: tape },
+            24 * 60 * 60 * 1000,
+          );
         } catch { /* ignore */ }
       }
       setChecklistDialog(null); setChecklistAnswers({});
@@ -2075,7 +1983,6 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                         online={online}
                         getCache={getCache}
                         executeOrQueue={executeOrQueue}
-                        updateOfflineState={updateOfflineState}
                         onSuccess={(msg) => { setSuccess(msg); mutate('/api/assets/instances?limit=500'); refreshOfflineData(); }}
                         onError={setError}
                       />
@@ -2311,11 +2218,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
  * Works both online (SWR polling) and offline (cached state).
  */
 function DryingFilterCard({
-  filterId, filterName, online, getCache, executeOrQueue, updateOfflineState, onSuccess, onError,
+  filterId, filterName, online, getCache, executeOrQueue, onSuccess, onError,
 }: {
   filterId: string; filterName: string; online: boolean;
   getCache: <T>(key: string) => Promise<T | null>;
-  executeOrQueue: any; updateOfflineState: any;
+  executeOrQueue: any;
   onSuccess: (msg: string) => void; onError: (msg: string) => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
@@ -2422,8 +2329,11 @@ function DryingFilterCard({
         instrumentReadings: readings,
         remarks: `Dryer temperature ${temp}${tempUom} - ${filterName}`,
       }, 'DRY_IN');
-      if (!executed) await updateOfflineState(filterId, 'DRY_IN', false);
-      // Mark readings as submitted in cache (read AFTER updateOfflineState to get latest) + clear persisted temp
+      // Phase 8.6 part 2: route the offline cache rewrite through the
+      // shared `recomputeAndCacheFilterState` helper instead of a prop-drilled
+      // callback. Same behaviour, no parent wiring.
+      if (!executed) await recomputeAndCacheFilterState(filterId, 'DRY_IN', false, null);
+      // Mark readings as submitted in cache (read AFTER recompute to get latest) + clear persisted temp
       try {
         const freshState = await getCache<any>(`filter-state-${filterId}`) ?? {};
         const { cacheData } = await import('@/lib/offline-store');
