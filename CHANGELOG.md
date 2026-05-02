@@ -1,5 +1,43 @@
 # Changelog
 
+## [Unreleased] — B7.2: BLOCK_CHANGE_REQUIRED 409 handled in equipment-dialog + PM auto-start flows (2026-05-02)
+
+Branch: `feature/phase5-verification`. Closes a partially-stale gap: the `BLOCK_CHANGE_REQUIRED` 409 already emitted structured `details` from `validateBlockChange()` (commit `60dcbaa`, 2026-04-10), and the reason-dialog catch paths in mobile + desktop had been popping a structured modal since then. **What was missing**: four `start-and-advance` catch blocks (three equipment-dialog + one desktop PM auto-start) that go through `start-cycle` → `validateBlockChange`. On a cross-block hit there, the 409 was falling through to a generic toast / "failed" string. Operators got no actionable surface for requesting approval from those flows.
+
+### Changes
+
+- `apps/web/src/routes/mobile/mobile-operations.tsx` — `handleEquipSubmit`: detect `e.code === 'BLOCK_CHANGE_REQUIRED'` and pop the existing `blockChangeDialog` modal (same shape as the reason-dialog catch at line 1137). Clears `equipDialog`, `selectedEquipGroup`, `readings`, and `pendingCyclePayload` so the new modal isn't stacked under stale state.
+- `apps/web/src/routes/filter-management/filter-operations.tsx` — `handleEquipmentSubmit` (single + batch paths): same detection, mirroring the reason-dialog catch at line 1060 and the `advanceBatch` catch at line 388. Batch loop sets the modal once on first hit and keeps iterating so other items still succeed.
+- `apps/web/src/routes/filter-management/filter-operations.tsx` — **PM auto-start desktop loop** (added in this revision): the `for (const item of batch)` at line ~721 was calling `executeOrQueue('start-and-advance', …)` with no inner try/catch, so a 409 from `validateBlockChange` would bubble to the outer catch at line ~826 and surface as a generic `setPopupError(e.message)` — exactly the gap B7.2 was meant to close. Mobile already had this (mobile-operations.tsx:1015-1022); only desktop was missing it. The proactive `state.blockChangeStatus === 'REQUIRED'` cache check at line 661 mitigates most cases, but it's a stale-cache gate, not a server-side hard guarantee. Fix mirrors mobile + the equipment-dialog batch pattern: per-iteration try/catch, structured modal popped once on first hit (via local `blockChangePopped` flag), other items continue.
+
+### Minor cleanups (same commit)
+
+- **Closure-staleness fix in `handleEquipmentSubmit` batch loop** — replaced the `if (!blockChangeDialog)` guard with a local `blockChangePopped` flag. React does not flush state between iterations of a sync `for/await` loop, so the closure-captured `blockChangeDialog` is always whatever it was at function entry — the original guard would re-set the dialog on every cross-block hit. Local flag = correct "set on first hit only". Same fix applied to the new PM auto-start loop above.
+- **Symmetry with `advanceBatch`** — added `&& !blockChangePopped` guard on the post-loop `setPopupError` in `handleEquipmentSubmit` batch (mirroring `advanceBatch:422`'s `&& !blockChangeDialog`), so the generic toast doesn't fire when the structured modal is already up. Used the local flag for the same closure-staleness reason.
+
+### Why no new modal / no inline card / no API change
+
+- The structured modal already exists (one in each file) with filter name, home block, requested block, reason textarea, and inline `POST /api/block-change-requests` submit. Adding an inline card alongside (S4UX-style) would create two competing UIs for the same error.
+- `validateBlockChange()` already returns the exact `{ filterId, homeBlockId, homeBlockName, requestedBlockId, requestedBlockName }` shape the FE consumes. No server-side change.
+
+### Verification
+
+- `cd apps/web && npx tsc --noEmit` → exit 0.
+- `cd apps/api && npx tsc --noEmit` → exit 0.
+- `cd apps/web && npx vitest run` → 1 file, 10 tests, all passing (B7.1 regression).
+- Server contract verified by code reading: `filter-operations.service.ts:205-213` constructs the AppError; `app.ts:147-152` serializes `details` into the JSON body; `error-schemas.ts:13` uses `additionalProperties: true` so Fastify preserves it; `api-client.ts:67` maps `err.details` → `err.connectionInfo`. End-to-end live curl was not feasible without building out a full block-with-filters fixture in the local DB; documenting the inspection chain instead.
+
+### Touched callsites — full audit (so future drift is detectable)
+
+In both files, every `catch` for an `executeOrQueue('start-cycle' | 'start-and-advance', …)` path now either pops the modal or delegates to a loop that does. Audited catches:
+
+- mobile: 1015 (PM auto), 1071 (handleSubmit), 1136 (handleReasonSubmit), 1245 (handleEquipSubmit — fixed in this commit).
+- desktop: 388 (advanceBatch), **~721 (PM auto-start loop — fixed in this revision)**, 868 (reason-batch start), 935 (reason-batch advance), 1010 (reauth-wrapped start), 1060 (handleReasonSubmit), 1232 (handleEquipmentSubmit batch — fixed in this commit), 1283 (handleEquipmentSubmit single — fixed in this commit).
+
+`submit-checklist`, `bypass`, `terminate`, dryer-temp `advance`, and offline-cache fetch catches do not need the branch — `validateBlockChange` is only called from `startCycle()` server-side (verified at `filter-operations.service.ts:899`).
+
+---
+
 ## [Unreleased] — B7.1: apps/web vitest setup + diffSnapshots() regression suite (2026-05-02)
 
 Branch: `feature/phase5-verification`. Closes L6 from `tasks/SERVER-ONLINE-WORKLIST.md` — no FE test runner existed and the snapshot diff engine in the Version History page (added in `d31ed37` — VHv3 interactive diff timeline) had zero coverage.

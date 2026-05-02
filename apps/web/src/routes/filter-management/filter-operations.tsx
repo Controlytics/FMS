@@ -718,12 +718,45 @@ export function FilterOperationsPage() {
         if (state.isPmDue && state.pmReasonKey) {
           const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
           const blockId = selectedBlock?.id;
+          let pmSuccess = 0;
+          const pmFailed: string[] = [];
+          let blockChangePopped = false;
           for (const item of batch) {
             const cyclePayload = { cleaningReasonKey: state.pmReasonKey, cleaningAreaId: blockId };
             const advancePayload = { targetState: activeStage.key, cleaningAreaId: blockId, remarks: remarks || `${activeStage.label} - ${item.filterName} (PM auto)` };
-            await executeOrQueue('start-and-advance', item.filterId, item.filterName, { cyclePayload, advancePayload } as any, activeStage.key);
+            try {
+              await executeOrQueue('start-and-advance', item.filterId, item.filterName, { cyclePayload, advancePayload } as any, activeStage.key);
+              pmSuccess++;
+            } catch (e: any) {
+              // B7.2: PM auto-start goes through `start-and-advance` → start-cycle →
+              // validateBlockChange. The proactive `state.blockChangeStatus === 'REQUIRED'`
+              // check at line 661 covers most cases via the cached state, but a stale-cache
+              // or race can still surface the structured 409 here. Mirror the mobile pattern
+              // (mobile-operations.tsx:1015-1022) and pop the existing block-change modal.
+              if (e?.code === 'BLOCK_CHANGE_REQUIRED' && e?.connectionInfo) {
+                if (!blockChangePopped) {
+                  setBlockChangeDialog({
+                    filterId: e.connectionInfo.filterId ?? item.filterId,
+                    filterName: item.filterName,
+                    homeBlockId: e.connectionInfo.homeBlockId,
+                    homeBlockName: e.connectionInfo.homeBlockName,
+                    requestedBlockId: e.connectionInfo.requestedBlockId,
+                    requestedBlockName: e.connectionInfo.requestedBlockName,
+                  });
+                  setBlockChangeReason('');
+                  blockChangePopped = true;
+                }
+                pmFailed.push(`${item.filterName}: Block change approval required`);
+              } else {
+                pmFailed.push(`${item.filterName}: ${e?.message ?? 'failed'}`);
+              }
+            }
           }
-          setToast({ type: 'success', message: `${batch.length} filter(s) → ${activeStage.label} (PM auto)` });
+          if (pmFailed.length > 0 && !blockChangePopped) {
+            setPopupError(`${pmSuccess} succeeded, ${pmFailed.length} failed:\n${pmFailed.join('\n')}`);
+          } else if (pmFailed.length === 0) {
+            setToast({ type: 'success', message: `${batch.length} filter(s) → ${activeStage.label} (PM auto)` });
+          }
           clearScanState();
           refreshFilters();
           setLoading(false); setSubmitting(false);
@@ -1203,6 +1236,12 @@ export function FilterOperationsPage() {
       const savedCyclePayload = pendingCyclePayload;
       let success = 0; const failed: string[] = [];
       const newSubs: typeof recentSubmissions = [];
+      // Minor #2: track first 409 BLOCK_CHANGE_REQUIRED hit with a local flag.
+      // The closure-captured `blockChangeDialog` does NOT update mid-loop —
+      // React doesn't flush state between iterations of a sync `for`/await —
+      // so `if (!blockChangeDialog)` would always be whatever it was at
+      // function entry, not "have we set it this run". Local flag = correct.
+      let blockChangePopped = false;
       for (const item of batch) {
         try {
           const advPayload = {
@@ -1230,7 +1269,28 @@ export function FilterOperationsPage() {
           if (!executed) await updateCachedStateAfterAdvance(item.filterId, isDryerReadings ? 'DRY_IN' : stage.key, !!savedCyclePayload);
           newSubs.push({ stage: stage.label + (executed ? '' : ' (queued)'), filter: item.filterName, block: blockName, time: formatTime(new Date()) });
         } catch (e: any) {
-          failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
+          // B7.2: equipment-dialog batch loop uses `start-and-advance` when a
+          // cycle hasn't started yet, which calls start-cycle → validateBlockChange.
+          // A cross-block hit can return 409 BLOCK_CHANGE_REQUIRED. Pop the
+          // structured modal once on first hit (matches advanceBatch:388
+          // pattern) and continue iterating so other items can still succeed.
+          if (e?.code === 'BLOCK_CHANGE_REQUIRED' && e?.connectionInfo) {
+            if (!blockChangePopped) {
+              setBlockChangeDialog({
+                filterId: e.connectionInfo.filterId ?? item.filterId,
+                filterName: item.filterName,
+                homeBlockId: e.connectionInfo.homeBlockId,
+                homeBlockName: e.connectionInfo.homeBlockName,
+                requestedBlockId: e.connectionInfo.requestedBlockId,
+                requestedBlockName: e.connectionInfo.requestedBlockName,
+              });
+              setBlockChangeReason('');
+              blockChangePopped = true;
+            }
+            failed.push(`${item.filterName}: Block change approval required`);
+          } else {
+            failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
+          }
         }
       }
       setRecentSubmissions(prev => [...newSubs, ...prev].slice(0, 10));
@@ -1239,8 +1299,11 @@ export function FilterOperationsPage() {
       setEquipmentDialog(null);
       setPendingBatch(null);
       setPendingCyclePayload(null);
-      if (failed.length > 0) setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
-      else setToast({ type: 'success', message: `${success} filter(s) → ${stage.label}` });
+      // Minor #3: suppress generic toast when block-change modal is up
+      // (mirrors advanceBatch:422 `&& !blockChangeDialog`, but using the
+      // local flag to avoid the same closure-staleness pitfall).
+      if (failed.length > 0 && !blockChangePopped) setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
+      else if (failed.length === 0) setToast({ type: 'success', message: `${success} filter(s) → ${stage.label}` });
       setEquipmentLoading(false);
       return;
     }
@@ -1280,7 +1343,30 @@ export function FilterOperationsPage() {
         setChecklistDialog({ filterId: equipmentDialog.filterId, filterName: equipmentDialog.filterName, checklists: advanceResult.pendingChecklist });
         setChecklistError('');
       }
-    } catch (e: any) { setEquipmentError(e.message ?? 'Failed to advance'); setPopupError(e.message ?? 'Failed to advance'); }
+    } catch (e: any) {
+      // B7.2: single-filter equipment submit goes through `start-and-advance`
+      // when pendingCyclePayload is set (cycle not yet started). That calls
+      // start-cycle → validateBlockChange and can return 409 BLOCK_CHANGE_REQUIRED.
+      // Mirror the reason-dialog catch (line ~1060) and pop the structured
+      // modal instead of falling through to a generic toast.
+      if (e?.code === 'BLOCK_CHANGE_REQUIRED' && e?.connectionInfo) {
+        setBlockChangeDialog({
+          filterId: e.connectionInfo.filterId ?? equipmentDialog.filterId,
+          filterName: equipmentDialog.filterName,
+          homeBlockId: e.connectionInfo.homeBlockId,
+          homeBlockName: e.connectionInfo.homeBlockName,
+          requestedBlockId: e.connectionInfo.requestedBlockId,
+          requestedBlockName: e.connectionInfo.requestedBlockName,
+        });
+        setBlockChangeReason('');
+        // Clear equipment-dialog state so the structured modal isn't stacked.
+        setEquipmentDialog(null);
+        setPendingCyclePayload(null);
+      } else {
+        setEquipmentError(e.message ?? 'Failed to advance');
+        setPopupError(e.message ?? 'Failed to advance');
+      }
+    }
     setEquipmentLoading(false);
   };
 

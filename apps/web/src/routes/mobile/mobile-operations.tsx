@@ -1242,7 +1242,30 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           setChecklistAnswers({});
         }
       }
-    } catch (e: any) { setError(e.message ?? 'Failed'); }
+    } catch (e: any) {
+      // B7.2: equipment-dialog flows go through `start-and-advance`, which
+      // calls start-cycle → validateBlockChange. A cross-block scan there
+      // can return 409 BLOCK_CHANGE_REQUIRED — pop the structured modal
+      // (same shape as reason-dialog catch above) instead of swallowing
+      // it as a generic "Failed" toast.
+      if (e?.code === 'BLOCK_CHANGE_REQUIRED' && e?.connectionInfo) {
+        setBlockChangeDialog({
+          filterId: e.connectionInfo.filterId,
+          filterName: equipDialog?.filterName ?? '',
+          homeBlockId: e.connectionInfo.homeBlockId,
+          homeBlockName: e.connectionInfo.homeBlockName,
+          requestedBlockId: e.connectionInfo.requestedBlockId,
+          requestedBlockName: e.connectionInfo.requestedBlockName,
+        });
+        setBlockChangeReason('');
+        // Clear equip-dialog state so the modal isn't stacked under it.
+        setEquipDialog(null); setSelectedEquipGroup(null); setReadings({});
+        setPendingCyclePayload(null);
+        setLoading(false);
+        return;
+      }
+      setError(e.message ?? 'Failed');
+    }
     setLoading(false);
   };
 
