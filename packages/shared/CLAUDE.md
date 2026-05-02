@@ -57,7 +57,7 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 
 | File | Purpose |
 |---|---|
-| `permissions.ts` | **105** permission constants (PERMISSIONS enum + ALL_PERMISSIONS list) — 4 ORG_* perms removed in MT removal |
+| `permissions.ts` | **106** permission constants (PERMISSIONS enum + ALL_PERMISSIONS list) — 4 ORG_* perms removed in MT removal; `VERSION_HISTORY_VIEW` added 2026-05-02 |
 | `feature-privileges.ts` | **90** feature privileges + `FEATURE_TO_PERMISSION_MAP` — 2 org.* privileges removed in MT removal; `version_history.view` added 2026-05-02 |
 | `reauth-actions.ts` | **81** reauth actions across 16 categories |
 | `roles.ts` | Role constants + hierarchy + display labels |

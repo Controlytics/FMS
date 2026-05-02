@@ -13,7 +13,7 @@ apps/api/         — Fastify backend (TypeScript, port 3000)
 apps/web/         — React SPA (Vite, port 5175 dev)
 apps/android/     — Capacitor Android wrapper (DigiLog-FilterOps.apk)
 rfid_scan_app/    — Native Kotlin RFID scanner (KC-series UHF readers)
-packages/shared/  — Permissions (109), privileges (91), reauth (81), sidebar items (26), zod schemas
+packages/shared/  — Permissions (106), privileges (90), reauth (81), sidebar items (26), zod schemas
 packages/db/      — Prisma client + TimescaleDB pool + telemetry batcher
 packages/queue/   — graphile-worker job queue (Postgres-backed)
 docs/             — Project docs (current)
@@ -107,7 +107,7 @@ Cleaning profiles, filter operations (cycle start/advance/bypass/checklist), PM 
 RFID Scanner Android app (Reader_Usb.jar SDK), web RFID keyboard guard, offline IndexedDB queue + sync engine, cached identifier→filter map, "Data Synced" indicator, responsive collapsible sidebar.
 
 ### Phase 4 — Permissions, Themes, Reports
-18 granular feature toggles introduced (Filters / Checklists / Cleaning Profiles / Equipment / PM) — total privileges grew to 91 over Phases 4 + 5; 10 color themes; configurable report header/footer/layout; dynamic bulk upload from template attributeSchema; reauth actions grew to 81 across 16 categories.
+18 granular feature toggles introduced (Filters / Checklists / Cleaning Profiles / Equipment / PM) — total privileges grew to 91 over Phases 4 + 5 (later trimmed to 89 in MT removal 2026-04-30, then 90 after VERSION_HISTORY 2026-05-02); 10 color themes; configurable report header/footer/layout; dynamic bulk upload from template attributeSchema; reauth actions grew to 81 across 16 categories.
 
 ### Phase 5 — Reports, Offline Hardening, RFID SDK, Filter Data Console (Apr 15–29, 2026)
 Reports module A–F complete (visual template designer + puppeteer-core/Edge / @napi-rs/canvas / Handlebars PDF engine + digital signatures — Phase 3 of windows-friendly-rewrite swapped from `puppeteer` + `chartjs-node-canvas` to eliminate the bundled Chromium download and the node-gyp/MSVC dependency), offline overhaul (TTL cache, idempotency keys, tombstones, LRU, JWT refresh, server-side `stageLookup`, Capacitor Network plugin + SW hook), RFID SDK plugin in DigiLog APK (`Reader_Usb.jar` via `RfidPlugin.java`), Filter Data Management console mirroring 10 user-facing pages, DRY_IN two-step flow with persisted countdown panel, dynamic backup/restore covering all 64 tables, bloat audit 12/14 resolved, EC2/PM2 production assets removed (local-Windows-only), decision-tape proposal for future client/server pipeline drift elimination. Full architectural detail in `PHASE_5_RECENT_WORK.md`.

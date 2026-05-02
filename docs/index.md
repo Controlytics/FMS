@@ -6,7 +6,7 @@ A 21 CFR Part 11–compliant digital logbook + IoT data platform with an integra
 - **36 API modules**, **200+ endpoints**, **69 Prisma models**, **23 enums**
 - **77 rule-chain node types** across 8 categories
 - **30 config definitions** with auto-discovery, **26 config pages**
-- **109 permissions**, **91 feature toggles**, **81 reauth actions**, **26 sidebar items**
+- **106 permissions**, **90 feature toggles**, **81 reauth actions**, **26 sidebar items**
 - **10 color themes**, configurable report layout, multi-channel notifications
 - **TimescaleDB** with 7 hypertables for telemetry / attributes / events / alarm history
 

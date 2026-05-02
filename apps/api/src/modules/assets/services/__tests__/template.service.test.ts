@@ -121,16 +121,29 @@ describe('templateService', () => {
 
     // Step 4 guard (2026-05-02): block delete with 409 IN_USE when any
     // FilterProfile binds the template via filter_profile_applicable_templates.
-    it('rejects with 409 IN_USE when FilterProfile bindings exist', async () => {
+    // Step 4 UX follow-up: error includes structured `details.bindings` so the
+    // FE can render a clickable list instead of regex-parsing the message.
+    it('rejects with 409 TEMPLATE_IN_USE + structured bindings when FilterProfile bindings exist', async () => {
       mockTemplateRepo.findById.mockResolvedValue({ id: 't1', name: 'Block-T', isActive: true });
       mockTemplateRepo.findFilterProfileBindings.mockResolvedValue([
         { profileId: 'fp1', templateId: 't1', profile: { id: 'fp1', name: 'Standard FP' } },
         { profileId: 'fp2', templateId: 't1', profile: { id: 'fp2', name: 'Strict FP' } },
       ]);
 
-      await expect(templateService.delete('t1', ctx)).rejects.toThrow(
-        /still bound by 2 filter profile\(s\) \[Standard FP, Strict FP\]/,
-      );
+      try {
+        await templateService.delete('t1', ctx);
+        throw new Error('expected delete to throw');
+      } catch (err: any) {
+        expect(err.statusCode).toBe(409);
+        expect(err.code).toBe('TEMPLATE_IN_USE');
+        expect(err.message).toMatch(/still bound by 2 filter profile\(s\) \[Standard FP, Strict FP\]/);
+        expect(err.details).toEqual({
+          bindings: [
+            { id: 'fp1', name: 'Standard FP' },
+            { id: 'fp2', name: 'Strict FP' },
+          ],
+        });
+      }
       expect(mockTemplateRepo.softDelete).not.toHaveBeenCalled();
     });
   });

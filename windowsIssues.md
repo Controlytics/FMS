@@ -263,7 +263,7 @@ New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' `
 - HTTPS via mkcert (after the cert-import step in §6)
 - Windows Service registration via NSSM (stopgap until Phase 5 ships a managed-service launcher)
 - ~~Memurai (Redis substitute, paid)~~ — RETIRED in Phase 4 (2026-05-01); pub/sub now in-process
-- The 30 config defs + 27 config pages + 105 permissions — all pure JS
+- The 30 config defs + 27 config pages + 106 permissions — all pure JS
 
 ---
 

@@ -15,10 +15,16 @@
  * Click a version row to see the frozen snapshot in a modal (JSON pretty-print
  * for v1; structured per-entity viewer is a follow-up).
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import useSWR from 'swr';
 
 type EntityKind = 'cleaning-profile' | 'filter-profile' | 'checklist-profile' | 'equipment-group';
+
+const ENTITY_KINDS: EntityKind[] = ['cleaning-profile', 'filter-profile', 'checklist-profile', 'equipment-group'];
+function isEntityKind(s: string | null): s is EntityKind {
+  return s !== null && (ENTITY_KINDS as string[]).includes(s);
+}
 
 const TABS: { id: EntityKind; label: string; listEndpoint: string; itemLabel: (it: any) => string; }[] = [
   {
@@ -66,16 +72,44 @@ function snapshotEndpoint(kind: EntityKind, id: string, version: number): string
 }
 
 export function VersionHistoryPage() {
-  const [tab, setTab] = useState<EntityKind>('cleaning-profile');
+  const [searchParams, setSearchParams] = useSearchParams();
+  // CHVH (2026-05-02): deep-link via ?entity=<kind>&id=<uuid>&v=<n>. Lands the
+  // page on the right tab + selects the entity + opens the snapshot modal at
+  // version v. Used by the Pinned Versions chips on the cleaning-cycle
+  // timeline page.
+  const initialTab = isEntityKind(searchParams.get('entity')) ? (searchParams.get('entity') as EntityKind) : 'cleaning-profile';
+  const [tab, setTab] = useState<EntityKind>(initialTab);
   const [selected, setSelected] = useState<{ kind: EntityKind; id: string; name: string } | null>(null);
   const [snapshot, setSnapshot] = useState<{ kind: EntityKind; id: string; version: number } | null>(null);
 
+  // On first mount with a deep-link, synthesize the selection + snapshot from
+  // the URL so the user lands directly in the right view. We don't have the
+  // entity name yet (we'd need to wait for the list to load); use the id as a
+  // placeholder label and let the entity-list selection update it once data
+  // arrives.
+  useEffect(() => {
+    const entity = searchParams.get('entity');
+    const id = searchParams.get('id');
+    const v = searchParams.get('v');
+    if (isEntityKind(entity) && id) {
+      setSelected({ kind: entity, id, name: id.slice(0, 8) + '…' });
+      if (v) setSnapshot({ kind: entity, id, version: Number(v) });
+    }
+    // Eslint exhaustive-deps would want searchParams here, but we only want to
+    // run this once on mount — manual nav within the page should NOT re-fire.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const tabConfig = TABS.find(t => t.id === tab)!;
-  // Reset selection when tab changes — different entity kinds have different IDs.
+  // Reset selection when tab changes -- different entity kinds have different IDs.
   const onTabChange = (next: EntityKind) => {
     setTab(next);
     setSelected(null);
     setSnapshot(null);
+    // Clear the deep-link params so back/forward doesn't reopen the modal.
+    if (searchParams.has('entity') || searchParams.has('id') || searchParams.has('v')) {
+      setSearchParams({}, { replace: true });
+    }
   };
 
   return (
@@ -247,28 +281,253 @@ function VersionTimeline({
           {versions.map(v => {
             const versionNumber: number = v.versionNumber ?? v.version;
             return (
-              <li key={`${v.id ?? versionNumber}`} className="ml-4">
-                <span className="absolute -left-2 w-4 h-4 rounded-full bg-indigo-500 border-2 border-white" />
-                <button
-                  onClick={() => onPickVersion(versionNumber)}
-                  className="w-full text-left bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-300 rounded-xl px-4 py-3 transition-colors"
-                >
-                  <div className="flex items-baseline gap-3">
-                    <span className="text-sm font-semibold text-slate-800">v{versionNumber}</span>
-                    {v.changeNotes && <span className="text-xs text-slate-500">— {v.changeNotes}</span>}
-                  </div>
-                  <div className="text-xs text-slate-400 mt-1">
-                    {v.createdAt && <>Archived {new Date(v.createdAt).toLocaleString()}</>}
-                    {v.createdBy && <> · by {v.createdBy.slice(0, 8)}…</>}
-                  </div>
-                </button>
-              </li>
+              <VersionTimelineRow
+                key={`${v.id ?? versionNumber}`}
+                kind={kind}
+                entityId={entityId}
+                versionNumber={versionNumber}
+                changeNotes={v.changeNotes}
+                createdAt={v.createdAt}
+                createdBy={v.createdBy}
+                onPickVersion={onPickVersion}
+              />
             );
           })}
         </ol>
       )}
     </div>
   );
+}
+
+function VersionTimelineRow({
+  kind,
+  entityId,
+  versionNumber,
+  changeNotes,
+  createdAt,
+  createdBy,
+  onPickVersion,
+}: {
+  kind: EntityKind;
+  entityId: string;
+  versionNumber: number;
+  changeNotes: string | null;
+  createdAt: string | null;
+  createdBy: string | null;
+  onPickVersion: (v: number) => void;
+}) {
+  const [showDiff, setShowDiff] = useState(false);
+  const canCompare = versionNumber > 1; // nothing to compare v1 against — there's no v0.
+
+  return (
+    <li className="ml-4">
+      <span className="absolute -left-2 w-4 h-4 rounded-full bg-indigo-500 border-2 border-white" />
+      <div className="bg-slate-50 border border-slate-200 rounded-xl">
+        <button
+          onClick={() => onPickVersion(versionNumber)}
+          className="w-full text-left px-4 py-3 hover:bg-indigo-50 hover:border-indigo-300 transition-colors rounded-xl"
+        >
+          <div className="flex items-baseline gap-3">
+            <span className="text-sm font-semibold text-slate-800">v{versionNumber}</span>
+            {changeNotes && <span className="text-xs text-slate-500">— {changeNotes}</span>}
+          </div>
+          <div className="text-xs text-slate-400 mt-1">
+            {createdAt && <>Archived {new Date(createdAt).toLocaleString()}</>}
+            {createdBy && <> · by {createdBy.slice(0, 8)}…</>}
+          </div>
+        </button>
+        {canCompare && (
+          <div className="border-t border-slate-200 px-4 py-2">
+            <button
+              onClick={() => setShowDiff(s => !s)}
+              className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+            >
+              {showDiff ? 'Hide diff' : `Compare with v${versionNumber - 1}`}
+            </button>
+            {showDiff && (
+              <div className="mt-2 pt-2 border-t border-slate-100">
+                <VersionDiff kind={kind} entityId={entityId} curr={versionNumber} prev={versionNumber - 1} />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function VersionDiff({
+  kind,
+  entityId,
+  curr,
+  prev,
+}: {
+  kind: EntityKind;
+  entityId: string;
+  curr: number;
+  prev: number;
+}) {
+  // Two parallel SWR fetches. Snapshots are immutable so they cache forever.
+  const { data: prevData, error: prevErr } = useSWR<any>(snapshotEndpoint(kind, entityId, prev));
+  const { data: currData, error: currErr } = useSWR<any>(snapshotEndpoint(kind, entityId, curr));
+
+  if (prevErr || currErr) {
+    return <div className="text-xs text-red-700">Failed to load snapshots: {(prevErr ?? currErr).message}</div>;
+  }
+  if (!prevData || !currData) {
+    return <div className="text-xs text-slate-400">Loading diff…</div>;
+  }
+  const changes = diffSnapshots(kind, prevData, currData);
+  if (changes.length === 0) {
+    return <div className="text-xs text-slate-500 italic">No diffable changes between v{prev} and v{curr}.</div>;
+  }
+  return (
+    <ul className="text-xs space-y-1">
+      {changes.map((c, i) => <DiffLine key={i} change={c} />)}
+    </ul>
+  );
+}
+
+function DiffLine({ change }: { change: DiffChange }) {
+  const palette = {
+    changed: 'bg-amber-50 border-amber-200 text-amber-900',
+    added: 'bg-emerald-50 border-emerald-200 text-emerald-900',
+    removed: 'bg-rose-50 border-rose-200 text-rose-900',
+  }[change.kind];
+  const symbol = { changed: '~', added: '+', removed: '−' }[change.kind];
+  return (
+    <li className={`border rounded-lg px-2 py-1 ${palette}`}>
+      <span className="font-mono text-[10px] mr-2">{symbol}</span>
+      <span className="font-medium">{change.path}</span>
+      {change.kind === 'changed' && (
+        <>
+          : <code className="bg-white/60 px-1 rounded">{formatVal(change.oldValue)}</code>
+          <span className="mx-1">→</span>
+          <code className="bg-white/60 px-1 rounded">{formatVal(change.newValue)}</code>
+        </>
+      )}
+      {change.kind === 'added' && change.newValue !== undefined && (
+        <>: <code className="bg-white/60 px-1 rounded">{formatVal(change.newValue)}</code></>
+      )}
+      {change.kind === 'removed' && change.oldValue !== undefined && (
+        <>: <code className="bg-white/60 px-1 rounded">{formatVal(change.oldValue)}</code></>
+      )}
+      {change.context && <span className="ml-2 text-[10px] opacity-70">({change.context})</span>}
+    </li>
+  );
+}
+
+function formatVal(v: any): string {
+  if (v === null || v === undefined) return '∅';
+  if (typeof v === 'string') return v.length > 60 ? `"${v.slice(0, 60)}…"` : `"${v}"`;
+  if (typeof v === 'object') return JSON.stringify(v).slice(0, 80);
+  return String(v);
+}
+
+// ─── Snapshot diff engine ────────────────────────────────────────────────
+
+type DiffChange =
+  | { kind: 'changed'; path: string; oldValue: unknown; newValue: unknown; context?: string }
+  | { kind: 'added';   path: string; newValue?: unknown; context?: string }
+  | { kind: 'removed'; path: string; oldValue?: unknown; context?: string };
+
+// Fields that change every version (timestamps, author, version pointer) — never
+// useful in an admin-edit diff. Filter both the top level and nested refs.
+const META_FIELDS = new Set([
+  'createdAt', 'updatedAt', 'createdBy', 'updatedBy',
+  'versionNumber', 'version', 'changeNotes',
+  'profileId', 'groupId', 'id', 'lineageId',
+]);
+
+// Per-kind: which arrays should be diffed by-key vs as-set vs treated as scalar.
+const KEY_BY: Record<EntityKind, Record<string, string>> = {
+  'cleaning-profile': { stages: 'id', connections: 'id', cleaningReasons: 'key' },
+  'filter-profile':   {},
+  'checklist-profile': { questions: 'id' },
+  'equipment-group':  { instruments: 'id' },
+};
+
+const SET_FIELDS: Record<EntityKind, Set<string>> = {
+  'cleaning-profile': new Set(),
+  'filter-profile':   new Set(['applicableTemplates', 'allowedBlocks']),
+  'checklist-profile': new Set(),
+  'equipment-group':  new Set(),
+};
+
+function diffSnapshots(kind: EntityKind, prev: any, curr: any): DiffChange[] {
+  const out: DiffChange[] = [];
+  const keys = new Set([...Object.keys(prev ?? {}), ...Object.keys(curr ?? {})]);
+  for (const key of keys) {
+    if (META_FIELDS.has(key)) continue;
+    const a = prev?.[key];
+    const b = curr?.[key];
+    if (Object.is(a, b)) continue;
+
+    if (SET_FIELDS[kind].has(key) && Array.isArray(a) && Array.isArray(b)) {
+      const aSet = new Set(a as unknown[]);
+      const bSet = new Set(b as unknown[]);
+      for (const item of bSet) if (!aSet.has(item)) out.push({ kind: 'added', path: `${key}[]`, newValue: item });
+      for (const item of aSet) if (!bSet.has(item)) out.push({ kind: 'removed', path: `${key}[]`, oldValue: item });
+      continue;
+    }
+
+    const arrayKey = KEY_BY[kind][key];
+    if (arrayKey && Array.isArray(a) && Array.isArray(b)) {
+      const aIdx = new Map<unknown, any>(a.map(item => [item?.[arrayKey], item]));
+      const bIdx = new Map<unknown, any>(b.map(item => [item?.[arrayKey], item]));
+      for (const [id, bItem] of bIdx.entries()) {
+        const aItem = aIdx.get(id);
+        if (aItem === undefined) {
+          out.push({ kind: 'added', path: `${key}[${labelFor(bItem)}]`, newValue: summarize(bItem), context: `${arrayKey}=${String(id).slice(0, 8)}…` });
+        } else {
+          // Recurse on object diff, prefix the path.
+          const subOut = diffObject(aItem, bItem, `${key}[${labelFor(bItem)}]`);
+          out.push(...subOut);
+        }
+      }
+      for (const [id, aItem] of aIdx.entries()) {
+        if (!bIdx.has(id)) {
+          out.push({ kind: 'removed', path: `${key}[${labelFor(aItem)}]`, oldValue: summarize(aItem), context: `${arrayKey}=${String(id).slice(0, 8)}…` });
+        }
+      }
+      continue;
+    }
+
+    if (a === undefined) {
+      out.push({ kind: 'added', path: key, newValue: b });
+    } else if (b === undefined) {
+      out.push({ kind: 'removed', path: key, oldValue: a });
+    } else if (typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b)) {
+      out.push(...diffObject(a, b, key));
+    } else if (JSON.stringify(a) !== JSON.stringify(b)) {
+      out.push({ kind: 'changed', path: key, oldValue: a, newValue: b });
+    }
+  }
+  return out;
+}
+
+function diffObject(a: any, b: any, prefix: string): DiffChange[] {
+  const out: DiffChange[] = [];
+  const keys = new Set([...Object.keys(a ?? {}), ...Object.keys(b ?? {})]);
+  for (const key of keys) {
+    if (META_FIELDS.has(key)) continue;
+    const va = a?.[key];
+    const vb = b?.[key];
+    if (Object.is(va, vb)) continue;
+    if (JSON.stringify(va) === JSON.stringify(vb)) continue;
+    if (va === undefined) out.push({ kind: 'added', path: `${prefix}.${key}`, newValue: vb });
+    else if (vb === undefined) out.push({ kind: 'removed', path: `${prefix}.${key}`, oldValue: va });
+    else out.push({ kind: 'changed', path: `${prefix}.${key}`, oldValue: va, newValue: vb });
+  }
+  return out;
+}
+
+function labelFor(item: any): string {
+  return item?.name ?? item?.description ?? item?.question ?? item?.stateKey ?? item?.key ?? (typeof item?.id === 'string' ? item.id.slice(0, 8) : '?');
+}
+
+function summarize(item: any): string {
+  return labelFor(item);
 }
 
 function SnapshotModal({
@@ -283,27 +542,288 @@ function SnapshotModal({
   onClose: () => void;
 }) {
   const { data, error } = useSWR<any>(snapshotEndpoint(kind, entityId, version));
+  const [showRaw, setShowRaw] = useState(false);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl border-2 border-slate-200 shadow-2xl max-w-3xl w-full max-h-[85vh] flex flex-col"
+        className="bg-white rounded-2xl border-2 border-slate-200 shadow-2xl max-w-4xl w-full max-h-[85vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
           <h3 className="font-semibold text-slate-800">Frozen snapshot · v{version}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-xl leading-none">×</button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowRaw(s => !s)}
+              className="text-xs text-slate-500 hover:text-slate-800 px-3 py-1 border border-slate-200 rounded-lg"
+            >
+              {showRaw ? 'Hide raw JSON' : 'Show raw JSON'}
+            </button>
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-xl leading-none">×</button>
+          </div>
         </div>
-        <div className="px-6 py-4 overflow-y-auto flex-1">
+        <div className="px-6 py-4 overflow-y-auto flex-1 space-y-4">
           {error && <div className="text-sm text-red-700">Failed to load snapshot: {error.message}</div>}
           {!data && !error && <div className="text-sm text-slate-400">Loading…</div>}
-          {data && (
-            <pre className="text-xs bg-slate-50 border border-slate-200 rounded-xl p-4 overflow-x-auto whitespace-pre-wrap break-words">
-              {JSON.stringify(data, null, 2)}
-            </pre>
+          {data && <SnapshotBody kind={kind} data={data} />}
+          {data && showRaw && (
+            <details open className="bg-slate-50 border border-slate-200 rounded-xl">
+              <summary className="px-4 py-2 cursor-pointer text-xs font-semibold text-slate-600">Raw JSON</summary>
+              <pre className="text-xs px-4 pb-4 overflow-x-auto whitespace-pre-wrap break-words">
+                {JSON.stringify(data, null, 2)}
+              </pre>
+            </details>
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Structured snapshot viewers ────────────────────────────────────────
+
+function SnapshotBody({ kind, data }: { kind: EntityKind; data: any }) {
+  switch (kind) {
+    case 'cleaning-profile': return <CleaningProfileSnapshot data={data} />;
+    case 'filter-profile': return <FilterProfileSnapshot data={data} />;
+    case 'checklist-profile': return <ChecklistProfileSnapshot data={data} />;
+    case 'equipment-group': return <EquipmentGroupSnapshot data={data} />;
+  }
+}
+
+function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline gap-3">
+      <span className="text-xs uppercase tracking-wide text-slate-500 w-32 shrink-0">{label}</span>
+      <span className="text-sm text-slate-800">{value ?? <span className="text-slate-400">—</span>}</span>
+    </div>
+  );
+}
+
+function StatusBadge({ active, label }: { active: boolean; label?: string }) {
+  return (
+    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'}`}>
+      {label ?? (active ? 'Active' : 'Inactive')}
+    </span>
+  );
+}
+
+function CleaningProfileSnapshot({ data }: { data: any }) {
+  const stages: any[] = Array.isArray(data.stages) ? data.stages : [];
+  const connections: any[] = Array.isArray(data.connections) ? data.connections : [];
+  const reasons: any[] = Array.isArray(data.cleaningReasons) ? data.cleaningReasons : [];
+  return (
+    <div className="space-y-4">
+      <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
+        <h4 className="font-semibold text-slate-800">{data.name ?? '(unnamed)'}</h4>
+        {data.description && <p className="text-sm text-slate-600">{data.description}</p>}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 pt-2">
+          <MetaRow label="Version" value={`v${data.version ?? '?'}`} />
+          <MetaRow label="Status" value={<StatusBadge active={data.status === 'ACTIVE'} label={data.status} />} />
+          <MetaRow label="Lineage" value={data.lineageId ? <code className="text-xs text-slate-500">{data.lineageId.slice(0, 8)}…</code> : null} />
+          <MetaRow label="Flow mode" value={data.flowMode} />
+          <MetaRow label="Alarm: forward skip" value={String(data.alarmOnForwardSkip ?? false)} />
+          <MetaRow label="Alarm: backward jump" value={String(data.alarmOnBackwardJump ?? false)} />
+          <MetaRow label="Alarm: out of sequence" value={String(data.alarmOnOutOfSequence ?? false)} />
+        </div>
+      </div>
+
+      {reasons.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <h5 className="text-xs uppercase tracking-wide text-slate-500 mb-2">Cleaning reasons ({reasons.length})</h5>
+          <ul className="text-sm space-y-1">
+            {reasons.map((r: any, i: number) => (
+              <li key={r.key ?? i} className="flex items-baseline gap-3">
+                <code className="text-xs text-slate-500">{r.key}</code>
+                <span className="text-slate-800">{r.name ?? r.label}</span>
+                {r.requiresJustification && <StatusBadge active={true} label="Justification required" />}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="bg-white border border-slate-200 rounded-xl p-4">
+        <h5 className="text-xs uppercase tracking-wide text-slate-500 mb-2">Pipeline stages ({stages.length})</h5>
+        {stages.length === 0 ? (
+          <p className="text-sm text-slate-400">No stages.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="text-xs text-slate-500 border-b border-slate-200">
+              <tr><th className="text-left py-1 pr-2">Order</th><th className="text-left py-1 pr-2">Type</th><th className="text-left py-1 pr-2">State key</th><th className="text-left py-1">Configuration</th></tr>
+            </thead>
+            <tbody>
+              {[...stages].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map((s: any) => (
+                <tr key={s.id ?? `${s.sortOrder}-${s.nodeType}`} className="border-b border-slate-100 last:border-0">
+                  <td className="py-1 pr-2 text-slate-500">{s.sortOrder ?? '—'}</td>
+                  <td className="py-1 pr-2"><code className="text-xs">{s.nodeType}</code></td>
+                  <td className="py-1 pr-2 text-slate-700">{s.stateKey ?? '—'}</td>
+                  <td className="py-1 text-xs text-slate-500 truncate max-w-md">{s.configuration ? JSON.stringify(s.configuration) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-xl p-4">
+        <h5 className="text-xs uppercase tracking-wide text-slate-500 mb-2">Connections ({connections.length})</h5>
+        {connections.length === 0 ? (
+          <p className="text-sm text-slate-400">No connections.</p>
+        ) : (
+          <ul className="text-sm space-y-1">
+            {connections.map((c: any, i: number) => (
+              <li key={c.id ?? i} className="flex items-baseline gap-2 text-slate-700">
+                <code className="text-xs text-slate-500">{(c.fromStageId ?? '').slice(0, 8)}…</code>
+                <span className="text-slate-400">→</span>
+                <code className="text-xs text-slate-500">{(c.toStageId ?? '').slice(0, 8)}…</code>
+                {c.label && <span className="text-xs text-slate-500">({c.label})</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FilterProfileSnapshot({ data }: { data: any }) {
+  const templates: string[] = Array.isArray(data.applicableTemplates) ? data.applicableTemplates : [];
+  return (
+    <div className="space-y-4">
+      <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
+        <h4 className="font-semibold text-slate-800">{data.name ?? '(unnamed)'}</h4>
+        {data.description && <p className="text-sm text-slate-600">{data.description}</p>}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 pt-2">
+          <MetaRow label="Version" value={`v${data.versionNumber ?? '?'}`} />
+          <MetaRow label="Status" value={<StatusBadge active={data.isActive !== false} />} />
+          <MetaRow label="Cleaning profile" value={<code className="text-xs text-slate-500">{(data.cleaningProfileId ?? '').slice(0, 8)}…</code>} />
+          <MetaRow label="Block restriction" value={data.blockRestriction ?? '—'} />
+          <MetaRow label="Max cycles" value={data.maxCleaningCycles ?? 'unlimited'} />
+          <MetaRow label="Default PM" value={data.defaultPmScheduleId ? <code className="text-xs text-slate-500">{data.defaultPmScheduleId.slice(0, 8)}…</code> : null} />
+        </div>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-xl p-4">
+        <h5 className="text-xs uppercase tracking-wide text-slate-500 mb-2">Applicable templates ({templates.length})</h5>
+        {templates.length === 0 ? (
+          <p className="text-sm text-slate-400">No template restrictions — applies to all.</p>
+        ) : (
+          <ul className="text-sm space-y-1">
+            {templates.map(id => (
+              <li key={id}><code className="text-xs text-slate-500">{id}</code></li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {data.allowedBlocks && Array.isArray(data.allowedBlocks) && data.allowedBlocks.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <h5 className="text-xs uppercase tracking-wide text-slate-500 mb-2">Allowed blocks ({data.allowedBlocks.length})</h5>
+          <ul className="text-sm space-y-1">
+            {data.allowedBlocks.map((b: string) => (
+              <li key={b}><code className="text-xs text-slate-500">{b}</code></li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChecklistProfileSnapshot({ data }: { data: any }) {
+  const questions: any[] = Array.isArray(data.questions) ? data.questions : [];
+  return (
+    <div className="space-y-4">
+      <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
+        <h4 className="font-semibold text-slate-800">{data.name ?? '(unnamed)'}</h4>
+        {data.description && <p className="text-sm text-slate-600">{data.description}</p>}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 pt-2">
+          <MetaRow label="Version" value={`v${data.versionNumber ?? '?'}`} />
+          <MetaRow label="Status" value={<StatusBadge active={data.isActive !== false} />} />
+          <MetaRow label="Question count" value={questions.length} />
+        </div>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-xl p-4">
+        <h5 className="text-xs uppercase tracking-wide text-slate-500 mb-2">Questions ({questions.length})</h5>
+        {questions.length === 0 ? (
+          <p className="text-sm text-slate-400">No questions.</p>
+        ) : (
+          <ol className="space-y-2">
+            {[...questions].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map((q: any) => (
+              <li key={q.id} className="border border-slate-200 rounded-lg p-3 bg-slate-50">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-xs text-slate-500">#{q.sortOrder ?? '?'}</span>
+                  <span className="font-medium text-sm text-slate-800">{q.question}</span>
+                  {q.required && <StatusBadge active={true} label="Required" />}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-0.5 mt-1 text-xs text-slate-500">
+                  <span>Type: <code>{q.questionType ?? q.type}</code></span>
+                  {q.section && <span>Section: {q.section}</span>}
+                  {Array.isArray(q.options) && q.options.length > 0 && <span>Options: {q.options.length}</span>}
+                </div>
+                {q.description && <p className="text-xs text-slate-500 mt-1 italic">{q.description}</p>}
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EquipmentGroupSnapshot({ data }: { data: any }) {
+  const instruments: any[] = Array.isArray(data.instruments) ? data.instruments : [];
+  // Group by stage so the layout matches the operator's reading workflow.
+  const byStage = instruments.reduce<Record<string, any[]>>((acc, i) => {
+    const k = i.stageKey ?? 'OTHER';
+    (acc[k] ||= []).push(i);
+    return acc;
+  }, {});
+  return (
+    <div className="space-y-4">
+      <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
+        <h4 className="font-semibold text-slate-800">{data.name ?? '(unnamed)'}</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 pt-2">
+          <MetaRow label="Version" value={`v${data.versionNumber ?? '?'}`} />
+          <MetaRow label="Status" value={<StatusBadge active={data.isActive !== false} />} />
+          <MetaRow label="Block" value={data.blockId ? <code className="text-xs text-slate-500">{data.blockId.slice(0, 8)}…</code> : null} />
+          <MetaRow label="Instruments" value={instruments.length} />
+        </div>
+      </div>
+
+      {Object.entries(byStage).map(([stage, items]) => (
+        <div key={stage} className="bg-white border border-slate-200 rounded-xl p-4">
+          <h5 className="text-xs uppercase tracking-wide text-slate-500 mb-2">{stage} ({items.length})</h5>
+          <table className="w-full text-sm">
+            <thead className="text-xs text-slate-500 border-b border-slate-200">
+              <tr>
+                <th className="text-left py-1 pr-2">Description</th>
+                <th className="text-left py-1 pr-2">Instrument ID</th>
+                <th className="text-left py-1 pr-2">SN</th>
+                <th className="text-left py-1 pr-2">UOM</th>
+                <th className="text-left py-1 pr-2">Operating range</th>
+                <th className="text-left py-1 pr-2">Instrument range</th>
+                <th className="text-left py-1">Least count</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...items].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map((inst: any) => (
+                <tr key={inst.id ?? `${stage}-${inst.sortOrder}`} className="border-b border-slate-100 last:border-0">
+                  <td className="py-1 pr-2 font-medium text-slate-800">{inst.description}</td>
+                  <td className="py-1 pr-2"><code className="text-xs">{inst.instrumentId}</code></td>
+                  <td className="py-1 pr-2 text-slate-600">{inst.serialNumber}</td>
+                  <td className="py-1 pr-2 text-slate-600">{inst.uom}</td>
+                  <td className="py-1 pr-2 text-slate-700">{inst.operatingMin}–{inst.operatingMax}</td>
+                  <td className="py-1 pr-2 text-slate-500">{inst.instrumentMin}–{inst.instrumentMax}</td>
+                  <td className="py-1 text-slate-500">{inst.leastCount}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
     </div>
   );
 }

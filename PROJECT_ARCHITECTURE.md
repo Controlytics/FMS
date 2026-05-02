@@ -459,7 +459,7 @@ Phase 4 of the windows-friendly-rewrite removed Redis from the codebase entirely
 │    └── Mosquitto dynsec auth (DeviceCredential → dynamic-security.json via /refresh-acl)         │
 │                                                     │
 │  Layer 3: Authorization                             │
-│    └── RBAC (105 permissions, role-based)            │
+│    └── RBAC (106 permissions, role-based)            │
 │    └── Organization scoping (multi-tenant isolation) │
 │    └── Re-authentication (81 sensitive actions)      │
 │                                                     │

@@ -234,8 +234,14 @@ export const templateService = {
     const bindings = await templateRepository.findFilterProfileBindings(id);
     if (bindings.length > 0) {
       const names = bindings.map((b) => b.profile.name);
+      const structured = bindings.map((b) => ({ id: b.profile.id, name: b.profile.name }));
       throw new ConflictError(
         `Cannot delete template "${existing.name}": still bound by ${bindings.length} filter profile(s) [${names.join(', ')}]. Remove these bindings first.`,
+        'TEMPLATE_IN_USE',
+        // Step 4 UX (2026-05-02): structured `bindings` so the FE can render
+        // each binding as a clickable deep-link instead of regex-parsing the
+        // message string.
+        { bindings: structured },
       );
     }
 

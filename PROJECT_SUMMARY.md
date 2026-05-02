@@ -92,8 +92,8 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 |---|---|
 | Prisma models | 64 |
 | Database enums | 22 |
-| Permission constants | 109 |
-| Feature privileges | 91 |
+| Permission constants | 106 |
+| Feature privileges | 90 |
 | Re-auth actions | 81 |
 | Sidebar items | 26 |
 | API modules | 37 |
@@ -112,7 +112,7 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 - **Electronic signatures**: Password re-authentication for sensitive operations
 - **Audit trail**: Every mutation logged with SHA-256 hash-chain verification
 - **Immutable records**: Filter events stored with checksums, cannot be modified
-- **Access control**: Role-based permissions with 109 granular controls (verified by `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts`)
+- **Access control**: Role-based permissions with 106 granular controls (verified by `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts`)
 - **Session management**: Auto-logout on inactivity, single-tab enforcement
 - **Password policies**: Configurable complexity, expiry, and history requirements
 

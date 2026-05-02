@@ -77,6 +77,11 @@ export interface CleaningCycle {
   cleaningReasonLabel: string;
   cleaningJustification?: string | null;
   events?: FilterEvent[];
+  // Version pins set at cycle start. Used by the Version History linkage on
+  // the cycle history page to deep-link to the exact pinned version.
+  equipmentGroupId?: string | null;
+  equipmentGroupVersionPin?: number | null; // P1 (2026-05-02)
+  checklistVersionPins?: Record<string, number>; // Phase A.1 — { [checklistProfileId]: versionNumber }
 }
 
 export interface FilterEvent {

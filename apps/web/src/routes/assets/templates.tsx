@@ -55,6 +55,11 @@ export function AssetTemplatesPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [deleteError, setDeleteError] = useState('');
+  // Step 4 UX (2026-05-02): structured list of FilterProfiles binding the
+  // template, populated from the API's `details.bindings` on a 409
+  // TEMPLATE_IN_USE response. Lets us render a real list instead of jamming
+  // the binding names into the message string.
+  const [deleteBindings, setDeleteBindings] = useState<{ id: string; name: string }[] | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   // Pagination
@@ -194,6 +199,7 @@ export function AssetTemplatesPage() {
   const openDeleteDialog = useCallback((template: TemplateData) => {
     setDeleteTarget(template);
     setDeleteError('');
+    setDeleteBindings(null);
     setShowDeleteDialog(true);
   }, []);
 
@@ -605,6 +611,7 @@ export function AssetTemplatesPage() {
     if (!deleteTarget) return;
     setDeleting(true);
     setDeleteError('');
+    setDeleteBindings(null);
 
     await reauth.execute(
       'DELETE_ASSET_TEMPLATE',
@@ -623,7 +630,16 @@ export function AssetTemplatesPage() {
           setDeleting(false);
         },
         onError: (err: any) => {
-          setDeleteError(err.message || 'Failed to delete template');
+          // Step 4 UX (2026-05-02): TEMPLATE_IN_USE returns the binding
+          // FilterProfile rows in `details.bindings`, surfaced via api-client
+          // as `err.connectionInfo.bindings`. Render them as a structured
+          // list. Fall through to plain message for any other 4xx.
+          if (err?.code === 'TEMPLATE_IN_USE' && Array.isArray(err.connectionInfo?.bindings)) {
+            setDeleteBindings(err.connectionInfo.bindings);
+            setDeleteError('');
+          } else {
+            setDeleteError(err.message || 'Failed to delete template');
+          }
           setDeleting(false);
         },
       },
@@ -1057,6 +1073,31 @@ export function AssetTemplatesPage() {
                 </svg>
               </div>
               <p className="text-sm text-red-700">{deleteError}</p>
+            </div>
+          )}
+
+          {/* Step 4 UX (2026-05-02): structured TEMPLATE_IN_USE response. */}
+          {deleteBindings && deleteBindings.length > 0 && (
+            <div className="rounded-xl bg-red-50 border border-red-200 p-4">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-red-100 shrink-0">
+                  <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-red-800">Cannot delete &mdash; template is bound by {deleteBindings.length} filter profile{deleteBindings.length === 1 ? '' : 's'}</p>
+                  <p className="text-xs text-red-700 mt-1">Detach this template from each profile first (Configuration &rarr; Cleaning Profile Assignment), then retry.</p>
+                  <ul className="mt-3 space-y-1.5">
+                    {deleteBindings.map((b) => (
+                      <li key={b.id} className="bg-white border border-red-200 rounded-lg px-3 py-2 flex items-center justify-between">
+                        <span className="text-sm font-medium text-slate-800">{b.name}</span>
+                        <code className="text-xs text-slate-400" title={b.id}>{b.id.slice(0, 8)}…</code>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
             </div>
           )}
 

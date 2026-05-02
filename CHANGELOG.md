@@ -1,5 +1,52 @@
 # Changelog
 
+## [Unreleased] — Batch 6: VHv2 + VHv3 + S4UX + WSL + DocSweep + CHVH (2026-05-02)
+
+Branch: `feature/phase5-verification`. Per user direction: items 2-7 from the menu, all touchpoints listed before editing, all verified after, deep fixes applied where bugs were uncovered.
+
+### VHv2 — Structured per-entity snapshot viewers
+- `apps/web/src/routes/version-history/index.tsx`: replaced the JSON pretty-print modal body with kind-aware structured cards (CleaningProfile, FilterProfile, ChecklistProfile, EquipmentGroup). Each renders the entity's full snapshot in human-readable form: cleaning profiles show stages (sorted, with nodeType + stateKey + configuration) and connections; filter profiles show applicable templates list; checklist profiles render the question list (sortOrder, type, required, options summary); equipment groups group instruments by stageKey in a per-stage table with all ranges. The raw JSON is preserved behind a "Show raw JSON" toggle.
+
+### VHv3 — Version diff view
+- Same file. Added "Compare with v(N-1)" expander on every version timeline row (hidden on v1 since there's no v0). Inside, fetches both snapshots in parallel, runs a kind-aware diff: scalar changes render as `field: old → new`, keyed array members (stages by id, instruments by id, questions by id, cleaningReasons by key) diff per-item with per-field changes, set-style fields (`applicableTemplates`, `allowedBlocks`) render as set add/remove. Meta fields (timestamps, author, version pointers) are filtered out so the diff only shows admin-edit changes.
+
+### S4UX — TEMPLATE_IN_USE structured response
+- **Deep fix**: `apps/api/src/lib/errors.ts` — `ConflictError` constructor now takes a `details?: unknown` arg and forwards it through `AppError`. Pre-existing limitation — `ConflictError` could only emit a string message; couldn't carry structured payloads.
+- `apps/api/src/modules/assets/services/template.service.ts` — Step 4 delete guard now throws `ConflictError(message, 'TEMPLATE_IN_USE', { bindings: [{id, name}, …] })` instead of jamming names into the message string.
+- `apps/web/src/routes/assets/templates.tsx` — delete handler detects `err.code === 'TEMPLATE_IN_USE'` and renders the bindings list inline (each profile shown as a card with name + truncated id) instead of a single-line toast.
+- `apps/api/src/modules/assets/services/__tests__/template.service.test.ts` — assertion updated: now checks `err.code === 'TEMPLATE_IN_USE'` AND `err.details === { bindings: [...] }`. **All 11 tests pass.**
+
+### WSL — Windows-service launcher full automation
+- New `scripts/install-windows.ps1`: top-level orchestration installer that ties together the existing piecemeal scripts (`install-mosquitto.ps1`, `install-services-phase5.ps1`). Steps: tooling sanity check (Node, NSSM auto-install via winget if missing) → builds packages/shared / apps/api / apps/web (skippable with `-SkipBuild`) → installs/refreshes Mosquitto (skippable on existing install) → registers DigiLog API + Web services via NSSM → starts services → probes `/health` (200 or 401 both OK — TLS up). Idempotent.
+- New `scripts/uninstall-windows.ps1`: stops + removes DigiLog services. Mosquitto opt-in via `-RemoveMosquitto`. Logs opt-in via `-RemoveLogs`. Falls back to `sc.exe delete` if NSSM isn't found.
+- Both scripts parse-validated (PowerShell AST parser exit 0); ASCII-only per the existing convention to keep PS 5.1 happy.
+
+### DocSweep — Doc-sync verification across active doc set
+- Ran live-count regex sweep. Pre-VH-shipped values (105 perms / 89 privs / 25 sidebar) found stale in: `LOCAL_SETUP_WINDOWS.md`, `packages/shared/CLAUDE.md`, `PROJECT_ARCHITECTURE.md`, `windowsIssues.md`. Older pre-MT-removal values (109 perms / 91 privs) found stale in: root `CLAUDE.md` (×2), `AGENTS.md`, `PROJECT_SUMMARY.md` (×2), `docs/index.md`. **All bumped to 106 / 90 / 26.**
+- Verified live counts: 69 models, 23 enums, 106 permissions, 90 feature privileges, 81 reauth actions, 26 sidebar items, 36 API modules, 30 config defs, 27 config pages, 82 frontend `<Route>` definitions in `main.tsx`.
+
+### CHVH — Cycle history ↔ version history linkage
+- `apps/web/src/types/filter.ts`: extended `CleaningCycle` interface with `equipmentGroupId`, `equipmentGroupVersionPin`, `checklistVersionPins`. The fields were already in the API response; the FE just hadn't typed them.
+- `apps/web/src/routes/cleaning-cycles/timeline.tsx`: new "Pinned Versions (audit replay)" card after the cycle info grid, conditional on the cycle having any pin. Renders three chip types — "Pipeline vN" (FilterCleaningProfile via existing `profileVersion`), "Equipment vN" (`equipmentGroupVersionPin` from P1), "Checklist vN" (one chip per entry in `checklistVersionPins`). Each chip deep-links to `/version-history?entity=<kind>&id=<uuid>&v=<n>`.
+- `apps/web/src/routes/version-history/index.tsx`: added `useSearchParams` + a one-shot `useEffect` that reads `entity=`, `id=`, `v=` on mount, lands on the right tab, pre-selects the entity, and opens the snapshot modal at the requested version. Tab change clears the deep-link params (so back/forward doesn't reopen the modal).
+
+### Verification
+
+- `npx tsc -p apps/api/tsconfig.json --noEmit` exit 0.
+- `npx tsc --noEmit` (apps/web) exit 0.
+- Full API compile to dist exit 0; service restart clean.
+- `vitest run src/modules/assets src/modules/backup` — 14 files / 163 tests pass; the updated `template.service.test.ts` 409-path test asserts the new structured `details.bindings` shape.
+- Curl: `DELETE /api/assets/templates/<bound-template-id>` returns `{"error":"TEMPLATE_IN_USE", "message":"…", "details":{"bindings":[{"id":"…","name":"409 Bound FP"}]}}` with code 409. Test data cleaned up.
+- PowerShell AST parse on `install-windows.ps1` and `uninstall-windows.ps1` exit 0.
+
+### Notes
+
+- No new permission, no new model, no schema migration, no new package dep.
+- Counts unchanged from VH commit: 69 models, 23 enums, 106 permissions, 90 feature privileges, 81 reauth, 26 sidebar items, 36 API modules.
+- Em-dash characters originally in the new PS scripts broke PS 5.1 tokenisation — caught + replaced with `--` (matches the ASCII-only convention from the existing `install-services-phase5.ps1`).
+
+---
+
 ## [Unreleased] — VH: Version History admin page + new VERSION_HISTORY_VIEW permission (2026-05-02)
 
 Branch: `feature/phase5-verification`. Per user direction: "add a page to see versions, keep it in super admin scope and be assignable to other users through super admin configurations." Closes the FE sync gap for the four versioned entities (Phase A.1 + A.2 + A.3 + A.4) — server-side audit history existed at the API level but no admin UI surfaced it.
