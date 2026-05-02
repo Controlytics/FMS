@@ -76,7 +76,7 @@ async function ensureCycleAlive(filterId: string, opType: string): Promise<void>
   }
 }
 
-async function executeOperation(op: { type: string; filterId: string; payload: Record<string, any>; createdAt: string; clientOpId?: string }): Promise<void> {
+async function executeOperation(op: { type: string; filterId: string; payload: Record<string, any>; createdAt: string; clientOpId?: string; tapeVersion?: number | null }): Promise<void> {
   // Pre-replay guard: cycle-bound ops require the cycle to still be IN_PROGRESS.
   await ensureCycleAlive(op.filterId, op.type);
 
@@ -88,6 +88,14 @@ async function executeOperation(op: { type: string; filterId: string; payload: R
     ...(op.clientOpId ? { 'x-client-op-id': op.clientOpId } : {}),
   };
   const offlineTime = op.createdAt;
+  // Phase 8.3: only include tapeVersion on cycle-bound ops, and only when the
+  // queue actually carries one (pre-8.3 ops have null/undefined → server
+  // treats as no-check). start-cycle and start-and-advance's start step are
+  // not cycle-bound writes, so we explicitly omit tapeVersion on those.
+  const cycleBoundForVersion = CYCLE_BOUND_OPS.has(op.type);
+  const tapeVersion = cycleBoundForVersion && op.tapeVersion !== null && op.tapeVersion !== undefined
+    ? { tapeVersion: op.tapeVersion }
+    : {};
 
   if (op.type === 'start-and-advance') {
     const { cyclePayload, advancePayload } = op.payload as { cyclePayload: Record<string, any>; advancePayload: Record<string, any> };
@@ -114,7 +122,7 @@ async function executeOperation(op: { type: string; filterId: string; payload: R
     ? `/api/filters/${op.filterId}/terminate-cycle`
     : `/api/filters/${op.filterId}/${op.type}`;
 
-  await apiClient.post(url, { ...op.payload, offlinePerformedAt: offlineTime, clientOpId: op.clientOpId }, headers);
+  await apiClient.post(url, { ...op.payload, ...tapeVersion, offlinePerformedAt: offlineTime, clientOpId: op.clientOpId }, headers);
 }
 
 /**
@@ -237,6 +245,17 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
         await updateOperationStatus(op.id, 'failed', `Cycle ended before this operation could sync: ${errMsg}`);
         failed++;
         notify({ type: 'error', error: `${op.filterName}: cycle ended before sync — operation discarded` });
+        continue;
+      }
+
+      // Phase 8.3: stale tape — another operator changed the cycle while
+      // this op sat queued. Retrying with the same stored tapeVersion will
+      // just keep failing, so drop the op and surface a refresh-prompt
+      // toast. The fresh state arrives on the next /current-state fetch.
+      if (e?.code === 'STALE_TAPE') {
+        await updateOperationStatus(op.id, 'failed', `Stale tape: another operator changed this cycle. Refresh and retry. (${errMsg})`);
+        failed++;
+        notify({ type: 'error', error: `${op.filterName}: another operator changed this cycle. Refreshing...` });
         continue;
       }
 

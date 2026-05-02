@@ -4,7 +4,16 @@
  */
 
 const DB_NAME = 'digilog-offline';
-const DB_VERSION = 2;
+// Phase 8.3 (decision-tape concurrency): bumped 2 -> 3 to add `tapeVersion`
+// to OfflineOperation rows. The store is row-shape-flexible (no per-field
+// indexes on tapeVersion), so no `onupgradeneeded` migration code is needed
+// — existing rows simply have `tapeVersion === undefined`. The sync engine
+// passes `null` to the server in that case and the server, having declared
+// `tapeVersion` optional in its body schema (also Phase 8.3), accepts the
+// replay without staleness checking. Phase 8.4 will tighten the server
+// schema to required and we'll add an explicit purge of any leftover
+// pre-8.3 ops at that point.
+const DB_VERSION = 3;
 
 // Single source of truth for offline-critical TTLs. Long shifts (>= 12h)
 // require everything that participates in cleaning to outlive a full day,
@@ -27,6 +36,13 @@ interface OfflineOperation {
   error?: string;
   retryCount: number;
   syncedAt?: string;
+  /**
+   * Phase 8.3: tape version observed at queue time. Sent on the replay so
+   * the server can reject (409 STALE_TAPE) if another writer changed the
+   * cycle while this op sat queued. `null` = pre-8.3 op or non-cycle-bound
+   * op (start-cycle); server treats absent/null as a no-check.
+   */
+  tapeVersion?: number | null;
 }
 
 interface Tombstone {
@@ -297,6 +313,10 @@ export async function queueOperation(op: Omit<OfflineOperation, 'id' | 'clientOp
     createdAt: new Date().toISOString(),
     status: 'pending',
     retryCount: 0,
+    // Phase 8.3: default to null when caller didn't supply a tape version
+    // (pre-8.4 callers won't pass one). Persist null explicitly so the row
+    // shape is consistent across all queued ops.
+    tapeVersion: op.tapeVersion ?? null,
   });
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve(id);

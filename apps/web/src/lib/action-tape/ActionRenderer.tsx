@@ -16,20 +16,26 @@ import { CompleteCycleButton } from './components/CompleteCycleButton.js';
  * The shapes mirror what the corresponding server route accepts so the
  * Phase 8.4 cutover can plug a single dispatcher into all six existing
  * routes (POST /advance, /submit-checklist, /bypass, /terminate, /complete).
+ *
+ * Phase 8.3 (this file): the dispatcher accepts a `tapeVersion: number` prop
+ * and merges it into every payload before forwarding. The per-action button
+ * components keep their existing `onSubmit(payload)` contract — tapeVersion
+ * is added by the dispatcher seam, not by the buttons. See ActionRenderer +
+ * ActionTapeRenderer below.
  */
 export type ActionPayload =
-  | { type: 'ADVANCE_TO_STAGE'; targetState: string; readings?: Record<string, number> }
+  | { type: 'ADVANCE_TO_STAGE'; targetState: string; readings?: Record<string, number>; tapeVersion?: number }
   // Note: `answers` is keyed by questionId and only contains questions the
   // operator actually answered. Mirrors the existing `POST /:id/submit-checklist`
   // contract (filter-operations.service.ts:870-882) where required-question
   // enforcement runs server-side and unexpected keys are rejected outright —
   // unanswered optional questions MUST be omitted, not sent as 'N/A'.
-  | { type: 'SUBMIT_CHECKLIST'; checklistProfileId: string; versionPin: number; afterStage: string; answers: Record<string, string>; remarks?: Record<string, string> }
-  | { type: 'SUBMIT_DRYER_READINGS'; readings: Record<string, number> }
-  | { type: 'SET_DRYER_DURATION'; targetState: 'DRY_IN'; minMinutes: number; maxMinutes: number }
-  | { type: 'BYPASS_STAGE'; targetState: string; justification: string }
-  | { type: 'TERMINATE_CYCLE'; justification: string }
-  | { type: 'COMPLETE_CYCLE' };
+  | { type: 'SUBMIT_CHECKLIST'; checklistProfileId: string; versionPin: number; afterStage: string; answers: Record<string, string>; remarks?: Record<string, string>; tapeVersion?: number }
+  | { type: 'SUBMIT_DRYER_READINGS'; readings: Record<string, number>; tapeVersion?: number }
+  | { type: 'SET_DRYER_DURATION'; targetState: 'DRY_IN'; minMinutes: number; maxMinutes: number; tapeVersion?: number }
+  | { type: 'BYPASS_STAGE'; targetState: string; justification: string; tapeVersion?: number }
+  | { type: 'TERMINATE_CYCLE'; justification: string; tapeVersion?: number }
+  | { type: 'COMPLETE_CYCLE'; tapeVersion?: number };
 
 /**
  * `ActionRenderer` — Phase 8.2 dispatch component for the decision tape.
@@ -69,18 +75,32 @@ export interface ActionRendererProps {
    * in the tape is currently submitting).
    */
   disabled?: boolean;
+  /**
+   * Phase 8.3 — tape version observed when the parent rendered this action.
+   * Merged into the payload before the caller's onSubmit fires. The caller
+   * is expected to forward it on to the server (POST body field) so the
+   * server can reject (409 STALE_TAPE) if another writer changed the cycle
+   * between render and submit. Optional during 8.3 to keep existing test
+   * harnesses working; Phase 8.4 cutover will tighten to required.
+   */
+  tapeVersion?: number;
 }
 
-export function ActionRenderer({ action, onSubmit, disabled }: ActionRendererProps) {
+export function ActionRenderer({ action, onSubmit, disabled, tapeVersion }: ActionRendererProps) {
   const [loading, setLoading] = useState(false);
   const isDisabled = !!disabled || loading;
 
-  /** Wraps the child's onSubmit so the dispatcher owns the loading flag. */
+  /**
+   * Wraps the child's onSubmit so the dispatcher owns the loading flag and
+   * (Phase 8.3) merges the observed tapeVersion into every payload before
+   * forwarding to the caller.
+   */
   const dispatch = async (payload: ActionPayload) => {
     if (isDisabled) return;
     setLoading(true);
     try {
-      await onSubmit(action, payload);
+      const enriched = tapeVersion !== undefined ? ({ ...payload, tapeVersion } as ActionPayload) : payload;
+      await onSubmit(action, enriched);
     } finally {
       setLoading(false);
     }
@@ -124,9 +144,17 @@ export interface ActionTapeRendererProps {
   disabled?: boolean;
   /** Optional empty-state ReactNode when `actions` is `[]`. */
   emptyState?: React.ReactNode;
+  /**
+   * Phase 8.3 — tape version observed when the parent fetched this `actions[]`.
+   * Forwarded down into each child ActionRenderer so the dispatcher seam can
+   * merge it into payloads. Caller (eventually mobile-operations.tsx) is
+   * expected to plumb the field returned by `GET /api/filters/:id/current-state`
+   * straight through.
+   */
+  tapeVersion?: number;
 }
 
-export function ActionTapeRenderer({ actions, onSubmit, disabled, emptyState }: ActionTapeRendererProps) {
+export function ActionTapeRenderer({ actions, onSubmit, disabled, emptyState, tapeVersion }: ActionTapeRendererProps) {
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   if (actions.length === 0) {
@@ -156,6 +184,7 @@ export function ActionTapeRenderer({ actions, onSubmit, disabled, emptyState }: 
             action={action}
             onSubmit={handleSubmit}
             disabled={!!disabled || isOtherBusy}
+            tapeVersion={tapeVersion}
           />
         );
       })}

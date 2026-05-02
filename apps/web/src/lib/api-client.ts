@@ -69,6 +69,13 @@ class ApiClient {
       // Lockout-progress field — backend sends this on INVALID_PASSWORD so the
       // login UI can show "X attempts remaining before lockout".
       if (err.attemptsRemaining !== undefined) (error as any).attemptsRemaining = err.attemptsRemaining;
+      // Phase 8.3 STALE_TAPE: lift currentTapeVersion from `details` to a
+      // top-level field so callers (sync-engine, mobile-operations) don't have
+      // to dig through connectionInfo. Mirrors the attemptsRemaining lift just
+      // above. Only present on 409 STALE_TAPE — caller branches on err.code.
+      if (err.details?.currentTapeVersion !== undefined) {
+        (error as any).currentTapeVersion = err.details.currentTapeVersion;
+      }
       throw error;
     }
 
