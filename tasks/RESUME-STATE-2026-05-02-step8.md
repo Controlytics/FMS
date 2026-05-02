@@ -6,7 +6,7 @@ Self-contained resume note. Read this and you have everything needed to pick up.
 
 **Worktree:** `C:\Users\hello\21cfrlogbook-DigitalFMS\.worktrees\phase5-verification`
 **Branch:** `feature/phase5-verification`
-**HEAD:** `42c6afc`
+**HEAD:** `2af9100`
 **Working tree:** clean
 
 ## Step 8 phase status
@@ -17,8 +17,128 @@ Self-contained resume note. Read this and you have everything needed to pick up.
 | 8.1 — FE action-renderer skeleton + shared types + M4/M6 | DONE | `6c257a3` | YES |
 | 8.2 — Full per-action-type renderers + ActionDialog + M1 fix | DONE | `5a6b5c4` | YES |
 | 8.3 — Offline replay tape-versioning | DONE | `723799b..42c6afc` (5 commits) | YES |
-| 8.4 — Cutover (TAPE_PARALLEL ON, FE consumes tape, delete graph walker) | NEXT (HIGH RISK) | — | — |
+| 8.4 Commit 1 — bundle 8.3 deferred fixes (I-1 + I-3 + M-3 + M3 formula) | DONE | `2af9100` | NO |
+| 8.4 Commits 2–4 — server route tightening + FE cutover + docs | **BLOCKED** — see Phase 8.4 BLOCKED section below | — | — |
 | 8.5 — APK rebuild + tablet field QA | PENDING (needs physical tablets) | — | — |
+
+## Phase 8.4 BLOCKED (2026-05-02)
+
+Commit 1 of 4 shipped. The remaining three commits (server schema tightening,
+FE consumption switch, cleanup) are blocked pending three architectural
+decisions the implementing agent cannot make alone.
+
+### Commit 1 (DONE — `2af9100`)
+
+- **I-1**: removed all 4 `(cycle as any).X` casts in
+  `apps/api/src/modules/filter-operations/filter-operations.service.ts`.
+  `profileVersion` and `checklistVersionPins` are real Prisma columns; no
+  cast needed.
+- **I-3**: deduped STALE_TAPE toasts per filter per drain in
+  `apps/web/src/lib/sync-engine.ts` via a `Set<filterId>` scoped to one drain
+  run. First STALE_TAPE for a filter emits one toast; the rest of that
+  filter's queued ops short-circuit to `failed` without hitting the network.
+  Two new tests verify single-toast-per-filter and per-filter independence.
+- **M-3**: tightened `OfflineOperation.tapeVersion` to `number | null` (no
+  `undefined`). Bumped IDB version 3 → 4 with a v3 → v4 cursor migration via
+  the new `normalizeOpForV4()` pure helper. Three new tests.
+- **M3**: changed tapeVersion formula from `*1000` to `*1_000_000` to
+  eliminate aliasing when `filterEventCount >= 1000`. Documented the cap as
+  per-cycle. Updated 5 affected tests; added 2 new boundary tests.
+
+Test counts after Commit 1:
+- api: 1167 passing (was 1165, +2 new helper tests). Same 2 pre-existing
+  unrelated failures: `auth.test.ts forgot-password` and `config.test.ts
+  PUT /api/config/action-reauth`.
+- web: 52 passing (was 47, +2 sync-engine I-3, +3 offline-store M-3).
+
+### Commits 2–4 BLOCKED (need controller decision)
+
+The 8.4 plan writes Commit 3 as "switch FE to consume actions[] and delete the
+graph walker." Field-bucket audit on `apps/web/src/routes/mobile/mobile-
+operations.tsx` (2486 lines) and `apps/web/src/routes/filter-management/
+filter-operations.tsx` (2088 lines) reveals the cutover is not a wiring
+change but a UX/architectural shift:
+
+1. **UI SHAPE.** Both files render a **stage-card grid** (per-stage cards
+   with RFID scan, progress timers, reason/justification dialogs,
+   instrument readings). `ActionTapeRenderer` (the 8.1/8.2 renderer)
+   produces a flat list of action buttons. Substituting one for the other
+   is a UI redesign, not a refactor. The controller must approve either
+   (a) replace the grid with the flat list, or (b) keep the grid and have
+   each card consume its own slice of `actions[]`.
+
+2. **OFFLINE STATE RECONSTRUCTION.** Server's `actions[]` describes the
+   CURRENT state. After a successful local-only advance (no server round-
+   trip), the cached `actions[]` is stale — the operator is now in WASH_OUT
+   and needs WASH_OUT's buttons. Existing FE solves this with a "Tier-1
+   stageLookup consumer + Tier-2 graph walker" path that updates
+   `nextAllowedStages` + `pendingChecklist` in the local cache (see
+   `mobile-operations.tsx` lines 591-727 + `updateOfflineState()` at
+   757-808). The plan deletes the walker without specifying a replacement.
+   Three options for the controller:
+     - (a) **Keep `nextAllowedStages` + `pendingChecklist` as advisory
+           fields** alongside `actions[]`. Minimal FE change. Partial
+           drift elimination (server still emits both contracts; client
+           uses tape online, falls back to advisory fields offline).
+     - (b) **Server emits `actionsByStage: Record<stateKey, Action[]>`**
+           covering every reachable next stage. Full drift elimination.
+           Bigger response payload. Tape generator needs to walk the
+           pipeline graph from every reachable stage and emit a tape per
+           stage — non-trivial extension of `generateTape()`.
+     - (c) **Accept "no buttons until next sync" after offline advance.**
+           Clean cutover. Degrades offline UX — the operator can't chain
+           multiple stages while offline.
+
+3. **DEEP DEPENDENCIES ON `nextAllowedStages` + `pendingChecklist`.** These
+   are not just button-rendering inputs. They drive:
+     - `validateOfflineGate()` — central single-source gate for both single
+       scan submit and batch submit (lines 624-674)
+     - `updateOfflineState()` — recomputes them after every successful
+       offline op and writes them BACK into `cacheData('filter-state-...')`
+       (lines 757-808)
+     - Multiple optimistic-update paths in `handleSubmit`, `handleStartCycle`,
+       `submitChecklist`, dryer dialogs, equipment dialogs
+     - `cs.pendingChecklist?.length > 0` checks at six different sites (5xx-
+       11xx range) that decide whether to fire the checklist dialog
+   Removing them is not "delete the walker" — it is "rewrite the offline
+   state machine." The plan does not budget for this.
+
+The advisor's first take ("trust stageLookup, delete the graph fallback") was
+incorrect. `stageLookup` IS Tier-1 (already there since B.7); the local
+walker is Tier-2 fallback for stale cache. Deleting Tier-2 doesn't reduce
+drift because Tier-1 is the primary path. The drift-prone code path is
+already dead.
+
+### What needs to happen next
+
+1. **Controller decides on (a)/(b)/(c)** for the offline-after-advance
+   reconstruction question.
+2. **Controller approves the UI shape:** stage-card grid replaced with
+   flat list, or grid kept and per-card tape consumption.
+3. **Controller decides whether `validateOfflineGate()`'s contract changes**
+   — its inputs `nextAllowed` and `hasPendingChecklist` are first-class. If
+   they go away, the gate either gets recomputed from `actions[]`/`stageLookup`
+   per drain, or we pick option (a) above and the gate is unchanged.
+4. **Plan revision** — the existing PLAN-2026-05-02-step8-decision-tape.md
+   doc treats Commit 3 as wiring; the plan should be updated to call out
+   the UI redesign + offline-cache rewrite cost.
+5. Once those decisions are in, Commits 2–4 can resume, with the option
+   chosen above driving exactly which fields are removed from
+   `getCurrentState()` and what the new `updateOfflineState()` does.
+
+### What did NOT happen and why
+
+- TAPE_PARALLEL flag is **NOT removed** — keeping it on parallel-validation
+  makes sense until the FE actually consumes the tape.
+- Server schema for `tapeVersion` is **still optional** on the 4 write
+  routes — tightening to required must wait until the FE is sending it on
+  every cycle-bound write (currently nothing does, even online).
+- `nextAllowedStages` / `pendingChecklist` are **still in the
+  getCurrentState response** — deferred until the offline-reconstruction
+  decision lands.
+- The two big FE files (`mobile-operations.tsx` + `filter-operations.tsx`)
+  are **untouched** — substantive editing them without a replacement plan
+  for offline state reconstruction would leave the app broken offline.
 
 ## What 8.0/8.1/8.2 shipped
 
