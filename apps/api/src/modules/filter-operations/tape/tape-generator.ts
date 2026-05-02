@@ -345,8 +345,22 @@ export function generateTape(input: TapeInput): ActionTape {
  * consumes this.
  */
 function tapeVersionOf(cycle: TapeCycleLike | null, filterEventCount: number): number {
-  const base = (cycle?.profileVersion ?? 0) * 1000;
-  return base + (filterEventCount ?? 0);
+  return computeTapeVersion(cycle?.profileVersion ?? 0, filterEventCount ?? 0);
 }
 
 type TapeCycleLike = { profileVersion: number };
+
+/**
+ * Single source of truth for the tapeVersion formula. Re-used by Phase 8.3
+ * write-path tape-version checks (see filter-operations.service.ts) so the
+ * generator and the staleness-detection logic can never drift.
+ *
+ * TODO M3 (deferred to Phase 8.4): this overflows / aliases when
+ * `filterEventCount >= 1000`. e.g. profileVersion=1, filterEventCount=1000
+ * collides with profileVersion=2, filterEventCount=0. Acceptable for v1
+ * because real cycles rarely cross 1000 events, but must be replaced before
+ * we remove the legacy advance/bypass guards.
+ */
+export function computeTapeVersion(profileVersion: number, filterEventCount: number): number {
+  return (profileVersion ?? 0) * 1000 + (filterEventCount ?? 0);
+}

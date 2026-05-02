@@ -199,6 +199,12 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           dryerDurationMinutes: { type: 'integer', minimum: 1, maximum: 1440 },
           offlinePerformedAt: { type: 'string', format: 'date-time' },
           clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay' },
+          // Phase 8.3 (decision-tape architecture): optional concurrency guard.
+          // When provided, server compares to the live tapeVersion derived from
+          // (profileVersion, filterEventCount) and rejects with 409 STALE_TAPE
+          // if mismatched. Optional during 8.3 because clients pre-cutover do
+          // not send it; Phase 8.4 cutover will tighten to required.
+          tapeVersion: { type: 'integer', description: 'Phase 8.3: optional staleness guard' },
         },
       },
       response: {
@@ -250,6 +256,9 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
             additionalProperties: { type: 'integer' },
             description: 'Phase A.1: client-cached version per checklistProfileId. Server returns 409 SCHEMA_DRIFT if any version mismatches the cycle pin.',
           },
+          // Phase 8.3 (decision-tape architecture): optional concurrency guard.
+          // See /advance route comment for rationale.
+          tapeVersion: { type: 'integer', description: 'Phase 8.3: optional staleness guard' },
         },
       },
       response: {
@@ -296,6 +305,8 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           parameters: { type: 'object' },
           offlinePerformedAt: { type: 'string', format: 'date-time' },
           clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay' },
+          // Phase 8.3 (decision-tape architecture): optional concurrency guard.
+          tapeVersion: { type: 'integer', description: 'Phase 8.3: optional staleness guard' },
         },
       },
       response: {
@@ -431,6 +442,8 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           justification: { type: 'string', minLength: 10 },
           offlinePerformedAt: { type: 'string', format: 'date-time' },
           clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay' },
+          // Phase 8.3 (decision-tape architecture): optional concurrency guard.
+          tapeVersion: { type: 'integer', description: 'Phase 8.3: optional staleness guard' },
         },
       },
       response: {
@@ -459,6 +472,6 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
     if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
-    return service.terminateCycle(ctx, id, req.body as { justification: string });
+    return service.terminateCycle(ctx, id, req.body as { justification: string; clientOpId?: string; tapeVersion?: number });
   });
 }

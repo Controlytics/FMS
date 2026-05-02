@@ -9,8 +9,43 @@ import { createHash } from 'node:crypto';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { findExistingByClientOpId } from '../../lib/idempotency.js';
 import { upsertFilterDetails, clearFilterCycle } from '../../lib/filter-details.js';
-import { generateTape } from './tape/tape-generator.js';
+import { generateTape, computeTapeVersion } from './tape/tape-generator.js';
 import type { TapeChecklistProfile } from './tape/types.js';
+
+/**
+ * Phase 8.3: optimistic-concurrency check on the action tape.
+ *
+ * Compares a client-submitted `tapeVersion` (computed from the snapshot of
+ * (profileVersion, filterEventCount) the client most recently observed) to
+ * the live server tapeVersion. Mismatch == another writer changed the cycle
+ * since the client read it (e.g. another operator advanced the cycle on a
+ * different device, or admin retired/restarted the profile).
+ *
+ * `submittedTapeVersion === undefined` is treated as a non-check — backward
+ * compat for callers that pre-date 8.3 (web/APK in flight). Phase 8.4 cutover
+ * will tighten the route schema to require it.
+ *
+ * Throws 409 STALE_TAPE on mismatch. The error `details` carries
+ * `currentTapeVersion` so the client can refresh + retry without polling.
+ */
+async function assertTapeVersionFresh(
+  filterId: string,
+  cycleId: string,
+  cycleProfileVersion: number,
+  submittedTapeVersion: number | undefined,
+): Promise<void> {
+  if (submittedTapeVersion === undefined || submittedTapeVersion === null) return;
+  const filterEventCount = await prisma.filterEvent.count({ where: { filterId, cycleId } });
+  const currentTapeVersion = computeTapeVersion(cycleProfileVersion, filterEventCount);
+  if (submittedTapeVersion !== currentTapeVersion) {
+    throw new AppError(
+      409,
+      'STALE_TAPE',
+      'Tape version mismatch — another operator may have changed this cycle. Refresh and retry.',
+      { currentTapeVersion },
+    );
+  }
+}
 
 function computeChecksum(data: Record<string, unknown>): string {
   const canonical = JSON.stringify(data, Object.keys(data).sort());
@@ -820,6 +855,10 @@ export class FilterOperationsService {
     });
     if (!cycle) throw new AppError(400, 'NO_ACTIVE_CYCLE', 'No active cleaning cycle found');
 
+    // Phase 8.3 staleness guard. No-op when client did not submit a tapeVersion
+    // (pre-cutover callers), enforced when present.
+    await assertTapeVersionFresh(filterId, cycle.id, (cycle as any).profileVersion ?? 0, data.tapeVersion);
+
     // Resolve checklist nodes for the current stage. Required for: validation,
     // schema-drift detection, and the per-profile snapshot we persist on the event.
     // Phase A.1: resolve through the cycle's pinned versions, so the questions
@@ -1141,6 +1180,9 @@ export class FilterOperationsService {
       where: { id: filter.currentCycleId, status: 'IN_PROGRESS' },
     });
     if (!cycle) throw new AppError(400, 'NO_ACTIVE_CYCLE', 'No active cleaning cycle found');
+
+    // Phase 8.3 staleness guard.
+    await assertTapeVersionFresh(filterId, cycle.id, (cycle as any).profileVersion ?? 0, data.tapeVersion);
 
     const resolvedProfileIdForAdvance = await this.resolveFilterProfile(filter);
     if (!resolvedProfileIdForAdvance) throw new AppError(400, 'NO_PROFILE', 'Filter has no assigned profile');
@@ -1540,6 +1582,18 @@ export class FilterOperationsService {
     const filter = await this.getFilter(filterId, ctx);
     if (!filter.currentCycleId) throw new AppError(400, 'NO_CYCLE', 'No active cleaning cycle — start a cycle before bypassing');
 
+    // Phase 8.3 staleness guard. Fetch cycle (this method goes straight from
+    // filter.currentCycleId into a transaction, unlike advance/submitChecklist).
+    if (data.tapeVersion !== undefined && data.tapeVersion !== null) {
+      const cycleForVersion = await prisma.cleaningCycle.findUnique({
+        where: { id: filter.currentCycleId },
+        select: { id: true, profileVersion: true },
+      });
+      if (cycleForVersion) {
+        await assertTapeVersionFresh(filterId, cycleForVersion.id, cycleForVersion.profileVersion ?? 0, data.tapeVersion);
+      }
+    }
+
     const resolvedProfileIdForBypass = await this.resolveFilterProfile(filter);
     const cp = resolvedProfileIdForBypass ? await this.getProfilePipeline(resolvedProfileIdForBypass, true) : null;
     if (!cp) {
@@ -1880,13 +1934,24 @@ export class FilterOperationsService {
     };
   }
 
-  async terminateCycle(ctx: RequestContext, filterId: string, data: { justification: string; clientOpId?: string }) {
+  async terminateCycle(ctx: RequestContext, filterId: string, data: { justification: string; clientOpId?: string; tapeVersion?: number }) {
     const clientOpId: string | null = data.clientOpId ?? null;
     if (clientOpId && await findExistingByClientOpId(filterId, clientOpId)) {
       return this.getCurrentState(ctx, filterId);
     }
     const filter = await this.getFilter(filterId, ctx);
     if (!filter.currentCycleId) throw new AppError(400, 'NO_CYCLE', 'No active cleaning cycle');
+
+    // Phase 8.3 staleness guard. Fetch cycle for profileVersion.
+    if (data.tapeVersion !== undefined && data.tapeVersion !== null) {
+      const cycleForVersion = await prisma.cleaningCycle.findUnique({
+        where: { id: filter.currentCycleId },
+        select: { id: true, profileVersion: true },
+      });
+      if (cycleForVersion) {
+        await assertTapeVersionFresh(filterId, cycleForVersion.id, cycleForVersion.profileVersion ?? 0, data.tapeVersion);
+      }
+    }
 
     const justification = typeof data.justification === 'string' ? data.justification.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
     if (!justification || justification.length < 10) {
