@@ -3,7 +3,7 @@
 A 21 CFR Part 11–compliant digital logbook + IoT data platform with an integrated **Digital Filter Management System** for pharmaceutical cleanrooms.
 
 ## Platform stats (current — 2026-04-29, verified against live code)
-- **36 API modules**, **200+ endpoints**, **68 Prisma models**, **23 enums**
+- **36 API modules**, **200+ endpoints**, **69 Prisma models**, **23 enums**
 - **77 rule-chain node types** across 8 categories
 - **30 config definitions** with auto-discovery, **26 config pages**
 - **109 permissions**, **91 feature toggles**, **81 reauth actions**, **26 sidebar items**

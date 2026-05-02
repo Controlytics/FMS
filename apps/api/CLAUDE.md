@@ -17,7 +17,7 @@ node apps/api/dist/app.js
 - Source: `apps/api/src/`
 - Compiled: `apps/api/dist/`
 - Entry: `apps/api/src/app.ts`
-- Prisma schema: `apps/api/prisma/schema.prisma` (68 models, 23 enums) — Step 1 added the `TemplateKind` lookup model; MT removal (2026-04-30) dropped `Organization` + 11 `organizationId` columns + 2 `orgId` columns; **Step 6 (2026-05-01)** split filter-specific cycle state (`filterProfileId`, `currentLifecycleState`, `currentCycleId`, `filterSet`) off `AssetInstance` into a 1:1 `FilterDetails` sidecar; **Phase A.3 (2026-05-01)** added the `FilterProfileVersion` sidecar (snapshot-then-bump); **Phase A.4 (2026-05-02)** added the `EquipmentGroupVersion` sidecar (composite snapshot of group + 3 instruments together).
+- Prisma schema: `apps/api/prisma/schema.prisma` (69 models, 23 enums) — Step 1 added the `TemplateKind` lookup model; MT removal (2026-04-30) dropped `Organization` + 11 `organizationId` columns + 2 `orgId` columns; **Step 6 (2026-05-01)** split filter-specific cycle state (`filterProfileId`, `currentLifecycleState`, `currentCycleId`, `filterSet`) off `AssetInstance` into a 1:1 `FilterDetails` sidecar; **Phase A.3 (2026-05-01)** added the `FilterProfileVersion` sidecar (snapshot-then-bump); **Phase A.4 (2026-05-02)** added the `EquipmentGroupVersion` sidecar (composite snapshot of group + 3 instruments together); **Step 4 (2026-05-02)** dropped `FilterProfile.applicableTemplates Json` and replaced it with the `FilterProfileApplicableTemplate` join table (cascade FKs both directions; AssetTemplate delete blocked with 409 IN_USE if any FilterProfile binds it).
 - Config definitions: `apps/api/src/modules/config/defs/` (30 files)
 - Route modules: `apps/api/src/modules/` (36 modules — `template-kinds` added in Step 1; `org-admin` and `tenant-admin` deleted in MT removal)
 - Config routes: monolith split into `apps/api/src/modules/config/static-routes/<surface>.routes.ts` per tab; top-level `routes.ts` is just a registration loop (~170 LOC, was 1003)
@@ -35,7 +35,7 @@ node apps/api/dist/app.js
 admin-requests, assets (templates/instances/relationships/identifiers), audit, auth, backup, checklist-profiles, cleaning-profiles, config (30 auto-discovered definitions), connectivity, dashboards, data-ingestion (11-file pipeline), deployment-check, entity-assignments, equipment-groups, filter-operations, filter-profiles, help, ldap, notification-delivery (email/SMS/Telegram/Slack), notification-rules, notifications, pm-schedules, qr-code, queries (telemetry/alarm/retention/export), report-templates, reports, roles, rule-chain (77 node types), super-admin, system-health, **template-kinds** (lookup-table CRUD added in Step 1 — `/api/template-kinds`), uns, uploads, user-groups, users — plus block-change-requests / admin-requests under their own modules. (`org-admin` and `tenant-admin` removed 2026-04-30 with MT removal.)
 
 ## Databases
-- **digilog_db** (PostgreSQL 18 via Prisma) — application data (68 models, 23 enums)
+- **digilog_db** (PostgreSQL 18 via Prisma) — application data (69 models, 23 enums)
 - **digilog_tsdb** (TimescaleDB via pg pool) — time-series data (7 hypertables)
 
 ## Key Libs (`apps/api/src/lib/`)

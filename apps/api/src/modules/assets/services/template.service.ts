@@ -224,6 +224,23 @@ export const templateService = {
     const existing = await templateRepository.findById(id);
     if (!existing) throw new NotFoundError('Template not found');
 
+    // Step 4 (2026-05-02): block delete if any FilterProfile still binds this
+    // template via filter_profile_applicable_templates. Returns 409 IN_USE with
+    // the list of binding profiles so the admin can resolve them first. The
+    // cascade FK on FilterProfileApplicableTemplate is a safety net for hard
+    // deletes (super-admin / backup-restore) — this guard is the user-facing
+    // path for the normal soft-delete admin flow.
+    const bindings = await prisma.filterProfileApplicableTemplate.findMany({
+      where: { templateId: id },
+      include: { profile: { select: { id: true, name: true } } },
+    });
+    if (bindings.length > 0) {
+      const names = bindings.map((b) => b.profile.name);
+      throw new ConflictError(
+        `Cannot delete template "${existing.name}": still bound by ${bindings.length} filter profile(s) [${names.join(', ')}]. Remove these bindings first.`,
+      );
+    }
+
     await templateRepository.softDelete(id, ctx.userId);
 
     await auditLog({

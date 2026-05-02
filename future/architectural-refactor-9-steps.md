@@ -1,6 +1,6 @@
 # Architectural Refactor — 9 Steps
 
-**Status:** Steps 1, 6 complete (2026-04-30 and 2026-05-01). Step 5 closed as **no-op** (2026-04-30) — investigation found two checklist systems are different domains, not duplicates; see `tasks/STEP-5-CHECKLIST-INVESTIGATION.md`. Step 3 obsolete (superseded by MT removal). Steps 2, 4, 7-9 pending. See task list (#18 - #25), `tasks/RESUME-STATE-2026-04-30-step1-templateKind-done.md`, and `tasks/STEP-6-FILTERDETAILS-PLAN.md` for full state.
+**Status:** Steps 1, 2, 4, 6 complete (2026-04-30 → 2026-05-02). Step 5 closed as **no-op** (2026-04-30) — investigation found two checklist systems are different domains, not duplicates; see `tasks/STEP-5-CHECKLIST-INVESTIGATION.md`. Step 3 obsolete (superseded by MT removal). Step 7 deprioritized 2026-05-01 per user. Steps 8 + 9 pending. See task list (#18 - #25), `tasks/RESUME-STATE-2026-04-30-step1-templateKind-done.md`, `tasks/STEP-6-FILTERDETAILS-PLAN.md`, `tasks/RESUME-STATE-2026-05-02-phaseA4.md` for full state.
 
 ## Why this exists
 
@@ -19,7 +19,7 @@ Each step is its own deliverable. The user's standing rules:
 | 1 | templateKind enum → admin-editable lookup table | ✅ DONE 2026-04-30 | Foundational; every other change touches templates |
 | 2 | relationshipType Prisma enum + bidirectional check constraint | ✅ DONE 2026-05-01 | Enum + constraint trigger; commit 51e1110 |
 | 3 | AssetInstance.organizationId NOT NULL | ❌ OBSOLETE 2026-04-30 | Superseded by MT removal — column dropped entirely instead of made NOT NULL |
-| 4 | applicableTemplates JSONB → join table (allowedBlocks stays JSONB per the conditional case) | pending | Small |
+| 4 | applicableTemplates JSONB → join table (allowedBlocks stays JSONB per the conditional case) | ✅ DONE 2026-05-02 | New `FilterProfileApplicableTemplate` join table; AssetTemplate delete guarded with 409 IN_USE; A.3 snapshot reads + freezes the IDs |
 | 5 | INVESTIGATE the two checklist systems before deciding (AssetTemplate.checklistSchema vs ChecklistProfile) | ✅ NO-OP 2026-04-30 | Different domains (inspection w/ 3-step e-sig review vs cleaning-cycle gate). Findings: `tasks/STEP-5-CHECKLIST-INVESTIGATION.md` |
 | 6 | FilterDetails 1:1 split off AssetInstance | ✅ DONE 2026-05-01 | Frontend untouched (API shape preserved); 11 backend files updated; 65 models now |
 | 7 | Multi-version pipeline rollout (per-block versioned profiles) | pending | Feature add on FilterProfile |
@@ -64,15 +64,19 @@ For each step:
 
 **Status:** Superseded by **multi-tenancy removal** (2026-04-30). The `organizationId` column was dropped entirely instead of being made NOT NULL. DigiLog is now single-tenant. See CHANGELOG entry "Multi-Tenancy Removal (2026-04-30)" for the full delta.
 
-## Step 4 — applicableTemplates JSONB → join table (pending)
+## Step 4 — applicableTemplates JSONB → join table (✅ DONE 2026-05-02)
 
-**What:** `FilterProfile.applicableTemplates` is currently a JSONB array of template UUIDs. No FK enforcement; if a template is deleted, JSON entries dangle.
+**What landed:** New `FilterProfileApplicableTemplate` model (composite-PK `(profileId, templateId)`, both FKs `onDelete: Cascade`); `FilterProfile.applicableTemplates Json` column dropped. API wire shape preserved (`applicableTemplates: string[]`) via a flatten helper, so frontend untouched. `create()` + `update()` rewrite the join set inside transactions; updates verify incoming template IDs exist before opening the transaction so callers get a clean 400 instead of a Prisma constraint exception.
 
-**Plan:** Replace with a join table `filter_profile_applicable_template (profile_id, template_id)` with FK cascades.
+**A.3 snapshot fix:** `snapshotAndBump()` now reads the live join rows inside the same transaction and freezes them as `string[]` in `FilterProfileVersion.snapshot.applicableTemplates`. Historical replay still works byte-correct (verified end-to-end: v1 snapshot has both templates after PUT removed one).
 
-**Skip for `allowedBlocks`:** That field is conditional (only used when `blockRestriction = SPECIFIC_BLOCKS`); JSONB is fine for the conditional case.
+**AssetTemplate delete guard:** Before `softDelete()`, the template service counts join rows for the templateId. If any FilterProfile still binds it, throws `ConflictError` (`409 IN_USE`) listing the binding profiles by name. The cascade FK on the join table is the safety net for hard deletes (super-admin / backup-restore paths) — this guard is the user-facing path. Matches the existing FilterProfile-delete guard pattern.
 
-**Touchpoints:** schema, FilterProfile create/update services, filter-profile UI dialog, any reads that filter by template applicability.
+**Skipped for `allowedBlocks`:** Stays JSONB. Only used when `blockRestriction = SPECIFIC_BLOCKS` — conditional fields don't justify a join table.
+
+**Touchpoints touched:** schema, `filter-profile.service.ts` (create/update/list/getById/snapshotAndBump), `assets/services/template.service.ts` (delete guard). Frontend untouched (no `applicableTemplates` references in `apps/web/src`).
+
+**Counts:** 68 → **69** models. Enums + modules unchanged.
 
 ## Step 5 — Investigate two checklist systems (✅ NO-OP 2026-04-30)
 

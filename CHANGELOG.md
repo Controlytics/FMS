@@ -1,5 +1,52 @@
 # Changelog
 
+## [Unreleased] — Step 4: FilterProfile.applicableTemplates JSONB → join table (2026-05-02)
+
+Branch: `feature/phase5-verification`. From the 9-step architectural-refactor plan; closes Step 4. Removes a long-standing dangling-FK-via-JSON foot-gun.
+
+### Background
+
+`FilterProfile.applicableTemplates` was `Json @default("[]")` storing an array of `AssetTemplate` UUIDs as plain strings. No FK enforcement: deleting an `AssetTemplate` left orphan UUIDs in every JSON array that pointed at it. The dangling refs passed DB validation, the JOIN-via-IN-clause silently dropped them, and there was no audit trail of what got orphaned.
+
+### Changes
+
+- **Schema** (`apps/api/prisma/schema.prisma`):
+  - Dropped `FilterProfile.applicableTemplates Json` column.
+  - Added new model `FilterProfileApplicableTemplate` — composite-PK `(profileId, templateId)`, both FKs `onDelete: Cascade`, `@@index([templateId])`, `@@map("filter_profile_applicable_templates")`.
+  - Reverse relations: `FilterProfile.applicableTemplates: FilterProfileApplicableTemplate[]` and `AssetTemplate.filterProfileBindings: FilterProfileApplicableTemplate[]`.
+  - Applied via `prisma db push --skip-generate` against an empty `filter_profiles` table — no backfill needed.
+- **Service** (`apps/api/src/modules/filter-profiles/filter-profile.service.ts`):
+  - `create()` — wrapped in `prisma.$transaction`; creates the FilterProfile row, then `createMany` the join rows. Verifies all incoming template IDs exist (returns 400 with the missing list) before opening the transaction.
+  - `update()` — when the caller provides `applicableTemplates`, replaces the join set inside the existing snapshot-then-bump transaction (`deleteMany` + `createMany`). Same upfront ID-existence check as `create()`.
+  - `list()` / `getById()` — `include: { applicableTemplates: { select: { templateId: true } } }` then flatten via a small helper to keep the wire shape `applicableTemplates: string[]`. **No FE change.**
+  - **A.3 snapshot fix** — `snapshotAndBump()` now reads the live join rows inside the transaction and freezes them as `string[]` in `FilterProfileVersion.snapshot.applicableTemplates`, so historical replay still works byte-correct.
+- **AssetTemplate delete guard** (`apps/api/src/modules/assets/services/template.service.ts`):
+  - Before `softDelete()`, count `filter_profile_applicable_templates` rows for `templateId`. If > 0, throw `ConflictError` (`409 IN_USE`) listing the binding profiles by name. The cascade FK on the join table is the safety net for hard deletes (super-admin paths, backup-restore); this guard is the user-facing path.
+
+### Verification
+
+- `npx tsc -p apps/api/tsconfig.json --noEmit` exit 0; full compile to dist exit 0.
+- `prisma db push` reports schema in sync; `\d filter_profile_applicable_templates` confirms columns + cascade FKs; `applicable_templates` column gone from `filter_profiles`.
+- `Restart-Service DigiLogAPI-Phase5` clean.
+- End-to-end via curl:
+  - Seeded an ACTIVE FilterCleaningProfile so a FilterProfile could reference one.
+  - `POST` with two real template UUIDs → response carries `applicableTemplates: ["…", "…"]` as `string[]`.
+  - `POST` with a bogus template UUID → clean `400 VALIDATION_ERROR` listing the unknown ID.
+  - `PUT` removing one template → response shows the shorter array; `version` bumped to 2.
+  - `GET /:id/versions/1` → frozen v1 snapshot still has BOTH templates as `string[]`. v3-style isolation works for the join data.
+  - `DELETE /api/assets/templates/<bound-template-id>` → clean `409 CONFLICT` with `Cannot delete template "Block-T": still bound by 1 filter profile(s) [S4 Test Filter Profile]. Remove these bindings first.`.
+  - `DELETE /api/assets/templates/<unbound-template-id>` (the second template, after PUT detached it) → `200 success`.
+- Test data fully cleaned up — 0 leftover rows in `filter_profiles`, `filter_profile_versions`, `filter_profile_applicable_templates`; the seeded cleaning profile dropped; the unbound template restored to `is_active = true` so the dev DB stays usable.
+
+### Notes
+
+- **Decision recorded**: AssetTemplate delete blocks on FilterProfile bindings (option b). The cascade FK is the safety net, not the operator-visible path. Consistent with the existing FilterProfile delete-guard against FilterDetails references.
+- `allowedBlocks` stays JSONB — only used when `blockRestriction = SPECIFIC_BLOCKS`; the conditional case doesn't justify a join table.
+- Frontend untouched — no `applicableTemplates` references exist under `apps/web/src` (verified via grep). The wire shape preserved by the flatten helper means even FE-side type definitions don't need to change immediately.
+- Model count: **68 → 69** (added `FilterProfileApplicableTemplate`). Enum count unchanged at 23.
+
+---
+
 ## [Unreleased] — Phase A.4: EquipmentGroup composite versioning + cleaning-reasons doc note (2026-05-02)
 
 Branch: `feature/phase5-verification`. Final entry in the universal-versioning rollout (A.1 = ChecklistProfile sidecar, A.2 = FilterCleaningProfile lineage, A.3 = FilterProfile sidecar). Closes Phase 5b Path A.

@@ -454,6 +454,11 @@ model AssetTemplate {
   templateAssignments TemplateAssignment[]
   defaultRuleChain    RuleChain?             @relation(fields: [defaultRuleChainId], references: [id])
   templateKindRef     TemplateKind           @relation(fields: [templateKind], references: [code])
+  // Step 4 (2026-05-02): FilterProfile applicable-templates moved from JSONB
+  // array on FilterProfile to a proper join table with cascade FKs. Deletes
+  // are guarded server-side with 409 IN_USE if any FilterProfile binds this
+  // template; the cascade is the safety net, not the user-facing path.
+  filterProfileBindings FilterProfileApplicableTemplate[]
 
   @@index([isActive])
   @@index([category])
@@ -1365,7 +1370,6 @@ model FilterProfile {
   name                String           @db.VarChar(255)
   description         String?
   cleaningProfileId   String           @map("cleaning_profile_id") @db.Uuid
-  applicableTemplates Json             @default("[]") @map("applicable_templates") @db.JsonB
   defaultPmScheduleId String?          @map("default_pm_schedule_id") @db.Uuid
   blockRestriction    BlockRestriction @default(OWN_BLOCK_ONLY) @map("block_restriction")
   allowedBlocks       Json?            @map("allowed_blocks") @db.JsonB
@@ -1383,9 +1387,33 @@ model FilterProfile {
   pmSchedule      PmSchedule?            @relation(fields: [defaultPmScheduleId], references: [id])
   filterDetails   FilterDetails[]        @relation("FilterProfileFilterDetails")
   versions        FilterProfileVersion[]
+  // Step 4 (2026-05-02): replaces the prior `applicableTemplates Json` array
+  // on this row. Reads should `include: { applicableTemplates: { select: {
+  // templateId: true } } }` and flatten so the API response shape stays
+  // `applicableTemplates: string[]` and the FE doesn't need to change.
+  applicableTemplates FilterProfileApplicableTemplate[]
 
   @@index([isActive])
   @@map("filter_profiles")
+}
+
+// Step 4 (2026-05-02): join table replacing FilterProfile.applicableTemplates
+// JSONB array. Both FKs cascade-delete so a vanishing AssetTemplate or
+// FilterProfile takes its bindings with it — no more dangling UUIDs in JSON.
+// Server-side guard in template.service blocks AssetTemplate delete with
+// 409 IN_USE if any FilterProfile still binds it; the cascade is the safety
+// net, not the operator-visible path.
+model FilterProfileApplicableTemplate {
+  profileId  String   @map("profile_id") @db.Uuid
+  templateId String   @map("template_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  profile  FilterProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  template AssetTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@id([profileId, templateId])
+  @@index([templateId])
+  @@map("filter_profile_applicable_templates")
 }
 
 // Immutable historical snapshot of a FilterProfile at a specific version.

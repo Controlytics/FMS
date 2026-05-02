@@ -86,7 +86,7 @@ Plus `index.ts` (barrel).
 > Stray file: `config.ts.patch` exists in this folder — clean up.
 
 ## Notes
-- Prisma schema has **68 models, 23 enums** in `apps/api/prisma/schema.prisma` (Step 6 — 2026-05-01 — added `FilterDetails` 1:1 sidecar holding the filter-specific cycle state; was 64 post-MT-removal; Phase A.3 — 2026-05-01 — added `FilterProfileVersion` sidecar; Phase A.4 — 2026-05-02 — added `EquipmentGroupVersion` sidecar)
+- Prisma schema has **69 models, 23 enums** in `apps/api/prisma/schema.prisma` (Step 6 — 2026-05-01 — added `FilterDetails` 1:1 sidecar holding the filter-specific cycle state; was 64 post-MT-removal; Phase A.3 — 2026-05-01 — added `FilterProfileVersion` sidecar; Phase A.4 — 2026-05-02 — added `EquipmentGroupVersion` sidecar; Step 4 — 2026-05-02 — replaced `FilterProfile.applicableTemplates` JSONB array with `FilterProfileApplicableTemplate` join table)
 - Phase 2 types (filter operations, cleaning profiles) are still co-located in API modules (not yet extracted)
 - 78+ field IDs across all modules (including filter management fields)
 
