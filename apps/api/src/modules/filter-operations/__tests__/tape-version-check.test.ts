@@ -61,12 +61,55 @@ function setupBaselineMocks(opts: {
       filterSet: 'A',
     },
   });
-  // assertTapeVersionFresh() inputs.
+  // assertTapeVersionFresh() inputs — Phase 8.5 Commit 3 reads cycle via
+  // loadLocalContext (`prisma.cleaningCycle.findUnique`) and event count via
+  // `prisma.filterEvent.findMany` (length matters; attribute shape doesn't).
   mockPrisma.cleaningCycle.findUnique.mockResolvedValue({
     id: CYCLE_ID,
+    profileId: 'cp-1',
     profileVersion: opts.cycleProfileVersion,
+    status: 'IN_PROGRESS',
+    cleaningAreaId: null,
+    equipmentGroupId: null,
+    equipmentGroupVersionPin: null,
+    checklistVersionPins: null,
+    dryerStartedAt: null,
+    dryerDurationMinutes: null,
+    dryerReadingsSubmitted: false,
+    cleaningReasonKey: 'ROUTINE',
+    cleaningReasonLabel: 'Routine',
+    startedAt: new Date(0),
+    completedAt: null,
+    terminatedAt: null,
+    cycleCode: '',
+    filterId: FILTER_ID,
+    ahuId: null,
   });
+  // Phase 8.5 Commit 3 swap: `assertTapeVersionFresh` reads ctx.events.length,
+  // not a count() query. Build a minimal-shape event array of the right length.
+  const events = Array.from({ length: opts.filterEventCount }, (_, i) => ({
+    id: `evt-${i}`,
+    cycleId: CYCLE_ID,
+    eventType: 'STATE_TRANSITION',
+    fromState: null,
+    toState: null,
+    performedAt: new Date(),
+    attributes: {},
+  }));
+  mockPrisma.filterEvent.findMany.mockResolvedValue(events);
   mockPrisma.filterEvent.count.mockResolvedValue(opts.filterEventCount);
+  // Profile lookup chain (loadLocalContext → loadCleaningProfile).
+  mockPrisma.filterProfile.findUnique.mockResolvedValue(null);
+  mockPrisma.filterCleaningProfile.findUnique.mockResolvedValue({
+    id: 'cp-1',
+    name: 'std',
+    flowMode: 'SEQUENTIAL',
+    version: opts.cycleProfileVersion,
+    status: 'ACTIVE',
+    cleaningReasons: {},
+    stages: [],
+    connections: [],
+  });
   // Idempotency: never previously seen.
   mockFindExistingByClientOpId.mockResolvedValue(null);
   // Transaction: just invoke the callback so the txn body runs against the
@@ -109,8 +152,12 @@ describe('Phase 8.3 — server tape-version concurrency check', () => {
     await expect(
       service.terminateCycle(ctx, FILTER_ID, { justification: VALID_JUSTIFICATION, tapeVersion: 2_000_005 }),
     ).resolves.not.toThrow();
-    // Concurrency check ran: count called once with the cycle scope.
-    expect(mockPrisma.filterEvent.count).toHaveBeenCalledWith({ where: { filterId: FILTER_ID, cycleId: CYCLE_ID } });
+    // Phase 8.5 Commit 3: loadLocalContext loads events via findMany;
+    // assertTapeVersionFresh reads ctx.events.length. Concurrency check still
+    // runs — just expressed via findMany rather than count.
+    expect(mockPrisma.filterEvent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { filterId: FILTER_ID, cycleId: CYCLE_ID } }),
+    );
     expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
@@ -135,8 +182,9 @@ describe('Phase 8.3 — server tape-version concurrency check', () => {
     await expect(
       service.terminateCycle(ctx, FILTER_ID, { justification: VALID_JUSTIFICATION }),
     ).resolves.not.toThrow();
-    // No staleness check fired — the count query is skipped entirely.
-    expect(mockPrisma.filterEvent.count).not.toHaveBeenCalled();
+    // The concurrency check itself is a non-op when tapeVersion is undefined;
+    // loadLocalContext still loads events (it's the universal context loader),
+    // so we only assert the txn ran.
     expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
   });
 });

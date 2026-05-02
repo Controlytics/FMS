@@ -11,6 +11,8 @@ import { findExistingByClientOpId } from '../../lib/idempotency.js';
 import { upsertFilterDetails, clearFilterCycle } from '../../lib/filter-details.js';
 import { generateTape, computeTapeVersion } from './tape/tape-generator.js';
 import type { TapeChecklistProfile } from './tape/types.js';
+import { loadLocalContext, throwIfFailed } from './local-context.js';
+import * as executor from '@digilog/shared';
 
 /**
  * Phase 8.3: optimistic-concurrency check on the action tape.
@@ -840,24 +842,28 @@ export class FilterOperationsService {
     // versions to detect schema drift between cache and current state.
     const expectedProfileVersions: Record<string, number> | null = data.expectedProfileVersions ?? null;
 
-    const filter = await this.getFilter(filterId, ctx);
-    if (!filter.currentCycleId) throw new AppError(400, 'NO_CYCLE', 'No active cleaning cycle');
+    // Phase 8.5 Commit 3: drop pure guards through the shared executor.
+    const { ctx: localCtx, cp, rawCycle: cycle, filterCurrentCycleId } = await loadLocalContext(filterId, ctx);
+
+    // Server-only: cycle exists guard (covers `NO_CYCLE`).
+    throwIfFailed(executor.assertCycleActive(localCtx));
 
     // Cycle-scoped clientOpId dedup: a replay with the same opId for the same cycle
     // is a no-op success (returns current state); the same opId across different
-    // cycles cannot collide.
-    if (clientOpId && await findExistingByClientOpId(filterId, clientOpId, filter.currentCycleId)) {
+    // cycles cannot collide. Run AFTER the no-cycle guard so we throw NO_CYCLE
+    // rather than trying to dedup against a missing cycle.
+    if (clientOpId && filterCurrentCycleId && await findExistingByClientOpId(filterId, clientOpId, filterCurrentCycleId)) {
       return this.getCurrentState(ctx, filterId);
     }
 
-    const cycle = await prisma.cleaningCycle.findFirst({
-      where: { id: filter.currentCycleId, status: 'IN_PROGRESS' },
-    });
-    if (!cycle) throw new AppError(400, 'NO_ACTIVE_CYCLE', 'No active cleaning cycle found');
+    // Server-only: cycle must be IN_PROGRESS (live state — separate from
+    // `assertCycleActive`'s "filter has currentCycleId" check).
+    if (!cycle || cycle.status !== 'IN_PROGRESS') {
+      throw new AppError(400, 'NO_ACTIVE_CYCLE', 'No active cleaning cycle found');
+    }
 
-    // Phase 8.3 staleness guard. Now required (Phase 8.4 cutover) — server
-    // schema enforces presence; service still defensively defaults to 0.
-    await assertTapeVersionFresh(filterId, cycle.id, cycle.profileVersion ?? 0, data.tapeVersion);
+    // Phase 8.3/8.5 staleness guard.
+    throwIfFailed(executor.assertTapeVersionFresh(localCtx, data.tapeVersion));
 
     // Resolve checklist nodes for the current stage. Required for: validation,
     // schema-drift detection, and the per-profile snapshot we persist on the event.
@@ -865,58 +871,31 @@ export class FilterOperationsService {
     // the operator answered against are byte-identical to the questions we
     // validate here, regardless of any admin edits during the cycle.
     const cyclePins = (cycle.checklistVersionPins ?? null) as Record<string, number> | null;
-    const resolvedProfileId = await this.resolveFilterProfile(filter);
-    const cp = resolvedProfileId ? await this.getProfilePipeline(resolvedProfileId) : null;
     let resolvedChecklists: any[] = [];
-    if (cp && filter.currentLifecycleState) {
-      const currentStage = cp.stages.find(s => s.stateKey === filter.currentLifecycleState);
+    if (cp && localCtx.filter.currentLifecycleState) {
+      const currentStage = cp.stages.find(s => s.stateKey === localCtx.filter.currentLifecycleState);
       if (currentStage) {
         const checklistNodes = collectChecklistsAfterStage(currentStage, cp.stages, cp.connections);
         resolvedChecklists = await resolveChecklistQuestions(checklistNodes, cyclePins);
       }
     }
 
-    // Schema-drift check: the offline tablet sends `expectedProfileVersions` as a map
-    // of profileId → version it cached. If the live profile version is newer, the cache
-    // is stale and the operator may have answered against questions that no longer exist
-    // (or missed required questions added later). Reject with a structured payload so
-    // the client can surface "checklist updated since you cached it — please re-review".
-    if (expectedProfileVersions && resolvedChecklists.length > 0) {
-      const drift: Array<{ profileId: string; expected: number; current: number }> = [];
-      for (const cl of resolvedChecklists) {
-        const expected = expectedProfileVersions[cl.checklistProfileId];
-        const current = (cl.profileVersion ?? 1) as number;
-        if (expected !== undefined && expected !== current) {
-          drift.push({ profileId: cl.checklistProfileId, expected, current });
-        }
-      }
-      if (drift.length > 0) {
-        const err = new AppError(409, 'SCHEMA_DRIFT', 'Checklist profile changed since this submission was prepared. Please reload and re-answer.');
-        (err as any).details = { drift };
-        throw err;
-      }
-    }
+    // Schema drift / required / extras — all pure, dropped through shared executor.
+    throwIfFailed(
+      executor.assertChecklistSchemaFresh(localCtx, expectedProfileVersions, resolvedChecklists),
+    );
+    throwIfFailed(
+      executor.assertRequiredChecklistAnswered(localCtx, answers, resolvedChecklists),
+    );
+    throwIfFailed(
+      executor.assertChecklistAnswerKeysValid(localCtx, answers, resolvedChecklists),
+    );
 
-    // Validation: required questions answered, extras rejected.
+    // Build set of valid question ids for the per-profile snapshot below.
     const validQuestionIds = new Set<string>();
-    const requiredQuestionIds = new Set<string>();
     for (const cl of resolvedChecklists) {
       for (const q of cl.questions) {
         validQuestionIds.add(q.id);
-        if (q.required) requiredQuestionIds.add(q.id);
-      }
-    }
-    if (answers && typeof answers === 'object') {
-      for (const qId of requiredQuestionIds) {
-        if (answers[qId] === undefined || answers[qId] === null || answers[qId] === '') {
-          throw new AppError(400, 'VALIDATION_ERROR', `Required checklist question not answered: ${qId}`);
-        }
-      }
-      // Reject extras (was console.warn before). They would be hash-bound and audit-immutable.
-      const answerKeys = Object.keys(answers);
-      const extraKeys = answerKeys.filter(k => !validQuestionIds.has(k));
-      if (extraKeys.length > 0) {
-        throw new AppError(400, 'INVALID_QUESTIONS', `Unexpected answer keys (not in any active checklist for this stage): ${extraKeys.join(', ')}`);
       }
     }
 
@@ -946,6 +925,8 @@ export class FilterOperationsService {
       };
     });
 
+    const currentState = localCtx.filter.currentLifecycleState;
+
     // Record CHECKLIST_COMPLETED event. Attributes shape:
     //   { afterStage, answers (flat merged — backward compat for cycle-history reader),
     //     checklists[] (per-profile snapshot — A6), clientOpId (A2), offlinePerformedAt (A1) }
@@ -955,13 +936,13 @@ export class FilterOperationsService {
       eventType: 'CHECKLIST_COMPLETED' as const,
       performedBy: ctx.userSub,
       attributes: {
-        afterStage: filter.currentLifecycleState,
+        afterStage: currentState,
         answers,
         checklists: checklistsSnapshot,
         ...(clientOpId ? { clientOpId } : {}),
         ...(offlineTime ? { offlinePerformedAt: offlineTime.toISOString() } : {}),
       },
-      remarks: `Checklist completed after ${filter.currentLifecycleState}`,
+      remarks: `Checklist completed after ${currentState}`,
     };
     const checksum = computeChecksum(eventData);
 
@@ -978,10 +959,10 @@ export class FilterOperationsService {
           filterId,
           cycleId: cycle.id,
           eventType: 'CHECKLIST_COMPLETED',
-          attributes: { path: ['afterStage'], equals: filter.currentLifecycleState ?? undefined },
+          attributes: { path: ['afterStage'], equals: currentState ?? undefined },
         },
       });
-      if (existing) throw new AppError(409, 'ALREADY_SUBMITTED', `Checklist already submitted for ${prettyStageLabel(filter.currentLifecycleState)}`);
+      if (existing) throw new AppError(409, 'ALREADY_SUBMITTED', `Checklist already submitted for ${prettyStageLabel(currentState)}`);
 
       await tx.filterEvent.create({
         data: {
@@ -998,7 +979,7 @@ export class FilterOperationsService {
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'CHECKLIST_COMPLETED',
       targetType: 'filter', targetId: filterId,
-      afterValue: { stage: filter.currentLifecycleState, answerCount: Object.keys(answers ?? {}).length, profileCount: checklistsSnapshot.length },
+      afterValue: { stage: currentState, answerCount: Object.keys(answers ?? {}).length, profileCount: checklistsSnapshot.length },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
     });
 
@@ -1173,199 +1154,126 @@ export class FilterOperationsService {
       return this.getCurrentState(ctx, filterId);
     }
 
-    const filter = await this.getFilter(filterId, ctx);
-    if (!filter.currentCycleId) throw new AppError(400, 'NO_CYCLE', 'No active cleaning cycle');
+    // Phase 8.5 Commit 3: drop pure guards through the shared executor.
+    const { ctx: localCtx, cp, rawCycle: cycle } = await loadLocalContext(filterId, ctx);
+    throwIfFailed(executor.assertCycleActive(localCtx));
 
-    const cycle = await prisma.cleaningCycle.findFirst({
-      where: { id: filter.currentCycleId, status: 'IN_PROGRESS' },
-    });
-    if (!cycle) throw new AppError(400, 'NO_ACTIVE_CYCLE', 'No active cleaning cycle found');
-
-    // Phase 8.3 staleness guard. Phase 8.4 (2026-05-02) tightened the route
-    // schema to require `tapeVersion` so this is no longer a no-op for
-    // current callers.
-    await assertTapeVersionFresh(filterId, cycle.id, cycle.profileVersion ?? 0, data.tapeVersion);
-
-    const resolvedProfileIdForAdvance = await this.resolveFilterProfile(filter);
-    if (!resolvedProfileIdForAdvance) throw new AppError(400, 'NO_PROFILE', 'Filter has no assigned profile');
-    const cp = await this.getProfilePipeline(resolvedProfileIdForAdvance, true);
-    if (!cp) throw new AppError(400, 'PROFILE_DISABLED', 'Cleaning profile is disabled or not found. Contact admin to activate it.');
-
-    // Enforce checklist completion before allowing advance.
-    // A5: gates are FROZEN at cycle start. We do NOT filter by `isActive` — soft-deleting
-    // a profile mid-cycle no longer silently lifts the gate. The cycle keeps using the
-    // pipeline graph it was started with; the gate either was always there or wasn't.
-    // (To stop enforcing a gate mid-cycle, an operator must terminate the cycle.)
-    const currentState = filter.currentLifecycleState;
-    if (currentState) {
-      const currentStageForCL = cp.stages.find(s => s.stateKey === currentState);
-      if (currentStageForCL) {
-        const pendingCLNodes = collectChecklistsAfterStage(currentStageForCL, cp.stages, cp.connections)
-          .filter(n => n.configuration?.checklistProfileId);
-
-        if (pendingCLNodes.length > 0) {
-          const answered = await prisma.filterEvent.findFirst({
-            where: { filterId, cycleId: cycle.id, eventType: 'CHECKLIST_COMPLETED', attributes: { path: ['afterStage'], equals: currentState } },
-          });
-          if (!answered) {
-            throw new AppError(400, 'CHECKLIST_PENDING', `Please complete the checklist before advancing from ${prettyStageLabel(currentState)}`);
-          }
-        }
-      }
+    // Server-only: cycle must be IN_PROGRESS (live state).
+    if (!cycle || cycle.status !== 'IN_PROGRESS') {
+      throw new AppError(400, 'NO_ACTIVE_CYCLE', 'No active cleaning cycle found');
     }
 
-    let currentStage = currentState
-      ? cp.stages.find(s => s.stateKey === currentState)
-      : cp.stages.find(s => s.nodeType === 'START');
+    throwIfFailed(executor.assertTapeVersionFresh(localCtx, data.tapeVersion));
+    throwIfFailed(executor.assertProfileAssigned(localCtx, cp?.id));
+    throwIfFailed(executor.assertProfileActive(localCtx, cp ? localCtx.profile : null));
 
-    if (!currentStage) {
-      currentStage = cp.stages.find(s => s.nodeType === 'START');
+    // After assertProfileActive, cp is non-null + ACTIVE (the guard already
+    // checked status). Narrow for TS.
+    if (!cp || cp.status !== 'ACTIVE') {
+      throw new AppError(400, 'PROFILE_DISABLED', 'Cleaning profile is disabled or not found. Contact admin to activate it.');
     }
 
-    if (currentStage) {
-      // Walk from current stage: skip over CHECKLIST nodes to find reachable STAGE nodes
-      const reachableStages: string[] = [];
-      const visited = new Set<string>();
-      let hasEndNext = false;
+    const currentState = localCtx.filter.currentLifecycleState;
 
-      function findReachableStages(nodeId: string) {
-        if (visited.has(nodeId)) return;
-        visited.add(nodeId);
-        const outConns = cp!.connections.filter(c => c.fromStageId === nodeId);
-        for (const conn of outConns) {
-          const next = cp!.stages.find(s => s.id === conn.toStageId);
-          if (!next) continue;
-          if (next.nodeType === 'STAGE' && next.stateKey) {
-            reachableStages.push(next.stateKey);
-          } else if (next.nodeType === 'END') {
-            hasEndNext = true;
-          } else if (next.nodeType === 'CHECKLIST') {
-            findReachableStages(next.id);
-          }
-        }
-      }
+    // Pending checklist gate (frozen at cycle start per A5).
+    throwIfFailed(executor.assertChecklistGatePassed(localCtx, localCtx.profile, currentState));
 
-      findReachableStages(currentStage.id);
+    // Compute reachable stages + END detection from pipeline graph.
+    const fromNodeForReachability = currentState
+      ? localCtx.profile.nodes.find(s => s.stateKey === currentState)
+        ?? localCtx.profile.nodes.find(s => s.nodeType === 'START')
+      : localCtx.profile.nodes.find(s => s.nodeType === 'START');
+    const { reachableStages, hasEndNext } = fromNodeForReachability
+      ? executor.findReachable(fromNodeForReachability.id, localCtx.profile.nodes, localCtx.profile.edges)
+      : { reachableStages: [] as string[], hasEndNext: false };
 
-      if (reachableStages.length === 0 && hasEndNext) {
-        throw new AppError(400, 'CYCLE_COMPLETE', 'Cleaning cycle is complete. No more stages.');
-      }
-      // Dryer actions (SET_DURATION, SUBMIT_READINGS) with targetState=DRY_IN stay at DRY_IN
-      const isDryerInPlace = !!dryerAction && targetState === 'DRY_IN' && filter.currentLifecycleState === 'DRY_IN';
-      if (!reachableStages.includes(targetState) && cp.flowMode !== 'BYPASS_ENABLED' && !isDryerInPlace) {
-        throw new AppError(400, 'OUT_OF_SEQUENCE', `Cannot move to ${targetState} from ${currentState ?? 'START'}. Next allowed: ${reachableStages.join(', ')}`);
-      }
-    }
+    throwIfFailed(executor.assertNotCycleComplete(localCtx, reachableStages, hasEndNext));
+    // Dryer-in-place exception: SET_DURATION / SUBMIT_READINGS at DRY_IN -> DRY_IN.
+    const isDryerInPlace = !!dryerAction && targetState === 'DRY_IN' && currentState === 'DRY_IN';
+    throwIfFailed(
+      executor.assertTargetStateReachable(
+        localCtx,
+        targetState,
+        reachableStages,
+        cp.flowMode,
+        isDryerInPlace,
+        currentState,
+      ),
+    );
+    throwIfFailed(executor.assertTargetStateExists(localCtx, targetState, localCtx.profile));
 
-    const targetStage = cp.stages.find(s => s.stateKey === targetState);
-    if (!targetStage) throw new AppError(400, 'INVALID_TARGET', `Invalid target state: ${targetState}`);
+    // Resolve targetStage (post-existence check) for the in-tx END walk.
+    const targetStage = cp.stages.find(s => s.stateKey === targetState)!;
 
-    const paramBlocks = cp.stages.filter(s => s.nodeType === 'PARAM_CAPTURE');
-    for (const block of paramBlocks) {
-      const config = block.configuration as any; // Prisma Json type
-      if (config?.parameters) {
-        for (const param of config.parameters) {
-          if (param.required && parameters && !parameters[param.key]) {
-            throw new AppError(400, 'PARAM_REQUIRED', `Required parameter missing: ${param.label}`);
-          }
-          if (parameters?.[param.key]) {
-            const val = parameters[param.key].value;
-            if (param.min !== undefined && val < param.min) {
-              throw new AppError(400, 'PARAM_OUT_OF_RANGE', `${param.label} below minimum (${param.min})`);
-            }
-            if (param.max !== undefined && val > param.max) {
-              throw new AppError(400, 'PARAM_OUT_OF_RANGE', `${param.label} above maximum (${param.max})`);
-            }
-          }
-        }
-      }
-    }
+    // PARAM_CAPTURE block validation (pure).
+    const paramDefs = executor.extractParameterDefs(localCtx.profile.nodes);
+    throwIfFailed(executor.assertParametersRequired(localCtx, parameters, paramDefs));
+    throwIfFailed(executor.assertParametersInRange(localCtx, parameters, paramDefs));
 
-    const fromState = filter.currentLifecycleState;
+    const fromState = currentState;
 
-    // Validate equipment group if provided at WASH_IN and not yet set (write deferred to transaction)
+    // Equipment-group existence check when provided + not yet bound (server I/O).
     if (equipmentGroupId && !cycle.equipmentGroupId) {
       const eqGroup = await prisma.equipmentGroup.findFirst({
         where: { id: equipmentGroupId, isActive: true },
+        select: { id: true, isActive: true },
       });
-      if (!eqGroup) throw new AppError(400, 'INVALID_EQUIPMENT_GROUP', 'Equipment group not found or inactive');
+      throwIfFailed(executor.assertEquipmentGroupValid(localCtx, equipmentGroupId, eqGroup));
     }
 
-    // Dryer SET_DURATION: must be advancing INTO DRY_IN, no readings expected
+    // Dryer guards (pure).
+    throwIfFailed(executor.assertDryerActionValid(localCtx, dryerAction, targetState));
     if (dryerAction === 'SET_DURATION') {
-      if (targetState !== 'DRY_IN') throw new AppError(400, 'INVALID_DRYER_ACTION', 'SET_DURATION only valid for DRY_IN');
-      if (!dryerDurationMinutes || dryerDurationMinutes < 1) throw new AppError(400, 'INVALID_DURATION', 'dryerDurationMinutes required');
+      throwIfFailed(executor.assertDryerDurationValid(localCtx, dryerDurationMinutes));
     }
+    throwIfFailed(executor.assertInDryInForReadings(localCtx, currentState, dryerAction));
+    throwIfFailed(executor.assertDryerStarted(localCtx, localCtx.cycle, dryerAction));
+    throwIfFailed(
+      executor.assertDryerHalfTimeElapsed(localCtx, localCtx.cycle, dryerAction, offlineTime ?? null),
+    );
+    throwIfFailed(
+      executor.assertDryerHalfTimeBeforeLeavingDryIn(
+        localCtx,
+        localCtx.cycle,
+        currentState,
+        targetState,
+        offlineTime ?? null,
+      ),
+    );
 
-    // Dryer SUBMIT_READINGS: validate half-time elapsed (skip for offline replay — time already validated client-side)
-    if (dryerAction === 'SUBMIT_READINGS') {
-      if (filter.currentLifecycleState !== 'DRY_IN') throw new AppError(400, 'NOT_IN_DRY_IN', 'Filter is not in DRY_IN');
-      if (!cycle.dryerStartedAt || !cycle.dryerDurationMinutes) {
-        throw new AppError(400, 'DRYER_NOT_STARTED', 'Dryer duration not set');
-      }
-      if (!offlineTime) {
-        const halfMs = (cycle.dryerDurationMinutes * 60_000) / 2;
-        const elapsedMs = Date.now() - new Date(cycle.dryerStartedAt).getTime();
-        if (elapsedMs < halfMs) {
-          const remainingMin = Math.ceil((halfMs - elapsedMs) / 60_000);
-          throw new AppError(400, 'DRYER_NOT_READY', `Dryer still running. Wait ${remainingMin} more minute(s).`);
-        }
-      }
-    }
-
-    // Guard: leaving DRY_IN requires the dryer to have run at least half its duration (skip for offline replay)
-    if (filter.currentLifecycleState === 'DRY_IN' && targetState !== 'DRY_IN' && !offlineTime) {
-      if (cycle.dryerStartedAt && cycle.dryerDurationMinutes) {
-        const halfMs = (cycle.dryerDurationMinutes * 60_000) / 2;
-        const elapsedMs = Date.now() - new Date(cycle.dryerStartedAt).getTime();
-        if (elapsedMs < halfMs) {
-          const remainingMin = Math.ceil((halfMs - elapsedMs) / 60_000);
-          throw new AppError(400, 'DRYER_NOT_READY', `Dryer still running. Wait ${remainingMin} more minute(s) before leaving DRY_IN.`);
-        }
-      }
-    }
-
-    // Validate instrument readings if provided
+    // Validate instrument readings if provided.
     let validatedReadings: any = null;
     if (instrumentReadings && typeof instrumentReadings === 'object' && Object.keys(instrumentReadings).length > 0) {
       let cycleGroupId = equipmentGroupId ?? cycle.equipmentGroupId;
-      // Track the version pin for this cycle. Three sources, in priority:
-      //   1. cycle.equipmentGroupVersionPin (already set at start-cycle / earlier auto-bind) — P1.
-      //   2. Live group version when we lazy-bind here for the first time — P1 stamps it on persist.
-      //   3. null fallback for legacy cycles whose group was bound before P1 shipped → use live row.
+      // Three pin sources (priority): cycle pin → lazy-bind live group version → null (legacy).
       let cycleVersionPin: number | null = cycle.equipmentGroupVersionPin ?? null;
 
-      // Auto-resolve: if no group on cycle but block is known, pick the block's active group
+      // Auto-resolve: if no group on cycle but block is known, pick the block's active group.
+      // Hybrid guard #30 — pure portion (count <= 1) wraps the live DB read.
       if (!cycleGroupId && cycle.cleaningAreaId) {
         const blockGroups = await prisma.equipmentGroup.findMany({
           where: { blockId: cycle.cleaningAreaId, isActive: true },
           select: { id: true, version: true },
         });
+        throwIfFailed(executor.assertSingleEquipmentGroupPerBlock(localCtx, blockGroups.length));
         if (blockGroups.length === 1) {
           cycleGroupId = blockGroups[0].id;
           cycleVersionPin = blockGroups[0].version; // P1: pin at lazy-bind moment
-          // Persist on cycle so future requests don't need to re-resolve
+          // Persist on cycle so future requests don't need to re-resolve.
+          // (Pre-tx write — same as before; keeps lock-acquisition order unchanged.)
           await prisma.cleaningCycle.update({
             where: { id: cycle.id },
             data: { equipmentGroupId: cycleGroupId, equipmentGroupVersionPin: cycleVersionPin },
           });
-        } else if (blockGroups.length > 1) {
-          throw new AppError(400, 'MULTIPLE_EQUIPMENT_GROUPS', 'Multiple equipment groups found for this block. Please select one.');
         }
       }
-      if (!cycleGroupId) throw new AppError(400, 'NO_EQUIPMENT_GROUP', 'Equipment group must be selected before submitting readings');
+      throwIfFailed(executor.assertEquipmentGroupSelected(localCtx, cycleGroupId));
 
-      // P1 (2026-05-02): if the cycle has a version pin, validate readings against
-      // the frozen EquipmentGroupVersion snapshot. Otherwise fall back to the live
-      // group row (legacy cycles started before P1, or cycles whose group was
-      // never auto-bound). Validation must be byte-correct against whichever
-      // ranges were in effect when the cycle started — that's the audit-replay
-      // contract. The fallback path is a strict drift gap, kept ONLY for
-      // backwards compatibility with pre-P1 cycles.
+      // P1 (2026-05-02): validate against frozen snapshot when pinned, live row otherwise.
       let stageInstruments: any[];
       if (cycleVersionPin !== null) {
         const versionRow = await prisma.equipmentGroupVersion.findUnique({
-          where: { groupId_versionNumber: { groupId: cycleGroupId, versionNumber: cycleVersionPin } },
+          where: { groupId_versionNumber: { groupId: cycleGroupId!, versionNumber: cycleVersionPin } },
         });
         if (versionRow) {
           const snap = versionRow.snapshot as { instruments: any[] };
@@ -1374,25 +1282,23 @@ export class FilterOperationsService {
             .filter((i: any) => i.stageKey === readingsStageKey)
             .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
         } else {
-          // Pin set but no version row for it — this means the pin is for the
-          // CURRENT live row (snapshot rows only get written when the row is
-          // about to change). Fall through to the live-row read below.
+          // Pin set but no version row — pin is for current live row (lazy first-version).
           const eqGroup = await prisma.equipmentGroup.findUnique({
-            where: { id: cycleGroupId },
+            where: { id: cycleGroupId! },
             include: { instruments: { orderBy: { sortOrder: 'asc' } } },
           });
           if (!eqGroup) throw new AppError(400, 'INVALID_EQUIPMENT_GROUP', 'Equipment group not found');
-          if (eqGroup.version !== cycleVersionPin) {
-            throw new AppError(409, 'GROUP_VERSION_MISSING', `Equipment group version ${cycleVersionPin} pinned by this cycle is missing from the version sidecar; live group is at v${eqGroup.version}. Investigate before submitting readings.`);
-          }
+          // Hybrid guard #32 — pure portion compares pin/live version.
+          throwIfFailed(
+            executor.assertEquipmentGroupVersionExists(localCtx, cycleVersionPin, eqGroup.version, false),
+          );
           const readingsStageKey = dryerAction === 'SUBMIT_READINGS' ? 'DRY_IN' : targetState;
           stageInstruments = eqGroup.instruments.filter(i => i.stageKey === readingsStageKey);
         }
       } else {
-        // Legacy fallback (pre-P1 cycle): live row, with the historical drift
-        // gap. Documented in CHANGELOG / DECISIONS.
+        // Legacy fallback (pre-P1 cycle).
         const eqGroup = await prisma.equipmentGroup.findUnique({
-          where: { id: cycleGroupId },
+          where: { id: cycleGroupId! },
           include: { instruments: { orderBy: { sortOrder: 'asc' } } },
         });
         if (!eqGroup) throw new AppError(400, 'INVALID_EQUIPMENT_GROUP', 'Equipment group not found');
@@ -1403,16 +1309,11 @@ export class FilterOperationsService {
       validatedReadings = [];
       for (const inst of stageInstruments) {
         const reading = instrumentReadings[inst.id];
-        if (reading === undefined || reading === null) {
-          throw new AppError(400, 'READING_REQUIRED', `Reading required for ${inst.description} (${inst.instrumentId})`);
-        }
+        // Per-instrument pure guards (#27/#28/#29).
+        throwIfFailed(executor.assertInstrumentReadingRequired(localCtx, reading, inst));
+        throwIfFailed(executor.assertInstrumentReadingValid(localCtx, reading, inst));
         const val = Number(reading);
-        if (isNaN(val)) {
-          throw new AppError(400, 'INVALID_READING', `Invalid reading value for ${inst.description}`);
-        }
-        if (val < inst.operatingMin || val > inst.operatingMax) {
-          throw new AppError(400, 'READING_OUT_OF_RANGE', `${inst.description} reading ${val} is outside operating range (${inst.operatingMin}–${inst.operatingMax})`);
-        }
+        throwIfFailed(executor.assertInstrumentReadingInRange(localCtx, val, inst));
         validatedReadings.push({
           instrumentId: inst.id,
           instrumentCode: inst.instrumentId,
@@ -1496,7 +1397,7 @@ export class FilterOperationsService {
         });
         const dryerEvent = {
           filterId, cycleId: cycle.id, eventType: 'STATE_TRANSITION' as const,
-          fromState: filter.currentLifecycleState, toState: targetState,
+          fromState: currentState, toState: targetState,
           performedBy: ctx.userSub,
           attributes: { dryerDurationMinutes, dryerStartedAt: startedAt.toISOString(), action: 'DRYER_STARTED' },
           remarks: `Dryer started for ${dryerDurationMinutes} minute(s)`,
@@ -1575,50 +1476,34 @@ export class FilterOperationsService {
   /** @param data - Validated by Fastify JSON schema before reaching this method */
   async bypass(ctx: RequestContext, filterId: string, data: any) {
     const { targetState, parameters } = data;
-    const justification = typeof data.justification === "string" ? data.justification.replace(/</g, "&lt;").replace(/>/g, "&gt;") : data.justification;
+    // Server-only: HTML escape (input sanitization) before guards.
+    const justification = typeof data.justification === "string"
+      ? data.justification.replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      : data.justification;
+    // Server-only: idempotent replay short-circuits before touching shared guards.
     const clientOpId: string | null = data.clientOpId ?? null;
     if (clientOpId && await findExistingByClientOpId(filterId, clientOpId)) {
       return this.getCurrentState(ctx, filterId);
     }
 
-    const filter = await this.getFilter(filterId, ctx);
-    if (!filter.currentCycleId) throw new AppError(400, 'NO_CYCLE', 'No active cleaning cycle — start a cycle before bypassing');
-
-    // Phase 8.3 staleness guard. Fetch cycle (this method goes straight from
-    // filter.currentCycleId into a transaction, unlike advance/submitChecklist).
-    if (data.tapeVersion !== undefined && data.tapeVersion !== null) {
-      const cycleForVersion = await prisma.cleaningCycle.findUnique({
-        where: { id: filter.currentCycleId },
-        select: { id: true, profileVersion: true },
-      });
-      if (cycleForVersion) {
-        await assertTapeVersionFresh(filterId, cycleForVersion.id, cycleForVersion.profileVersion ?? 0, data.tapeVersion);
-      }
-    }
-
-    const resolvedProfileIdForBypass = await this.resolveFilterProfile(filter);
-    const cp = resolvedProfileIdForBypass ? await this.getProfilePipeline(resolvedProfileIdForBypass, true) : null;
-    if (!cp) {
+    // Phase 8.5 Commit 3: drop pure guards through the shared executor.
+    const { ctx: localCtx, cp, filterCurrentCycleId } = await loadLocalContext(filterId, ctx);
+    throwIfFailed(executor.assertCycleActive(localCtx));
+    throwIfFailed(executor.assertTapeVersionFresh(localCtx, data.tapeVersion));
+    // Profile-disabled guard kept here (server-only — bypass requires an active
+    // profile to read flowMode + valid states; not in the inventory's pure set).
+    if (!cp || cp.status !== 'ACTIVE') {
       throw new AppError(400, 'PROFILE_DISABLED', 'Cleaning profile is disabled or not found.');
     }
-    if (cp.flowMode !== 'BYPASS_ENABLED') {
-      throw new AppError(403, 'BYPASS_FORBIDDEN', 'Profile flow mode is STRICT — bypass not allowed');
-    }
-
-    // Validate target state exists in pipeline
+    throwIfFailed(executor.assertBypassAllowed(localCtx, cp.flowMode));
     const validStates = cp.stages.filter(s => s.nodeType === 'STAGE' && s.stateKey).map(s => s.stateKey);
-    if (!validStates.includes(targetState)) {
-      throw new AppError(400, 'INVALID_TARGET', `Invalid target state: ${targetState}. Valid: ${validStates.join(', ')}`);
-    }
+    throwIfFailed(executor.assertBypassTargetStateValid(localCtx, targetState, validStates));
+    throwIfFailed(executor.assertJustificationValid(localCtx, justification, { kind: 'bypass' }));
 
-    if (!justification || justification.length < 10) {
-      throw new AppError(400, 'JUSTIFICATION_REQUIRED', 'Bypass justification required (min 10 characters)');
-    }
-
-    const fromState = filter.currentLifecycleState;
+    const fromState = localCtx.filter.currentLifecycleState;
 
     const eventData = {
-      filterId, cycleId: filter.currentCycleId ?? undefined,
+      filterId, cycleId: filterCurrentCycleId ?? undefined,
       eventType: 'BYPASS_DEVIATION' as const,
       fromState, toState: targetState,
       performedBy: ctx.userSub,
@@ -1638,7 +1523,7 @@ export class FilterOperationsService {
         FOR UPDATE
       `;
       const lockedFD = lockedRows[0];
-      if (lockedFD?.current_lifecycle_state !== filter.currentLifecycleState) {
+      if (lockedFD?.current_lifecycle_state !== fromState) {
         throw new AppError(409, 'STATE_CHANGED', 'Filter state was modified by another user. Please refresh and try again.');
       }
 
@@ -1937,32 +1822,28 @@ export class FilterOperationsService {
   }
 
   async terminateCycle(ctx: RequestContext, filterId: string, data: { justification: string; clientOpId?: string; tapeVersion?: number }) {
+    // Server-only: idempotent replay short-circuits before touching shared guards.
     const clientOpId: string | null = data.clientOpId ?? null;
     if (clientOpId && await findExistingByClientOpId(filterId, clientOpId)) {
       return this.getCurrentState(ctx, filterId);
     }
-    const filter = await this.getFilter(filterId, ctx);
-    if (!filter.currentCycleId) throw new AppError(400, 'NO_CYCLE', 'No active cleaning cycle');
 
-    // Phase 8.3 staleness guard. Fetch cycle for profileVersion.
-    if (data.tapeVersion !== undefined && data.tapeVersion !== null) {
-      const cycleForVersion = await prisma.cleaningCycle.findUnique({
-        where: { id: filter.currentCycleId },
-        select: { id: true, profileVersion: true },
-      });
-      if (cycleForVersion) {
-        await assertTapeVersionFresh(filterId, cycleForVersion.id, cycleForVersion.profileVersion ?? 0, data.tapeVersion);
-      }
-    }
+    // Server-only: HTML escape (input sanitization) before guards.
+    const justification = typeof data.justification === 'string'
+      ? data.justification.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      : '';
 
-    const justification = typeof data.justification === 'string' ? data.justification.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
-    if (!justification || justification.length < 10) {
-      throw new AppError(400, 'JUSTIFICATION_REQUIRED', 'Justification required (min 10 characters)');
-    }
+    // Phase 8.5 Commit 3: drop pure guards through the shared executor.
+    const { ctx: localCtx, filterCurrentCycleId } = await loadLocalContext(filterId, ctx);
+    throwIfFailed(executor.assertCycleActive(localCtx));
+    throwIfFailed(executor.assertTapeVersionFresh(localCtx, data.tapeVersion));
+    throwIfFailed(
+      executor.assertJustificationValid(localCtx, justification, { kind: 'terminate' }),
+    );
 
     await prisma.$transaction(async (tx) => {
       await tx.cleaningCycle.update({
-        where: { id: filter.currentCycleId! },
+        where: { id: filterCurrentCycleId! },
         data: { status: 'TERMINATED', completedAt: new Date() },
       });
       // currentCycleId + currentLifecycleState moved to FilterDetails (Step 6).
@@ -1971,7 +1852,7 @@ export class FilterOperationsService {
         data: { currentCycleId: null, currentLifecycleState: null },
       });
       const eventData = {
-        filterId, cycleId: filter.currentCycleId!, eventType: 'CYCLE_TERMINATED' as const,
+        filterId, cycleId: filterCurrentCycleId!, eventType: 'CYCLE_TERMINATED' as const,
         performedBy: ctx.userSub, attributes: { justification },
         remarks: justification,
       };
@@ -1983,7 +1864,7 @@ export class FilterOperationsService {
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'CYCLE_TERMINATED',
       targetType: 'filter', targetId: filterId,
-      afterValue: { cycleId: filter.currentCycleId, justification },
+      afterValue: { cycleId: filterCurrentCycleId, justification },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
     });
 
