@@ -229,11 +229,9 @@ export const templateService = {
     // the list of binding profiles so the admin can resolve them first. The
     // cascade FK on FilterProfileApplicableTemplate is a safety net for hard
     // deletes (super-admin / backup-restore) — this guard is the user-facing
-    // path for the normal soft-delete admin flow.
-    const bindings = await prisma.filterProfileApplicableTemplate.findMany({
-      where: { templateId: id },
-      include: { profile: { select: { id: true, name: true } } },
-    });
+    // path for the normal soft-delete admin flow. Goes through the repo layer
+    // so this service stays unit-test-mockable.
+    const bindings = await templateRepository.findFilterProfileBindings(id);
     if (bindings.length > 0) {
       const names = bindings.map((b) => b.profile.name);
       throw new ConflictError(

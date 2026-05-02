@@ -10,6 +10,9 @@ const { mockTemplateRepo, mockAuditLog } = vi.hoisted(() => ({
     softDelete: vi.fn(),
     createVersion: vi.fn(),
     findVersions: vi.fn(),
+    // Step 4 (2026-05-02): added so the delete guard can check FilterProfile
+    // bindings without hitting prisma directly — keeps unit tests hermetic.
+    findFilterProfileBindings: vi.fn(),
   },
   mockAuditLog: vi.fn(),
 }));
@@ -106,12 +109,29 @@ describe('templateService', () => {
   });
 
   describe('delete', () => {
-    it('soft deletes template', async () => {
+    it('soft deletes template when no FilterProfile binds it', async () => {
       mockTemplateRepo.findById.mockResolvedValue({ id: 't1', name: 'P', isActive: true });
+      mockTemplateRepo.findFilterProfileBindings.mockResolvedValue([]);
       mockTemplateRepo.softDelete.mockResolvedValue({});
 
       await templateService.delete('t1', ctx);
+      expect(mockTemplateRepo.findFilterProfileBindings).toHaveBeenCalledWith('t1');
       expect(mockTemplateRepo.softDelete).toHaveBeenCalledWith('t1', 'admin');
+    });
+
+    // Step 4 guard (2026-05-02): block delete with 409 IN_USE when any
+    // FilterProfile binds the template via filter_profile_applicable_templates.
+    it('rejects with 409 IN_USE when FilterProfile bindings exist', async () => {
+      mockTemplateRepo.findById.mockResolvedValue({ id: 't1', name: 'Block-T', isActive: true });
+      mockTemplateRepo.findFilterProfileBindings.mockResolvedValue([
+        { profileId: 'fp1', templateId: 't1', profile: { id: 'fp1', name: 'Standard FP' } },
+        { profileId: 'fp2', templateId: 't1', profile: { id: 'fp2', name: 'Strict FP' } },
+      ]);
+
+      await expect(templateService.delete('t1', ctx)).rejects.toThrow(
+        /still bound by 2 filter profile\(s\) \[Standard FP, Strict FP\]/,
+      );
+      expect(mockTemplateRepo.softDelete).not.toHaveBeenCalled();
     });
   });
 

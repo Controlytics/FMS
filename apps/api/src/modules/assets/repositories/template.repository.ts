@@ -115,4 +115,18 @@ export const templateRepository = {
       orderBy: { versionNumber: 'desc' },
     });
   },
+
+  /**
+   * Step 4 (2026-05-02): list FilterProfile rows that bind this template via
+   * the `filter_profile_applicable_templates` join table. Used by the delete
+   * guard in the service layer to return a useful 409 IN_USE before relying
+   * on the cascade FK. Lives in the repo (not the service) so the service
+   * stays mockable in unit tests.
+   */
+  async findFilterProfileBindings(templateId: string) {
+    return prisma.filterProfileApplicableTemplate.findMany({
+      where: { templateId },
+      include: { profile: { select: { id: true, name: true } } },
+    });
+  },
 };
