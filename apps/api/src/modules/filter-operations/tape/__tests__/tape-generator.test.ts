@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { generateTape } from '../tape-generator.js';
 import type {
   TapeCycle,
@@ -107,6 +107,14 @@ function inputFx(overrides: Partial<TapeInput> = {}): TapeInput {
 // ── tests ──────────────────────────────────────────────────────────────────
 
 describe('generateTape() — pure-function action emission', () => {
+  // M4 (Phase 8.0 review follow-up): reset module-level `nextId` between tests
+  // so the file is concurrency-safe under `test.concurrent` and so test order
+  // changes don't leak ids between cases. Defense-in-depth — the fixture
+  // helpers (`simpleProfile`, `checklistProfile`) already reset on entry.
+  beforeEach(() => {
+    nextId = 0;
+  });
+
   // ── 1. No-cycle / not-in-progress paths ─────────────────────────────────
   it('1. no cycle → empty actions[] (cycle-start is via /start-cycle, not the tape)', () => {
     const tape = generateTape(inputFx({ cycle: null }));

@@ -29,6 +29,30 @@ export type { AuditTemplateDefinition, AuditTemplateCategory } from './types/aud
 export { ALARM_COLUMN_DEFINITIONS, ALL_ALARM_COLUMN_IDS } from './types/alarm-columns.js';
 export type { AlarmColumnDefinition } from './types/alarm-columns.js';
 
+export type {
+  TapeQuestion,
+  TapeStage,
+  TapeConnection,
+  TapeInstrument,
+  TapeCycle,
+  TapePinnedProfile,
+  TapePinnedEquipmentGroup,
+  TapeChecklistProfile,
+  TapeChecklistEvent,
+  TapeInput,
+  ActionKind,
+  OperatingRangeMap,
+  AdvanceToStageAction,
+  SubmitChecklistAction,
+  SubmitDryerReadingsAction,
+  SetDryerDurationAction,
+  BypassStageAction,
+  TerminateCycleAction,
+  CompleteCycleAction,
+  Action,
+  ActionTape,
+} from './types/action-tape.js';
+
 // Schemas
 export { loginSchema, passwordChangeSchema, reAuthSchema } from './schemas/auth.js';
 export type { LoginInput, PasswordChangeInput, ReAuthInput } from './schemas/auth.js';

@@ -1,5 +1,67 @@
 # Changelog
 
+## [Unreleased] — Step 8 Phase 8.1: shared types + FE action-renderer skeleton + Phase 8.0 review follow-ups (2026-05-02)
+
+Branch: `feature/phase5-verification`. Three parts in one batch — type extraction to `@digilog/shared`, FE renderer skeleton (stub-level — no live consumers yet), and the two Minor cleanups flagged by the Phase 8.0 reviewer (M4 + M6). Strictly additive on the FE side; the FE skeleton is built but not yet consumed by `mobile-operations.tsx` / `filter-operations.tsx` — that's Phase 8.4 cutover.
+
+### What landed
+
+#### Part (a) — Action-tape types live in `@digilog/shared`
+
+- **NEW** `packages/shared/src/types/action-tape.ts` — full type contract lifted from `apps/api/src/modules/filter-operations/tape/types.ts`. Server tape generator + parity tests + future FE renderer all consume the same source of truth, eliminating the drift risk that comes from duplicating discriminated-union shapes across two languages of import.
+- **EDIT** `packages/shared/src/index.ts` — barrel re-exports the 21 named types from action-tape (`Action`, `ActionTape`, `TapeInput`, `TapeQuestion`, `OperatingRangeMap`, etc.).
+- **EDIT** `apps/api/src/modules/filter-operations/tape/types.ts` — replaced with a re-export shim (`export type { ... } from '@digilog/shared'`). Picked the shim over deleting the file because deleting would force three additional unrelated edits to update import paths in `tape-generator.ts`, `tape-generator.test.ts`, and `filter-operations.service.ts:13` for purely cosmetic gain. The shim adds zero runtime cost and the parity test continues to guarantee shape stability.
+
+#### Part (b) — FE action-renderer skeleton (stubs only)
+
+- **NEW** `apps/web/src/lib/action-tape/types.ts` — convenience re-export of the shared types so action-tape FE imports stay co-located with the renderer code. Call sites are also free to import directly from `@digilog/shared`.
+- **NEW** `apps/web/src/lib/action-tape/ActionRenderer.tsx` — top-level dispatcher. Takes a single `Action` plus an `onSubmit: (action) => Promise<void> | void` callback; switches on `action.type` and renders the right child stub. Owns `useState` for in-flight `loading`; passes `disabled` to the child while `onSubmit` is pending. Honors a caller-provided `disabled` prop (e.g. tape stale, refetching). Includes an `ActionTapeRenderer` convenience wrapper that takes the whole `actions[]` and shares a loading-lock across all of them (one click disables the rest until the promise settles). Exhaustiveness guard via `_exhaustive: never` so a future action-kind added to the shared union but not wired here will fail typecheck.
+- **NEW** `apps/web/src/lib/action-tape/components/base-action-button.tsx` — visual primitive with 4 variants (primary / success / warning / danger). Each stub picks a variant matching the action's semantic role: ADVANCE / SUBMIT_CHECKLIST / SUBMIT_DRYER_READINGS / SET_DRYER_DURATION → primary; COMPLETE_CYCLE → success; BYPASS_STAGE → warning (deviation); TERMINATE_CYCLE → danger.
+- **NEW** 7 stub components (one per action type) in `apps/web/src/lib/action-tape/components/`:
+  - `AdvanceToStageButton.tsx` — primary
+  - `SubmitChecklistButton.tsx` — primary
+  - `SubmitDryerReadingsButton.tsx` — primary
+  - `SetDryerDurationButton.tsx` — primary
+  - `BypassStageButton.tsx` — warning (amber)
+  - `TerminateCycleButton.tsx` — danger (red)
+  - `CompleteCycleButton.tsx` — success (green)
+
+  Each stub: takes its specific action variant + `disabled` + `loading` + `onClick`. Renders a single button via `BaseActionButton` with a `data-action-type` attribute (used by tests to confirm the right stub rendered). Phase 8.2 will swap most of these for dialogs/forms (instrument readings, justification capture, checklist questions, dryer-duration picker) — but the dispatch shape stays the same, so the dispatcher needs no rework.
+- **NEW** `apps/web/src/lib/action-tape/__tests__/ActionRenderer.test.tsx` — 11 component tests:
+  - 7 per-type cases: render the dispatcher with each action variant; assert the right `data-action-type` rendered; click; assert `onSubmit` was called once with the exact action shape (reference equality — we don't clone).
+  - 1 caller-disabled case: `disabled` prop forces the button disabled; click does not fire `onSubmit`.
+  - 1 in-flight loading case: a deferred-resolve promise; assert button becomes disabled + `aria-busy=true` while pending; assert it clears on resolve.
+  - 2 `ActionTapeRenderer` cases: shared loading-lock disables siblings during in-flight; empty-state slot renders when `actions[] === []`.
+
+#### Part (c) — Phase 8.0 review follow-ups (M4 + M6)
+
+- **EDIT** `apps/api/src/modules/filter-operations/tape/__tests__/tape-generator.test.ts` — added `beforeEach(() => { nextId = 0; })` inside the `describe(...)` block (M4). The fixture helpers (`simpleProfile`, `checklistProfile`) already do this on entry, so this is defense-in-depth — but it makes the file safe under `test.concurrent` and removes the order-dependent fragility the reviewer flagged.
+- **EDIT** `apps/api/src/modules/filter-operations/filter-operations.service.ts:706-722` — wrapped the two sequential `prisma.filterEvent.findMany` + `prisma.filterEvent.count` calls in `Promise.all` (M6). One less DB round-trip when `TAPE_PARALLEL=true`. Behaviorally identical; the falsy branch returns a typed `[[], 0]` tuple to keep TS narrowing happy.
+
+### Why a re-export shim instead of moving import paths
+
+Three sites import from `./types.js` today: `tape-generator.ts`, `tape-generator.test.ts`, `filter-operations.service.ts:13`. The shim replaces only the body of `types.ts` and leaves the imports alone. The "delete + rewire" path was three additional unrelated edits with no functional benefit; the shim is one line of indirection that the typechecker sees through and the bundler tree-shakes (it's purely `export type`). If we ever need to add api-only types alongside the shared ones, the shim file is already the natural home.
+
+### Verification
+
+- `cd packages/shared && npx tsc` → builds the new `action-tape.{js,d.ts,d.ts.map,js.map}` artifacts; existing 10 type files unchanged.
+- `cd apps/api && npx tsc --noEmit` → exit 0.
+- `cd apps/web && npx tsc --noEmit` → exit 0.
+- `cd apps/api && npx vitest run src/modules/filter-operations` → 3 files, 35 tests pass (unchanged from 8.0 baseline; M4 `beforeEach` is additive).
+- `cd apps/api && npx vitest run` (full) → 84 passed / 2 failed; the 2 failing files (`auth.test.ts > forgot-password`, `config.test.ts > action-reauth`) are the same pre-existing e2e failures from 8.0 — confirmed unrelated to this batch (no import path or service code from those modules touched).
+- `cd apps/web && npx vitest run` → 2 files, 21 tests pass (B7.1's 10 + B8.1's 11). No `act()` warnings, no console noise.
+
+### Out of scope (deferred to later phases)
+
+- FE consumption of the tape (Phase 8.4 — `mobile-operations.tsx` / `filter-operations.tsx` cutover).
+- Per-action-type full UI (Phase 8.2 — instrument-readings dialog, justification capture, checklist-question modal, dryer-duration picker, countdown gate).
+- Offline replay tape-versioning (Phase 8.3).
+- APK changes (Phase 8.5).
+- M1 (BYPASS_STAGE emit-set expansion to all pipeline stages in `BYPASS_ENABLED` mode) — deferred to 8.2 per the original plan.
+- M3 (`tapeVersion` collision-resistance — pick `BigInt` or bit-shifted layout) — deferred to 8.4 per the original plan.
+
+---
+
 ## [Unreleased] — Step 8 Phase 8.0: server tape generator + parallel-validation harness (2026-05-02)
 
 Branch: `feature/phase5-verification`. Strictly additive — no existing field removed, no consumer touched. Lays the foundation for Phase 8.1+ (FE renderer rewrite) and Phase 8.4 cutover (decision-tape architecture).

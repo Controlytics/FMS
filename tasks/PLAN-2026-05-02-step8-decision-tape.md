@@ -122,12 +122,50 @@ Recorded by code-quality reviewer on commit `1889289`. None blocked Phase 8.0 ap
 
 - **M1 (defer to 8.2):** `BYPASS_STAGE` only emits for `reachableStages` from current state. `advance()` in `BYPASS_ENABLED` mode actually accepts ANY pipeline-stage as targetState (`filter-operations.service.ts:1210` short-circuit). Tape under-reports the operator's real bypass surface. **8.2 must expand the emit-set to all pipeline stages when `flowMode === 'BYPASS_ENABLED'`** before the FE renderer ships, otherwise the renderer silently loses step-back BYPASS capability that the existing UI has today.
 - **M3 (defer to 8.4 cutover):** `tapeVersion = profileVersion * 1000 + filterEventCount`. Collides if `filterEventCount >= 1000`. Implausible in practice (cycles have dozens of events) but worth tightening before cutover. Options: `BigInt`, or `(profileVersion << 32) | eventCount`. Pick when 8.4 is scoped.
-- **M4 (cosmetic, fix in 8.1):** `tape-generator.test.ts` has module-level `let nextId = 0` — works because vitest defaults to sequential within a file but fragile under `test.concurrent`. Add `beforeEach(() => { nextId = 0; })`.
-- **M6 (perf, fix in 8.1):** Service.ts flag-on block has two sequential `prisma.filterEvent.findMany` + `count` calls. Run via `Promise.all` for one less roundtrip when flag is on.
+- **M4 ✅ closed in 8.1 (2026-05-02):** added `beforeEach(() => { nextId = 0; })` inside the `generateTape()` describe block. Defense-in-depth — the helpers already reset on entry — but makes the file safe under `test.concurrent`.
+- **M6 ✅ closed in 8.1 (2026-05-02):** service.ts flag-on block now reads recent CHECKLIST_COMPLETED events + total event count via `Promise.all([...])`. One less DB round-trip when the flag is on; behaviorally identical.
 
-## Phase 8.1 — FE action-renderer skeleton (next batch)
+## Phase 8.1 ✅ DONE — FE action-renderer skeleton + shared types + M4/M6 (2026-05-02)
 
-Skip detail until 8.0 ships and parity validation passes.
+Three parts shipped in one batch:
+
+### Part (a) — Action-tape types extracted to `@digilog/shared`
+
+- **NEW** `packages/shared/src/types/action-tape.ts` (lifted from `apps/api/src/modules/filter-operations/tape/types.ts`).
+- **EDIT** `packages/shared/src/index.ts` re-exports the 21 action-tape types.
+- **EDIT** `apps/api/src/modules/filter-operations/tape/types.ts` reduced to a re-export shim (`export type { ... } from '@digilog/shared'`) so server-side imports of `./types.js` continue to resolve unchanged. Picked the shim over deleting the file because deletion would force three additional unrelated edits to update import paths in `tape-generator.ts`, `tape-generator.test.ts`, and `filter-operations.service.ts:13` for purely cosmetic gain. The shim is one line of indirection the typechecker sees through and the bundler tree-shakes (purely `export type`).
+
+### Part (b) — FE action-renderer skeleton (stubs only — no live consumers)
+
+- **NEW** `apps/web/src/lib/action-tape/types.ts` — convenience re-export of shared types so action-tape FE imports stay co-located with renderer code.
+- **NEW** `apps/web/src/lib/action-tape/ActionRenderer.tsx` — top-level dispatcher that takes one `Action` + `onSubmit` callback, switches on `action.type`, and renders the right child stub. Owns `useState` for in-flight `loading`; passes `disabled` to the active child during the pending submit. Honors a caller-provided `disabled` prop. Includes an `ActionTapeRenderer` convenience wrapper that takes the whole `actions[]` and shares a loading-lock across siblings (one click disables the rest until settled). Exhaustiveness guard via `_exhaustive: never`.
+- **NEW** `apps/web/src/lib/action-tape/components/base-action-button.tsx` — visual primitive with 4 variants (primary / success / warning / danger).
+- **NEW** 7 stub action components in `apps/web/src/lib/action-tape/components/`:
+  - `AdvanceToStageButton.tsx` (primary)
+  - `SubmitChecklistButton.tsx` (primary)
+  - `SubmitDryerReadingsButton.tsx` (primary)
+  - `SetDryerDurationButton.tsx` (primary)
+  - `BypassStageButton.tsx` (warning)
+  - `TerminateCycleButton.tsx` (danger)
+  - `CompleteCycleButton.tsx` (success)
+- **NEW** `apps/web/src/lib/action-tape/__tests__/ActionRenderer.test.tsx` — 11 tests: 7 per-type dispatch cases, 1 caller-disabled case, 1 in-flight loading case (deferred-resolve promise), 2 `ActionTapeRenderer` cases (shared loading-lock + empty-state slot).
+
+### Part (c) — M4 + M6 closures (see above)
+
+### Verification (Phase 8.1)
+
+- `cd packages/shared && npx tsc` → builds new artifacts.
+- `cd apps/api && npx tsc --noEmit` → exit 0.
+- `cd apps/web && npx tsc --noEmit` → exit 0.
+- `cd apps/api && npx vitest run src/modules/filter-operations` → 3 files, 35 tests pass.
+- `cd apps/web && npx vitest run` → 2 files, 21 tests pass (B7.1's 10 + B8.1's 11).
+
+### Out of scope (Phase 8.1)
+
+- FE consumption of the tape — Phase 8.4 cutover.
+- Per-action-type full UI (dialogs, forms, validation rendering, countdown gates) — Phase 8.2.
+- Offline replay tape-versioning — Phase 8.3.
+- APK changes — Phase 8.5.
 
 ## Phase 8.2-8.5
 

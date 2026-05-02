@@ -700,22 +700,23 @@ export class FilterOperationsService {
         });
       }
 
-      // Recent CHECKLIST_COMPLETED events for THIS cycle. We need all of them
-      // (not just the one matching the current stage) so the generator can
-      // walk past every stage's checklist gate when needed.
-      const recentChecklistEvents = currentCycle
-        ? await prisma.filterEvent.findMany({
-            where: { filterId: filter.id, cycleId: currentCycle.id, eventType: 'CHECKLIST_COMPLETED' },
-            select: { eventType: true, attributes: true },
-          })
-        : [];
-
-      // Total event count for this cycle — used to derive a tapeVersion that
-      // changes on every cycle event (STATE_TRANSITION included), not just
-      // checklist completions.
-      const filterEventCount = currentCycle
-        ? await prisma.filterEvent.count({ where: { filterId: filter.id, cycleId: currentCycle.id } })
-        : 0;
+      // Recent CHECKLIST_COMPLETED events for THIS cycle (used by the generator
+      // to walk past every stage's checklist gate) AND total event count for
+      // this cycle (used to derive a tapeVersion that changes on every cycle
+      // event, STATE_TRANSITION included, not just checklist completions).
+      //
+      // M6 (Phase 8.0 review follow-up): run the two prisma reads in parallel
+      // — they're independent, so the sequential await pair was an unnecessary
+      // round-trip when the flag is on.
+      const [recentChecklistEvents, filterEventCount] = currentCycle
+        ? await Promise.all([
+            prisma.filterEvent.findMany({
+              where: { filterId: filter.id, cycleId: currentCycle.id, eventType: 'CHECKLIST_COMPLETED' },
+              select: { eventType: true, attributes: true },
+            }),
+            prisma.filterEvent.count({ where: { filterId: filter.id, cycleId: currentCycle.id } }),
+          ])
+        : [[] as Array<{ eventType: string; attributes: unknown }>, 0];
 
       const tape = generateTape({
         cycle: currentCycle
