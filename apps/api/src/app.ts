@@ -65,6 +65,7 @@ import { dispatchNotification } from './modules/notification-delivery/notificati
 import cleaningProfileRoutes from './modules/cleaning-profiles/routes.js';import checklistProfileRoutes from './modules/checklist-profiles/routes.js';import filterProfileRoutes from './modules/filter-profiles/routes.js';
 import pmScheduleRoutes from './modules/pm-schedules/routes.js';import pmExecutionRoutes from './modules/pm-schedules/execution-routes.js';import filterOperationsRoutes from './modules/filter-operations/routes.js';import filterEventsRoutes from './modules/filter-operations/events-routes.js';
 import equipmentGroupRoutes from './modules/equipment-groups/routes.js';
+import syncRoutes from './modules/sync/routes.js';
 import deploymentCheckRoutes from './modules/deployment-check/routes.js';
 import adminRequestRoutes from './modules/admin-requests/routes.js';
 import blockChangeRoutes from './modules/block-change-requests/routes.js';
@@ -287,6 +288,7 @@ await app.register(dashboardRoutes, { prefix: "/api/dashboards" });
 await app.register(cleaningProfileRoutes, { prefix: '/api/filter-cleaning-profiles' });await app.register(checklistProfileRoutes, { prefix: '/api/checklist-profiles' });await app.register(filterProfileRoutes, { prefix: '/api/filter-profiles' });
 await app.register(pmScheduleRoutes, { prefix: '/api/pm-schedules' });await app.register(pmExecutionRoutes, { prefix: '/api/pm-executions' });await app.register(filterOperationsRoutes, { prefix: '/api/filters' });await app.register(filterEventsRoutes, { prefix: '/api/filters' });
 await app.register(equipmentGroupRoutes, { prefix: '/api/equipment-groups' });
+await app.register(syncRoutes, { prefix: '/api/sync' });
 await app.register(deploymentCheckRoutes, { prefix: '/api/deployment-check' });
 await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
 await app.register(blockChangeRoutes, { prefix: '/api/block-change-requests' });
