@@ -6,9 +6,11 @@ Each item below has been audited against live code (line-number evidence). Items
 
 ## Items
 
-### L1 — `getCurrentState()` returns pinned EquipmentGroupVersion snapshot (HIGH PRIORITY)
+### L1 — `getCurrentState()` returns pinned EquipmentGroupVersion snapshot ✅ DONE (commit `dbce282`, 2026-05-02)
 
 **What:** Today `filter-operations.service.ts:488` returns `prisma.equipmentGroup.findUnique` (the **live** group). When `cycle.equipmentGroupVersionPin` is set, it should return the snapshot from `EquipmentGroupVersion(groupId, versionNumber=pin)` instead.
+
+**Status:** Closed by commit `dbce282`. Snapshot resolution + lazy-first-version fallback + legacy null-pin fallback all delivered. Regression coverage added in B7.3 (commit `0b2821f`).
 
 **Why:** Closes the operator-visible drift surface from P1 — today the FE renders dropdowns from live operating ranges (`mobile-operations.tsx:2062` calls `genOpts(inst.operatingMin, inst.operatingMax, inst.leastCount)`), but server validation reads from the pinned snapshot inside `advance()`. Operator can pick a value the server rejects with no warning. After L1, the dropdown automatically picks up pinned ranges and the operator sees what they're held to.
 
@@ -29,7 +31,7 @@ Each item below has been audited against live code (line-number evidence). Items
 
 ---
 
-### L2 — Same pinned-snapshot read for the `getCurrentState()` `cleaningProfileGraph` field (MEDIUM PRIORITY)
+### L2 — Same pinned-snapshot read for the `getCurrentState()` `cleaningProfileGraph` field ✅ DONE (commit `63101d5`, 2026-05-02)
 
 **What:** `getCurrentState()` returns `pipelineGraph` and `pipelineStages` derived from `getProfilePipeline(resolvedProfileId, false)` (line 403). `resolvedProfileId` is sourced from `resolveFilterProfile(filter)` — the live filter profile binding, not the cycle's pinned `profileId`.
 
@@ -41,9 +43,11 @@ Each item below has been audited against live code (line-number evidence). Items
 
 **Effort:** ~half day. Server-only.
 
+**Closed by:** commit `63101d5` (`getProfilePipeline()` now reads from `currentCycle.profileId` when a cycle is active; legacy live binding is preserved for the pre-cycle preview path). Regression coverage added in B7.3.
+
 ---
 
-### L3 — `profileSyncWarning` should also surface for in-flight `EquipmentGroupVersion` divergence (LOW PRIORITY)
+### L3 — `profileSyncWarning` should also surface for in-flight `EquipmentGroupVersion` divergence ✅ DONE (commit `d7026ce`, 2026-05-02; FE rendering closed by B7.4 commit `1d6ec6b`)
 
 **What:** `profileSyncWarning` (line 553-577) detects FilterCleaningProfile drift against the cycle's pin. There's no equivalent for EquipmentGroup. After L1 lands, the tablet sees pinned ranges in the UI; after admin edits, the operator has no signal that the rules they're working under aren't the latest.
 
@@ -53,9 +57,11 @@ Each item below has been audited against live code (line-number evidence). Items
 
 **Effort:** ~2 hours. Server-only.
 
+**Closed by:** server-side `equipmentGroupSyncWarning` field in commit `d7026ce` (sibling to `profileSyncWarning`); FE rendering of the amber advisory delivered in B7.4 (commit `1d6ec6b`, mobile + desktop). Deferred follow-up — `DryingFiltersPanel`'s 15s SWR poller does not surface the advisory; tracked under "Deferred follow-ups" below.
+
 ---
 
-### L4 — Audit `advance()`'s reading-validation lazy-first-version path (LOW PRIORITY)
+### L4 — Audit `advance()`'s reading-validation lazy-first-version path ✅ DONE — NO CODE CHANGE (commit `a42fa54`, 2026-05-02)
 
 **What:** `advance()` at line 1101+ reads `EquipmentGroupVersion.findUnique` for the cycle's pin. If the row doesn't exist (lazy first-version), it falls back to live row + asserts `live.version === pin`. Concern: `instruments[].id` differs between snapshot.instruments (snapshot json) and live `equipmentGroupInstrument` rows. Field shape is the same but the snapshot stores the instrument's row ID at the time of snapshot — if admin replaces an instrument between cycle start and this read, the live instrument list could have new IDs. The `inst.id` referenced in submitted `instrumentReadings` is the operator's tablet-cached id; if it doesn't match the snapshot's id, the lookup `instrumentReadings[inst.id]` fails.
 
@@ -64,6 +70,8 @@ Each item below has been audited against live code (line-number evidence). Items
 **Touchpoint:** `filter-operations.service.ts:1101-1175`. Defense-in-depth review of the snapshot-vs-live equality assertion.
 
 **Effort:** ~1 hour read + 1 hour test. Server-only.
+
+**Closed by:** doc-only audit commit `a42fa54`. Finding: instrument IDs are stable across edits (`equipment-groups.service.ts:163-178` mutates by id; no replace path), so `instrumentReadings[inst.id]` lookups stay correct under the snapshot/live/legacy branches. Full audit reasoning preserved in CHANGELOG entry "L4: advance() reading-validation snapshot/live equality audit — NO CHANGE".
 
 ---
 
@@ -97,12 +105,30 @@ Each item below has been audited against live code (line-number evidence). Items
 
 ## Order of execution (recommended)
 
-1. **L1** — fixes the only actively biting online drift; ~half day; no APK touch.
-2. **L2** — fixes pipeline-graph display drift; same touchpoint area as L1.
-3. **L5** — quick browser smoke once L1+L2 land.
-4. **L3** — UX polish; can ship anytime.
-5. **L4** — defense-in-depth review.
-6. **L6** — ✅ done (B7.1, 2026-05-02).
+1. **L1** — fixes the only actively biting online drift; ~half day; no APK touch. ✅ DONE (`dbce282`).
+2. **L2** — fixes pipeline-graph display drift; same touchpoint area as L1. ✅ DONE (`63101d5`).
+3. **L5** — quick browser smoke once L1+L2 land. (still nice-to-have; never run in this batch — flagged in B7 resume note.)
+4. **L3** — UX polish; can ship anytime. ✅ DONE server (`d7026ce`) + FE (`1d6ec6b`).
+5. **L4** — defense-in-depth review. ✅ DONE — NO CODE CHANGE (`a42fa54`).
+6. **L6** — ✅ DONE (B7.1, `1ab2a05`).
+
+## Status snapshot — as of B7.5 (2026-05-02)
+
+| Item | Status | Closing commit |
+|---|---|---|
+| L1 | DONE | `dbce282` |
+| L2 | DONE | `63101d5` |
+| L3 | DONE (server + FE) | `d7026ce` + `1d6ec6b` |
+| L4 | DONE — NO CHANGE | `a42fa54` |
+| L5 | OPEN — manual smoke deferred (no live data) | — |
+| L6 | DONE | `1ab2a05` (B7.1) |
+| B7.2 follow-up | DONE | `7a2f3b4` |
+| B7.3 follow-up | DONE | `0b2821f` |
+
+## Deferred follow-ups (out of scope for Batch 7 close)
+
+- **B7.2 reviewer M1 — pre-existing `advanceBatch:422` closure-stale guard** in `apps/web/src/routes/filter-management/filter-operations.tsx`. The structural pattern was fixed inside the equipment-dialog batch + new PM auto-start loops in B7.2 (local `blockChangePopped` flag), but the original `advanceBatch` site still uses the older `if (!blockChangeDialog)` closure-captured guard. Cosmetically identical risk profile; not a regression introduced by Batch 7. Track as cleanup.
+- **B7.4 reviewer Issue #2 — `DryingFiltersPanel` 15s SWR poller does not surface `equipmentGroupSyncWarning`**. The panel polls `/current-state` every 15s for in-progress DRY_IN cycles but only consumes the dryer-countdown shape, not the new advisory field. Operator parked on the DRY_IN screen would not see the advisory until the next scan. Documented in B7.4's CHANGELOG entry; defer until either CHVH-style chip rendering or a wider DRY_IN panel refactor.
 
 ## What NOT to start (per user direction)
 

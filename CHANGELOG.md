@@ -1,5 +1,46 @@
 # Changelog
 
+## [Unreleased] — Batch 7 summary: server-side online-quality follow-ups (2026-05-02)
+
+Branch: `feature/phase5-verification`. Five tasks (B7.1 → B7.5) closing the next layer of online-quality polish after L1-L5 wrapped the operator-visible drift surfaces. None of these were biting users today; each closes an architectural gap or test-coverage hole that would have bitten us later. Strict server-side / online-only — no tablet / android / APK touch.
+
+### What landed
+
+- **B7.1** (commit `1ab2a05`) — `apps/web` got its first vitest config (fresh `defineConfig` from `vitest/config`, NOT derived from `vite.config.ts`), `vitest.workspace.ts` extension, devDeps + scripts. First regression suite at `apps/web/src/routes/version-history/__tests__/diff.test.ts` — 10 tests against the `diffSnapshots()` engine added in VHv3 (Batch 6 commit `d31ed37`). Closes L6 from `tasks/SERVER-ONLINE-WORKLIST.md`.
+- **B7.2** (commit `7a2f3b4`) — `BLOCK_CHANGE_REQUIRED` 409 now pops the structured block-change modal on **all four** previously-unguarded `start-cycle`/`start-and-advance` catch sites: mobile `handleEquipSubmit`, desktop `handleEquipmentSubmit` (single + batch), and the desktop PM auto-start loop. Closure-stale `if (!blockChangeDialog)` guards inside `for/await` loops replaced with local `blockChangePopped` flags. Reviewer fix iteration also covered the PM auto-start gap.
+- **B7.3** (commit `0b2821f`) — `apps/api/src/modules/filter-operations/__tests__/get-current-state.test.ts` — 7 vitest unit tests asserting the L1 (cycle-pinned `EquipmentGroupVersion.snapshot`) and L2 (cycle-pinned `FilterCleaningProfile` pipeline) invariants. Mocks prisma directly per the project's canonical pattern. Negative assertions (e.g. legacy null-pin path must NOT consult the version sidecar) lock the contract against silent regression.
+- **B7.4** (commit `1d6ec6b`) — Operator-facing amber advisory card on `mobile-operations.tsx` and `filter-operations.tsx` when the API returns a non-null `equipmentGroupSyncWarning` (added in L3 commit `d7026ce`). Reviewer fix iteration also closed an intra-stage state-leak (advisory now cleared on every block-change / stage-transition path).
+- **B7.5** (this commit) — Final doc sync: worklist + plan + resume note + this CHANGELOG batch summary + `tasks/todo.md` audit log entries.
+
+### Live counts re-verified at B7.5
+
+Counts unchanged from Batch 6 baseline (Batch 7 was meant to be invariant — only test infrastructure + FE rendering + closing cross-refs).
+
+| Metric | Count |
+|---|---|
+| Prisma models / enums | **69** / **23** |
+| Permissions / feature privileges / reauth actions / sidebar items | **106** / **90** / **81** / **26** |
+| API modules / config defs / config pages | **36** / **30** / **27** |
+| `<Route>` defs in `apps/web/src/main.tsx` | **82** |
+
+### Deferred follow-ups (recorded; do not pick up without re-approval)
+
+- **B7.2 reviewer M1** — pre-existing `advanceBatch:422` closure-stale guard (`if (!blockChangeDialog)` inside a sync `for/await` loop) in `filter-management/filter-operations.tsx`. Cosmetic; same risk profile as the four sites fixed in B7.2 but not a B7-introduced regression. Track as cleanup.
+- **B7.4 reviewer Issue #2** — `DryingFiltersPanel`'s 15s SWR poller does not surface `equipmentGroupSyncWarning`. Operator parked on the DRY_IN screen would not see the advisory until the next scan. Defer until a wider DRY_IN panel refactor or CHVH-style chip rendering lands.
+- **L5** — manual browser smoke of Version History on a live cycle. Never run in this worktree (no seeded data); flagged in resume notes.
+
+### Verification (whole batch)
+
+- `cd apps/web && npx vitest run` → 1 file, 10 tests passing.
+- `cd apps/api && npx vitest run src/modules/filter-operations` → 1 file, 7 tests passing.
+- `cd apps/web && npx tsc --noEmit` → exit 0.
+- `cd apps/api && npx tsc --noEmit` → exit 0.
+- Live-count regex sweep against the active doc set — no drift detected; counts match the Batch 6 close baseline.
+
+Per-task detail follows below.
+
+---
+
 ## [Unreleased] — B7.4: render `equipmentGroupSyncWarning` advisory on operator pages (2026-05-02)
 
 Branch: `feature/phase5-verification`. L3 (commit `d7026ce`) added the `equipmentGroupSyncWarning` field to the `getCurrentState()` API response, but no FE consumer read it — operators got zero signal that an admin had edited the cycle's pinned EquipmentGroup mid-cycle. This closes the L3 advisory loop end-to-end.
