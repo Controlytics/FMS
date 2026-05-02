@@ -1,5 +1,40 @@
 # Changelog
 
+## [Unreleased] — Step 8 Phase 8.0: server tape generator + parallel-validation harness (2026-05-02)
+
+Branch: `feature/phase5-verification`. Strictly additive — no existing field removed, no consumer touched. Lays the foundation for Phase 8.1+ (FE renderer rewrite) and Phase 8.4 cutover (decision-tape architecture).
+
+### What landed
+
+- **NEW** `apps/api/src/modules/filter-operations/tape/types.ts` — full type contract for the action tape: `Action` (7 discriminated variants), `ActionTape`, `TapeInput` (cycle / filter / pinnedProfile / pinnedEquipmentGroup / pinnedChecklistProfiles / recentChecklistEvents / now), `TapeQuestion` mirrors the existing `pendingChecklist[].questions` shape so the FE doesn't have to translate.
+- **NEW** `apps/api/src/modules/filter-operations/tape/tape-generator.ts` — `generateTape(input: TapeInput): ActionTape`. Pure function, no I/O, no prisma. Mirrors the action-emission rules enforced together by `getCurrentState()` + `advance()` (filter-operations.service.ts:331-696, 1031-...). Emits the 7 action types covering the in-cycle stage-advance surface: `ADVANCE_TO_STAGE`, `SUBMIT_CHECKLIST`, `SUBMIT_DRYER_READINGS`, `SET_DRYER_DURATION`, `BYPASS_STAGE`, `TERMINATE_CYCLE`, `COMPLETE_CYCLE`.
+- **NEW** `apps/api/src/modules/filter-operations/tape/__tests__/tape-generator.test.ts` — 20 pure-function unit tests covering each action type's emit conditions and edge cases (no-cycle, cycle-not-in-progress, no-profile, fresh-cycle, instrument-bound advance, checklist-pending gate, checklist-resolved fall-through, all-checklists-disabled fall-through, SET_DRYER_DURATION entering DRY_IN, SUBMIT_DRYER_READINGS half-time elapsed, half-time NOT elapsed blocking, readings-already-submitted, COMPLETE_CYCLE on END, BYPASS_STAGE in BYPASS_ENABLED mode, no-bypass in SEQUENTIAL, tapeVersion derivation, tapeVersion determinism, state mirror).
+- **NEW** `apps/api/src/modules/filter-operations/tape/__tests__/tape-parity.test.ts` — 8 parity tests proving the action tape is internally consistent with the existing `nextAllowedStages` / `pendingChecklist` invariants on the SAME response (TAPE_PARALLEL=true). Also asserts flag-OFF behavior leaves the response shape unchanged. This is the regression gate for Phase 8.4 cutover.
+- **EDIT** `apps/api/src/modules/filter-operations/filter-operations.service.ts` — `getCurrentState()` return block now conditionally appends `actions` + `tapeVersion` when `process.env.TAPE_PARALLEL === 'true'`. `TapeInput` is assembled from already-resolved data (no extra prisma calls except a single `findMany` for `CHECKLIST_COMPLETED` events on the cycle, only when the flag is on). Existing fields untouched.
+- **EDIT** `apps/api/src/modules/filter-operations/routes.ts` — response schema for `GET /api/filters/:id/current-state` extended with `actions` (array of objects with `additionalProperties:true` so the discriminated-union variants flow through unchanged) and `tapeVersion` (integer). Required because Fastify's response serializer strips unlisted top-level keys (verified — sibling `stageLookup` was already explicit).
+- **EDIT** `CHANGELOG.md` — this entry.
+
+### tapeVersion derivation (Phase 8.0)
+
+`profileVersion * 1000 + filterEventCount` (any FilterEvent type for the cycle, not just checklist events). The full event count is required so tapeVersion changes between stage transitions — using only checklist events would leave two consecutive `getCurrentState()` calls before/after a STATE_TRANSITION at the same tapeVersion despite the action list having changed entirely. Stable for fixed inputs; changes whenever any input that affects the action list changes. Phase 8.4 may revisit once the FE consumes this.
+
+### Verification
+
+- `cd apps/api && npx tsc --noEmit` → exit 0.
+- `cd apps/api && npx vitest run src/modules/filter-operations` → 3 files, 35 tests passing (7 B7.3 + 20 unit + 8 parity).
+- `cd apps/api && npx vitest run` (full) → 84 passed / 2 failed; the 2 failing files (`auth.test.ts > forgot-password > existing user`, `config.test.ts > action-reauth`) are the documented pre-existing e2e failures unrelated to this batch (1156/1158 tests pass).
+- Curl smoke: not run — local stack restart not in scope for additive code path that defaults OFF; coverage proven by parity test `p6` (flag OFF → no actions/tapeVersion in response) and `p7` (flag ON → actions + tapeVersion present, TERMINATE_CYCLE always emitted while in progress).
+
+### Out of scope (deferred to later phases)
+
+- FE consumption of the tape (Phase 8.1+).
+- Offline replay tape-versioning (Phase 8.3).
+- Removing existing fields from `getCurrentState()` (Phase 8.4 cutover).
+- APK changes (Phase 8.5).
+- Action types beyond the 7 listed (retire / replace / RFID-scan / batch-flow stay on the existing routes).
+
+---
+
 ## [Unreleased] — Batch 7 summary: server-side online-quality follow-ups (2026-05-02)
 
 Branch: `feature/phase5-verification`. Five tasks (B7.1 → B7.5) closing the next layer of online-quality polish after L1-L5 wrapped the operator-visible drift surfaces. None of these were biting users today; each closes an architectural gap or test-coverage hole that would have bitten us later. Strict server-side / online-only — no tablet / android / APK touch.

@@ -86,6 +86,22 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
               },
               description: 'Per-stage lookup for offline use: from a given stateKey, what comes next + which checklists fire',
             },
+            // Phase 8.0 (decision-tape architecture): only present when
+            // TAPE_PARALLEL=true. The action tape is the new server-emitted
+            // contract that the FE will eventually consume directly (Phase 8.4).
+            // Until cutover, this is informational/parallel — the existing
+            // fields above remain authoritative. additionalProperties:true on
+            // each action lets the per-type discriminated union shapes
+            // (validations, params subtypes) flow through unchanged.
+            actions: {
+              type: 'array',
+              items: { type: 'object', additionalProperties: true, properties: { type: { type: 'string' }, label: { type: 'string' } } },
+              description: 'Phase 8.0 decision-tape (TAPE_PARALLEL=true only): ordered permitted actions',
+            },
+            tapeVersion: {
+              type: 'integer',
+              description: 'Phase 8.0 monotonic-ish per-cycle version derived from profileVersion + recent events',
+            },
           },
         },
         ...errorResponses,
