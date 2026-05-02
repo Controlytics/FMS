@@ -1463,6 +1463,16 @@ model CleaningCycle {
   updatedAt             DateTime            @updatedAt @map("updated_at") @db.Timestamptz
 
   equipmentGroupId String? @map("equipment_group_id") @db.Uuid
+  // P1 (2026-05-02): pins the EquipmentGroup version in effect when this cycle
+  // bound the group. Set at start-cycle (or at the first auto-bind, whichever
+  // happens first). Reading validation reads operating-range from the pinned
+  // EquipmentGroupVersion snapshot, NOT the live group, so admin edits to
+  // ranges mid-cycle don't reach the in-flight cycle. Nullable so legacy
+  // cycles + cycles that never bound a group fall back to the live row
+  // (backwards compatible). Slice B (next APK) will add an
+  // `expectedGroupVersion` field on submit-readings + 409 SCHEMA_DRIFT
+  // self-heal flow on the tablet — see future/offline-version-sync-contract.md.
+  equipmentGroupVersionPin Int? @map("equipment_group_version_pin")
 
   // Dryer timing — tracks the dryer duration and start time for DRY_IN stage
   dryerDurationMinutes      Int?      @map("dryer_duration_minutes")

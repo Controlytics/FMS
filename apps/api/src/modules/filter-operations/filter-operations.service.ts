@@ -856,18 +856,35 @@ export class FilterOperationsService {
         if (active) throw new AppError(409, 'CYCLE_ACTIVE', 'Filter already has an active cleaning cycle');
       }
 
-      // Validate equipment group if provided
+      // Validate equipment group if provided. P1 (2026-05-02): also capture the
+      // group's current version so the cycle pins it at start. Reading validation
+      // later reads operating-range from the pinned EquipmentGroupVersion
+      // snapshot, NOT the live group, so admin edits to ranges mid-cycle don't
+      // reach the in-flight cycle.
+      let equipmentGroupVersionPin: number | null = null;
       if (equipmentGroupId) {
         const eqGroup = await tx.equipmentGroup.findFirst({
           where: { id: equipmentGroupId, isActive: true },
+          select: { id: true, version: true },
         });
         if (!eqGroup) throw new AppError(400, 'INVALID_EQUIPMENT_GROUP', 'Equipment group not found or inactive');
+        equipmentGroupVersionPin = eqGroup.version;
       }
 
       const newCycle = await tx.cleaningCycle.create({
         data: {
           cycleCode, filterId, ahuId: null,
-          profileId: resolvedProfileIdForCycle,
+          // Pre-existing latent bug caught during P1 verification (2026-05-02):
+          // cleaning_cycles.profile_id FKs to filter_cleaning_profiles.id, NOT
+          // filter_profiles.id. resolveFilterProfile() can return either depending
+          // on whether the filter has a FilterDetails.filter_profile_id binding
+          // (returns FilterProfile id) or only a config-based rule (which
+          // *might* return a CleaningProfile id directly). Storing the
+          // FilterProfile id here triggers the FK violation. cleaningProfileIdForCycle
+          // (computed at line 820) already resolves to the CleaningProfile id in both
+          // cases — use that. Latent until now because no FilterDetails-bound cycle
+          // had ever been started in this DB.
+          profileId: cleaningProfileIdForCycle,
           profileVersion: cp?.version ?? 1,
           checklistVersionPins: checklistVersionPins as any,
           sequenceNumber: seq, cleaningReasonKey,
@@ -875,6 +892,7 @@ export class FilterOperationsService {
           cleaningJustification: cleaningJustification ?? null,
           cleaningAreaId: cleaningAreaId ?? null,
           equipmentGroupId: equipmentGroupId ?? null,
+          equipmentGroupVersionPin, // P1: null when no group bound at start
           ...(offlineTime && { startedAt: offlineTime }),
         },
       });
@@ -1074,31 +1092,76 @@ export class FilterOperationsService {
     let validatedReadings: any = null;
     if (instrumentReadings && typeof instrumentReadings === 'object' && Object.keys(instrumentReadings).length > 0) {
       let cycleGroupId = equipmentGroupId ?? cycle.equipmentGroupId;
+      // Track the version pin for this cycle. Three sources, in priority:
+      //   1. cycle.equipmentGroupVersionPin (already set at start-cycle / earlier auto-bind) — P1.
+      //   2. Live group version when we lazy-bind here for the first time — P1 stamps it on persist.
+      //   3. null fallback for legacy cycles whose group was bound before P1 shipped → use live row.
+      let cycleVersionPin: number | null = cycle.equipmentGroupVersionPin ?? null;
+
       // Auto-resolve: if no group on cycle but block is known, pick the block's active group
       if (!cycleGroupId && cycle.cleaningAreaId) {
         const blockGroups = await prisma.equipmentGroup.findMany({
           where: { blockId: cycle.cleaningAreaId, isActive: true },
-          select: { id: true },
+          select: { id: true, version: true },
         });
         if (blockGroups.length === 1) {
           cycleGroupId = blockGroups[0].id;
+          cycleVersionPin = blockGroups[0].version; // P1: pin at lazy-bind moment
           // Persist on cycle so future requests don't need to re-resolve
-          await prisma.cleaningCycle.update({ where: { id: cycle.id }, data: { equipmentGroupId: cycleGroupId } });
+          await prisma.cleaningCycle.update({
+            where: { id: cycle.id },
+            data: { equipmentGroupId: cycleGroupId, equipmentGroupVersionPin: cycleVersionPin },
+          });
         } else if (blockGroups.length > 1) {
           throw new AppError(400, 'MULTIPLE_EQUIPMENT_GROUPS', 'Multiple equipment groups found for this block. Please select one.');
         }
       }
       if (!cycleGroupId) throw new AppError(400, 'NO_EQUIPMENT_GROUP', 'Equipment group must be selected before submitting readings');
 
-      const eqGroup = await prisma.equipmentGroup.findUnique({
-        where: { id: cycleGroupId },
-        include: { instruments: { orderBy: { sortOrder: 'asc' } } },
-      });
-      if (!eqGroup) throw new AppError(400, 'INVALID_EQUIPMENT_GROUP', 'Equipment group not found');
-
-      // Filter instruments for the target stage (or DRY_IN when submitting dryer readings)
-      const readingsStageKey = dryerAction === 'SUBMIT_READINGS' ? 'DRY_IN' : targetState;
-      const stageInstruments = eqGroup.instruments.filter(i => i.stageKey === readingsStageKey);
+      // P1 (2026-05-02): if the cycle has a version pin, validate readings against
+      // the frozen EquipmentGroupVersion snapshot. Otherwise fall back to the live
+      // group row (legacy cycles started before P1, or cycles whose group was
+      // never auto-bound). Validation must be byte-correct against whichever
+      // ranges were in effect when the cycle started — that's the audit-replay
+      // contract. The fallback path is a strict drift gap, kept ONLY for
+      // backwards compatibility with pre-P1 cycles.
+      let stageInstruments: any[];
+      if (cycleVersionPin !== null) {
+        const versionRow = await prisma.equipmentGroupVersion.findUnique({
+          where: { groupId_versionNumber: { groupId: cycleGroupId, versionNumber: cycleVersionPin } },
+        });
+        if (versionRow) {
+          const snap = versionRow.snapshot as { instruments: any[] };
+          const readingsStageKey = dryerAction === 'SUBMIT_READINGS' ? 'DRY_IN' : targetState;
+          stageInstruments = (snap.instruments ?? [])
+            .filter((i: any) => i.stageKey === readingsStageKey)
+            .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+        } else {
+          // Pin set but no version row for it — this means the pin is for the
+          // CURRENT live row (snapshot rows only get written when the row is
+          // about to change). Fall through to the live-row read below.
+          const eqGroup = await prisma.equipmentGroup.findUnique({
+            where: { id: cycleGroupId },
+            include: { instruments: { orderBy: { sortOrder: 'asc' } } },
+          });
+          if (!eqGroup) throw new AppError(400, 'INVALID_EQUIPMENT_GROUP', 'Equipment group not found');
+          if (eqGroup.version !== cycleVersionPin) {
+            throw new AppError(409, 'GROUP_VERSION_MISSING', `Equipment group version ${cycleVersionPin} pinned by this cycle is missing from the version sidecar; live group is at v${eqGroup.version}. Investigate before submitting readings.`);
+          }
+          const readingsStageKey = dryerAction === 'SUBMIT_READINGS' ? 'DRY_IN' : targetState;
+          stageInstruments = eqGroup.instruments.filter(i => i.stageKey === readingsStageKey);
+        }
+      } else {
+        // Legacy fallback (pre-P1 cycle): live row, with the historical drift
+        // gap. Documented in CHANGELOG / DECISIONS.
+        const eqGroup = await prisma.equipmentGroup.findUnique({
+          where: { id: cycleGroupId },
+          include: { instruments: { orderBy: { sortOrder: 'asc' } } },
+        });
+        if (!eqGroup) throw new AppError(400, 'INVALID_EQUIPMENT_GROUP', 'Equipment group not found');
+        const readingsStageKey = dryerAction === 'SUBMIT_READINGS' ? 'DRY_IN' : targetState;
+        stageInstruments = eqGroup.instruments.filter(i => i.stageKey === readingsStageKey);
+      }
 
       validatedReadings = [];
       for (const inst of stageInstruments) {

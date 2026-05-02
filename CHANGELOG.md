@@ -1,5 +1,52 @@
 # Changelog
 
+## [Unreleased] — P1: cycle-side EquipmentGroup version pinning + latent FK bug fix (2026-05-02)
+
+Branch: `feature/phase5-verification`. Closes the operational drift gap left by Phase A.4 (which versioned the EquipmentGroup composite but didn't pin to the cycle). Server-side only — tablet contract documented in `future/offline-version-sync-contract.md` for the next APK build cycle (Slice B).
+
+### Background
+
+Phase A.4 added `EquipmentGroupVersion` snapshots so admin edits archive history. But `cleaning_cycles` had no per-cycle version reference, so reading validation in `filter-operations.service.ts` read the **live** group row and validated against current operating ranges. An admin edit to operating ranges between cycle-start and reading-submit would change the rules a cycle was held to, breaking audit replay byte-correctness. P1 closes this gap on the server side.
+
+### Changes
+
+- **Schema** (`apps/api/prisma/schema.prisma`):
+  - `CleaningCycle.equipmentGroupVersionPin Int? @map("equipment_group_version_pin")` — nullable, set when a group is bound to the cycle (at start-cycle or first lazy-bind during reading-submit). Legacy cycles + cycles that never bind a group keep `NULL` and the validator falls back to the live row.
+  - Applied via `prisma db push --skip-generate` — empty cycle table, no backfill.
+- **Service** (`apps/api/src/modules/filter-operations/filter-operations.service.ts`):
+  - `startCycle()` (~line 859) — when `equipmentGroupId` provided, fetches the live group's `version` and stamps it onto `cleaning_cycles.equipmentGroupVersionPin`.
+  - Reading auto-resolve path (~line 1086-1098) — when a cycle lazy-binds a group during reading-submit, also stamps the live version into `equipmentGroupVersionPin`.
+  - Reading validation (~line 1101-1175) — branches on `cycle.equipmentGroupVersionPin`:
+    - `pin !== null`: read `equipmentGroupVersion.findUnique({ groupId_versionNumber: { groupId, versionNumber: pin } })` and validate `operatingMin/Max` from `snapshot.instruments[]`. If the version row is missing (lazy first-version pattern: live row IS v1 until first edit), assert live row's `version === pin` and use the live row directly. If live version drifts unexpectedly, throw `409 GROUP_VERSION_MISSING`.
+    - `pin === null`: legacy fallback — read live row, validate against current ranges. Documented as a known drift gap kept only for backwards compat with pre-P1 cycles.
+- **Latent pre-existing bug fix** (caught during P1 verification):
+  - Line 877 was `profileId: resolvedProfileIdForCycle` but `cleaning_cycles.profile_id` FKs to `filter_cleaning_profiles.id`, not `filter_profiles.id`. `resolveFilterProfile()` returns either depending on whether the filter has a `FilterDetails.filter_profile_id` binding (returns FilterProfile id) or only a config-based rule (which *might* return a CleaningProfile id directly). The bug was masked because no FilterDetails-bound cycle had ever been started in the dev DB — every prior test went through the config-based path. Fixed: now uses `cleaningProfileIdForCycle` (computed at line 820).
+
+### Verification
+
+- `npx tsc -p apps/api/tsconfig.json --noEmit` exit 0; full compile to dist exit 0.
+- `prisma db push --skip-generate` reports schema in sync; `equipment_group_version_pin` column present on `cleaning_cycles`.
+- End-to-end via curl on existing block B1 + filter F1:
+  - Seeded a CleaningProfile (with `cleaningReasons: [{key:"p1_test", name:"P1 Test", isActive:true}]`), a FilterProfile pointing at it, a FilterDetails binding F1 to the FilterProfile, an EquipmentGroup with 3 instruments (Air `2-6`, RO `1-4`, Dryer `60-120`).
+  - `POST /api/filters/F1/start-cycle` with `equipmentGroupId` → cycle created with `equipmentGroupVersionPin: 1` in the response and DB row. **Verifies pin is stamped at start-cycle.**
+  - `PUT /api/equipment-groups/<id>` to bump Air `operatingMax: 6 → 7` → live group becomes v2; `equipment_group_versions` v1 row carries the original Air `operatingMax: 6`.
+  - DB inspection after: cycle row's `equipment_group_version_pin = 1` (unchanged); live group `version = 2`; v1 snapshot row has Air `operatingMax = 6`. **Verifies cycle pin is immune to admin edits.**
+  - Pinned-snapshot validation path is exercised whenever `cycleVersionPin !== null` — full integration through the advance() pipeline graph requires a real cleaning-profile pipeline (out of scope for the bug-fix verification); structural correctness verified via the schema + DB row + tsc + service code-path branch logic.
+  - Latent FK bug fix verified: start-cycle no longer fails with `cleaning_cycles_profile_id_fkey` when the filter has a FilterDetails-bound FilterProfile.
+- Test data fully cleaned up: 0 leftover cycles, groups, group versions, FilterProfiles, or seeded CleaningProfile rows.
+
+### Notes
+
+- **Tablet/offline app NOT updated by this change.** The tablet keeps its current behavior — caches whatever `getCurrentState()` returns, submits readings without sending a version number. The server validates against the cycle's pinned version regardless. Operator UX is slightly inconsistent (display = live ranges, validation = pinned ranges) until Slice B lands. Per `future/offline-version-sync-contract.md`, Slice B will:
+  - Make `getCurrentState()` return the pinned snapshot in `equipmentGroup`.
+  - Add `expectedGroupVersion: number` to the reading-submit body.
+  - Return `409 SCHEMA_DRIFT` with the pinned snapshot embedded so the tablet can self-heal.
+  - This is bundled with the next APK build cycle (mirrors the A.1 ChecklistProfile contract).
+- The latent FK bug had been waiting since whenever the FilterProfile-via-FilterDetails path was added. P1's verification scenario is the first time a FilterDetails-bound cycle actually started in this DB. The fix is one line; no schema change.
+- Per-cycle group-version pinning was the deferred item from the Phase A.4 entry of `tasks/STEP-5B-A-VERSIONING-PLAN.md`. **Now closed.**
+
+---
+
 ## [Unreleased] — Step 4: FilterProfile.applicableTemplates JSONB → join table (2026-05-02)
 
 Branch: `feature/phase5-verification`. From the 9-step architectural-refactor plan; closes Step 4. Removes a long-standing dangling-FK-via-JSON foot-gun.
