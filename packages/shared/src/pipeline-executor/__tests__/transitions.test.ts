@@ -181,11 +181,28 @@ describe('assertProfileAssigned', () => {
 });
 
 describe('assertProfileActive', () => {
-  it('passes when cp is non-null', () => {
+  it('passes when cp is non-null and status is ACTIVE', () => {
     expect(assertProfileActive(makeCtx(), profile())).toEqual({ ok: true });
   });
   it('rejects with PROFILE_DISABLED when null', () => {
     const r = assertProfileActive(makeCtx(), null);
+    expect(r).toMatchObject({ ok: false, code: 'PROFILE_DISABLED' });
+  });
+  // Phase 8.6 fix — guard now also enforces status === 'ACTIVE'.
+  it('rejects with PROFILE_DISABLED when status is DRAFT', () => {
+    const p = profile();
+    p.status = 'DRAFT';
+    const r = assertProfileActive(makeCtx(), p);
+    expect(r).toMatchObject({
+      ok: false,
+      code: 'PROFILE_DISABLED',
+      message: 'Cleaning profile is disabled or not found. Contact admin to activate it.',
+    });
+  });
+  it('rejects with PROFILE_DISABLED when status is INACTIVE', () => {
+    const p = profile();
+    p.status = 'INACTIVE';
+    const r = assertProfileActive(makeCtx(), p);
     expect(r).toMatchObject({ ok: false, code: 'PROFILE_DISABLED' });
   });
 });

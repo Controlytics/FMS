@@ -6,8 +6,8 @@ Self-contained resume note. Read this and you have everything needed to pick up.
 
 **Worktree:** `C:\Users\hello\21cfrlogbook-DigitalFMS\.worktrees\phase5-verification`
 **Branch:** `feature/phase5-verification`
-**HEAD:** `4873a7b` (was `0e0e2b7` at end of 8.4b commit 4; 8.5 prep + extraction subagent committed `0c8c159..4873a7b` afterward)
-**Working tree:** clean (this resume note + CHANGELOG entry are the only doc edits in the latest commit).
+**HEAD:** advances after 8.6 (was `4873a7b` at end of 8.5; 8.6 added 4 commits `6653416 95b4575 e190415 <commit-4-sha>`).
+**Working tree:** clean.
 
 ## Step 8 phase status
 
@@ -20,9 +20,29 @@ Self-contained resume note. Read this and you have everything needed to pick up.
 | 8.4 Commit 1 — bundle 8.3 deferred fixes (I-1 + I-3 + M-3 + M3 formula) | DONE | `2af9100` | NO |
 | 8.4 — Local-cache foundation (Option D Phase 1) | DONE | `a6ec6e8 e5f46cb 996d1c1 0e0e2b7 f63207c 3c7c916 98b5b3a 3c61a3b` (8 commits) | NO |
 | 8.5 — Shared executor extraction | DONE | `0c8c159..4873a7b` (10 commits incl. extraction `4873a7b`, fixtures `ff10952`, prep audits `0c8c159 da756ea 64dc469 d9f52ab 2981d93 e26d4b5 8796859 115dddd`) | NO |
-| 8.6 — FE consumes shared executor | PENDING (3 audits prepped) | — | — |
-| 8.7 — Cutover & cleanup | PENDING (2 audits prepped + migration-drift remediation plan) | — | — |
+| 8.6 — FE consumes shared executor | **DONE** | `6653416 95b4575 e190415 <commit-4-sha>` (4 commits) | NO |
+| 8.7 — Cutover & cleanup | **NEXT** (2 audits prepped + migration-drift remediation plan) | — | — |
 | 8.8 — APK rebuild + tablet field QA | PENDING (`tasks/PLAN-2026-05-02-step8.8-apk-field-qa.md` plan ready, needs physical tablets) | — | — |
+
+## What 8.6 shipped
+
+Wired the FE — both mobile and desktop filter-operations pages — to consume the shared executor that landed in 8.5. **No app-visible behaviour changed**; the same gates fire, the same dialogs open, the offline cache shape is preserved. The 4 commits:
+
+- **`6653416`** — `apps/web/src/lib/local-context.ts` (FE-side `loadLocalContextFromCache(filterId)` mirroring the server's prisma loader). Reads from IDB v5 sync stores + the legacy `filter-state-{filterId}` blob + `localStorage.digilog_cached_user`. Synthesizes a single `CHECKLIST_COMPLETED` event when the cached `pendingChecklist === []` AND the profile has a CHECKLIST node after `currentState` (so the executor's gate doesn't re-fire after the operator already cleared it offline). 14 unit tests covering sentinel fallbacks, the three events-synthesis branches, equipment-group projection, server-stageLookup priority, cached-user reading, and end-to-end with `computeNextActions`.
+- **`95b4575`** — `mobile-operations.tsx` switch. Converts the bodies of `computeNextStages()` and `findChecklistsAfterStage()` to delegate to `sharedFindReachable()` / `sharedCollectChecklistsAfterStage()`. Tier-1 stageLookup branches preserved (server-authoritative). File delta 2486 → 2456 (-30). The deeper helpers `validateOfflineGate`, `buildOfflineChecklist`, `updateOfflineState` transitively call the converted helpers, so shared executor parity flows through every gate decision in the mobile flow.
+- **`e190415`** — `filter-operations.tsx` (desktop) switch. Same pattern as mobile. Side benefit: the legacy desktop `findChecklistsAfterStage` only inspected direct outConns and silently skipped chained CHECKLIST → CHECKLIST → STAGE pipelines; converting to shared closes that gap on desktop too. File delta 2088 → 2088 (19 ins / 19 del).
+- **`<commit-4-sha>`** — `assertProfileActive` fix carried over from 8.5: the guard now enforces both null-check AND `status === 'ACTIVE'`. Drops 2 redundant manual `cp.status !== 'ACTIVE'` checks from `filter-operations.service.ts` (advance + bypass paths). 2 new test cases in `transitions.test.ts`.
+
+### Why bodies were converted, not deleted (per audit)
+
+The original audit promised `-128 lines` via wholesale helper deletion + 6 inline call-site replacements. Per advisor review during 8.6: per-call-site shape contracts are consumed at 5+ places per helper. Rewriting 5 call sites carries more drift risk than redirecting one helper body to shared code, and the helpers transitively cover every gate path. The shared-code redirect achieves the same drift-killing goal (the actual win) at a smaller diff. The deprecated `nextAllowedStages` / `pendingChecklist` cache fields are deliberately preserved — 8.7 cutover removes them.
+
+### Tests delta
+
+- shared: 303 → 305 (+2 for `assertProfileActive` status branches)
+- api: 1186/1188 (no change; same 2 pre-existing failures)
+- web: 68 → 82 (+14 for `loadLocalContextFromCache`)
+- TypeScript: clean across all three packages
 
 ## What 8.4 shipped under Option D
 
@@ -56,7 +76,7 @@ The original 8.4 plan (delete the FE graph walker, switch FE to consume `actions
    - `tasks/MIGRATION-DRIFT-2026-05-02.md` — 8.7 migration-drift remediation plan
    - `tasks/PLAN-2026-05-02-step8.8-apk-field-qa.md` — 8.8 APK + field-QA plan
 7. **Test fixtures** for shared executor: `packages/shared/src/pipeline-executor/__tests__/fixtures.ts` (8 LocalContext scenarios) + `fixtures.test.ts`.
-8. **Next move = 8.6:** wire `mobile-operations.tsx` + `filter-operations.tsx` to build LocalContext from IDB and render via `executor.computeNextActions(ctx)`; delete `updateOfflineState()` + the FE walker; consume the legacy `cache` blob path; drive from the 8.6 audits above.
+8. **Next move = 8.7:** server-side cutover. Remove `nextAllowedStages` + `pendingChecklist` from `getCurrentState()` schema + service return; remove the `TAPE_PARALLEL` flag (always emit `actions[]`); tighten `tapeVersion` to required on cycle-bound writes. FE-side cleanup (deleting deprecated cache reads) follows. Drive from `tasks/AUDIT-2026-05-02-getcurrentstate-consumers.md` (38 mobile + 24 desktop reads listed) and `tasks/MIGRATION-DRIFT-2026-05-02.md`. Legacy `offline-sync-service.ts` deletion is BLOCKED on 4 entities still uncovered by `/api/sync/since` — see `tasks/AUDIT-2026-05-02-offline-sync-legacy-deprecation.md`.
 
 ## What 8.0/8.1/8.2 shipped
 

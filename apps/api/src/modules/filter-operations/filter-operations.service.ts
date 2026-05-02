@@ -1138,9 +1138,9 @@ export class FilterOperationsService {
     throwIfFailed(executor.assertProfileAssigned(localCtx, cp?.id));
     throwIfFailed(executor.assertProfileActive(localCtx, cp ? localCtx.profile : null));
 
-    // After assertProfileActive, cp is non-null + ACTIVE (the guard already
-    // checked status). Narrow for TS.
-    if (!cp || cp.status !== 'ACTIVE') {
+    // assertProfileActive now enforces status === 'ACTIVE' (Phase 8.6 fix);
+    // narrow for TS so downstream code can read cp.* without optional chaining.
+    if (!cp) {
       throw new AppError(400, 'PROFILE_DISABLED', 'Cleaning profile is disabled or not found. Contact admin to activate it.');
     }
 
@@ -1461,9 +1461,10 @@ export class FilterOperationsService {
     const { ctx: localCtx, cp, filterCurrentCycleId } = await loadLocalContext(filterId, ctx);
     throwIfFailed(executor.assertCycleActive(localCtx));
     throwIfFailed(executor.assertTapeVersionFresh(localCtx, data.tapeVersion));
-    // Profile-disabled guard kept here (server-only — bypass requires an active
-    // profile to read flowMode + valid states; not in the inventory's pure set).
-    if (!cp || cp.status !== 'ACTIVE') {
+    // Phase 8.6: assertProfileActive enforces both null-check + status='ACTIVE'.
+    // Bypass requires an active profile to read flowMode + valid states.
+    throwIfFailed(executor.assertProfileActive(localCtx, cp ? localCtx.profile : null));
+    if (!cp) {
       throw new AppError(400, 'PROFILE_DISABLED', 'Cleaning profile is disabled or not found.');
     }
     throwIfFailed(executor.assertBypassAllowed(localCtx, cp.flowMode));

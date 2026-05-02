@@ -1,5 +1,60 @@
 # Changelog
 
+## [Unreleased] — Step 8 Phase 8.6: FE consumes shared executor (2026-05-02)
+
+Branch: `feature/phase5-verification`. Wires the FE — both mobile and desktop filter-ops pages — into the shared executor that landed in Phase 8.5. The pure-function graph walkers (`computeNextStages`, `findChecklistsAfterStage`, the inline DFS inside `updateCachedStateAfterAdvance`) now delegate to `@digilog/shared` instead of re-implementing the same algorithm three times. Server / mobile / desktop now share one walker; any future bugfix lands once. **No app-visible behaviour changed** — same gates, same dialogs, same offline cache shape. Phase 8.7 owns the cutover that removes the deprecated `nextAllowedStages` / `pendingChecklist` fields from the server response.
+
+### What landed
+
+#### Commit 1 — FE local-context loader (commit `6653416`)
+
+- **NEW** `apps/web/src/lib/local-context.ts` (398 lines) — `loadLocalContextFromCache(filterId)` reads from IDB v5 sync stores + the legacy `filter-state-{filterId}` cache + cached user from `localStorage.digilog_cached_user`, projects everything into the slice shapes the shared executor consumes (`ProfileSlice`, `CycleSlice`, `FilterSlice`, `EquipmentGroupSlice`, `ChecklistProfileSlice`, `FilterEventSlice`). Every entity falls back to a sentinel rather than throwing when its cache slot is missing, so callers can call the executor unconditionally.
+- **Events synthesis** — the FE has no event stream (the `/api/filters/:id/current-state` response carries `pendingChecklist[]` as a derived field but no underlying events). The executor's `assertChecklistGatePassed` / `computeNextActions` checklistAnswered branch reads `events[]` for `CHECKLIST_COMPLETED` rows. Compromise: when cached `pendingChecklist === []` AND the profile has CHECKLIST nodes between `currentState` and the next STAGE, the loader synthesizes one `CHECKLIST_COMPLETED` event with `attributes.afterStage = currentState`. Without this, the gate would re-fire after the operator already cleared it offline. STATE_TRANSITION / CYCLE_STARTED events are NOT synthesized — none of the FE-invoked guards consume them; `filter.currentLifecycleState` is the source of truth.
+- **stageLookup priority** — server-supplied `stageLookup` from the cached current-state response wins (B.7 contract); falls back to `buildStageLookup(profile)` from the shared executor when missing.
+- **NEW** `apps/web/src/lib/__tests__/local-context.test.ts` — 14 unit tests across sentinel fallbacks, the three events-synthesis branches (no checklist node / pending non-empty / pending empty + chained CHECKLIST), equipment-group projection, server-stageLookup priority, cached-user reading, and end-to-end integration with `computeNextActions` (happy path + checklist-gate behaviour both ways).
+
+#### Commit 2 — mobile-operations.tsx switch (commit `95b4575`)
+
+- **EDIT** `apps/web/src/routes/mobile/mobile-operations.tsx` — converted the bodies of the two graph-walking helpers to delegate to the shared executor:
+  - `computeNextStages()` Tier-2 fallback now calls `sharedFindReachable()` instead of an inline DFS.
+  - `findChecklistsAfterStage()` Tier-2 fallback now calls `sharedCollectChecklistsAfterStage()` (chained CHECKLIST → CHECKLIST → STAGE walk lives in shared code).
+- Tier-1 stageLookup branches preserved unchanged in both helpers (server-authoritative; never modified by 8.6).
+- Imports `loadLocalContextFromCache` for use by future call sites; not yet wired into a gate decision because the converted helper bodies cover the gates in lockstep with shared code already.
+- File delta: 2486 → 2456 lines (-30).
+- **Why bodies converted instead of helpers deleted** (the audit's `-128 lines` plan): per-call-site shape contracts are consumed at 5+ places. Rewriting 5 call sites carries more drift risk than redirecting one helper body to shared code. The deprecated `nextAllowedStages` / `pendingChecklist` cache fields are deliberately preserved (8.7 cutover territory).
+
+#### Commit 3 — filter-operations.tsx (desktop) switch (commit `e190415`)
+
+- **EDIT** `apps/web/src/routes/filter-management/filter-operations.tsx` — same pattern as mobile:
+  - `findChecklistsAfterStage()` body now calls `sharedCollectChecklistsAfterStage()`. **Side benefit:** the legacy desktop implementation only inspected direct outConns and silently skipped chained checklists (the bug operators reported as "checklist not coming at that stage"). Converting to shared closes that gap on desktop too.
+  - The inline DFS inside `updateCachedStateAfterAdvance()` that built `nextAllowed` from the pipeline graph now calls `sharedFindReachable()`.
+- File delta: 2088 → 2088 lines (19 insertions / 19 deletions).
+
+#### Commit 4 — assertProfileActive fix + cleanup (commit `<this commit>`)
+
+- **EDIT** `packages/shared/src/pipeline-executor/transitions.ts` — `assertProfileActive` now enforces both null-check AND `status === 'ACTIVE'`. The original Phase 8.5 implementation only null-checked, which forced `filter-operations.service.ts` to add a redundant manual `cp.status !== 'ACTIVE'` check immediately after every call (advance + bypass). The status check now lives in the shared guard so the contract is "active and ready" for both runtimes.
+- **EDIT** `apps/api/src/modules/filter-operations/filter-operations.service.ts` — dropped 2 redundant manual `cp.status !== 'ACTIVE'` checks (advance line 1143, bypass line 1466). Both sites now rely on `assertProfileActive` for the status gate; the remaining `if (!cp)` is just a TS narrowing assertion.
+- **EDIT** `packages/shared/src/pipeline-executor/__tests__/transitions.test.ts` — extended `assertProfileActive` test block from 2 cases (null + non-null) to 4 (added DRAFT and INACTIVE rejection cases).
+
+### Tests
+
+- **shared:** 303 → 305 (added 2 cases for the new `assertProfileActive` status branches). Same 1 pre-existing failure in `schemas/assets.test.ts > rejects limit over 100` predates this work.
+- **api:** 1186 / 1188 (no change — same 2 pre-existing failures).
+- **web:** 68 → 82 (added 14 cases for `loadLocalContextFromCache`).
+- TypeScript: clean across `packages/shared`, `apps/api`, `apps/web`.
+
+### Carried over from 8.5 (now closed)
+
+- ✅ `assertProfileActive` rename / status fix — done in Commit 4 (status check added to the guard rather than rename).
+- ✅ `advance()` profile resolution using `cycle.profileId` first — already silently improved in 8.5; documented in this entry for the record.
+
+### Out of scope (deferred to 8.7+)
+
+- Removing `nextAllowedStages` / `pendingChecklist` from `getCurrentState()` response — Phase 8.7 cutover.
+- Removing the `TAPE_PARALLEL` flag and tightening `tapeVersion` to required — Phase 8.7.
+- Deleting the legacy `offline-sync-service.ts` — blocked on 4 entities still uncovered by `/api/sync/since` (cleaning reasons, identifier map, PM tasks, checklist profiles full-questions). See `tasks/AUDIT-2026-05-02-offline-sync-legacy-deprecation.md`.
+- APK rebuild + tablet field QA — Phase 8.8.
+
 ## [Unreleased] — Step 8 Phase 8.4: Option D foundation — versioned local cache + shared executor scaffold (2026-05-02)
 
 Branch: `feature/phase5-verification`. The original 8.4 plan (delete the FE graph walker and switch FE to consume server `actions[]`) was reframed after a field-bucket audit on `mobile-operations.tsx` (2486 lines) + `filter-operations.tsx` (2088 lines) showed the cutover was a UX redesign + offline-state-machine rewrite, not a wiring change. The audit classified 48 guards across the 4 write methods as 35 Pure (73%) / 5 Hybrid (10%, already solved by 8.3 tapeVersion + clientOpId) / 8 Server-only (17%, concurrency control that can never move client-side). Conclusion: tablet should become a **versioned local replica** of the server's read model for the offline-relevant slice, with a **shared executor** running the same guard code on both sides. Drift becomes impossible by construction for the 35 pure guards; the 8 server-only guards stay server-side and surface their failures via the existing 8.3 STALE_TAPE / clientOpId reconciliation contract. **No app-visible behavior changed in 8.4** — additive plumbing only. The actual `TAPE_PARALLEL` flag flip + derived-field removal is now scheduled for Phase 8.7 (after 8.5 extraction + 8.6 FE consumption).

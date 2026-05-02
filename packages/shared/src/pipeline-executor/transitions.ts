@@ -59,12 +59,25 @@ export function assertProfileAssigned(
   return { ok: true };
 }
 
-/** Guard #13 (advance): the resolved cleaning profile must be ACTIVE/non-null. */
+/**
+ * Guard #13 (advance): the resolved cleaning profile must be present AND
+ * status='ACTIVE'. Phase 8.6 fix — the original guard only null-checked,
+ * which forced filter-operations.service.ts to add a redundant manual
+ * `cp.status !== 'ACTIVE'` check immediately after every call. The status
+ * check now lives here so the guard fully validates "active and ready".
+ */
 export function assertProfileActive(
   _ctx: LocalContext,
   cp: ProfileSlice | null | undefined,
 ): GuardResult {
   if (!cp) {
+    return {
+      ok: false,
+      code: 'PROFILE_DISABLED',
+      message: 'Cleaning profile is disabled or not found. Contact admin to activate it.',
+    };
+  }
+  if (cp.status !== 'ACTIVE') {
     return {
       ok: false,
       code: 'PROFILE_DISABLED',
