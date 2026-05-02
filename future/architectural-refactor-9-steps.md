@@ -49,9 +49,13 @@ For each step:
 
 **Counts:** 64→65 models, 37→38 API modules, 26→27 config pages.
 
-## Step 2 — relationshipType enum + bidirectional check (pending)
+## Step 2 — relationshipType enum + bidirectional check (✅ DONE 2026-05-01)
 
-**What:** `AssetRelationship.relationshipType` is currently `String VarChar(50)` with comment "CONTAINS, CONTAINED_IN, CONNECTED_TO, etc." Free-form. No DB enforcement of the bidirectional pair invariant.
+**Status:** closed in commit `51e1110` (`feat: Phase A.2 — relationshipType enum + bidirectional check constraint`). Doc summary + table at lines 3 + 20 already reflect this; section header was simply stale until the 2026-05-02 doc audit caught it.
+
+**What landed:** `AssetRelationship.relationshipType` was a free-form `String VarChar(50)`. Now a Prisma enum (closed set, pulled from `INVERSE_RELATIONSHIP_MAP` in `packages/shared`) + Postgres trigger that enforces the bidirectional pair invariant: every `(source, target, CONTAINS)` row requires its mirror `(target, source, CONTAINED_IN)`. `customLabel` handles the CUSTOM case.
+
+**Original plan retained for context:**
 
 **Plan:**
 - Convert to a Prisma enum (closed set: CONTAINS, CONTAINED_IN, CONNECTED_TO, FEEDS, FED_BY, DEPENDS_ON, DEPENDED_ON_BY, BACKS_UP, BACKED_UP_BY, MONITORS, MONITORED_BY, CUSTOM — pulled from `INVERSE_RELATIONSHIP_MAP` in `packages/shared`)
@@ -131,7 +135,7 @@ These are NOT part of the 9 steps but were discussed during the same conversatio
 
 - **Multi-tenancy removal** — ✅ DONE 2026-04-30. Single-tenant deployment. Step 3 retired. See CHANGELOG.
 - ~~**AWS SNS spawn-aws-CLI**~~ — ✅ **DONE 2026-05-02 (P3).** Per user direction the AWS SNS path was dropped entirely (no `@aws-sdk/client-sns` swap). MSG91 / Twilio / Plivo / AfricasTalking / Kaleyra all run through the existing generic `http-gateway` provider — configurable URL + headers map + body template with `{phone}` / `{message}` placeholders. AWS-related fields removed from `SmsConfig` interface, route enum, sensitive-key masks, and FE config page. Compiled dist contains zero AWS references. Rule-chain `aws-sns` / `aws-sqs` / `aws-lambda` nodes (stub no-ops, no real AWS deps) left in place — out of scope.
-- **Phase 5+ proper Windows-service launcher** — partial via NSSM scripts in `d1ce9f5`; full automation still pending.
+- ~~**Phase 5+ proper Windows-service launcher**~~ — ✅ **DONE 2026-05-02** in Batch 6 commit `d31ed37`. The partial NSSM scripts in `d1ce9f5` (`scripts/install-services-phase5.ps1` + `scripts/uninstall-services-phase5.ps1`) were tied together by `scripts/install-windows.ps1` (top-level orchestration: tooling sanity → build shared / api / web → Mosquitto setup → NSSM-managed DigiLog API + Web services → start → /health probe) and `scripts/uninstall-windows.ps1` (stop + remove DigiLog services; Mosquitto + logs are opt-in via flags). Idempotent. Both AST-parse-validated.
 
 ## Memory entries that informed this plan
 
