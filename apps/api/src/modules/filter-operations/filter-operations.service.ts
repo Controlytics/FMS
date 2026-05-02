@@ -399,8 +399,25 @@ export class FilterOperationsService {
     let nextBlocks: any[] = [];
     let pendingChecklist: any[] = [];
 
+    // L2 (2026-05-02): when an in-progress cycle exists, render the pipeline
+    // from the CYCLE's pinned profileId (FilterCleaningProfile.id, set at cycle
+    // start and immutable post-A.2 rowful versioning). NOT from the live
+    // FilterProfile binding — that may have been reassigned mid-cycle (via
+    // admin block-assignment config edit) and produces a visual mismatch
+    // between the rendered stages and what advance() actually enforces.
+    //
+    // The existing profileSyncWarning at :~553-577 detects the mismatch and
+    // tells the operator to TERMINATE_AND_RESTART; with L2 the operator's
+    // displayed pipeline now matches what they're actually being held to,
+    // so the warning becomes "rules changed; terminate to use the new ones"
+    // rather than "your view is wrong."
+    //
+    // Pre-cycle path (no currentCycle): use the live binding so the operator
+    // sees what they'd start a cycle against.
     const resolvedProfileId = await this.resolveFilterProfile(filter);
-    const cp = resolvedProfileId ? await this.getProfilePipeline(resolvedProfileId, false) : null; // getCurrentState shows pipeline even if disabled
+    const pinnedCycleProfileId = currentCycle?.profileId ?? null;
+    const profileIdForRender = pinnedCycleProfileId ?? resolvedProfileId;
+    const cp = profileIdForRender ? await this.getProfilePipeline(profileIdForRender, false) : null; // getCurrentState shows pipeline even if disabled
 
     if (cp) {
           profile = { name: cp.name, flowMode: cp.flowMode };

@@ -1,5 +1,41 @@
 # Changelog
 
+## [Unreleased] — L2: getCurrentState renders cycle-pinned cleaning profile pipeline (2026-05-02)
+
+Branch: `feature/phase5-verification`. Closes the pipeline-graph display drift between the operator's UI and what `advance()` enforces. Symmetric to L1 but for the cleaning pipeline graph (stages + connections + profile name) rather than the equipment group.
+
+### Background
+
+Before L2: `getCurrentState()` rendered `pipelineGraph`, `pipelineStages`, `nextAllowedStages`, `pendingChecklist`, `stageLookup`, and `profile` from `getProfilePipeline(resolvedProfileId, false)` — where `resolvedProfileId` came from `resolveFilterProfile(filter)` (the LIVE FilterProfile binding via FilterDetails or config rule).
+
+The cycle's actual pinned recipe is `currentCycle.profileId` (locked at start, immutable post-A.2 rowful versioning). When an admin reassigned a block's FilterProfile mid-cycle, the operator's tablet showed the new pipeline's stages while `advance()` still enforced the old one. `profileSyncWarning` (line 553-577) detected the mismatch and told the operator to TERMINATE_AND_RESTART, but the visual layout was misleading until they did.
+
+### Changes
+
+- `apps/api/src/modules/filter-operations/filter-operations.service.ts:402-417` — when `currentCycle` exists, render the pipeline from `currentCycle.profileId` (the cycle's pinned FilterCleaningProfile id) instead of the live FilterProfile binding. Pre-cycle path falls back to the live binding (so the operator sees what they'd start a cycle against).
+- All downstream consumers (`pipelineStages`, `pipelineGraph`, `nextAllowedStages`, `nextBlocks`, `pendingChecklist`, `stageLookup`, `profile`) automatically pick up the pinned graph because they all read from the same `cp` variable.
+- `profileSyncWarning` semantics preserved: now it correctly says "your view matches the rules; admin has reassigned the block to a different profile; terminate-and-restart to use the new one" instead of "your view is wrong."
+
+### Verification
+
+- `tsc -p apps/api/tsconfig.json --noEmit` exit 0; full compile to dist exit 0; service restart clean.
+- End-to-end via curl on F1/B1 with two distinct CleaningProfiles seeded:
+  - **CP-A** (cycle-pin) has stage `WASH_IN`. **CP-B** (live-binding) has stage `DRY_IN`.
+  - Step 1: FilterProfile -> CP-A. Started cycle. `cycle.profileId = CP-A.id`. ✓
+  - Step 2: GET `/current-state` -> `pipelineGraph.stages` shows `WASH_IN`, `profile.name = "L2 CP-A (cycle-pin)"`. ✓
+  - Step 3: SQL `UPDATE filter_profiles SET cleaning_profile_id = CP-B.id` (live binding now diverges from cycle pin).
+  - Step 4: GET `/current-state` -> `pipelineGraph.stages` still shows **`WASH_IN`** (NOT `DRY_IN`); `profile.name` still **`L2 CP-A (cycle-pin)`**. ✓
+  - `profileSyncWarning` populated correctly: `cycleProfileName: "L2 CP-A (cycle-pin)"`, `expectedProfileName: "L2 CP-B (live-binding)"`, recommendation `TERMINATE_AND_RESTART`. ✓
+- Test data fully cleaned up: 0 cycles, 0 cleaning profiles, 0 stages, 0 connections.
+
+### Notes
+
+- No FE change required — same `pipelineGraph` / `pipelineStages` / `nextAllowedStages` field shapes.
+- No APK rebuild required.
+- Scope deliberately narrow: this L2 only covers the rendered pipeline graph at `getCurrentState()`. The actual `advance()` logic was already correct — it walks `cp.stages` from `currentCycle.profileId`. L2 just makes the read path consistent with the write path.
+
+---
+
 ## [Unreleased] — L1: getCurrentState returns pinned EquipmentGroupVersion snapshot (2026-05-02)
 
 Branch: `feature/phase5-verification`. Closes the operator-visible drift surface left by P1: server validated against the pinned snapshot but `getCurrentState()` still returned the live group, so dropdowns built from live ranges (`mobile-operations.tsx:2062 genOpts(...)`) could offer values that the server then rejected with no warning.
