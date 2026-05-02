@@ -22,8 +22,14 @@ import { formatByLeastCount } from '@/lib/format-by-least-count';
 import {
   collectChecklistsAfterStage as sharedCollectChecklistsAfterStage,
   findReachable as sharedFindReachable,
+  type Action,
 } from '@digilog/shared';
 import { loadLocalContextFromCache } from '@/lib/local-context';
+// Phase 8.6 part 2 — action-tape resolver + stage filter. The reachability
+// gate sites consume the executor-computed action list (server-emitted when
+// TAPE_PARALLEL=true, else locally computed) instead of reading the legacy
+// `nextAllowedStages` field.
+import { actionsForStage, getCurrentActions } from '@/lib/action-tape';
 
 const CLEANING_STAGES = CLEANING_STAGES_OPS;
 
@@ -578,6 +584,11 @@ export function FilterOperationsPage() {
           currentState: state.currentState ?? null,
           homeBlock: state.homeBlock ?? null,
           blockChangeStatus: state.blockChangeStatus ?? null,
+          // Phase 8.6 part 2: persist server tape when emitted (TAPE_PARALLEL=true)
+          // so subsequent gate decisions can prefer the authoritative server
+          // actions[] over a locally-recomputed tape.
+          actions: state.actions ?? null,
+          tapeVersion: state.tapeVersion ?? null,
         }, 24 * 60 * 60 * 1000);
       } catch (fetchErr: any) {
         const msg = String(fetchErr?.message || '').toLowerCase();
@@ -636,11 +647,21 @@ export function FilterOperationsPage() {
       // ─── STRICT OFFLINE GATE (parity with mobile) ─────────────────────────
       // Without cached pipeline data we cannot enforce stage ordering — refuse
       // the operation explicitly rather than silently letting it through.
+      //
+      // Phase 8.6 part 2: reachability decisions read the action tape (server
+      // actions[] when TAPE_PARALLEL=true, else executor.computeNextActions
+      // resolved by getCurrentActions()). Both new-cycle entry points and
+      // in-cycle reachability come from the SAME tape — the same one the
+      // server emits and the FE caches.
+      const resolvedActions = await getCurrentActions(first.filterId, state.actions);
+      const advanceTargets = resolvedActions
+        .filter(a => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION')
+        .map(a => (a as { params: { targetState: string } }).params.targetState);
+
       if (!online) {
         const hasGraph = !!state.pipelineGraph?.stages;
         const hasLinearPipeline = (state.pipelineStages?.length ?? 0) > 0;
-        const offlineNextAllowed = state.nextAllowedStages ?? [];
-        const hasValidation = hasGraph || hasLinearPipeline || offlineNextAllowed.length > 0;
+        const hasValidation = hasGraph || hasLinearPipeline || advanceTargets.length > 0;
 
         if (!hasValidation) {
           setPopupError(`${first.filterName}: offline data not cached. Connect to network and re-sync before retrying.`);
@@ -654,17 +675,11 @@ export function FilterOperationsPage() {
         }
 
         const cycleInProgress = !!state.currentCycle;
-        // New cycle: activeStage must be a legal entry point of the pipeline
+        // New cycle: activeStage must be a legal entry point. Tape-derived —
+        // when no cycle is in progress, computeNextActions() emits
+        // ADVANCE_TO_STAGE actions for the START node's reachable stages.
         if (!cycleInProgress && hasGraph) {
-          const firstStages: string[] = [];
-          const startNode = state.pipelineGraph.stages.find((s: any) => s.nodeType === 'START');
-          if (startNode) {
-            const conns = (state.pipelineGraph.connections ?? []).filter((c: any) => c.fromStageId === startNode.id);
-            for (const c of conns) {
-              const next = state.pipelineGraph.stages.find((s: any) => s.id === c.toStageId);
-              if (next?.nodeType === 'STAGE' && next.stateKey) firstStages.push(next.stateKey);
-            }
-          }
+          const firstStages = advanceTargets;
           if (firstStages.length > 0 && !firstStages.includes(activeStage.key)) {
             setError(`${first.filterName}: cannot start cycle at ${activeStage.label}. Start at: ${firstStages.map(s => s.replace(/_/g, ' ')).join(', ')}`);
             setLoading(false); setSubmitting(false);
@@ -672,8 +687,8 @@ export function FilterOperationsPage() {
           }
         }
 
-        // In-cycle but no cached next stages → stale cache; refuse
-        if (cycleInProgress && offlineNextAllowed.length === 0) {
+        // In-cycle but no advance actions on tape → stale cache; refuse
+        if (cycleInProgress && advanceTargets.length === 0) {
           setPopupError(`${first.filterName}: filter is in-cycle but no next stage is cached. Reconnect and re-sync.`);
           setLoading(false); setSubmitting(false);
           return;
@@ -717,9 +732,13 @@ export function FilterOperationsPage() {
         return;
       }
 
-      const nextAllowed = state.nextAllowedStages ?? [];
-      if (nextAllowed.length > 0 && !nextAllowed.includes(activeStage.key)) {
-        const allowedLabels = nextAllowed.map((k: string) => CLEANING_STAGES.find(s => s.key === k)?.label ?? k).join(', ');
+      // Phase 8.6 part 2: tape-derived "wrong stage" check. activeStage must
+      // appear as an ADVANCE / SET_DRYER target on the resolved tape.
+      const advanceMatch = actionsForStage(activeStage.key, resolvedActions).some(
+        a => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION',
+      );
+      if (advanceTargets.length > 0 && !advanceMatch) {
+        const allowedLabels = advanceTargets.map((k: string) => CLEANING_STAGES.find(s => s.key === k)?.label ?? k).join(', ');
         setError(`${first.filterName} is at "${(state.currentState ?? 'START').replace(/_/g, ' ')}". Next allowed: ${allowedLabels}`);
         setLoading(false); setSubmitting(false);
         return;

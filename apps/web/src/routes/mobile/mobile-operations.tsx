@@ -15,8 +15,14 @@ import { subscribeRfidTags } from '@/lib/rfid-bridge';
 import {
   collectChecklistsAfterStage as sharedCollectChecklistsAfterStage,
   findReachable as sharedFindReachable,
+  type Action,
 } from '@digilog/shared';
 import { loadLocalContextFromCache } from '@/lib/local-context';
+// Phase 8.6 part 2 — action-tape resolver + stage filter. The gate sites now
+// consume the executor-computed action list (from the response when
+// TAPE_PARALLEL=true, or locally otherwise) instead of reading the legacy
+// `nextAllowedStages` field directly. Same pure function on both sides.
+import { actionsForStage, getCurrentActions } from '@/lib/action-tape';
 
 const STAGES = [
   { key: 'WASH_IN', label: 'Wash In', icon: '🚿', gradient: 'from-sky-500 to-sky-600', bg: 'bg-sky-50', border: 'border-sky-200', text: 'text-sky-700', needsBlock: true },
@@ -521,18 +527,19 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         const cached = cachedFilters.find((f: any) => f.id === item.filterId);
         const cachedState = await getCache<any>(`filter-state-${item.filterId}`) ?? {};
         const currentLifecycle = cached?.currentLifecycleState || cachedState.currentState || null;
-        let itemNextAllowed: string[] = cachedState.nextAllowedStages ?? [];
-        if (itemNextAllowed.length === 0 && cachedState.pipelineGraph) {
-          itemNextAllowed = computeNextStages(cachedState.pipelineGraph, currentLifecycle);
-        }
         const cycleInProgress = !!(cachedState.currentCycle?.id || cached?.currentCycleId);
+
+        // Phase 8.6 part 2: resolve the action tape — server actions[] when
+        // TAPE_PARALLEL=true (currently absent in dev), else local compute via
+        // the shared executor over loadLocalContextFromCache().
+        const itemActions = await getCurrentActions(item.filterId, cachedState.actions);
 
         const gate = validateOfflineGate({
           activeStageKey: activeStage.key,
           activeStageLabel: activeStage.label,
           online,
           currentLifecycle,
-          nextAllowed: itemNextAllowed,
+          actions: itemActions,
           hasGraph: !!cachedState.pipelineGraph?.stages,
           hasLinearPipeline: (cachedState.pipelineStages?.length ?? 0) > 0,
           pipelineGraph: cachedState.pipelineGraph,
@@ -616,12 +623,18 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // SPIS: single-source offline gate shared by handleSubmit (single scan) and
   // handleSubmitQueue (batch). Every offline/online validation rule lives HERE
   // — both callers must go through this. See memory: feedback_batch_single_parity.md.
+  //
+  // Phase 8.6 part 2: reachability decisions now read the action tape (server
+  // `actions[]` when TAPE_PARALLEL is on, else `executor.computeNextActions(ctx)`
+  // resolved by `getCurrentActions()`). The legacy `nextAllowed` string list is
+  // kept on the input shape as an emptiness indicator for the "stale cache"
+  // detector, but stage-membership decisions go through `actionsForStage()`.
   type GateInput = {
     activeStageKey: string;
     activeStageLabel: string;
     online: boolean;
     currentLifecycle: string | null;
-    nextAllowed: string[];
+    actions: Action[];
     hasGraph: boolean;
     hasLinearPipeline: boolean;
     pipelineGraph: any;
@@ -634,7 +647,13 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   };
   type GateResult = { ok: true } | { ok: false; reason: string; blockChangeRequired?: boolean };
   const validateOfflineGate = (g: GateInput): GateResult => {
-    const hasValidation = g.hasGraph || g.hasLinearPipeline || g.nextAllowed.length > 0;
+    // Reachable advance/bypass targets, derived from the resolved tape. When
+    // the tape is empty AND we have no pipeline data, we're working from a
+    // stale offline cache and refuse below.
+    const advanceTargets = g.actions
+      .filter(a => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION')
+      .map(a => (a as { params: { targetState: string } }).params.targetState);
+    const hasValidation = g.hasGraph || g.hasLinearPipeline || advanceTargets.length > 0;
     if (!g.online && !hasValidation) {
       return { ok: false, reason: 'offline data not cached — sync first' };
     }
@@ -643,19 +662,28 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     if (!g.online && homeMismatch) {
       return { ok: false, reason: 'block change approval required', blockChangeRequired: true };
     }
-    // First-stage validation for brand-new cycles
+    // First-stage validation for brand-new cycles. Tape-derived: when no cycle
+    // is in progress, computeNextActions() emits ADVANCE_TO_STAGE actions for
+    // the START node's reachable stages — same set as `firstStages` was.
     if (!g.cycleInProgress && g.hasGraph) {
-      const firstStages = computeNextStages(g.pipelineGraph, null);
+      const firstStages = advanceTargets;
       if (firstStages.length > 0 && !firstStages.includes(g.activeStageKey)) {
         return { ok: false, reason: `cannot start cycle at ${g.activeStageLabel} — start at ${firstStages.map(s => s.replace(/_/g, ' ')).join(', ')}` };
       }
     }
-    // In-cycle: activeStage must be in nextAllowed
-    if (g.cycleInProgress && g.nextAllowed.length > 0 && !g.nextAllowed.includes(g.activeStageKey)) {
-      return { ok: false, reason: `is at ${(g.currentLifecycle ?? 'START').replace(/_/g, ' ')} — next allowed ${g.nextAllowed.map(s => s.replace(/_/g, ' ')).join(', ')}` };
+    // In-cycle: activeStage must appear as an ADVANCE_TO_STAGE target on the
+    // current tape (also covers SET_DRYER_DURATION, since DRY_IN is a valid
+    // advance target with the dryer-duration sub-action).
+    if (g.cycleInProgress && advanceTargets.length > 0) {
+      const advanceMatch = actionsForStage(g.activeStageKey, g.actions).some(
+        a => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION',
+      );
+      if (!advanceMatch) {
+        return { ok: false, reason: `is at ${(g.currentLifecycle ?? 'START').replace(/_/g, ' ')} — next allowed ${advanceTargets.map(s => s.replace(/_/g, ' ')).join(', ')}` };
+      }
     }
-    // Offline: cycle-in-progress + empty nextAllowed is stale cache (unless checklist blocks)
-    if (!g.online && g.cycleInProgress && g.nextAllowed.length === 0 && !g.hasPendingChecklist) {
+    // Offline: cycle-in-progress + no advance actions is stale cache (unless checklist blocks)
+    if (!g.online && g.cycleInProgress && advanceTargets.length === 0 && !g.hasPendingChecklist) {
       return { ok: false, reason: 'in-cycle but no next stage cached — re-sync' };
     }
     // DRY_IN guard
@@ -849,6 +877,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             currentState: state.currentState ?? null,
             homeBlock: state.homeBlock ?? null,
             blockChangeStatus: state.blockChangeStatus ?? null,
+            // Phase 8.6 part 2: persist the server tape when emitted so offline
+            // gate decisions can prefer the authoritative server actions[] over
+            // a locally-recomputed tape on the next render.
+            actions: state.actions ?? null,
+            tapeVersion: state.tapeVersion ?? null,
           }, 24 * 60 * 60 * 1000);
         } catch (e: any) {
           if (isNetworkError(e)) {
@@ -868,7 +901,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
 
       // Block duplicate submission
       const currentLifecycle = state.currentState;
-      const nextAllowed = state.nextAllowedStages ?? [];
+
+      // Phase 8.6 part 2: resolve action tape (server-emitted when present,
+      // else locally computed via the shared executor). Used by the gate AND
+      // the post-gate "already at" / "next allowed" online checks below.
+      const resolvedActions = await getCurrentActions(filterId, state.actions);
+      const nextAllowed: string[] = resolvedActions
+        .filter(a => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION')
+        .map(a => (a as { params: { targetState: string } }).params.targetState);
 
       // Shared SPIS gate (same helper used by handleSubmitQueue).
       // Only enforced offline — online callers get richer server-side validation.
@@ -878,7 +918,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           activeStageLabel: activeStage.label,
           online,
           currentLifecycle,
-          nextAllowed,
+          actions: resolvedActions,
           hasGraph: !!state.pipelineGraph?.stages,
           hasLinearPipeline: (state.pipelineStages?.length ?? 0) > 0,
           pipelineGraph: state.pipelineGraph,
@@ -920,6 +960,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         setLoading(false); return;
       }
 
+      // Phase 8.6 part 2: tape-derived "already at this stage" check. The
+      // tape's ADVANCE_TO_STAGE / SET_DRYER_DURATION targets are the next legal
+      // moves; if the operator scanned the SAME stage they're already on,
+      // there should be at least one onward move on the tape.
       if (currentLifecycle === activeStage.key && nextAllowed.length > 0) {
         setError(`Already at ${activeStage.label}. Next: ${nextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`);
         setLoading(false); return;
@@ -947,7 +991,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       }
 
       if (state.pendingChecklist?.length > 0) { setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: state.pendingChecklist }); setChecklistAnswers({}); setLoading(false); return; }
-      if (nextAllowed.length > 0 && !nextAllowed.includes(activeStage.key)) {
+      // Phase 8.6 part 2: tape-derived "wrong stage" check. activeStage must
+      // appear as an ADVANCE / SET_DRYER target on the resolved tape; if not,
+      // surface the legal next stages from the same tape.
+      if (nextAllowed.length > 0 && !actionsForStage(activeStage.key, resolvedActions).some(a => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION')) {
         const atLabel = (currentLifecycle ?? 'START').replace(/_/g, ' ');
         setError(`Filter is at "${atLabel}". Next allowed: ${nextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`);
         setLoading(false); return;
