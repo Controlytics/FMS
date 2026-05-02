@@ -624,6 +624,29 @@ export class FilterOperationsService {
     // that no longer matches what the live block-assignment config says,
     // surface a warning so the operator can terminate-and-restart on the
     // current profile instead of silently continuing on the wrong pipeline.
+    // L3 (2026-05-02): advisory warning when admin has edited the cycle's pinned
+    // EquipmentGroup. Read-only — actual readings still validate against the
+    // pinned snapshot (P1 + L1). Useful for transparency: operator sees that
+    // the live config has moved on and can decide whether to terminate-and-
+    // restart on the new operating ranges, or finish the cycle on the pinned
+    // ones. Symmetric to profileSyncWarning but for the equipment group, not
+    // the cleaning recipe.
+    let equipmentGroupSyncWarning: { groupId: string; pinnedVersion: number; liveVersion: number; recommendation: 'CONTINUE_OR_TERMINATE_AND_RESTART' } | null = null;
+    if (currentCycle?.equipmentGroupId && currentCycle.equipmentGroupVersionPin !== null && currentCycle.equipmentGroupVersionPin !== undefined) {
+      const liveGroup = await prisma.equipmentGroup.findUnique({
+        where: { id: currentCycle.equipmentGroupId },
+        select: { version: true },
+      });
+      if (liveGroup && liveGroup.version > currentCycle.equipmentGroupVersionPin) {
+        equipmentGroupSyncWarning = {
+          groupId: currentCycle.equipmentGroupId,
+          pinnedVersion: currentCycle.equipmentGroupVersionPin,
+          liveVersion: liveGroup.version,
+          recommendation: 'CONTINUE_OR_TERMINATE_AND_RESTART',
+        };
+      }
+    }
+
     let profileSyncWarning: { cycleProfileId: string; cycleProfileName: string | null; expectedProfileId: string; expectedProfileName: string | null; recommendation: 'TERMINATE_AND_RESTART' } | null = null;
     if (currentCycle && resolvedProfileId) {
       const cycleProfileId: string = currentCycle.profileId;
@@ -670,6 +693,7 @@ export class FilterOperationsService {
       isPmDue,
       pmReasonKey,
       profileSyncWarning,
+      equipmentGroupSyncWarning, // L3 (2026-05-02)
       stageLookup,
     };
   }

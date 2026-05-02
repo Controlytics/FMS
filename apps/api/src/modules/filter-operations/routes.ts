@@ -60,6 +60,20 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
                 recommendation: { type: 'string' },
               },
             },
+            // L3 (2026-05-02): advisory warning when admin has edited the
+            // cycle's pinned EquipmentGroup. Readings still validate against
+            // the pinned snapshot.
+            equipmentGroupSyncWarning: {
+              type: 'object',
+              nullable: true,
+              additionalProperties: true,
+              properties: {
+                groupId: { type: 'string' },
+                pinnedVersion: { type: 'integer' },
+                liveVersion: { type: 'integer' },
+                recommendation: { type: 'string' },
+              },
+            },
             stageLookup: {
               type: 'object',
               additionalProperties: {

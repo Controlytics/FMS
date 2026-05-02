@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] — L3: equipmentGroupSyncWarning on getCurrentState (2026-05-02)
+
+Branch: `feature/phase5-verification`. Symmetric to the existing `profileSyncWarning` (cleaning-recipe drift) but for the EquipmentGroup pin. Read-only advisory; no functional change to validation.
+
+### Changes
+
+- `filter-operations.service.ts:~628`: new `equipmentGroupSyncWarning` field on the `getCurrentState()` response. Fires when `cycle.equipmentGroupVersionPin !== null` AND the live group's `version > pin`. Carries `{ groupId, pinnedVersion, liveVersion, recommendation: 'CONTINUE_OR_TERMINATE_AND_RESTART' }`. Null in all other cases (no cycle, no group, pin matches live, etc.).
+- `filter-operations/routes.ts:~63`: response schema entry for the new field, so Fastify doesn't strip it.
+
+### Verification
+
+- `tsc -p apps/api/tsconfig.json` exit 0; service restart clean.
+- End-to-end via curl on F1/B1:
+  - Started cycle with pin=1 on a freshly-seeded group at v1. GET `/current-state` → `equipmentGroupSyncWarning: null`. ✓
+  - PUT to bump live group v1→v2. GET `/current-state` → `equipmentGroupSyncWarning: { pinnedVersion: 1, liveVersion: 2, recommendation: 'CONTINUE_OR_TERMINATE_AND_RESTART' }`. ✓
+- Test data fully cleaned up.
+
+### Notes
+
+- Recommendation says `CONTINUE_OR_TERMINATE_AND_RESTART` (not `TERMINATE_AND_RESTART` like the profile warning) because: the operator can finish their cycle on the pinned ranges (still correct, still audit-replayable). Restarting only matters if they want the new ranges to apply. Less coercive than the profile case where the cleaning recipe changing is materially different.
+- No FE consumer wired up yet — additive field. The existing FE warning UI for `profileSyncWarning` is the natural spot to render this when the FE is updated. Not blocking; the field is documented in the OpenAPI/Fastify schema.
+
+---
+
 ## [Unreleased] — L2: getCurrentState renders cycle-pinned cleaning profile pipeline (2026-05-02)
 
 Branch: `feature/phase5-verification`. Closes the pipeline-graph display drift between the operator's UI and what `advance()` enforces. Symmetric to L1 but for the cleaning pipeline graph (stages + connections + profile name) rather than the equipment group.
