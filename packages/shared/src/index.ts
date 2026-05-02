@@ -88,3 +88,6 @@ export type {
   SystemTemplateKindCode,
   CreateTemplateKindInput, UpdateTemplateKindInput,
 } from './schemas/assets.js';
+
+// Pipeline executor (Phase 8.4c scaffold; 8.5 fills in guard bodies).
+export * from './pipeline-executor/index.js';
