@@ -164,6 +164,15 @@ export const PERMISSIONS = {
   REPORT_SIGN: 'REPORT_SIGN',
   REPORT_DELETE: 'REPORT_DELETE',
   REPORT_EXPORT: 'REPORT_EXPORT',
+
+  // Version History (2026-05-02): cross-entity audit-history viewer for the
+  // four versioned entities (CleaningProfile lineage, FilterProfile sidecar,
+  // ChecklistProfile sidecar, EquipmentGroup composite sidecar). SUPER_ADMIN
+  // only by default; assignable to other roles via Role Privileges config.
+  // The four `/api/<entity>/:id/versions` route gates also accept this perm
+  // (in addition to the entity-specific read perms) so a user granted ONLY
+  // VERSION_HISTORY_VIEW can browse history without entity edit rights.
+  VERSION_HISTORY_VIEW: 'VERSION_HISTORY_VIEW',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

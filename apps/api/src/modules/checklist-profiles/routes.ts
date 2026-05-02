@@ -8,7 +8,7 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
   const service = new ChecklistProfileService();
 
   app.get('/', {
-    preHandler: [app.requireAnyPermission('FCP_READ', 'CHECKLIST_TOGGLE')],
+    preHandler: [app.requireAnyPermission('FCP_READ', 'CHECKLIST_TOGGLE', 'VERSION_HISTORY_VIEW')],
     // expand=questions inlines questions[] on each row — used by the mobile
     // tablet to cache the full checklist payload for offline use. Without
     // adding this to the schema, Fastify strips the unknown query param.
@@ -16,7 +16,7 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
   }, async (req) => service.list(buildContext(req), req.query as any));
 
   app.get('/:id', {
-    preHandler: [app.requireAnyPermission('FCP_READ', 'CHECKLIST_TOGGLE')],
+    preHandler: [app.requireAnyPermission('FCP_READ', 'CHECKLIST_TOGGLE', 'VERSION_HISTORY_VIEW')],
     schema: { tags: ['Checklist Profiles'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
   }, async (req) => service.getById(buildContext(req), (req.params as any).id));
 
@@ -89,13 +89,13 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
   // ─── Version history (Phase A.1) ────────────────────────────
   // List historical versions of a profile — cycle audit + offline cache use this.
   app.get('/:id/versions', {
-    preHandler: [app.requireAnyPermission('FCP_READ', 'CHECKLIST_TOGGLE')],
+    preHandler: [app.requireAnyPermission('FCP_READ', 'CHECKLIST_TOGGLE', 'VERSION_HISTORY_VIEW')],
     schema: { tags: ['Checklist Profiles'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, response: { 200: { type: 'array', items: { type: 'object', additionalProperties: true } }, ...errorResponses } },
   }, async (req) => service.listVersions(buildContext(req), (req.params as any).id));
 
   // Fetch a specific historical version's full snapshot. Immutable, cacheable forever.
   app.get('/:id/versions/:versionNumber', {
-    preHandler: [app.requireAnyPermission('FCP_READ', 'CHECKLIST_TOGGLE')],
+    preHandler: [app.requireAnyPermission('FCP_READ', 'CHECKLIST_TOGGLE', 'VERSION_HISTORY_VIEW')],
     schema: { tags: ['Checklist Profiles'], params: { type: 'object', required: ['id', 'versionNumber'], properties: { id: { type: 'string', format: 'uuid' }, versionNumber: { type: 'integer' } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
   }, async (req) => service.getVersion(buildContext(req), (req.params as any).id, parseInt((req.params as any).versionNumber, 10)));
 }

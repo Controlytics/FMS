@@ -79,7 +79,7 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 ## System Stats (current — 2026-04-30, verified against live code post-Step-1 + MT removal)
 - **Backend:** 36 API modules under `apps/api/src/modules/`, 200+ endpoints
 - **Database:** **69 Prisma models, 23 enums**; TimescaleDB with 7 hypertables. TemplateKind is a lookup table (admin-editable since Step 1); not an enum. Phase A.3 added `FilterProfileVersion` sidecar; Phase A.4 added `EquipmentGroupVersion` sidecar; Step 4 (2026-05-02) replaced `FilterProfile.applicableTemplates` JSONB array with the `FilterProfileApplicableTemplate` join table (cascade FKs to AssetTemplate).
-- **Permissions:** **105** constants, **89** feature privileges, **81** reauth actions, **25** sidebar items
+- **Permissions:** **106** constants, **90** feature privileges, **81** reauth actions, **26** sidebar items (`VERSION_HISTORY_VIEW` + `version-history` sidebar entry added 2026-05-02 — SUPER_ADMIN by default; assignable via Role Privileges → Audit / Versions)
 - **Rule chain:** 77 node types across 8 categories
 - **Config:** **30 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **27** corresponding pages (template-kinds added in Step 1)
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)

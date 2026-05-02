@@ -26,7 +26,7 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
   const service = new EquipmentGroupsService();
 
   app.get('/', {
-    preHandler: [app.requireAnyPermission('ASSET_READ', 'EG_VIEW')],
+    preHandler: [app.requireAnyPermission('ASSET_READ', 'EG_VIEW', 'VERSION_HISTORY_VIEW')],
     schema: {
       tags: ['Equipment Groups'],
       summary: 'List equipment groups',
@@ -43,7 +43,7 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
   });
 
   app.get('/:id', {
-    preHandler: [app.requireAnyPermission('ASSET_READ', 'EG_VIEW')],
+    preHandler: [app.requireAnyPermission('ASSET_READ', 'EG_VIEW', 'VERSION_HISTORY_VIEW')],
     schema: {
       tags: ['Equipment Groups'],
       summary: 'Get equipment group by ID',
@@ -58,7 +58,7 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
 
   // Phase A.4: list archived versions for audit replay / admin history.
   app.get('/:id/versions', {
-    preHandler: [app.requireAnyPermission('ASSET_READ', 'EG_VIEW')],
+    preHandler: [app.requireAnyPermission('ASSET_READ', 'EG_VIEW', 'VERSION_HISTORY_VIEW')],
     schema: {
       tags: ['Equipment Groups'],
       summary: 'List archived versions of an equipment group (Phase A.4)',
@@ -73,7 +73,7 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
 
   // Phase A.4: read a frozen historical version of an equipment group composite.
   app.get('/:id/versions/:versionNumber', {
-    preHandler: [app.requireAnyPermission('ASSET_READ', 'EG_VIEW')],
+    preHandler: [app.requireAnyPermission('ASSET_READ', 'EG_VIEW', 'VERSION_HISTORY_VIEW')],
     schema: {
       tags: ['Equipment Groups'],
       summary: 'Get frozen snapshot of equipment group at a specific version (Phase A.4)',

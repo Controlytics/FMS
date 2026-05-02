@@ -11,7 +11,7 @@ export default async function filterProfileRoutes(app: FastifyInstance) {
   const service = new FilterProfileService();
 
   app.get('/', {
-    preHandler: [app.requirePermission('FP_READ')],
+    preHandler: [app.requireAnyPermission('FP_READ', 'VERSION_HISTORY_VIEW')],
     schema: {
       tags: ['Filter Profiles'],
       summary: 'List filter profiles',
@@ -33,7 +33,7 @@ export default async function filterProfileRoutes(app: FastifyInstance) {
   });
 
   app.get('/:id', {
-    preHandler: [app.requirePermission('FP_READ')],
+    preHandler: [app.requireAnyPermission('FP_READ', 'VERSION_HISTORY_VIEW')],
     schema: {
       tags: ['Filter Profiles'],
       summary: 'Get filter profile detail',
@@ -48,7 +48,7 @@ export default async function filterProfileRoutes(app: FastifyInstance) {
 
   // Phase A.3: list archived versions for audit replay / admin history.
   app.get('/:id/versions', {
-    preHandler: [app.requirePermission('FP_READ')],
+    preHandler: [app.requireAnyPermission('FP_READ', 'VERSION_HISTORY_VIEW')],
     schema: {
       tags: ['Filter Profiles'],
       summary: 'List archived versions of a filter profile (Phase A.3)',
@@ -63,7 +63,7 @@ export default async function filterProfileRoutes(app: FastifyInstance) {
 
   // Phase A.3: read a frozen historical version of a filter profile.
   app.get('/:id/versions/:versionNumber', {
-    preHandler: [app.requirePermission('FP_READ')],
+    preHandler: [app.requireAnyPermission('FP_READ', 'VERSION_HISTORY_VIEW')],
     schema: {
       tags: ['Filter Profiles'],
       summary: 'Get frozen snapshot of filter profile at a specific version (Phase A.3)',

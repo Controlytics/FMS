@@ -12,7 +12,7 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
 
   // GET / — List cleaning profiles
   app.get('/', {
-    preHandler: [app.requireAnyPermission('FCP_READ', 'CP_TOGGLE')],
+    preHandler: [app.requireAnyPermission('FCP_READ', 'CP_TOGGLE', 'VERSION_HISTORY_VIEW')],
     schema: {
       tags: ['Cleaning Profiles'],
       summary: 'List cleaning profiles',
@@ -45,7 +45,7 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
 
   // GET /:id — Get cleaning profile with stages and connections
   app.get('/:id', {
-    preHandler: [app.requireAnyPermission('FCP_READ', 'CP_TOGGLE')],
+    preHandler: [app.requireAnyPermission('FCP_READ', 'CP_TOGGLE', 'VERSION_HISTORY_VIEW')],
     schema: {
       tags: ['Cleaning Profiles'],
       summary: 'Get cleaning profile detail',
@@ -265,7 +265,7 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
 
   // GET /:id/versions — List all versions in this profile's lineage (Phase A.2)
   app.get('/:id/versions', {
-    preHandler: [app.requireAnyPermission('FCP_READ', 'CP_TOGGLE')],
+    preHandler: [app.requireAnyPermission('FCP_READ', 'CP_TOGGLE', 'VERSION_HISTORY_VIEW')],
     schema: {
       tags: ['Cleaning Profiles'],
       summary: 'List all historical versions of this cleaning profile lineage',
@@ -293,7 +293,7 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
 
   // GET /:id/versions/:versionNumber — Frozen snapshot of a specific version (Phase A.2)
   app.get('/:id/versions/:versionNumber', {
-    preHandler: [app.requireAnyPermission('FCP_READ', 'CP_TOGGLE')],
+    preHandler: [app.requireAnyPermission('FCP_READ', 'CP_TOGGLE', 'VERSION_HISTORY_VIEW')],
     schema: {
       tags: ['Cleaning Profiles'],
       summary: 'Fetch a specific historical version (frozen snapshot)',

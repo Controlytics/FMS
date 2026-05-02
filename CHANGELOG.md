@@ -1,5 +1,35 @@
 # Changelog
 
+## [Unreleased] — VH: Version History admin page + new VERSION_HISTORY_VIEW permission (2026-05-02)
+
+Branch: `feature/phase5-verification`. Per user direction: "add a page to see versions, keep it in super admin scope and be assignable to other users through super admin configurations." Closes the FE sync gap for the four versioned entities (Phase A.1 + A.2 + A.3 + A.4) — server-side audit history existed at the API level but no admin UI surfaced it.
+
+### Changes
+
+- **New permission `VERSION_HISTORY_VIEW`** in `packages/shared/src/types/permissions.ts`. SUPER_ADMIN only by default (added to seed.ts and to the live SUPER_ADMIN role's permission array); assignable to other roles via Role Privileges → Audit / Versions → "View Version History".
+- **New feature privilege** `version_history.view` (category: Audit / Versions) wired to the new permission via `FEATURE_TO_PERMISSION_MAP` in `feature-privileges.ts`.
+- **New sidebar item** `version-history` in `sidebar-items.ts` + `sidebar-privilege-map.ts`. Render hook in `apps/web/src/components/layout/sidebar.tsx`.
+- **Route gates updated** on the four `/versions` endpoints + their underlying entity list/detail endpoints (cleaning-profiles, filter-profiles, checklist-profiles, equipment-groups). Each gate now uses `requireAnyPermission(<existing entity-level perms>, 'VERSION_HISTORY_VIEW')` so a user with only the new permission can browse history without entity edit rights.
+- **New page** `apps/web/src/routes/version-history/index.tsx`. Layout: 4-tab bar (Cleaning Profiles / Filter Profiles / Checklist Profiles / Equipment Groups). Each tab: master-detail with the entity list on the left (current version badge), version timeline on the right (newest-first, with archive timestamps + author UUID prefix + change notes when present). Click a version row → opens a modal with the frozen snapshot (JSON pretty-print for v1; structured per-entity viewers are a follow-up).
+- **Route registered** in `main.tsx` at `/version-history` with `<RequireRole permissions={[PERMISSIONS.VERSION_HISTORY_VIEW]}>`.
+
+### Verification
+
+- `npx tsc -p apps/api/tsconfig.json --noEmit` exit 0.
+- `npx tsc --noEmit` (apps/web) exit 0.
+- Full API compile to dist exit 0; service restart clean.
+- End-to-end via curl as superadmin: all 4 entity list endpoints (cleaning-profiles, filter-profiles, checklist-profiles, equipment-groups) returned 200. The new permission is in the live SUPER_ADMIN role's permission array (verified via psql: `perm_count: 90, has_vh: t`).
+- The OR-permission gate is mechanical: `requireAnyPermission` returns true if any of the listed perms is in the user's permission set. Server-side gating is enforced.
+
+### Notes
+
+- v1 page renders snapshots as JSON pretty-print. A future iteration could add structured per-entity viewers (e.g., a pipeline-graph diff for cleaning profiles, a question-list diff for checklist profiles).
+- Live counts after this batch: **106 permissions** (was 105), **90 feature privileges** (was 89), **26 sidebar items** (was 25). Reauth actions unchanged at 81.
+- Full re-seed not run; live SUPER_ADMIN role updated directly via SQL UPDATE per `feedback_role_perms_after_restore`. `seed.ts` updated for next clean restore.
+- The new endpoints existed before this work (Phase A.1–A.4); only the gating permission was relaxed. No API additive surface.
+
+---
+
 ## [Unreleased] — P3: AWS SNS dropped; MSG91 / Twilio / similar over generic HTTP gateway (2026-05-02)
 
 Branch: `feature/phase5-verification`. Per user direction: "remove AWS SNS dependencies — we'll do API POST to MSG91 or Twilio or similar service." The `http-gateway` provider already existed in the codebase as a generic templated POST adapter; this change makes it the default and removes the AWS SNS path entirely.

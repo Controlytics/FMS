@@ -88,6 +88,7 @@ const ReportTemplateEditorPage = lazy(() => import("./routes/report-templates/ed
 const ReportListPage = lazy(() => import("./routes/reports/index").then(m => ({ default: m.ReportListPage })));
 const ReportGeneratePage = lazy(() => import("./routes/reports/generate").then(m => ({ default: m.ReportGeneratePage })));
 const ReportDetailPage = lazy(() => import("./routes/reports/detail").then(m => ({ default: m.ReportDetailPage })));
+const VersionHistoryPage = lazy(() => import("./routes/version-history/index").then(m => ({ default: m.VersionHistoryPage })));
 const FilterDataManagementPage = lazy(() => import("./routes/config/filter-data-management").then(m => ({ default: m.FilterDataManagementPage })));
 const TabletAccessConfigPage = lazy(() => import("./routes/config/tablet-access").then(m => ({ default: m.TabletAccessConfigPage })));
 
@@ -248,6 +249,9 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/reports" element={<RequireRole permissions={[PERMISSIONS.REPORT_VIEW]}><Suspense fallback={<LazyFallback />}><ReportListPage /></Suspense></RequireRole>} />
             <Route path="/reports/generate" element={<RequireRole permissions={[PERMISSIONS.REPORT_GENERATE]}><Suspense fallback={<LazyFallback />}><ReportGeneratePage /></Suspense></RequireRole>} />
             <Route path="/reports/:id" element={<RequireRole permissions={[PERMISSIONS.REPORT_VIEW]}><Suspense fallback={<LazyFallback />}><ReportDetailPage /></Suspense></RequireRole>} />
+
+            {/* Audit / Versions (2026-05-02) — SUPER_ADMIN only by default; assignable via Role Privileges → Audit / Versions. */}
+            <Route path="/version-history" element={<RequireRole permissions={[PERMISSIONS.VERSION_HISTORY_VIEW]}><Suspense fallback={<LazyFallback />}><VersionHistoryPage /></Suspense></RequireRole>} />
 
           </Route>
 

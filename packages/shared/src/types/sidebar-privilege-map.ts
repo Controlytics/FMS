@@ -206,6 +206,13 @@ export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
     description: "View and manage generated reports",
     privilegeIds: ["reports.view", "reports.generate"],
   },
+  {
+    sidebarId: "version-history",
+    label: "Version History",
+    icon: "\u{1F570}️",
+    description: "Audit history of versioned definitions (cleaning profiles, filter profiles, checklist profiles, equipment groups). SUPER_ADMIN by default; assignable to other roles.",
+    privilegeIds: ["version_history.view"],
+  },
 ];
 
 /** Look up FeaturePrivilege objects for a given sidebar section */

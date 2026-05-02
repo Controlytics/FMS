@@ -142,6 +142,9 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'reports.sign', label: 'Sign Reports', category: 'Reports', icon: 'pen-tool' },
   { id: 'reports.delete', label: 'Delete Reports', category: 'Reports', icon: 'trash' },
   { id: 'reports.export', label: 'Export Report PDFs', category: 'Reports', icon: 'download' },
+
+  // Audit / Versions (2026-05-02)
+  { id: 'version_history.view', label: 'View Version History', category: 'Audit / Versions', icon: 'history' },
 ];
 
 /**
@@ -291,4 +294,7 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'reports.sign': ['REPORT_SIGN', 'REPORT_VIEW'],
   'reports.delete': ['REPORT_DELETE', 'REPORT_VIEW'],
   'reports.export': ['REPORT_EXPORT', 'REPORT_VIEW'],
+
+  // Audit / Versions (2026-05-02): cross-entity history viewer.
+  'version_history.view': ['VERSION_HISTORY_VIEW'],
 };

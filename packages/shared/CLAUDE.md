@@ -58,11 +58,11 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 | File | Purpose |
 |---|---|
 | `permissions.ts` | **105** permission constants (PERMISSIONS enum + ALL_PERMISSIONS list) — 4 ORG_* perms removed in MT removal |
-| `feature-privileges.ts` | **89** feature privileges + `FEATURE_TO_PERMISSION_MAP` — 2 org.* privileges removed in MT removal |
+| `feature-privileges.ts` | **90** feature privileges + `FEATURE_TO_PERMISSION_MAP` — 2 org.* privileges removed in MT removal; `version_history.view` added 2026-05-02 |
 | `reauth-actions.ts` | **81** reauth actions across 16 categories |
 | `roles.ts` | Role constants + hierarchy + display labels |
 | `permission-categories.ts` | Permission grouping for the role-access UI |
-| `sidebar-items.ts` | **25** sidebar items (Organizations entry removed in MT removal) |
+| `sidebar-items.ts` | **26** sidebar items (Organizations entry removed in MT removal; `version-history` added 2026-05-02) |
 | `sidebar-privilege-map.ts` | Sidebar item → privilege binding |
 | `audit-actions.ts` | Audit action constants for `AuditTrail.action` |
 | `audit-templates.ts` | Templates that hide UUIDs in audit UI (e.g. `"<RequestType> — <Name> (<EmployeeID>)"`) |
