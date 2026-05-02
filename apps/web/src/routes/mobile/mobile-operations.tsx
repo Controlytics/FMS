@@ -9,6 +9,14 @@ import { onSyncEvent } from '../../lib/sync-engine';
 import { DryerDurationDialog } from '../filter-management/components/dryer-duration-dialog';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
 import { subscribeRfidTags } from '@/lib/rfid-bridge';
+// Phase 8.6 — shared executor + FE local-context loader. Lets the mobile
+// operations page derive next-stage / checklist-after-stage decisions from
+// the same pure functions the server uses, killing client/server drift.
+import {
+  collectChecklistsAfterStage as sharedCollectChecklistsAfterStage,
+  findReachable as sharedFindReachable,
+} from '@digilog/shared';
+import { loadLocalContextFromCache } from '@/lib/local-context';
 
 const STAGES = [
   { key: 'WASH_IN', label: 'Wash In', icon: '🚿', gradient: 'from-sky-500 to-sky-600', bg: 'bg-sky-50', border: 'border-sky-200', text: 'text-sky-700', needsBlock: true },
@@ -588,37 +596,21 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       || e.name === 'TypeError';
   };
 
-  // Compute nextAllowedStages — prefers the server's stageLookup if cached
-  // (authoritative — same algorithm as server's getNextStageKeys + walk-past-
-  // checklist logic), otherwise falls back to local graph walk.
+  // Phase 8.6: compute reachable STAGE keys from a stage. Prefer the server-
+  // provided stageLookup (B.7 — authoritative). Otherwise delegate to the
+  // shared executor's `findReachable` walker so client/server stay in lockstep.
   const computeNextStages = (graph: any, currentStageKey: string | null, stageLookup?: any): string[] => {
     // Tier 1: stageLookup from server response (B.7)
     if (stageLookup && currentStageKey && Array.isArray(stageLookup[currentStageKey]?.nextStages)) {
       return stageLookup[currentStageKey].nextStages;
     }
     if (!graph?.stages || !graph?.connections) return [];
-    // Find the current node by stateKey
-    let currentNode = currentStageKey
+    // Find the current node by stateKey (or START when no current).
+    const currentNode = currentStageKey
       ? graph.stages.find((s: any) => s.stateKey === currentStageKey)
       : graph.stages.find((s: any) => s.nodeType === 'START');
     if (!currentNode) return [];
-
-    // Walk connections from current node, skipping CHECKLIST nodes to find reachable STAGE nodes
-    const reachable: string[] = [];
-    const visited = new Set<string>();
-    const walk = (nodeId: string) => {
-      if (visited.has(nodeId)) return;
-      visited.add(nodeId);
-      const outConns = graph.connections.filter((c: any) => c.fromStageId === nodeId);
-      for (const conn of outConns) {
-        const next = graph.stages.find((s: any) => s.id === conn.toStageId);
-        if (!next) continue;
-        if (next.nodeType === 'STAGE' && next.stateKey) reachable.push(next.stateKey);
-        else if (next.nodeType === 'CHECKLIST') walk(next.id); // skip checklist nodes
-      }
-    };
-    walk(currentNode.id);
-    return reachable;
+    return sharedFindReachable(currentNode.id, graph.stages, graph.connections).reachableStages;
   };
 
   // SPIS: single-source offline gate shared by handleSubmit (single scan) and
@@ -673,22 +665,17 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     return { ok: true };
   };
 
-  // Find CHECKLIST nodes that fire after a stage in the pipeline graph.
-  //
-  // Two-tier resolution (matches server logic — see filter-operations.service.ts
-  // collectChecklistsAfterStage AND the stageLookup table now returned by
-  // /current-state since commit 0c8de53):
+  // Phase 8.6: Find CHECKLIST nodes that fire after a stage in the pipeline
+  // graph. Two-tier resolution:
   //   1. If the cached state has stageLookup[stageKey].pendingChecklistProfileIds,
   //      that's authoritative — server already walked the graph for us. Convert
   //      the profile ids back into pseudo-nodes the buildOfflineChecklist helper
   //      can resolve against the cached `checklist-profiles` store.
-  //   2. Otherwise walk the graph ourselves, RECURSIVELY through chained
-  //      CHECKLIST nodes (the previous version only looked at direct outConns
-  //      from the stage, so pipelines like
-  //          WASH_IN → CHECKLIST_A → CHECKLIST_B → WASH_OUT
-  //      would only surface CHECKLIST_A, leaving CHECKLIST_B silently skipped
-  //      offline — the bug operators reported as "checklist not coming at that
-  //      stage".)
+  //   2. Otherwise delegate to the shared executor's
+  //      `collectChecklistsAfterStage` walker, which handles chained CHECKLIST
+  //      → CHECKLIST → STAGE pipelines (the bug operators reported as
+  //      "checklist not coming at that stage" — fixed once, in shared, for
+  //      both runtimes).
   const findChecklistsAfterStage = (graph: any, stageKey: string, stageLookup?: any): any[] => {
     // Tier 1: server-computed authoritative answer
     if (stageLookup && Array.isArray(stageLookup[stageKey]?.pendingChecklistProfileIds)) {
@@ -701,29 +688,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         configuration: { checklistProfileId: profileId },
       }));
     }
-    // Tier 2: fall back to graph walk (with chain support)
+    // Tier 2: shared executor walker (chained CHECKLIST support).
     if (!graph?.stages || !graph?.connections) return [];
     const stageNode = graph.stages.find((s: any) => s.stateKey === stageKey);
     if (!stageNode) return [];
-    const checklists: any[] = [];
-    const visited = new Set<string>();
-    const walk = (nodeId: string) => {
-      if (visited.has(nodeId)) return;
-      visited.add(nodeId);
-      const outConns = graph.connections.filter((c: any) => c.fromStageId === nodeId);
-      for (const conn of outConns) {
-        const next = graph.stages.find((s: any) => s.id === conn.toStageId);
-        if (!next) continue;
-        if (next.nodeType === 'CHECKLIST') {
-          if (next.configuration?.checklistProfileId) checklists.push(next);
-          walk(next.id); // chain: CHECKLIST → CHECKLIST → STAGE
-        }
-        // STAGE / END / other → stop (we only collect checklists between THIS
-        // stage and the NEXT real stage, matching server semantics)
-      }
-    };
-    walk(stageNode.id);
-    return checklists;
+    return sharedCollectChecklistsAfterStage(stageNode, graph.stages, graph.connections)
+      .filter(n => Boolean((n.configuration as { checklistProfileId?: unknown })?.checklistProfileId));
   };
 
   // Build pendingChecklist from cached checklist profiles for CHECKLIST nodes.
