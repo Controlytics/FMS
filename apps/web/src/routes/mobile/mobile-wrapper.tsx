@@ -7,6 +7,7 @@ import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { useOffline } from '../../hooks/use-offline';
 import { onSyncEvent } from '../../lib/sync-engine';
 import { syncAllDataForOffline, type SyncProgress } from '../../lib/offline-sync-service';
+import { triggerSync, startSyncPolling } from '../../lib/sync-since';
 import { MobileOperationsPage } from './mobile-operations';
 
 const STAGES = [
@@ -79,6 +80,19 @@ export function MobileWrapperPage() {
       if (progress.done) setDataCached(true);
     });
   }, [online, user]);
+
+  // Phase 8.4b — versioned-cache sync (Option D). Runs in parallel with the
+  // legacy syncAllDataForOffline above. Different cache (the v5 sync stores
+  // vs. legacy `cache` key/value blobs) — additive, doesn't replace. Wires
+  // up visibilitychange + online + 60s poll triggers so the cache stays
+  // fresh while the tablet is foregrounded. Will replace the legacy path
+  // in 8.6 once the shared executor lands.
+  useEffect(() => {
+    if (!user) return;
+    triggerSync('mobile-app-start');
+    const teardown = startSyncPolling();
+    return () => teardown();
+  }, [user]);
 
   // Re-sync after operations are synced back to server (keeps cache fresh)
   useEffect(() => {

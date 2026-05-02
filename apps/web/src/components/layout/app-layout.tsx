@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/use-auth';
 import { useSession } from '@/hooks/use-session';
@@ -10,6 +10,7 @@ import { Header } from './header';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
 import useSWR from 'swr';
+import { triggerSync, startSyncPolling } from '@/lib/sync-since';
 
 export function AppLayout() {
   useRfidGuard(); // Block RFID UKB input from going into random fields
@@ -33,6 +34,17 @@ export function AppLayout() {
     user?.id,
     user?.username,
   );
+
+  // Phase 8.4b — versioned-cache sync. Fires once at AppLayout mount (post-
+  // auth, post-login redirect — keeps the login screen pristine), then wires
+  // up visibilitychange + online + 60s poll triggers. Errors are swallowed
+  // inside the trigger; the next event will retry. Teardown on unmount.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    triggerSync('app-start');
+    const teardown = startSyncPolling();
+    return () => teardown();
+  }, [isAuthenticated]);
 
   if (isLoading) {
     return (
