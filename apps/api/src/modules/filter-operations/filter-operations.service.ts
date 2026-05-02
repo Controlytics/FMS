@@ -14,40 +14,11 @@ import type { TapeChecklistProfile } from './tape/types.js';
 import { loadLocalContext, throwIfFailed } from './local-context.js';
 import * as executor from '@digilog/shared';
 
-/**
- * Phase 8.3: optimistic-concurrency check on the action tape.
- *
- * Compares a client-submitted `tapeVersion` (computed from the snapshot of
- * (profileVersion, filterEventCount) the client most recently observed) to
- * the live server tapeVersion. Mismatch == another writer changed the cycle
- * since the client read it (e.g. another operator advanced the cycle on a
- * different device, or admin retired/restarted the profile).
- *
- * `submittedTapeVersion === undefined` is treated as a non-check — backward
- * compat for callers that pre-date 8.3 (web/APK in flight). Phase 8.4 cutover
- * will tighten the route schema to require it.
- *
- * Throws 409 STALE_TAPE on mismatch. The error `details` carries
- * `currentTapeVersion` so the client can refresh + retry without polling.
- */
-async function assertTapeVersionFresh(
-  filterId: string,
-  cycleId: string,
-  cycleProfileVersion: number,
-  submittedTapeVersion: number | undefined,
-): Promise<void> {
-  if (submittedTapeVersion === undefined || submittedTapeVersion === null) return;
-  const filterEventCount = await prisma.filterEvent.count({ where: { filterId, cycleId } });
-  const currentTapeVersion = computeTapeVersion(cycleProfileVersion, filterEventCount);
-  if (submittedTapeVersion !== currentTapeVersion) {
-    throw new AppError(
-      409,
-      'STALE_TAPE',
-      'Tape version mismatch — another operator may have changed this cycle. Refresh and retry.',
-      { currentTapeVersion },
-    );
-  }
-}
+// Note: the legacy local `assertTapeVersionFresh` was removed in Phase 8.5
+// Commit 4. All four write methods now go through the shared
+// `executor.assertTapeVersionFresh(ctx, submitted)` guard. The pure check
+// reads `ctx.events.length` (loaded by `loadLocalContext` via findMany), so
+// there's no longer a server-only reads-prisma-direct copy.
 
 function computeChecksum(data: Record<string, unknown>): string {
   const canonical = JSON.stringify(data, Object.keys(data).sort());
