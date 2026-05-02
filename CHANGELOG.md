@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased] — L1: getCurrentState returns pinned EquipmentGroupVersion snapshot (2026-05-02)
+
+Branch: `feature/phase5-verification`. Closes the operator-visible drift surface left by P1: server validated against the pinned snapshot but `getCurrentState()` still returned the live group, so dropdowns built from live ranges (`mobile-operations.tsx:2062 genOpts(...)`) could offer values that the server then rejected with no warning.
+
+### Changes
+
+- `apps/api/src/modules/filter-operations/filter-operations.service.ts:486-553` — when `cycle.equipmentGroupVersionPin` is set, `getCurrentState()` reconstructs `equipmentGroup` from `EquipmentGroupVersion.snapshot` instead of the live `equipmentGroup` row. Field shape preserved (`{id, name, blockId, isActive, version, instruments: [...]}`) so the existing FE consumers + the deployed APK consume unchanged.
+- Lazy-first-version handling: when pin is set but no `EquipmentGroupVersion` row exists yet (live row IS v1 until the first edit creates its archive), falls back to live row IFF `live.version === pin`. Mirrors the canonical logic from `advance()` reading-validation at `:1101-1175`.
+- Legacy fallback (cycle started pre-P1, pin is NULL): live row, with the documented drift gap.
+- Mismatch path (pin set, no snapshot row, live.version !== pin): logs a console.warn and returns live; doesn't throw because this is a read endpoint and breaking the operator's UI is worse than logging. `advance()` will throw `409 GROUP_VERSION_MISSING` if the operator tries to act on it.
+
+### Verification
+
+- `tsc -p apps/api/tsconfig.json --noEmit` exit 0.
+- Full compile to dist exit 0; service restart clean.
+- End-to-end via curl on F1/B1 + a seeded cleaning profile + filter profile + equipment group:
+  - Started a cycle with pin=1; live group at v1. Lazy-first-version path: GET `/current-state` returned Air `operatingMax=6, version=1`. ✓
+  - PUT to bump live group v1→v2 (Air `operatingMax 6→7`). Snapshot row v1 created. GET `/current-state` returned **Air `operatingMax=6, version=1`** — the pin survived; the FE would now render dropdowns from the pinned ranges. ✓
+  - Set `equipmentGroupVersionPin = NULL` directly (legacy fallback). GET `/current-state` returned Air `operatingMax=7, version=2` — live row, as expected for pre-P1 cycles. ✓
+- Test data fully cleaned up: 0 cycles, 0 groups, 0 group versions.
+
+### Notes
+
+- **No FE change required.** Verified via grep: every FE consumer of `equipmentGroup.*` reads only `id`, `instruments`, plus defensive reads of `name`/`blockId`/`isActive` — all preserved by the snapshot-reconstruction shape.
+- **No APK rebuild required.** Same field-shape contract.
+- This implicitly closes the offline reading-submit replay drift case from `future/offline-version-sync-contract.md` (O3 in the addendum) — once the tablet caches what `getCurrentState()` returns per cycle, subsequent admin edits to the live group don't reach the cached cycle state. Slice B's primary motivation evaporates; only the narrow "first cache-fill happens during admin edit" residual remains.
+
+---
+
 ## [Unreleased] — Batch 6: VHv2 + VHv3 + S4UX + WSL + DocSweep + CHVH (2026-05-02)
 
 Branch: `feature/phase5-verification`. Per user direction: items 2-7 from the menu, all touchpoints listed before editing, all verified after, deep fixes applied where bugs were uncovered.

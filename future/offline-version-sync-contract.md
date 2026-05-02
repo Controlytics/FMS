@@ -77,4 +77,59 @@ When Slice B lands, these endpoints add explicit version fields:
 
 ---
 
-Recorded 2026-05-02 alongside P1 server-side commit. Slice B (tablet-side) is its own future work item; do not start without an APK build cycle window.
+## Addendum (2026-05-02, post-audit) — offline / tab work items deferred from the audit
+
+A strict-evidence read of the codebase against the "online cleaning issues" list surfaced a handful of items that are **offline or tablet/APK** in nature, not server-side. Recorded here so they don't get lost when the APK build window opens; **do NOT pick these up without explicit user direction**, since the user has paused all tablet/android work.
+
+### O1 — Tier-2 client-side graph walking (`mobile-operations.tsx:583-602`)
+
+**What:** When `stageLookup` is absent from a cached `getCurrentState()` response, the FE falls back to walking `graph.connections` itself — same code path that historically drifted from the server's interpretation pre-Phase-5.
+
+**Why offline-relevant:** Today this fallback only fires for cached/offline-replay scenarios. Fresh online flows always carry `stageLookup`. Step 8 (decision-tape) eliminates this surface entirely; until then, the fallback is the only place client/server pipeline drift can happen.
+
+**Touchpoints:** `apps/web/src/routes/mobile/mobile-operations.tsx` (and the equivalent in `filter-operations.tsx`). Independent of the server.
+
+**Effort:** Subsumed by Step 8. Don't fix in isolation.
+
+### O2 — Slice B as a whole (already documented above)
+
+Tablet sends `expected<Entity>Version` on every mutation; server returns `409 SCHEMA_DRIFT` with the pinned snapshot; tablet self-heals. Bundled with the next APK build per the existing Slice B plan above.
+
+**Note:** if the server-side **L1 fix** (described in the parallel `tasks/SERVER-ONLINE-WORKLIST.md`) lands first, Slice B's reading-validation drift case becomes a non-issue for the tablet too — `getCurrentState()` will return the pinned snapshot, the tablet's dropdowns will be built from it, and there's no live/pinned divergence the tablet needs to detect or recover from. Slice B's value reduces to the FilterProfile / ChecklistProfile cases (which already work via cycle pinning) and to defense-in-depth on the EquipmentGroup case for racey edits between cycle-start and the tablet's first cache-fill.
+
+### O3 — Offline replay reading-submit drift (was Slice B's original motivating case)
+
+**What:** Today the tablet caches the equipment group at login + on `getCurrentState()`. Operator goes offline, submits readings using the cached live ranges. Sync replays the reading; server validates against the cycle's pinned snapshot. If admin edited operating ranges between cache-fill and replay, the queued reading might be rejected.
+
+**Why this becomes mostly moot once L1 lands:** with `getCurrentState()` returning pinned snapshots, the tablet caches the pinned snapshot per cycle (not the live group). Subsequent admin edits to the live group don't reach the tablet's per-cycle cache. **Residual offline gap:** the very first `getCurrentState()` for a cycle that started while admin was actively editing — narrow window, but still a Slice B concern.
+
+**Touchpoints:** offline IndexedDB cache layer + the sync engine (`apps/web/src/lib/offline-*.ts`).
+
+**Effort:** Half-day, bundled with Slice B + APK rebuild.
+
+### O4 — APK ships with current dropdown-option generation logic
+
+**What:** The DigiLog APK in operators' hands today builds reading dropdowns from `inst.operatingMin / operatingMax / leastCount`. Once L1 lands server-side and the field shape is preserved (still `{operatingMin, operatingMax, leastCount}`, just sourced from the snapshot), the APK keeps working without rebuild — the dropdown will just naturally start showing the pinned ranges.
+
+**Confirmation needed:** verify that L1's server change preserves the exact field shape the APK consumes. Quick read of `mobile-operations.tsx:2062` confirms it expects `inst.operatingMin / operatingMax / leastCount / uom / id` — same shape `EquipmentGroupVersion.snapshot.instruments[]` carries. **No APK rebuild required for L1.** Worth re-verifying before shipping L1 to be safe.
+
+**Touchpoint check:** none — just visual code-read of the APK's expectations against the snapshot's shape.
+
+### O5 — Operator UX during the L1 transition
+
+**What:** L1 changes what `getCurrentState()` returns for `equipmentGroup`. If an operator is mid-cycle when L1 deploys, their next `getCurrentState()` poll will return the pinned snapshot instead of the live group. If admin had already edited the live group, the operator sees a "rollback" of the displayed ranges. This is *correct behavior* — those rollbacks reflect the actual rules they're being held to — but the operator may be confused mid-cycle.
+
+**Mitigation:** none required for tablet; the pinned ranges have always been the truth, just hidden. If the field changes mid-cycle, the API spec (Slice B) for `409 SCHEMA_DRIFT` covers the edge case where the tablet's cache and the server's pin disagree.
+
+---
+
+## Recommended ordering (when APK window opens)
+
+1. **L1 server-side** — already in the online worklist; lands first, no APK touch.
+2. **L2 + L3 server-side** — tape adapter + cycle profileSyncWarning extensions; lands without APK.
+3. **APK rebuild** with Slice B + O3 + O4 verification, all in one ship cycle.
+4. **Step 8 (decision-tape)** if/when committed to multi-week work — fully replaces the `stageLookup`/Tier-2/Slice-B contract layer with a single server-emitted action tape.
+
+---
+
+Recorded 2026-05-02 alongside P1 server-side commit. Slice B (tablet-side) is its own future work item; do not start without an APK build cycle window. **The audit-discovered items O1-O5 above are offline/tablet-related** — they're tracked here intentionally to keep the online worklist clean.

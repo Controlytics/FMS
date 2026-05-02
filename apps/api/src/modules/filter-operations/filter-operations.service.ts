@@ -482,17 +482,74 @@ export class FilterOperationsService {
         }
       : null;
 
-    // Include equipment group info if cycle has one selected
-    let equipmentGroup = null;
+    // Include equipment group info if cycle has one selected.
+    //
+    // L1 (2026-05-02): when the cycle pinned a version (cycle.equipmentGroupVersionPin
+    // is set, P1), return the FROZEN SNAPSHOT from EquipmentGroupVersion instead of
+    // the live row. Closes the operator-visible drift surface where the FE rendered
+    // dropdowns from live operating ranges but server validation in advance() rejected
+    // against the pinned ranges. Field shape preserved so the existing tablet/web
+    // (and the deployed APK) consume the response unchanged.
+    //
+    // Resolution order, mirroring the canonical lazy-first-version logic from
+    // advance() reading-validation (~:1101-1175):
+    //   1. Pin set + snapshot row exists  -> reconstruct from snapshot.
+    //   2. Pin set + snapshot row missing  -> fall back to live row IFF live.version === pin
+    //      (the lazy first-version case — live row IS v1 until the first edit creates
+    //      its archive). Mismatch is logged but not thrown here (this is a read
+    //      endpoint; advance() is where the 409 GROUP_VERSION_MISSING fires).
+    //   3. Pin null (legacy cycle started pre-P1) -> live row.
+    //   4. No cycle group at all -> block-fallback below (unchanged).
+    let equipmentGroup: any = null;
     if (currentCycle?.equipmentGroupId) {
-      equipmentGroup = await prisma.equipmentGroup.findUnique({
-        where: { id: currentCycle.equipmentGroupId },
-        include: { instruments: { orderBy: { sortOrder: 'asc' } } },
-      });
+      const pin = currentCycle.equipmentGroupVersionPin;
+      if (pin !== null && pin !== undefined) {
+        const versionRow = await prisma.equipmentGroupVersion.findUnique({
+          where: { groupId_versionNumber: { groupId: currentCycle.equipmentGroupId, versionNumber: pin } },
+        });
+        if (versionRow) {
+          const snap = versionRow.snapshot as { name?: string; blockId?: string; isActive?: boolean; instruments?: any[] };
+          equipmentGroup = {
+            id: currentCycle.equipmentGroupId,
+            name: snap.name ?? null,
+            blockId: snap.blockId ?? null,
+            isActive: snap.isActive ?? true,
+            version: pin,
+            instruments: (snap.instruments ?? []).slice().sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
+          };
+        } else {
+          // Lazy first-version: snapshot only exists after the first admin edit.
+          // Live row IS the pinned version when versions match.
+          const liveGroup = await prisma.equipmentGroup.findUnique({
+            where: { id: currentCycle.equipmentGroupId },
+            include: { instruments: { orderBy: { sortOrder: 'asc' } } },
+          });
+          if (liveGroup && liveGroup.version === pin) {
+            equipmentGroup = liveGroup;
+          } else {
+            // Pin and live diverge but no snapshot row exists. Should be impossible
+            // given the snapshot-then-bump invariant; log + return live so the UI
+            // doesn't break. advance() will throw 409 GROUP_VERSION_MISSING when
+            // the operator attempts to submit readings.
+            console.warn(
+              `[getCurrentState] equipmentGroupVersionPin=${pin} but neither snapshot row exists nor does live.version match for group ${currentCycle.equipmentGroupId} (cycle ${currentCycle.id}). Returning live row.`,
+            );
+            equipmentGroup = liveGroup;
+          }
+        }
+      } else {
+        // Legacy cycle (pre-P1, pin never written). Live row is correct here —
+        // documented drift gap, kept only for backwards compatibility.
+        equipmentGroup = await prisma.equipmentGroup.findUnique({
+          where: { id: currentCycle.equipmentGroupId },
+          include: { instruments: { orderBy: { sortOrder: 'asc' } } },
+        });
+      }
     }
     // Fallback: if cycle has no equipment group but has a cleaning area (block),
     // return the first active equipment group for that block so the UI can surface
-    // instrument operating ranges (e.g. dryer temperature dropdown).
+    // instrument operating ranges (e.g. dryer temperature dropdown). No cycle pin
+    // applies here — the cycle hasn't bound a group yet.
     if (!equipmentGroup && currentCycle?.cleaningAreaId) {
       equipmentGroup = await prisma.equipmentGroup.findFirst({
         where: { blockId: currentCycle.cleaningAreaId, isActive: true },
