@@ -275,7 +275,8 @@ describe('Phase 8.0 — tape vs getCurrentState() parity (TAPE_PARALLEL=true)', 
   it('p8. tapeVersion derives from cycle.profileVersion (smoke check)', async () => {
     setupReads({ currentState: null, pipelineName: 'simple', cycleOverrides: { profileVersion: 7 } });
     const state = await new FilterOperationsService().getCurrentState(ctx, FILTER_ID);
-    // 7 * 1000 + 0 events = 7000.
-    expect(state.tapeVersion).toBe(7000);
+    // Phase 8.4 M3 (2026-05-02): formula = profileVersion * 1_000_000 +
+    // filterEventCount. 7 * 1e6 + 0 = 7_000_000.
+    expect(state.tapeVersion).toBe(7_000_000);
   });
 });

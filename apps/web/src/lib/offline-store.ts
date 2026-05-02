@@ -4,16 +4,16 @@
  */
 
 const DB_NAME = 'digilog-offline';
-// Phase 8.3 (decision-tape concurrency): bumped 2 -> 3 to add `tapeVersion`
-// to OfflineOperation rows. The store is row-shape-flexible (no per-field
-// indexes on tapeVersion), so no `onupgradeneeded` migration code is needed
-// — existing rows simply have `tapeVersion === undefined`. The sync engine
-// passes `null` to the server in that case and the server, having declared
-// `tapeVersion` optional in its body schema (also Phase 8.3), accepts the
-// replay without staleness checking. Phase 8.4 will tighten the server
-// schema to required and we'll add an explicit purge of any leftover
-// pre-8.3 ops at that point.
-const DB_VERSION = 3;
+// Phase 8.3: bumped 2 -> 3 to add `tapeVersion` to OfflineOperation rows.
+// Phase 8.4 (M-3, 2026-05-02): bumped 3 -> 4. The server schema now
+// REQUIRES `tapeVersion` on cycle-bound writes, so leaving rows with
+// `tapeVersion === undefined` would produce 400 SCHEMA_ERROR on replay.
+// The v3 -> v4 upgrade walks the operations store and normalizes any
+// row with undefined tapeVersion to null in place. Null still skips the
+// staleness check on the server (the schema has nullable handling), so
+// pre-8.3 leftover ops still drain — they're just not fresher than the
+// queue assumed at write time.
+const DB_VERSION = 4;
 
 // Single source of truth for offline-critical TTLs. Long shifts (>= 12h)
 // require everything that participates in cleaning to outlive a full day,
@@ -37,12 +37,19 @@ interface OfflineOperation {
   retryCount: number;
   syncedAt?: string;
   /**
-   * Phase 8.3: tape version observed at queue time. Sent on the replay so
-   * the server can reject (409 STALE_TAPE) if another writer changed the
-   * cycle while this op sat queued. `null` = pre-8.3 op or non-cycle-bound
-   * op (start-cycle); server treats absent/null as a no-check.
+   * Tape version observed at queue time. Sent on the replay so the server
+   * can reject (409 STALE_TAPE) if another writer changed the cycle while
+   * this op sat queued.
+   *
+   * Phase 8.4 (M-3, 2026-05-02): tightened from `?: number | null` (3
+   * states: undefined / null / number) to `: number | null` (2 states).
+   * The v3 -> v4 IDB upgrade backfills any pre-existing row with
+   * undefined to null in place, so every live op in the store has a
+   * deterministic shape. `null` still means "no staleness check" — used
+   * for pre-8.3 leftover ops and for non-cycle-bound writes (start-cycle,
+   * the start-step of start-and-advance).
    */
-  tapeVersion?: number | null;
+  tapeVersion: number | null;
 }
 
 interface Tombstone {
@@ -82,11 +89,35 @@ interface CachedData {
   expiresAt: string;
 }
 
+/**
+ * Phase 8.4 M-3 — pure helper used by the v3 -> v4 IDB upgrade.
+ *
+ * Mutates `row` in place if its `tapeVersion` is undefined (the pre-8.3 +
+ * pre-8.4-tightening shape) and returns `true` so the caller knows to
+ * `cursor.update(row)`. Otherwise returns `false` (no write needed).
+ *
+ * Exported for direct unit-testing — exercising the cursor inside a real
+ * IDB upgrade transaction would require a heavyweight fake-indexeddb dev
+ * dep we don't have, but the migration policy itself is tiny and worth
+ * testing explicitly.
+ */
+export function normalizeOpForV4(row: { tapeVersion?: number | null }): boolean {
+  if (row.tapeVersion === undefined) {
+    (row as { tapeVersion: number | null }).tapeVersion = null;
+    return true;
+  }
+  return false;
+}
+
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (event) => {
       const db = req.result;
+      const upgradeTx = req.transaction; // versionchange transaction — must use this for cursor work below
+      const oldVersion = (event as IDBVersionChangeEvent).oldVersion ?? 0;
+
+      // Schema bootstrap (idempotent): create stores/indexes that don't exist.
       if (!db.objectStoreNames.contains('operations')) {
         const opStore = db.createObjectStore('operations', { keyPath: 'id' });
         opStore.createIndex('status', 'status', { unique: false });
@@ -102,6 +133,23 @@ function openDB(): Promise<IDBDatabase> {
         const tsStore = db.createObjectStore('tombstones', { keyPath: 'id' });
         tsStore.createIndex('status', 'status', { unique: false });
         tsStore.createIndex('createdAt', 'createdAt', { unique: false });
+      }
+
+      // Phase 8.4 M-3 (2026-05-02): v3 -> v4 normalizes any pre-8.3
+      // OfflineOperation row with undefined tapeVersion to explicit null.
+      // The TypeScript type was tightened from `?: number | null` to
+      // `: number | null`, so the on-disk shape must match. Cursor-iterate
+      // the operations store inside the versionchange transaction.
+      if (oldVersion < 4 && upgradeTx) {
+        const opStore = upgradeTx.objectStore('operations');
+        const cursorReq = opStore.openCursor();
+        cursorReq.onsuccess = () => {
+          const cursor = cursorReq.result;
+          if (!cursor) return;
+          const row = cursor.value as OfflineOperation;
+          if (normalizeOpForV4(row)) cursor.update(row);
+          cursor.continue();
+        };
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -301,11 +349,26 @@ export async function clearOfflineCycleId(filterId: string): Promise<void> {
 
 // === Operation Queue ===
 
-export async function queueOperation(op: Omit<OfflineOperation, 'id' | 'clientOpId' | 'createdAt' | 'status' | 'retryCount'>): Promise<string> {
+/**
+ * Input shape for `queueOperation`: the on-store row type (`OfflineOperation`)
+ * minus the engine-managed fields, with `tapeVersion` widened to allow
+ * `undefined` from callers that haven't been threaded through yet. The
+ * persistence layer always normalizes to `number | null` (M-3 / v4).
+ */
+type QueueInput = Omit<OfflineOperation, 'id' | 'clientOpId' | 'createdAt' | 'status' | 'retryCount' | 'tapeVersion'> & {
+  tapeVersion?: number | null;
+};
+
+export async function queueOperation(op: QueueInput): Promise<string> {
   const db = await openDB();
   const id = `op-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const clientOpId = generateClientOpId();
   const tx = db.transaction('operations', 'readwrite');
+  // Phase 8.4 M-3: persist tapeVersion as `number | null` only — no undefined
+  // on the wire. The IDB upgrade also normalizes any pre-existing v3 rows
+  // with undefined tapeVersion. Callers that don't supply tapeVersion (pre-
+  // cutover paths, non-cycle-bound writes) get null; the sync engine
+  // omits the body field entirely when null.
   tx.objectStore('operations').put({
     ...op,
     id,
@@ -313,9 +376,6 @@ export async function queueOperation(op: Omit<OfflineOperation, 'id' | 'clientOp
     createdAt: new Date().toISOString(),
     status: 'pending',
     retryCount: 0,
-    // Phase 8.3: default to null when caller didn't supply a tape version
-    // (pre-8.4 callers won't pass one). Persist null explicitly so the row
-    // shape is consistent across all queued ops.
     tapeVersion: op.tapeVersion ?? null,
   });
   return new Promise((resolve, reject) => {

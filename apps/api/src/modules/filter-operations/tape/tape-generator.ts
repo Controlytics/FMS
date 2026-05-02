@@ -355,12 +355,22 @@ type TapeCycleLike = { profileVersion: number };
  * write-path tape-version checks (see filter-operations.service.ts) so the
  * generator and the staleness-detection logic can never drift.
  *
- * TODO M3 (deferred to Phase 8.4): this overflows / aliases when
- * `filterEventCount >= 1000`. e.g. profileVersion=1, filterEventCount=1000
- * collides with profileVersion=2, filterEventCount=0. Acceptable for v1
- * because real cycles rarely cross 1000 events, but must be replaced before
- * we remove the legacy advance/bypass guards.
+ * Formula: `profileVersion * 1_000_000 + filterEventCount`.
+ *
+ * The 1e6 multiplier is the per-cycle event-count cap (M3 — Phase 8.4
+ * 2026-05-02). filterEventCount is scoped to a single CleaningCycle, not
+ * the filter's lifetime — cycles complete in days. Even at 100 events per
+ * day for 10 years (365k events) we stay an order of magnitude below the
+ * cap. With profileVersion as a plain Int counter, the highest possible
+ * tapeVersion before JS Number loses safe integer precision
+ * (Number.MAX_SAFE_INTEGER ≈ 9.007e15) is profileVersion ≈ 9e9 — i.e. you
+ * would need 9 billion edits to a single FilterCleaningProfile to alias.
+ *
+ * If filterEventCount ever did exceed the cap we'd alias against the next
+ * profileVersion (e.g. v1+1e6 events == v2+0 events). The tape generator
+ * does not bound-check before encoding, but this is a documented engineering
+ * limit, not a silent corruption — the formula is the single chokepoint.
  */
 export function computeTapeVersion(profileVersion: number, filterEventCount: number): number {
-  return (profileVersion ?? 0) * 1000 + (filterEventCount ?? 0);
+  return (profileVersion ?? 0) * 1_000_000 + (filterEventCount ?? 0);
 }

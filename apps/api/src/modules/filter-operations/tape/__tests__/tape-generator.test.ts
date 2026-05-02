@@ -438,10 +438,13 @@ describe('generateTape() — pure-function action emission', () => {
   });
 
   // ── 9. tapeVersion ─────────────────────────────────────────────────────
-  it('18. tapeVersion = profileVersion * 1000 + filterEventCount (changes on EVERY filter event)', () => {
+  it('18. tapeVersion = profileVersion * 1_000_000 + filterEventCount (changes on EVERY filter event)', () => {
+    // Phase 8.4 M3 (2026-05-02): formula changed from *1000 to *1_000_000 to
+    // eliminate aliasing when filterEventCount approaches 1000. New cap is
+    // 1M events per cycle, far above any realistic operating range.
     // Zero events.
     const tape0 = generateTape(inputFx({ cycle: cycleFx({ profileVersion: 5 }), filterEventCount: 0 }));
-    expect(tape0.tapeVersion).toBe(5000);
+    expect(tape0.tapeVersion).toBe(5_000_000);
 
     // Single event (e.g. STATE_TRANSITION) — must change tapeVersion even though
     // checklist events list is unchanged. This is the contract that lets the FE
@@ -451,11 +454,11 @@ describe('generateTape() — pure-function action emission', () => {
       filterEventCount: 1,
       recentChecklistEvents: [],
     }));
-    expect(tape1.tapeVersion).toBe(5001);
+    expect(tape1.tapeVersion).toBe(5_000_001);
 
     // Multiple events.
     const tape5 = generateTape(inputFx({ cycle: cycleFx({ profileVersion: 5 }), filterEventCount: 5 }));
-    expect(tape5.tapeVersion).toBe(5005);
+    expect(tape5.tapeVersion).toBe(5_000_005);
   });
 
   it('19. tapeVersion is stable for the same input (determinism check)', () => {
@@ -475,21 +478,34 @@ describe('generateTape() — pure-function action emission', () => {
   // The exported helper is the single source of truth for the tapeVersion
   // formula — generator + write-path concurrency check both call it. If the
   // formula changes, this test fails first.
-  describe('computeTapeVersion() direct unit (Phase 8.3)', () => {
-    it('21. profileVersion * 1000 + filterEventCount, stable for fixed inputs', () => {
+  describe('computeTapeVersion() direct unit (Phase 8.3, 8.4 M3)', () => {
+    it('21. profileVersion * 1_000_000 + filterEventCount, stable for fixed inputs', () => {
       expect(computeTapeVersion(0, 0)).toBe(0);
-      expect(computeTapeVersion(1, 0)).toBe(1000);
-      expect(computeTapeVersion(1, 5)).toBe(1005);
-      expect(computeTapeVersion(7, 23)).toBe(7023);
+      expect(computeTapeVersion(1, 0)).toBe(1_000_000);
+      expect(computeTapeVersion(1, 5)).toBe(1_000_005);
+      expect(computeTapeVersion(7, 23)).toBe(7_000_023);
     });
     it('22. nullish args coerce to 0', () => {
       expect(computeTapeVersion(undefined as any, undefined as any)).toBe(0);
-      expect(computeTapeVersion(2, undefined as any)).toBe(2000);
+      expect(computeTapeVersion(2, undefined as any)).toBe(2_000_000);
       expect(computeTapeVersion(undefined as any, 4)).toBe(4);
     });
     it('23. tape generator and direct helper agree on the same inputs', () => {
       const tape = generateTape(inputFx({ cycle: cycleFx({ profileVersion: 9 }), filterEventCount: 17 }));
       expect(tape.tapeVersion).toBe(computeTapeVersion(9, 17));
+    });
+    it('24. M3 (Phase 8.4): no aliasing across the old 1e3 boundary', () => {
+      // Pre-fix this pair collided: 1*1000 + 1000 == 2*1000 + 0 == 2000.
+      // Post-fix the cap is 1e6, so these are distinct.
+      expect(computeTapeVersion(1, 1000)).not.toBe(computeTapeVersion(2, 0));
+      expect(computeTapeVersion(1, 1000)).toBe(1_001_000);
+      expect(computeTapeVersion(2, 0)).toBe(2_000_000);
+    });
+    it('25. M3: result stays within Number.MAX_SAFE_INTEGER for realistic inputs', () => {
+      // 100k profile edits + 1M events per cycle cap ⇒ 1.001e11, well below 9.007e15.
+      const big = computeTapeVersion(100_000, 1_000_000 - 1);
+      expect(Number.isSafeInteger(big)).toBe(true);
+      expect(big).toBeLessThan(Number.MAX_SAFE_INTEGER);
     });
   });
 });

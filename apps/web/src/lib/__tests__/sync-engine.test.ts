@@ -199,4 +199,83 @@ describe('sync-engine — Phase 8.3 tape-version handling', () => {
     expect(op.status).toBe('pending');
     expect(op.retryCount).toBe(1); // bumped exactly once
   });
+
+  // ── Phase 8.4 I-3: dedupe STALE_TAPE toasts per filter per drain ──────
+  //
+  // When 5 cycle-bound ops are queued for the same filter and the cycle
+  // moves on, every replay would 409 STALE_TAPE — old behavior emitted 5
+  // identical toasts and made 5 wasted POSTs. New behavior: one toast,
+  // remaining ops short-circuited to `failed` without hitting the network.
+
+  it('5. I-3: 5 STALE_TAPE-bound ops on the same filter emit ONE toast', async () => {
+    // Queue 5 ops for the SAME filter.
+    const errorsEmitted: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      queueOp({ type: 'advance', filterId: 'filter-A', filterName: 'Filter A', tapeVersion: 1003 });
+    }
+
+    // First POST returns 409 STALE_TAPE. Subsequent ops for filter-A should
+    // be short-circuited (no network call) — but the harness will still
+    // throw for any cycle-bound POST that DOES happen.
+    let postCallCount = 0;
+    mockApiClient.post.mockImplementation(async (url: string) => {
+      if (url === '/api/auth/refresh') return { token: 'fresh' };
+      postCallCount++;
+      const err: any = new Error('Tape version mismatch');
+      err.code = 'STALE_TAPE';
+      err.status = 409;
+      err.currentTapeVersion = 1005;
+      throw err;
+    });
+
+    // Listen via the SAME imported module syncPendingOperations came from,
+    // not a fresh dynamic import (vi.resetModules() between tests would put
+    // them in different module-instance spaces and the listener would be
+    // attached to the wrong copy of the engine state).
+    const engineMod = await import('../sync-engine');
+    const off = engineMod.onSyncEvent((ev) => {
+      if (ev.type === 'error' && typeof ev.error === 'string') errorsEmitted.push(ev.error);
+    });
+
+    const result = await engineMod.syncPendingOperations();
+    off();
+
+    expect(result.synced).toBe(0);
+    expect(result.failed).toBe(5);
+    // Network: only one POST should have happened (the first); the other
+    // four were short-circuited by the dedupe set.
+    expect(postCallCount).toBe(1);
+    // Toast: exactly one STALE_TAPE-themed toast for filter-A.
+    const staleToasts = errorsEmitted.filter(e => /Filter A:.*another operator/.test(e));
+    expect(staleToasts).toHaveLength(1);
+  });
+
+  it('6. I-3: STALE_TAPE on different filters each emits its own toast', async () => {
+    const errorsEmitted: string[] = [];
+    queueOp({ type: 'advance', filterId: 'filter-X', filterName: 'Filter X', tapeVersion: 1003 });
+    queueOp({ type: 'advance', filterId: 'filter-Y', filterName: 'Filter Y', tapeVersion: 1004 });
+
+    mockApiClient.post.mockImplementation(async (url: string) => {
+      if (url === '/api/auth/refresh') return { token: 'fresh' };
+      const err: any = new Error('Tape version mismatch');
+      err.code = 'STALE_TAPE';
+      err.status = 409;
+      err.currentTapeVersion = 1099;
+      throw err;
+    });
+
+    const engineMod = await import('../sync-engine');
+    const off = engineMod.onSyncEvent((ev) => {
+      if (ev.type === 'error' && typeof ev.error === 'string') errorsEmitted.push(ev.error);
+    });
+
+    const result = await engineMod.syncPendingOperations();
+    off();
+
+    expect(result.failed).toBe(2);
+    const xToasts = errorsEmitted.filter(e => /Filter X:.*another operator/.test(e));
+    const yToasts = errorsEmitted.filter(e => /Filter Y:.*another operator/.test(e));
+    expect(xToasts).toHaveLength(1);
+    expect(yToasts).toHaveLength(1);
+  });
 });

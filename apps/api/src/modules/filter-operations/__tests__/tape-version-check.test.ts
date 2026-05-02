@@ -102,11 +102,12 @@ describe('Phase 8.3 — server tape-version concurrency check', () => {
   });
 
   it('1. tapeVersion matches → write proceeds (no STALE_TAPE)', async () => {
-    // profileVersion=2, filterEventCount=5 → tapeVersion=2005
+    // Phase 8.4 M3: profileVersion=2, filterEventCount=5
+    // → tapeVersion = 2 * 1_000_000 + 5 = 2_000_005.
     setupBaselineMocks({ cycleProfileVersion: 2, filterEventCount: 5 });
     const service = new FilterOperationsService();
     await expect(
-      service.terminateCycle(ctx, FILTER_ID, { justification: VALID_JUSTIFICATION, tapeVersion: 2005 }),
+      service.terminateCycle(ctx, FILTER_ID, { justification: VALID_JUSTIFICATION, tapeVersion: 2_000_005 }),
     ).resolves.not.toThrow();
     // Concurrency check ran: count called once with the cycle scope.
     expect(mockPrisma.filterEvent.count).toHaveBeenCalledWith({ where: { filterId: FILTER_ID, cycleId: CYCLE_ID } });
@@ -114,15 +115,15 @@ describe('Phase 8.3 — server tape-version concurrency check', () => {
   });
 
   it('2. tapeVersion mismatched → 409 STALE_TAPE with currentTapeVersion in details', async () => {
-    // Live tapeVersion = 2005 but client sent 2003 (stale).
+    // Live tapeVersion = 2_000_005 but client sent 2_000_003 (stale).
     setupBaselineMocks({ cycleProfileVersion: 2, filterEventCount: 5 });
     const service = new FilterOperationsService();
     await expect(
-      service.terminateCycle(ctx, FILTER_ID, { justification: VALID_JUSTIFICATION, tapeVersion: 2003 }),
+      service.terminateCycle(ctx, FILTER_ID, { justification: VALID_JUSTIFICATION, tapeVersion: 2_000_003 }),
     ).rejects.toMatchObject({
       statusCode: 409,
       code: 'STALE_TAPE',
-      details: { currentTapeVersion: 2005 },
+      details: { currentTapeVersion: 2_000_005 },
     });
     // Critically: the mismatch must reject BEFORE the transaction runs.
     expect(mockPrisma.$transaction).not.toHaveBeenCalled();

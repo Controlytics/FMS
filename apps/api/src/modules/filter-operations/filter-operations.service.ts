@@ -855,16 +855,16 @@ export class FilterOperationsService {
     });
     if (!cycle) throw new AppError(400, 'NO_ACTIVE_CYCLE', 'No active cleaning cycle found');
 
-    // Phase 8.3 staleness guard. No-op when client did not submit a tapeVersion
-    // (pre-cutover callers), enforced when present.
-    await assertTapeVersionFresh(filterId, cycle.id, (cycle as any).profileVersion ?? 0, data.tapeVersion);
+    // Phase 8.3 staleness guard. Now required (Phase 8.4 cutover) — server
+    // schema enforces presence; service still defensively defaults to 0.
+    await assertTapeVersionFresh(filterId, cycle.id, cycle.profileVersion ?? 0, data.tapeVersion);
 
     // Resolve checklist nodes for the current stage. Required for: validation,
     // schema-drift detection, and the per-profile snapshot we persist on the event.
     // Phase A.1: resolve through the cycle's pinned versions, so the questions
     // the operator answered against are byte-identical to the questions we
     // validate here, regardless of any admin edits during the cycle.
-    const cyclePins = ((cycle as any).checklistVersionPins ?? null) as Record<string, number> | null;
+    const cyclePins = (cycle.checklistVersionPins ?? null) as Record<string, number> | null;
     const resolvedProfileId = await this.resolveFilterProfile(filter);
     const cp = resolvedProfileId ? await this.getProfilePipeline(resolvedProfileId) : null;
     let resolvedChecklists: any[] = [];
@@ -1181,8 +1181,10 @@ export class FilterOperationsService {
     });
     if (!cycle) throw new AppError(400, 'NO_ACTIVE_CYCLE', 'No active cleaning cycle found');
 
-    // Phase 8.3 staleness guard.
-    await assertTapeVersionFresh(filterId, cycle.id, (cycle as any).profileVersion ?? 0, data.tapeVersion);
+    // Phase 8.3 staleness guard. Phase 8.4 (2026-05-02) tightened the route
+    // schema to require `tapeVersion` so this is no longer a no-op for
+    // current callers.
+    await assertTapeVersionFresh(filterId, cycle.id, cycle.profileVersion ?? 0, data.tapeVersion);
 
     const resolvedProfileIdForAdvance = await this.resolveFilterProfile(filter);
     if (!resolvedProfileIdForAdvance) throw new AppError(400, 'NO_PROFILE', 'Filter has no assigned profile');
@@ -1861,7 +1863,7 @@ export class FilterOperationsService {
     // pinned versions; last resort fall back to live ChecklistQuestion (for
     // legacy events written before snapshots existed).
     const questionMap = new Map<string, string>();
-    const cyclePins = ((cycle as any).checklistVersionPins ?? null) as Record<string, number> | null;
+    const cyclePins = (cycle.checklistVersionPins ?? null) as Record<string, number> | null;
 
     // First pass: harvest text from per-event snapshots.
     for (const e of cycle.events) {

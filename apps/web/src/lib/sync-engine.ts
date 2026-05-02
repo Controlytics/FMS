@@ -216,7 +216,30 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
   let synced = 0;
   let failed = 0;
 
+  // Phase 8.4 I-3: dedupe STALE_TAPE per filter per drain.
+  //   - First STALE_TAPE for a filter: emit one toast, then short-circuit
+  //     every other queued op for the same filterId by marking them failed
+  //     immediately without hitting the network. They would all fail with
+  //     the same currentTapeVersion mismatch, so spamming the network and
+  //     the toast list is wasted work.
+  //   - Subsequent STALE_TAPE errors for filters already in the set: still
+  //     mark op failed but suppress the toast.
+  const staleTapeFiltersThisDrain = new Set<string>();
+
   for (const op of pending) {
+    // Short-circuit: if a previous op for this filter already STALE_TAPE'd,
+    // every further cycle-bound op for the same filter is doomed to the
+    // same fate. Mark failed without an HTTP round-trip and without a
+    // duplicate toast.
+    if (op.filterId && staleTapeFiltersThisDrain.has(op.filterId)) {
+      await updateOperationStatus(
+        op.id,
+        'failed',
+        `Stale tape: another operator changed this cycle. Refresh and retry. (skipped — earlier op for the same filter already STALE_TAPE'd)`,
+      );
+      failed++;
+      continue;
+    }
     try {
       await updateOperationStatus(op.id, 'syncing');
       await executeOperation(op);
@@ -252,10 +275,17 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
       // this op sat queued. Retrying with the same stored tapeVersion will
       // just keep failing, so drop the op and surface a refresh-prompt
       // toast. The fresh state arrives on the next /current-state fetch.
+      //
+      // Phase 8.4 I-3: emit ONE toast per filter per drain. Mark every
+      // subsequent op for the same filter as failed without spamming.
       if (e?.code === 'STALE_TAPE') {
+        const isFirstStaleForFilter = !!op.filterId && !staleTapeFiltersThisDrain.has(op.filterId);
+        if (op.filterId) staleTapeFiltersThisDrain.add(op.filterId);
         await updateOperationStatus(op.id, 'failed', `Stale tape: another operator changed this cycle. Refresh and retry. (${errMsg})`);
         failed++;
-        notify({ type: 'error', error: `${op.filterName}: another operator changed this cycle. Refreshing...` });
+        if (isFirstStaleForFilter) {
+          notify({ type: 'error', error: `${op.filterName}: another operator changed this cycle. Refreshing...` });
+        }
         continue;
       }
 
