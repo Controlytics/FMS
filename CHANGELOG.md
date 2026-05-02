@@ -1,5 +1,44 @@
 # Changelog
 
+## [Unreleased] — P3: AWS SNS dropped; MSG91 / Twilio / similar over generic HTTP gateway (2026-05-02)
+
+Branch: `feature/phase5-verification`. Per user direction: "remove AWS SNS dependencies — we'll do API POST to MSG91 or Twilio or similar service." The `http-gateway` provider already existed in the codebase as a generic templated POST adapter; this change makes it the default and removes the AWS SNS path entirely.
+
+### Background
+
+`apps/api/src/modules/notification-delivery/channels/sms-channel.ts:75` shelled out to the `aws` CLI via `child_process.spawn` to publish SMS via SNS. That made the runtime depend on the AWS CLI being installed on the Windows host — incompatible with the local-Windows-only deployment. Operators who want AWS now configure the http-gateway provider against the SNS REST endpoint (or any other provider — MSG91, Plivo, AfricasTalking, Kaleyra, Twilio's own REST). The http-gateway adapter accepts a configurable URL, method, headers map, and body template with `{phone}` / `{message}` placeholders.
+
+### Changes
+
+- **Backend**:
+  - `apps/api/src/modules/notification-delivery/channels/sms-channel.ts` — removed `sendViaAwsSns()` (the spawn-aws-cli function), removed the `'aws-sns'` switch case in `send()` and `testConnection()`. Twilio + Vonage + http-gateway remain.
+  - `apps/api/src/modules/notification-delivery/types.ts` — `SmsConfig.provider` union narrowed from `'twilio' | 'aws-sns' | 'vonage' | 'http-gateway'` to `'twilio' | 'vonage' | 'http-gateway'`. Dropped `awsAccessKeyId / awsSecretAccessKey / awsRegion` fields.
+  - `apps/api/src/modules/notification-delivery/routes.ts` — removed `'aws-sns'` from the provider enum on `PUT /api/notification-settings/sms`. Dropped the `awsAccessKeyId / awsSecretAccessKey / awsRegion` body schema entries. Dropped from `sensitiveKeys` mask list (no longer applicable). Dropped from the audit-log redaction call.
+  - `apps/api/src/modules/config/defs/notification-sms.def.ts` — provider select now offers `http-gateway` (default), `twilio`, `vonage`. AWS SNS gone.
+- **Frontend**:
+  - `apps/web/src/routes/config/notification-settings/{sms-settings,email-settings}.tsx` — removed `awsAccessKeyId / awsSecretAccessKey / awsRegion` from the `SmsConfig` interface, the `defaultValues` literal, and the AWS SNS provider config block. `SMS_PROVIDERS` now lists `http-gateway` first (with a description naming MSG91 / Plivo / AfricasTalking / Kaleyra). Default provider switched to `http-gateway`.
+- **Rule-chain `aws-sns` / `aws-sqs` / `aws-lambda` nodes** — left in place. They're stub no-op nodes that just annotate the message and pass through; they do NOT carry a real AWS dependency. Out of scope for "drop AWS SNS dependencies."
+
+### Verification
+
+- `npx tsc -p apps/api/tsconfig.json --noEmit` exit 0 (twice — once after the channel/types/def changes, once after the routes.ts cleanup).
+- `npx tsc --noEmit` in `apps/web` exit 0.
+- Full compile to dist exit 0; **dist contains zero references** to `aws-sns / sendViaAwsSns / awsAccessKeyId / awsSecretAccessKey / awsRegion` (verified via grep against `apps/api/dist/modules/notification-delivery/`).
+- `Restart-Service DigiLogAPI-Phase5` clean.
+- End-to-end via curl:
+  - `PUT /api/notification-settings/sms` with a MSG91-style body template via `http-gateway` provider → `200 success`.
+  - `GET /api/notification-settings/sms` → returned the persisted config with the body template intact.
+  - `PUT /api/notification-settings/sms` with `provider: "aws-sns"` → `400 VALIDATION_ERROR` from the route schema enum (`allowedValues: ["twilio", "vonage", "http-gateway"]`). Confirms the new shape is enforced server-side, not just in the FE dropdown.
+- Test config wiped from `system_config` after verification.
+
+### Notes
+
+- The http-gateway provider supports `{phone}` and `{message}` placeholders in URL and body template. Headers map is configured per-provider (e.g., `authkey` for MSG91, `Authorization: Basic …` for Twilio's REST endpoint).
+- Existing rows in `system_config` with `provider: 'aws-sns'` will still load (the runtime `switch` falls through to "Unknown SMS provider"), so any configured installation will silently stop sending until the operator updates the provider. **No automatic migration** since aws-sns config rows are credentials-only — operators must reconfigure to a real provider regardless.
+- No new package dependencies. The http-gateway path was already in the codebase; only field/type plumbing was changed.
+
+---
+
 ## [Unreleased] — P1: cycle-side EquipmentGroup version pinning + latent FK bug fix (2026-05-02)
 
 Branch: `feature/phase5-verification`. Closes the operational drift gap left by Phase A.4 (which versioned the EquipmentGroup composite but didn't pin to the cycle). Server-side only — tablet contract documented in `future/offline-version-sync-contract.md` for the next APK build cycle (Slice B).

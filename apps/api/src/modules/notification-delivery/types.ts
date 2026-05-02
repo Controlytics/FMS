@@ -38,21 +38,22 @@ export interface EmailConfig {
 }
 
 export interface SmsConfig {
-  provider: 'twilio' | 'aws-sns' | 'vonage' | 'http-gateway';
+  // P3 (2026-05-02): AWS SNS removed — never had a non-CLI integration; users
+  // who want AWS can hit it via the http-gateway template. MSG91, Plivo,
+  // AfricasTalking, Kaleyra etc. all run through `http-gateway`.
+  provider: 'twilio' | 'vonage' | 'http-gateway';
   enabled: boolean;
   // Twilio
   twilioAccountSid?: string;
   twilioAuthToken?: string;
   twilioFromNumber?: string;
-  // AWS SNS
-  awsAccessKeyId?: string;
-  awsSecretAccessKey?: string;
-  awsRegion?: string;
   // Vonage
   vonageApiKey?: string;
   vonageApiSecret?: string;
   vonageFromNumber?: string;
-  // Generic HTTP gateway
+  // Generic HTTP gateway — covers MSG91, Plivo, AfricasTalking, Kaleyra, custom
+  // backends, etc. via configurable URL + headers + body template (placeholders
+  // {phone} and {message}).
   httpGatewayUrl?: string;
   httpGatewayMethod?: 'GET' | 'POST';
   httpGatewayHeaders?: Record<string, string>;

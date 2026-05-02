@@ -45,6 +45,8 @@ const SMTP_PRESETS: Record<string, Partial<EmailConfig>> = {
 };
 
 // ─── SMS Types & Constants ────────────────────────────────────────────
+// P3 (2026-05-02): AWS SNS dropped — see CHANGELOG. Operators wanting AWS or
+// any other provider use the HTTP Gateway with that provider's REST endpoint.
 interface SmsConfig {
   provider: string;
   enabled: boolean;
@@ -53,9 +55,6 @@ interface SmsConfig {
   twilioAccountSid: string;
   twilioAuthToken: string;
   twilioFromNumber: string;
-  awsAccessKeyId: string;
-  awsSecretAccessKey: string;
-  awsRegion: string;
   vonageApiKey: string;
   vonageApiSecret: string;
   vonageFromNumber: string;
@@ -66,10 +65,9 @@ interface SmsConfig {
 }
 
 const SMS_PROVIDERS = [
+  { value: 'http-gateway', label: 'HTTP Gateway', description: 'Generic POST adapter — covers MSG91, Plivo, AfricasTalking, Kaleyra, custom backends' },
   { value: 'twilio', label: 'Twilio', description: 'Popular cloud communication platform' },
-  { value: 'aws-sns', label: 'AWS SNS', description: 'Amazon Simple Notification Service' },
   { value: 'vonage', label: 'Vonage (Nexmo)', description: 'Communication APIs' },
-  { value: 'http-gateway', label: 'HTTP Gateway', description: 'Custom HTTP-based SMS gateway' },
 ];
 
 // ─── Main Page ────────────────────────────────────────────────────────
@@ -650,9 +648,8 @@ function SmsTab() {
   const { data, mutate } = useSWR('/api/notification-settings/sms', { revalidateOnMount: true, dedupingInterval: 0 });
 
   const defaultValues: SmsConfig = {
-    provider: 'twilio', enabled: false, defaultCountryCode: '+91', senderId: 'DigiLog',
+    provider: 'http-gateway', enabled: false, defaultCountryCode: '+91', senderId: 'DigiLog',
     twilioAccountSid: '', twilioAuthToken: '', twilioFromNumber: '',
-    awsAccessKeyId: '', awsSecretAccessKey: '', awsRegion: 'ap-south-1',
     vonageApiKey: '', vonageApiSecret: '', vonageFromNumber: '',
     httpGatewayUrl: '', httpGatewayMethod: 'POST', httpGatewayHeaders: {}, httpGatewayBodyTemplate: '',
   };
@@ -768,25 +765,8 @@ function SmsTab() {
           </div>
         )}
 
-        {provider === 'aws-sns' && (
-          <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
-            <h3 className="font-semibold text-slate-800">AWS SNS Settings</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Access Key ID</label>
-                <Input {...register('awsAccessKeyId')} placeholder="AKIA..." />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Secret Access Key</label>
-                <Input {...register('awsSecretAccessKey')} type="password" placeholder="Secret key" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Region</label>
-                <Input {...register('awsRegion')} placeholder="ap-south-1" />
-              </div>
-            </div>
-          </div>
-        )}
+        {/* P3 (2026-05-02): AWS SNS provider block removed. Operators wanting
+            AWS SNS use the HTTP Gateway pointed at the SNS REST endpoint. */}
 
         {provider === 'vonage' && (
           <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">

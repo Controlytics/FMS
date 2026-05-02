@@ -130,7 +130,7 @@ You cannot consolidate them without either forcing every cleaning checklist thro
 These are NOT part of the 9 steps but were discussed during the same conversations:
 
 - **Multi-tenancy removal** — ✅ DONE 2026-04-30. Single-tenant deployment. Step 3 retired. See CHANGELOG.
-- **AWS SNS spawn-aws-CLI** — `notification-delivery/channels/sms-channel.ts:75` shells out to the AWS CLI. Switch to `@aws-sdk/client-sns`. Pending product decision.
+- ~~**AWS SNS spawn-aws-CLI**~~ — ✅ **DONE 2026-05-02 (P3).** Per user direction the AWS SNS path was dropped entirely (no `@aws-sdk/client-sns` swap). MSG91 / Twilio / Plivo / AfricasTalking / Kaleyra all run through the existing generic `http-gateway` provider — configurable URL + headers map + body template with `{phone}` / `{message}` placeholders. AWS-related fields removed from `SmsConfig` interface, route enum, sensitive-key masks, and FE config page. Compiled dist contains zero AWS references. Rule-chain `aws-sns` / `aws-sqs` / `aws-lambda` nodes (stub no-ops, no real AWS deps) left in place — out of scope.
 - **Phase 5+ proper Windows-service launcher** — partial via NSSM scripts in `d1ce9f5`; full automation still pending.
 
 ## Memory entries that informed this plan
