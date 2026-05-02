@@ -1,55 +1,144 @@
 /**
- * Dryer duration + readings guards (Phase 8.4c scaffold).
+ * Dryer guards (Phase 8.5).
  *
- * Phase 8.5 fills these in by extracting the pure portions of the DRY_IN
- * specials in `advance()` (filter-operations.service.ts:1156-1187, the
- * SET_DURATION + half-time-elapsed + readings flow) plus the operating-range
- * validation in submit-readings.
+ * Pure portions of advance()'s dryer-specific blocks in
+ * `apps/api/src/modules/filter-operations/filter-operations.service.ts`
+ * (lines 1294-1326). SET_DURATION + SUBMIT_READINGS validation, half-time
+ * gates.
+ *
+ * Note on offline replay: when the operator submitted the action offline,
+ * `offlinePerformedAt` is the regulatory timestamp and the server skips the
+ * half-time gate (time was already validated client-side). We mirror that by
+ * accepting an optional `offlineTime` argument; pass `undefined` for online
+ * paths to enforce the gate.
  */
-import type {
-  LocalContext,
-  GuardResult,
-  ValidationResult,
-} from './types.js';
+import type { CycleSlice, GuardResult, LocalContext } from './types.js';
 
-/**
- * Asserts that `minutes` is a valid dryer duration (within profile-allowed
- * min/max and matches the SET_DRYER_DURATION action's params bounds — see
- * `SetDryerDurationAction` in action-tape.ts).
- */
-export function assertValidDryerDuration(
+/** Guard #21: SET_DURATION only valid for DRY_IN target. */
+export function assertDryerActionValid(
   _ctx: LocalContext,
-  _minutes: number,
+  dryerAction: string | null | undefined,
+  targetState: string | null | undefined,
 ): GuardResult {
-  throw new Error(
-    'NOT_IMPLEMENTED — pipeline-executor/dryer.assertValidDryerDuration — Phase 8.5',
-  );
+  if (dryerAction !== 'SET_DURATION') return { ok: true };
+  if (targetState === 'DRY_IN') return { ok: true };
+  return {
+    ok: false,
+    code: 'INVALID_DRYER_ACTION',
+    message: 'SET_DURATION only valid for DRY_IN',
+  };
 }
 
-/**
- * Asserts that the dryer half-time has elapsed for the current cycle —
- * i.e. operator may now submit readings. Mirrors the half-elapsed check
- * in advance():1162-1187.
- *
- * Returns `{ ok: false, code: 'DRYER_HALF_TIME_NOT_ELAPSED', ... }` when
- * the operator is trying to submit too early; `{ ok: true }` otherwise.
- */
-export function assertDryerHalfTimeElapsed(_ctx: LocalContext): GuardResult {
-  throw new Error(
-    'NOT_IMPLEMENTED — pipeline-executor/dryer.assertDryerHalfTimeElapsed — Phase 8.5',
-  );
-}
-
-/**
- * Validates instrument readings against the pinned EquipmentGroup's
- * operating ranges. Returns per-instrument failures (out-of-range, missing
- * value, wrong dtype) so the FE can highlight bad cells.
- */
-export function validateInstrumentReadings(
+/** Guard #22: SET_DURATION must have positive `dryerDurationMinutes`. */
+export function assertDryerDurationValid(
   _ctx: LocalContext,
-  _readings: Record<string, number>,
-): ValidationResult {
-  throw new Error(
-    'NOT_IMPLEMENTED — pipeline-executor/dryer.validateInstrumentReadings — Phase 8.5',
-  );
+  dryerDurationMinutes: number | null | undefined,
+): GuardResult {
+  if (!dryerDurationMinutes || dryerDurationMinutes < 1) {
+    return {
+      ok: false,
+      code: 'INVALID_DURATION',
+      message: 'dryerDurationMinutes required',
+    };
+  }
+  return { ok: true };
+}
+
+/** Guard #23: SUBMIT_READINGS only valid when filter is currently in DRY_IN. */
+export function assertInDryInForReadings(
+  _ctx: LocalContext,
+  currentLifecycleState: string | null | undefined,
+  dryerAction: string | null | undefined,
+): GuardResult {
+  if (dryerAction !== 'SUBMIT_READINGS') return { ok: true };
+  if (currentLifecycleState === 'DRY_IN') return { ok: true };
+  return {
+    ok: false,
+    code: 'NOT_IN_DRY_IN',
+    message: 'Filter is not in DRY_IN',
+  };
+}
+
+/** Guard #24: SUBMIT_READINGS requires the dryer to have started. */
+export function assertDryerStarted(
+  _ctx: LocalContext,
+  cycle: CycleSlice,
+  dryerAction: string | null | undefined,
+): GuardResult {
+  if (dryerAction !== 'SUBMIT_READINGS') return { ok: true };
+  if (!cycle.dryerStartedAt || !cycle.dryerDurationMinutes) {
+    return {
+      ok: false,
+      code: 'DRYER_NOT_STARTED',
+      message: 'Dryer duration not set',
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Guard #25: SUBMIT_READINGS — half-time elapsed gate (skip when offline replay).
+ *
+ * Mirrors advance() lines 1306-1313. `offlineTime !== undefined` skips the gate
+ * because the operator's actual click time was already validated when they
+ * performed the action offline (server is replaying their queued submission).
+ */
+export function assertDryerHalfTimeElapsed(
+  ctx: LocalContext,
+  cycle: CycleSlice,
+  dryerAction: string | null | undefined,
+  offlineTime?: Date | string | null,
+): GuardResult {
+  if (dryerAction !== 'SUBMIT_READINGS') return { ok: true };
+  if (offlineTime) return { ok: true };
+  if (!cycle.dryerStartedAt || !cycle.dryerDurationMinutes) return { ok: true };
+
+  const halfMs = (cycle.dryerDurationMinutes * 60_000) / 2;
+  const startedMs =
+    cycle.dryerStartedAt instanceof Date
+      ? cycle.dryerStartedAt.getTime()
+      : new Date(cycle.dryerStartedAt as string).getTime();
+  const elapsedMs = ctx.now - startedMs;
+  if (elapsedMs >= halfMs) return { ok: true };
+  const remainingMin = Math.ceil((halfMs - elapsedMs) / 60_000);
+  return {
+    ok: false,
+    code: 'DRYER_NOT_READY',
+    message: `Dryer still running. Wait ${remainingMin} more minute(s).`,
+    details: { remainingMin },
+  };
+}
+
+/**
+ * Guard #26: leaving DRY_IN requires the dryer to have run at least half its
+ * duration. Skipped for offline replay.
+ *
+ * Mirrors advance() lines 1317-1326.
+ */
+export function assertDryerHalfTimeBeforeLeavingDryIn(
+  ctx: LocalContext,
+  cycle: CycleSlice,
+  currentLifecycleState: string | null | undefined,
+  targetState: string | null | undefined,
+  offlineTime?: Date | string | null,
+): GuardResult {
+  if (currentLifecycleState !== 'DRY_IN') return { ok: true };
+  if (targetState === 'DRY_IN') return { ok: true };
+  if (offlineTime) return { ok: true };
+  if (!cycle.dryerStartedAt || !cycle.dryerDurationMinutes) return { ok: true };
+
+  const halfMs = (cycle.dryerDurationMinutes * 60_000) / 2;
+  const startedMs =
+    cycle.dryerStartedAt instanceof Date
+      ? cycle.dryerStartedAt.getTime()
+      : new Date(cycle.dryerStartedAt as string).getTime();
+  const elapsedMs = ctx.now - startedMs;
+  if (elapsedMs >= halfMs) return { ok: true };
+  const remainingMin = Math.ceil((halfMs - elapsedMs) / 60_000);
+  return {
+    ok: false,
+    code: 'DRYER_NOT_READY',
+    message: `Dryer still running. Wait ${remainingMin} more minute(s) before leaving DRY_IN.`,
+    details: { remainingMin },
+  };
 }

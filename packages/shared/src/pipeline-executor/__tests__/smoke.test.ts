@@ -1,35 +1,70 @@
 /**
- * Pipeline-executor smoke tests (Phase 8.4c).
+ * Pipeline-executor smoke tests (Phase 8.5).
  *
- * Scope: scaffold-level only. Verify
- *   1. LocalContext type compiles against a realistic fixture (catches
- *      shape regressions before Phase 8.5 starts filling in guards).
- *   2. Every guard / loader stub throws with the documented
- *      `NOT_IMPLEMENTED` prefix so Phase 8.5 can grep for them.
- *   3. The barrel re-exports each expected symbol — catches accidental
- *      drops in `index.ts`.
+ * Scope: barrel-export verification + LocalContext type compile.
+ *   1. LocalContext fixture compiles against the type (catches shape
+ *      regressions across runtimes).
+ *   2. The barrel re-exports each guard the inventory promised — accidental
+ *      drops in `index.ts` fail compile.
+ *   3. `computeNextActions` is the only remaining stub (Commit 2 territory).
  *
- * Phase 8.5 will REPLACE these stub-throws assertions with real per-guard
- * unit tests; until then the contract here is just "the skeleton exists
- * and is wired together".
+ * Per-module unit tests live in sibling files (transitions.test.ts,
+ * checklist.test.ts, dryer.test.ts, …).
  */
 import { describe, it, expect } from 'vitest';
 import {
+  // Transitions
+  assertCycleActive,
+  assertNoCycleActive,
+  assertProfileAssigned,
+  assertProfileActive,
+  assertProfileEnabled,
+  assertChecklistGatePassed,
+  assertNotCycleComplete,
+  assertTargetStateReachable,
+  assertTargetStateExists,
+  assertTapeVersionFresh,
   assertCanTransition,
   getReachableStages,
   leadsToEnd,
-  assertNoPendingChecklist,
-  getPendingChecklistProfileIds,
-  validateChecklistAnswers,
-  assertValidDryerDuration,
+  collectChecklistsAfterStage,
+  findReachable,
+  buildStageLookup,
+  prettyStageLabel,
+  // Checklist
+  assertChecklistSchemaFresh,
+  assertRequiredChecklistAnswered,
+  assertChecklistAnswerKeysValid,
+  // Dryer
+  assertDryerActionValid,
+  assertDryerDurationValid,
+  assertInDryInForReadings,
+  assertDryerStarted,
   assertDryerHalfTimeElapsed,
-  validateInstrumentReadings,
+  assertDryerHalfTimeBeforeLeavingDryIn,
+  // Instruments
+  assertEquipmentGroupValid,
+  assertInstrumentReadingRequired,
+  assertInstrumentReadingValid,
+  assertInstrumentReadingInRange,
+  assertAllInstrumentReadings,
+  assertSingleEquipmentGroupPerBlock,
+  assertEquipmentGroupSelected,
+  assertEquipmentGroupVersionExists,
+  // Bypass
   assertBypassAllowed,
+  assertBypassTargetStateValid,
   assertCanBypassTo,
-  assertBypassJustification,
-  assertTerminateAllowed,
-  assertTerminateJustification,
+  // Justification
+  assertJustificationValid,
+  // Parameters
+  assertParametersRequired,
+  assertParametersInRange,
+  extractParameterDefs,
+  // Tape
   computeNextActions,
+  computeTapeVersion,
+  // Context
   loadLocalContext,
   loadLocalContextFromCache,
 } from '../index.js';
@@ -44,10 +79,6 @@ import type {
 } from '../index.js';
 
 // ── Type-compile fixture ─────────────────────────────────────────────────
-//
-// Constructing a LocalContext literal is the cheapest way to assert the
-// interface compiles end-to-end (every field present, every type
-// resolvable). If a slice shape changes incompatibly, this stops compiling.
 
 function makeFixture(): LocalContext {
   const profile: ProfileSlice = {
@@ -121,10 +152,9 @@ function makeFixture(): LocalContext {
   };
 }
 
-describe('pipeline-executor scaffold (Phase 8.4c)', () => {
+describe('pipeline-executor scaffold (Phase 8.5)', () => {
   it('LocalContext fixture compiles against the type', () => {
     const ctx = makeFixture();
-    // Light runtime sanity — guards expect every field present.
     expect(ctx.profile.nodes).toHaveLength(4);
     expect(ctx.cycle.status).toBe('IN_PROGRESS');
     expect(ctx.filter.currentLifecycleState).toBe('WASH_IN');
@@ -133,10 +163,8 @@ describe('pipeline-executor scaffold (Phase 8.4c)', () => {
   });
 
   it('GuardResult / ValidationResult discriminated unions narrow correctly', () => {
-    // Compile-time test: type-narrowing produces the right type on each branch.
     const ok: GuardResult = { ok: true };
     if (ok.ok) {
-      // No further fields on the success branch.
       expect(ok.ok).toBe(true);
     }
     const fail: GuardResult = { ok: false, code: 'X', message: 'y' };
@@ -154,70 +182,79 @@ describe('pipeline-executor scaffold (Phase 8.4c)', () => {
   });
 });
 
-describe('pipeline-executor stub guards throw NOT_IMPLEMENTED', () => {
-  const ctx = makeFixture();
-
-  // Each entry: [name, callable that should throw]
-  const cases: Array<[string, () => unknown]> = [
-    ['transitions.assertCanTransition', () => assertCanTransition(ctx, 'DRY_IN')],
-    ['transitions.getReachableStages', () => getReachableStages(ctx)],
-    ['transitions.leadsToEnd', () => leadsToEnd(ctx)],
-    ['checklist.assertNoPendingChecklist', () => assertNoPendingChecklist(ctx)],
-    ['checklist.getPendingChecklistProfileIds', () => getPendingChecklistProfileIds(ctx)],
-    ['checklist.validateChecklistAnswers', () => validateChecklistAnswers(ctx, {})],
-    ['dryer.assertValidDryerDuration', () => assertValidDryerDuration(ctx, 60)],
-    ['dryer.assertDryerHalfTimeElapsed', () => assertDryerHalfTimeElapsed(ctx)],
-    ['dryer.validateInstrumentReadings', () => validateInstrumentReadings(ctx, {})],
-    ['bypass.assertBypassAllowed', () => assertBypassAllowed(ctx)],
-    ['bypass.assertCanBypassTo', () => assertCanBypassTo(ctx, 'DRY_IN')],
-    ['bypass.assertBypassJustification', () => assertBypassJustification(ctx, 'short')],
-    ['terminate.assertTerminateAllowed', () => assertTerminateAllowed(ctx)],
-    ['terminate.assertTerminateJustification', () => assertTerminateJustification(ctx, 'short')],
-    ['actions.computeNextActions', () => computeNextActions(ctx)],
-  ];
-
-  for (const [name, fn] of cases) {
-    it(`${name} throws NOT_IMPLEMENTED`, () => {
-      expect(fn).toThrowError(/^NOT_IMPLEMENTED/);
-    });
-  }
-
-  it('context.loadLocalContext rejects with NOT_IMPLEMENTED', async () => {
-    await expect(loadLocalContext('filter-1')).rejects.toThrow(/^NOT_IMPLEMENTED/);
-  });
-
-  it('context.loadLocalContextFromCache rejects with NOT_IMPLEMENTED', async () => {
-    await expect(loadLocalContextFromCache('filter-1')).rejects.toThrow(/^NOT_IMPLEMENTED/);
-  });
-});
-
 describe('pipeline-executor barrel exports the expected names', () => {
-  // Pulled at module-load time — if any of these get accidentally dropped
-  // from `index.ts`, this import block would fail to compile.
   it('all guard symbols are functions', () => {
     const fns = [
+      // transitions
+      assertCycleActive,
+      assertNoCycleActive,
+      assertProfileAssigned,
+      assertProfileActive,
+      assertProfileEnabled,
+      assertChecklistGatePassed,
+      assertNotCycleComplete,
+      assertTargetStateReachable,
+      assertTargetStateExists,
+      assertTapeVersionFresh,
       assertCanTransition,
       getReachableStages,
       leadsToEnd,
-      assertNoPendingChecklist,
-      getPendingChecklistProfileIds,
-      validateChecklistAnswers,
-      assertValidDryerDuration,
+      collectChecklistsAfterStage,
+      findReachable,
+      buildStageLookup,
+      prettyStageLabel,
+      // checklist
+      assertChecklistSchemaFresh,
+      assertRequiredChecklistAnswered,
+      assertChecklistAnswerKeysValid,
+      // dryer
+      assertDryerActionValid,
+      assertDryerDurationValid,
+      assertInDryInForReadings,
+      assertDryerStarted,
       assertDryerHalfTimeElapsed,
-      validateInstrumentReadings,
+      assertDryerHalfTimeBeforeLeavingDryIn,
+      // instruments
+      assertEquipmentGroupValid,
+      assertInstrumentReadingRequired,
+      assertInstrumentReadingValid,
+      assertInstrumentReadingInRange,
+      assertAllInstrumentReadings,
+      assertSingleEquipmentGroupPerBlock,
+      assertEquipmentGroupSelected,
+      assertEquipmentGroupVersionExists,
+      // bypass
       assertBypassAllowed,
+      assertBypassTargetStateValid,
       assertCanBypassTo,
-      assertBypassJustification,
-      assertTerminateAllowed,
-      assertTerminateJustification,
+      // justification
+      assertJustificationValid,
+      // parameters
+      assertParametersRequired,
+      assertParametersInRange,
+      extractParameterDefs,
+      // tape
       computeNextActions,
+      computeTapeVersion,
+      // context
       loadLocalContext,
       loadLocalContextFromCache,
     ];
     for (const fn of fns) {
       expect(typeof fn).toBe('function');
     }
-    // Sanity: 17 stubs total.
-    expect(fns).toHaveLength(17);
+  });
+});
+
+describe('pipeline-executor — only Commit 2 stub remains', () => {
+  it('computeNextActions still throws NOT_IMPLEMENTED (Commit 2)', () => {
+    const ctx = makeFixture();
+    expect(() => computeNextActions(ctx)).toThrowError(/^NOT_IMPLEMENTED/);
+  });
+  it('loadLocalContext still rejects (real impl lives in apps/api)', async () => {
+    await expect(loadLocalContext('filter-1')).rejects.toThrow(/^NOT_IMPLEMENTED/);
+  });
+  it('loadLocalContextFromCache still rejects (real impl lives in apps/web)', async () => {
+    await expect(loadLocalContextFromCache('filter-1')).rejects.toThrow(/^NOT_IMPLEMENTED/);
   });
 });

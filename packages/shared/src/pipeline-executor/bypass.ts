@@ -1,51 +1,67 @@
 /**
- * Bypass justification + reachability guards (Phase 8.4c scaffold).
+ * Bypass-flow guards (Phase 8.5).
  *
- * Phase 8.5 fills these in by extracting the pure portions of the
- * `bypass()` route in filter-operations.service.ts (lines ~1548-1600) +
- * the `BypassStageAction` emission inside the tape generator
- * (tape-generator.ts:312-331).
+ * Pure portions of bypass() in
+ * `apps/api/src/modules/filter-operations/filter-operations.service.ts`
+ * (lines 1604-1616).
  */
-import type { LocalContext, GuardResult } from './types.js';
+import type { GuardResult, LocalContext } from './types.js';
 
-/**
- * Asserts the cycle's profile permits bypass (`flowMode === 'BYPASS_ENABLED'`).
- * Returns `{ ok: false, code: 'BYPASS_NOT_ALLOWED' }` when the profile is
- * STRICT or another non-bypass mode.
- */
-export function assertBypassAllowed(_ctx: LocalContext): GuardResult {
-  throw new Error(
-    'NOT_IMPLEMENTED — pipeline-executor/bypass.assertBypassAllowed — Phase 8.5',
-  );
+/** Guard #38: bypass requires `flowMode === 'BYPASS_ENABLED'`. */
+export function assertBypassAllowed(
+  _ctx: LocalContext,
+  flowMode: string | null | undefined,
+): GuardResult {
+  if (flowMode === 'BYPASS_ENABLED') return { ok: true };
+  return {
+    ok: false,
+    code: 'BYPASS_FORBIDDEN',
+    message: 'Profile flow mode is STRICT — bypass not allowed',
+  };
+}
+
+/** Guard #39: bypass target must be a STAGE node in the pipeline. */
+export function assertBypassTargetStateValid(
+  _ctx: LocalContext,
+  targetState: string,
+  validStates: (string | null)[],
+): GuardResult {
+  const cleanedValid = validStates.filter((s): s is string => typeof s === 'string');
+  if (cleanedValid.includes(targetState)) return { ok: true };
+  return {
+    ok: false,
+    code: 'INVALID_TARGET',
+    message: `Invalid target state: ${targetState}. Valid: ${cleanedValid.join(', ')}`,
+  };
 }
 
 /**
- * Asserts that `targetStateKey` is a legal bypass target — i.e. it is a
- * STAGE node in the pipeline (not necessarily reachable forward) and not
- * the cycle's current state. Mirrors the validation in
- * filter-operations.service.ts:1548-1556 and the generator's M1
- * "full pipeline-stage set, excluding current state" rule.
+ * Tape-generator helper — `assertCanBypassTo`: pipeline-node membership +
+ * "not the current state" check. Different shape from #39 because the tape
+ * generator emits BYPASS_STAGE actions for ALL stages except current; the
+ * server's bypass() route validates submission against the same set
+ * (validStates). Keeping both names for clarity at call sites.
  */
 export function assertCanBypassTo(
-  _ctx: LocalContext,
-  _targetStateKey: string,
+  ctx: LocalContext,
+  targetStateKey: string,
 ): GuardResult {
-  throw new Error(
-    'NOT_IMPLEMENTED — pipeline-executor/bypass.assertCanBypassTo — Phase 8.5',
-  );
-}
-
-/**
- * Asserts that the operator-supplied justification is at least
- * `minLength` characters (see `BypassStageAction.requiresJustification`).
- * Default minLength = 10 chars per existing route logic.
- */
-export function assertBypassJustification(
-  _ctx: LocalContext,
-  _justification: string,
-  _minLength?: number,
-): GuardResult {
-  throw new Error(
-    'NOT_IMPLEMENTED — pipeline-executor/bypass.assertBypassJustification — Phase 8.5',
-  );
+  const validStates = ctx.profile.nodes
+    .filter(s => s.nodeType === 'STAGE' && s.stateKey)
+    .map(s => s.stateKey as string);
+  if (!validStates.includes(targetStateKey)) {
+    return {
+      ok: false,
+      code: 'INVALID_TARGET',
+      message: `Invalid target state: ${targetStateKey}. Valid: ${validStates.join(', ')}`,
+    };
+  }
+  if (ctx.filter.currentLifecycleState === targetStateKey) {
+    return {
+      ok: false,
+      code: 'INVALID_TARGET',
+      message: `Cannot bypass to current state: ${targetStateKey}`,
+    };
+  }
+  return { ok: true };
 }
