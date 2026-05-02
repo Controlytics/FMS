@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { generateTape } from '../tape-generator.js';
+import { generateTape, computeTapeVersion } from '../tape-generator.js';
 import type {
   TapeCycle,
   TapeChecklistEvent,
@@ -469,5 +469,27 @@ describe('generateTape() — pure-function action emission', () => {
   it('20. tape.state mirrors filter.currentLifecycleState', () => {
     const tape = generateTape(inputFx({ filter: { id: 'f-1', currentLifecycleState: 'WASH_IN' } }));
     expect(tape.state).toBe('WASH_IN');
+  });
+
+  // ── 11. computeTapeVersion direct unit (Phase 8.3) ─────────────────────
+  // The exported helper is the single source of truth for the tapeVersion
+  // formula — generator + write-path concurrency check both call it. If the
+  // formula changes, this test fails first.
+  describe('computeTapeVersion() direct unit (Phase 8.3)', () => {
+    it('21. profileVersion * 1000 + filterEventCount, stable for fixed inputs', () => {
+      expect(computeTapeVersion(0, 0)).toBe(0);
+      expect(computeTapeVersion(1, 0)).toBe(1000);
+      expect(computeTapeVersion(1, 5)).toBe(1005);
+      expect(computeTapeVersion(7, 23)).toBe(7023);
+    });
+    it('22. nullish args coerce to 0', () => {
+      expect(computeTapeVersion(undefined as any, undefined as any)).toBe(0);
+      expect(computeTapeVersion(2, undefined as any)).toBe(2000);
+      expect(computeTapeVersion(undefined as any, 4)).toBe(4);
+    });
+    it('23. tape generator and direct helper agree on the same inputs', () => {
+      const tape = generateTape(inputFx({ cycle: cycleFx({ profileVersion: 9 }), filterEventCount: 17 }));
+      expect(tape.tapeVersion).toBe(computeTapeVersion(9, 17));
+    });
   });
 });
