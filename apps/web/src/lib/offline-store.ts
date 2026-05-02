@@ -13,7 +13,22 @@ const DB_NAME = 'digilog-offline';
 // staleness check on the server (the schema has nullable handling), so
 // pre-8.3 leftover ops still drain — they're just not fresher than the
 // queue assumed at write time.
-const DB_VERSION = 4;
+//
+// Phase 8.4b (Option D, 2026-05-02): bumped 4 -> 5. Adds 6 new object stores
+// for the versioned local cache fed by GET /api/sync/since:
+//   - syncFilterCleaningProfiles (keyPath id)
+//   - syncFilterProfiles (keyPath id)
+//   - syncEquipmentGroups (keyPath id)
+//   - syncChecklistProfiles (keyPath id) — populated in 8.4a follow-up
+//   - syncAssetTemplates (keyPath id) — populated in 8.4a follow-up
+//   - syncFilters (keyPath id) — note: NOT named "filters" because the
+//       legacy `filters` store at top of this file holds CachedFilter rows
+//       in a different shape. Renaming would require migrating live data;
+//       the new store is a parallel, additive cache.
+//   - syncVersionState (keyPath key) — single-row store ('current' key)
+//       holding {profileVersion, filterProfileVersion, equipmentGroupVersion,
+//       checklistVersion, assetTemplateVersion, filterUpdatedSince}.
+const DB_VERSION = 5;
 
 // Single source of truth for offline-critical TTLs. Long shifts (>= 12h)
 // require everything that participates in cleaning to outlive a full day,
@@ -150,6 +165,21 @@ function openDB(): Promise<IDBDatabase> {
           if (normalizeOpForV4(row)) cursor.update(row);
           cursor.continue();
         };
+      }
+
+      // Phase 8.4b (Option D, 2026-05-02): v4 -> v5 adds the 7 versioned-
+      // local-cache stores. Idempotent — only creates stores that don't yet
+      // exist. Each store is keyPath: 'id' except syncVersionState which is
+      // keyed by 'key' (single-row store with key='current').
+      if (oldVersion < 5) {
+        for (const name of SYNC_ID_STORES) {
+          if (!db.objectStoreNames.contains(name)) {
+            db.createObjectStore(name, { keyPath: 'id' });
+          }
+        }
+        if (!db.objectStoreNames.contains('syncVersionState')) {
+          db.createObjectStore('syncVersionState', { keyPath: 'key' });
+        }
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -528,6 +558,121 @@ export async function clearAllOperations(): Promise<void> {
   const db = await openDB();
   const tx = db.transaction('operations', 'readwrite');
   tx.objectStore('operations').clear();
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// === Phase 8.4b — Versioned local-cache stores (Option D) ===
+
+/**
+ * Names of the v5 sync stores that share keyPath 'id'. Listed once to keep
+ * the upgrade path, type union, and helper functions in lockstep.
+ */
+export const SYNC_ID_STORES = [
+  'syncFilterCleaningProfiles',
+  'syncFilterProfiles',
+  'syncEquipmentGroups',
+  'syncChecklistProfiles',
+  'syncAssetTemplates',
+  'syncFilters',
+] as const;
+
+export type SyncEntityStore = typeof SYNC_ID_STORES[number];
+
+export interface VersionState {
+  /** Single-row store key — always 'current' for this app. */
+  key: 'current';
+  profileVersion: number;
+  filterProfileVersion: number;
+  equipmentGroupVersion: number;
+  checklistVersion: number;
+  assetTemplateVersion: number;
+  /** ISO-8601 timestamp; null = no rows seen yet (full sync on first call). */
+  filterUpdatedSince: string | null;
+  /** ISO-8601 of the last successful syncSince() call. */
+  lastSyncedAt: string | null;
+}
+
+/** The default cursors for a fresh client. */
+export const DEFAULT_VERSION_STATE: VersionState = {
+  key: 'current',
+  profileVersion: 0,
+  filterProfileVersion: 0,
+  equipmentGroupVersion: 0,
+  checklistVersion: 0,
+  assetTemplateVersion: 0,
+  filterUpdatedSince: null,
+  lastSyncedAt: null,
+};
+
+/**
+ * Bulk-write rows into one of the v5 sync stores. Uses `put` so individual
+ * rows update by primary key without disturbing the rest of the cache. Does
+ * NOT clear the store first — `syncSince()` is incremental, the FE only
+ * receives rows newer than the cursor. (For full re-sync, the caller can
+ * reset versionState to defaults; the next call returns everything.)
+ */
+export async function cacheEntities<T extends { id: string }>(
+  storeName: SyncEntityStore,
+  rows: T[],
+): Promise<void> {
+  if (rows.length === 0) return;
+  const db = await openDB();
+  const tx = db.transaction(storeName, 'readwrite');
+  const store = tx.objectStore(storeName);
+  for (const row of rows) store.put(row);
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function getCachedEntity<T = any>(
+  storeName: SyncEntityStore,
+  id: string,
+): Promise<T | null> {
+  const db = await openDB();
+  const tx = db.transaction(storeName, 'readonly');
+  const req = tx.objectStore(storeName).get(id);
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve((req.result ?? null) as T | null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getAllCachedEntities<T = any>(
+  storeName: SyncEntityStore,
+): Promise<T[]> {
+  const db = await openDB();
+  const tx = db.transaction(storeName, 'readonly');
+  const req = tx.objectStore(storeName).getAll();
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve((req.result ?? []) as T[]);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** Read the current versionState row, returning DEFAULT_VERSION_STATE on miss. */
+export async function getVersionState(): Promise<VersionState> {
+  const db = await openDB();
+  const tx = db.transaction('syncVersionState', 'readonly');
+  const req = tx.objectStore('syncVersionState').get('current');
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => {
+      const row = req.result as VersionState | undefined;
+      resolve(row ?? { ...DEFAULT_VERSION_STATE });
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** Replace the versionState row. Caller passes the merged shape. */
+export async function setVersionState(state: VersionState): Promise<void> {
+  const db = await openDB();
+  const tx = db.transaction('syncVersionState', 'readwrite');
+  tx.objectStore('syncVersionState').put({ ...state, key: 'current' });
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
