@@ -238,3 +238,20 @@ export interface ActionTape {
    */
   tapeVersion: number;
 }
+
+/**
+ * Phase 8.3: discriminated payload returned (in `details`) on a 409 response
+ * when the client-submitted tapeVersion did not match the live server
+ * tapeVersion. The client should refetch state, surface a "another operator
+ * changed this cycle" toast, and let the operator retry against fresh data.
+ *
+ * On the FE this surfaces as `(error as any).code === 'STALE_TAPE'` with
+ * `(error as any).currentTapeVersion: number` lifted from `details` by
+ * api-client. The `StaleTapeError` interface here is a type-guard target —
+ * it is NOT a thrown class.
+ */
+export interface StaleTapeError {
+  code: 'STALE_TAPE';
+  currentTapeVersion: number;
+  message: string;
+}

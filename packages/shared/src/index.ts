@@ -51,6 +51,7 @@ export type {
   CompleteCycleAction,
   Action,
   ActionTape,
+  StaleTapeError,
 } from './types/action-tape.js';
 
 // Schemas
