@@ -16,6 +16,14 @@ import { useOffline } from '../../hooks/use-offline';
 import { onSyncEvent } from '../../lib/sync-engine';
 import type { FilterInstance, PaginatedResponse } from '../../types/filter';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
+// Phase 8.6 — shared executor + FE local-context loader. The desktop page
+// delegates its graph-walking helpers to the shared @digilog/shared module
+// so client/server stay in lockstep.
+import {
+  collectChecklistsAfterStage as sharedCollectChecklistsAfterStage,
+  findReachable as sharedFindReachable,
+} from '@digilog/shared';
+import { loadLocalContextFromCache } from '@/lib/local-context';
 
 const CLEANING_STAGES = CLEANING_STAGES_OPS;
 
@@ -445,16 +453,17 @@ export function FilterOperationsPage() {
     }
   };
 
-  // After an offline advance, update cached filter state to reflect new stage
-  // Find CHECKLIST nodes immediately after a stage in the pipeline graph
+  // After an offline advance, update cached filter state to reflect new stage.
+  // Phase 8.6: Find CHECKLIST nodes immediately after a stage. Delegates to the
+  // shared executor's collectChecklistsAfterStage walker, which handles chained
+  // CHECKLIST → CHECKLIST → STAGE pipelines (the legacy implementation only
+  // looked at direct outConns and silently skipped chained checklists).
   const findChecklistsAfterStage = (graph: any, stageKey: string): any[] => {
     if (!graph?.stages || !graph?.connections) return [];
     const stageNode = graph.stages.find((s: any) => s.stateKey === stageKey);
     if (!stageNode) return [];
-    const outConns = graph.connections.filter((c: any) => c.fromStageId === stageNode.id);
-    return outConns
-      .map((c: any) => graph.stages.find((s: any) => s.id === c.toStageId))
-      .filter((n: any) => n?.nodeType === 'CHECKLIST' && n?.configuration?.checklistProfileId);
+    return sharedCollectChecklistsAfterStage(stageNode, graph.stages, graph.connections)
+      .filter(n => Boolean((n.configuration as { checklistProfileId?: unknown })?.checklistProfileId));
   };
 
   // Build pendingChecklist entries from cached checklist profiles (matches mobile's helper)
@@ -498,21 +507,12 @@ export function FilterOperationsPage() {
         nextAllowed = [];
         hasGraphData = !!graph;
       } else if (graph?.stages && graph?.connections) {
-        // Walk graph to find reachable STAGE nodes (skip CHECKLIST)
+        // Phase 8.6: delegate the graph walk to the shared executor's
+        // findReachable() (transitions.ts). Skips CHECKLIST nodes the same
+        // way the server does, so server/client stay in lockstep.
         const currentNode = graph.stages.find((s: any) => s.stateKey === newStageKey);
         if (currentNode) {
-          const visited = new Set<string>();
-          const walk = (nodeId: string) => {
-            if (visited.has(nodeId)) return;
-            visited.add(nodeId);
-            for (const c of graph.connections.filter((c: any) => c.fromStageId === nodeId)) {
-              const next = graph.stages.find((s: any) => s.id === c.toStageId);
-              if (!next) continue;
-              if (next.nodeType === 'STAGE' && next.stateKey) nextAllowed.push(next.stateKey);
-              else if (next.nodeType === 'CHECKLIST') walk(next.id);
-            }
-          };
-          walk(currentNode.id);
+          nextAllowed = sharedFindReachable(currentNode.id, graph.stages, graph.connections).reachableStages;
           hasGraphData = true;
         }
       }
