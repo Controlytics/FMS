@@ -1,5 +1,43 @@
 # Changelog
 
+## [Unreleased] — B7.3: vitest unit tests for `getCurrentState()` L1+L2 invariants (2026-05-02)
+
+Branch: `feature/phase5-verification`. The `filter-operations.service.ts` module had zero unit tests (verified — no `__tests__` folder existed for the module). L1 (cycle-pinned `EquipmentGroupVersion.snapshot` rendering) and L2 (cycle-pinned `FilterCleaningProfile.id` pipeline rendering) had no automated regression coverage. A future refactor could silently revert either path back to live-row reads and we wouldn't notice until an operator complained.
+
+### Changes
+
+- `apps/api/src/modules/filter-operations/__tests__/get-current-state.test.ts` — new vitest unit-test file. Mocks prisma directly per the canonical pattern in `apps/api/src/modules/assets/services/__tests__/instance.service.test.ts` (`vi.hoisted` + `vi.mock('../../../lib/prisma.js', …)`). Spies on the service's private `getProfilePipeline` after instance construction (option (a) in the task brief) so L2 can be asserted by call-args without restructuring the service.
+
+### Coverage (7 tests across 2 describe groups)
+
+L1 — equipment-group snapshot resolution:
+1. **case 1** — pin set + snapshot row exists → returned `equipmentGroup` matches snapshot fields, `version === pin`, instruments sorted by `sortOrder`. Live-row stub poisoned to a divergent value to make a regression that reads it instead of the snapshot fail loudly.
+2. **case 2** — pin set + no snapshot row + `live.version === pin` → returned `equipmentGroup === liveGroup` (lazy first-version path; live row IS v1 until first edit creates the archive). `console.warn` NOT called.
+3. **case 3** — pin set + no snapshot row + `live.version !== pin` → defensive log path: returns live row AND emits a single `console.warn` containing `equipmentGroupVersionPin=…`, `groupId`, and `cycleId`.
+4. **case 4** — pin null (legacy cycle pre-P1) → returns live row, `prisma.equipmentGroupVersion.findUnique` is NEVER called (negative assertion enforces the L1 contract that legacy cycles must not consult the version sidecar).
+5. **case 5** — cycle has no `equipmentGroupId` → block-fallback group via `prisma.equipmentGroup.findFirst({ where: { blockId, isActive: true }, … })`, neither `equipmentGroup.findUnique` NOR `equipmentGroupVersion.findUnique` is called.
+
+L2 — cycle-pinned profile pipeline rendering:
+6. **case 6** — `currentCycle.profileId !== resolvedLiveProfileId` → `getProfilePipeline` is called with the cycle's `profileId`, NOT the live `resolveFilterProfile()` result. Returned `profile.name`/`flowMode` reflect the cycle-pinned pipeline (sanity end-to-end check).
+7. **L2 control** — pre-cycle path (no `currentCycleId`) → `getProfilePipeline` IS called with the live resolved profileId. Documents the inverse: cycle-pinned rendering only fires when a cycle is in progress; pre-cycle preview shows the live binding (so the operator sees what they'd start a cycle against).
+
+### Why no helper extraction
+
+The task brief allowed extracting `resolveEquipmentGroupForResponse()` / `resolveProfileForRender()` helpers from `getCurrentState()` if the function was too entangled to test in one shot. It wasn't. Mocking the ~10 prisma calls L1+L2 actually touch (filtering out the unrelated PM-due, block-change-status, profileSyncWarning, equipmentGroupSyncWarning, and stageLookup branches with empty/null returns) keeps the test focused on the two invariants and avoids an out-of-scope refactor. No production-code change beyond the new test file.
+
+### Verification
+
+- `cd apps/api && npx vitest run src/modules/filter-operations` → 1 file, 7 tests, all passing.
+- `cd apps/api && npx vitest run` (full api suite, 84 files) → 82 passed, 2 pre-existing e2e failures unrelated to this change (`auth.test.ts > forgot-password` — UUID corruption in test DB; `config.test.ts > datetime/current` + `action-reauth` — environmental). Both reproduced on `7a2f3b4` (HEAD before this commit) without the new test file.
+- `cd apps/api && npx tsc -p tsconfig.json --noEmit` → exit 0.
+
+### Touched files
+
+- `apps/api/src/modules/filter-operations/__tests__/get-current-state.test.ts` (new, 345 lines).
+- `CHANGELOG.md` (this entry).
+
+---
+
 ## [Unreleased] — B7.2: BLOCK_CHANGE_REQUIRED 409 handled in equipment-dialog + PM auto-start flows (2026-05-02)
 
 Branch: `feature/phase5-verification`. Closes a partially-stale gap: the `BLOCK_CHANGE_REQUIRED` 409 already emitted structured `details` from `validateBlockChange()` (commit `60dcbaa`, 2026-04-10), and the reason-dialog catch paths in mobile + desktop had been popping a structured modal since then. **What was missing**: four `start-and-advance` catch blocks (three equipment-dialog + one desktop PM auto-start) that go through `start-cycle` → `validateBlockChange`. On a cross-block hit there, the 409 was falling through to a generic toast / "failed" string. Operators got no actionable surface for requesting approval from those flows.
