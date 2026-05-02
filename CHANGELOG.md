@@ -1,5 +1,38 @@
 # Changelog
 
+## [Unreleased] — B7.1: apps/web vitest setup + diffSnapshots() regression suite (2026-05-02)
+
+Branch: `feature/phase5-verification`. Closes L6 from `tasks/SERVER-ONLINE-WORKLIST.md` — no FE test runner existed and the snapshot diff engine in the Version History page (added in `d31ed37` — VHv3 interactive diff timeline) had zero coverage.
+
+### Changes
+
+- `apps/web/package.json`: added `vitest@^3.0.0`, `jsdom@^25`, `@testing-library/react@^16.1`, `@testing-library/jest-dom@^6.6` devDeps; added `test` (= `vitest run`) and `test:watch` scripts. Vitest version is pinned to match `apps/api` and `packages/shared` so npm doesn't hoist two majors.
+- `apps/web/vitest.config.ts`: new file. Fresh `defineConfig` from `vitest/config` — intentionally NOT derived from `vite.config.ts`, which reads HTTPS certs at module load and registers VitePWA / Tailwind plugins that would explode under a unit-test runner. Uses `jsdom` environment, `@vitejs/plugin-react`, and the `@` path alias mirroring `tsconfig.json#paths`.
+- `apps/web/src/test-setup.ts`: new file. Registers `@testing-library/jest-dom/vitest` matchers. Unused by the diff suite (no React rendering) but in place for future component tests.
+- `apps/web/src/routes/version-history/index.tsx`: minimal export of `diffSnapshots`, `DiffChange`, `EntityKind`. No restructuring; runtime behavior of the page is unchanged.
+- `apps/web/src/routes/version-history/__tests__/diff.test.ts`: new suite. **10 tests** covering each branch of `diffSnapshots()`:
+  1. scalar field change (`changed`)
+  2. keyed-array stage addition with context (`added`)
+  3. keyed-array stage removal with context (`removed`)
+  4. keyed-array item field change — recursion path, `id` filtered as META
+  5. set-style `applicableTemplates` add (filter-profile)
+  6. set-style `allowedBlocks` remove (filter-profile)
+  7. all META_FIELDS differ but nothing else → empty diff
+  8. deep-equal snapshots (no-change case) → empty diff
+  9. checklist-profile `questions` keyed by id (cross-kind smoke)
+  10. equipment-group `instruments` operatingMax change (cross-kind smoke)
+- `vitest.workspace.ts`: added `apps/web/vitest.config.ts` to the workspace list. **This is a touchpoint not in the B7.1 spec** — flagging here rather than silently extending. The omission would have meant `npm test` at root wouldn't pick up the new project, regressing against the existing api/shared/integration pattern.
+- `apps/web/CLAUDE.md`: new "Testing" section with run commands and a pointer at the B7.1 suite.
+- `tasks/SERVER-ONLINE-WORKLIST.md`: marked L6 done with delivery summary.
+
+### Verification
+
+- `cd apps/web && npx vitest run` → 1 file, 10 tests, all passing (~1.4s).
+- `cd apps/web && npx tsc --noEmit` → exit 0.
+- No `index.tsx` runtime change beyond three `export` keyword additions; the page still renders identically.
+
+---
+
 ## [Unreleased] — L4: advance() reading-validation snapshot/live equality audit — NO CHANGE (2026-05-02)
 
 Branch: `feature/phase5-verification`. L4 from `tasks/SERVER-ONLINE-WORKLIST.md` was a defense-in-depth audit of `filter-operations.service.ts:1227-1262` (`advance()` reading-validation snapshot vs lazy-first-version live-fallback path). **Outcome: no code change. The path is correct.**

@@ -77,13 +77,21 @@ Each item below has been audited against live code (line-number evidence). Items
 
 ---
 
-### L6 — `apps/web` Vitest setup (DEPRIORITIZED)
+### L6 — `apps/web` Vitest setup ✅ DONE (B7.1, 2026-05-02)
 
-**What:** No FE test config exists. Diff engine in `version-history/index.tsx` has zero coverage.
+**What:** No FE test config existed. Diff engine in `version-history/index.tsx` had zero coverage.
 
-**Effort:** ~half day to bootstrap.
+**Status:** Closed by B7.1 on `feature/phase5-verification`.
 
-**Why deprioritized:** Not blocking any user-facing issue; reasonable to skip until a regression demands it.
+**Delivered:**
+- `apps/web/vitest.config.ts` — fresh config (NOT derived from `vite.config.ts`); jsdom env, `@vitejs/plugin-react`, `@` alias.
+- `apps/web/src/test-setup.ts` — `@testing-library/jest-dom/vitest` matcher registration.
+- `apps/web/package.json` — `vitest`, `jsdom`, `@testing-library/react`, `@testing-library/jest-dom` devDeps + `test` / `test:watch` scripts.
+- `apps/web/src/routes/version-history/__tests__/diff.test.ts` — 10 tests covering scalar change, keyed-array add/remove/recursive change, set-style add/remove, meta-field filtering, no-change deep-equal, plus checklist-profile + equipment-group cross-kind cases.
+- `routes/version-history/index.tsx` — minimal export of `diffSnapshots`, `DiffChange`, `EntityKind` so the test can import without restructuring.
+- `vitest.workspace.ts` — added `apps/web/vitest.config.ts` to the workspace list (touchpoint not in the original spec; flagged in commit body).
+
+**Verification:** `cd apps/web && npx vitest run` → 10 / 10 passing. `npx tsc --noEmit` exit 0. No runtime change to the Version History page.
 
 ---
 
@@ -94,7 +102,7 @@ Each item below has been audited against live code (line-number evidence). Items
 3. **L5** — quick browser smoke once L1+L2 land.
 4. **L3** — UX polish; can ship anytime.
 5. **L4** — defense-in-depth review.
-6. **L6** — only when needed.
+6. **L6** — ✅ done (B7.1, 2026-05-02).
 
 ## What NOT to start (per user direction)
 

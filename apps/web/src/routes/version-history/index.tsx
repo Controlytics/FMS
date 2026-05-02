@@ -19,7 +19,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import useSWR from 'swr';
 
-type EntityKind = 'cleaning-profile' | 'filter-profile' | 'checklist-profile' | 'equipment-group';
+export type EntityKind = 'cleaning-profile' | 'filter-profile' | 'checklist-profile' | 'equipment-group';
 
 const ENTITY_KINDS: EntityKind[] = ['cleaning-profile', 'filter-profile', 'checklist-profile', 'equipment-group'];
 function isEntityKind(s: string | null): s is EntityKind {
@@ -426,7 +426,7 @@ function formatVal(v: any): string {
 
 // ─── Snapshot diff engine ────────────────────────────────────────────────
 
-type DiffChange =
+export type DiffChange =
   | { kind: 'changed'; path: string; oldValue: unknown; newValue: unknown; context?: string }
   | { kind: 'added';   path: string; newValue?: unknown; context?: string }
   | { kind: 'removed'; path: string; oldValue?: unknown; context?: string };
@@ -454,7 +454,7 @@ const SET_FIELDS: Record<EntityKind, Set<string>> = {
   'equipment-group':  new Set(),
 };
 
-function diffSnapshots(kind: EntityKind, prev: any, curr: any): DiffChange[] {
+export function diffSnapshots(kind: EntityKind, prev: any, curr: any): DiffChange[] {
   const out: DiffChange[] = [];
   const keys = new Set([...Object.keys(prev ?? {}), ...Object.keys(curr ?? {})]);
   for (const key of keys) {

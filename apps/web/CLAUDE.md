@@ -16,6 +16,28 @@ cd apps/android && npx cap copy android
 cd apps/android/android && ./gradlew assembleDebug
 ```
 
+## Testing
+```bash
+cd apps/web && npm test                # Run vitest once (CI-style, exit 0/1)
+cd apps/web && npm run test:watch      # Re-run on file change
+
+# Or run a single suite directly:
+cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
+```
+
+- Runner: vitest 3.x with `environment: 'jsdom'` and `@vitejs/plugin-react`.
+- Config: `apps/web/vitest.config.ts` (intentionally separate from
+  `vite.config.ts` — the dev/build config reads HTTPS certs at module load
+  and registers VitePWA, neither of which belongs in a unit-test runner).
+- Setup: `apps/web/src/test-setup.ts` registers `@testing-library/jest-dom`
+  matchers for component tests that arrive later.
+- Workspace: `vitest.workspace.ts` at the repo root includes the web project,
+  so `npm run test` from root picks it up alongside api / shared / integration.
+- First suite (B7.1, 2026-05-02): `routes/version-history/__tests__/diff.test.ts`
+  covers the `diffSnapshots()` engine in `routes/version-history/index.tsx` —
+  10 cases across scalar / keyed-array / set-style / meta-filter / no-change
+  branches, all four EntityKinds.
+
 ## Key Paths
 - Source: `apps/web/src/`
 - Entry: `apps/web/src/main.tsx`
