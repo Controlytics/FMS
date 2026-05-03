@@ -42,6 +42,15 @@ CREDENTIALS.md
 # Playwright MCP session traces (regenerated each run)
 .playwright-mcp/
 
+# Root-level test/QA screenshot droppings (bug-fix-*.png, bug-sweep-*.png,
+# mt-removal-*.png, step1-*.png, step6-e2e-*.png, tour-*.png, etc.).
+# Anchored to repo root with leading "/" — tracked PNGs in
+# PROJECT_HANDOVER/diagrams/, apps/, RFID/, old/screenshots/ are unaffected.
+/*.png
+
+# Old/local backup snapshots (pg_dump outputs, etc.)
+/backups/
+
 # Mosquitto dynamic-security: contains bcrypt hashes after first
 # /refresh-acl call, never commit. Use mosquitto/dynamic-security.json.example
 # as the bootstrap (the installer copies it on first run).
