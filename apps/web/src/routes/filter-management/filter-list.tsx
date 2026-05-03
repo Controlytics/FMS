@@ -1,4 +1,4 @@
-import { useState, useMemo, Fragment } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { FILTER_STATE_COLORS } from '@/lib/filter-constants';
@@ -11,28 +11,22 @@ import { api } from '@/lib/api-client';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import { themeGradientBr, themeButton } from '@/lib/theme-styles';
 
-const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  INSTALLED: { label: 'Installed', color: 'bg-blue-50 text-blue-700 border-blue-200' },
-  WASH_IN: { label: 'Wash In', color: 'bg-sky-50 text-sky-700 border-sky-200' },
-  WASH_OUT: { label: 'Wash Out', color: 'bg-sky-50 text-sky-700 border-sky-200' },
-  DRY_IN: { label: 'Dry In', color: 'bg-amber-50 text-amber-700 border-amber-200' },
-  DRY_OUT: { label: 'Dry Out', color: 'bg-amber-50 text-amber-700 border-amber-200' },
-  STORAGE_IN: { label: 'Storage In', color: 'bg-slate-50 text-slate-600 border-slate-200' },
-  STORAGE_OUT: { label: 'Storage Out', color: 'bg-slate-50 text-slate-600 border-slate-200' },
-  IN_USE: { label: 'In Use', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  RETIRED: { label: 'Retired', color: 'bg-red-50 text-red-700 border-red-200' },
-};
-
-const LIFECYCLE_STATE_OPTIONS = [
-  { value: 'INSTALLED', label: 'Installed', color: 'bg-blue-50 text-blue-700 border-blue-200' },
-  { value: 'WASH_IN', label: 'Wash In', color: 'bg-sky-50 text-sky-700 border-sky-200' },
-  { value: 'WASH_OUT', label: 'Wash Out', color: 'bg-sky-50 text-sky-700 border-sky-200' },
-  { value: 'DRY_IN', label: 'Dry In', color: 'bg-amber-50 text-amber-700 border-amber-200' },
-  { value: 'DRY_OUT', label: 'Dry Out', color: 'bg-amber-50 text-amber-700 border-amber-200' },
-  { value: 'STORAGE_IN', label: 'Storage In', color: 'bg-slate-50 text-slate-600 border-slate-200' },
-  { value: 'STORAGE_OUT', label: 'Storage Out', color: 'bg-slate-50 text-slate-600 border-slate-200' },
-  { value: 'IN_USE', label: 'In Use', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-];
+import { STATUS_LABELS, LIFECYCLE_STATE_OPTIONS } from './filter-list/constants';
+import type { CreateDialogState, DiagramFilterState, HierarchyNode, StatusPanelFilter, EditFilterRef, FilterRef } from './filter-list/types';
+import { AreaDiagNode, AhuDiagNode, renderChildrenConnector } from './filter-list/components/HierarchyDiagram';
+import { StatusUpdatePanel } from './filter-list/dialogs/StatusUpdatePanel';
+import { DeleteBlockDialog } from './filter-list/dialogs/DeleteBlockDialog';
+import { RetireReplacePanel } from './filter-list/dialogs/RetireReplacePanel';
+import { CreateHierarchyDialog } from './filter-list/dialogs/CreateHierarchyDialog';
+import { RfidTagPanel } from './filter-list/dialogs/RfidTagPanel';
+import { BulkStatusUpdatePanel } from './filter-list/dialogs/BulkStatusUpdatePanel';
+import { BulkRetireReplacePanel } from './filter-list/dialogs/BulkRetireReplacePanel';
+import { CreateFilterDialog } from './filter-list/dialogs/CreateFilterDialog';
+import { HierarchyEditDialog } from './filter-list/dialogs/HierarchyEditDialog';
+import { HierarchyDeleteDialog } from './filter-list/dialogs/HierarchyDeleteDialog';
+import { EditFilterDialog } from './filter-list/dialogs/EditFilterDialog';
+import { DeleteFilterDialog } from './filter-list/dialogs/DeleteFilterDialog';
+import { BulkUploadDialog } from './filter-list/dialogs/BulkUploadDialog';
 
 export function FilterListPage() {
   const { formatDate } = useDatetimeFormat();
@@ -54,19 +48,19 @@ export function FilterListPage() {
   const canStatusUpdate = hasPerm('FILTER_STATUS_UPDATE');
   const canRfid = hasPerm('FILTER_RFID_MANAGE');
   const [selectedBlock, setSelectedBlock] = useState<string | null>(null);
-  const [panelFilter, setPanelFilter] = useState<{ id: string; name: string } | null>(null);
+  const [panelFilter, setPanelFilter] = useState<FilterRef | null>(null);
   const [panelAction, setPanelAction] = useState<'retire' | 'replace'>('retire');
   const [panelRemarks, setPanelRemarks] = useState('');
   const [panelSubmitting, setPanelSubmitting] = useState(false);
 
   // Lifecycle state update panel
-  const [statusPanelFilter, setStatusPanelFilter] = useState<{ id: string; name: string; currentState: string | null } | null>(null);
+  const [statusPanelFilter, setStatusPanelFilter] = useState<StatusPanelFilter | null>(null);
   const [statusPanelState, setStatusPanelState] = useState('');
   const [statusPanelRemarks, setStatusPanelRemarks] = useState('');
   const [statusPanelSubmitting, setStatusPanelSubmitting] = useState(false);
 
   // RFID tag panel
-  const [rfidPanel, setRfidPanel] = useState<{ id: string; name: string } | null>(null);
+  const [rfidPanel, setRfidPanel] = useState<FilterRef | null>(null);
   const [rfidTagValue, setRfidTagValue] = useState('');
   const [rfidSubmitting, setRfidSubmitting] = useState(false);
 
@@ -82,20 +76,20 @@ export function FilterListPage() {
   // Bulk upload
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
   // Hierarchy node edit/delete (areas, AHUs — reuses the same instance routes)
-  const [hierarchyEditDialog, setHierarchyEditDialog] = useState<{ id: string; name: string; entityType: string } | null>(null);
+  const [hierarchyEditDialog, setHierarchyEditDialog] = useState<HierarchyNode | null>(null);
   const [hierarchyEditName, setHierarchyEditName] = useState('');
   const [hierarchyEditSubmitting, setHierarchyEditSubmitting] = useState(false);
   const [hierarchyEditError, setHierarchyEditError] = useState('');
-  const [hierarchyDeleteDialog, setHierarchyDeleteDialog] = useState<{ id: string; name: string; entityType: string } | null>(null);
+  const [hierarchyDeleteDialog, setHierarchyDeleteDialog] = useState<HierarchyNode | null>(null);
   const [hierarchyDeleteSubmitting, setHierarchyDeleteSubmitting] = useState(false);
   // Edit filter dialog
-  const [editFilterDialog, setEditFilterDialog] = useState<{ id: string; name: string; filterSet?: string } | null>(null);
+  const [editFilterDialog, setEditFilterDialog] = useState<EditFilterRef | null>(null);
   const [editFilterName, setEditFilterName] = useState('');
   const [editFilterSet, setEditFilterSet] = useState<'A' | 'B'>('A');
   const [editFilterSubmitting, setEditFilterSubmitting] = useState(false);
   const [editFilterError, setEditFilterError] = useState('');
   // Delete filter dialog
-  const [deleteFilterDialog, setDeleteFilterDialog] = useState<{ id: string; name: string } | null>(null);
+  const [deleteFilterDialog, setDeleteFilterDialog] = useState<FilterRef | null>(null);
   const [deleteFilterSubmitting, setDeleteFilterSubmitting] = useState(false);
   // Single-filter create dialog
   const [createFilterOpen, setCreateFilterOpen] = useState(false);
@@ -117,13 +111,13 @@ export function FilterListPage() {
 
   const [blockTab, setBlockTab] = useState<'view' | 'filters'>('view');
   // Diagram click filter: narrows filters tab to a specific node
-  const [diagramFilter, setDiagramFilter] = useState<{ type: 'block' | 'area' | 'ahu' | 'filter'; id: string; name: string } | null>(null);
-  const [createDialog, setCreateDialog] = useState<{ type: 'block' | 'area' | 'ahu'; parentId?: string; parentName?: string } | null>(null);
+  const [diagramFilter, setDiagramFilter] = useState<DiagramFilterState>(null);
+  const [createDialog, setCreateDialog] = useState<CreateDialogState | null>(null);
   const [createName, setCreateName] = useState('');
   const [createAttrs, setCreateAttrs] = useState<Record<string, string>>({});
   const [creating, setCreating] = useState(false);
   // Block deletion
-  const [deleteBlockDialog, setDeleteBlockDialog] = useState<{ id: string; name: string } | null>(null);
+  const [deleteBlockDialog, setDeleteBlockDialog] = useState<FilterRef | null>(null);
   const [deletingBlock, setDeletingBlock] = useState(false);
 
   const { data: templatesData } = useSWR('/api/assets/templates?limit=1000');
@@ -924,147 +918,14 @@ export function FilterListPage() {
     setSelectedFilterIds(new Set());
   };
 
-  // ── Diagram node renderers (entities-style hierarchy) ──
-
-  function renderFilterDiagNode(f: any) {
-    const rfidTags = (identifiersByAsset.get(f.id) ?? []).filter((i: any) => i.identifierType === 'RFID');
-    const stateInfo = STATUS_LABELS[f.currentLifecycleState ?? ''] ?? { label: f.currentLifecycleState?.replace(/_/g, ' ') ?? 'Idle', color: 'bg-slate-100 text-slate-500 border-slate-300' };
-    return (
-      <div key={f.id} className="flex flex-col items-center">
-        <button onClick={() => navigateFromDiagram('filter', f.id, f.name)}
-          className="flex flex-col items-center px-3 py-2 rounded-xl border-2 border-slate-300 bg-white shadow-sm min-w-[100px] max-w-[130px] hover:border-[var(--theme-primary)] hover:bg-[var(--theme-primary-light)] hover:shadow-md cursor-pointer transition-all">
-          <svg className="w-4 h-4 mb-0.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-          </svg>
-          <span className="text-[10px] font-bold text-center text-slate-700 truncate w-full">{f.name}</span>
-          <span className={`text-[8px] mt-0.5 px-1.5 py-0.5 rounded-full border font-medium ${stateInfo.color}`}>{stateInfo.label}</span>
-          {rfidTags.length > 0 && <span className="text-[7px] font-mono mt-0.5 truncate w-full text-center text-theme-primary">{rfidTags[0].identifierValue}</span>}
-          {f.filterSet && <span className="text-[7px] text-slate-400 mt-0.5">{f.filterSet.replace('_', ' ')}</span>}
-        </button>
-      </div>
-    );
-  }
-
-  function renderChildrenConnector(children: React.ReactNode[], minWidth: number = 150) {
-    if (children.length === 0) return null;
-    return (
-      <div className="flex flex-col items-center w-full">
-        <div className="w-px h-5 bg-slate-300" />
-        <svg className="w-3 h-2 text-slate-400 -mt-px" viewBox="0 0 12 8">
-          <path d="M0 0 L6 8 L12 0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        {children.length === 1 ? (
-          <div className="flex flex-col items-center">
-            <div className="w-px h-3 bg-slate-300" />
-            {children[0]}
-          </div>
-        ) : (
-          <div className="flex flex-col items-center w-full">
-            <div className="relative flex justify-center" style={{ minWidth: `${children.length * minWidth}px` }}>
-              <div className="absolute top-0 h-px bg-slate-300" style={{
-                left: `${100 / (children.length * 2)}%`,
-                right: `${100 / (children.length * 2)}%`,
-              }} />
-              <div className="flex justify-center gap-4 w-full">
-                {children.map((child, i) => (
-                  <div key={i} className="flex flex-col items-center flex-1" style={{ minWidth: `${minWidth - 20}px` }}>
-                    <div className="w-px h-4 bg-slate-300" />
-                    <svg className="w-3 h-2 text-slate-400 -mt-px" viewBox="0 0 12 8">
-                      <path d="M0 0 L6 8 L12 0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                    <div className="h-1" />
-                    {child}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  function renderAhuDiagNode(ahu: any, blockId: string, blockName: string) {
-    const filterNodes = (ahu.filters ?? []).map((f: any) => renderFilterDiagNode(f));
-    return (
-      <div key={ahu.id} className="flex flex-col items-center group/ahu">
-        <div className="relative">
-          <button onClick={() => navigateFromDiagram('ahu', ahu.id, ahu.name)}
-            className="flex flex-col items-center px-4 py-2.5 rounded-xl border-2 border-teal-500 bg-teal-50 shadow-sm min-w-[110px] max-w-[150px] hover:bg-teal-100 hover:shadow-md cursor-pointer transition-all">
-            <svg className="w-5 h-5 mb-0.5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-            </svg>
-            <span className="text-xs font-bold text-center text-teal-800 truncate w-full">{ahu.name}</span>
-            <span className="text-[9px] mt-0.5 text-teal-500">AHU</span>
-          </button>
-          <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover/ahu:opacity-100 transition-opacity">
-            {canEditHierarchy && (
-              <button onClick={(e) => { e.stopPropagation(); openHierarchyEdit({ id: ahu.id, name: ahu.name, entityType: 'AHU' }); }}
-                className="w-6 h-6 rounded-full bg-white border border-amber-300 text-amber-600 hover:bg-amber-50 shadow-sm flex items-center justify-center" title="Edit AHU">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-              </button>
-            )}
-            {canDeleteHierarchy && (
-              <button onClick={(e) => { e.stopPropagation(); setHierarchyDeleteDialog({ id: ahu.id, name: ahu.name, entityType: 'AHU' }); }}
-                className="w-6 h-6 rounded-full bg-white border border-red-300 text-red-600 hover:bg-red-50 shadow-sm flex items-center justify-center" title="Delete AHU">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-              </button>
-            )}
-          </div>
-        </div>
-        {filterNodes.length > 0 && renderChildrenConnector(filterNodes, 130)}
-      </div>
-    );
-  }
-
-  function renderAreaDiagNode(area: any) {
-    const ahuNodes = (area.ahus ?? []).map((ahu: any) => renderAhuDiagNode(ahu, '', ''));
-    return (
-      <div key={area.id} className="flex flex-col items-center group/area">
-        <div className="relative">
-          <button onClick={() => navigateFromDiagram('area', area.id, area.name)}
-            className="flex flex-col items-center px-4 py-2.5 rounded-xl border-2 border-purple-500 bg-purple-50 shadow-sm min-w-[110px] max-w-[150px] hover:bg-purple-100 hover:shadow-md cursor-pointer transition-all">
-            <svg className="w-5 h-5 mb-0.5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5z" />
-            </svg>
-            <span className="text-xs font-bold text-center text-purple-800 truncate w-full">{area.name}</span>
-            <span className="text-[9px] mt-0.5 text-purple-500">Area</span>
-          </button>
-          {/* Hover: Add AHU / Edit / Delete */}
-          <div className="absolute -top-2 -right-2 flex gap-0.5 opacity-0 group-hover/area:opacity-100 transition-opacity z-10">
-            {canCreate && (
-              <button
-                className="w-6 h-6 rounded-full bg-teal-500 text-white flex items-center justify-center shadow-sm hover:bg-teal-600 transition-colors"
-                title="Add AHU"
-                onClick={(e) => { e.stopPropagation(); setCreateDialog({ type: 'ahu', parentId: area.id, parentName: area.name }); }}
-              >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
-              </button>
-            )}
-            {canEditHierarchy && (
-              <button
-                className="w-6 h-6 rounded-full bg-white border border-amber-300 text-amber-600 hover:bg-amber-50 shadow-sm flex items-center justify-center"
-                title="Edit Area"
-                onClick={(e) => { e.stopPropagation(); openHierarchyEdit({ id: area.id, name: area.name, entityType: 'Area' }); }}
-              >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-              </button>
-            )}
-            {canDeleteHierarchy && (
-              <button
-                className="w-6 h-6 rounded-full bg-white border border-red-300 text-red-600 hover:bg-red-50 shadow-sm flex items-center justify-center"
-                title="Delete Area"
-                onClick={(e) => { e.stopPropagation(); setHierarchyDeleteDialog({ id: area.id, name: area.name, entityType: 'Area' }); }}
-              >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-              </button>
-            )}
-          </div>
-        </div>
-        {ahuNodes.length > 0 && renderChildrenConnector(ahuNodes, 160)}
-      </div>
-    );
-  }
+  // Diagram handler bundle for child node components
+  const diagramPerms = { canCreate, canEditHierarchy, canDeleteHierarchy };
+  const diagramHandlers = {
+    onNavigate: navigateFromDiagram,
+    onAddChild: setCreateDialog,
+    onEditNode: openHierarchyEdit,
+    onDeleteNode: setHierarchyDeleteDialog,
+  };
 
   // Summary stats for header
   const totalAhus = useMemo(() => {
@@ -1283,8 +1144,8 @@ export function FilterListPage() {
                       {allBlockChildren.length > 0 && renderChildrenConnector(
                         allBlockChildren.map((child) =>
                           child.type === 'area'
-                            ? renderAreaDiagNode(child as any)
-                            : renderAhuDiagNode(child as any, block.id, block.name)
+                            ? <AreaDiagNode key={child.id} area={child} identifiersByAsset={identifiersByAsset} perms={diagramPerms} handlers={diagramHandlers} />
+                            : <AhuDiagNode key={child.id} ahu={child} identifiersByAsset={identifiersByAsset} perms={diagramPerms} handlers={diagramHandlers} />
                         ), 180,
                       )}
                     </div>
@@ -1525,7 +1386,7 @@ export function FilterListPage() {
                   <span>
                     Page <span className="font-semibold text-slate-800">{page}</span> of{' '}
                     <span className="font-semibold text-slate-800">{totalPages}</span>
-                    <span className="text-slate-400 ml-2">({blockFilters.length} total{selectedFilterIds.size > 0 ? ` \u00b7 ${selectedFilterIds.size} selected` : ''})</span>
+                    <span className="text-slate-400 ml-2">({blockFilters.length} total{selectedFilterIds.size > 0 ? ` · ${selectedFilterIds.size} selected` : ''})</span>
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -1568,112 +1429,29 @@ export function FilterListPage() {
           )}
         </>
       )}
+
       {/* Update Status Side Panel */}
       {statusPanelFilter && (
-        <>
-          <div className="fixed inset-0 bg-black/20 z-40" onClick={closeStatusPanel} />
-          <div className="fixed top-0 right-0 h-full w-96 bg-white shadow-2xl z-50 flex flex-col border-l border-slate-200 animate-in slide-in-from-right">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
-              <h3 className="text-lg font-semibold text-slate-800">Update Filter Status</h3>
-              <button onClick={closeStatusPanel} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6 space-y-5">
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">Filter ID</label>
-                <input type="text" value={statusPanelFilter.name} readOnly className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 text-sm" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">Current Status</label>
-                <input
-                  type="text"
-                  value={statusPanelFilter.currentState ? (STATUS_LABELS[statusPanelFilter.currentState]?.label ?? statusPanelFilter.currentState.replace(/_/g, ' ')) : 'Idle'}
-                  readOnly
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">
-                  New Status <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={statusPanelState}
-                  onChange={e => setStatusPanelState(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  {LIFECYCLE_STATE_OPTIONS.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
-              {statusPanelState === (statusPanelFilter.currentState ?? '') && (
-                <div className="rounded-lg p-3 text-xs bg-amber-50 text-amber-700 border border-amber-200">
-                  Please select a different status from the current one.
-                </div>
-              )}
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">
-                  Remarks <span className="text-red-500">*</span>
-                </label>
-                <textarea
-                  value={statusPanelRemarks}
-                  onChange={e => setStatusPanelRemarks(e.target.value)}
-                  placeholder="Enter reason for status change..."
-                  rows={4}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-            </div>
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
-              <button
-                onClick={closeStatusPanel}
-                className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleStatusSubmit}
-                disabled={!statusPanelRemarks.trim() || statusPanelState === (statusPanelFilter.currentState ?? '') || statusPanelSubmitting}
-                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {statusPanelSubmitting ? 'Processing...' : 'Update Status'}
-              </button>
-            </div>
-          </div>
-        </>
+        <StatusUpdatePanel
+          filter={statusPanelFilter}
+          state={statusPanelState}
+          remarks={statusPanelRemarks}
+          submitting={statusPanelSubmitting}
+          onStateChange={setStatusPanelState}
+          onRemarksChange={setStatusPanelRemarks}
+          onClose={closeStatusPanel}
+          onSubmit={handleStatusSubmit}
+        />
       )}
 
       {/* Delete Block Confirmation Dialog */}
       {deleteBlockDialog && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setDeleteBlockDialog(null)}>
-          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="h-1.5 bg-gradient-to-r from-red-500 to-rose-500" />
-            <div className="p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
-                  <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                </div>
-                <div>
-                  <h3 className="text-[15px] font-bold text-slate-800">Delete Block</h3>
-                  <p className="text-[12px] text-slate-400">This action cannot be undone</p>
-                </div>
-              </div>
-              <p className="text-sm text-slate-600 mb-5">
-                Are you sure you want to delete <strong>{deleteBlockDialog.name}</strong>? All child areas, AHUs, and filters under this block will also be removed.
-              </p>
-              <div className="flex gap-3">
-                <button onClick={() => setDeleteBlockDialog(null)} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium">Cancel</button>
-                <button onClick={handleDeleteBlock} disabled={deletingBlock}
-                  className="flex-1 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg shadow-red-500/25">
-                  {deletingBlock ? 'Deleting...' : 'Delete'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <DeleteBlockDialog
+          name={deleteBlockDialog.name}
+          deleting={deletingBlock}
+          onCancel={() => setDeleteBlockDialog(null)}
+          onConfirm={handleDeleteBlock}
+        />
       )}
 
       {/* Reauth Dialog */}
@@ -1690,845 +1468,165 @@ export function FilterListPage() {
 
       {/* Retire / Replace Side Panel */}
       {panelFilter && (
-        <>
-          {/* Backdrop */}
-          <div className="fixed inset-0 bg-black/20 z-40" onClick={closePanel} />
-          {/* Panel */}
-          <div className="fixed top-0 right-0 h-full w-96 bg-white shadow-2xl z-50 flex flex-col border-l border-slate-200 animate-in slide-in-from-right">
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
-              <h3 className="text-lg font-semibold text-slate-800">Retire / Replace Filter</h3>
-              <button onClick={closePanel} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            {/* Body */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-5">
-              {/* Filter ID (read-only) */}
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">Filter ID</label>
-                <input
-                  type="text"
-                  value={panelFilter.name}
-                  readOnly
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 text-sm"
-                />
-              </div>
-              {/* Action dropdown */}
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">Action</label>
-                <select
-                  value={panelAction}
-                  onChange={e => setPanelAction(e.target.value as 'retire' | 'replace')}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]"
-                >
-                  <option value="retire">Retirement</option>
-                  <option value="replace">Replacement</option>
-                </select>
-              </div>
-              {/* Info box */}
-              <div className={`rounded-lg p-3 text-xs ${panelAction === 'retire' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
-                {panelAction === 'retire'
-                  ? 'This will permanently retire the filter. It will be removed from the active filter list and cannot perform cleaning operations.'
-                  : 'This will retire the current filter and create a new replacement filter with the same details and an incremented suffix number.'}
-              </div>
-              {/* Remarks */}
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">
-                  Remarks <span className="text-red-500">*</span>
-                </label>
-                <textarea
-                  value={panelRemarks}
-                  onChange={e => setPanelRemarks(e.target.value)}
-                  placeholder="Enter reason for retirement/replacement..."
-                  rows={4}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:ring-2 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]"
-                />
-              </div>
-            </div>
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
-              <button
-                onClick={closePanel}
-                className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handlePanelSubmit}
-                disabled={!panelRemarks.trim() || panelSubmitting}
-                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                  panelAction === 'retire'
-                    ? 'bg-red-600 hover:bg-red-700'
-                    : 'bg-[var(--theme-primary)] hover:opacity-90'
-                }`}
-              >
-                {panelSubmitting ? 'Processing...' : panelAction === 'retire' ? 'Retire Filter' : 'Replace Filter'}
-              </button>
-            </div>
-          </div>
-        </>
+        <RetireReplacePanel
+          filter={panelFilter}
+          action={panelAction}
+          remarks={panelRemarks}
+          submitting={panelSubmitting}
+          onActionChange={setPanelAction}
+          onRemarksChange={setPanelRemarks}
+          onClose={closePanel}
+          onSubmit={handlePanelSubmit}
+        />
       )}
 
       {/* Create Block/Area/AHU Dialog */}
       {createDialog && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
-            <div className={`h-1.5 ${createDialog.type === 'block' ? '' : createDialog.type === 'area' ? 'bg-gradient-to-r from-purple-500 to-violet-500' : 'bg-gradient-to-r from-teal-500 to-emerald-500'}`} style={createDialog.type === 'block' ? { background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' } : undefined} />
-            <div className="p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${createDialog.type === 'area' ? 'bg-purple-50' : createDialog.type === 'ahu' ? 'bg-teal-50' : ''}`} style={createDialog.type === 'block' ? { backgroundColor: 'var(--theme-primary-light)' } : undefined}>
-                  <svg className={`w-5 h-5 ${createDialog.type === 'area' ? 'text-purple-600' : createDialog.type === 'ahu' ? 'text-teal-600' : ''}`} style={createDialog.type === 'block' ? { color: 'var(--theme-primary)' } : undefined} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-[15px] font-bold text-slate-800">Create {createDialog.type === 'block' ? 'Block' : createDialog.type === 'area' ? 'Area' : 'AHU'}</h3>
-                  {createDialog.parentName && <p className="text-[12px] text-slate-400">Under {createDialog.parentName}</p>}
-                </div>
-              </div>
-              <div className="space-y-3 mb-5 max-h-[50vh] overflow-y-auto">
-                <div>
-                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">Name <span className="text-red-500">*</span></label>
-                  <input value={createName} onChange={e => setCreateName(e.target.value)} autoFocus
-                    placeholder={`Enter ${createDialog.type} name...`}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-focus-ring)] outline-none" />
-                </div>
-                {/* Dynamic attribute fields from template schema */}
-                {getTemplateSchema(createDialog.type).map((field: any) => (
-                  <div key={field.fieldName}>
-                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">
-                      {field.fieldName.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').trim()}
-                      {field.unit && <span className="text-slate-400 normal-case font-normal"> ({field.unit})</span>}
-                      {field.required && <span className="text-red-500"> *</span>}
-                    </label>
-                    {field.dataType === 'DROPDOWN' ? (
-                      <select
-                        value={createAttrs[field.fieldName] ?? ''}
-                        onChange={e => setCreateAttrs(p => ({ ...p, [field.fieldName]: e.target.value }))}
-                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-focus-ring)] outline-none"
-                      >
-                        <option value="">Select...</option>
-                        {(field.dropdownOptions ?? []).map((opt: string) => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </select>
-                    ) : field.dataType === 'BOOLEAN' ? (
-                      <select
-                        value={createAttrs[field.fieldName] ?? ''}
-                        onChange={e => setCreateAttrs(p => ({ ...p, [field.fieldName]: e.target.value }))}
-                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-focus-ring)] outline-none"
-                      >
-                        <option value="">Select...</option>
-                        <option value="true">Yes</option>
-                        <option value="false">No</option>
-                      </select>
-                    ) : field.dataType === 'DATE' ? (
-                      <input
-                        type="date"
-                        value={createAttrs[field.fieldName] ?? ''}
-                        onChange={e => setCreateAttrs(p => ({ ...p, [field.fieldName]: e.target.value }))}
-                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-focus-ring)] outline-none"
-                      />
-                    ) : (
-                      <input
-                        type={field.dataType === 'FLOAT' || field.dataType === 'NUMBER' || field.dataType === 'INTEGER' ? 'number' : 'text'}
-                        step={field.dataType === 'FLOAT' ? 'any' : undefined}
-                        value={createAttrs[field.fieldName] ?? ''}
-                        onChange={e => setCreateAttrs(p => ({ ...p, [field.fieldName]: e.target.value }))}
-                        placeholder={field.fieldName.replace(/_/g, ' ')}
-                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-focus-ring)] outline-none"
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-              <div className="flex gap-3">
-                <button onClick={() => { setCreateDialog(null); setCreateName(''); setCreateAttrs({}); }}
-                  className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium">Cancel</button>
-                <button onClick={handleCreate} disabled={creating || !createName.trim()}
-                  className={`flex-1 py-2.5 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg ${
-                    createDialog.type === 'block' ? ''
-                    : createDialog.type === 'area' ? 'bg-gradient-to-r from-purple-600 to-violet-600 shadow-purple-500/25'
-                    : 'bg-gradient-to-r from-teal-600 to-emerald-600 shadow-teal-500/25'
-                  }`}
-                  style={createDialog.type === 'block' ? themeButton : undefined}>
-                  {creating ? 'Creating...' : 'Create'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <CreateHierarchyDialog
+          dialog={createDialog}
+          name={createName}
+          attrs={createAttrs}
+          schema={getTemplateSchema(createDialog.type)}
+          creating={creating}
+          onNameChange={setCreateName}
+          onAttrChange={setCreateAttrs}
+          onCancel={() => { setCreateDialog(null); setCreateName(''); setCreateAttrs({}); }}
+          onSubmit={handleCreate}
+        />
       )}
 
       {/* RFID Tag Panel */}
       {rfidPanel && (
-        <>
-          <div className="fixed inset-0 bg-black/30 z-40" onClick={closeRfidPanel} />
-          <div className="fixed top-0 right-0 h-full w-[420px] bg-white shadow-2xl z-50 flex flex-col border-l border-slate-200">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center shadow-lg" style={{ ...themeGradientBr, boxShadow: '0 4px 14px -3px color-mix(in srgb, var(--theme-primary) 20%, transparent)' }}>
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-[15px] font-bold text-slate-800">RFID Tag Management</h3>
-                  <p className="text-[12px] text-slate-400">{rfidPanel.name}</p>
-                </div>
-              </div>
-              <button onClick={closeRfidPanel} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6 space-y-5">
-              {/* Current Tags */}
-              <div>
-                <h4 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3">Assigned Tags</h4>
-                {(() => {
-                  const tags = identifiersByAsset.get(rfidPanel.id) ?? [];
-                  const rfidTags = tags.filter((t: any) => t.identifierType === 'RFID');
-                  const otherTags = tags.filter((t: any) => t.identifierType !== 'RFID');
-                  return (
-                    <div className="space-y-2">
-                      {rfidTags.length === 0 && otherTags.length === 0 && (
-                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center">
-                          <p className="text-sm text-slate-400">No tags assigned to this filter</p>
-                        </div>
-                      )}
-                      {rfidTags.map((tag: any) => (
-                        <div key={tag.id} className="flex items-center justify-between rounded-xl px-4 py-3" style={{ backgroundColor: 'var(--theme-primary-light)', border: '1px solid var(--theme-primary)' }}>
-                          <div className="flex items-center gap-3">
-                            <svg className="w-5 h-5 text-theme-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0" />
-                            </svg>
-                            <div>
-                              <div className="text-sm font-bold font-mono" style={{ color: 'var(--theme-primary-dark)' }}>{tag.identifierValue}</div>
-                              <div className="text-[10px] text-theme-primary">RFID Tag</div>
-                            </div>
-                          </div>
-                          <button onClick={() => handleUnassignRfid(tag.id)} disabled={rfidSubmitting}
-                            className="px-3 py-1.5 bg-white border border-red-200 text-red-600 text-[11px] font-semibold rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors">
-                            Unassign
-                          </button>
-                        </div>
-                      ))}
-                      {otherTags.map((tag: any) => (
-                        <div key={tag.id} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
-                          <div className="flex items-center gap-3">
-                            <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                            </svg>
-                            <div>
-                              <div className="text-sm font-medium text-slate-700">{tag.identifierValue}</div>
-                              <div className="text-[10px] text-slate-400">{tag.identifierType}{tag.label ? ` — ${tag.label}` : ''}</div>
-                            </div>
-                          </div>
-                          <button onClick={() => handleUnassignRfid(tag.id)} disabled={rfidSubmitting}
-                            className="px-3 py-1.5 bg-white border border-red-200 text-red-600 text-[11px] font-semibold rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors">
-                            Remove
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* Assign New Tag */}
-              <div className="border-t border-slate-200 pt-5">
-                <h4 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3">Assign New RFID Tag</h4>
-                <p className="text-[12px] text-slate-400 mb-3">Scan an RFID tag or enter the tag ID manually.</p>
-                <div className="space-y-3">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={rfidTagValue}
-                      onChange={e => setRfidTagValue(e.target.value)}
-                      data-rfid="true"
-                      placeholder="Scan RFID tag or type tag ID..."
-                      autoFocus
-                      className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm text-slate-800 font-mono bg-white focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-focus-ring)] outline-none pr-12"
-                    />
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                      <svg className="w-5 h-5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0" />
-                      </svg>
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleAssignRfid}
-                    disabled={rfidSubmitting || !rfidTagValue.trim()}
-                    className="w-full py-2.5 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg hover:opacity-90 transition-all"
-                    style={themeButton}
-                  >
-                    {rfidSubmitting ? 'Assigning...' : 'Assign Tag'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </>
+        <RfidTagPanel
+          filter={rfidPanel}
+          tags={identifiersByAsset.get(rfidPanel.id) ?? []}
+          tagValue={rfidTagValue}
+          submitting={rfidSubmitting}
+          onTagValueChange={setRfidTagValue}
+          onClose={closeRfidPanel}
+          onAssign={handleAssignRfid}
+          onUnassign={handleUnassignRfid}
+        />
       )}
 
       {/* Bulk Status Update Panel */}
       {bulkAction === 'status' && (
-        <>
-          <div className="fixed inset-0 bg-black/20 z-40" onClick={closeBulkPanel} />
-          <div className="fixed top-0 right-0 h-full w-96 bg-white shadow-2xl z-50 flex flex-col border-l border-slate-200 animate-in slide-in-from-right">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
-              <h3 className="text-lg font-semibold text-slate-800">Bulk Status Update</h3>
-              <button onClick={closeBulkPanel} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6 space-y-5">
-              <div className="rounded-lg p-3 text-xs bg-blue-50 text-blue-700 border border-blue-200">
-                Updating <strong>{selectedFilterIds.size} filter(s)</strong> to the selected status.
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">Selected Filters</label>
-                <div className="max-h-32 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-1">
-                  {blockFilters.filter(f => selectedFilterIds.has(f.id)).map(f => (
-                    <div key={f.id} className="text-xs text-slate-600 px-2 py-1 bg-slate-50 rounded">{f.name}</div>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">New Status <span className="text-red-500">*</span></label>
-                <select value={statusPanelState} onChange={e => setStatusPanelState(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                  {LIFECYCLE_STATE_OPTIONS.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">Remarks <span className="text-red-500">*</span></label>
-                <textarea value={statusPanelRemarks} onChange={e => setStatusPanelRemarks(e.target.value)}
-                  placeholder="Enter reason for status change..." rows={4}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-              </div>
-            </div>
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
-              <button onClick={closeBulkPanel} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
-              <button onClick={handleBulkStatusSubmit} disabled={!statusPanelRemarks.trim() || statusPanelSubmitting}
-                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                {statusPanelSubmitting ? 'Processing...' : `Update ${selectedFilterIds.size} Filter(s)`}
-              </button>
-            </div>
-          </div>
-        </>
+        <BulkStatusUpdatePanel
+          selectedCount={selectedFilterIds.size}
+          selectedFilters={blockFilters.filter(f => selectedFilterIds.has(f.id))}
+          state={statusPanelState}
+          remarks={statusPanelRemarks}
+          submitting={statusPanelSubmitting}
+          onStateChange={setStatusPanelState}
+          onRemarksChange={setStatusPanelRemarks}
+          onClose={closeBulkPanel}
+          onSubmit={handleBulkStatusSubmit}
+        />
       )}
 
       {/* Bulk Retire / Replace Panel */}
       {(bulkAction === 'retire' || bulkAction === 'replace') && (
-        <>
-          <div className="fixed inset-0 bg-black/20 z-40" onClick={closeBulkPanel} />
-          <div className="fixed top-0 right-0 h-full w-96 bg-white shadow-2xl z-50 flex flex-col border-l border-slate-200 animate-in slide-in-from-right">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
-              <h3 className="text-lg font-semibold text-slate-800">Bulk {bulkAction === 'retire' ? 'Retirement' : 'Replacement'}</h3>
-              <button onClick={closeBulkPanel} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6 space-y-5">
-              <div className={`rounded-lg p-3 text-xs border ${bulkAction === 'retire' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
-                {bulkAction === 'retire'
-                  ? <>This will permanently retire <strong>{selectedFilterIds.size} filter(s)</strong>. They will be removed from the active filter list.</>
-                  : <>This will retire <strong>{selectedFilterIds.size} filter(s)</strong> and create replacement filters with incremented suffix numbers.</>
-                }
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">Selected Filters</label>
-                <div className="max-h-32 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-1">
-                  {blockFilters.filter(f => selectedFilterIds.has(f.id)).map(f => (
-                    <div key={f.id} className="text-xs text-slate-600 px-2 py-1 bg-slate-50 rounded">{f.name}</div>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">Remarks <span className="text-red-500">*</span></label>
-                <textarea value={panelRemarks} onChange={e => setPanelRemarks(e.target.value)}
-                  placeholder={`Enter reason for ${bulkAction === 'retire' ? 'retirement' : 'replacement'}...`} rows={4}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:ring-2 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]" />
-              </div>
-            </div>
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
-              <button onClick={closeBulkPanel} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
-              <button onClick={handleBulkRetireSubmit} disabled={!panelRemarks.trim() || panelSubmitting}
-                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                  bulkAction === 'retire' ? 'bg-red-600 hover:bg-red-700' : 'bg-orange-600 hover:bg-orange-700'
-                }`}>
-                {panelSubmitting ? 'Processing...' : `${bulkAction === 'retire' ? 'Retire' : 'Replace'} ${selectedFilterIds.size} Filter(s)`}
-              </button>
-            </div>
-          </div>
-        </>
+        <BulkRetireReplacePanel
+          action={bulkAction}
+          selectedCount={selectedFilterIds.size}
+          selectedFilters={blockFilters.filter(f => selectedFilterIds.has(f.id))}
+          remarks={panelRemarks}
+          submitting={panelSubmitting}
+          onRemarksChange={setPanelRemarks}
+          onClose={closeBulkPanel}
+          onSubmit={handleBulkRetireSubmit}
+        />
       )}
 
       {/* Create Filter Dialog */}
       {createFilterOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md overflow-hidden flex flex-col shadow-2xl">
-            <div className="px-6 py-4 shrink-0 flex items-center justify-between" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
-              <div>
-                <h2 className="text-lg font-bold text-white">Create Filter</h2>
-                <p className="text-white/70 text-sm">Add a single filter under an AHU</p>
-              </div>
-              <button onClick={() => setCreateFilterOpen(false)} className="text-white/80 hover:text-white">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
-            <div className="px-6 py-5 space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(90vh - 160px)' }}>
-              {createFilterError && (
-                <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">{createFilterError}</div>
-              )}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">AHU <span className="text-red-500">*</span></label>
-                <select value={createFilterAhu} onChange={e => setCreateFilterAhu(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
-                  <option value="">Select AHU...</option>
-                  {bulkUploadAhus.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Filter Name <span className="text-red-500">*</span></label>
-                <input type="text" value={createFilterName} onChange={e => setCreateFilterName(e.target.value)}
-                  placeholder="e.g., Pre-Filter-01"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Filter Set <span className="text-red-500">*</span></label>
-                <div className="flex gap-2">
-                  {(['A', 'B'] as const).map(s => (
-                    <button key={s} type="button" onClick={() => setCreateFilterSet(s)}
-                      className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold border transition-colors ${
-                        createFilterSet === s ? 'bg-cyan-600 text-white border-cyan-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                      }`}>
-                      Set {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* Dynamic fields from Filter template attributeSchema. Same renderer
-                  pattern as the Block/Area/AHU create dialog above so admins can
-                  add new fields once on the template and they show up everywhere. */}
-              {filterAttributeSchema.length > 0 && (
-                <div className="space-y-3 pt-1 border-t border-slate-100">
-                  <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider pt-2">Filter Attributes</div>
-                  {filterAttributeSchema.map((field: any) => (
-                    <div key={field.fieldName}>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">
-                        {field.fieldName.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').trim()}
-                        {field.unit && <span className="text-slate-400 font-normal"> ({field.unit})</span>}
-                        {field.required && <span className="text-red-500"> *</span>}
-                      </label>
-                      {field.dataType === 'DROPDOWN' ? (
-                        <select
-                          value={createFilterAttrs[field.fieldName] ?? ''}
-                          onChange={e => setCreateFilterAttrs(p => ({ ...p, [field.fieldName]: e.target.value }))}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                        >
-                          <option value="">Select...</option>
-                          {(field.dropdownOptions ?? []).map((opt: string) => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      ) : field.dataType === 'BOOLEAN' ? (
-                        <select
-                          value={createFilterAttrs[field.fieldName] ?? ''}
-                          onChange={e => setCreateFilterAttrs(p => ({ ...p, [field.fieldName]: e.target.value }))}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                        >
-                          <option value="">Select...</option>
-                          <option value="true">Yes</option>
-                          <option value="false">No</option>
-                        </select>
-                      ) : field.dataType === 'DATE' ? (
-                        <input
-                          type="date"
-                          value={createFilterAttrs[field.fieldName] ?? ''}
-                          onChange={e => setCreateFilterAttrs(p => ({ ...p, [field.fieldName]: e.target.value }))}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                        />
-                      ) : (
-                        <input
-                          type={field.dataType === 'FLOAT' || field.dataType === 'NUMBER' || field.dataType === 'INTEGER' ? 'number' : 'text'}
-                          step={field.dataType === 'FLOAT' ? 'any' : undefined}
-                          value={createFilterAttrs[field.fieldName] ?? ''}
-                          onChange={e => setCreateFilterAttrs(p => ({ ...p, [field.fieldName]: e.target.value }))}
-                          placeholder={field.fieldName.replace(/_/g, ' ')}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                        />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
-              <button onClick={() => setCreateFilterOpen(false)} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
-              <button onClick={submitCreateFilter} disabled={createFilterSubmitting || !createFilterAhu || !createFilterName.trim()}
-                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                style={themeButton}>
-                {createFilterSubmitting ? 'Creating...' : 'Create Filter'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <CreateFilterDialog
+          ahu={createFilterAhu}
+          name={createFilterName}
+          filterSet={createFilterSet}
+          attrs={createFilterAttrs}
+          schema={filterAttributeSchema}
+          ahus={bulkUploadAhus}
+          error={createFilterError}
+          submitting={createFilterSubmitting}
+          onAhuChange={setCreateFilterAhu}
+          onNameChange={setCreateFilterName}
+          onFilterSetChange={setCreateFilterSet}
+          onAttrChange={setCreateFilterAttrs}
+          onClose={() => setCreateFilterOpen(false)}
+          onSubmit={submitCreateFilter}
+        />
       )}
 
       {/* Hierarchy Edit Dialog */}
       {hierarchyEditDialog && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md overflow-hidden flex flex-col shadow-2xl">
-            <div className="px-6 py-4 shrink-0 flex items-center justify-between bg-gradient-to-r from-amber-500 to-orange-500">
-              <div>
-                <h2 className="text-lg font-bold text-white">Edit {hierarchyEditDialog.entityType}</h2>
-                <p className="text-white/70 text-sm">Rename this hierarchy node</p>
-              </div>
-              <button onClick={() => setHierarchyEditDialog(null)} className="text-white/80 hover:text-white">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
-            <div className="px-6 py-5 space-y-4">
-              {hierarchyEditError && (
-                <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">{hierarchyEditError}</div>
-              )}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Name <span className="text-red-500">*</span></label>
-                <input type="text" value={hierarchyEditName} onChange={e => setHierarchyEditName(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500" />
-              </div>
-            </div>
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
-              <button onClick={() => setHierarchyEditDialog(null)} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
-              <button onClick={submitHierarchyEdit} disabled={hierarchyEditSubmitting || !hierarchyEditName.trim()}
-                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                {hierarchyEditSubmitting ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <HierarchyEditDialog
+          node={hierarchyEditDialog}
+          name={hierarchyEditName}
+          error={hierarchyEditError}
+          submitting={hierarchyEditSubmitting}
+          onNameChange={setHierarchyEditName}
+          onClose={() => setHierarchyEditDialog(null)}
+          onSubmit={submitHierarchyEdit}
+        />
       )}
 
       {/* Hierarchy Delete Dialog */}
       {hierarchyDeleteDialog && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
-            <div className="px-6 py-5">
-              <div className="flex items-start gap-3">
-                <div className="p-2 rounded-lg bg-red-100 text-red-600">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-lg font-bold text-slate-800">Delete {hierarchyDeleteDialog.entityType}</h3>
-                  <p className="text-sm text-slate-600 mt-1">
-                    Permanently delete <strong>"{hierarchyDeleteDialog.name}"</strong>? Any child entities will also be removed. This cannot be undone.
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
-              <button onClick={() => setHierarchyDeleteDialog(null)} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
-              <button onClick={submitHierarchyDelete} disabled={hierarchyDeleteSubmitting}
-                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                {hierarchyDeleteSubmitting ? 'Deleting...' : `Delete ${hierarchyDeleteDialog.entityType}`}
-              </button>
-            </div>
-          </div>
-        </div>
+        <HierarchyDeleteDialog
+          node={hierarchyDeleteDialog}
+          submitting={hierarchyDeleteSubmitting}
+          onClose={() => setHierarchyDeleteDialog(null)}
+          onSubmit={submitHierarchyDelete}
+        />
       )}
 
       {/* Edit Filter Dialog */}
       {editFilterDialog && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md overflow-hidden flex flex-col shadow-2xl">
-            <div className="px-6 py-4 shrink-0 flex items-center justify-between bg-gradient-to-r from-amber-500 to-orange-500">
-              <div>
-                <h2 className="text-lg font-bold text-white">Edit Filter</h2>
-                <p className="text-white/70 text-sm">Update filter name and set</p>
-              </div>
-              <button onClick={() => setEditFilterDialog(null)} className="text-white/80 hover:text-white">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
-            <div className="px-6 py-5 space-y-4">
-              {editFilterError && (
-                <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">{editFilterError}</div>
-              )}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Filter Name <span className="text-red-500">*</span></label>
-                <input type="text" value={editFilterName} onChange={e => setEditFilterName(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Filter Set</label>
-                <div className="flex gap-2">
-                  {(['A', 'B'] as const).map(s => (
-                    <button key={s} type="button" onClick={() => setEditFilterSet(s)}
-                      className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold border transition-colors ${
-                        editFilterSet === s ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                      }`}>
-                      Set {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
-              <button onClick={() => setEditFilterDialog(null)} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
-              <button onClick={submitEditFilter} disabled={editFilterSubmitting || !editFilterName.trim()}
-                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                {editFilterSubmitting ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <EditFilterDialog
+          name={editFilterName}
+          filterSet={editFilterSet}
+          error={editFilterError}
+          submitting={editFilterSubmitting}
+          onNameChange={setEditFilterName}
+          onFilterSetChange={setEditFilterSet}
+          onClose={() => setEditFilterDialog(null)}
+          onSubmit={submitEditFilter}
+        />
       )}
 
       {/* Delete Filter Confirmation */}
       {deleteFilterDialog && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
-            <div className="px-6 py-5">
-              <div className="flex items-start gap-3">
-                <div className="p-2 rounded-lg bg-red-100 text-red-600">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-lg font-bold text-slate-800">Delete Filter</h3>
-                  <p className="text-sm text-slate-600 mt-1">
-                    Permanently delete <strong>"{deleteFilterDialog.name}"</strong>? This cannot be undone.
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
-              <button onClick={() => setDeleteFilterDialog(null)} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
-              <button onClick={submitDeleteFilter} disabled={deleteFilterSubmitting}
-                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                {deleteFilterSubmitting ? 'Deleting...' : 'Delete Filter'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <DeleteFilterDialog
+          name={deleteFilterDialog.name}
+          submitting={deleteFilterSubmitting}
+          onClose={() => setDeleteFilterDialog(null)}
+          onSubmit={submitDeleteFilter}
+        />
       )}
 
       {/* Bulk Upload Dialog */}
       {bulkUploadOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl">
-            {/* Header */}
-            <div className="px-6 py-4 shrink-0 flex items-center justify-between" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
-              <div>
-                <h2 className="text-lg font-bold text-white">Bulk Upload Filters</h2>
-                <p className="text-white/70 text-sm">
-                  {diagramFilter?.type === 'ahu' ? `Into ${diagramFilter.name}`
-                    : diagramFilter?.type === 'area' ? `Into ${diagramFilter.name} area`
-                    : `Into ${selectedBlockName}`}
-                </p>
-              </div>
-              <button onClick={closeBulkUpload} className="p-1.5 rounded-lg hover:bg-white/20 text-white/80 hover:text-white transition-colors">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
-
-            {/* Content */}
-            <div className="p-6 space-y-4 overflow-y-auto flex-1">
-
-              {/* Step: Select AHU + file */}
-              {bulkUploadStep === 'select' && (
-                <>
-                  {/* AHU selector — skip if single AHU context */}
-                  {bulkUploadAhus.length !== 1 && (
-                    <div>
-                      <label className="block text-sm font-medium text-slate-600 mb-1">Target AHU <span className="text-red-500">*</span></label>
-                      {bulkUploadAhus.length === 0 ? (
-                        <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-                          No AHUs found in this scope. Create an AHU first in the Structure view.
-                        </div>
-                      ) : (
-                        <select value={bulkUploadAhu} onChange={e => setBulkUploadAhu(e.target.value)}
-                          className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]">
-                          <option value="">Select AHU...</option>
-                          {bulkUploadAhus.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
-                        </select>
-                      )}
-                    </div>
-                  )}
-
-                  {bulkUploadAhus.length === 1 && (
-                    <div>
-                      <label className="block text-sm font-medium text-slate-600 mb-1">Target AHU</label>
-                      <div className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700">{bulkUploadAhus[0].name}</div>
-                    </div>
-                  )}
-
-                  {/* CSV format info — dynamic from Filter template */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-                    <h4 className="text-sm font-medium text-slate-600 mb-2">CSV Columns</h4>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                      <span className="font-mono text-theme-primary">name</span><span className="text-slate-400">Filter ID/Name (required)</span>
-                      <span className="font-mono text-theme-primary">filterSet</span><span className="text-slate-400">A or B (required)</span>
-                      {filterTemplateSchema.map((f, fi) => (
-                        <Fragment key={f.fieldName}>
-                          <span className="font-mono text-theme-primary">{f.fieldName}</span>
-                          <span className="text-slate-400">
-                            {f.dropdownOptions?.length ? f.dropdownOptions.join(', ') : f.dataType || 'Text'}
-                            {f.required ? ' (required)' : ''}
-                            {f.unit ? ` (${f.unit})` : ''}
-                          </span>
-                        </Fragment>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <button onClick={downloadBulkTemplate}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm hover:bg-slate-200 transition-colors">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                      Download Template
-                    </button>
-                  </div>
-
-                  {/* File upload */}
-                  <div>
-                    <label className="block text-sm font-medium text-slate-600 mb-1">CSV File <span className="text-red-500">*</span></label>
-                    <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center hover:border-[var(--theme-primary)] transition-colors cursor-pointer"
-                      onClick={() => document.getElementById('bulk-upload-file-input')?.click()}>
-                      <svg className="w-8 h-8 mx-auto text-slate-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-                      <p className="text-sm text-slate-500">{bulkUploadFile ? bulkUploadFile.name : 'Click to select CSV file'}</p>
-                      <input id="bulk-upload-file-input" type="file" accept=".csv,text/csv" className="hidden" onChange={handleBulkUploadFileSelect} />
-                    </div>
-                  </div>
-                  {bulkUploadError && <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{bulkUploadError}</div>}
-                </>
-              )}
-
-              {/* Step: Preview */}
-              {bulkUploadStep === 'preview' && (
-                <>
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-slate-600"><strong>{bulkUploadRows.length}</strong> filter(s) ready to upload into <strong>{bulkUploadAhus.find(h => h.id === bulkUploadAhu)?.name}</strong></p>
-                    <button onClick={() => { setBulkUploadStep('select'); setBulkUploadFile(null); setBulkUploadRows([]); }}
-                      className="text-xs hover:opacity-80 font-medium text-theme-primary">Change file</button>
-                  </div>
-                  <div className="max-h-64 overflow-auto border border-slate-200 rounded-lg">
-                    <table className="w-full text-xs">
-                      <thead className="bg-slate-50 sticky top-0">
-                        <tr>
-                          <th className="text-left px-3 py-2 text-slate-500 font-medium">#</th>
-                          <th className="text-left px-3 py-2 text-slate-500 font-medium">Name</th>
-                          <th className="text-left px-3 py-2 text-slate-500 font-medium">Set</th>
-                          {filterTemplateSchema.map(f => (
-                            <th key={f.fieldName} className="text-left px-3 py-2 text-slate-500 font-medium">{f.fieldName}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {bulkUploadRows.map((r: any, i: number) => (
-                          <tr key={i} className="border-t border-slate-100">
-                            <td className="px-3 py-1.5 text-slate-400">{i + 1}</td>
-                            <td className="px-3 py-1.5 text-slate-700">{r.name}</td>
-                            <td className="px-3 py-1.5 text-slate-600">{r.filterSet}</td>
-                            {filterTemplateSchema.map(f => (
-                              <td key={f.fieldName} className="px-3 py-1.5 text-slate-500">{r[f.fieldName] || '--'}</td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              )}
-
-              {/* Step: Uploading */}
-              {bulkUploadStep === 'uploading' && (
-                <div className="flex flex-col items-center py-10 gap-4">
-                  <div className="w-10 h-10 border-3 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--theme-primary)', borderTopColor: 'transparent' }} />
-                  <p className="text-sm text-slate-500">Creating {bulkUploadRows.length} filters...</p>
-                </div>
-              )}
-
-              {/* Step: Results */}
-              {bulkUploadStep === 'results' && (
-                <>
-                  <div className="flex gap-4">
-                    {bulkUploadCreated > 0 && (
-                      <div className="flex-1 bg-green-50 border border-green-200 rounded-lg p-4 text-center">
-                        <div className="text-2xl font-bold text-green-600">{bulkUploadCreated}</div>
-                        <div className="text-xs text-green-500">Created</div>
-                      </div>
-                    )}
-                    {bulkUploadFailed > 0 && (
-                      <div className="flex-1 bg-red-50 border border-red-200 rounded-lg p-4 text-center">
-                        <div className="text-2xl font-bold text-red-600">{bulkUploadFailed}</div>
-                        <div className="text-xs text-red-500">Failed</div>
-                      </div>
-                    )}
-                  </div>
-                  <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg">
-                    <table className="w-full text-sm">
-                      <thead className="bg-slate-50 sticky top-0">
-                        <tr>
-                          <th className="text-left px-4 py-2 text-slate-500 font-medium">Row</th>
-                          <th className="text-left px-4 py-2 text-slate-500 font-medium">Name</th>
-                          <th className="text-left px-4 py-2 text-slate-500 font-medium">Status</th>
-                          <th className="text-left px-4 py-2 text-slate-500 font-medium">Details</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {bulkUploadResults.map((r: any, i: number) => (
-                          <tr key={i} className="border-t border-slate-100">
-                            <td className="px-4 py-2 text-slate-400">{r.row}</td>
-                            <td className="px-4 py-2 text-slate-700">{r.name}</td>
-                            <td className="px-4 py-2">
-                              {r.status === 'success'
-                                ? <span className="text-green-600 font-medium">Created</span>
-                                : <span className="text-red-600 font-medium">Failed</span>}
-                            </td>
-                            <td className="px-4 py-2 text-xs text-slate-400">{r.error || (r.id ? r.id.slice(0, 8) : '')}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-slate-200 flex gap-3 shrink-0">
-              {bulkUploadStep === 'results' ? (
-                <button onClick={closeBulkUpload} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-lg font-medium hover:bg-slate-200 transition-colors">Close</button>
-              ) : (
-                <>
-                  <button onClick={closeBulkUpload} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-lg font-medium hover:bg-slate-200 transition-colors">Cancel</button>
-                  {bulkUploadStep === 'preview' && (
-                    <button onClick={handleBulkUploadSubmit} disabled={!bulkUploadAhu}
-                      className="flex-1 py-2.5 text-white rounded-lg font-semibold disabled:opacity-50 hover:opacity-90 transition-all flex items-center justify-center gap-2"
-                      style={themeButton}>
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-                      Upload {bulkUploadRows.length} Filters
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
+        <BulkUploadDialog
+          step={bulkUploadStep}
+          ahu={bulkUploadAhu}
+          ahus={bulkUploadAhus}
+          file={bulkUploadFile}
+          rows={bulkUploadRows}
+          error={bulkUploadError}
+          results={bulkUploadResults}
+          created={bulkUploadCreated}
+          failed={bulkUploadFailed}
+          schema={filterTemplateSchema}
+          diagramFilter={diagramFilter}
+          selectedBlockName={selectedBlockName}
+          onAhuChange={setBulkUploadAhu}
+          onFileSelect={handleBulkUploadFileSelect}
+          onSubmit={handleBulkUploadSubmit}
+          onClose={closeBulkUpload}
+          onChangeFile={() => { setBulkUploadStep('select'); setBulkUploadFile(null); setBulkUploadRows([]); }}
+          onDownloadTemplate={downloadBulkTemplate}
+        />
       )}
     </div>
   );
