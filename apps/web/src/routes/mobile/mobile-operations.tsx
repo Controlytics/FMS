@@ -12,14 +12,22 @@ import { subscribeRfidTags } from '@/lib/rfid-bridge';
 // Phase 8.6 — shared executor + action-tape resolver + offline-cache helper.
 // All graph-walking decisions (next-stage, checklist-after-stage, cache
 // rewrites) route through these so client/server stay in lockstep.
-import { findReachable as sharedFindReachable, type Action } from '@digilog/shared';
 import { actionsForStage, getCurrentActions, hasActionKind } from '@/lib/action-tape';
 import {
   cacheServerStateResponse,
-  dialogChecklistsFromActions,
-  getCachedPendingChecklists,
   recomputeAndCacheFilterState,
 } from '@/lib/offline-cache';
+// Phase 8.7 Wave-5 split — shared with desktop filter-operations.tsx.
+// validateOfflineGate + checklist-resolver + dryer countdown helpers all live
+// in lib/filter-ops so the two pages cannot drift again.
+import {
+  validateOfflineGate,
+  resolvePendingChecklistDialog,
+  useNowTick,
+  buildTempOptionsLinear,
+  findDryerTempInstrument,
+  projectDryerCountdown,
+} from '@/lib/filter-ops';
 
 const STAGES = [
   { key: 'WASH_IN', label: 'Wash In', icon: '🚿', gradient: 'from-sky-500 to-sky-600', bg: 'bg-sky-50', border: 'border-sky-200', text: 'text-sky-700', needsBlock: true },
@@ -577,20 +585,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // CHECKLIST nodes as a stage ensures post-stage questions are never skipped.
     if (successCount > 0) {
       try {
-        // Phase 8.7 cutover: read the tape from the cache row (now populated
-        // by recomputeAndCacheFilterState in updateOfflineState above) and
-        // derive the dialog payload from SUBMIT_CHECKLIST actions. Falls
-        // back to the cached pending-checklist payload when the tape lacks
-        // inline questions (legacy server response without TAPE_PARALLEL,
-        // mirrors the desktop pattern in filter-operations.tsx:441-446).
+        // Phase 8.7 Wave-5: shared checklist-dialog resolver — mirrors the
+        // desktop handleSubmitBatch site (filter-operations.tsx ~line 437).
         for (const item of scanQueue) {
-          const tape = await getCurrentActions(item.filterId);
-          if (!hasActionKind(tape, 'SUBMIT_CHECKLIST')) continue;
-          let rows = dialogChecklistsFromActions(tape);
-          if (rows.length === 0 || rows.every((c) => (c.questions?.length ?? 0) === 0)) {
-            rows = await getCachedPendingChecklists(item.filterId);
-          }
-          if (rows.length > 0) {
+          const rows = await resolvePendingChecklistDialog(item.filterId);
+          if (rows) {
             setChecklistDialog({ filterId: item.filterId, filterName: item.filterName, checklists: rows });
             setChecklistAnswers({});
             break;
@@ -615,83 +614,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       || e.name === 'TypeError';
   };
 
-  // SPIS: single-source offline gate shared by handleSubmit (single scan) and
-  // handleSubmitQueue (batch). Every offline/online validation rule lives HERE
-  // — both callers must go through this. See memory: feedback_batch_single_parity.md.
-  //
-  // Phase 8.6 part 2: reachability decisions now read the action tape (server
-  // `actions[]` when TAPE_PARALLEL is on, else `executor.computeNextActions(ctx)`
-  // resolved by `getCurrentActions()`). The legacy `nextAllowed` string list is
-  // kept on the input shape as an emptiness indicator for the "stale cache"
-  // detector, but stage-membership decisions go through `actionsForStage()`.
-  type GateInput = {
-    activeStageKey: string;
-    activeStageLabel: string;
-    online: boolean;
-    currentLifecycle: string | null;
-    actions: Action[];
-    hasGraph: boolean;
-    hasLinearPipeline: boolean;
-    pipelineGraph: any;
-    cycleInProgress: boolean;
-    hasPendingChecklist: boolean;
-    dryerReadingsSubmitted?: boolean;
-    homeBlockId?: string | null;
-    blockChangeStatus?: string | null;
-    selectedBlockId?: string | null;
-  };
-  type GateResult = { ok: true } | { ok: false; reason: string; blockChangeRequired?: boolean };
-  const validateOfflineGate = (g: GateInput): GateResult => {
-    // Reachable advance/bypass targets, derived from the resolved tape. When
-    // the tape is empty AND we have no pipeline data, we're working from a
-    // stale offline cache and refuse below.
-    const advanceTargets = g.actions
-      .filter(a => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION')
-      .map(a => (a as { params: { targetState: string } }).params.targetState);
-    const hasValidation = g.hasGraph || g.hasLinearPipeline || advanceTargets.length > 0;
-    if (!g.online && !hasValidation) {
-      return { ok: false, reason: 'offline data not cached — sync first' };
-    }
-    // Block assignment: home-block mismatch without approval
-    const homeMismatch = !!(g.homeBlockId && g.selectedBlockId && g.homeBlockId !== g.selectedBlockId && g.blockChangeStatus !== 'APPROVED');
-    if (!g.online && homeMismatch) {
-      return { ok: false, reason: 'block change approval required', blockChangeRequired: true };
-    }
-    // First-stage validation for brand-new cycles. The action tape only
-    // emits ADVANCE_TO_STAGE entries for in-progress cycles — for the
-    // pre-cycle case we walk the cached pipeline graph from its START node
-    // via the shared executor's `findReachable` helper (same walker the
-    // server tape generator uses internally).
-    if (!g.cycleInProgress && g.hasGraph && g.pipelineGraph?.stages && g.pipelineGraph?.connections) {
-      const startNode = g.pipelineGraph.stages.find((s: any) => s.nodeType === 'START');
-      const firstStages = startNode
-        ? sharedFindReachable(startNode.id, g.pipelineGraph.stages, g.pipelineGraph.connections).reachableStages
-        : [];
-      if (firstStages.length > 0 && !firstStages.includes(g.activeStageKey)) {
-        return { ok: false, reason: `cannot start cycle at ${g.activeStageLabel} — start at ${firstStages.map((s: string) => s.replace(/_/g, ' ')).join(', ')}` };
-      }
-    }
-    // In-cycle: activeStage must appear as an ADVANCE_TO_STAGE target on the
-    // current tape (also covers SET_DRYER_DURATION, since DRY_IN is a valid
-    // advance target with the dryer-duration sub-action).
-    if (g.cycleInProgress && advanceTargets.length > 0) {
-      const advanceMatch = actionsForStage(g.activeStageKey, g.actions).some(
-        a => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION',
-      );
-      if (!advanceMatch) {
-        return { ok: false, reason: `is at ${(g.currentLifecycle ?? 'START').replace(/_/g, ' ')} — next allowed ${advanceTargets.map(s => s.replace(/_/g, ' ')).join(', ')}` };
-      }
-    }
-    // Offline: cycle-in-progress + no advance actions is stale cache (unless checklist blocks)
-    if (!g.online && g.cycleInProgress && advanceTargets.length === 0 && !g.hasPendingChecklist) {
-      return { ok: false, reason: 'in-cycle but no next stage cached — re-sync' };
-    }
-    // DRY_IN guard
-    if (g.activeStageKey === 'DRY_IN' && g.dryerReadingsSubmitted) {
-      return { ok: false, reason: 'dry-in already recorded — scan on Dry Out' };
-    }
-    return { ok: true };
-  };
+  // SPIS: single-source offline gate. Implementation lives in
+  // `apps/web/src/lib/filter-ops/validate-offline-gate.ts`, shared with the
+  // desktop page so the two cannot drift. See `feedback_batch_single_parity.md`
+  // — desktop's `handleSubmitBatch` previously inlined the same logic; the
+  // Phase 8.7 Wave-5 split lifted both copies into one.
 
   // Phase 8.6 part 2: cache rewrite after a queued offline advance. Wraps
   // `recomputeAndCacheFilterState` from `lib/offline-cache.ts` (the lib that
@@ -883,16 +810,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         return;
       }
 
-      // Phase 8.7 cutover: pre-advance checklist gate from the tape (already
-      // resolved above). Tape may carry SUBMIT_CHECKLIST without inline
-      // questions in legacy server responses — fall back to the cached
-      // payload so the operator UX stays intact (mirrors desktop pattern).
-      if (hasActionKind(resolvedActions, 'SUBMIT_CHECKLIST')) {
-        let dialogChecklists = dialogChecklistsFromActions(resolvedActions);
-        if (dialogChecklists.length === 0 || dialogChecklists.every((c) => (c.questions?.length ?? 0) === 0)) {
-          dialogChecklists = await getCachedPendingChecklists(filterId);
-        }
-        if (dialogChecklists.length > 0) {
+      // Phase 8.7 Wave-5: shared pre-advance checklist-dialog resolver. Pass
+      // the tape resolved above so we don't recompute it.
+      {
+        const dialogChecklists = await resolvePendingChecklistDialog(filterId, resolvedActions);
+        if (dialogChecklists) {
           setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: dialogChecklists });
           setChecklistAnswers({});
           setLoading(false);
@@ -951,21 +873,17 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             setSuccess(`${fName} → ${activeStage.label} (PM auto)`);
             setRecentOps(prev => [{ stage: activeStage.key, filter: fName, time: formatTime(new Date()) }, ...prev].slice(0, 20));
             setScanValue(''); setRemarks(''); mutate('/api/assets/instances?limit=500');
-            // Phase 8.7 cutover: post-advance checklist gate via the action
-            // tape. Server POST responses don't yet include actions[] (Wave 2);
-            // getCurrentActions falls back to the local executor over the cache
-            // and the cached pending payload provides the dialog rows.
+            // Phase 8.7 Wave-5: shared post-advance checklist resolver.
+            // Server POST responses may include actions[]; the resolver falls
+            // back to local executor + cached payload as needed.
             {
-              const postTape = await getCurrentActions(filterId, (result as any)?.actions);
-              if (hasActionKind(postTape, 'SUBMIT_CHECKLIST')) {
-                let dialogChecklists = dialogChecklistsFromActions(postTape);
-                if (dialogChecklists.length === 0 || dialogChecklists.every((c) => (c.questions?.length ?? 0) === 0)) {
-                  dialogChecklists = await getCachedPendingChecklists(filterId);
-                }
-                if (dialogChecklists.length > 0) {
-                  setChecklistDialog({ filterId, filterName: fName, checklists: dialogChecklists });
-                  setChecklistAnswers({});
-                }
+              const dialogChecklists = await resolvePendingChecklistDialog(
+                filterId,
+                (result as any)?.actions,
+              );
+              if (dialogChecklists) {
+                setChecklistDialog({ filterId, filterName: fName, checklists: dialogChecklists });
+                setChecklistAnswers({});
               }
             }
             setLoading(false); return;
@@ -1014,34 +932,23 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       setScanValue(''); setRemarks('');
       if (executed) {
         mutate('/api/assets/instances?limit=500');
-        // Phase 8.7 cutover: post-advance checklist gate via the action tape.
-        // See PM auto-start branch above for the rationale.
-        const postTape = await getCurrentActions(filterId, (result as any)?.actions);
-        if (hasActionKind(postTape, 'SUBMIT_CHECKLIST')) {
-          let dialogChecklists = dialogChecklistsFromActions(postTape);
-          if (dialogChecklists.length === 0 || dialogChecklists.every((c) => (c.questions?.length ?? 0) === 0)) {
-            dialogChecklists = await getCachedPendingChecklists(filterId);
-          }
-          if (dialogChecklists.length > 0) {
-            setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: dialogChecklists });
-            setChecklistAnswers({});
-          }
+        // Phase 8.7 Wave-5: shared post-advance checklist resolver.
+        const dialogChecklists = await resolvePendingChecklistDialog(
+          filterId,
+          (result as any)?.actions,
+        );
+        if (dialogChecklists) {
+          setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: dialogChecklists });
+          setChecklistAnswers({});
         }
       } else {
         await updateOfflineState(filterId, activeStage.key, false);
-        // Offline parity: if the pipeline graph says this stage is followed by
-        // a checklist, derive the dialog payload from the recomputed tape
-        // (the cache row was just rewritten by updateOfflineState above).
-        const postTape = await getCurrentActions(filterId);
-        if (hasActionKind(postTape, 'SUBMIT_CHECKLIST')) {
-          let dialogChecklists = dialogChecklistsFromActions(postTape);
-          if (dialogChecklists.length === 0 || dialogChecklists.every((c) => (c.questions?.length ?? 0) === 0)) {
-            dialogChecklists = await getCachedPendingChecklists(filterId);
-          }
-          if (dialogChecklists.length > 0) {
-            setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: dialogChecklists });
-            setChecklistAnswers({});
-          }
+        // Offline parity: cache row was just rewritten by updateOfflineState
+        // above; resolver reads the recomputed tape via the local executor.
+        const dialogChecklists = await resolvePendingChecklistDialog(filterId);
+        if (dialogChecklists) {
+          setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: dialogChecklists });
+          setChecklistAnswers({});
         }
       }
     } catch (e: any) {
@@ -1097,16 +1004,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         const filterIdSnap = reasonDialog.filterId;
         const filterNameSnap = reasonDialog.filterName;
         setScanValue(''); setRemarks(''); setReasonDialog(null);
-        // Phase 8.7 cutover: offline parity — pop the checklist dialog from the
-        // recomputed tape (cache row was just rewritten by updateOfflineState
-        // above; getCurrentActions reads it via loadLocalContextFromCache).
-        const postTape = await getCurrentActions(filterIdSnap);
-        if (hasActionKind(postTape, 'SUBMIT_CHECKLIST')) {
-          let dialogChecklists = dialogChecklistsFromActions(postTape);
-          if (dialogChecklists.length === 0 || dialogChecklists.every((c) => (c.questions?.length ?? 0) === 0)) {
-            dialogChecklists = await getCachedPendingChecklists(filterIdSnap);
-          }
-          if (dialogChecklists.length > 0) {
+        // Phase 8.7 Wave-5: shared offline-parity checklist resolver. Cache
+        // row was just rewritten by updateOfflineState above.
+        {
+          const dialogChecklists = await resolvePendingChecklistDialog(filterIdSnap);
+          if (dialogChecklists) {
             setChecklistDialog({ filterId: filterIdSnap, filterName: filterNameSnap, checklists: dialogChecklists });
             setChecklistAnswers({});
           }
@@ -1116,19 +1018,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       setSuccess(`${reasonDialog.filterName} → ${reasonDialog.stage.replace(/_/g, ' ')}`);
       setRecentOps(prev => [{ stage: reasonDialog.stage, filter: reasonDialog.filterName, time: formatTime(new Date()) }, ...prev].slice(0, 20));
       setScanValue(''); setRemarks(''); setReasonDialog(null); mutate('/api/assets/instances?limit=500');
-      // Phase 8.7 cutover: post-online checklist gate via the tape, with
-      // cached-payload fallback for legacy server responses.
+      // Phase 8.7 Wave-5: shared post-online checklist resolver.
       {
-        const postTape = await getCurrentActions(reasonDialog.filterId, (result as any)?.actions);
-        if (hasActionKind(postTape, 'SUBMIT_CHECKLIST')) {
-          let dialogChecklists = dialogChecklistsFromActions(postTape);
-          if (dialogChecklists.length === 0 || dialogChecklists.every((c) => (c.questions?.length ?? 0) === 0)) {
-            dialogChecklists = await getCachedPendingChecklists(reasonDialog.filterId);
-          }
-          if (dialogChecklists.length > 0) {
-            setChecklistDialog({ filterId: reasonDialog.filterId, filterName: reasonDialog.filterName, checklists: dialogChecklists });
-            setChecklistAnswers({});
-          }
+        const dialogChecklists = await resolvePendingChecklistDialog(
+          reasonDialog.filterId,
+          (result as any)?.actions,
+        );
+        if (dialogChecklists) {
+          setChecklistDialog({ filterId: reasonDialog.filterId, filterName: reasonDialog.filterName, checklists: dialogChecklists });
+          setChecklistAnswers({});
         }
       }
     } catch (e: any) {
@@ -1229,26 +1127,18 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       const equipDialogSnapshot = equipDialog;
       setScanValue(''); setRemarks(''); setEquipDialog(null); setSelectedEquipGroup(null); setReadings({});
       if (executed) mutate('/api/assets/instances?limit=500');
-      // Phase 8.7 cutover: post-advance checklist gate via the action tape.
-      // executed=true → server result might carry actions[] (Wave 2); falls
-      // back to local executor compute. queued=true → cache row was just
-      // rewritten by updateOfflineState above, so getCurrentActions reads
-      // the fresh tape. Cached pending payload covers the legacy case where
-      // SUBMIT_CHECKLIST actions ship without inline questions.
+      // Phase 8.7 Wave-5: shared post-advance checklist resolver.
+      //   executed=true → server result.actions[] (when emitted)
+      //   queued=true   → updateOfflineState above rewrote the cache; the
+      //                   resolver reads via local executor over that cache.
       {
-        const postTape = await getCurrentActions(
+        const dialogChecklists = await resolvePendingChecklistDialog(
           equipDialogSnapshot.filterId,
-          executed ? (result as any)?.actions : undefined,
+          executed ? (result as any)?.actions : null,
         );
-        if (hasActionKind(postTape, 'SUBMIT_CHECKLIST')) {
-          let dialogChecklists = dialogChecklistsFromActions(postTape);
-          if (dialogChecklists.length === 0 || dialogChecklists.every((c) => (c.questions?.length ?? 0) === 0)) {
-            dialogChecklists = await getCachedPendingChecklists(equipDialogSnapshot.filterId);
-          }
-          if (dialogChecklists.length > 0) {
-            setChecklistDialog({ filterId: equipDialogSnapshot.filterId, filterName: equipDialogSnapshot.filterName, checklists: dialogChecklists });
-            setChecklistAnswers({});
-          }
+        if (dialogChecklists) {
+          setChecklistDialog({ filterId: equipDialogSnapshot.filterId, filterName: equipDialogSnapshot.filterName, checklists: dialogChecklists });
+          setChecklistAnswers({});
         }
       }
     } catch (e: any) {
@@ -2307,17 +2197,12 @@ function DryingFilterCard({
   executeOrQueue: any;
   onSuccess: (msg: string) => void; onError: (msg: string) => void;
 }) {
-  const [now, setNow] = useState(() => Date.now());
+  // Phase 8.7 Wave-5: shared 1Hz tick — same hook the desktop DryingFilterRow uses.
+  const now = useNowTick();
   const [temp, setTemp] = useState<number | ''>('');
   const [submitting, setSubmitting] = useState(false);
   const [cycleData, setCycleData] = useState<any>(null);
   const [equipGroup, setEquipGroup] = useState<any>(null);
-
-  // Live timer — tick every second
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
   // Restore previously selected temperature from cache (survives navigation)
   useEffect(() => {
     getCache<number>(`dryer-temp-${filterId}`).then(saved => {
@@ -2360,8 +2245,9 @@ function DryingFilterCard({
     }
   }, [filterId, online]);
 
-  const startedAt = cycleData?.dryerStartedAt ? new Date(cycleData.dryerStartedAt).getTime() : null;
-  const durationMin: number | null = cycleData?.dryerDurationMinutes ?? null;
+  // Phase 8.7 Wave-5: shared countdown projection (same shape desktop uses).
+  const projection = projectDryerCountdown(cycleData, now);
+  const { startedAt, durationMin, halfReached, remainingMin, remainingSecPart, progressPct } = projection;
 
   if (!startedAt || !durationMin) {
     return (
@@ -2372,27 +2258,14 @@ function DryingFilterCard({
     );
   }
 
-  const halfMs = (durationMin * 60_000) / 2;
-  const totalMs = durationMin * 60_000;
-  const elapsedMs = now - startedAt;
-  const halfReached = elapsedMs >= halfMs;
-  const remainingSec = Math.max(0, Math.ceil((halfMs - elapsedMs) / 1000));
-  const remainingMin = Math.floor(remainingSec / 60);
-  const remainingSecPart = remainingSec % 60;
-  const progressPct = Math.min(100, (elapsedMs / totalMs) * 100);
-
-  // Find dryer temperature instrument
-  const dryerInstrument = (equipGroup?.instruments ?? []).find(
-    (i: any) => i.stageKey === 'DRY_IN' && /temp/i.test(i.description ?? ''),
-  );
-  const tempOptions: number[] = [];
-  if (dryerInstrument) {
-    const { operatingMin, operatingMax, leastCount } = dryerInstrument;
-    const step = leastCount > 0 ? leastCount : 1;
-    for (let v = operatingMin; v <= operatingMax + 0.001; v = Math.round((v + step) * 100) / 100) {
-      tempOptions.push(v);
-    }
-  }
+  // Phase 8.7 Wave-5: shared instrument lookup. Mobile keeps the linear
+  // option-walker (preserves byte-equivalent runtime; desktop uses the
+  // snapped flavour because of the original buildTempOptions implementation
+  // there).
+  const dryerInstrument = findDryerTempInstrument(equipGroup);
+  const tempOptions: number[] = dryerInstrument
+    ? buildTempOptionsLinear(dryerInstrument.operatingMin, dryerInstrument.operatingMax, dryerInstrument.leastCount)
+    : [];
   const tempUom = dryerInstrument?.uom ?? '°C';
 
   const handleTempSubmit = async () => {
