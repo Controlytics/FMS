@@ -14,6 +14,8 @@ const { mockPrisma } = vi.hoisted(() => ({
     filterCleaningProfile: { findMany: vi.fn() },
     filterProfile: { findMany: vi.fn() },
     equipmentGroup: { findMany: vi.fn() },
+    checklistProfile: { findMany: vi.fn() },
+    assetTemplate: { findMany: vi.fn() },
     assetInstance: { findMany: vi.fn() },
   },
 }));
@@ -37,6 +39,8 @@ beforeEach(() => {
   mockPrisma.filterCleaningProfile.findMany.mockResolvedValue([]);
   mockPrisma.filterProfile.findMany.mockResolvedValue([]);
   mockPrisma.equipmentGroup.findMany.mockResolvedValue([]);
+  mockPrisma.checklistProfile.findMany.mockResolvedValue([]);
+  mockPrisma.assetTemplate.findMany.mockResolvedValue([]);
   mockPrisma.assetInstance.findMany.mockResolvedValue([]);
 });
 
@@ -70,6 +74,12 @@ describe('SyncService.since() — shape + cursor handling', () => {
     expect(mockPrisma.equipmentGroup.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { version: { gt: 0 } } })
     );
+    expect(mockPrisma.checklistProfile.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { version: { gt: 0 } } })
+    );
+    expect(mockPrisma.assetTemplate.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { version: { gt: 0 } } })
+    );
   });
 
   it('3. version params propagate to per-entity gt cursors', async () => {
@@ -78,6 +88,8 @@ describe('SyncService.since() — shape + cursor handling', () => {
       profileVersion: 12,
       filterProfileVersion: 4,
       equipmentGroupVersion: 8,
+      checklistVersion: 17,
+      assetTemplateVersion: 21,
     });
     expect(mockPrisma.filterCleaningProfile.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { version: { gt: 12 } } })
@@ -88,6 +100,12 @@ describe('SyncService.since() — shape + cursor handling', () => {
     expect(mockPrisma.equipmentGroup.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { version: { gt: 8 } } })
     );
+    expect(mockPrisma.checklistProfile.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { version: { gt: 17 } } })
+    );
+    expect(mockPrisma.assetTemplate.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { version: { gt: 21 } } })
+    );
   });
 
   it('4. each entity query is capped at SYNC_PAGE_LIMIT (=500)', async () => {
@@ -97,6 +115,8 @@ describe('SyncService.since() — shape + cursor handling', () => {
       mockPrisma.filterCleaningProfile.findMany,
       mockPrisma.filterProfile.findMany,
       mockPrisma.equipmentGroup.findMany,
+      mockPrisma.checklistProfile.findMany,
+      mockPrisma.assetTemplate.findMany,
       mockPrisma.assetInstance.findMany,
     ]) {
       expect(fn).toHaveBeenCalledWith(expect.objectContaining({ take: SYNC_PAGE_LIMIT }));
@@ -237,14 +257,138 @@ describe('SyncService.since() — shape + cursor handling', () => {
     }));
   });
 
-  it('12. checklistProfiles + assetTemplates are always [] in 8.4b regardless of params', async () => {
+  it('12. checklistProfile rows are returned with questions inlined (matches expand=questions shape)', async () => {
     const svc = new SyncService();
-    const out = await svc.since(ctx, { checklistVersion: 99, assetTemplateVersion: 7 });
-    expect(out.checklistProfiles).toEqual([]);
-    expect(out.assetTemplates).toEqual([]);
+    mockPrisma.checklistProfile.findMany.mockResolvedValueOnce([
+      {
+        id: 'cp-1',
+        name: 'Pre-cycle inspection',
+        description: 'desc',
+        isActive: true,
+        version: 4,
+        createdAt: new Date('2026-04-01T00:00:00Z'),
+        updatedAt: new Date('2026-05-01T00:00:00Z'),
+        questions: [
+          // Full ChecklistQuestion row shape — Prisma findMany with include
+          // (no select) returns all columns. The FE consumer at
+          // apps/web/src/lib/local-context.ts:425+ reads questionType /
+          // required / section / description / options / validation off
+          // each row, so the test fixture asserts the include returns a
+          // shape that satisfies that contract.
+          {
+            id: 'q-1', profileId: 'cp-1', question: 'Q1?',
+            questionType: 'YES_NO', required: true, section: 'A',
+            description: null, options: [], validation: {}, sortOrder: 0,
+          },
+          {
+            id: 'q-2', profileId: 'cp-1', question: 'Q2?',
+            questionType: 'TEXT', required: false, section: null,
+            description: 'Detail here', options: [], validation: {}, sortOrder: 1,
+          },
+        ],
+      },
+    ]);
+    const out = await svc.since(ctx, {});
+    expect(out.checklistProfiles).toHaveLength(1);
+    expect(out.checklistProfiles[0]).toEqual(expect.objectContaining({
+      id: 'cp-1',
+      name: 'Pre-cycle inspection',
+      version: 4,
+    }));
+    expect(out.checklistProfiles[0].questions).toHaveLength(2);
+    expect(out.checklistProfiles[0].questions[0].id).toBe('q-1');
+    // questions ordered by sortOrder asc (verified via the include parameter)
+    expect(mockPrisma.checklistProfile.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: { questions: { orderBy: { sortOrder: 'asc' } } },
+        orderBy: [{ version: 'asc' }, { id: 'asc' }],
+      })
+    );
   });
 
-  it('13. filterProfile applicableTemplates is flattened from join rows to string[]', async () => {
+  it('13. assetTemplate rows are returned verbatim (full schema columns)', async () => {
+    const svc = new SyncService();
+    const fakeTemplate = {
+      id: 't-1',
+      name: 'Filter',
+      description: 'A filter template',
+      category: 'Equipment',
+      icon: 'box',
+      templateKind: 'FILTER',
+      version: 7,
+      attributeSchema: [{ name: 'tag', dataType: 'STRING' }],
+      telemetrySchema: [],
+      expectedIdentifiers: [{ kind: 'RFID' }],
+      expectedRelationships: [],
+      statusLifecycle: [],
+      alarmRules: [],
+      checklistSchema: [],
+      maxParentConnections: 1,
+      maxConnections: 10,
+      isActive: true,
+      createdAt: new Date('2026-04-01T00:00:00Z'),
+      updatedAt: new Date('2026-05-01T00:00:00Z'),
+      createdBy: 'admin',
+      updatedBy: 'admin',
+      dataIngestionEnabled: false,
+      transportType: null,
+      credentialType: 'TOKEN',
+      inactivityTimeout: 60,
+      defaultMaxDataRate: 600,
+      autoProvision: true,
+      defaultRuleChainId: null,
+    };
+    mockPrisma.assetTemplate.findMany.mockResolvedValueOnce([fakeTemplate]);
+    const out = await svc.since(ctx, {});
+    expect(out.assetTemplates).toHaveLength(1);
+    // Verbatim — every key on the source row passes through.
+    expect(out.assetTemplates[0]).toEqual(fakeTemplate);
+    // Confirm it does NOT request an include — passing the row through raw
+    // is the contract; introducing relations later would silently expand
+    // the wire payload. Adding asserts here makes the contract explicit.
+    const call = mockPrisma.assetTemplate.findMany.mock.calls[0][0];
+    expect(call.include).toBeUndefined();
+    expect(call.orderBy).toEqual([{ version: 'asc' }, { id: 'asc' }]);
+  });
+
+  it('14. hasMore is true when checklistProfiles hits LIMIT', async () => {
+    const svc = new SyncService();
+    mockPrisma.checklistProfile.findMany.mockResolvedValueOnce(
+      Array.from({ length: SYNC_PAGE_LIMIT }, (_, i) => ({
+        id: `cp-${i}`, name: `cp-${i}`, isActive: true, version: i + 1,
+        questions: [],
+      }))
+    );
+    const out = await svc.since(ctx, {});
+    expect(out.hasMore).toBe(true);
+    expect(out.checklistProfiles.length).toBe(SYNC_PAGE_LIMIT);
+  });
+
+  it('15. hasMore is true when assetTemplates hits LIMIT', async () => {
+    const svc = new SyncService();
+    mockPrisma.assetTemplate.findMany.mockResolvedValueOnce(
+      Array.from({ length: SYNC_PAGE_LIMIT }, (_, i) => ({
+        id: `t-${i}`, name: `t-${i}`, version: i + 1,
+      }))
+    );
+    const out = await svc.since(ctx, {});
+    expect(out.hasMore).toBe(true);
+    expect(out.assetTemplates.length).toBe(SYNC_PAGE_LIMIT);
+  });
+
+  it('16. checklistProfile + assetTemplate cursors filter independently (no cross-contamination)', async () => {
+    const svc = new SyncService();
+    // Only the assetTemplate cursor is non-zero; checklistProfile cursor stays default.
+    await svc.since(ctx, { assetTemplateVersion: 99 });
+    expect(mockPrisma.assetTemplate.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { version: { gt: 99 } } })
+    );
+    expect(mockPrisma.checklistProfile.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { version: { gt: 0 } } })
+    );
+  });
+
+  it('17. filterProfile applicableTemplates is flattened from join rows to string[]', async () => {
     const svc = new SyncService();
     mockPrisma.filterProfile.findMany.mockResolvedValueOnce([
       {

@@ -22,8 +22,9 @@ export default async function syncRoutes(app: FastifyInstance) {
       summary: 'Versioned local-cache hydrator (Option D, 8.4b)',
       description: 'Returns rows newer than the client cursors. Each entity '
         + 'is capped at 500 rows; if any entity hits the cap, hasMore=true '
-        + 'and the FE retries with updated cursors. checklistProfiles and '
-        + 'assetTemplates are always [] in 8.4b (deferred to 8.4a follow-up).',
+        + 'and the FE retries with updated cursors. ChecklistProfile entries '
+        + 'inline `questions` (matching the legacy ?expand=questions shape); '
+        + 'AssetTemplate entries are returned verbatim (full schema columns).',
       querystring: {
         type: 'object',
         properties: {

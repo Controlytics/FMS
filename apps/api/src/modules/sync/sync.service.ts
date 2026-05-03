@@ -6,21 +6,26 @@
  * mobile / desktop offline-capable pages can render without server contact
  * once seeded.
  *
- * Entities covered in 8.4b (all already carry monotonic `version` columns):
+ * Entities covered (all carry monotonic `version` columns except Filters,
+ * which use an `updatedAt` watermark):
  *   - FilterCleaningProfile (Phase A.2 lineage versioning; this query reads
  *     the LIVE row only — historical lineage versions are exposed via the
  *     dedicated `/api/filter-cleaning-profiles/:id/versions` endpoint)
  *   - FilterProfile (Phase A.3)
  *   - EquipmentGroup (Phase A.4)
+ *   - ChecklistProfile (Phase A.1 snapshot-then-bump on every mutation of
+ *     profile or its questions). Hydrated 2026-05-03 (8.4b follow-up): the
+ *     8.4a regression gate against per-write bumps now passes (`f63207c`),
+ *     so cache consumers receive `questions` inlined to match the legacy
+ *     `/api/checklist-profiles?expand=questions` shape — without it the
+ *     offline checklist dialog would open empty.
+ *   - AssetTemplate (`version` bumped by template.service.ts on every
+ *     update). Hydrated 2026-05-03 (8.4b follow-up). Returned verbatim so
+ *     the FE caches the full template definition (attributeSchema,
+ *     telemetrySchema, alarmRules, statusLifecycle, etc.) — same shape as
+ *     `/api/assets/templates`.
  *   - Filters (AssetInstance + FilterDetails sidecar) — uses `updatedAt`
  *     watermark instead of a monotonic counter (no version column)
- *
- * Deferred to a follow-up commit (8.4a coordination — see PLAN-2026-05-02-
- * step8-OPTION-D.md):
- *   - ChecklistProfile (column already exists at schema.prisma:1640 but the
- *     8.4 plan splits its inclusion into a separate commit so 8.4a can
- *     finalize the per-write bump triggers in isolation)
- *   - AssetTemplate (same reasoning — column at schema.prisma:427)
  *
  * Pagination: each entity is capped at LIMIT rows. If any entity hits the
  * cap, the response sets `hasMore: true` and the FE retries with updated
@@ -36,9 +41,7 @@ export interface SyncSinceQuery {
   profileVersion?: number;
   filterProfileVersion?: number;
   equipmentGroupVersion?: number;
-  /** Reserved for follow-up commit; ignored in 8.4b. */
   checklistVersion?: number;
-  /** Reserved for follow-up commit; ignored in 8.4b. */
   assetTemplateVersion?: number;
   /** ISO-8601 timestamp; null/undefined = full sync. */
   filterUpdatedSince?: string;
@@ -48,9 +51,7 @@ export interface SyncSinceResponse {
   filterCleaningProfiles: any[];
   filterProfiles: any[];
   equipmentGroups: any[];
-  /** Always [] in 8.4b — populated in 8.4a follow-up. */
   checklistProfiles: any[];
-  /** Always [] in 8.4b — populated in 8.4a follow-up. */
   assetTemplates: any[];
   filters: any[];
   serverTimestamp: string;
@@ -68,13 +69,22 @@ export class SyncService {
     const profileVersion = q.profileVersion ?? 0;
     const filterProfileVersion = q.filterProfileVersion ?? 0;
     const equipmentGroupVersion = q.equipmentGroupVersion ?? 0;
+    const checklistVersion = q.checklistVersion ?? 0;
+    const assetTemplateVersion = q.assetTemplateVersion ?? 0;
     const filterUpdatedSince = q.filterUpdatedSince ? new Date(q.filterUpdatedSince) : null;
     // Validate the date — bad input falls back to "full sync" rather than 500.
     const filterCutoff = filterUpdatedSince && !isNaN(filterUpdatedSince.getTime())
       ? filterUpdatedSince
       : null;
 
-    const [filterCleaningProfiles, filterProfiles, equipmentGroups, filters] = await Promise.all([
+    const [
+      filterCleaningProfiles,
+      filterProfiles,
+      equipmentGroups,
+      checklistProfiles,
+      assetTemplates,
+      filters,
+    ] = await Promise.all([
       // FilterCleaningProfile: full row + stages + connections so the FE can
       // execute the pipeline locally without a follow-up GET /:id round trip.
       prisma.filterCleaningProfile.findMany({
@@ -115,6 +125,33 @@ export class SyncService {
         take: SYNC_PAGE_LIMIT,
       }),
 
+      // ChecklistProfile: full row + questions inlined (matches the existing
+      // GET /api/checklist-profiles?expand=questions wire shape so the offline
+      // dialog opens with all questions populated). Phase A.1 bumps `version`
+      // on every mutation of the profile or its questions, so the cursor on
+      // the parent row is sufficient — children don't carry an independent
+      // version column.
+      prisma.checklistProfile.findMany({
+        where: { version: { gt: checklistVersion } },
+        include: {
+          questions: { orderBy: { sortOrder: 'asc' } },
+        },
+        orderBy: [{ version: 'asc' }, { id: 'asc' }],
+        take: SYNC_PAGE_LIMIT,
+      }),
+
+      // AssetTemplate: full row passed through verbatim (attributeSchema /
+      // telemetrySchema / alarmRules / statusLifecycle / checklistSchema +
+      // ingestion config + versioning metadata). Mirrors the
+      // /api/assets/templates list shape the FE already consumes for the
+      // legacy `templates` cache. `version` is bumped by template.service.ts
+      // on every update().
+      prisma.assetTemplate.findMany({
+        where: { version: { gt: assetTemplateVersion } },
+        orderBy: [{ version: 'asc' }, { id: 'asc' }],
+        take: SYNC_PAGE_LIMIT,
+      }),
+
       // Filters: AssetInstance rows whose template is FILTER-kind, joined with
       // FilterDetails (1:1 sidecar — Step 6) and parent chain flattened to
       // names matching the FE CachedFilter shape.
@@ -129,14 +166,16 @@ export class SyncService {
       filterCleaningProfiles.length === SYNC_PAGE_LIMIT
       || filterProfiles.length === SYNC_PAGE_LIMIT
       || equipmentGroups.length === SYNC_PAGE_LIMIT
+      || checklistProfiles.length === SYNC_PAGE_LIMIT
+      || assetTemplates.length === SYNC_PAGE_LIMIT
       || filters.length === SYNC_PAGE_LIMIT;
 
     return {
       filterCleaningProfiles,
       filterProfiles,
       equipmentGroups,
-      checklistProfiles: [], // 8.4a follow-up
-      assetTemplates: [],    // 8.4a follow-up
+      checklistProfiles,
+      assetTemplates,
       filters,
       serverTimestamp: new Date().toISOString(),
       hasMore,
