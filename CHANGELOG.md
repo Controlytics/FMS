@@ -1,5 +1,56 @@
 # Changelog
 
+## [Unreleased] — Step 8 Phase 8.7 follow-ups (2026-05-03)
+
+Three follow-ups landed after the 8.7 cutover, closing every audit-flagged risk that didn't strictly need physical tablets. Single-day batch dispatched as 3 parallel agents (K + L + M).
+
+### `b955059` — bypass + terminateCycle now serialize with row locks
+
+Closes the two existing-risk items Phase 8.7's concurrent-operator audit flagged (tasks/AUDIT-2026-05-02-concurrent-operator.md lines 83-93 and the bypass cycle-id gap). Brings both write methods to full parity with `advance()` — every cycle-bound write now does pre-txn state snapshot + in-txn `SELECT ... FOR UPDATE` + 409 STATE_CHANGED + 409 CYCLE_CHANGED.
+
+Before this commit, two collision shapes were silently accepted:
+- `terminateCycle` had NO row lock at all (transaction-wrapped only) and NO state/cycle recheck — operator A could terminate cycle X while operator B was already terminating it; the second termination wrote against the post-first-termination row.
+- `bypass` had a SELECT FOR UPDATE on filter_details but only checked `current_lifecycle_state` — a cycle-id swap behind a bypass write silently recorded BYPASS_DEVIATION against the pre-lock cycle.
+
+3 previously-skipped concurrent-operator tests now pass: `bypass > CYCLE_CHANGED`, `terminateCycle > STATE_CHANGED`, `terminateCycle > CYCLE_CHANGED`. Bonus mock fix in `tape-version-check.test.ts` so 2 unrelated tests don't regress (`tx.$queryRaw` is now called inside terminateCycle).
+
+### `11b4b82` — cycle-tombstone replay sends justification + tapeVersion
+
+Two bugs in the cycle-tombstone replay path at `sync-engine.ts:163` — both would 400 against the live server, both moot in practice because the path has zero live callers (UI uses operations store, not tombstones store):
+
+1. **Wrong field name.** The replay sent `{ reason, clientOpId }` but the server's `/terminate-cycle` route requires `justification`, not `reason`. Pre-Phase-8.7 this would 400 with "missing justification".
+2. **Missing tapeVersion.** After `f8fae1d` tightened tapeVersion to required, the same dead-code path would 400 with "missing tapeVersion".
+
+Fix: `Tombstone` interface gains optional `tapeVersion?: number | null`; replay forwards `justification` (preferred) or maps legacy `payload.reason` for backward compat; tapeVersion forwarded conditionally. No IDB schema bump needed — zero on-disk tombstone rows exist.
+
+2 new web tests cover both paths (with-tapeVersion forwards correctly, null tapeVersion documents the migration cost — would 400 SCHEMA_ERROR).
+
+### `11095ad` — gitignore root-level test/QA PNG droppings + backups/
+
+Closes the "P3.2 / Root working-tree noise" follow-ups documented in `PHASE_5_RECENT_WORK.md` § 11. The main checkout has 109 untracked PNGs at the repo root from prior sessions (`bug-fix-*.png`, `bug-sweep-*.png`, `mt-removal-*.png`, `step1-*.png`, etc.) that pollute every `git status`. New patterns: `/*.png` (root-anchored — 50+ tracked PNGs under `PROJECT_HANDOVER/diagrams/`, `apps/`, `RFID/`, `old/screenshots/` are unaffected) and `/backups/`.
+
+### Tests (post-Wave-5)
+
+- **api:** 1199 → 1202 passing (+3 from K's newly-active concurrent-operator tests). 2 pre-existing failures unchanged. 9 → 6 skipped.
+- **web:** 82 → 84 passing (+2 from L's tombstone tests).
+- **shared:** 305/306 unchanged.
+- TypeScript: clean across all 3 packages.
+
+### Closes (carried-forward from 8.7 follow-up list)
+
+- ✅ "`terminateCycle` lacks SELECT FOR UPDATE + post-lock state recheck" — `b955059`
+- ✅ "`bypass` doesn't recheck `current_cycle_id` inside its lock" — `b955059`
+- ✅ "terminate-cycle tombstone path doesn't carry tapeVersion" — `11b4b82` (also caught a separate field-name bug)
+- ✅ "Root working-tree noise — test PNGs, `.playwright-mcp/`, `backups/` not gitignored" — `11095ad`
+
+### Out of scope (still carried forward)
+
+- Pre-Wave-2 IDB-queued ops with `tapeVersion: null` will 400 on replay (sync-engine marks them failed). Documented migration cost.
+- Drift migration `20260503162127_capture_schema_vs_db_drift` is fresh-DB-only as written. Populated environments need `prisma migrate resolve --applied` instead of `migrate deploy`.
+- Phase 8.8 (APK rebuild + tablet field QA) — needs physical tablets per `tasks/PLAN-2026-05-02-step8.8-apk-field-qa.md`.
+
+---
+
 ## [Unreleased] — Step 8 Phase 8.7: cutover complete (2026-05-03)
 
 Branch: `feature/phase5-verification`. Removes the dual-emit / flag-gated transition into the decision-tape architecture. Server now always emits `actions[]` + `tapeVersion`; the deprecated `nextAllowedStages` / `pendingChecklist` derived fields are gone from the `getCurrentState()` response and from the 4 cycle-bound write responses. FE consumes only the action tape. Pipeline-walking drift between client and server is now structurally impossible. **One app-visible enforcement change**: the 4 write routes (advance, submit-checklist, bypass, terminate-cycle) now require `tapeVersion` in the request body — they return 400 if missing, 409 STALE_TAPE if mismatched. FE plumbing was audited end-to-end and every caller confirmed sending it.
