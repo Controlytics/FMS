@@ -1,5 +1,62 @@
 # Changelog
 
+## [Unreleased] — Wave 8a: § 11 follow-ups close (2026-05-03)
+
+Final pass on `PHASE_5_RECENT_WORK.md § 11` outstanding work. Six parallel agents (Y/Z/AA/AB/AC/AD) closed three remaining items in a single dispatch.
+
+### `8694435` — DEPLOY-WINDOWS.md Phase 8.7 release notes
+
+New section 10 (+60 lines, 403→463) documents two operational items from the 8.7 carried-forward list:
+- **10.1 Drift catch-up migration** requires `npx prisma migrate resolve --applied 20260503162127_capture_schema_vs_db_drift` BEFORE any future `migrate deploy` on populated DBs (greenfield is unaffected). Failure modes: `filter_cleaning_profiles.lineage_id NOT NULL`, `asset_instances` column drops. Recommended path: pg_dump → resolve → deploy.
+- **10.2 Offline-queue replay tapeVersion=null failures** expected after upgrade. Pre-8.7 IDB ops with `tapeVersion: null` will 400 on first sync; sync-engine marks them failed. Operator guidance: failed actions did NOT execute, must be re-performed; clean rollout = drain queues under old APK first; no server-side workaround by design.
+
+Forward-pointer added in section 9 step 4; 2 new troubleshooting-table rows added in section 11. Sections 10/11/12 → 11/12/13 renumber.
+
+### `d660daf` — Multi-filter batch checklist dialog cycles through every pending filter
+
+Closes the § 11 known follow-up "Multi-filter batch checklist dialog — currently opens for first item only (session 04-20 known follow-up)". **21 CFR Part 11 risk** closed: filters B/C/... in a batch were silently skipping their pending CHECKLIST gates after the first dialog submitted.
+
+Fix existed on BOTH desktop AND mobile (per the per-page parity rule from `feedback_batch_single_parity.md`). New shared helper `apps/web/src/lib/filter-ops/next-pending-checklist.ts` walks the batch and returns `{item, checklists, remaining} | null`. Each page tracks the remainder in a NEW state (mobile: `pendingChecklistBatch`; desktop: `postAdvanceChecklistQueue` — separate from the existing `pendingBatch` shared-answer-set path so BATCH MODE stays byte-identical). After each `handleChecklistSubmit`, the page cycles to the next pending dialog. 7 new unit tests on the helper.
+
+### `859492e3` — Phase 2/3/4/5 e2e route-layer suites
+
+Closes the § 11 outstanding work "tests/manual-test-cases/ was deleted in the documentation cleanup. Need fresh cases for filter operations, RFID, offline replay, reports, block-change approval, PM My Tasks, admin requests." Replaced markdown manual-test recipes with executable vitest e2e suites — 4 new files, 29 new tests:
+
+- **phase2-filter-operations.test.ts** (10) — start-cycle / advance / submit-checklist / bypass / terminate-cycle / getCurrentState shape on the wire. Hybrid pattern: real auth + MOCKED service layer = zero DB pollution. Phase 8.7 invariants (legacy fields stripped, tapeVersion required) verified at the route layer. Service-layer concurrency NOT duplicated (covered by `concurrent-operator.test.ts`).
+- **phase3-rfid-offline.test.ts** (7, 6 active + 1 skip) — identifier lookup/create/delete/conflict + offline-replay header skips reauth. Real route paths discovered: `GET /api/assets/identifiers/lookup/:value`, `POST /api/assets/identifiers`, `DELETE /api/assets/identifiers/:id` (NOT `/api/identifiers` as planned). Header literal: `'x-offline-replay': 'true'` (string).
+- **phase4-perms-themes-reports.test.ts** (8, 6 active + 2 skips) — VIEWER/OPERATOR perm-gate proofs + report-settings/branding/registry. Surfaced **pre-existing PUT report-settings 404 bug**: `hasCustomPage:true` skips `dynamic-routes.ts` PUT wiring, but no static route exists; FE writes silently fail. Flagged for follow-up.
+- **phase5-decision-tape-backup.test.ts** (7) — Phase 8.7 invariants verified end-to-end + backup export/validate round-trip + `/sync/since` 6-entity hydration (incl. ChecklistProfile + AssetTemplate hydrated by 8.7 commit `d31f5d2`). Real route paths: `/api/backup/{export,validate,restore}` (NOT `/api/system/backup`). Used unique `P5<suffix>` SUPER_ADMIN test user to avoid SESSION_INVALID race against shared `admin` user when local dev server contends with the test runner.
+
+### Test counts (single-fork mode — only stable mode per AA's findings)
+
+- **Before Wave 8a:** api 1202 / 2 / 6 (1210)
+- **After Wave 8a:**  api 1231 / 2 / 9 (1242) — net +29 from 4 e2e files; same 2 pre-existing failures unchanged.
+- **Web:** 84 → 91 (+7 from Y's `next-pending-checklist` helper unit tests)
+- **Shared:** 305/306 unchanged.
+
+### Stability note
+
+Full-suite default-pool runs are **flaky** due to shared `admin` test-user contention across worker processes. The verified count requires `--pool=forks --poolOptions.forks.singleFork=true`. This is a pre-existing infra issue surfaced (but not introduced) by the new e2e files.
+
+### Closes (all carried-forward items from § 11)
+
+- ✅ "Phase 2/3/4/5 manual test cases" — replaced with executable e2e suites in `859492e3`
+- ✅ "Multi-filter batch checklist dialog opens for first item only" — fixed on both desktop + mobile in `d660daf`
+- ✅ Drift migration `migrate resolve` operator guidance — added in `8694435`
+- ✅ Tombstone-replay tapeVersion=null operator guidance — added in `8694435`
+
+### New pre-existing flags surfaced (not fixed)
+
+- PUT `/api/config/dynamic/report-settings` returns 404 — `report-settings.def.ts` has `hasCustomPage:true` so `dynamic-routes.ts` skips a generic PUT but no `static-routes/report-settings.routes.ts` exists. Flagged in `859492e3` for follow-up.
+
+### Carried forward (out of scope for this session)
+
+- Phase 8.8 (APK rebuild + tablet field QA) — APK was rebuilt this session; install + field QA still requires physical tablets per `tasks/PLAN-2026-05-02-step8.8-apk-field-qa.md`.
+- Browser smoke (Wave 6 O) — needs Vite dev server restart from this worktree (currently running stale build from main checkout).
+- Pre-existing flags from prior splits (telemetry-row JSX-escape, dead `useDatetimeFormat`, etc. — listed in `4036336`/`26d61d0`/`4aa5a27` commit messages).
+
+---
+
 ## [Unreleased] — Wave 7: P0.2 monster-file decomposition closes (2026-05-03)
 
 Closes the last open item from the bloat audit (`PHASE_5_RECENT_WORK.md § 11 P0.2`). All 8 monster files (1000+ LOC) decomposed into 78+ cohesive modules across 9 commits via parallel + sequential subagent dispatch (waves 7a/7b/7c). **Façade pattern throughout** — every original file path keeps its public export(s) so consumers (`main.tsx` lazy-loads + downstream imports) resolve unchanged. Zero behavior change verified by full-suite parity at every commit.
