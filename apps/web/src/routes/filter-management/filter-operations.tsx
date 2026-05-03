@@ -30,11 +30,13 @@ import {
 import {
   firstStagesFromGraph,
   resolvePendingChecklistDialog,
+  findNextPendingChecklist,
   buildTempOptionsSnapped,
   useNowTick,
   findDryerTempInstrument,
   projectDryerCountdown,
   type PendingChecklist,
+  type PendingChecklistBatchItem,
 } from '@/lib/filter-ops';
 
 const CLEANING_STAGES = CLEANING_STAGES_OPS;
@@ -177,6 +179,14 @@ export function FilterOperationsPage() {
   } | null>(null);
   const [checklistLoading, setChecklistLoading] = useState(false);
   const [checklistError, setChecklistError] = useState('');
+  // Multi-filter post-advance checklist cycling — distinct from `pendingBatch`
+  // (which feeds the BATCH MODE flow that submits ONE set of answers for every
+  // filter). This queue is set by `advanceBatch` after queued offline advances:
+  // each filter may have its OWN pending checklist, so we open the dialog for
+  // the first one, stash the rest here, and walk through them in
+  // handleChecklistSubmit. Pre-fix the loop dropped everything past the first
+  // (PHASE_5_RECENT_WORK.md § 11, session 04-20 follow-up).
+  const [postAdvanceChecklistQueue, setPostAdvanceChecklistQueue] = useState<PendingChecklistBatchItem[]>([]);
 
   // Equipment group & instrument readings state
   const [equipmentDialog, setEquipmentDialog] = useState<{
@@ -289,6 +299,7 @@ export function FilterOperationsPage() {
   // Close stage screen and go back to landing
   const closeDialog = () => {
     setActiveStage(null); setSelectedBlock(null); setScanValue(''); setRemarks(''); setError(''); setScanQueue([]); setEquipmentGroupSyncWarning(null);
+    setPostAdvanceChecklistQueue([]);
     navigate('/filters');
   };
 
@@ -417,21 +428,38 @@ export function FilterOperationsPage() {
     if (newSubmissions.some(s => s.stage.includes('queued'))) {
       getOfflineFilters().then(setOfflineInstances);
     }
-    // Offline parity: if pipeline prescribes a checklist after this stage, pop the dialog
-    // so the operator can complete it (matches mobile behavior, blocks further advance).
-    // Phase 8.7: gate via the action tape (Tier-1 server actions[] when present,
-    // else local executor over the just-rewritten cache row). Fall back to the
-    // helper that reads the cached dialog payload when the tape can't surface
-    // questions inline (legacy server response without TAPE_PARALLEL).
+    // Offline parity: if pipeline prescribes a checklist after this stage,
+    // pop the dialog so the operator can complete it (matches mobile behavior,
+    // blocks further advance). Phase 8.7: gate via the action tape (Tier-1
+    // server actions[] when present, else local executor over the
+    // just-rewritten cache row). Fall back to the helper that reads the
+    // cached dialog payload when the tape can't surface questions inline
+    // (legacy server response without TAPE_PARALLEL).
+    //
+    // Multi-filter cycling (PHASE_5_RECENT_WORK.md § 11 fix): EVERY filter in
+    // the batch may have its own pending checklist (different cleaning
+    // profiles → different CHECKLIST nodes). We open the dialog for the
+    // first such filter and stash the rest in `postAdvanceChecklistQueue`;
+    // `handleChecklistSubmit` walks the queue after each submit so no
+    // checklist gate is ever silently skipped. Pre-fix the loop took only
+    // the first item and dropped the rest.
     if (batch.length > 0 && newSubmissions.some(s => s.stage.includes('queued'))) {
       try {
-        const firstItem = batch[0];
-        // Phase 8.7 Wave-5: shared checklist-dialog resolver. Tier-1 server
-        // actions (when emitted) → Tier-2 local executor → Tier-3 cached
-        // pending payload fallback. Returns null when no dialog is needed.
-        const checklists = await resolvePendingChecklistDialog(firstItem.filterId);
-        if (checklists) {
-          setChecklistDialog({ filterId: firstItem.filterId, filterName: `${batch.length} filter(s)`, checklists });
+        // Phase 8.7 Wave-5 helper. Tier-1 server actions (when emitted)
+        // → Tier-2 local executor → Tier-3 cached pending payload fallback.
+        // Returns null when no dialog is needed.
+        const cycleBatch: PendingChecklistBatchItem[] = batch.map(b => ({
+          filterId: b.filterId,
+          filterName: b.filterName,
+        }));
+        const next = await findNextPendingChecklist(cycleBatch, resolvePendingChecklistDialog);
+        if (next) {
+          setChecklistDialog({
+            filterId: next.item.filterId,
+            filterName: next.item.filterName,
+            checklists: next.checklists,
+          });
+          setPostAdvanceChecklistQueue(next.remaining);
           setChecklistError('');
         }
       } catch { /* ignore */ }
@@ -1375,6 +1403,10 @@ export function FilterOperationsPage() {
       }
       setChecklistDialog(null);
       setPendingBatch(null);
+      // BATCH MODE owns its own batch (`pendingBatch`); the post-advance
+      // queue should never be set here, but clear defensively to keep the
+      // two cycling paths from interfering if state ever overlaps.
+      setPostAdvanceChecklistQueue([]);
       refreshFilters();
       if (failed.length > 0) setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
       else setToast({ type: 'success', message: `Checklist submitted for ${success} filter(s)` });
@@ -1384,7 +1416,30 @@ export function FilterOperationsPage() {
 
     try {
       const { executed } = await executeOrQueue('submit-checklist', checklistDialog.filterId, checklistDialog.filterName, submitPayload);
-      setChecklistDialog(null);
+      // Multi-filter post-advance cycling (PHASE_5_RECENT_WORK.md § 11 fix):
+      // walk `postAdvanceChecklistQueue` for the next filter that still has
+      // a pending checklist. If none remain, the dialog closes; otherwise we
+      // re-open it pointing at the next filter. Filters whose checklist was
+      // just submitted resolve to `null` and are skipped automatically. The
+      // pre-advance BATCH MODE path (above) is unaffected — it never sets
+      // `postAdvanceChecklistQueue`.
+      let nextDialog: { filterId: string; filterName: string; checklists: PendingChecklist[] } | null = null;
+      let nextRemaining: PendingChecklistBatchItem[] = [];
+      if (postAdvanceChecklistQueue.length > 0) {
+        try {
+          const next = await findNextPendingChecklist(postAdvanceChecklistQueue, resolvePendingChecklistDialog);
+          if (next) {
+            nextDialog = {
+              filterId: next.item.filterId,
+              filterName: next.item.filterName,
+              checklists: next.checklists,
+            };
+            nextRemaining = next.remaining;
+          }
+        } catch { /* ignore — falls through to close dialog */ }
+      }
+      setChecklistDialog(nextDialog);
+      setPostAdvanceChecklistQueue(nextRemaining);
       setToast({ type: 'success', message: executed ? 'Checklist submitted successfully' : 'Checklist queued for sync' });
       refreshFilters();
     } catch (e: any) {
@@ -1505,7 +1560,7 @@ export function FilterOperationsPage() {
         <CleaningReasonDialog dialog={reasonDialog} onClose={() => { setReasonDialog(null); setReasonError(''); }} onSubmit={handleReasonSubmit} loading={loading} error={reasonError} onClearError={() => setReasonError('')} />
         <EquipmentDialog dialog={equipmentDialog} onClose={() => { setEquipmentDialog(null); }} onSubmit={handleEquipmentSubmit} loading={equipmentLoading} error={equipmentError} />
         <DryerDurationDialog open={!!dryerDialog} filterName={dryerDialog?.filterName ?? ''} loading={dryerLoading} error={dryerError} onClose={() => { setDryerDialog(null); setDryerError(''); }} onSubmit={handleDryerDurationSubmit} />
-        <ChecklistDialog dialog={checklistDialog} onClose={() => { setChecklistDialog(null); }} onSubmit={handleChecklistSubmit} loading={checklistLoading} error={checklistError} />
+        <ChecklistDialog dialog={checklistDialog} onClose={() => { setChecklistDialog(null); setPostAdvanceChecklistQueue([]); }} onSubmit={handleChecklistSubmit} loading={checklistLoading} error={checklistError} />
         <ReauthDialog open={reauth.isOpen} password={reauth.password} error={reauth.error} isVerifying={reauth.isVerifying} onPasswordChange={reauth.setPassword} onConfirm={reauth.confirm} onCancel={reauth.cancel} actionLabel="Filter Operation" />
         {blockChangeDialog && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -1733,7 +1788,7 @@ export function FilterOperationsPage() {
       {/* Checklist Dialog */}
       <ChecklistDialog
         dialog={checklistDialog}
-        onClose={() => { setChecklistDialog(null); }}
+        onClose={() => { setChecklistDialog(null); setPostAdvanceChecklistQueue([]); }}
         onSubmit={handleChecklistSubmit}
         loading={checklistLoading}
         error={checklistError}

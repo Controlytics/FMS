@@ -23,11 +23,13 @@ import {
 import {
   validateOfflineGate,
   resolvePendingChecklistDialog,
+  findNextPendingChecklist,
   useNowTick,
   buildTempOptionsLinear,
   findDryerTempInstrument,
   projectDryerCountdown,
 } from '@/lib/filter-ops';
+import type { PendingChecklistBatchItem } from '@/lib/filter-ops';
 
 const STAGES = [
   { key: 'WASH_IN', label: 'Wash In', icon: '🚿', gradient: 'from-sky-500 to-sky-600', bg: 'bg-sky-50', border: 'border-sky-200', text: 'text-sky-700', needsBlock: true },
@@ -130,6 +132,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const [dryerError, setDryerError] = useState('');
   const [checklistDialog, setChecklistDialog] = useState<{ filterId: string; filterName: string; checklists: any[] } | null>(null);
   const [checklistAnswers, setChecklistAnswers] = useState<Record<string, any>>({});
+  // Multi-filter batch checklist cycling — see findNextPendingChecklist().
+  // After the operator submits a queue (handleSubmitQueue) and ANY of the
+  // batched filters has a pending CHECKLIST gate, we open the dialog for the
+  // first such filter and stash the rest of the batch here. handleChecklistSubmit
+  // then walks this list after each successful submission, popping the dialog
+  // for the next filter that still has a pending checklist. Pre-fix the loop
+  // dropped the rest of the batch silently (PHASE_5_RECENT_WORK.md § 11).
+  const [pendingChecklistBatch, setPendingChecklistBatch] = useState<PendingChecklistBatchItem[]>([]);
 
   // Refocus the scan input whenever we enter the stage view, all dialogs close,
   // or success flashes. autoFocus only fires once on mount, so without this
@@ -461,7 +471,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     setEquipmentGroupSyncWarning(null);
   };
 
-  const goHome = () => { setView('home'); setActiveStage(null); setReasonDialog(null); setEquipDialog(null); setChecklistDialog(null); setError(''); setSuccess(''); setScanQueue([]); setEquipmentGroupSyncWarning(null); };
+  const goHome = () => { setView('home'); setActiveStage(null); setReasonDialog(null); setEquipDialog(null); setChecklistDialog(null); setPendingChecklistBatch([]); setError(''); setSuccess(''); setScanQueue([]); setEquipmentGroupSyncWarning(null); };
 
   const resolveFilter = async (): Promise<{ filterId: string; filterName: string } | null> => {
     let filterId = ''; let filterName = '';
@@ -580,20 +590,32 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
       }
     }
-    // Offline parity: if any advanced item now has a pending checklist (per the
-    // cleaning profile), open the dialog for the first such filter. Treating
-    // CHECKLIST nodes as a stage ensures post-stage questions are never skipped.
+    // Offline parity: if any advanced item now has a pending checklist (per
+    // the cleaning profile), open the dialog for the FIRST such filter and
+    // stash the rest of the batch in `pendingChecklistBatch`. The cycle is
+    // resumed inside `handleChecklistSubmit` after each successful submit.
+    //
+    // Pre-fix bug (PHASE_5_RECENT_WORK.md § 11, session 04-20): the original
+    // `for…break` opened the dialog for the first matching filter and then
+    // never iterated to the rest of the batch — every other pending filter
+    // silently skipped the checklist gate.
     if (successCount > 0) {
       try {
         // Phase 8.7 Wave-5: shared checklist-dialog resolver — mirrors the
-        // desktop handleSubmitBatch site (filter-operations.tsx ~line 437).
-        for (const item of scanQueue) {
-          const rows = await resolvePendingChecklistDialog(item.filterId);
-          if (rows) {
-            setChecklistDialog({ filterId: item.filterId, filterName: item.filterName, checklists: rows });
-            setChecklistAnswers({});
-            break;
-          }
+        // desktop advanceBatch site (filter-operations.tsx ~line 437).
+        const batchItems: PendingChecklistBatchItem[] = scanQueue.map(q => ({
+          filterId: q.filterId,
+          filterName: q.filterName,
+        }));
+        const next = await findNextPendingChecklist(batchItems, resolvePendingChecklistDialog);
+        if (next) {
+          setChecklistDialog({
+            filterId: next.item.filterId,
+            filterName: next.item.filterName,
+            checklists: next.checklists,
+          });
+          setChecklistAnswers({});
+          setPendingChecklistBatch(next.remaining);
         }
       } catch { /* ignore — user can re-scan to trigger */ }
     }
@@ -1209,7 +1231,29 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           );
         } catch { /* ignore */ }
       }
-      setChecklistDialog(null); setChecklistAnswers({});
+      // Multi-filter batch cycling: walk the remaining batch (set by
+      // handleSubmitQueue) for the next filter that still has a pending
+      // checklist. If none remain, the dialog closes; otherwise we re-open
+      // it pointing at the next filter. Filters whose checklist was just
+      // submitted resolve to `null` and are skipped automatically.
+      let nextDialog: { filterId: string; filterName: string; checklists: any[] } | null = null;
+      let nextRemaining: PendingChecklistBatchItem[] = [];
+      if (pendingChecklistBatch.length > 0) {
+        try {
+          const next = await findNextPendingChecklist(pendingChecklistBatch, resolvePendingChecklistDialog);
+          if (next) {
+            nextDialog = {
+              filterId: next.item.filterId,
+              filterName: next.item.filterName,
+              checklists: next.checklists,
+            };
+            nextRemaining = next.remaining;
+          }
+        } catch { /* ignore — falls through to close dialog */ }
+      }
+      setChecklistDialog(nextDialog);
+      setChecklistAnswers({});
+      setPendingChecklistBatch(nextRemaining);
       if (executed) mutate('/api/assets/instances?limit=500');
     } catch (e: any) { setError(e.message ?? 'Failed'); }
     setLoading(false);
@@ -2130,7 +2174,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               {error && <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
             </div>
             <div className="px-5 py-4 border-t border-slate-200 shrink-0 flex gap-3">
-              <button onClick={() => setChecklistDialog(null)} disabled={loading} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition-colors disabled:opacity-40">Cancel</button>
+              <button onClick={() => { setChecklistDialog(null); setPendingChecklistBatch([]); }} disabled={loading} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition-colors disabled:opacity-40">Cancel</button>
               <button onClick={handleChecklistSubmit} disabled={loading} className="flex-1 py-3 bg-purple-600 text-white rounded-xl font-bold disabled:opacity-40 flex items-center justify-center gap-2 hover:bg-purple-500 transition-colors">
                 {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <>Submit Checklist</>}
               </button>

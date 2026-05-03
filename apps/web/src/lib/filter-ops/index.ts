@@ -18,6 +18,12 @@ export type { GateInput, GateResult } from './validate-offline-gate';
 
 export { resolvePendingChecklistDialog } from './resolve-pending-checklist';
 
+export { findNextPendingChecklist } from './next-pending-checklist';
+export type {
+  PendingChecklistBatchItem,
+  NextPendingChecklistResult,
+} from './next-pending-checklist';
+
 export {
   useNowTick,
   buildTempOptionsSnapped,
