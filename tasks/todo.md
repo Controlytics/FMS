@@ -1485,3 +1485,64 @@ None this batch (no DB reset). All prior data preserved.
 ### Time spent
 
 ~5 hours including audit + planning + 5 commits + verification rounds + doc sync.
+
+---
+
+## Audit-log entry: Phase 8.7 cutover — decision-tape architecture (2026-05-03)
+
+**Branch:** `feature/phase5-verification`. **Worktree:** `.worktrees/phase5-verification`. **Driven by:** 9 parallel subagent dispatch in 4 waves.
+
+### What landed
+
+7 commits (`1033aca` → `28e574c`) closing Step 8 Phase 8.7 — the cutover that removes the dual-emit / flag-gated transition into the decision-tape architecture.
+
+| Wave | Agent | Commit | What |
+|---|---|---|---|
+| 1 | C | `1033aca` | Capture schema-vs-migration drift as catch-up migration (467 lines) |
+| 1 | B | `d31f5d2` | Hydrate ChecklistProfile + AssetTemplate in /api/sync/since |
+| 1 | D | `1fa84b5` | Desktop FE: drop deprecated reads + 3 helpers in offline-cache.ts |
+| 1 | E | `2521aad` | Mobile FE: drop deprecated reads (using D's helpers) |
+| 2 | F | `f8fae1d` | Server cutover: drop TAPE_PARALLEL flag + deprecated response fields, tighten tapeVersion required, add actions[] to 4 POST responses |
+| 3 | G | `73a5f44` | Concurrent-operator collision test suite (508 lines, 9 active + 9 documented skips) |
+| 3 | H | `28e574c` | FE: ensure every cycle-bound write sends tapeVersion |
+
+Wave 4 = lead docs sweep (this entry + CHANGELOG + PHASE_5_RECENT_WORK.md § 11 closure + Step-8 resume-state status table).
+
+### Test counts (verified 2026-05-03)
+
+- **api:** 1199/1210 (was 1186/1188 baseline at 8.6 close — net +13: +9 from G's concurrent-operator suite, +4 from F's get-current-state mock expansion). Same 2 pre-existing failures unchanged (`auth.test forgot-password`, `config.test PUT action-reauth`). 9 documented skips.
+- **web:** 82/82 unchanged (no new FE tests; the caller-plumbing fixes in `28e574c` are pure refactors covered by existing dispatcher tests).
+- **shared:** 305/306 unchanged (1 pre-existing failure: `assetQuerySchema rejects limit over 100`).
+- **tsc --noEmit:** clean across `apps/api`, `apps/web`, `packages/shared`.
+
+### Doc files touched in this batch
+
+- `CHANGELOG.md` — new `[Unreleased] — Step 8 Phase 8.7` section above the 8.6 entry.
+- `PHASE_5_RECENT_WORK.md` § 11 — `Decision tape` outstanding-work bullet marked closed with full Step 8 receipt.
+- `tasks/RESUME-STATE-2026-05-02-step8.md` — phase-status table row for 8.7 flipped from `NEXT` to `DONE` with all 7 commit hashes; 6 deferred-follow-up rows marked closed with commit hashes.
+- `tasks/todo.md` — this entry.
+
+### Verifications performed
+
+- All web/api/shared test suites re-run after each wave's commits.
+- `prisma migrate diff` re-run after `1033aca` produced "-- This is an empty migration." (drift fully captured).
+- `prisma validate` clean on the schema.
+- `process.env.TAPE_PARALLEL` references in `apps/api`: 0 (verified by grep).
+- `nextAllowedStages` / `pendingChecklist` as response fields in `apps/api/src/modules/filter-operations/routes.ts`: 0 (the only remaining greps are explanatory comments + the unrelated `pendingChecklistProfileIds` in `stageLookup`, which is a different field kept by design).
+- All 9 cycle-bound FE caller sites confirmed sending tapeVersion (audited in commit message of `28e574c`).
+
+### Lead-attention follow-ups (NOT 8.7 regressions, flagged from G's audit)
+
+1. **`terminateCycle` lacks SELECT FOR UPDATE + post-lock state recheck** — audit lines 83-87 / 92-93. Mitigation requires real-DB row-lock serialization → integration test before relying on "low frequency, acceptable" claim under tablet load.
+2. **`bypass` does not recheck `current_cycle_id` inside its lock** — a cycle-id swap behind a bypass write is silently accepted; the BYPASS_DEVIATION event is recorded against pre-lock `filterCurrentCycleId`. Tighten if cycle-swap-during-bypass becomes live risk.
+3. **terminate-cycle tombstone path** (`apps/web/src/lib/sync-engine.ts:163`) sends `{reason, clientOpId}` only and would 400 on replay against the now-required tapeVersion schema. Pre-existing tombstone-shape limitation; orthogonal follow-up.
+4. **Pre-Wave-2 IDB-queued rows with `tapeVersion: null`** will 400 on replay. Sync-engine marks them failed. Documented migration cost — operators with stale queues should expect to re-perform.
+5. **migration `20260503162127_capture_schema_vs_db_drift`** is fresh-DB-only as written (drops `asset_instances` columns + adds `lineage_id NOT NULL`). For environments populated via `db push`, run `prisma migrate resolve --applied 20260503162127_capture_schema_vs_db_drift` instead of `migrate deploy`.
+
+### Side effects
+
+None. No DB mutated (Agent C used a transient shadow DB and dropped it). No production code path silently changed — all behaviour-affecting changes are documented in commit messages.
+
+### Time spent
+
+~3 hours (parallel 9-agent dispatch ran ~1.5 hours wall clock, commits + integration + verification + docs took the rest).

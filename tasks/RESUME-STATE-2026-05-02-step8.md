@@ -20,8 +20,8 @@ Self-contained resume note. Read this and you have everything needed to pick up.
 | 8.4 Commit 1 — bundle 8.3 deferred fixes (I-1 + I-3 + M-3 + M3 formula) | DONE | `2af9100` | NO |
 | 8.4 — Local-cache foundation (Option D Phase 1) | DONE | `a6ec6e8 e5f46cb 996d1c1 0e0e2b7 f63207c 3c7c916 98b5b3a 3c61a3b` (8 commits) | NO |
 | 8.5 — Shared executor extraction | DONE | `0c8c159..4873a7b` (10 commits incl. extraction `4873a7b`, fixtures `ff10952`, prep audits `0c8c159 da756ea 64dc469 d9f52ab 2981d93 e26d4b5 8796859 115dddd`) | NO |
-| 8.6 — FE consumes shared executor | **DONE** | `6653416 95b4575 e190415 <commit-4-sha>` (4 commits) | NO |
-| 8.7 — Cutover & cleanup | **NEXT** (2 audits prepped + migration-drift remediation plan) | — | — |
+| 8.6 — FE consumes shared executor | **DONE** | `6653416 95b4575 e190415 099225c dc52910 1fc3e7b 85ae3e1` (7 commits incl. part 2) | YES (origin/feature/phase5-verification) |
+| 8.7 — Cutover & cleanup | **DONE** (2026-05-03) | `1033aca d31f5d2 1fa84b5 2521aad f8fae1d 73a5f44 28e574c` (7 commits, 9-agent parallel dispatch) | NO |
 | 8.8 — APK rebuild + tablet field QA | PENDING (`tasks/PLAN-2026-05-02-step8.8-apk-field-qa.md` plan ready, needs physical tablets) | — | — |
 
 ## What 8.6 shipped
@@ -134,15 +134,15 @@ The original 8.4 plan (delete the FE graph walker, switch FE to consume `actions
 | ID | Description | Defer to |
 |---|---|---|
 | **8.4 hybrid-guard server deltas** | The 5 hybrid guards (audit § "Hybrid (H)") have a pure portion that moves to the shared executor and a server-only re-check that stays in `filter-operations.service.ts`. The exact split for each (e.g. STALE_TAPE on submitChecklist L860 vs. advance L1187) needs explicit code structure during 8.5 extraction. | 8.5 |
-| **8.4b ChecklistProfile + AssetTemplate hydration in /sync/since** | Server endpoint queries 4 entities; ChecklistProfile + AssetTemplate intentionally returned as `[]` until 8.4a's per-write bump triggers had a regression test (now done in `f63207c`). Follow-up commit to actually populate those two arrays. | 8.5 |
+| **8.4b ChecklistProfile + AssetTemplate hydration in /sync/since** | ✅ CLOSED 2026-05-03 by commit `d31f5d2` (Phase 8.7 wave 1, agent B). Both arrays now populate via the same per-entity-cursor + 500-row pagination pattern as the existing 4 entities. ChecklistProfile rows include `questions` (orderBy sortOrder); AssetTemplate rows pass through verbatim. Tests: 17 service + 3 route = 20 (was 16). | done |
 | **8.4 legacy `cache` blob path on mobile-wrapper** | `triggerSync` runs alongside the legacy `syncAllDataForOffline` — two parallel caches. Legacy path is subsumed once executor reads from v5 stores. | 8.6 |
 | **8.4 legacy `filters` IDB store** | `syncFilters` (v5) and `filters` (legacy) hold the same domain in different shapes. Consolidate after 8.5/8.6. | 8.6/8.7 |
-| **Smoke test drift on shared package** | `packages/shared/src/pipeline-executor/__tests__/smoke.test.ts` has 2 cases that asserted every stub throws NOT_IMPLEMENTED. After `4873a7b` filled in the bodies, those 2 cases legitimately fail. Retire or rewrite as part of 8.6 wiring (do NOT "fix" by reverting the bodies). | 8.6 |
-| **Server still has duplicate guard bodies** | 8.5 landed the executor but `filter-operations.service.ts` 4 write methods + the tape generator still hold their own copies. Wiring `load context → executor.canX(ctx)` is 8.6/8.7 work. | 8.6/8.7 |
-| **Migration-drift remediation plan** | `tasks/MIGRATION-DRIFT-2026-05-02.md` flags drift between Prisma schema + live DB; remediation is 8.7 work. | 8.7 |
-| **TAPE_PARALLEL flag still on parallel-validation** | Removing the flag is a 8.7 cutover step (after FE actually consumes the tape). | 8.7 |
-| **`tapeVersion` still optional on 4 write routes** | Tighten to required during 8.7. | 8.7 |
-| **`nextAllowedStages` / `pendingChecklist` still in getCurrentState** | Remove during 8.7 once FE reads from local executor + cache. | 8.7 |
+| **Smoke test drift on shared package** | ✅ CLOSED — was already retired/rewritten in 8.6 part 2. The two failing assertions now correctly target only the 2 intentional stub loaders (`loadLocalContext`, `loadLocalContextFromCache`) whose real impls live in apps/api / apps/web. Verified 2026-05-03: shared 305/306 (1 unrelated pre-existing failure). | done |
+| **Server still has duplicate guard bodies** | ✅ CLOSED 2026-05-03 by 8.6 part 2 (`1fc3e7b` deleted graph walkers, helpers redirected to shared) + 8.7 wave 2 (`f8fae1d` removed TAPE_PARALLEL gate so service always uses tape generator). | done |
+| **Migration-drift remediation plan** | ✅ CLOSED 2026-05-03 by commit `1033aca` (Phase 8.7 wave 1, agent C). New migration `apps/api/prisma/migrations/20260503162127_capture_schema_vs_db_drift/migration.sql` (467 lines) captures Kind B drift via `prisma migrate diff --script` against a transient shadow DB. Header documents fresh-DB-only constraint + `prisma migrate resolve --applied` workaround for already-populated environments. | done |
+| **TAPE_PARALLEL flag still on parallel-validation** | ✅ CLOSED 2026-05-03 by commit `f8fae1d` (Phase 8.7 wave 2, agent F). Flag removed; `actions[]` always emitted. `process.env.TAPE_PARALLEL` references in `apps/api`: 0. `tape-parity.test.ts` rewritten without env-flag setup. | done |
+| **`tapeVersion` still optional on 4 write routes** | ✅ CLOSED 2026-05-03 by commit `f8fae1d` (server schema tightened) + commit `28e574c` (Phase 8.7 wave 3, agent H — FE plumbing audited; all 9 cycle-bound caller sites confirmed sending tapeVersion; gaps fixed in `use-offline.ts`, `sync-engine.ts`, `filter-operations.tsx`). | done |
+| **`nextAllowedStages` / `pendingChecklist` still in getCurrentState** | ✅ CLOSED 2026-05-03 by commit `f8fae1d` (Phase 8.7 wave 2, agent F). Both fields dropped from `getCurrentState()` response and from the 4 POST write-route response schemas; `actions[]` + `tapeVersion` added to those 4 POST responses (per agent E discovery — they emitted `pendingChecklist` but not `actions[]`). | done |
 | **B7.2 M1** | Pre-existing `advanceBatch:422` closure-stale guard | future cleanup |
 | **B7.4 #2** | `DryingFiltersPanel` 15s SWR poller doesn't surface `equipmentGroupSyncWarning` | future cleanup |
 | **L5** | Browser visual smoke of Version History page | future test pass |
