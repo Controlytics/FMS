@@ -9,8 +9,10 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
  *
  *   submitChecklist  → STALE_TAPE | ALREADY_SUBMITTED
  *   advance          → STALE_TAPE | STATE_CHANGED | CYCLE_CHANGED
- *   bypass           → STALE_TAPE | STATE_CHANGED   (no cycle-id recheck)
- *   terminateCycle   → STALE_TAPE                   (no SELECT FOR UPDATE)
+ *   bypass           → STALE_TAPE | STATE_CHANGED | CYCLE_CHANGED
+ *                      (Phase 8.7 follow-up added cycle-id recheck.)
+ *   terminateCycle   → STALE_TAPE | STATE_CHANGED | CYCLE_CHANGED
+ *                      (Phase 8.7 follow-up added SELECT FOR UPDATE + recheck.)
  *
  * Mocking strategy mirrors `tape-version-check.test.ts` and
  * `get-current-state.test.ts`:
@@ -410,9 +412,11 @@ describe('Phase 8.7 — Concurrent-Operator Collision Codes', () => {
 
     it('STATE_CHANGED — operator A snapshots WASH_IN; operator B advanced to WASH_OUT before A acquires the bypass lock', async () => {
       setupBaseline((tx) => {
-        // bypass only checks current_lifecycle_state — doesn't read current_cycle_id.
+        // Phase 8.7 follow-up: bypass now SELECTs both columns. State check
+        // fires first, so cycle_id matching the snapshot keeps STATE_CHANGED
+        // as the firing code rather than CYCLE_CHANGED.
         tx.$queryRaw.mockResolvedValue([
-          { current_lifecycle_state: NEXT_STATE },
+          { current_lifecycle_state: NEXT_STATE, current_cycle_id: CYCLE_ID },
         ]);
       });
       mockPrisma.filterCleaningProfile.findUnique.mockResolvedValue(makePipelineRow({ flowMode: 'BYPASS_ENABLED' }));
@@ -432,12 +436,32 @@ describe('Phase 8.7 — Concurrent-Operator Collision Codes', () => {
       expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
     });
 
-    it.skip('CYCLE_CHANGED — bypass() does NOT recheck current_cycle_id inside the lock (line 1491 only reads current_lifecycle_state). Audit predicts this method only surfaces STATE_CHANGED.', () => {
-      // The post-lock recheck in bypass intentionally narrows to
-      // current_lifecycle_state (filter-operations.service.ts line 1484-1493).
-      // A cycle-id swap behind bypass is silently accepted — the bypass event
-      // is written against `filterCurrentCycleId` from the pre-lock load.
-      // Audit line 76: "User Error Codes: 409 STATE_CHANGED" — no CYCLE_CHANGED.
+    it('CYCLE_CHANGED — operator A snapshots cycle X; operator B terminated X and started cycle Y before A acquires the bypass lock', async () => {
+      // Phase 8.7 follow-up: bypass now ALSO rechecks current_cycle_id inside
+      // the row lock (mirrors advance — see filter-operations.service.ts).
+      // The locked row reports the SAME currentLifecycleState (state check
+      // passes) but a DIFFERENT currentCycleId — that's the "B terminated and
+      // re-started" race the audit predicts.
+      setupBaseline((tx) => {
+        tx.$queryRaw.mockResolvedValue([
+          { current_lifecycle_state: CURRENT_STATE, current_cycle_id: ALT_CYCLE_ID },
+        ]);
+      });
+      mockPrisma.filterCleaningProfile.findUnique.mockResolvedValue(makePipelineRow({ flowMode: 'BYPASS_ENABLED' }));
+      const service = new FilterOperationsService();
+
+      await expect(
+        service.bypass(ctx, FILTER_ID, {
+          targetState: ANOTHER_STATE,
+          justification: VALID_BYPASS_JUSTIFICATION,
+          clientOpId: 'op-A',
+          tapeVersion: FRESH_TAPE,
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'CYCLE_CHANGED',
+      });
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
     });
 
     it.skip('ALREADY_SUBMITTED — n/a for bypass; no duplicate-event check', () => {
@@ -467,19 +491,55 @@ describe('Phase 8.7 — Concurrent-Operator Collision Codes', () => {
       expect(mockPrisma.$transaction).not.toHaveBeenCalled();
     });
 
-    it.skip('STATE_CHANGED — n/a; terminateCycle has no SELECT FOR UPDATE and no post-lock state recheck (audit line 83-87, line 87: "State Recheck: MISSING")', () => {
-      // Audit explicitly: "Lock Acquisition: NONE. No SELECT FOR UPDATE;
-      // transaction-wrapped only." A concurrent state change between load
-      // and txn-commit is accepted silently — this is documented behaviour,
-      // mitigated only by clientOpId offline-queue dedup. NOT a bug to flag;
-      // a low-risk known limitation called out in the audit's risk section.
-      // TODO: integration-test scaffolding (real DB SELECT FOR UPDATE) would
-      //       be required to verify the audit's "concurrent terminate is rare
-      //       and acceptable" claim under load.
+    it('STATE_CHANGED — operator A snapshots WASH_IN; operator B advanced to WASH_OUT before A acquires the terminate lock', async () => {
+      // Phase 8.7 follow-up: terminateCycle now SELECT FOR UPDATE + rechecks
+      // current_lifecycle_state (mirrors advance — see filter-operations.service.ts).
+      // Closes the gap audit AUDIT-2026-05-02-concurrent-operator.md called out
+      // at lines 83-87 ("Lock Acquisition: NONE; State Recheck: MISSING").
+      setupBaseline((tx) => {
+        tx.$queryRaw.mockResolvedValue([
+          { current_lifecycle_state: NEXT_STATE, current_cycle_id: CYCLE_ID },
+        ]);
+      });
+      const service = new FilterOperationsService();
+
+      await expect(
+        service.terminateCycle(ctx, FILTER_ID, {
+          justification: VALID_JUSTIFICATION,
+          clientOpId: 'op-A',
+          tapeVersion: FRESH_TAPE,
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'STATE_CHANGED',
+      });
+      // Transaction WAS entered — the rejection happens after the row lock.
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
     });
 
-    it.skip('CYCLE_CHANGED — n/a; same reason as STATE_CHANGED above (no in-txn recheck)', () => {
-      // No current_cycle_id recheck inside the txn either.
+    it('CYCLE_CHANGED — operator A snapshots cycle X; operator B terminated X and started cycle Y before A acquires the terminate lock', async () => {
+      // Phase 8.7 follow-up: terminateCycle also rechecks current_cycle_id
+      // inside the row lock. Locked row reports the SAME
+      // currentLifecycleState (so state check passes) but a DIFFERENT
+      // currentCycleId — exactly the "B terminated and re-started" race.
+      setupBaseline((tx) => {
+        tx.$queryRaw.mockResolvedValue([
+          { current_lifecycle_state: CURRENT_STATE, current_cycle_id: ALT_CYCLE_ID },
+        ]);
+      });
+      const service = new FilterOperationsService();
+
+      await expect(
+        service.terminateCycle(ctx, FILTER_ID, {
+          justification: VALID_JUSTIFICATION,
+          clientOpId: 'op-A',
+          tapeVersion: FRESH_TAPE,
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'CYCLE_CHANGED',
+      });
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
     });
 
     it.skip('ALREADY_SUBMITTED — n/a for terminateCycle; not a checklist write', () => {

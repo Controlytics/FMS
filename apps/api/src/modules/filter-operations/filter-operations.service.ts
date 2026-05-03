@@ -1481,8 +1481,12 @@ export class FilterOperationsService {
     await prisma.$transaction(async (tx) => {
       // Phase 5b.4: SELECT FOR UPDATE row lock — prevents concurrent bypass
       // and concurrent advance from interleaving on the same filter.
-      const lockedRows = await tx.$queryRaw<Array<{ current_lifecycle_state: string | null }>>`
-        SELECT current_lifecycle_state
+      // Phase 8.7 follow-up: also rechecks current_cycle_id (was missing — see
+      // AUDIT-2026-05-02-concurrent-operator.md). A cycle-id swap behind a
+      // bypass write would otherwise silently record BYPASS_DEVIATION against
+      // the pre-lock cycle.
+      const lockedRows = await tx.$queryRaw<Array<{ current_lifecycle_state: string | null; current_cycle_id: string | null }>>`
+        SELECT current_lifecycle_state, current_cycle_id
         FROM filter_details
         WHERE asset_instance_id = ${filterId}::uuid
         FOR UPDATE
@@ -1490,6 +1494,9 @@ export class FilterOperationsService {
       const lockedFD = lockedRows[0];
       if (lockedFD?.current_lifecycle_state !== fromState) {
         throw new AppError(409, 'STATE_CHANGED', 'Filter state was modified by another user. Please refresh and try again.');
+      }
+      if (lockedFD?.current_cycle_id !== filterCurrentCycleId) {
+        throw new AppError(409, 'CYCLE_CHANGED', 'Cleaning cycle changed. Please refresh and try again.');
       }
 
       await tx.filterEvent.create({
@@ -1806,7 +1813,31 @@ export class FilterOperationsService {
       executor.assertJustificationValid(localCtx, justification, { kind: 'terminate' }),
     );
 
+    // Phase 8.7 follow-up: snapshot the pre-lock state so the in-txn recheck can
+    // detect a concurrent operator who advanced the filter or terminated/restarted
+    // its cycle between loadLocalContext() and the row lock acquiring.
+    const fromState = localCtx.filter.currentLifecycleState;
+
     await prisma.$transaction(async (tx) => {
+      // Phase 8.7 follow-up: SELECT FOR UPDATE row lock — mirrors the advance()
+      // pattern (lines 1328-1345). Without this the audit-flagged race
+      // (AUDIT-2026-05-02-concurrent-operator.md lines 83-87) lets two
+      // concurrent terminate calls both succeed, or lets a terminate win against
+      // an in-flight advance that already swapped the cycle.
+      const lockedRows = await tx.$queryRaw<Array<{ current_lifecycle_state: string | null; current_cycle_id: string | null }>>`
+        SELECT current_lifecycle_state, current_cycle_id
+        FROM filter_details
+        WHERE asset_instance_id = ${filterId}::uuid
+        FOR UPDATE
+      `;
+      const lockedFD = lockedRows[0];
+      if (lockedFD?.current_lifecycle_state !== fromState) {
+        throw new AppError(409, 'STATE_CHANGED', 'Filter state was modified by another user. Please refresh and try again.');
+      }
+      if (lockedFD?.current_cycle_id !== filterCurrentCycleId) {
+        throw new AppError(409, 'CYCLE_CHANGED', 'Cleaning cycle changed. Please refresh and try again.');
+      }
+
       await tx.cleaningCycle.update({
         where: { id: filterCurrentCycleId! },
         data: { status: 'TERMINATED', completedAt: new Date() },

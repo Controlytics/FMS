@@ -115,8 +115,16 @@ function setupBaselineMocks(opts: {
   // Transaction: just invoke the callback so the txn body runs against the
   // (mocked) tx.* fields. We give the callback a tx object that proxies to
   // mockPrisma's per-table mocks.
+  // Phase 8.7 follow-up: terminateCycle now does SELECT FOR UPDATE on
+  // filter_details inside the txn — the tx proxy must expose `$queryRaw`
+  // returning a row that matches the pre-lock snapshot (state=WASH_IN,
+  // cycle=CYCLE_ID), otherwise the recheck rejects with STATE_CHANGED /
+  // CYCLE_CHANGED before we get to test the tape-version path.
   mockPrisma.$transaction.mockImplementation(async (cb: any) => {
     return cb({
+      $queryRaw: vi.fn().mockResolvedValue([
+        { current_lifecycle_state: 'WASH_IN', current_cycle_id: CYCLE_ID },
+      ]),
       cleaningCycle: { update: vi.fn().mockResolvedValue({}) },
       filterDetails: { update: vi.fn().mockResolvedValue({}) },
       filterEvent: { create: vi.fn().mockResolvedValue({}) },
