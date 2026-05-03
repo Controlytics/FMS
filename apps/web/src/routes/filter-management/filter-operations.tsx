@@ -985,9 +985,23 @@ export function FilterOperationsPage() {
             }
           } catch { /* no groups -- proceed normally */ }
 
+          // Phase 8.7 cutover (Wave 2 — server commit f8fae1d): /advance now
+          // requires `tapeVersion` in the body. We just started the cycle on
+          // the previous line so the cache row's tapeVersion is stale (or
+          // null). Fetch the freshly-derived tapeVersion via /current-state
+          // and include it. This is a one-shot read; the offline path uses
+          // executeOrQueue which handles the cache lookup itself.
+          let advanceTapeVersion: number | undefined;
+          try {
+            const fresh = await apiClient.get<any>(`/api/filters/${dialogCapture.filterId}/current-state`);
+            if (typeof fresh?.tapeVersion === 'number') advanceTapeVersion = fresh.tapeVersion;
+          } catch { /* if this fails, advance will 400 STALE_TAPE → reauth.execute surfaces it */ }
+          const advBodyWithTape = advanceTapeVersion !== undefined
+            ? { ...advBody, tapeVersion: advanceTapeVersion }
+            : advBody;
           const advanceResult = password
-            ? await apiClient.postWithReauth<any>(`/api/filters/${dialogCapture.filterId}/advance`, advBody, password)
-            : await apiClient.post<any>(`/api/filters/${dialogCapture.filterId}/advance`, advBody);
+            ? await apiClient.postWithReauth<any>(`/api/filters/${dialogCapture.filterId}/advance`, advBodyWithTape, password)
+            : await apiClient.post<any>(`/api/filters/${dialogCapture.filterId}/advance`, advBodyWithTape);
           setRecentSubmissions(prev => [{ stage: dialogCapture.stage.label, filter: dialogCapture.filterName, block: reasonBlock?.name, time: formatTime(new Date()) }, ...prev].slice(0, 10));
           refreshFilters();
           setReasonDialog(null);

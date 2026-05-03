@@ -88,10 +88,14 @@ async function executeOperation(op: { type: string; filterId: string; payload: R
     ...(op.clientOpId ? { 'x-client-op-id': op.clientOpId } : {}),
   };
   const offlineTime = op.createdAt;
-  // Phase 8.3: only include tapeVersion on cycle-bound ops, and only when the
-  // queue actually carries one (pre-8.3 ops have null/undefined → server
-  // treats as no-check). start-cycle and start-and-advance's start step are
-  // not cycle-bound writes, so we explicitly omit tapeVersion on those.
+  // Phase 8.7 (Wave 2 — server commit f8fae1d): cycle-bound POSTs now REQUIRE
+  // tapeVersion in the body. New queued ops (post-Wave 2 cutover) carry the
+  // tapeVersion captured at queue time via use-offline.ts:executeOrQueue.
+  // Pre-8.3 IDB rows still on disk have tapeVersion=null and will fail with
+  // 400 SCHEMA_ERROR on replay — that's an acceptable migration cost (the
+  // op is marked failed and the operator must re-perform the action against
+  // a fresh /current-state). start-cycle and start-and-advance's start step
+  // are NOT cycle-bound writes, so we omit tapeVersion on those.
   const cycleBoundForVersion = CYCLE_BOUND_OPS.has(op.type);
   const tapeVersion = cycleBoundForVersion && op.tapeVersion !== null && op.tapeVersion !== undefined
     ? { tapeVersion: op.tapeVersion }
@@ -110,9 +114,22 @@ async function executeOperation(op: { type: string; filterId: string; payload: R
       // CYCLE_ACTIVE is a benign race — start succeeded earlier, just continue with advance
       if (code !== 'CYCLE_ACTIVE') throw e;
     }
+    // Phase 8.7 cutover (Wave 2 — server commit f8fae1d): /advance now
+    // requires `tapeVersion`. The op row's stored tapeVersion (if any) is
+    // pre-start-cycle and meaningless. Fetch the freshly-derived tapeVersion
+    // via /current-state and include it on the advance leg. Self-sufficient
+    // — no need to thread the field through the queue row for compound ops.
+    let saTapeVersion: number | undefined;
+    try {
+      const fresh = await apiClient.get<any>(`/api/filters/${op.filterId}/current-state`);
+      if (typeof fresh?.tapeVersion === 'number') saTapeVersion = fresh.tapeVersion;
+    } catch { /* fall through; advance will surface the 400 */ }
+    const advanceBody = saTapeVersion !== undefined
+      ? { ...advancePayload, tapeVersion: saTapeVersion, offlinePerformedAt: offlineTime, clientOpId: op.clientOpId ? `${op.clientOpId}:advance` : undefined }
+      : { ...advancePayload, offlinePerformedAt: offlineTime, clientOpId: op.clientOpId ? `${op.clientOpId}:advance` : undefined };
     await apiClient.post(
       `/api/filters/${op.filterId}/advance`,
-      { ...advancePayload, offlinePerformedAt: offlineTime, clientOpId: op.clientOpId ? `${op.clientOpId}:advance` : undefined },
+      advanceBody,
       { ...headers, ...(op.clientOpId ? { 'x-client-op-id': `${op.clientOpId}:advance` } : {}) },
     );
     return;

@@ -75,6 +75,20 @@ export function useOffline() {
   /**
    * Execute an API call. If offline, queue the operation for later sync.
    * Returns true if executed immediately, false if queued.
+   *
+   * Phase 8.7 cutover (Wave 2 — server commit f8fae1d): the four cycle-bound
+   * write routes (`advance`, `submit-checklist`, `bypass`, `terminate-cycle`)
+   * now REQUIRE `tapeVersion` in the request body — server returns 400
+   * SCHEMA_ERROR if absent and 409 STALE_TAPE on mismatch. We read the latest
+   * `tapeVersion` from the cached `filter-state-{filterId}` row (same source
+   * the FE's `getCurrentActions()` uses) and merge it into:
+   *   - the online payload, AND
+   *   - the queued operation row (so the offline replay in sync-engine
+   *     forwards it on the eventual POST).
+   *
+   * `start-cycle` and `start-and-advance` are deliberately excluded — there
+   * is no prior cycle to derive a tapeVersion from, and the server schemas
+   * for these routes do NOT require the field.
    */
   const executeOrQueue = useCallback(async (
     type: 'advance' | 'start-cycle' | 'submit-checklist' | 'bypass' | 'terminate' | 'start-and-advance',
@@ -83,12 +97,34 @@ export function useOffline() {
     payload: Record<string, any>,
     optimisticState?: string, // Update local state immediately
   ): Promise<{ executed: boolean; result?: any }> => {
+    // Phase 8.7: pull the current tapeVersion from the cached filter-state row
+    // for cycle-bound writes only. The cache row is written by `cacheServerStateResponse`
+    // (server /current-state response → tapeVersion field) and by
+    // `recomputeAndCacheFilterState` (re-runs the executor → tapeVersion from
+    // computeNextActions). Either way, this is the freshest tapeVersion the
+    // FE has observed for this filter.
+    const isCycleBound = type === 'advance' || type === 'submit-checklist' || type === 'bypass' || type === 'terminate';
+    let tapeVersion: number | null = null;
+    if (isCycleBound) {
+      try {
+        const cached = await getCachedData<any>(`filter-state-${filterId}`);
+        if (typeof cached?.tapeVersion === 'number') {
+          tapeVersion = cached.tapeVersion;
+        }
+      } catch { /* tapeVersion stays null — server will 400 if it really requires it */ }
+    }
+    // Merge tapeVersion into payload for cycle-bound online sends. Skipped for
+    // start-cycle / start-and-advance (no concept of prior tape).
+    const onlinePayload = isCycleBound && tapeVersion !== null
+      ? { ...payload, tapeVersion }
+      : payload;
+
     // Try executing online first
     try {
       let result: any;
       switch (type) {
         case 'advance':
-          result = await apiClient.post(`/api/filters/${filterId}/advance`, payload);
+          result = await apiClient.post(`/api/filters/${filterId}/advance`, onlinePayload);
           break;
         case 'start-cycle':
           result = await apiClient.post(`/api/filters/${filterId}/start-cycle`, payload);
@@ -101,17 +137,30 @@ export function useOffline() {
             const code = startErr?.code || startErr?.error || '';
             if (code !== 'CYCLE_ACTIVE') throw startErr;
           }
-          result = await apiClient.post(`/api/filters/${filterId}/advance`, advancePayload);
+          // Phase 8.7 cutover (Wave 2 — server commit f8fae1d): /advance now
+          // requires `tapeVersion` in the body. The cycle was just started
+          // (or already existed via the CYCLE_ACTIVE benign-race branch
+          // above) so the cache row is stale. Fetch the fresh tapeVersion
+          // via /current-state and include it.
+          let saTapeVersion: number | undefined;
+          try {
+            const fresh = await apiClient.get<any>(`/api/filters/${filterId}/current-state`);
+            if (typeof fresh?.tapeVersion === 'number') saTapeVersion = fresh.tapeVersion;
+          } catch { /* if this fails, advance will surface the 400 — fall through */ }
+          const advanceBody = saTapeVersion !== undefined
+            ? { ...advancePayload, tapeVersion: saTapeVersion }
+            : advancePayload;
+          result = await apiClient.post(`/api/filters/${filterId}/advance`, advanceBody);
           break;
         }
         case 'submit-checklist':
-          result = await apiClient.post(`/api/filters/${filterId}/submit-checklist`, payload);
+          result = await apiClient.post(`/api/filters/${filterId}/submit-checklist`, onlinePayload);
           break;
         case 'bypass':
-          result = await apiClient.post(`/api/filters/${filterId}/bypass`, payload);
+          result = await apiClient.post(`/api/filters/${filterId}/bypass`, onlinePayload);
           break;
         case 'terminate':
-          result = await apiClient.post(`/api/filters/${filterId}/terminate-cycle`, payload);
+          result = await apiClient.post(`/api/filters/${filterId}/terminate-cycle`, onlinePayload);
           break;
       }
       return { executed: true, result };
@@ -132,8 +181,13 @@ export function useOffline() {
       // Network error or reauth block — fall through to queue below
     }
 
-    // Offline or network error: queue the operation
-    await queueOperation({ type, filterId, filterName, payload });
+    // Offline or network error: queue the operation. Persist the cycle-bound
+    // tapeVersion on the row so the sync-engine forwards it on replay (the
+    // engine omits the body field when null, so non-cycle-bound types and
+    // null reads here are safe). The cached tapeVersion was captured ABOVE
+    // before the network attempt, so we never persist a tape value that's
+    // already been bumped by a successful prior write.
+    await queueOperation({ type, filterId, filterName, payload, tapeVersion });
     if (optimisticState) {
       // When starting a cycle offline, also mark the filter as having an active cycle
       const markCycleActive = type === 'start-and-advance' || type === 'start-cycle';
