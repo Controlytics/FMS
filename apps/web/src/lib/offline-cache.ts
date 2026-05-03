@@ -46,6 +46,7 @@ import {
   collectChecklistsAfterStage,
   computeNextActions,
   findReachable,
+  type Action,
 } from '@digilog/shared';
 import {
   cacheData,
@@ -284,4 +285,139 @@ export async function recomputeAndCacheFilterState(
   } catch {
     /* swallow — same behaviour as the deleted local helpers */
   }
+}
+
+// ── Phase 8.7 cutover helpers ────────────────────────────────────────────────
+// These hide the legacy mirror field NAMES (`pendingChecklist`, `nextAllowedStages`)
+// behind helper functions so the FE pages can stop referencing them by name.
+// The cache layer still POPULATES the legacy fields because:
+//   1. local-context.ts synthesizes CHECKLIST_COMPLETED events based on cached
+//      pendingChecklist (21 CFR — never silently skip a required checklist)
+//   2. mobile-operations.tsx still reads them (cleaned up separately by agent E)
+// Removing the writes is Wave 2's responsibility (server-side flag flip).
+
+/** Subset of /current-state response we persist to the cache row. */
+export interface ServerCurrentStateForCache {
+  currentState?: string | null;
+  currentCycle?: any;
+  equipmentGroup?: any;
+  blockEquipmentGroups?: any[];
+  pendingChecklist?: any[];
+  pipelineStages?: any[];
+  pipelineGraph?: any;
+  stageLookup?: Record<string, any> | null;
+  nextAllowedStages?: string[];
+  isPmDue?: boolean;
+  pmReasonKey?: string | null;
+  homeBlock?: { id: string; name: string } | null;
+  blockChangeStatus?: string | null;
+  actions?: Action[] | null;
+  tapeVersion?: number | null;
+}
+
+/**
+ * Persist a /current-state server response to the `filter-state-{filterId}`
+ * cache row. Replaces the inline `cache(...)` blocks in filter-operations.tsx
+ * (and the equivalent block in the pre-cache loop) so those pages no longer
+ * need to reference the deprecated field names by string.
+ *
+ * Both legacy mirrors AND the action tape are persisted — see the file header
+ * for why the mirrors are still required at the cache layer.
+ */
+export async function cacheServerStateResponse(
+  filterId: string,
+  st: ServerCurrentStateForCache,
+  ttlMs: number = 24 * 60 * 60 * 1000,
+): Promise<void> {
+  await cacheData(
+    `filter-state-${filterId}`,
+    {
+      currentState: st.currentState ?? null,
+      equipmentGroup: st.equipmentGroup ?? null,
+      blockEquipmentGroups: st.blockEquipmentGroups ?? [],
+      pendingChecklist: st.pendingChecklist ?? [],
+      pipelineStages: st.pipelineStages ?? [],
+      pipelineGraph: st.pipelineGraph ?? null,
+      stageLookup: st.stageLookup ?? null,
+      nextAllowedStages: st.nextAllowedStages ?? [],
+      isPmDue: st.isPmDue ?? false,
+      pmReasonKey: st.pmReasonKey ?? null,
+      currentCycle: st.currentCycle ?? null,
+      homeBlock: st.homeBlock ?? null,
+      blockChangeStatus: st.blockChangeStatus ?? null,
+      // Persist server tape when emitted (TAPE_PARALLEL=true) so subsequent
+      // gate decisions can prefer the authoritative server actions[] over a
+      // locally-recomputed tape.
+      actions: st.actions ?? null,
+      tapeVersion: st.tapeVersion ?? null,
+    },
+    ttlMs,
+  );
+}
+
+/**
+ * Read the cached pending-checklist payload that the ChecklistDialog expects.
+ * Returns the raw cache row's `pendingChecklist` array (already in dialog
+ * shape — see PendingChecklist interface on filter-operations.tsx).
+ *
+ * Used by the offline-batch-advance dialog-pop site that previously inlined
+ * `cs.pendingChecklist` against a cache row. Returns [] when the row or the
+ * field is missing — caller treats empty as "no checklist gate".
+ */
+export async function getCachedPendingChecklists(filterId: string): Promise<any[]> {
+  const row = await getCachedData<CachedFilterState>(`filter-state-${filterId}`);
+  return Array.isArray(row?.pendingChecklist) ? row!.pendingChecklist! : [];
+}
+
+/**
+ * Convert the `actions[]` tape's SUBMIT_CHECKLIST entries into the
+ * `PendingChecklist[]` shape the ChecklistDialog component expects.
+ *
+ * Mapping:
+ *   - `pipelineNodeId`: synthetic `${afterStage}-${profileId}` (matches the
+ *     offline-cache fallback shape; only used as a React key in the dialog)
+ *   - `checklistProfileId`: from `params.checklistProfileId`
+ *   - `checklistProfileName`: stripped from the action's label
+ *     (`"Submit Checklist: <name>"` → `<name>`); falls back to label as-is
+ *   - `profileVersion`: from `params.versionPin` (used by submit handler for
+ *     SCHEMA_DRIFT detection — `expectedProfileVersions` payload field)
+ *   - `questions`: from `params.questions` (TapeQuestion shape mirrors
+ *     ChecklistQuestion exactly — same id/question/questionType/required/
+ *     section/description/options/sortOrder fields)
+ *
+ * The legacy server `pendingChecklist[]` and this derived array are
+ * structurally compatible — the ChecklistDialog reads the same fields from
+ * either source.
+ */
+const SUBMIT_CHECKLIST_LABEL_PREFIX = 'Submit Checklist: ';
+export function dialogChecklistsFromActions(actions: Action[]): Array<{
+  pipelineNodeId: string;
+  checklistProfileId: string;
+  checklistProfileName: string;
+  profileVersion?: number;
+  questions: any[];
+}> {
+  return actions
+    .filter((a): a is Extract<Action, { type: 'SUBMIT_CHECKLIST' }> => a.type === 'SUBMIT_CHECKLIST')
+    .map((a) => {
+      const name = a.label.startsWith(SUBMIT_CHECKLIST_LABEL_PREFIX)
+        ? a.label.slice(SUBMIT_CHECKLIST_LABEL_PREFIX.length)
+        : a.label;
+      return {
+        pipelineNodeId: `${a.params.afterStage}-${a.params.checklistProfileId}`,
+        checklistProfileId: a.params.checklistProfileId,
+        checklistProfileName: name,
+        profileVersion: a.params.versionPin,
+        questions: (a.params.questions ?? []).map((q, i) => ({
+          id: q.id,
+          question: q.question,
+          questionType: q.questionType,
+          required: q.required,
+          section: q.section,
+          description: q.description,
+          options: q.options,
+          sortOrder: q.sortOrder ?? i,
+        })),
+      };
+    });
 }

@@ -20,8 +20,13 @@ import { formatByLeastCount } from '@/lib/format-by-least-count';
 // All graph-walking decisions (next-stage, checklist-after-stage, cache
 // rewrites) route through these so client/server stay in lockstep.
 import { findReachable as sharedFindReachable, type Action } from '@digilog/shared';
-import { actionsForStage, getCurrentActions } from '@/lib/action-tape';
-import { recomputeAndCacheFilterState } from '@/lib/offline-cache';
+import { actionsForStage, getCurrentActions, hasActionKind } from '@/lib/action-tape';
+import {
+  cacheServerStateResponse,
+  getCachedPendingChecklists,
+  dialogChecklistsFromActions,
+  recomputeAndCacheFilterState,
+} from '@/lib/offline-cache';
 
 const CLEANING_STAGES = CLEANING_STAGES_OPS;
 
@@ -85,19 +90,9 @@ export function FilterOperationsPage() {
       for (const f of filters) {
         try {
           const st = await apiClient.get<any>(`/api/filters/${f.id}/current-state`);
-          cache(`filter-state-${f.id}`, {
-            currentState: st.currentState ?? null,
-            equipmentGroup: st.equipmentGroup ?? null,
-            blockEquipmentGroups: st.blockEquipmentGroups ?? [],
-            pendingChecklist: st.pendingChecklist ?? [],
-            pipelineStages: st.pipelineStages ?? [],
-            nextAllowedStages: st.nextAllowedStages ?? [],
-            isPmDue: st.isPmDue ?? false,
-            pmReasonKey: st.pmReasonKey ?? null,
-            currentCycle: st.currentCycle ?? null,
-            homeBlock: st.homeBlock ?? null,
-            blockChangeStatus: st.blockChangeStatus ?? null,
-          }, 24 * 60 * 60 * 1000);
+          // Phase 8.7: route the cache write through the helper so the legacy
+          // mirror field names live only in offline-cache.ts.
+          await cacheServerStateResponse(f.id, st);
         } catch { break; } // stop on first failure
       }
     };
@@ -434,13 +429,25 @@ export function FilterOperationsPage() {
     }
     // Offline parity: if pipeline prescribes a checklist after this stage, pop the dialog
     // so the operator can complete it (matches mobile behavior, blocks further advance).
+    // Phase 8.7: gate via the action tape (Tier-1 server actions[] when present,
+    // else local executor over the just-rewritten cache row). Fall back to the
+    // helper that reads the cached dialog payload when the tape can't surface
+    // questions inline (legacy server response without TAPE_PARALLEL).
     if (batch.length > 0 && newSubmissions.some(s => s.stage.includes('queued'))) {
       try {
         const firstItem = batch[0];
-        const cs = await getCache<any>(`filter-state-${firstItem.filterId}`);
-        if (cs?.pendingChecklist?.length > 0) {
-          setChecklistDialog({ filterId: firstItem.filterId, filterName: `${batch.length} filter(s)`, checklists: cs.pendingChecklist });
-          setChecklistError('');
+        const tape = await getCurrentActions(firstItem.filterId);
+        if (hasActionKind(tape, 'SUBMIT_CHECKLIST')) {
+          let checklists = dialogChecklistsFromActions(tape);
+          // Tape may carry SUBMIT_CHECKLIST without questions in legacy paths —
+          // fall through to the cached dialog payload to keep the operator UX intact.
+          if (checklists.length === 0 || checklists.every((c) => (c.questions?.length ?? 0) === 0)) {
+            checklists = await getCachedPendingChecklists(firstItem.filterId);
+          }
+          if (checklists.length > 0) {
+            setChecklistDialog({ filterId: firstItem.filterId, filterName: `${batch.length} filter(s)`, checklists });
+            setChecklistError('');
+          }
         }
       } catch { /* ignore */ }
     }
@@ -481,26 +488,9 @@ export function FilterOperationsPage() {
       const csQuery = selectedBlock?.id ? `?cleaningAreaId=${encodeURIComponent(selectedBlock.id)}` : '';
       try {
         state = await apiClient.get<any>(`/api/filters/${first.filterId}/current-state${csQuery}`);
-        // Cache the full state for offline use (match mobile's cache shape exactly)
-        cache(`filter-state-${first.filterId}`, {
-          equipmentGroup: state.equipmentGroup ?? null,
-          blockEquipmentGroups: state.blockEquipmentGroups ?? [],
-          pendingChecklist: state.pendingChecklist ?? [],
-          pipelineStages: state.pipelineStages ?? [],
-          pipelineGraph: state.pipelineGraph ?? null,
-          nextAllowedStages: state.nextAllowedStages ?? [],
-          isPmDue: state.isPmDue ?? false,
-          pmReasonKey: state.pmReasonKey ?? null,
-          currentCycle: state.currentCycle ?? null,
-          currentState: state.currentState ?? null,
-          homeBlock: state.homeBlock ?? null,
-          blockChangeStatus: state.blockChangeStatus ?? null,
-          // Phase 8.6 part 2: persist server tape when emitted (TAPE_PARALLEL=true)
-          // so subsequent gate decisions can prefer the authoritative server
-          // actions[] over a locally-recomputed tape.
-          actions: state.actions ?? null,
-          tapeVersion: state.tapeVersion ?? null,
-        }, 24 * 60 * 60 * 1000);
+        // Cache the full state for offline use (Phase 8.7: route through helper
+        // so the legacy mirror field names live only in offline-cache.ts).
+        await cacheServerStateResponse(first.filterId, state);
       } catch (fetchErr: any) {
         const msg = String(fetchErr?.message || '').toLowerCase();
         const isNetErr = (fetchErr instanceof TypeError && msg.includes('fetch'))
@@ -528,11 +518,13 @@ export function FilterOperationsPage() {
           // Use minimal state: check if filter has a cycle, and let the server
           // validate everything on sync.
           const hasCycle = !!cachedFilter?.currentCycleId;
+          // Phase 8.7: legacy mirror fields omitted — gate sites below resolve
+          // via the action tape (Tier-3 empty-tape fallback when no cached
+          // graph), which produces the same "refuse the op offline without
+          // cache" outcome the legacy reads of those fields would have.
           state = {
             currentState: cachedFilter?.currentLifecycleState || null,
             currentCycle: hasCycle ? { id: cachedFilter.currentCycleId } : null,
-            nextAllowedStages: [],
-            pendingChecklist: [],
             equipmentGroup: null,
             isPmDue: false,
             pmReasonKey: null,
@@ -660,15 +652,24 @@ export function FilterOperationsPage() {
         return;
       }
 
-      // If there is a pending checklist already pending → batch checklist dialog
-      if (state.pendingChecklist && state.pendingChecklist.length > 0) {
-        const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
-        setPendingBatch(batch);
-        clearScanState();
-        setChecklistDialog({ filterId: first.filterId, filterName: `${batch.length} filter(s)`, checklists: state.pendingChecklist });
-        setChecklistError('');
-        setLoading(false); setSubmitting(false);
-        return;
+      // Phase 8.7: checklist gate via the action tape (server actions[] when
+      // emitted, else local executor). When the tape carries SUBMIT_CHECKLIST,
+      // derive the dialog payload from those actions; fall back to the cached
+      // dialog payload when the tape lacks inline questions.
+      if (hasActionKind(resolvedActions, 'SUBMIT_CHECKLIST')) {
+        let dialogChecklists = dialogChecklistsFromActions(resolvedActions);
+        if (dialogChecklists.length === 0 || dialogChecklists.every((c) => (c.questions?.length ?? 0) === 0)) {
+          dialogChecklists = await getCachedPendingChecklists(first.filterId);
+        }
+        if (dialogChecklists.length > 0) {
+          const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+          setPendingBatch(batch);
+          clearScanState();
+          setChecklistDialog({ filterId: first.filterId, filterName: `${batch.length} filter(s)`, checklists: dialogChecklists });
+          setChecklistError('');
+          setLoading(false); setSubmitting(false);
+          return;
+        }
       }
 
       // Need cycle start
@@ -991,9 +992,22 @@ export function FilterOperationsPage() {
           refreshFilters();
           setReasonDialog(null);
           setToast({ type: 'success', message: `${dialogCapture.filterName} \u2192 ${dialogCapture.stage.label}` });
-          if (advanceResult?.pendingChecklist?.length > 0) {
-            setChecklistDialog({ filterId: dialogCapture.filterId, filterName: dialogCapture.filterName, checklists: advanceResult.pendingChecklist });
-            setChecklistError('');
+          // Phase 8.7: read the post-advance checklist gate from the action
+          // tape (advance returns getCurrentState() — its actions[] is the
+          // canonical source). Tape may carry SUBMIT_CHECKLIST without inline
+          // questions in legacy responses; fall back to the cached payload.
+          {
+            const postTape = await getCurrentActions(dialogCapture.filterId, advanceResult?.actions);
+            if (hasActionKind(postTape, 'SUBMIT_CHECKLIST')) {
+              let dialogChecklists = dialogChecklistsFromActions(postTape);
+              if (dialogChecklists.length === 0 || dialogChecklists.every((c) => (c.questions?.length ?? 0) === 0)) {
+                dialogChecklists = await getCachedPendingChecklists(dialogCapture.filterId);
+              }
+              if (dialogChecklists.length > 0) {
+                setChecklistDialog({ filterId: dialogCapture.filterId, filterName: dialogCapture.filterName, checklists: dialogChecklists });
+                setChecklistError('');
+              }
+            }
           }
         }, {
           onError: (e: unknown) => {
@@ -1044,9 +1058,20 @@ export function FilterOperationsPage() {
         refreshFilters();
         setReasonDialog(null);
         setToast({ type: 'success', message: `${dialogCapture.filterName} \u2192 ${dialogCapture.stage.label}${executed ? '' : ' (queued)'}` });
-        if (executed && result?.pendingChecklist?.length > 0) {
-          setChecklistDialog({ filterId: dialogCapture.filterId, filterName: dialogCapture.filterName, checklists: result.pendingChecklist });
-          setChecklistError('');
+        // Phase 8.7: post-advance checklist gate via the action tape (only when
+        // the request was executed online — queued path has no server result).
+        if (executed) {
+          const postTape = await getCurrentActions(dialogCapture.filterId, result?.actions);
+          if (hasActionKind(postTape, 'SUBMIT_CHECKLIST')) {
+            let dialogChecklists = dialogChecklistsFromActions(postTape);
+            if (dialogChecklists.length === 0 || dialogChecklists.every((c) => (c.questions?.length ?? 0) === 0)) {
+              dialogChecklists = await getCachedPendingChecklists(dialogCapture.filterId);
+            }
+            if (dialogChecklists.length > 0) {
+              setChecklistDialog({ filterId: dialogCapture.filterId, filterName: dialogCapture.filterName, checklists: dialogChecklists });
+              setChecklistError('');
+            }
+          }
         }
       }
     } catch (e: any) {
@@ -1124,7 +1149,7 @@ export function FilterOperationsPage() {
           }, 24 * 60 * 60 * 1000);
         } catch { /* ignore cache errors */ }
       }
-      // Update offline state (nextAllowedStages) for each filter when queued
+      // Update offline cache (action tape + reachable-target mirrors) per filter when queued
       for (const item of batch) {
         await updateCachedStateAfterAdvance(item.filterId, 'DRY_IN', false);
       }
@@ -1168,7 +1193,7 @@ export function FilterOperationsPage() {
           },
         }, 24 * 60 * 60 * 1000);
       } catch { /* ignore cache errors */ }
-      // Update offline state (nextAllowedStages) when queued
+      // Update offline cache (action tape + reachable-target mirrors) when queued
       if (!executed) {
         await updateCachedStateAfterAdvance(dryerDialog.filterId, 'DRY_IN', false);
       }
@@ -1298,9 +1323,19 @@ export function FilterOperationsPage() {
       setEquipmentDialog(null);
       setToast({ type: 'success', message: `${equipmentDialog.filterName} \u2192 ${equipmentDialog.stage.label}${executed ? '' : ' (queued)'}` });
 
-      if (executed && advanceResult?.pendingChecklist?.length > 0) {
-        setChecklistDialog({ filterId: equipmentDialog.filterId, filterName: equipmentDialog.filterName, checklists: advanceResult.pendingChecklist });
-        setChecklistError('');
+      // Phase 8.7: post-advance checklist gate via the action tape.
+      if (executed) {
+        const postTape = await getCurrentActions(equipmentDialog.filterId, advanceResult?.actions);
+        if (hasActionKind(postTape, 'SUBMIT_CHECKLIST')) {
+          let dialogChecklists = dialogChecklistsFromActions(postTape);
+          if (dialogChecklists.length === 0 || dialogChecklists.every((c) => (c.questions?.length ?? 0) === 0)) {
+            dialogChecklists = await getCachedPendingChecklists(equipmentDialog.filterId);
+          }
+          if (dialogChecklists.length > 0) {
+            setChecklistDialog({ filterId: equipmentDialog.filterId, filterName: equipmentDialog.filterName, checklists: dialogChecklists });
+            setChecklistError('');
+          }
+        }
       }
     } catch (e: any) {
       // B7.2: single-filter equipment submit goes through `start-and-advance`
