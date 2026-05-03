@@ -683,106 +683,98 @@ export class FilterOperationsService {
       }
     }
 
-    // Phase 8.0 (decision-tape architecture, 2026-05-02): when TAPE_PARALLEL=true,
-    // also emit the action tape — a flat list of permitted next actions derived
-    // by a pure function from the same data we already gathered above.
+    // Phase 8.7 (decision-tape cutover): tape generation is now unconditional.
+    // The FE consumes `actions[]` + `tapeVersion` directly; the deprecated
+    // `nextAllowedStages` and `pendingChecklist` fields are no longer emitted
+    // (Wave 1 commits 1fa84b5 desktop + 2521aad mobile dropped FE reads).
     //
-    // Strictly additive — `actions` + `tapeVersion` only appear in the response
-    // when the flag is on. Existing fields are unchanged. The flag is OFF by
-    // default; once parity validation is satisfied across enough fixtures,
-    // Phase 8.4 will flip it on and remove the duplicated FE graph-walking.
-    let actions: ReturnType<typeof generateTape>['actions'] | undefined;
-    let tapeVersion: number | undefined;
-    if (process.env.TAPE_PARALLEL === 'true') {
-      // Build pinnedChecklistProfiles from the already-resolved pendingChecklist.
-      // Each entry has profileVersion + questions, so we can construct the
-      // TapeChecklistProfile map without an extra prisma round-trip.
-      const pinnedChecklistProfiles = new Map<string, TapeChecklistProfile>();
-      for (const pc of pendingChecklist) {
-        if (typeof pc?.checklistProfileId !== 'string') continue;
-        pinnedChecklistProfiles.set(pc.checklistProfileId, {
-          profileId: pc.checklistProfileId,
-          versionPin: typeof pc.profileVersion === 'number' ? pc.profileVersion : 1,
-          name: pc.checklistProfileName ?? undefined,
-          questions: Array.isArray(pc.questions) ? pc.questions : [],
-        });
-      }
-
-      // Recent CHECKLIST_COMPLETED events for THIS cycle (used by the generator
-      // to walk past every stage's checklist gate) AND total event count for
-      // this cycle (used to derive a tapeVersion that changes on every cycle
-      // event, STATE_TRANSITION included, not just checklist completions).
-      //
-      // M6 (Phase 8.0 review follow-up): run the two prisma reads in parallel
-      // — they're independent, so the sequential await pair was an unnecessary
-      // round-trip when the flag is on.
-      const [recentChecklistEvents, filterEventCount] = currentCycle
-        ? await Promise.all([
-            prisma.filterEvent.findMany({
-              where: { filterId: filter.id, cycleId: currentCycle.id, eventType: 'CHECKLIST_COMPLETED' },
-              select: { eventType: true, attributes: true },
-            }),
-            prisma.filterEvent.count({ where: { filterId: filter.id, cycleId: currentCycle.id } }),
-          ])
-        : [[] as Array<{ eventType: string; attributes: unknown }>, 0];
-
-      const tape = generateTape({
-        cycle: currentCycle
-          ? {
-              id: currentCycle.id,
-              profileId: currentCycle.profileId,
-              profileVersion: currentCycle.profileVersion ?? 0,
-              status: currentCycle.status,
-              cleaningAreaId: currentCycle.cleaningAreaId ?? null,
-              equipmentGroupId: currentCycle.equipmentGroupId ?? null,
-              equipmentGroupVersionPin: currentCycle.equipmentGroupVersionPin ?? null,
-              checklistVersionPins: (currentCycle.checklistVersionPins as Record<string, number> | null) ?? null,
-              dryerStartedAt: currentCycle.dryerStartedAt ?? null,
-              dryerDurationMinutes: currentCycle.dryerDurationMinutes ?? null,
-              dryerReadingsSubmitted: !!currentCycle.dryerReadingsSubmitted,
-            }
-          : null,
-        filter: { id: filter.id, currentLifecycleState: filter.currentLifecycleState },
-        pinnedProfile: cp
-          ? {
-              id: cp.id,
-              name: cp.name,
-              flowMode: cp.flowMode,
-              stages: cp.stages.map(s => ({ id: s.id, stateKey: s.stateKey ?? null, nodeType: s.nodeType, configuration: (s.configuration as Record<string, unknown>) ?? {}, sortOrder: s.sortOrder })),
-              connections: cp.connections.map(c => ({ fromStageId: c.fromStageId, toStageId: c.toStageId })),
-            }
-          : null,
-        pinnedEquipmentGroup: equipmentGroup
-          ? {
-              id: equipmentGroup.id,
-              version: equipmentGroup.version ?? 1,
-              instruments: (equipmentGroup.instruments ?? []).map((i: any) => ({
-                id: i.id, description: i.description, instrumentId: i.instrumentId,
-                stageKey: i.stageKey, uom: i.uom, operatingMin: i.operatingMin,
-                operatingMax: i.operatingMax, leastCount: i.leastCount, sortOrder: i.sortOrder,
-              })),
-            }
-          : null,
-        pinnedChecklistProfiles,
-        recentChecklistEvents: recentChecklistEvents.map((e: any) => ({
-          eventType: 'CHECKLIST_COMPLETED' as const,
-          attributes: (e.attributes ?? {}) as { afterStage?: string | null;[k: string]: unknown },
-        })),
-        filterEventCount,
-        now: new Date(),
+    // The tape is built from the data we already resolved above —
+    // `pendingChecklist` (still computed locally as input to the tape, not
+    // returned) carries the per-profile questions snapshot we need to feed
+    // `pinnedChecklistProfiles` without an extra prisma round-trip.
+    const pinnedChecklistProfiles = new Map<string, TapeChecklistProfile>();
+    for (const pc of pendingChecklist) {
+      if (typeof pc?.checklistProfileId !== 'string') continue;
+      pinnedChecklistProfiles.set(pc.checklistProfileId, {
+        profileId: pc.checklistProfileId,
+        versionPin: typeof pc.profileVersion === 'number' ? pc.profileVersion : 1,
+        name: pc.checklistProfileName ?? undefined,
+        questions: Array.isArray(pc.questions) ? pc.questions : [],
       });
-      actions = tape.actions;
-      tapeVersion = tape.tapeVersion;
     }
+
+    // Recent CHECKLIST_COMPLETED events for THIS cycle (used by the generator
+    // to walk past every stage's checklist gate) AND total event count for
+    // this cycle (used to derive a tapeVersion that changes on every cycle
+    // event, STATE_TRANSITION included, not just checklist completions).
+    //
+    // M6 (Phase 8.0 review follow-up): run the two prisma reads in parallel
+    // — they're independent, so the sequential await pair was an unnecessary
+    // round-trip.
+    const [recentChecklistEvents, filterEventCount] = currentCycle
+      ? await Promise.all([
+          prisma.filterEvent.findMany({
+            where: { filterId: filter.id, cycleId: currentCycle.id, eventType: 'CHECKLIST_COMPLETED' },
+            select: { eventType: true, attributes: true },
+          }),
+          prisma.filterEvent.count({ where: { filterId: filter.id, cycleId: currentCycle.id } }),
+        ])
+      : [[] as Array<{ eventType: string; attributes: unknown }>, 0];
+
+    const tape = generateTape({
+      cycle: currentCycle
+        ? {
+            id: currentCycle.id,
+            profileId: currentCycle.profileId,
+            profileVersion: currentCycle.profileVersion ?? 0,
+            status: currentCycle.status,
+            cleaningAreaId: currentCycle.cleaningAreaId ?? null,
+            equipmentGroupId: currentCycle.equipmentGroupId ?? null,
+            equipmentGroupVersionPin: currentCycle.equipmentGroupVersionPin ?? null,
+            checklistVersionPins: (currentCycle.checklistVersionPins as Record<string, number> | null) ?? null,
+            dryerStartedAt: currentCycle.dryerStartedAt ?? null,
+            dryerDurationMinutes: currentCycle.dryerDurationMinutes ?? null,
+            dryerReadingsSubmitted: !!currentCycle.dryerReadingsSubmitted,
+          }
+        : null,
+      filter: { id: filter.id, currentLifecycleState: filter.currentLifecycleState },
+      pinnedProfile: cp
+        ? {
+            id: cp.id,
+            name: cp.name,
+            flowMode: cp.flowMode,
+            stages: cp.stages.map(s => ({ id: s.id, stateKey: s.stateKey ?? null, nodeType: s.nodeType, configuration: (s.configuration as Record<string, unknown>) ?? {}, sortOrder: s.sortOrder })),
+            connections: cp.connections.map(c => ({ fromStageId: c.fromStageId, toStageId: c.toStageId })),
+          }
+        : null,
+      pinnedEquipmentGroup: equipmentGroup
+        ? {
+            id: equipmentGroup.id,
+            version: equipmentGroup.version ?? 1,
+            instruments: (equipmentGroup.instruments ?? []).map((i: any) => ({
+              id: i.id, description: i.description, instrumentId: i.instrumentId,
+              stageKey: i.stageKey, uom: i.uom, operatingMin: i.operatingMin,
+              operatingMax: i.operatingMax, leastCount: i.leastCount, sortOrder: i.sortOrder,
+            })),
+          }
+        : null,
+      pinnedChecklistProfiles,
+      recentChecklistEvents: recentChecklistEvents.map((e: any) => ({
+        eventType: 'CHECKLIST_COMPLETED' as const,
+        attributes: (e.attributes ?? {}) as { afterStage?: string | null;[k: string]: unknown },
+      })),
+      filterEventCount,
+      now: new Date(),
+    });
+    const actions = tape.actions;
+    const tapeVersion = tape.tapeVersion;
 
     return {
       filterId: filter.id,
       filterName: filter.name,
       currentState: filter.currentLifecycleState,
       currentCycle,
-      nextAllowedStages,
       nextBlocks,
-      pendingChecklist,
       pipelineStages,
       pipelineGraph,
       profile,
@@ -797,7 +789,8 @@ export class FilterOperationsService {
       profileSyncWarning,
       equipmentGroupSyncWarning, // L3 (2026-05-02)
       stageLookup,
-      ...(actions !== undefined ? { actions, tapeVersion } : {}),
+      actions,
+      tapeVersion,
     };
   }
 

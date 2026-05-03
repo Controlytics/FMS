@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 /**
- * Phase 8.0 — parity harness.
+ * Phase 8.0 — tape contract harness (post-Phase-8.7 cutover).
  *
- * Runs getCurrentState() with TAPE_PARALLEL=true and asserts the action tape
- * (`actions[]`) is internally consistent with the existing `nextAllowedStages`
- * + `pendingChecklist` fields on the SAME response. This is the regression
- * gate for Phase 8.4 cutover: when parity holds across all fixtures, we can
- * flip the flag and let the FE consume only the tape.
+ * Originally a parity gate that compared `actions[]` against the deprecated
+ * `nextAllowedStages` + `pendingChecklist` fields. After Phase 8.7 those
+ * fields were dropped from the response — the FE consumes `actions[]` +
+ * `tapeVersion` directly, so the assertions here now cover the tape
+ * contract in isolation: every shape the FE depends on at runtime.
  *
  * Mocking pattern follows B7.3's get-current-state.test.ts: prisma is mocked
  * directly via vi.hoisted; getProfilePipeline is replaced on the instance.
@@ -163,33 +163,25 @@ function setupReads(opts: { currentState: string | null; pipelineName: 'simple' 
   mockPrisma.checklistProfileVersion.findMany.mockResolvedValue([]);
 }
 
-// ── parity tests ──────────────────────────────────────────────────────────
+// ── tape contract tests ──────────────────────────────────────────────────
 
-describe('Phase 8.0 — tape vs getCurrentState() parity (TAPE_PARALLEL=true)', () => {
-  let prevFlag: string | undefined;
+describe('Phase 8.0 — getCurrentState() emits a complete decision tape (post-8.7 cutover)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    prevFlag = process.env.TAPE_PARALLEL;
-    process.env.TAPE_PARALLEL = 'true';
-  });
-  afterEach(() => {
-    if (prevFlag === undefined) delete process.env.TAPE_PARALLEL;
-    else process.env.TAPE_PARALLEL = prevFlag;
   });
 
-  it("p1. fresh cycle, no current state → tape's ADVANCE_TO_STAGE.targetState === nextAllowedStages[0]", async () => {
+  it("p1. fresh cycle, no current state → tape emits ADVANCE_TO_STAGE for the first reachable STAGE", async () => {
     setupReads({ currentState: null, pipelineName: 'simple' });
     const state = await new FilterOperationsService().getCurrentState(ctx, FILTER_ID);
 
-    expect(state.nextAllowedStages).toEqual(['WASH_IN']);
     expect(state.actions).toBeDefined();
     expect(state.tapeVersion).toBeDefined();
 
     const advances = state.actions.filter((a: any) => a.type === 'ADVANCE_TO_STAGE');
-    expect(advances.map((a: any) => a.params.targetState)).toEqual(state.nextAllowedStages);
+    expect(advances.map((a: any) => a.params.targetState)).toEqual(['WASH_IN']);
   });
 
-  it('p2. in WASH_IN with checklist pending → no ADVANCE in tape, SUBMIT_CHECKLIST emitted, getCurrentState pendingChecklist non-empty', async () => {
+  it('p2. in WASH_IN with checklist pending → SUBMIT_CHECKLIST emitted, no ADVANCE_TO_STAGE', async () => {
     setupReads({
       currentState: 'WASH_IN',
       pipelineName: 'with-checklist',
@@ -200,19 +192,14 @@ describe('Phase 8.0 — tape vs getCurrentState() parity (TAPE_PARALLEL=true)', 
     });
     const state = await new FilterOperationsService().getCurrentState(ctx, FILTER_ID);
 
-    // Old shape: pendingChecklist present, nextAllowedStages empty (gate active).
-    expect(state.pendingChecklist.length).toBeGreaterThan(0);
-    expect(state.nextAllowedStages).toEqual([]);
-
-    // Tape: SUBMIT_CHECKLIST present, no ADVANCE_TO_STAGE.
     const submits = state.actions.filter((a: any) => a.type === 'SUBMIT_CHECKLIST');
-    expect(submits).toHaveLength(state.pendingChecklist.length);
-    expect(submits[0].params.checklistProfileId).toBe(state.pendingChecklist[0].checklistProfileId);
+    expect(submits.length).toBeGreaterThan(0);
+    expect(submits[0].params.checklistProfileId).toBe('cl-1');
     expect(submits[0].params.afterStage).toBe('WASH_IN');
     expect(state.actions.some((a: any) => a.type === 'ADVANCE_TO_STAGE')).toBe(false);
   });
 
-  it('p3. in WASH_IN, checklist already answered → tape ADVANCE_TO_STAGE matches nextAllowedStages', async () => {
+  it('p3. in WASH_IN, checklist already answered → tape emits ADVANCE_TO_STAGE for WASH_OUT', async () => {
     setupReads({
       currentState: 'WASH_IN',
       pipelineName: 'with-checklist',
@@ -220,14 +207,12 @@ describe('Phase 8.0 — tape vs getCurrentState() parity (TAPE_PARALLEL=true)', 
     });
     const state = await new FilterOperationsService().getCurrentState(ctx, FILTER_ID);
 
-    expect(state.pendingChecklist).toEqual([]);
-    expect(state.nextAllowedStages).toEqual(['WASH_OUT']);
-
     const adv = state.actions.find((a: any) => a.type === 'ADVANCE_TO_STAGE');
+    expect(adv).toBeDefined();
     expect(adv.params.targetState).toBe('WASH_OUT');
   });
 
-  it('p4. ADVANCE_TO_STAGE flags requiresInstrumentReadings when target stage has equipment instruments', async () => {
+  it('p4. ADVANCE_TO_STAGE flags requiresInstrumentReadings + operatingRanges when target stage has equipment instruments', async () => {
     setupReads({
       currentState: null,
       pipelineName: 'simple',
@@ -241,26 +226,22 @@ describe('Phase 8.0 — tape vs getCurrentState() parity (TAPE_PARALLEL=true)', 
     expect(adv.validations.operatingRanges).toEqual({ 'ins-1': { min: 5, max: 15 } });
   });
 
-  it("p5. last STAGE → END → tape emits COMPLETE_CYCLE, old nextAllowedStages is empty (advance() throws CYCLE_COMPLETE)", async () => {
+  it("p5. last STAGE → END → tape emits COMPLETE_CYCLE", async () => {
     setupReads({ currentState: 'ONLY', pipelineName: 'last-stage' });
     const state = await new FilterOperationsService().getCurrentState(ctx, FILTER_ID);
 
-    // Old shape: no STAGE follows; nextAllowedStages = [].
-    expect(state.nextAllowedStages).toEqual([]);
-
-    // Tape: COMPLETE_CYCLE explicit.
     expect(state.actions.some((a: any) => a.type === 'COMPLETE_CYCLE')).toBe(true);
   });
 
-  it('p6. flag OFF → response has NO actions / tapeVersion (default behavior preserved)', async () => {
-    delete process.env.TAPE_PARALLEL;
+  it('p6. tape + tapeVersion are always present in the response (no env flag)', async () => {
     setupReads({ currentState: null, pipelineName: 'simple' });
     const state = await new FilterOperationsService().getCurrentState(ctx, FILTER_ID);
 
-    expect(state.actions).toBeUndefined();
-    expect(state.tapeVersion).toBeUndefined();
-    // Existing fields still present.
-    expect(state.nextAllowedStages).toEqual(['WASH_IN']);
+    expect(state.actions).toBeDefined();
+    expect(Array.isArray(state.actions)).toBe(true);
+    expect(state.tapeVersion).toBeDefined();
+    expect(typeof state.tapeVersion).toBe('number');
+    // stageLookup is the per-stage lookup table (offline-only consumer); still present.
     expect(state.stageLookup).toBeDefined();
   });
 

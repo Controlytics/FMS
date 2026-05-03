@@ -23,7 +23,7 @@ const { mockPrisma, mockAuditLog } = vi.hoisted(() => ({
     equipmentGroupVersion: { findUnique: vi.fn() },
     filterCleaningProfile: { findUnique: vi.fn() },
     filterProfile: { findUnique: vi.fn() },
-    filterEvent: { findFirst: vi.fn() },
+    filterEvent: { findFirst: vi.fn(), findMany: vi.fn(), count: vi.fn() },
     checklistProfile: { findMany: vi.fn() },
     checklistProfileVersion: { findMany: vi.fn() },
     pmScheduleEntry: { findFirst: vi.fn() },
@@ -121,6 +121,10 @@ function setupMinimalReads(filter = filterWithCycle(), cycle = cycleFixture()) {
   mockPrisma.systemConfig.findUnique.mockResolvedValue(null);
   mockPrisma.pmScheduleEntry.findFirst.mockResolvedValue(null);
   mockPrisma.filterEvent.findFirst.mockResolvedValue(null);
+  // Phase 8.7: tape-generation now runs unconditionally inside getCurrentState,
+  // so these two reads always fire when there's a current cycle.
+  mockPrisma.filterEvent.findMany.mockResolvedValue([]);
+  mockPrisma.filterEvent.count.mockResolvedValue(0);
   mockPrisma.filterProfile.findUnique.mockResolvedValue(null);
   mockPrisma.filterCleaningProfile.findUnique.mockResolvedValue(null);
   mockPrisma.equipmentGroup.findFirst.mockResolvedValue(null);
