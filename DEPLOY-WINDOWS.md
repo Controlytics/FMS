@@ -339,6 +339,7 @@ When you ship a new build:
    cd C:\DigiLog\api
    npx prisma migrate deploy
    ```
+   > **Upgrading to Phase 8.7 (2026-05-03) on a populated DB:** read section 10.1 first — you must run `prisma migrate resolve --applied 20260503162127_capture_schema_vs_db_drift` **before** `migrate deploy`, or the deploy will fail.
 5. Restart the API:
    ```powershell
    # Foreground smoke-test:
@@ -351,7 +352,65 @@ When you ship a new build:
 
 ---
 
-## 10. Common troubleshooting
+## 10. Phase 8.7 release notes — drift migration + offline replay
+
+This section covers two operational caveats introduced in the Phase 8.7 cutover (2026-05-03). Read it **before** running `prisma migrate deploy` on any environment that's been running pre-8.7, and **before** rolling the new APK out to tablets that have unsynced offline queues.
+
+### 10.1 Drift catch-up migration — `migrate resolve` required on populated DBs
+
+A new migration shipped in this release:
+
+```
+apps/api/prisma/migrations/20260503162127_capture_schema_vs_db_drift/migration.sql
+```
+
+It captures schema-vs-DB drift accumulated via `prisma db push` between roughly 2026-04-XX and 2026-05-02 (enums, tables, columns, drops). The migration's own header records the constraint — this section restates it for operators.
+
+**Greenfield install (fresh, empty `digilog_db`):** no special action. `npx prisma migrate deploy` (step 7 of `install-on-target.ps1`) applies every migration including this one in order, against an empty schema. Done.
+
+**Populated DB (any environment that's been running pre-8.7 and already has the post-`db push` schema):** you MUST mark this migration as applied **before** running `prisma migrate deploy`, otherwise the deploy will try to re-create tables/columns that already exist and fail on at least:
+
+- `filter_cleaning_profiles.lineage_id NOT NULL` (no default backfill in the migration)
+- `asset_instances` column drops (no migration of data into the `filter_details` sidecar)
+
+Run **once**, on the target machine, before any future `prisma migrate deploy`:
+
+```powershell
+cd C:\DigiLog\api
+npx prisma migrate resolve --applied 20260503162127_capture_schema_vs_db_drift
+```
+
+Then `prisma migrate deploy` is safe to run on every subsequent upgrade.
+
+**How to tell which case you're in:** if the database was created from scratch by step 7 of `install-on-target.ps1` for this release, it's greenfield. If you're upgrading an existing install that has been live and accepting telemetry, it's populated — run `migrate resolve` first.
+
+If you're unsure, the safest path is: take a `pg_dump` backup (section 8), run `migrate resolve`, then `migrate deploy`. The resolve is a metadata-only update to the `_prisma_migrations` table — it doesn't touch user data.
+
+### 10.2 Offline-queue replay failures after upgrade — `tapeVersion` now required
+
+Phase 8.7 (commit `f8fae1d`) made `tapeVersion` a required field on the four cycle-bound write routes:
+
+- `POST /api/filters/:id/advance`
+- `POST /api/filters/:id/submit-checklist`
+- `POST /api/filters/:id/bypass`
+- `POST /api/filters/:id/terminate-cycle`
+
+A separate fix (commit `11b4b82`) extended this to the cycle-tombstone replay path in the offline `sync-engine.ts` (it now sends `justification` + `tapeVersion`).
+
+**The documented migration cost:** any tablet that was offline before the new APK was installed and has queued operations in IndexedDB with `tapeVersion: null` will see those operations **400** on first sync against the upgraded API. The sync-engine marks them failed, the operator sees a toast, and **the original action was not executed on the server**.
+
+**What operators should expect and do:**
+
+- On the first sync after rolling out the new APK, tablets with stale pre-8.7 offline queues will surface failures (toast + sync log entries).
+- Each failed action must be **re-performed** on the tablet after the sync completes — the cycle state on the server is whatever it was before the offline op was attempted.
+- A clean rollout has every tablet sync (drain its queue) under the **old** APK first, then install the new APK. If that's not feasible, accept the migration cost and brief the operators in advance.
+- Pre-fix cycle tombstones (queued before commit `11b4b82`) with `tapeVersion: null` will still 400 on replay even after the rest of the queue drains — same remediation: re-perform the action.
+
+There is no server-side workaround — the API rejects `tapeVersion: null` on these routes by design (it's the optimistic-concurrency token that prevents stale-tape submissions).
+
+---
+
+## 11. Common troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
@@ -365,10 +424,12 @@ When you ship a new build:
 | API doesn't survive reboots | No managed-service launcher yet | Phase 5 work; for now use NSSM (see section 7) or relaunch manually after reboot |
 | MQTT (data ingestion) not working | Mosquitto service not running, firewall, or stale dynsec | `Restart-Service mosquitto`; check Windows Firewall allows port 1883; verify `Get-Content "C:\Program Files\mosquitto\mosquitto.log"` for plugin / auth errors. After every `POST /api/internal/mqtt/refresh-acl`, copy `<repo>/mosquitto/dynamic-security.json` into `C:\Program Files\mosquitto\` and restart the service. |
 | Reports/PDF generation fails with "executable not found" | Microsoft Edge missing on the host | Install Edge from https://www.microsoft.com/edge OR set `PUPPETEER_EXECUTABLE_PATH` in `.env` to a Chromium-family browser path |
+| `prisma migrate deploy` fails on `filter_cleaning_profiles.lineage_id NOT NULL` or `asset_instances` column drops after a Phase 8.7 upgrade | Drift catch-up migration `20260503162127_capture_schema_vs_db_drift` is being applied to a populated DB | Run `npx prisma migrate resolve --applied 20260503162127_capture_schema_vs_db_drift` from `C:\DigiLog\api`, then re-run `migrate deploy`. See section 10.1 for full context. |
+| Tablets show toast "advance failed" / "submit failed" / "bypass failed" / "terminate failed" with HTTP 400 immediately after upgrading to the Phase 8.7 APK | Pre-8.7 offline queue items in IndexedDB have `tapeVersion: null`; the new API rejects them | Expected migration cost. Operators must re-perform each failed action on the tablet after the sync settles. See section 10.2. |
 
 ---
 
-## 11. Handover checklist (print this for the customer)
+## 12. Handover checklist (print this for the customer)
 
 Give the customer a printed copy of this list:
 
@@ -391,7 +452,7 @@ Give the customer a printed copy of this list:
 
 ---
 
-## 12. Support contact
+## 13. Support contact
 
 For technical questions during or after installation, contact the
 development team with:
