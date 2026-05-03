@@ -1,5 +1,53 @@
 # Changelog
 
+## [Unreleased] — Wave 7: P0.2 monster-file decomposition closes (2026-05-03)
+
+Closes the last open item from the bloat audit (`PHASE_5_RECENT_WORK.md § 11 P0.2`). All 8 monster files (1000+ LOC) decomposed into 78+ cohesive modules across 9 commits via parallel + sequential subagent dispatch (waves 7a/7b/7c). **Façade pattern throughout** — every original file path keeps its public export(s) so consumers (`main.tsx` lazy-loads + downstream imports) resolve unchanged. Zero behavior change verified by full-suite parity at every commit.
+
+### What landed (9 commits, 78+ new modules, 7 monster files reduced)
+
+| Commit | File(s) | Was → Orchestrator | Strategy |
+|---|---|---|---|
+| `de54329` | `apps/web/src/routes/checklist-form/index.tsx` | 1561 → 507 | 8 sub-components + types + helpers |
+| `66cc80d` | `apps/api/src/modules/pm-schedules/pm-schedule.service.ts` | 1042 → 120 | 7 domain modules + 2 leaf (`crud`, `executions`, `due-tasks`, `import`, `ahu-config`, `approval`, `shared`, `types`); `delete` → `remove` (JS reserved word at fn-decl) |
+| `3b0346f` | `apps/web/src/routes/debug/index.tsx` | 1145 → 648 | 5 sub-components + types + helpers; agent correctly rejected the brief's "tabs" hypothesis (file is single linear page) |
+| `cfc78fb` | `apps/api/src/modules/filter-operations/filter-operations.service.ts` | 2119 → 599 | `helpers` + `filter-resolver` + `current-state` + `cycle-write/{locking,start-cycle,advance,bypass,submit-checklist,terminate-cycle}`; SHARED `lockAndVerifyFilterState` helper DRYs the 4 writes; **all Phase 8.7 invariants verified preserved** (no TAPE_PARALLEL gate, no deprecated fields in getCurrentState, all 4 writes still SELECT FOR UPDATE + STATE_CHANGED + CYCLE_CHANGED) |
+| `7edacc1` | desktop `filter-operations.tsx` + mobile `mobile-operations.tsx` | 4567 → 4396 (combined) | Coordinated split — kept as sibling presentations; extracted shared LOGIC into `apps/web/src/lib/filter-ops/{types, validate-offline-gate, resolve-pending-checklist, use-dryer-countdown, index}`. **Drift-prevention map in commit message** tells future maintainers exactly which module owns each bug class |
+| `e825e9b` | `apps/web/src/routes/filter-management/filter-list.tsx` | 2535 → 1633 | 16 modules under `filter-list/` (constants + types + 1 component + 13 dialogs/panels); 6 pre-existing dead-code flags surfaced |
+| `26d61d0` | `apps/web/src/routes/assets/components/template-form-editor.tsx` | 1102 → 448 | 8 row sub-components — cleanest split of the wave (every row had clean `{value, idx, onUpdate, onRemove}` interface); flagged 1 pre-existing JSX-escape bug in telemetry-row placeholder |
+| `4036336` | `apps/web/src/routes/assets/templates.tsx` | 1166 → 463 | 12 modules under `templates-list/` (5 components + 3 dialogs + 1 hook + 3 lib); two-phase agent dispatch (V extracted modules but timed out before wire-up; V2 finished — combined into one commit since the modules-without-wire-up are dead code) |
+| `4aa5a27` | `apps/web/src/routes/rule-chains/editor.tsx` | 2140 → 971 | 9 modules under `editor/`; brief's "77-case switch" assumption corrected — `NodeConfigPanel` is generic schema-driven (iterates `configSchema`, dispatches on `fieldDef.type`); single-file extraction of the 571-LOC panel was correct vs. fragmenting the iteration loop. Removed one provably-dead `useCallback` (the only behavioral-equivalent simplification across all 9 commits) |
+
+### Tests — all suites preserved exactly through every split
+
+- **api:** 1202/1210 passing (2 known unrelated failures, 6 documented skips). Net Δ from pre-Wave-7: 0.
+- **web:** 84/84 passing.
+- **shared:** 305/306 passing (1 known unrelated failure).
+- **TypeScript:** clean across `apps/api`, `apps/web`, `packages/shared` after every split.
+
+### Per-split discipline (codified across all 9 commit messages)
+
+- Each split uses **façade pattern** — orchestrator file stays at its original path, becomes a thin re-exporter; consumers' imports never change
+- Each split honors **"no behavioral change"** — byte-equivalent runtime behavior verified by full test-suite parity
+- Each commit message **lists what stayed inline + why** — typically state/handlers/state-coupled JSX where extracting would drill 10+ props through a single-use component (per advisor + agent T's playbook). The orchestrators are intentionally NOT minimized at the cost of cohesion
+- Each commit message **surfaces pre-existing dead code or oddities** found during the split for a future cleanup pass — not fixed under the no-behavior-change constraint
+- Coordinated splits (filter-ops desktop+mobile) include a **drift-prevention table** mapping bug classes to the shared module that owns them
+
+### Closes
+
+- ✅ "P0.2 — split monster files (the only bloat-audit item still open)" — all 8 files done; PHASE_5_RECENT_WORK.md § 11 entry struck through
+
+### Carried forward
+
+- 6 pre-existing dead-code flags from `e825e9b` (filter-list) — `templateFieldKeys` unused, `createFilterProfile` stub, dead `enrichedFilters` fields, `closePanel` referenced before declaration, etc.
+- 1 pre-existing JSX-escape bug from `26d61d0` (template-editor) — `telemetry-row.tsx` placeholder uses literal `°` instead of `°`
+- 4 pre-existing oddities from `4aa5a27` (rule-chains editor) — dead `useDatetimeFormat` destructure, superfluous `doSave` deps, unused `fieldKey` prop on `RuleChainSelectField`, unused `_backendData` extension on Node
+- 1 pre-existing pagination-prop semantic from `4036336` (templates) — `templatesRes.page` vs local `page` for displayed Page-X-of-Y text
+
+These all originated in the pre-Wave-7 monoliths; the splits surfaced them for visibility but explicitly did not fix them per the discipline rule.
+
+---
+
 ## [Unreleased] — Step 8 Phase 8.7 follow-ups (2026-05-03)
 
 Three follow-ups landed after the 8.7 cutover, closing every audit-flagged risk that didn't strictly need physical tablets. Single-day batch dispatched as 3 parallel agents (K + L + M).

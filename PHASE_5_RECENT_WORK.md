@@ -379,15 +379,7 @@ These were archived (not deleted) because the work is shipped — but the docs r
 
 ## 11. Outstanding work (carried forward from bloat audit)
 
-- **P0.2 — split monster files** (the only bloat-audit item still open). Recommended order from session 04-21:
-  1. `apps/web/src/routes/checklist-form/index.tsx` (1561 LOC) — lowest risk, mostly presentational
-  2. `apps/api/src/modules/pm-schedules/pm-schedule.service.ts` (1042) — has natural seams
-  3. `apps/api/src/modules/filter-operations/filter-operations.service.ts` (1617) — split into `state-machine.ts` + `cycle-workflow.ts`
-  4. `apps/web/src/routes/assets/templates.tsx` (1090) + `template-form-editor.tsx` (1070)
-  5. `apps/web/src/routes/debug/index.tsx` (1145)
-  6. `apps/web/src/routes/filter-management/filter-operations.tsx` (1928) — desktop mirror; must stay behaviorally identical to mobile-operations.tsx
-  7. `apps/web/src/routes/filter-management/filter-list.tsx` (2433)
-  8. `apps/web/src/routes/rule-chains/editor.tsx` (2140) — most intricate (ReactFlow + 77 node editors)
+- ~~**P0.2 — split monster files**~~ — Closed by **Wave 7** (2026-05-03): all 8 monster files decomposed into 78+ cohesive modules across 9 commits (`de54329`, `3b0346f`, `66cc80d`, `cfc78fb`, `7edacc1`, `e825e9b`, `26d61d0`, `4036336`, `4aa5a27`). Façade pattern throughout — every original file path keeps its public export so consumers (main.tsx lazy-loads + downstream imports) resolve unchanged. Web 84/84 + api 1202/1210 + shared 305/306 + tsc clean preserved exactly through every split. Each split commit message documents what stayed inline + why (handler/state coupling, prop-drilling cost > cohesion gain), surfaces pre-existing dead code or oddities for follow-up, and includes a drift-prevention note for the coordinated splits (filter-operations.tsx + mobile-operations.tsx share `apps/web/src/lib/filter-ops/` per `7edacc1`). Resulting orchestrators range 448-1633 LOC; the heaviest (filter-list.tsx at 1633) honors a deliberate decision not to drill 12+ props through a never-reused block selection grid + 15-prop table+pagination.
 - **P3.2 — `.playwright-mcp/` accumulation policy** (gitignore + session-end cleanup hook)
 - ~~**Decision tape** — design + prototype if pipeline drift recurs~~ — Closed by **Step 8 Phases 8.0–8.7** (2026-05-02 → 2026-05-03): server emits an ordered `actions[]` tape via `tape-generator.ts`; FE consumes via `actionsForStage()` / `getCurrentActions()` 3-tier resolver (server tape → local executor → cached); shared executor in `packages/shared/src/pipeline-executor/` runs the same 35 pure guards on both runtimes; `tapeVersion` staleness gate (409 STALE_TAPE) handles concurrent-operator collisions; `/api/sync/since` keeps the FE's local context current. Phase 8.7 cutover removed the legacy `nextAllowedStages` + `pendingChecklist` derived fields and the `TAPE_PARALLEL` flag — the action tape is now the only contract. Pipeline-walking drift between client and server is structurally impossible.
 - **Phase 2/3/4/5 manual test cases** — `tests/manual-test-cases/` only had Phase 1; **deleted** in the documentation cleanup. Need fresh cases for filter operations, RFID, offline replay, reports, block-change approval, PM My Tasks, admin requests. Backend `apps/api/src/e2e/` has the closest current coverage (Phase 1 only).
