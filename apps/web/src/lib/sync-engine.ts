@@ -160,9 +160,30 @@ async function syncTombstones(): Promise<void> {
         'x-client-op-id': t.clientOpId,
       };
       if (t.entityType === 'cycle') {
+        // Phase 8.7 follow-up (2026-05-03): two corrections to the cycle
+        // tombstone replay body.
+        //   1. Field name: server schema requires `justification` (minLength
+        //      10), not `reason`. Pre-fix tombstones would 400 SCHEMA_ERROR
+        //      on the missing required property regardless of tape state.
+        //      We accept both `payload.justification` and the legacy
+        //      `payload.reason` for any pre-existing on-disk rows queued
+        //      before this fix; the default 'Offline terminate' is 16
+        //      chars, satisfying the minLength constraint.
+        //   2. tapeVersion: server route now REQUIRES this field (commit
+        //      f8fae1d). Forward when the tombstone captured one at queue
+        //      time; omit the body field entirely when null/undefined so
+        //      the request still parses (the 8.3 backward-compat window
+        //      treated missing tapeVersion as no-check; under 8.7 the
+        //      server schema rejects with 400 SCHEMA_ERROR — that is an
+        //      acceptable migration cost for tombstones queued without
+        //      tape capture, identical to the operations-store policy).
+        const justification = t.payload?.justification ?? t.payload?.reason ?? 'Offline terminate';
+        const tapeVersionField = t.tapeVersion !== null && t.tapeVersion !== undefined
+          ? { tapeVersion: t.tapeVersion }
+          : {};
         await apiClient.post(
           `/api/filters/${t.payload?.filterId ?? ''}/terminate-cycle`,
-          { reason: t.payload?.reason ?? 'Offline terminate', clientOpId: t.clientOpId },
+          { justification, ...tapeVersionField, clientOpId: t.clientOpId },
           headers,
         );
       } else if (t.entityType === 'block-change-request') {

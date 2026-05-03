@@ -38,7 +38,7 @@ const { mockApiClient, mockOfflineStore, mockConnectivity } = vi.hoisted(() => {
         }
       }),
       clearSyncedOperations: vi.fn(async () => {}),
-      getPendingTombstones: vi.fn(async () => []),
+      getPendingTombstones: vi.fn(async (): Promise<any[]> => []),
       updateTombstoneStatus: vi.fn(async () => {}),
       clearSyncedTombstones: vi.fn(async () => {}),
       compactSyncedOperations: vi.fn(async () => ({ removed: 0 })),
@@ -248,6 +248,101 @@ describe('sync-engine — Phase 8.3 tape-version handling', () => {
     // Toast: exactly one STALE_TAPE-themed toast for filter-A.
     const staleToasts = errorsEmitted.filter(e => /Filter A:.*another operator/.test(e));
     expect(staleToasts).toHaveLength(1);
+  });
+
+  // ── Phase 8.7 follow-up (2026-05-03): cycle-tombstone tapeVersion + ──────
+  // justification field-name. The server's terminate-cycle route REQUIRES
+  // tapeVersion (commit f8fae1d) and `justification` (minLength 10), not
+  // `reason`. The tombstone replay path is separate from the cycle-bound
+  // operations replay path (agent H's 28e574c covers the latter).
+
+  it('7. cycle tombstone with tapeVersion forwards it on terminate-cycle replay AND uses justification', async () => {
+    // syncPendingOperations() short-circuits if the operations queue is
+    // empty (line 230) — tombstone draining only runs when there is also
+    // at least one pending op. Queue a benign advance to drive both paths.
+    queueOp({ type: 'advance', filterId: 'filter-Z', tapeVersion: 999 });
+
+    mockOfflineStore.getPendingTombstones.mockResolvedValueOnce([
+      {
+        id: 'ts-1',
+        clientOpId: 'cli-ts-1',
+        entityType: 'cycle',
+        entityId: 'cyc-1',
+        payload: { filterId: 'filter-T', justification: 'Operator stopped to investigate alarm condition' },
+        createdAt: new Date('2026-05-03T08:00:00Z').toISOString(),
+        status: 'pending',
+        retryCount: 0,
+        tapeVersion: 1042,
+      },
+    ]);
+    // Default mockApiClient.post resolves {} for both /terminate-cycle and
+    // /advance (the refresh-token branch already short-circuits in beforeEach).
+    mockApiClient.post.mockImplementation(async (url: string) => {
+      if (url === '/api/auth/refresh') return { token: 'fresh' };
+      return { ok: true };
+    });
+
+    await syncPendingOperations();
+
+    const terminateCall = mockApiClient.post.mock.calls.find(
+      ([url]: any[]) => typeof url === 'string' && url.includes('/terminate-cycle'),
+    );
+    expect(terminateCall).toBeTruthy();
+    const [url, body] = terminateCall!;
+    expect(url).toBe('/api/filters/filter-T/terminate-cycle');
+    // The fix: server requires `justification` (minLength 10), not `reason`.
+    expect(body.justification).toBe('Operator stopped to investigate alarm condition');
+    expect('reason' in body).toBe(false);
+    // The fix: tapeVersion is forwarded on the body for staleness check.
+    expect(body.tapeVersion).toBe(1042);
+    expect(body.clientOpId).toBe('cli-ts-1');
+    // Tombstone marked synced.
+    expect(mockOfflineStore.updateTombstoneStatus).toHaveBeenCalledWith('ts-1', 'synced');
+  });
+
+  it('8. cycle tombstone with tapeVersion=null replays WITHOUT a tapeVersion field (legacy on-disk row)', async () => {
+    // A pre-fix tombstone that was queued before tapeVersion existed on
+    // the type. Replay must omit the field so the request body parses.
+    // The server schema requires the field — this op WILL 400 SCHEMA_ERROR
+    // on the live server, which is the documented migration cost.
+    queueOp({ type: 'advance', filterId: 'filter-Z', tapeVersion: 999 });
+
+    mockOfflineStore.getPendingTombstones.mockResolvedValueOnce([
+      {
+        id: 'ts-2',
+        clientOpId: 'cli-ts-2',
+        entityType: 'cycle',
+        entityId: 'cyc-2',
+        // Legacy row used `reason` field name. The fix accepts both shapes
+        // so any pre-fix on-disk rows still send a syntactically valid body.
+        payload: { filterId: 'filter-L', reason: 'Legacy offline terminate' },
+        createdAt: new Date('2026-05-03T08:00:00Z').toISOString(),
+        status: 'pending',
+        retryCount: 0,
+        tapeVersion: null,
+      },
+    ]);
+    mockApiClient.post.mockImplementation(async (url: string) => {
+      if (url === '/api/auth/refresh') return { token: 'fresh' };
+      return { ok: true };
+    });
+
+    await syncPendingOperations();
+
+    const terminateCall = mockApiClient.post.mock.calls.find(
+      ([url]: any[]) => typeof url === 'string' && url.includes('/terminate-cycle'),
+    );
+    expect(terminateCall).toBeTruthy();
+    const body = terminateCall![1] as Record<string, any>;
+    // Critical: tapeVersion field must NOT be on the body — null is dropped.
+    expect('tapeVersion' in body).toBe(false);
+    // Legacy `reason` field is mapped to `justification` so the body is
+    // still syntactically valid (server will accept the field; whether the
+    // request succeeds depends on whether the server treats missing
+    // tapeVersion as 400 — that's a migration-cost case documented in
+    // sync-engine.ts).
+    expect(body.justification).toBe('Legacy offline terminate');
+    expect('reason' in body).toBe(false);
   });
 
   it('6. I-3: STALE_TAPE on different filters each emits its own toast', async () => {

@@ -80,6 +80,26 @@ interface Tombstone {
   status: 'pending' | 'syncing' | 'synced' | 'failed';
   error?: string;
   retryCount: number;
+  /**
+   * Phase 8.7 follow-up (2026-05-03): tape version observed at queue time
+   * for entityType='cycle' tombstones. The server's
+   * `POST /api/filters/:id/terminate-cycle` route REQUIRES `tapeVersion` in
+   * the body since commit f8fae1d, so any cycle tombstone replayed without
+   * this field would 400 SCHEMA_ERROR.
+   *
+   * Optional (no IDB schema bump): there are currently zero live callers
+   * that queue cycle terminate tombstones — every UI terminate path goes
+   * through `useOffline.executeOrQueue('terminate', ...)` which queues to
+   * the `operations` store, not `tombstones`. So no on-disk rows exist
+   * that need migration. Future callers MUST capture this field at queue
+   * time (mirror the cycle-bound pattern in use-offline.ts:108-115 — read
+   * from `filter-state-{filterId}` cache). The sync engine forwards the
+   * value when present and omits the body field when absent/null.
+   *
+   * `block-change-request` tombstones never need this field (deletes a
+   * separate entity with no tape concept).
+   */
+  tapeVersion?: number | null;
 }
 
 interface CachedFilter {
