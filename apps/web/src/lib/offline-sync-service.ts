@@ -23,6 +23,11 @@ export interface SyncProgress {
   total: number;
   done: boolean;
   error?: string;
+  /** Audit 2026-05-04 fix #2: list of steps that soft-failed (caught
+   * exception but advanced anyway). Populated only on the final `done`
+   * progress event so the caller can render "Synced with warnings: …"
+   * instead of a misleading green check. */
+  partialFailures?: string[];
 }
 
 type ProgressCallback = (progress: SyncProgress) => void;
@@ -52,9 +57,19 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
   ];
   let currentStep = 0;
   const total = steps.length;
+  // Audit 2026-05-04 fix #2 (web-plumbing review C1): track soft failures
+  // (caught exceptions on individual sync steps) so the final `done` event
+  // can surface them. Previously every per-step `catch { /* skip */ }`
+  // silently advanced and the function reported "All data synced" —
+  // operators saw a green check while master-data caches were stale.
+  const softFailures: string[] = [];
+  const recordSoftFailure = (label: string, err: any) => {
+    softFailures.push(label);
+    console.warn(`[offline-sync] soft failure on "${label}":`, err?.message ?? err);
+  };
 
-  const report = (step: string, done = false, error?: string) => {
-    onProgress?.({ step, current: currentStep, total, done, error });
+  const report = (step: string, done = false, error?: string, partialFailures?: string[]) => {
+    onProgress?.({ step, current: currentStep, total, done, error, partialFailures });
   };
 
   try {
@@ -82,17 +97,24 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
           await cacheItem(`filter-state-${filterId}`, stateObj);
         }
       }
-    } catch {
-      // Batch endpoint might not exist — fall back to individual calls
+    } catch (err) {
+      // Batch endpoint might not exist — fall back to individual calls.
+      // The batch failure itself is a soft failure (degraded path); the
+      // per-filter loop tolerates individual misses.
+      recordSoftFailure('filter-states-batch', err);
       const filterTemplateId = (templatesRes?.data ?? []).find((t: any) => t.name === 'Filter')?.id;
       const filters = instances.filter((i: any) =>
         (i.template?.name === 'Filter' || i.templateId === filterTemplateId) && i.isActive !== false && i.status !== 'Retired'
       );
+      let perFilterMisses = 0;
       for (const f of filters) {
         try {
           const st = await apiClient.get<any>(`/api/filters/${f.id}/current-state`);
           await cacheItem(`filter-state-${f.id}`, st);
-        } catch { /* skip individual failures */ }
+        } catch { perFilterMisses++; }
+      }
+      if (perFilterMisses > 0) {
+        recordSoftFailure(`filter-states-individual (${perFilterMisses} miss${perFilterMisses === 1 ? '' : 'es'})`, null);
       }
     }
     currentStep++;
@@ -132,7 +154,10 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
     try {
       const pmRes = await apiClient.get<any>('/api/pm-schedules/due');
       await cacheItem('due-tasks', pmRes);
-    } catch { /* PM endpoint may fail for some roles */ }
+    } catch (err) {
+      // PM endpoint may legitimately 403 for some roles — soft failure, not fatal.
+      recordSoftFailure('pm-schedules', err);
+    }
     currentStep++;
 
     // 8. Checklist profiles (with questions)
@@ -140,7 +165,9 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
     try {
       const checklistRes = await apiClient.get<any>('/api/checklist-profiles?limit=100&isActive=true&expand=questions');
       await cacheItem('checklist-profiles', checklistRes?.data ?? []);
-    } catch { /* may not have permission */ }
+    } catch (err) {
+      recordSoftFailure('checklist-profiles', err);
+    }
     currentStep++;
 
     // 9. Cleaning profiles (with stages and connections)
@@ -150,19 +177,38 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
       const profiles = profilesRes?.data ?? [];
       await cacheItem('cleaning-profiles', profiles);
       // Also cache each profile's full pipeline (stages + connections)
+      let perProfileMisses = 0;
       for (const p of profiles) {
         try {
           const fullProfile = await apiClient.get<any>(`/api/filter-cleaning-profiles/${p.id}`);
           await cacheItem(`cleaning-profile-${p.id}`, fullProfile);
-        } catch { /* skip */ }
+        } catch { perProfileMisses++; }
       }
-    } catch { /* may not have permission */ }
+      if (perProfileMisses > 0) {
+        recordSoftFailure(`cleaning-profile-pipelines (${perProfileMisses} miss${perProfileMisses === 1 ? '' : 'es'})`, null);
+      }
+    } catch (err) {
+      recordSoftFailure('cleaning-profiles', err);
+    }
     currentStep++;
 
+    // Audit 2026-05-04 fix #2: report partial failures explicitly. The
+    // function still returns true if no STEP threw all the way out (the
+    // overall sync ran end-to-end), but the caller now sees the list of
+    // steps that soft-failed and can surface "Synced with warnings".
+    if (softFailures.length > 0) {
+      report(`Synced with warnings: ${softFailures.length} step(s) failed`, true, undefined, softFailures);
+      return false;
+    }
     report('All data synced', true);
     return true;
   } catch (err: any) {
-    report(`Sync failed: ${err?.message || 'Unknown error'}`, false, err?.message);
+    report(
+      `Sync failed: ${err?.message || 'Unknown error'}`,
+      false,
+      err?.message,
+      softFailures.length > 0 ? softFailures : undefined,
+    );
     return false;
   }
 }

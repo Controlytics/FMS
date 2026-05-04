@@ -12,6 +12,9 @@
  * rapid foreground/background events don't multiply work.
  */
 import { apiClient } from './api-client';
+// Audit 2026-05-04 fix #3 (web-plumbing review C2/C3): Capacitor-aware
+// connectivity check — navigator.onLine lies on Android WebViews.
+import { isOnline, onConnectivityChange } from './connectivity';
 import {
   cacheEntities,
   getVersionState,
@@ -196,39 +199,48 @@ export function triggerSync(reason: string = 'unspecified'): void {
 
 let pollInterval: ReturnType<typeof setInterval> | null = null;
 let visibilityHandler: (() => void) | null = null;
-let onlineHandler: (() => void) | null = null;
+let connectivityUnsub: (() => void) | null = null;
 
 /**
  * Wire up the recurring sync triggers:
- *   - 60-second polling timer (only fires when navigator.onLine)
+ *   - 60-second polling timer (only fires when isOnline() — Capacitor-aware)
  *   - visibilitychange handler (foreground -> trigger sync)
  *   - online event handler (network came back -> trigger sync)
  *
  * Idempotent — calling twice is safe; a second call short-circuits.
  * Returns a teardown function that removes all listeners (used by the
  * AppLayout effect's cleanup so logout/unmount cleans up correctly).
+ *
+ * Audit 2026-05-04 fix #3 (web-plumbing C2/C3): the gates use the Capacitor
+ * connectivity engine (isOnline()), not raw navigator.onLine. On Android
+ * WebViews navigator.onLine reports stale "online" indefinitely after the
+ * network actually drops; the polling engine in connectivity.ts probes
+ * /api/health every 15s so isOnline() reflects real network state.
  */
 export function startSyncPolling(): () => void {
-  if (pollInterval || visibilityHandler || onlineHandler) {
+  if (pollInterval || visibilityHandler || connectivityUnsub) {
     return () => stopSyncPolling();
   }
   // 60s online poll. Skip when offline — no point hitting a dead network.
   pollInterval = setInterval(() => {
-    if (navigator.onLine) triggerSync('60s-poll');
+    if (isOnline()) triggerSync('60s-poll');
   }, 60_000);
   // Foreground sync. visibilitychange fires when the tab/app comes back into
   // view — covers tablet wake-up, browser tab switch, OS app switch.
   visibilityHandler = () => {
-    if (document.visibilityState === 'visible' && navigator.onLine) {
+    if (document.visibilityState === 'visible' && isOnline()) {
       triggerSync('visibility');
     }
   };
   document.addEventListener('visibilitychange', visibilityHandler);
-  // Network-recovery sync. The `online` event fires when navigator.onLine
-  // transitions false -> true; gives us a cursor advance the moment the
-  // tablet reconnects after being offline.
-  onlineHandler = () => triggerSync('online');
-  window.addEventListener('online', onlineHandler);
+  // Network-recovery sync. Subscribe to the Capacitor-aware connectivity
+  // engine — it fires the callback when the polling probe transitions
+  // false -> true, which is the actual network-recovery signal on tablets
+  // (the browser's `online` event is unreliable in Android WebViews).
+  // Audit 2026-05-04 fix #3.
+  connectivityUnsub = onConnectivityChange((online) => {
+    if (online) triggerSync('online');
+  });
   return () => stopSyncPolling();
 }
 
@@ -238,9 +250,9 @@ export function stopSyncPolling(): void {
     document.removeEventListener('visibilitychange', visibilityHandler);
     visibilityHandler = null;
   }
-  if (onlineHandler) {
-    window.removeEventListener('online', onlineHandler);
-    onlineHandler = null;
+  if (connectivityUnsub) {
+    connectivityUnsub();
+    connectivityUnsub = null;
   }
   if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
 }

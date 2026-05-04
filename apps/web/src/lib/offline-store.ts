@@ -33,6 +33,11 @@ const DB_VERSION = 5;
 // Single source of truth for offline-critical TTLs. Long shifts (>= 12h)
 // require everything that participates in cleaning to outlive a full day,
 // otherwise mid-shift cache evictions break dialogs offline.
+
+// Audit 2026-05-04 fix #3 (web-plumbing review C2/C3): Capacitor-aware
+// connectivity check — navigator.onLine lies on Android WebViews.
+import { isOnline as connIsOnline } from './connectivity';
+
 export const OFFLINE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 export const SHORT_TTL_MS = 30 * 60 * 1000;        // 30 min — for non-critical UI caches
 export const SYNCED_OP_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -267,7 +272,11 @@ export async function getCachedData<T>(key: string): Promise<T | null> {
       if (!result) { resolve(null); return; }
       // When offline, always return cached data regardless of expiry — better
       // stale data than no data when the operator can't reach the server.
-      if (navigator.onLine && new Date(result.expiresAt) < new Date()) { resolve(null); return; }
+      // Audit 2026-05-04 fix #3 (web-plumbing review C2): use the Capacitor-
+      // aware connectivity engine, not raw navigator.onLine. On Android
+      // WebViews navigator.onLine lies; this gate would silently drop fresh
+      // cache rows for tablets that THINK they're online but aren't.
+      if (connIsOnline() && new Date(result.expiresAt) < new Date()) { resolve(null); return; }
       // Touch lastAccessedAt for LRU
       result.lastAccessedAt = new Date().toISOString();
       store.put(result);
@@ -700,10 +709,13 @@ export async function setVersionState(state: VersionState): Promise<void> {
 }
 
 // === Online/Offline Detection ===
+//
+// Audit 2026-05-04 fix #3: these helpers were unused (use-offline.ts already
+// imports the Capacitor-aware variants from connectivity.ts). Re-exporting
+// the connectivity API here so any future caller importing from this file
+// gets the right behavior automatically.
 
-export function isOnline(): boolean {
-  return navigator.onLine;
-}
+export const isOnline = connIsOnline;
 
 export function onOnlineStatusChange(callback: (online: boolean) => void): () => void {
   const handleOnline = () => callback(true);
