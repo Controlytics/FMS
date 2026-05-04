@@ -408,6 +408,43 @@ A separate fix (commit `11b4b82`) extended this to the cycle-tombstone replay pa
 
 There is no server-side workaround — the API rejects `tapeVersion: null` on these routes by design (it's the optimistic-concurrency token that prevents stale-tape submissions).
 
+### 10.3 Audit-trail compliance hardening (2026-05-04 review fixes — branch `fix/p0-compliance-2026-05-04`)
+
+This branch closes 8 of 9 P0 findings from the 2026-05-04 adversarial review. Operator-relevant changes:
+
+**New environment variable — REQUIRED in production:**
+- `OFFLINE_REPLAY_SECRET` — 32+ character random string in `apps/api/.env`. The server refuses to boot in `production`/`staging` without it. Dev mode auto-derives from `JWT_SECRET` with a warning. Generate via:
+  ```powershell
+  node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+  ```
+
+**Two new migrations to apply (in addition to § 10.1's drift migration):**
+- `20260504180000_audit_hash_chain` — adds `previous_checksum` + `chain_position` columns to `audit_trail`. Idempotent (uses `IF NOT EXISTS`); safe on populated DBs.
+- `20260504190000_compliance_invariants` — installs the 1-IN_PROGRESS-per-filter unique index + `filter_event` consistency trigger + `asset_relationship` bidirectional-pair trigger + `audit_trail_no_delete` trigger. These were previously installed only by `seed.ts`; a `migrate deploy`-only cutover would have shipped without them. Idempotent.
+
+Apply with:
+```powershell
+cd C:\DigiLog\api
+npx prisma migrate deploy
+```
+
+**Tablet upgrade — operators MUST log in once after the APK update:**
+- Bare `x-offline-replay: true` header is now rejected with HTTP 401 `OFFLINE_REPLAY_HEADER_DEPRECATED`. The new flow uses an HMAC-signed grant token issued by `POST /api/auth/offline-grant` (gated behind a password challenge).
+- The web client + APK fetch the grant automatically at successful login. Existing field tablets with queued offline ops MUST log in once after the upgrade so the new token is fetched; the queue then drains normally. Pre-upgrade queued ops will fail on first replay with `OFFLINE_REPLAY_HEADER_DEPRECATED` — the operator re-performs the action under the new flow.
+
+**Operator-facing chain integrity verification:**
+- New endpoint `GET /api/audit/verify-chain` (SUPER_ADMIN only). Walks the audit chain in `chain_position` order and reports any per-row checksum mismatch, chain link mismatch, or chain-position gap.
+- Run after the upgrade to confirm `intact: true` on rows written post-migration.
+- Recommended schedule: nightly cron (out of scope for this branch — document in operator runbook).
+- The endpoint cannot detect **deletion of the latest row** by itself (no successor exists to detect the gap). Mitigate by recording the daily `highestPosition` value out-of-band (e.g., a daily snapshot to a separate disk).
+
+**`offlinePerformedAt` policy — server-validated tablet wall clock:**
+- Tablets continue to send their wall-clock time when an offline action was performed (this is correct — the audit trail records when the operator physically did the work, not when the server received the replay).
+- The server now rejects values that are: > 5 min ahead of server clock, > 30 days old, or before the cycle's `startedAt`. Returns HTTP 400 with stable error codes (`OFFLINE_TIME_FUTURE`, `OFFLINE_TIME_TOO_STALE`, `OFFLINE_TIME_BEFORE_CYCLE`, `OFFLINE_TIME_INVALID`). Online (non-replay) requests have the field silently ignored — server uses its own clock.
+
+**Privilege rename:**
+- `'admin_requests.view'` privilege now maps to a new `ADMIN_REQUEST_REVIEW` permission (was `USER_CREATE` — privilege escalation). Seeded SUPER_ADMIN + ADMIN roles automatically receive it. Other roles that should review admin requests must be granted `ADMIN_REQUEST_REVIEW` via the role-config UI after upgrade.
+
 ---
 
 ## 11. Common troubleshooting

@@ -1,25 +1,29 @@
--- Phase 5b.5: DB-side invariants that Prisma cannot express
+-- Audit 2026-05-04 fix data-layer C2: compliance invariants live in migrations.
 --
--- Audit 2026-05-04 fix data-layer C2: these invariants are now ALSO installed
--- by the dedicated migration `20260504190000_compliance_invariants`. This
--- file remains as defense-in-depth for `prisma db push` workflows that bypass
--- migrations (typically dev). Operators should rely on the migration as the
--- authoritative installer.
+-- These three invariants were previously installed ONLY by seed.ts (which
+-- read prisma/sql/invariants.sql at seed-time). A `prisma migrate deploy`-only
+-- production cutover therefore shipped WITHOUT:
+--   1. one-IN_PROGRESS-per-filter unique index — corruption protection
+--      against buggy services or manual DB edits
+--   2. filter_event ↔ cycle.filter_id consistency trigger — prevents
+--      cross-filter event leakage after the FilterDetails split (Step 6)
+--   3. asset_relationship bidirectional-pair constraint trigger —
+--      enforces inverse-pair invariant for graph navigation
 --
--- Apply after every `prisma db push`. Idempotent — safe to re-run.
--- Run via:  psql -h localhost -U digilog -d digilog_db -f apps/api/prisma/sql/invariants.sql
+-- Idempotent — every statement uses IF NOT EXISTS / OR REPLACE so this
+-- migration is safe to re-run if a prior install already applied them via
+-- the seed path.
+--
+-- The seed.ts applyInvariants() call stays in place as defense-in-depth
+-- (e.g., dev `prisma db push` workflows that skip migrations); operators
+-- should rely on this migration as the authoritative installer.
 
 -- ─── Invariant 1: at most ONE IN_PROGRESS cycle per filter ─────────────────
--- The transactional re-check in startCycle is belt; this partial unique index
--- is suspenders. Prevents data corruption from buggy services or manual DB edits.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cleaning_cycles_one_in_progress_per_filter
   ON cleaning_cycles (filter_id)
   WHERE status = 'IN_PROGRESS';
 
--- ─── Invariant 2: FilterEvent.filterId must match its cycle's filterId ─────
--- Step 6 split filter cycle state off AssetInstance into FilterDetails. This
--- trigger ensures that FilterEvent rows with cycleId set always reference an
--- event for the SAME filter that owns the cycle — no cross-filter event leakage.
+-- ─── Invariant 2: FilterEvent.filter_id must match its cycle's filter_id ───
 CREATE OR REPLACE FUNCTION check_filter_event_consistency() RETURNS TRIGGER AS $$
 DECLARE
   cycle_filter_id UUID;
@@ -46,10 +50,7 @@ CREATE TRIGGER trg_filter_event_consistency
   BEFORE INSERT OR UPDATE OF cycle_id, filter_id ON filter_events
   FOR EACH ROW EXECUTE FUNCTION check_filter_event_consistency();
 
--- ─── Invariant 3: AssetRelationship bidirectional pair must exist (Step 2) ──
--- Every (source, target, type) row implies a (target, source, INVERSE(type)) row
--- must also exist. Enforced as a deferred constraint trigger so create-pair
--- transactions can insert both rows without ordering games.
+-- ─── Invariant 3: AssetRelationship bidirectional pair must exist ──────────
 CREATE OR REPLACE FUNCTION inverse_relationship_type(rt relationship_type_enum)
 RETURNS relationship_type_enum AS $$
 BEGIN
@@ -91,8 +92,6 @@ BEGIN
     END IF;
   ELSIF TG_OP = 'DELETE' THEN
     inv_type := inverse_relationship_type(OLD.relationship_type);
-    -- Only complain if the inverse still exists. The pair-delete transaction
-    -- removes both; the second delete sees no inverse and passes.
     SELECT EXISTS (
       SELECT 1 FROM asset_relationships
       WHERE source_asset_id = OLD.target_asset_id
@@ -117,8 +116,9 @@ CREATE CONSTRAINT TRIGGER trg_asset_relationship_pair
   FOR EACH ROW EXECUTE FUNCTION check_asset_relationship_pair();
 
 -- ─── Invariant 4: audit_trail no-delete trigger ────────────────────────────
--- C3 follow-up — referenced by tests + admin delete-audit endpoint
--- (audit/routes.ts disables before bulk delete + re-enables after).
+-- Audit C3 follow-up — referenced by tests + admin delete-audit endpoint
+-- (audit/routes.ts disables before bulk delete + re-enables after). Was
+-- previously installed only via seed.ts.
 CREATE OR REPLACE FUNCTION block_audit_trail_delete() RETURNS TRIGGER AS $$
 BEGIN
   RAISE EXCEPTION 'audit_trail rows are immutable. Use the admin delete endpoint which temporarily disables this trigger under audit.'
@@ -130,6 +130,3 @@ DROP TRIGGER IF EXISTS audit_trail_no_delete ON audit_trail;
 CREATE TRIGGER audit_trail_no_delete
   BEFORE DELETE ON audit_trail
   FOR EACH ROW EXECUTE FUNCTION block_audit_trail_delete();
-
--- Confirmation log (visible when run via psql)
-\echo 'Invariants applied: idx_cleaning_cycles_one_in_progress_per_filter + trg_filter_event_consistency + trg_asset_relationship_pair + audit_trail_no_delete'
