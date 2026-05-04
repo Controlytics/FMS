@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import useSWR from 'swr';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, api } from '@/lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -32,6 +34,7 @@ type TemplateKind = {
  */
 export default function TemplateKindsConfigPage() {
   const { data: kinds, mutate, isLoading } = useSWR<TemplateKind[]>('/api/template-kinds');
+  const reauth = useReauth();
 
   const [showCreate, setShowCreate] = useState(false);
   const [newCode, setNewCode] = useState('');
@@ -70,29 +73,39 @@ export default function TemplateKindsConfigPage() {
     setEditError(null);
   }
 
-  async function saveEditRow(kind: TemplateKind) {
+  // Audit 2026-05-04 fix #5 (web-routes review H3): controlled-vocabulary
+  // edits cascade across every entity using the kind. All 4 mutation paths
+  // (save edit / create / delete / toggle active) wrap reauth via the
+  // dedicated TEMPLATE_KIND action keys.
+  function saveEditRow(kind: TemplateKind) {
     setEditError(null);
     if (!editLabel.trim()) {
       setEditError('Label is required.');
       return;
     }
     setEditSubmitting(true);
-    try {
-      await apiClient.put(`/api/template-kinds/${kind.code}`, {
-        label: editLabel.trim(),
-        description: editDesc.trim() || null,
-        sortOrder: editSort,
-      });
-      await mutate();
-      cancelEditRow();
-    } catch (err) {
-      setEditError(err instanceof Error ? err.message : 'Update failed');
-    } finally {
-      setEditSubmitting(false);
-    }
+    const body = {
+      label: editLabel.trim(),
+      description: editDesc.trim() || null,
+      sortOrder: editSort,
+    };
+    reauth.execute(
+      'UPDATE_TEMPLATE_KIND',
+      async (password?: string) => {
+        if (password) await api.putWithReauth(`/api/template-kinds/${kind.code}`, body, password);
+        else await apiClient.put(`/api/template-kinds/${kind.code}`, body);
+      },
+      {
+        onSuccess: async () => { await mutate(); cancelEditRow(); setEditSubmitting(false); },
+        onError: (err: any) => {
+          setEditError(err instanceof Error ? err.message : 'Update failed');
+          setEditSubmitting(false);
+        },
+      },
+    );
   }
 
-  async function handleCreate() {
+  function handleCreate() {
     setCreateError(null);
     if (!/^[A-Z][A-Z0-9_]*$/.test(newCode)) {
       setCreateError('Code must be UPPER_SNAKE_CASE (letters, digits, underscores).');
@@ -103,47 +116,65 @@ export default function TemplateKindsConfigPage() {
       return;
     }
     setSubmitting(true);
-    try {
-      await apiClient.post('/api/template-kinds', {
-        code: newCode,
-        label: newLabel.trim(),
-        description: newDesc.trim() || undefined,
-        sortOrder: newSort,
-        isActive: true,
-      });
-      await mutate();
-      resetCreateForm();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to create template kind';
-      setCreateError(msg);
-    } finally {
-      setSubmitting(false);
-    }
+    const body = {
+      code: newCode,
+      label: newLabel.trim(),
+      description: newDesc.trim() || undefined,
+      sortOrder: newSort,
+      isActive: true,
+    };
+    reauth.execute(
+      'CREATE_TEMPLATE_KIND',
+      async (password?: string) => {
+        if (password) await api.postWithReauth('/api/template-kinds', body, password);
+        else await apiClient.post('/api/template-kinds', body);
+      },
+      {
+        onSuccess: async () => { await mutate(); resetCreateForm(); setSubmitting(false); },
+        onError: (err: any) => {
+          setCreateError(err instanceof Error ? err.message : 'Failed to create template kind');
+          setSubmitting(false);
+        },
+      },
+    );
   }
 
-  async function handleDelete(kind: TemplateKind) {
+  function handleDelete(kind: TemplateKind) {
     if (kind.isSystem) return;
     if (kind.templateCount > 0) {
       alert(`Cannot delete "${kind.code}" — ${kind.templateCount} template(s) reference it. Reassign those templates first.`);
       return;
     }
     if (!confirm(`Delete template kind "${kind.code}"?`)) return;
-    try {
-      await apiClient.delete(`/api/template-kinds/${kind.code}`);
-      await mutate();
-    } catch (err) {
-      console.error('[template-kinds] delete failed:', err);
-      alert(err instanceof Error ? err.message : 'Delete failed');
-    }
+    reauth.execute(
+      'DELETE_TEMPLATE_KIND',
+      async (password?: string) => {
+        if (password) await api.deleteWithReauth(`/api/template-kinds/${kind.code}`, password);
+        else await apiClient.delete(`/api/template-kinds/${kind.code}`);
+      },
+      {
+        onSuccess: () => { void mutate(); },
+        onError: (err: any) => {
+          console.error('[template-kinds] delete failed:', err);
+          alert(err instanceof Error ? err.message : 'Delete failed');
+        },
+      },
+    );
   }
 
-  async function handleToggleActive(kind: TemplateKind) {
-    try {
-      await apiClient.put(`/api/template-kinds/${kind.code}`, { isActive: !kind.isActive });
-      await mutate();
-    } catch (err) {
-      console.error('[template-kinds] toggle failed:', err);
-    }
+  function handleToggleActive(kind: TemplateKind) {
+    const body = { isActive: !kind.isActive };
+    reauth.execute(
+      'UPDATE_TEMPLATE_KIND',
+      async (password?: string) => {
+        if (password) await api.putWithReauth(`/api/template-kinds/${kind.code}`, body, password);
+        else await apiClient.put(`/api/template-kinds/${kind.code}`, body);
+      },
+      {
+        onSuccess: () => { void mutate(); },
+        onError: (err: any) => console.error('[template-kinds] toggle failed:', err),
+      },
+    );
   }
 
 
@@ -309,6 +340,17 @@ export default function TemplateKindsConfigPage() {
           </TableBody>
         </Table>
       )}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setEditSubmitting(false); setSubmitting(false); }}
+        actionLabel="Template Kind"
+      />
     </div>
   );
 }

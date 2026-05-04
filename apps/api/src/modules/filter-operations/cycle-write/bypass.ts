@@ -10,6 +10,7 @@ import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
 import { AppError } from '../../../lib/errors.js';
 import { findExistingByClientOpId } from '../../../lib/idempotency.js';
+import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
 import { computeChecksum } from '../helpers.js';
@@ -35,8 +36,18 @@ export async function bypassImpl(
   }
 
   // Phase 8.5 Commit 3: drop pure guards through the shared executor.
-  const { ctx: localCtx, cp, filterCurrentCycleId } = await loadLocalContext(filterId, ctx);
+  const { ctx: localCtx, cp, filterCurrentCycleId, rawCycle: cycle } = await loadLocalContext(filterId, ctx);
   throwIfFailed(executor.assertCycleActive(localCtx));
+
+  // Audit 2026-05-04 fix C2 parity (start-cycle/advance/submit-checklist
+  // already wired): validate offlinePerformedAt against cycle.startedAt
+  // floor + replay-only + future-skew + max-staleness. See
+  // apps/api/src/lib/offline-time-window.ts.
+  const offlineTime = validateOfflinePerformedAt(data.offlinePerformedAt, {
+    isReplay: ctx.isOfflineReplay === true,
+    cycleStartedAt: cycle?.startedAt ?? null,
+  });
+
   throwIfFailed(executor.assertTapeVersionFresh(localCtx, data.tapeVersion));
   // Phase 8.6: assertProfileActive enforces both null-check + status='ACTIVE'.
   // Bypass requires an active profile to read flowMode + valid states.
@@ -77,6 +88,7 @@ export async function bypassImpl(
         checksum,
         ipAddress: ctx.ipAddress,
         telemetrySnapshot: {},
+        ...(offlineTime ? { performedAt: offlineTime } : {}),
       },
     });
 

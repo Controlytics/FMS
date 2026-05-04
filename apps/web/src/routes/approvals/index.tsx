@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import useSWR, { mutate } from 'swr';
-import { apiClient, api } from '../../lib/api-client';
+import useSWR from 'swr';
 import { useAuth } from '../../hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
-import { useReauth } from '@/hooks/use-reauth';
+import { useBlockChangeApproval } from '@/hooks/use-block-change-approval';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 
@@ -17,7 +16,9 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; d
 export function ApprovalsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const reauth = useReauth();
+  // Audit 2026-05-04 follow-up: approve/reject flow extracted to a shared
+  // hook so this page and mobile-wrapper.tsx don't drift again.
+  const { process: processBlockChange, reauth } = useBlockChangeApproval();
   const { formatDate, formatTime } = useDatetimeFormat();
   const [filter, setFilter] = useState('PENDING');
   const [page, setPage] = useState(1);
@@ -36,35 +37,20 @@ export function ApprovalsPage() {
 
   const handleProcess = (id: string, action: 'approve' | 'reject') => {
     setProcessingId(id);
-    // Audit 2026-05-04 fix (web-routes review C1): block-change approve/reject
-    // is a 21 CFR Part 11 deviation event — must go through reauth gate.
-    // Action keys APPROVE_BLOCK_CHANGE / REJECT_BLOCK_CHANGE already declared
-    // in packages/shared/src/types/reauth-actions.ts:104-105.
-    const reauthAction = action === 'approve' ? 'APPROVE_BLOCK_CHANGE' : 'REJECT_BLOCK_CHANGE';
-    reauth.execute(
-      reauthAction,
-      async (password?: string) => {
-        const body = { comment: processComment || undefined };
-        if (password) {
-          await api.postWithReauth(`/api/block-change-requests/${id}/${action}`, body, password);
-        } else {
-          await apiClient.post(`/api/block-change-requests/${id}/${action}`, body);
-        }
+    processBlockChange(id, action, processComment, {
+      mutateKeys: isApprover
+        ? [swrKey, '/api/block-change-requests/pending-count']
+        : [swrKey],
+      onSuccess: () => {
+        setProcessComment('');
+        setProcessingId(null);
+        toast.success(`Request ${action === 'approve' ? 'approved' : 'rejected'}`);
       },
-      {
-        onSuccess: () => {
-          mutate(swrKey);
-          if (isApprover) mutate('/api/block-change-requests/pending-count');
-          setProcessComment('');
-          setProcessingId(null);
-          toast.success(`Request ${action === 'approve' ? 'approved' : 'rejected'}`);
-        },
-        onError: (e: any) => {
-          toast.error('Error', e.message || `Failed to ${action}`);
-          setProcessingId(null);
-        },
+      onError: (e: any) => {
+        toast.error('Error', e.message || `Failed to ${action}`);
+        setProcessingId(null);
       },
-    );
+    });
   };
 
   const requests = data?.data ?? [];

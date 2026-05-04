@@ -9,6 +9,7 @@ import type { RequestContext } from '../../../types/context.js';
 import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
 import { findExistingByClientOpId } from '../../../lib/idempotency.js';
+import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
 import { computeChecksum } from '../helpers.js';
@@ -19,7 +20,7 @@ export async function terminateCycleImpl(
   service: FilterOperationsService,
   ctx: RequestContext,
   filterId: string,
-  data: { justification: string; clientOpId?: string; tapeVersion?: number },
+  data: { justification: string; clientOpId?: string; tapeVersion?: number; offlinePerformedAt?: string },
 ) {
   // Server-only: idempotent replay short-circuits before touching shared guards.
   const clientOpId: string | null = data.clientOpId ?? null;
@@ -33,8 +34,17 @@ export async function terminateCycleImpl(
     : '';
 
   // Phase 8.5 Commit 3: drop pure guards through the shared executor.
-  const { ctx: localCtx, filterCurrentCycleId } = await loadLocalContext(filterId, ctx);
+  const { ctx: localCtx, filterCurrentCycleId, rawCycle: cycle } = await loadLocalContext(filterId, ctx);
   throwIfFailed(executor.assertCycleActive(localCtx));
+
+  // Audit 2026-05-04 fix C2 parity: validate offlinePerformedAt with
+  // cycle.startedAt floor (terminate inherits the floor from the cycle
+  // it's terminating).
+  const offlineTime = validateOfflinePerformedAt(data.offlinePerformedAt, {
+    isReplay: ctx.isOfflineReplay === true,
+    cycleStartedAt: cycle?.startedAt ?? null,
+  });
+
   throwIfFailed(executor.assertTapeVersionFresh(localCtx, data.tapeVersion));
   throwIfFailed(
     executor.assertJustificationValid(localCtx, justification, { kind: 'terminate' }),
@@ -68,7 +78,13 @@ export async function terminateCycleImpl(
       remarks: justification,
     };
     await tx.filterEvent.create({
-      data: { ...eventData, checksum: computeChecksum(eventData), ipAddress: ctx.ipAddress, telemetrySnapshot: {} },
+      data: {
+        ...eventData,
+        checksum: computeChecksum(eventData),
+        ipAddress: ctx.ipAddress,
+        telemetrySnapshot: {},
+        ...(offlineTime ? { performedAt: offlineTime } : {}),
+      },
     });
   });
 

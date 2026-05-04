@@ -6,6 +6,7 @@ import { useAuth } from '../../hooks/use-auth';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { useOffline } from '../../hooks/use-offline';
 import { useReauth } from '@/hooks/use-reauth';
+import { useBlockChangeApproval } from '@/hooks/use-block-change-approval';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { onSyncEvent } from '../../lib/sync-engine';
 import { syncAllDataForOffline, type SyncProgress } from '../../lib/offline-sync-service';
@@ -43,6 +44,10 @@ export function MobileWrapperPage() {
   const { formatTime } = useDatetimeFormat();
   const { online, pendingCount, syncing, lastSyncMessage, manualSync, clearQueue, getQueueDetails, cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
   const reauth = useReauth();
+  // Audit 2026-05-04 follow-up: shared block-change approval flow with web
+  // approvals page so the two implementations can't drift again. Uses its
+  // own reauth instance (the `reauth` above is for RFID assign/unassign).
+  const blockChangeApproval = useBlockChangeApproval();
   const mobileNav = useNavigate();
 
   if (!authLoading && !user) return <Navigate to="/m/login" replace />;
@@ -294,37 +299,24 @@ export function MobileWrapperPage() {
   };
 
   // ---- Approvals handlers ----
-  // Audit 2026-05-04 fix (web-routes review C2): tablet block-change approve/
-  // reject mirrors web (approvals/index.tsx) — must use reauth gate.
-  // APPROVE_BLOCK_CHANGE / REJECT_BLOCK_CHANGE keys live in
-  // packages/shared/src/types/reauth-actions.ts:104-105.
   const handleApprovalAction = (requestId: string, action: 'approve' | 'reject') => {
     setProcessingApproval(requestId);
     setError('');
-    const reauthAction = action === 'approve' ? 'APPROVE_BLOCK_CHANGE' : 'REJECT_BLOCK_CHANGE';
-    reauth.execute(
-      reauthAction,
-      async (password?: string) => {
-        const body = { comment: approvalComment.trim() || undefined };
-        if (password) {
-          await api.postWithReauth(`/api/block-change-requests/${requestId}/${action}`, body, password);
-        } else {
-          await apiClient.post(`/api/block-change-requests/${requestId}/${action}`, body);
-        }
+    blockChangeApproval.process(requestId, action, approvalComment.trim(), {
+      mutateKeys: approvalsKey ? [approvalsKey] : [],
+      onSuccess: () => {
+        setSuccess(`Request ${action === 'approve' ? 'approved' : 'rejected'}`);
+        setApprovalComment('');
+        // mutateApprovals is the SWR key-bound mutator; the hook also fires
+        // mutate(approvalsKey) but we keep this for the local SWR instance.
+        void mutateApprovals();
+        setProcessingApproval(null);
       },
-      {
-        onSuccess: async () => {
-          setSuccess(`Request ${action === 'approve' ? 'approved' : 'rejected'}`);
-          setApprovalComment('');
-          await mutateApprovals();
-          setProcessingApproval(null);
-        },
-        onError: (e: any) => {
-          setError(e.message ?? `Failed to ${action} request`);
-          setProcessingApproval(null);
-        },
+      onError: (e: any) => {
+        setError(e.message ?? `Failed to ${action} request`);
+        setProcessingApproval(null);
       },
-    );
+    });
   };
 
   return (
@@ -957,8 +949,18 @@ export function MobileWrapperPage() {
         isVerifying={reauth.isVerifying}
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
-        onCancel={() => { reauth.cancel(); setRfidSubmitting(false); setProcessingApproval(null); }}
-        actionLabel="Confirm action"
+        onCancel={() => { reauth.cancel(); setRfidSubmitting(false); }}
+        actionLabel="RFID Tag"
+      />
+      <ReauthDialog
+        open={blockChangeApproval.reauth.isOpen}
+        password={blockChangeApproval.reauth.password}
+        error={blockChangeApproval.reauth.error}
+        isVerifying={blockChangeApproval.reauth.isVerifying}
+        onPasswordChange={blockChangeApproval.reauth.setPassword}
+        onConfirm={blockChangeApproval.reauth.confirm}
+        onCancel={() => { blockChangeApproval.reauth.cancel(); setProcessingApproval(null); }}
+        actionLabel="Process Block Change"
       />
     </div>
   );

@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 import { createTemplateKindSchema, updateTemplateKindSchema } from '@digilog/shared';
 
 /**
@@ -86,6 +87,12 @@ export default async function templateKindRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('CONFIG_UPDATE')],
     schema: { tags: ['Template Kinds'], summary: 'Create a new template kind' },
   }, async (req, reply) => {
+    // Audit 2026-05-04 fix #5 (web-routes review H3): controlled-vocabulary
+    // edits cascade across every entity using the kind. Distinct action key
+    // (vs CREATE_ASSET_TEMPLATE which is per-template) so audits can
+    // distinguish "template" edits from "kind" (vocabulary) edits.
+    const { ok } = await enforceReauth('CREATE_TEMPLATE_KIND', req, reply);
+    if (!ok) return;
     const parsed = createTemplateKindSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
@@ -128,6 +135,8 @@ export default async function templateKindRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('CONFIG_UPDATE')],
     schema: { tags: ['Template Kinds'], summary: 'Update a template kind (code is immutable)' },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_TEMPLATE_KIND', req, reply);
+    if (!ok) return;
     const { code } = req.params as { code: string };
     const parsed = updateTemplateKindSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -164,6 +173,8 @@ export default async function templateKindRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('CONFIG_UPDATE')],
     schema: { tags: ['Template Kinds'], summary: 'Delete a template kind' },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('DELETE_TEMPLATE_KIND', req, reply);
+    if (!ok) return;
     const { code } = req.params as { code: string };
 
     const existing = await prisma.templateKind.findUnique({
