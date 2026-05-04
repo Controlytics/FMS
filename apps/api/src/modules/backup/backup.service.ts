@@ -359,7 +359,14 @@ export async function exportBak(
     data,
   };
 
-  const jsonStr = JSON.stringify(backup);
+  // BigInt replacer — audit 2026-05-04 fix C3 added a BIGSERIAL chain_position
+  // column to audit_trail. The pg driver returns BIGSERIAL as native BigInt,
+  // and JSON.stringify throws on BigInt without a replacer. Stringify them
+  // here so the backup is JSON-clean. Restore parses them back as strings;
+  // operators reading the backup file see the value verbatim.
+  const jsonStr = JSON.stringify(backup, (_k, v) =>
+    typeof v === 'bigint' ? v.toString() : v,
+  );
   const compressed = gzipSync(Buffer.from(jsonStr, 'utf-8'), { level: 9 });
 
   await auditLog({

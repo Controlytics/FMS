@@ -8,6 +8,7 @@ const {
   mockAlarmUpdateMany,
   mockAlarmFindFirst,
   mockAuditTrailCreate,
+  mockAuditLog,
   mockAssetInstanceFindUnique,
   mockComputeChecksum,
   mockGetConfigOrDefault,
@@ -39,6 +40,12 @@ const {
   // createAlarm fires.
   mockAlarmFindFirst: vi.fn().mockResolvedValue(null),
   mockAuditTrailCreate: vi.fn(),
+  // C3 (2026-05-04): ingestion.service.ts no longer calls
+  // prisma.auditTrail.create directly — it routes through lib/audit.js
+  // (chained writes via $transaction + advisory lock). Mock the helper here
+  // so the pipeline can call it without the real prisma adapter, and the
+  // Stage-10 test inspects this mock instead of mockAuditTrailCreate.
+  mockAuditLog: vi.fn().mockResolvedValue(undefined),
   mockAssetInstanceFindUnique: vi.fn(),
   mockComputeChecksum: vi.fn(),
   mockGetConfigOrDefault: vi.fn(),
@@ -88,6 +95,11 @@ vi.mock('../../../lib/prisma.js', () => ({
 
 vi.mock('../../../lib/hash-chain.js', () => ({
   computeChecksum: mockComputeChecksum,
+  computeChainedChecksum: mockComputeChecksum,
+}));
+
+vi.mock('../../../lib/audit.js', () => ({
+  auditLog: mockAuditLog,
 }));
 
 vi.mock('../ingestion-config.service.js', () => ({
@@ -640,18 +652,17 @@ describe('processIngestionMessage', () => {
       const result = await processIngestionMessage(msg);
 
       expect(result.success).toBe(true);
-      expect(mockComputeChecksum).toHaveBeenCalledOnce();
-      expect(mockAuditTrailCreate).toHaveBeenCalledOnce();
-      expect(mockAuditTrailCreate).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          action: 'DATA_ATTRIBUTES_UPDATED',
-          targetType: 'ENTITY',
-          targetId: 'entity-001',
-          userId: 'user-001',
-          userName: 'John Doe',
-          checksum: 'test-checksum',
-        }),
-      });
+      // C3 (2026-05-04): ingestion routes audit through lib/audit.auditLog()
+      // for chained writes. Assert on the helper call shape instead of the
+      // direct prisma.auditTrail.create call.
+      expect(mockAuditLog).toHaveBeenCalledOnce();
+      expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'DATA_ATTRIBUTES_UPDATED',
+        targetType: 'ENTITY',
+        targetId: 'entity-001',
+        userId: 'user-001',
+        userName: 'John Doe',
+      }));
     });
 
     it('does NOT create audit trail for POST_TELEMETRY', async () => {

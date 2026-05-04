@@ -12,7 +12,6 @@
  */
 
 import { prisma } from '../../lib/prisma.js';
-import { computeChecksum } from '../../lib/hash-chain.js';
 import { flushAll } from '@digilog/db';
 import { QUEUES, JOB_PRIORITY, getProducer } from '@digilog/queue';
 import { bus } from '../../lib/internal-bus.js';
@@ -780,30 +779,20 @@ async function executeStage10(msg: IngestionMessage): Promise<void> {
     dataKeys: Object.keys(msg.data).filter((k) => !k.startsWith('_')),
   };
 
-  const checksum = computeChecksum({
-    timestamp: timestamp.toISOString(),
+  // Audit 2026-05-04 fix C3: route through the chained auditLog() helper so
+  // ingestion-time audit rows participate in the tamper-evident chain. The
+  // helper acquires the advisory lock + computes the chain link.
+  const { auditLog } = await import('../../lib/audit.js');
+  await auditLog({
     userId,
+    userName: msg.metadata?.userName ?? undefined,
+    userRole: msg.metadata?.userRole ?? undefined,
     action,
     targetType,
     targetId: msg.entityId,
     afterValue,
-  } as Record<string, unknown>);
-
-  // Audit write MUST succeed — failure = CRITICAL → DLQ
-  await prisma.auditTrail.create({
-    data: {
-      timestamp,
-      userId,
-      userName: msg.metadata?.userName ?? undefined,
-      userRole: msg.metadata?.userRole ?? undefined,
-      action,
-      targetType,
-      targetId: msg.entityId,
-      afterValue,
-      ipAddress: msg.sourceIp || undefined,
-      sessionId: msg.metadata?.sessionId ?? undefined,
-      checksum,
-    },
+    ipAddress: msg.sourceIp || undefined,
+    sessionId: msg.metadata?.sessionId ?? undefined,
   });
 }
 

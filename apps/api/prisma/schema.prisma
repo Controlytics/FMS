@@ -292,6 +292,17 @@ model AuditTrail {
   userAgent        String?  @map("user_agent")
   sessionId        String?  @map("session_id") @db.VarChar(100)
   checksum         String   @db.VarChar(64)
+  // Audit 2026-05-04 fix C3: tamper-evident hash chain. Each new row carries
+  // the prior row's checksum (under a Postgres advisory lock during write so
+  // the chain is monotonic across concurrent writers). Existing rows written
+  // before the migration carry NULL — they are the "pre-chain" era and are
+  // verified by per-row checksum only. New rows verify both per-row +
+  // chain link via apps/api/src/lib/audit-verify.ts.
+  previousChecksum String?  @map("previous_checksum") @db.VarChar(64)
+  // Monotonically-incrementing position assigned at insert time. Sort key
+  // for chain verification (timestamp can collide at sub-millisecond on
+  // batched writes; chainPosition can't). bigserial-equivalent.
+  chainPosition    BigInt?  @map("chain_position") @default(autoincrement())
   signatureMeaning String?  @map("signature_meaning") @db.VarChar(255)
 
   @@index([timestamp(sort: Desc)])
@@ -300,6 +311,7 @@ model AuditTrail {
   @@index([targetType, targetId])
   @@index([sessionId])
   @@index([userId, timestamp(sort: Desc)])
+  @@index([chainPosition])
   @@map("audit_trail")
 }
 

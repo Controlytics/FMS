@@ -4,6 +4,7 @@ import { verifyAuditChecksum } from '../../lib/hash-chain.js';
 import { auditLog } from '../../lib/audit.js';
 import { auditQuerySchema } from '@digilog/shared';
 import { errorResponses } from '../../lib/error-schemas.js';
+import { verifyAuditChain } from '../../lib/audit-verify.js';
 
 export default async function auditRoutes(app: FastifyInstance) {
   // GET /api/audit — query audit trail (requires AUDIT_READ permission)
@@ -300,5 +301,67 @@ export default async function auditRoutes(app: FastifyInstance) {
     });
 
     return { success: true, count: result.count };
+  });
+
+  // GET /api/audit/verify-chain — audit 2026-05-04 fix C3.
+  //
+  // Walks the audit chain in chain_position order and reports any per-row
+  // checksum mismatch, chain-link mismatch, or chain_position gap. SUPER_ADMIN
+  // only — exposes the full integrity surface and should not be operator-
+  // accessible by default.
+  //
+  // The chain itself is built into the audit_trail schema; this endpoint is
+  // the auditor-facing read view. See apps/api/src/lib/audit-verify.ts for
+  // detection semantics.
+  app.get('/verify-chain', {
+    preHandler: [app.requireSuperAdmin()],
+    schema: {
+      tags: ['Audit'],
+      summary: 'Verify audit chain integrity',
+      description: 'Walk the audit_trail hash chain and report any tampering. SUPER_ADMIN only. Optional fromPosition/toPosition narrow the scope; default is the full table.',
+      querystring: {
+        type: 'object',
+        properties: {
+          fromPosition: { type: 'integer', minimum: 0 },
+          toPosition: { type: 'integer', minimum: 0 },
+          maxAnomalies: { type: 'integer', minimum: 1, maximum: 10000, default: 100 },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            intact: { type: 'boolean' },
+            totalRowsChecked: { type: 'integer' },
+            preChainRows: { type: 'integer' },
+            chainedRows: { type: 'integer' },
+            highestPosition: { type: 'integer', nullable: true },
+            anomalies: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  position: { type: 'integer' },
+                  id: { type: 'string' },
+                  kind: { type: 'string' },
+                  message: { type: 'string' },
+                  expected: { type: 'string', nullable: true },
+                  actual: { type: 'string', nullable: true },
+                },
+              },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const q = req.query as { fromPosition?: number; toPosition?: number; maxAnomalies?: number };
+    const result = await verifyAuditChain({
+      fromPosition: q.fromPosition,
+      toPosition: q.toPosition,
+      maxAnomalies: q.maxAnomalies,
+    });
+    return result;
   });
 }

@@ -114,6 +114,30 @@ function topologicalSort(tables: string[], deps: Record<string, string[]>): stri
 // Fetch all data (raw SQL, snake_case table + column names)
 // ---------------------------------------------------------------------------
 
+/**
+ * Walk a row object and stringify any BigInt values in place.
+ *
+ * Audit 2026-05-04 fix C3 added a BIGSERIAL chain_position column on
+ * audit_trail; the pg driver returns BIGSERIAL as native BigInt which
+ * JSON.stringify (used by every export format + by Fastify's serializer
+ * + by computeBackupChecksum) cannot serialize. Stringifying at the
+ * source keeps every downstream consumer JSON-clean without scattering
+ * replacers across each call site.
+ *
+ * Stringify is the safest representation: numbers > 2^53 lose precision
+ * if cast to Number; strings preserve full bigint width and Postgres
+ * accepts the textual form on insert (cast back to bigint by the column).
+ */
+function stringifyBigInts(rows: Record<string, any>[]): Record<string, any>[] {
+  for (const row of rows) {
+    for (const k of Object.keys(row)) {
+      const v = row[k];
+      if (typeof v === 'bigint') row[k] = v.toString();
+    }
+  }
+  return rows;
+}
+
 export async function fetchAllTablesRaw(): Promise<Record<string, Record<string, any>[]>> {
   const tables = await getAllTables();
   const result: Record<string, Record<string, any>[]> = {};
@@ -122,7 +146,7 @@ export async function fetchAllTablesRaw(): Promise<Record<string, Record<string,
     const rows = await prisma.$queryRawUnsafe(
       `SELECT * FROM "${table}"${orderClause}`,
     ) as Record<string, any>[];
-    result[table] = rows;
+    result[table] = stringifyBigInts(rows);
   }
   return result;
 }
