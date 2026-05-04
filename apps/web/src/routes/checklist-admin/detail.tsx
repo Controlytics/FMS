@@ -42,6 +42,12 @@ export function ChecklistProfileDetailPage() {
   const perms = user?.permissions ?? [];
   const canEdit = isSuperAdmin || perms.includes('CHECKLIST_EDIT');
   const canDelete = isSuperAdmin || perms.includes('CHECKLIST_DELETE');
+  // M4 (2026-05-03): version history is gated by VERSION_HISTORY_VIEW (the
+  // same perm /version-history route uses). SUPER_ADMIN bypasses per the
+  // standard pattern. Backend `GET /api/checklist-profiles/:id/versions`
+  // also accepts CHECKLIST_READ, but the deep-link target page strictly
+  // requires VERSION_HISTORY_VIEW, so don't render a link the user can't follow.
+  const canViewHistory = isSuperAdmin || perms.includes('VERSION_HISTORY_VIEW');
   const reauth = useReauth();
   const swrKey = `/api/checklist-profiles/${id}`;
   const { data: profile, isLoading } = useSWR(id ? swrKey : null);
@@ -147,10 +153,28 @@ export function ChecklistProfileDetailPage() {
                 {profile?.description && <p className="text-sm text-slate-400 mt-0.5">{profile.description}</p>}
               </div>
             </div>
-            <span className={`px-3 py-1.5 text-xs rounded-full font-semibold flex items-center gap-1.5 ${profile?.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-              <span className={`w-2 h-2 rounded-full ${profile?.isActive ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-              {profile?.isActive ? 'Active' : 'Inactive'}
-            </span>
+            <div className="flex items-center gap-3">
+              {/* M4 (2026-05-03): deep-link to the cross-entity Version History page,
+                  pre-tabbed to checklist-profile and pre-selected to this id.
+                  Lightweight discoverability fix — keeps all version-list / diff
+                  rendering on the dedicated page; no extra fetches here. */}
+              {canViewHistory && id && (
+                <button
+                  onClick={() => navigate(`/version-history?entity=checklist-profile&id=${id}`)}
+                  className="px-3 py-1.5 text-xs rounded-full font-semibold flex items-center gap-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 hover:border-indigo-300 transition-colors"
+                  title="View archived versions and diffs for this checklist profile"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Version History
+                </button>
+              )}
+              <span className={`px-3 py-1.5 text-xs rounded-full font-semibold flex items-center gap-1.5 ${profile?.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                <span className={`w-2 h-2 rounded-full ${profile?.isActive ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                {profile?.isActive ? 'Active' : 'Inactive'}
+              </span>
+            </div>
           </div>
 
           {/* Stats */}
