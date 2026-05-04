@@ -47,9 +47,71 @@ admin-requests, assets (templates/instances/relationships/identifiers), audit, a
 - `reauth-check.ts` — Re-authentication enforcement with 10s in-memory cache
 
 ## Testing
+
 ```bash
-cd apps/api && npx vitest run   # Run unit tests
+cd apps/api && npm test    # Stable single-fork run (see below for why)
 ```
+
+### Single-fork requirement (read before running the suite)
+
+The full `apps/api` test suite **must run in a single fork** to produce a
+stable pass/fail count. The verified stable invocation is:
+
+```bash
+cd apps/api && npx vitest run --pool=forks --poolOptions.forks.singleFork=true
+```
+
+`npm test` is wired to this exact command so operators don't have to
+remember the flags. If you invoke `npx vitest run` directly with the
+default pool, you will see flaky failures that are NOT real bugs.
+
+**Why** — two contention sources, neither introduced by any single test:
+
+1. **Shared `admin` test user race.** `vitest.global-setup.ts` provisions
+   one `admin` / `Admin@123` user (SUPER_ADMIN) and one `RB0001` /
+   `Test@1234` user (OPERATOR) in `digilog_db`. Most e2e/integration
+   suites log in as `admin`. When vitest runs multiple worker forks in
+   parallel, two files can hold concurrent sessions for the same user;
+   one calling `POST /api/auth/logout` invalidates the session row the
+   other is mid-request against, and the second worker sees a 401 it
+   doesn't expect. `vitest.config.ts` already sets
+   `fileParallelism: false`, but with the default `forks` pool that
+   only serialises files *within* a worker — multiple worker processes
+   can still be spawned. `singleFork: true` collapses everything into
+   one process, which removes the race.
+
+2. **Local dev server contention.** If `tsx watch src/app.ts` is running
+   on `:3000` against the same `digilog_db` (the normal dev loop), it
+   holds its own `admin` session in the same `user_sessions` table. A
+   test logout invalidates that session too, and any subsequent
+   browser/dev request gets 401'd until the dev server re-logs in. This
+   is benign for tests but disruptive for the human running both at
+   once. Stop the dev server (or run tests against a separate DB) for
+   the cleanest run.
+
+The flakiness was *surfaced*, not introduced, by the new e2e files in
+commit `859492e3` (Phase 8.7 / Wave 8a verification). Those files just
+added more concurrent admin logins, exposing a pre-existing infra
+limitation.
+
+**Verified baseline** (Wave 8a, single-fork mode):
+**1231 passing, 2 failed, 9 skipped.** The 2 failures are pre-existing
+and tracked separately. If your single-fork run shows materially
+different numbers, investigate before assuming your change broke
+something.
+
+**Per-file authoring tip.** If you're adding a new e2e/integration test
+file, follow the pattern from agent AD's recent commits: provision a
+*unique* SUPER_ADMIN user inside the file's `beforeAll` (e.g. username
+based on the test file name) instead of logging in as the shared
+`admin`. That keeps your file safe under both single-fork and
+multi-fork runs and makes it cheaper to debug in isolation. The
+shared-`admin` pattern is grandfathered-in for older files but should
+not be repeated.
+
+**Trade-off accepted.** Single-fork is slower (no cross-file
+parallelism) but reliable. Until each test file owns its own login
+fixture, this is the right default.
 
 ## Environment
 - API_PORT=3000, TSDB_DATABASE=digilog_tsdb
