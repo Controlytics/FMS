@@ -222,20 +222,20 @@ async function syncTombstones(): Promise<void> {
  * Refresh JWT before draining the queue. Long offline sessions can outlast
  * the 8h token, which would 401 every queued op. If refresh itself 401s,
  * keep the queue intact and surface the error so the UI can prompt re-login.
+ *
+ * Audit 2026-05-04 fix #4 (web-plumbing review H — JWT refresh fragmentation):
+ * delegates to apiClient.refreshToken() so all three former refresh sites
+ * (use-auth interval, this pre-sync hook, any future on-401 retry) share a
+ * single in-flight Promise — concurrent callers don't double-fire and the
+ * call always reaches the API host (relative-URL fetch was a no-op on
+ * Capacitor APK). Pass-through wrapper keeps the existing `{ok, error}`
+ * shape that syncPendingOperations expects.
  */
 async function refreshTokenBeforeSync(): Promise<{ ok: boolean; error?: string }> {
   const token = sessionStorage.getItem('access_token') || localStorage.getItem('access_token_backup');
   if (!token) return { ok: false, error: 'No token in storage' };
-  try {
-    const res = await apiClient.post<{ token: string }>('/api/auth/refresh', {});
-    if (res?.token) {
-      sessionStorage.setItem('access_token', res.token);
-      localStorage.setItem('access_token_backup', res.token);
-    }
-    return { ok: true };
-  } catch (e: any) {
-    return { ok: false, error: e?.message ?? 'Token refresh failed' };
-  }
+  const ok = await apiClient.refreshToken();
+  return ok ? { ok: true } : { ok: false, error: 'Token refresh failed' };
 }
 
 export async function syncPendingOperations(): Promise<{ synced: number; failed: number }> {

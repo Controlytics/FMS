@@ -25,6 +25,11 @@ const { mockApiClient, mockOfflineStore, mockConnectivity } = vi.hoisted(() => {
       post: vi.fn(),
       put: vi.fn(),
       delete: vi.fn(),
+      // Audit 2026-05-04 fix #4: sync-engine now calls apiClient.refreshToken()
+      // (centralised JWT refresh) instead of inline POST. Default success here
+      // mirrors the pre-refactor behavior — tests that needed refresh failure
+      // can override by writing mockApiClient.refreshToken.mockResolvedValueOnce(false).
+      refreshToken: vi.fn(async () => true),
     },
     mockOfflineStore: {
       __ops: opsRegistry,

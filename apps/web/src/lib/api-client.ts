@@ -123,6 +123,58 @@ class ApiClient {
   getWithReauth<T>(url: string, password: string) {
     return this.withReauth<T>('GET', url, password);
   }
+
+  /**
+   * Audit 2026-05-04 fix #4 (web-plumbing review H — JWT refresh
+   * fragmentation). Centralised JWT refresh.
+   *
+   * The previous flow had THREE independent refresh sites:
+   *   - use-auth.ts 30-min interval used raw `fetch('/api/auth/refresh')`
+   *     (relative URL — silent no-op on Capacitor APK because the WebView
+   *     origin is capacitor://, not the API host)
+   *   - sync-engine.ts had its own inline refresh helper
+   *   - nothing on the request path — a token expiring mid-request would
+   *     trigger 401 logout instead of silent renewal
+   *
+   * Now: every refresh goes through this method. Goes through the normal
+   * apiClient.post which uses VITE_API_URL → reaches the API on tablets.
+   *
+   * In-flight Promise guard means concurrent callers (interval + sync
+   * engine + tab-switch wakeup) share one network request.
+   *
+   * Returns true on success, false on any failure (network or 401).
+   * Caller decides whether to log out on false (typically: only the
+   * interval refresher logs out; per-request callers let the next
+   * request 401 through the normal logout path).
+   */
+  private inFlightRefresh: Promise<boolean> | null = null;
+  refreshToken(): Promise<boolean> {
+    if (this.inFlightRefresh) return this.inFlightRefresh;
+    this.inFlightRefresh = (async () => {
+      const token = this.getToken();
+      if (!token) return false;
+      try {
+        const data = await this.post<{ token?: string }>('/api/auth/refresh', {});
+        if (data?.token) {
+          sessionStorage.setItem('access_token', data.token);
+          localStorage.setItem('access_token_backup', data.token);
+          return true;
+        }
+        return false;
+      } catch {
+        // Silent — caller decides what to do. The request layer's normal
+        // 401 handling will take over on subsequent requests if the token
+        // really is dead.
+        return false;
+      } finally {
+        // Clear after a microtask so concurrent callers awaiting the same
+        // promise still get the result; only NEW callers after this point
+        // fire a fresh refresh.
+        queueMicrotask(() => { this.inFlightRefresh = null; });
+      }
+    })();
+    return this.inFlightRefresh;
+  }
 }
 
 export const apiClient = new ApiClient();

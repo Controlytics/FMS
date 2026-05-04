@@ -166,41 +166,25 @@ export function useAuth() {
     };
   }, [user]);
 
-  // Periodically refresh JWT token to prevent expiry (every 30 minutes)
+  // Periodically refresh JWT token to prevent expiry (every 30 minutes).
+  //
+  // Audit 2026-05-04 fix #4 (web-plumbing review H — JWT refresh fragmentation):
+  // routes through `apiClient.refreshToken()` instead of raw `fetch()` so the
+  // request actually reaches the API on Capacitor APK builds (raw fetch with a
+  // relative URL hits the WebView origin, which isn't the API host — the
+  // refresh was silently no-op on tablet). The shared in-flight Promise guard
+  // in apiClient.refreshToken() also coalesces with sync-engine's pre-replay
+  // refresh and any future on-401 retry path so we don't double-fire.
+  //
+  // The 10-second cross-tab lock is dropped here — apiClient's per-process
+  // in-flight Promise guards a single tab; cross-tab races only matter if
+  // both tabs are actively talking to the API, in which case both refreshes
+  // succeed and the second-applied wins (idempotent).
   useEffect(() => {
     const REFRESH_INTERVAL = 30 * 60 * 1000; // 30 minutes
-    const refreshToken = async () => {
-      const token = sessionStorage.getItem('access_token');
-      if (!token) return;
-
-      // Prevent multiple tabs from refreshing simultaneously
-      const lockKey = 'digilog_token_refresh_lock';
-      const lockValue = localStorage.getItem(lockKey);
-      if (lockValue && Date.now() - parseInt(lockValue) < 10000) return; // Another tab is refreshing
-      localStorage.setItem(lockKey, String(Date.now()));
-
-      try {
-        const res = await fetch('/api/auth/refresh', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.token) {
-            sessionStorage.setItem('access_token', data.token);
-            localStorage.setItem('access_token_backup', data.token);
-          }
-        }
-      } catch {
-        // Silent fail — next request will trigger 401 logout if token truly expired
-      } finally {
-        localStorage.removeItem(lockKey);
-      }
-    };
-
-    const interval = setInterval(refreshToken, REFRESH_INTERVAL);
-    // Also refresh once shortly after mount to extend token on page load
-    const initialRefresh = setTimeout(refreshToken, 5000);
+    const interval = setInterval(() => { void apiClient.refreshToken(); }, REFRESH_INTERVAL);
+    // Also refresh once shortly after mount to extend token on page load.
+    const initialRefresh = setTimeout(() => { void apiClient.refreshToken(); }, 5000);
     return () => { clearInterval(interval); clearTimeout(initialRefresh); };
   }, [user]);
 
