@@ -27,6 +27,7 @@ import { HierarchyDeleteDialog } from './filter-list/dialogs/HierarchyDeleteDial
 import { EditFilterDialog } from './filter-list/dialogs/EditFilterDialog';
 import { DeleteFilterDialog } from './filter-list/dialogs/DeleteFilterDialog';
 import { BulkUploadDialog } from './filter-list/dialogs/BulkUploadDialog';
+import { findMissingRequiredAttributes } from './filter-list/lib/validate-template-attributes';
 
 export function FilterListPage() {
   const { formatDate } = useDatetimeFormat();
@@ -215,12 +216,25 @@ export function FilterListPage() {
 
   const handleCreate = async () => {
     if (!createDialog || !createName.trim()) return;
+    const templateId = getTemplateIdForType(createDialog.type);
+
+    // Build attributes from form fields, convert types
+    const schema = getTemplateSchema(createDialog.type);
+
+    // Audit H5 (2026-05-04): Block/Area/AHU templates can declare required
+    // attributeSchema fields (location, capacity, etc.). Surface a single
+    // inline error before posting so the operator doesn't have to wait on a
+    // 400 from the create endpoint. Backend (`validateAttributeValues` in
+    // `apps/api/src/modules/assets/helpers/attribute-validator.ts`) is still
+    // authoritative — this is a UX guard.
+    const missingRequired = findMissingRequiredAttributes(createAttrs, schema);
+    if (missingRequired.length > 0) {
+      toast.error('Missing required field(s)', missingRequired.join(', '));
+      return;
+    }
+
     setCreating(true);
     try {
-      const templateId = getTemplateIdForType(createDialog.type);
-
-      // Build attributes from form fields, convert types
-      const schema = getTemplateSchema(createDialog.type);
       const attributes: Record<string, any> = {};
       for (const field of schema) {
         const val = createAttrs[field.fieldName] ?? '';
@@ -446,23 +460,35 @@ export function FilterListPage() {
   const handlePanelSubmit = async () => {
     if (!panelFilter || !panelRemarks.trim()) return;
     setPanelSubmitting(true);
-    try {
-      const endpoint = panelAction === 'retire'
-        ? `/api/filters/${panelFilter.id}/retire`
-        : `/api/filters/${panelFilter.id}/replace`;
-      const result = await api.post<any>(endpoint, { remarks: panelRemarks.trim() });
-      if (panelAction === 'replace' && result.newFilterName) {
-        toast.success('Filter Replaced', `New filter created: ${result.newFilterName}`);
-      } else {
-        toast.success('Filter Retired', `${panelFilter.name} has been retired`);
-      }
-      closePanel();
-      mutate('/api/assets/instances?limit=500');
-    } catch (err: any) {
-      toast.error('Action Failed', err.message ?? 'Something went wrong');
-    } finally {
-      setPanelSubmitting(false);
-    }
+    const action = panelAction;
+    const endpoint = action === 'retire'
+      ? `/api/filters/${panelFilter.id}/retire`
+      : `/api/filters/${panelFilter.id}/replace`;
+    const reauthAction = action === 'retire' ? 'RETIRE_FILTER' : 'REPLACE_FILTER';
+    let result: any = null;
+    await reauth.execute(
+      reauthAction,
+      async (password?: string) => {
+        const body = { remarks: panelRemarks.trim() };
+        if (password) result = await api.postWithReauth<any>(endpoint, body, password);
+        else result = await api.post<any>(endpoint, body);
+      },
+      {
+        onSuccess: () => {
+          if (action === 'replace' && result?.newFilterName) {
+            toast.success('Filter Replaced', `New filter created: ${result.newFilterName}`);
+          } else {
+            toast.success('Filter Retired', `${panelFilter!.name} has been retired`);
+          }
+          closePanel();
+          mutate('/api/assets/instances?limit=500');
+        },
+        onError: (err: any) => {
+          toast.error('Action Failed', err?.message ?? 'Something went wrong');
+          setPanelSubmitting(false);
+        },
+      },
+    );
   };
 
   // ── Multi-select helpers ──
@@ -554,21 +580,43 @@ export function FilterListPage() {
     let completed = 0;
     let failed = 0;
     const action = bulkAction === 'replace' ? 'replace' : 'retire';
+    const reauthAction = action === 'retire' ? 'RETIRE_FILTER' : 'REPLACE_FILTER';
 
-    for (const id of ids) {
-      try {
-        await api.post(`/api/filters/${id}/${action}`, { remarks: panelRemarks.trim() });
-        completed++;
-      } catch { failed++; }
-    }
-
-    toast.success(
-      action === 'retire' ? 'Bulk Retirement' : 'Bulk Replacement',
-      `${completed} filter(s) ${action === 'retire' ? 'retired' : 'replaced'}${failed ? `, ${failed} failed` : ''}`,
+    // Wrap the whole loop in ONE reauth.execute so the operator is prompted
+    // for a password ONCE, not 50× when retiring/replacing 50 filters. The
+    // same password is then forwarded to every per-filter POST. Mirrors the
+    // pattern in handleBulkStatusSubmit at L519-547.
+    await reauth.execute(
+      reauthAction,
+      async (password?: string) => {
+        for (const id of ids) {
+          try {
+            const body = { remarks: panelRemarks.trim() };
+            if (password) {
+              await api.postWithReauth(`/api/filters/${id}/${action}`, body, password);
+            } else {
+              await api.post(`/api/filters/${id}/${action}`, body);
+            }
+            completed++;
+          } catch { failed++; }
+        }
+      },
+      {
+        onSuccess: () => {
+          toast.success(
+            action === 'retire' ? 'Bulk Retirement' : 'Bulk Replacement',
+            `${completed} filter(s) ${action === 'retire' ? 'retired' : 'replaced'}${failed ? `, ${failed} failed` : ''}`,
+          );
+          closeBulkPanel();
+          setSelectedFilterIds(new Set());
+          mutate('/api/assets/instances?limit=500');
+        },
+        onError: (err: any) => {
+          toast.error('Bulk action failed', err?.message ?? 'Something went wrong');
+          setPanelSubmitting(false);
+        },
+      },
     );
-    closeBulkPanel();
-    setSelectedFilterIds(new Set());
-    mutate('/api/assets/instances?limit=500');
   };
 
   // ── Bulk upload helpers ──
@@ -741,14 +789,9 @@ export function FilterListPage() {
       return;
     }
     // Validate required dynamic fields up front so the operator sees one error
-    // instead of a backend rejection deep in the create flow.
-    const missingRequired = filterAttributeSchema
-      .filter((f: any) => f.required)
-      .filter((f: any) => {
-        const v = createFilterAttrs[f.fieldName];
-        return v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
-      })
-      .map((f: any) => f.fieldName);
+    // instead of a backend rejection deep in the create flow. Helper is shared
+    // with the Block/Area/AHU create path in `handleCreate`.
+    const missingRequired = findMissingRequiredAttributes(createFilterAttrs, filterAttributeSchema);
     if (missingRequired.length > 0) {
       setCreateFilterError(`Missing required field(s): ${missingRequired.join(', ')}`);
       return;
@@ -863,34 +906,60 @@ export function FilterListPage() {
   const handleBulkUploadSubmit = async () => {
     if (!bulkUploadFile || !bulkUploadAhu) return;
     setBulkUploadStep('uploading');
-    try {
-      const formData = new FormData();
-      formData.append('file', bulkUploadFile);
-      formData.append('ahuId', bulkUploadAhu);
-      if (selectedBlock) formData.append('blockId', selectedBlock);
-      const token = sessionStorage.getItem('access_token');
-      const res = await fetch('/api/assets/instances/bulk-upload-filters', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setBulkUploadResults([{ row: 0, name: '', status: 'error', error: data.message || 'Upload failed' }]);
-        setBulkUploadFailed(1);
+
+    // Bulk upload is multipart/form-data, so we cannot use api.postWithReauth
+    // (which JSON-stringifies the body). Keep raw fetch + attach the reauth
+    // password to the x-reauth-password header — server-side enforceReauth
+    // accepts header OR body._currentPassword (see lib/reauth-check.ts:60).
+    // Wrap in reauth.execute('BULK_UPLOAD_FILTERS', ...) for the password
+    // prompt. Submission errors are surfaced through the existing inline
+    // results panel rather than the reauth dialog so the user sees per-row
+    // feedback instead of a generic "failed".
+    await reauth.execute(
+      'BULK_UPLOAD_FILTERS',
+      async (password?: string) => {
+        const formData = new FormData();
+        formData.append('file', bulkUploadFile);
+        formData.append('ahuId', bulkUploadAhu);
+        if (selectedBlock) formData.append('blockId', selectedBlock);
+        const token = sessionStorage.getItem('access_token');
+        const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+        if (password) headers['x-reauth-password'] = password;
+        const res = await fetch('/api/assets/instances/bulk-upload-filters', {
+          method: 'POST',
+          headers,
+          body: formData,
+        });
+        const data = await res.json().catch(() => ({} as any));
+        if (!res.ok) {
+          // Surface REAUTH_REQUIRED / REAUTH_FAILED back to the reauth hook
+          // so the dialog can re-prompt; everything else flows into the
+          // results panel. Match the api-client convention (throws an err
+          // object with .error code).
+          if (data?.error === 'REAUTH_REQUIRED' || data?.error === 'REAUTH_FAILED') {
+            throw data;
+          }
+          setBulkUploadResults([{ row: 0, name: '', status: 'error', error: data.message || 'Upload failed' }]);
+          setBulkUploadFailed(1);
+          setBulkUploadStep('results');
+          return;
+        }
+        setBulkUploadResults(data.results || []);
+        setBulkUploadCreated(data.created || 0);
+        setBulkUploadFailed(data.failed || 0);
         setBulkUploadStep('results');
-        return;
-      }
-      setBulkUploadResults(data.results || []);
-      setBulkUploadCreated(data.created || 0);
-      setBulkUploadFailed(data.failed || 0);
-      setBulkUploadStep('results');
-      if (data.created > 0) mutate('/api/assets/instances?limit=500');
-    } catch (e: any) {
-      setBulkUploadResults([{ row: 0, name: '', status: 'error', error: e.message || 'Network error' }]);
-      setBulkUploadFailed(1);
-      setBulkUploadStep('results');
-    }
+        if (data.created > 0) mutate('/api/assets/instances?limit=500');
+      },
+      {
+        onError: (e: any) => {
+          // Network error or other unexpected throw — present in the results
+          // panel like the legacy fetch path did.
+          setBulkUploadResults([{ row: 0, name: '', status: 'error', error: e?.message || 'Network error' }]);
+          setBulkUploadFailed(1);
+          setBulkUploadStep('results');
+        },
+      },
+    );
   };
 
   const downloadBulkTemplate = () => {
