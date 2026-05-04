@@ -78,6 +78,26 @@ export const REAUTH_ACTIONS = {
   DELETE_HELP_ARTICLE: { label: 'Delete Help Article', category: 'Help' },
   UPDATE_RETENTION_POLICY: { label: 'Update Retention Policy', category: 'Retention' },
   EXECUTE_RETENTION: { label: 'Execute Retention', category: 'Retention' },
+  // Audit deletion (audit 2026-05-04 fix #5 — web-routes review H4):
+  // 21 CFR Part 11 § 11.10(e) requires audit-trail records be "secure".
+  // Deletion is allowed (the route exists) but must be challengeable;
+  // each delete is a deliberate, signed act. Distinct keys for single
+  // vs bulk so the audit trail records the operator's intent.
+  DELETE_AUDIT_RECORD: { label: 'Delete Audit Record', category: 'Configuration' },
+  BULK_DELETE_AUDIT_RECORDS: { label: 'Bulk Delete Audit Records', category: 'Configuration' },
+  // LDAP config (audit 2026-05-04 fix #5 — web-routes review H2):
+  // bind credentials and base-DN edits can redirect every login to an
+  // attacker-controlled directory. Distinct from UPDATE_LOGIN_SECURITY
+  // so the audit trail makes the source-of-trust change explicit.
+  UPDATE_LDAP_CONFIG: { label: 'Update LDAP Config', category: 'Configuration' },
+  // Template-kinds CRUD (audit 2026-05-04 fix #5 — web-routes review H3):
+  // controlled-vocabulary edits cascade across every entity using the kind.
+  // Distinct from CREATE/UPDATE/DELETE_ASSET_TEMPLATE so cleanroom audits
+  // can distinguish "template" edits (per-entity) from "kind" edits
+  // (vocabulary).
+  CREATE_TEMPLATE_KIND: { label: 'Create Template Kind', category: 'Entity Management' },
+  UPDATE_TEMPLATE_KIND: { label: 'Update Template Kind', category: 'Entity Management' },
+  DELETE_TEMPLATE_KIND: { label: 'Delete Template Kind', category: 'Entity Management' },
 
   // Phase 2: Filter Management
   START_CLEANING_CYCLE: { label: 'Start Cleaning Cycle', category: 'Filter Management' },

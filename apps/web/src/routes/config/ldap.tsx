@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { api } from '../../lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 
 interface RoleMappingRow {
   ldapGroup: string;
@@ -49,6 +51,7 @@ const DEFAULTS: LdapConfig = {
 export default function LdapConfigPage() {
   const { data: savedConfig, mutate } = useSWR<LdapConfig>('/api/ldap/config');
   const { data: rolesData } = useSWR<Array<{ name: string; displayName: string }>>('/api/roles/active');
+  const reauth = useReauth();
 
   const [config, setConfig] = useState<LdapConfig>(DEFAULTS);
   const [saving, setSaving] = useState(false);
@@ -64,18 +67,33 @@ export default function LdapConfigPage() {
     setConfig(prev => ({ ...prev, [key]: value }));
   };
 
-  const handleSave = async () => {
+  // Audit 2026-05-04 fix #5 (web-routes review H2): LDAP config edits
+  // (bind credentials + base-DN) can redirect every login to an attacker-
+  // controlled directory. Distinct UPDATE_LDAP_CONFIG action key (vs
+  // UPDATE_LOGIN_SECURITY) so the audit trail makes the source-of-trust
+  // change explicit.
+  const handleSave = () => {
     setSaving(true);
     setSaveMsg(null);
-    try {
-      await api.put('/api/ldap/config', config);
-      mutate();
-      setSaveMsg({ type: 'success', text: 'LDAP configuration saved successfully' });
-      setTimeout(() => setSaveMsg(null), 5000);
-    } catch (e: any) {
-      setSaveMsg({ type: 'error', text: e.message || 'Failed to save' });
-    }
-    setSaving(false);
+    reauth.execute(
+      'UPDATE_LDAP_CONFIG',
+      async (password?: string) => {
+        if (password) await api.putWithReauth('/api/ldap/config', config, password);
+        else await api.put('/api/ldap/config', config);
+      },
+      {
+        onSuccess: () => {
+          mutate();
+          setSaveMsg({ type: 'success', text: 'LDAP configuration saved successfully' });
+          setTimeout(() => setSaveMsg(null), 5000);
+          setSaving(false);
+        },
+        onError: (e: any) => {
+          setSaveMsg({ type: 'error', text: e.message || 'Failed to save' });
+          setSaving(false);
+        },
+      },
+    );
   };
 
   const handleTest = async () => {
@@ -338,6 +356,17 @@ export default function LdapConfigPage() {
           {saving ? 'Saving...' : 'Save Configuration'}
         </button>
       </div>
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setSaving(false); }}
+        actionLabel="Update LDAP Configuration"
+      />
     </div>
   );
 }

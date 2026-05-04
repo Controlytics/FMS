@@ -5,6 +5,7 @@ import { auditLog } from '../../lib/audit.js';
 import { auditQuerySchema } from '@digilog/shared';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { verifyAuditChain } from '../../lib/audit-verify.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 
 export default async function auditRoutes(app: FastifyInstance) {
   // GET /api/audit — query audit trail (requires AUDIT_READ permission)
@@ -224,6 +225,12 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    // Audit 2026-05-04 fix #5 (web-routes review H4): per § 11.10(e),
+    // audit-record deletion must be challengeable. Distinct action key
+    // (DELETE_AUDIT_RECORD vs BULK_DELETE_AUDIT_RECORDS) so the operator
+    // intent is recorded in the surviving audit trail.
+    const { ok } = await enforceReauth('DELETE_AUDIT_RECORD', req, reply);
+    if (!ok) return;
     const { id } = req.params as { id: string };
 
     const record = await prisma.auditTrail.findUnique({ where: { id } });
@@ -273,7 +280,12 @@ export default async function auditRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    // Audit 2026-05-04 fix #5 (web-routes review H4): bulk delete needs its
+    // own action key — collapsing it into DELETE_AUDIT_RECORD would let an
+    // operator wipe many rows under a single password challenge.
+    const { ok } = await enforceReauth('BULK_DELETE_AUDIT_RECORDS', req, reply);
+    if (!ok) return;
     const { ids } = req.body as { ids: string[] };
 
     const records = await prisma.auditTrail.findMany({

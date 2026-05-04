@@ -1,6 +1,7 @@
 import { type FastifyInstance } from 'fastify';
 import { ldapService } from './ldap.service.js';
 import { auditLog } from '../../lib/audit.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 
 export default async function ldapRoutes(app: FastifyInstance) {
   // GET /api/ldap/config
@@ -21,6 +22,12 @@ export default async function ldapRoutes(app: FastifyInstance) {
       body: { type: 'object', additionalProperties: true },
     },
   }, async (req, reply) => {
+    // Audit 2026-05-04 fix #5 (web-routes review H2): LDAP bind credentials
+    // and base-DN are the source-of-trust for every login flow. Tampering
+    // with them can redirect every login to an attacker-controlled
+    // directory.
+    const { ok } = await enforceReauth('UPDATE_LDAP_CONFIG', req, reply);
+    if (!ok) return;
     const body = req.body as Record<string, any>;
     await ldapService.saveConfig(body, req.user.username);
 

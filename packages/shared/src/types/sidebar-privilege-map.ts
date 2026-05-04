@@ -165,13 +165,6 @@ export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
     privilegeIds: ["assets.view", "assets.create", "assets.edit", "assets.delete"],
   },
   {
-    sidebarId: "organizations",
-    label: "Organizations",
-    icon: "\u{1F3E2}",
-    description: "Organization management",
-    privilegeIds: ["org.view", "org.manage"],
-  },
-  {
     sidebarId: "pm-schedules",
     label: "PM Schedules",
     icon: "\u{1F4C5}",
