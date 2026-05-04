@@ -45,12 +45,24 @@ export async function getBatchStatesImpl(
     select: { id: true },
   });
 
+  // Audit 2026-05-05 fix #5: parallelize the per-filter getCurrentState calls
+  // in bounded chunks. Pre-fix sequential loop was N+1: each getCurrentState
+  // does ~10 sequential prisma reads. For a site with 500 filters that was
+  // 5000+ queries serialized end-to-end — operators saw multi-second hangs
+  // on offline-cache-warmup. Chunk size 10 keeps the prisma pool steady
+  // (default 10 connections) while cutting total wall time ~10×.
+  const CHUNK_SIZE = 10;
   const states: Record<string, any> = {};
-  for (const f of filters) {
-    try {
-      states[f.id] = await service.getCurrentState(ctx, f.id, cleaningAreaId);
-    } catch {
-      // Skip filters that error (e.g., no profile assigned)
+  for (let i = 0; i < filters.length; i += CHUNK_SIZE) {
+    const chunk = filters.slice(i, i + CHUNK_SIZE);
+    const settled = await Promise.allSettled(
+      chunk.map(f => service.getCurrentState(ctx, f.id, cleaningAreaId)),
+    );
+    for (let j = 0; j < chunk.length; j++) {
+      const r = settled[j];
+      if (r.status === 'fulfilled') states[chunk[j].id] = r.value;
+      // rejected (no profile assigned, etc.) is silently skipped — same
+      // semantics as the pre-fix try/catch loop.
     }
   }
   return { states, cachedAt: new Date().toISOString() };
@@ -73,9 +85,20 @@ export async function getCurrentStateImpl(
   // popup BEFORE asking for a wash-in reason, not as a background error
   // after submission. This is purely informational — validateBlockChange()
   // remains the authoritative enforcement point inside startCycle.
-  const homeBlockRaw = await getFilterHomeBlock(filterId);
-  const homeBlock = homeBlockRaw ? { id: homeBlockRaw.blockId, name: homeBlockRaw.blockName } : null;
+  //
+  // Audit 2026-05-05 fix #9: skip the homeBlock query mid-cycle. The
+  // block-change popup is only useful pre-start; once a cycle is in
+  // progress the operator can't change blocks. Pre-fix this query ran on
+  // every /current-state poll regardless of cycle state — wasted DB
+  // round-trip per poll per filter, and /current-state is the hot path
+  // (FE polls it after every cycle write + on visibility change + every
+  // 60s background sync).
+  let homeBlock: { id: string; name: string } | null = null;
   let blockChangeStatus: 'MATCH' | 'APPROVED' | 'REQUIRED' | null = null;
+  if (!filter.currentCycleId) {
+    const homeBlockRaw = await getFilterHomeBlock(filterId);
+    homeBlock = homeBlockRaw ? { id: homeBlockRaw.blockId, name: homeBlockRaw.blockName } : null;
+  }
   if (!filter.currentCycleId && cleaningAreaId && homeBlock) {
     if (homeBlock.id === cleaningAreaId) {
       blockChangeStatus = 'MATCH';
@@ -279,14 +302,23 @@ export async function getCurrentStateImpl(
         if (liveGroup && liveGroup.version === pin) {
           equipmentGroup = liveGroup;
         } else {
-          // Pin and live diverge but no snapshot row exists. Should be impossible
-          // given the snapshot-then-bump invariant; log + return live so the UI
-          // doesn't break. advance() will throw 409 GROUP_VERSION_MISSING when
-          // the operator attempts to submit readings.
+          // Audit 2026-05-05 fix #6: pin and live diverge but no snapshot
+          // row exists. Pre-fix returned the live row with just a console.warn
+          // — operators saw the WRONG instrument operating ranges in the UI
+          // dropdowns and only learned of the mismatch when advance() finally
+          // threw 409 GROUP_VERSION_MISSING after they had typed values.
+          //
+          // Now: still return the live row so the UI doesn't break, BUT
+          // surface a `equipmentGroupSnapshotMissing` flag in the response.
+          // The dropdowns can disable submission until operator resolves
+          // (terminate-and-restart on the new version, or admin re-saves
+          // the live group to materialize the snapshot).
           console.warn(
-            `[getCurrentState] equipmentGroupVersionPin=${pin} but neither snapshot row exists nor does live.version match for group ${currentCycle.equipmentGroupId} (cycle ${currentCycle.id}). Returning live row.`,
+            `[getCurrentState] equipmentGroupVersionPin=${pin} but neither snapshot row exists nor does live.version match for group ${currentCycle.equipmentGroupId} (cycle ${currentCycle.id}). Returning live row + snapshotMissing flag.`,
           );
-          equipmentGroup = liveGroup;
+          equipmentGroup = liveGroup
+            ? { ...liveGroup, snapshotMissing: true, pinnedVersion: pin, liveVersion: liveGroup.version }
+            : null;
         }
       }
     } else {

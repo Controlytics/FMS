@@ -99,4 +99,30 @@ export const blockChangeService = {
       data: { status: 'EXPIRED' },
     });
   },
+
+  /**
+   * Audit 2026-05-05 fix #7: tx-aware variants. The pre-fix flow ran
+   * validateBlockChange OUTSIDE the start-cycle transaction (called at
+   * start-cycle.ts:63 before the FOR UPDATE lock at :124). A concurrent
+   * second start-cycle could consume the same approval between the
+   * outer-tx hasApproval read and the FOR UPDATE — both starts then
+   * proceed as if approved.
+   *
+   * These variants take a TransactionClient so the find + update happen
+   * under the same row lock as the cycle insert. start-cycle.ts now calls
+   * the tx-aware path inside its $transaction.
+   */
+  async hasApprovalTx(tx: any, filterId: string, toBlockId: string): Promise<boolean> {
+    const approved = await tx.blockChangeRequest.findFirst({
+      where: { filterId, toBlockId, status: 'APPROVED' },
+    });
+    return !!approved;
+  },
+
+  async consumeApprovalTx(tx: any, filterId: string, toBlockId: string): Promise<void> {
+    await tx.blockChangeRequest.updateMany({
+      where: { filterId, toBlockId, status: 'APPROVED' },
+      data: { status: 'EXPIRED' },
+    });
+  },
 };

@@ -221,7 +221,7 @@ describe('FilterOperationsService.getCurrentState() — L1 + L2 invariants', () 
       }
     });
 
-    it('case 3: pin set + no snapshot row + live.version !== pin → returns live row AND warns', async () => {
+    it('case 3: pin set + no snapshot row + live.version !== pin → returns live row spread with snapshotMissing flag AND warns', async () => {
       setupMinimalReads();
       mockPrisma.equipmentGroupVersion.findUnique.mockResolvedValue(null);
       const liveGroup = {
@@ -239,7 +239,17 @@ describe('FilterOperationsService.getCurrentState() — L1 + L2 invariants', () 
         const { service } = makeService();
         const state = await service.getCurrentState(ctx, FILTER_ID);
 
-        expect(state.equipmentGroup).toBe(liveGroup);
+        // Audit 2026-05-05 fix #6: pre-fix returned the live row AS-IS with
+        // a console.warn — operators saw stale dropdowns until advance()
+        // finally threw 409 GROUP_VERSION_MISSING. Now the response carries
+        // snapshotMissing/pinnedVersion/liveVersion so the FE can disable
+        // submission upfront.
+        expect(state.equipmentGroup).toMatchObject({
+          ...liveGroup,
+          snapshotMissing: true,
+          pinnedVersion: 3,
+          liveVersion: 5,
+        });
         expect(warnSpy).toHaveBeenCalledTimes(1);
         const msg = warnSpy.mock.calls[0][0] as string;
         expect(msg).toContain('equipmentGroupVersionPin=3');

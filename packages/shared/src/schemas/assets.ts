@@ -213,6 +213,15 @@ export const createAssetInstanceSchema = z.object({
   telemetryConfig: z.record(z.unknown()).default({}),
   customAttributes: z.record(z.unknown()).default({}),
   parentId: z.string().uuid().nullable().optional(),
+  // Audit 2026-05-05 fix #1: optional FilterDetails fields the create dialog
+  // sends for filter-kind templates. Schema accepts them so the route doesn't
+  // strip them before reaching instance.service.ts:111-128 which now persists
+  // them onto the FilterDetails sidecar.
+  // Server validates: filterSet must be 'A' or 'B' if supplied; filterProfileId
+  // FK constraint catches a bad UUID. Both are silently ignored for non-FILTER
+  // templates (the FilterDetails create branch never runs).
+  filterSet: z.enum(['A', 'B']).nullable().optional(),
+  filterProfileId: z.string().uuid().nullable().optional(),
 });
 
 export const updateAssetInstanceSchema = z.object({

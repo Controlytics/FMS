@@ -19,6 +19,7 @@ import {
   getFilter,
   resolveFilterProfile,
   validateBlockChange,
+  consumeBlockChangeApprovalTx,
   getCleaningReasons,
 } from '../filter-resolver.js';
 import type { FilterOperationsService } from '../filter-operations.service.js';
@@ -132,6 +133,13 @@ export async function startCycleImpl(
       const active = await tx.cleaningCycle.findFirst({ where: { id: lockedCurrentCycleId, status: 'IN_PROGRESS' } });
       if (active) throw new AppError(409, 'CYCLE_ACTIVE', 'Filter already has an active cleaning cycle');
     }
+
+    // Audit 2026-05-05 fix #7: re-check + consume the block-change approval
+    // INSIDE the lock. Without this, two concurrent starts could both pass
+    // the outer-tx hasApproval read at validateBlockChange() above and both
+    // proceed to consume — second one wins with no audit trail of the first
+    // having claimed it.
+    await consumeBlockChangeApprovalTx(tx, filterId, cleaningAreaId);
 
     // Validate equipment group if provided. P1 (2026-05-02): also capture the
     // group's current version so the cycle pins it at start. Reading validation

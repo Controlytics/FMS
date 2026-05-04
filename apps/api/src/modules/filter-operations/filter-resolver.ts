@@ -85,7 +85,43 @@ export async function validateBlockChange(filterId: string, cleaningAreaId: stri
       }
     );
   }
-  await blockChangeService.consumeApproval(filterId, cleaningAreaId);
+  // Audit 2026-05-05 fix #7: do NOT consume here. The consumption now
+  // happens inside the start-cycle transaction (start-cycle.ts) under the
+  // FOR UPDATE row lock so two concurrent starts can't both consume the
+  // same approval. This pre-flight check is kept as a cheap UX gate that
+  // gives the operator a clean 409 BLOCK_CHANGE_REQUIRED before the more
+  // expensive cycle-creation path runs.
+}
+
+/**
+ * Audit 2026-05-05 fix #7: tx-internal recheck-and-consume.
+ *
+ * Called from start-cycle.ts inside the row-locked transaction. Re-reads
+ * the approval under the lock and consumes it atomically. If the approval
+ * was already consumed by a concurrent start (race), throws 409
+ * BLOCK_CHANGE_RACE so the operator knows to refresh and retry.
+ *
+ * No-op when no cleaningAreaId, no homeBlock, or filter is at home.
+ */
+export async function consumeBlockChangeApprovalTx(
+  tx: any,
+  filterId: string,
+  cleaningAreaId: string | undefined,
+): Promise<void> {
+  if (!cleaningAreaId) return;
+  const homeBlock = await getFilterHomeBlock(filterId);
+  if (!homeBlock) return;
+  if (homeBlock.blockId === cleaningAreaId) return;
+
+  const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
+  const hasApproval = await blockChangeService.hasApprovalTx(tx, filterId, cleaningAreaId);
+  if (!hasApproval) {
+    throw new AppError(409, 'BLOCK_CHANGE_RACE',
+      'A concurrent start consumed the block-change approval. Refresh and retry.',
+      { filterId, requestedBlockId: cleaningAreaId },
+    );
+  }
+  await blockChangeService.consumeApprovalTx(tx, filterId, cleaningAreaId);
 }
 
 export function getNextStageKeys(fromNodeId: string, stages: any[], connections: any[]): string[] {

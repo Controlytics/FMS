@@ -109,7 +109,24 @@ export const instanceService = {
       });
 
       if (isFilterKind) {
-        await tx.filterDetails.create({ data: { assetInstanceId: inst.id } });
+        // Audit 2026-05-05 fix #1 (data loss): the single-filter create
+        // dialog (CreateFilterDialog.tsx:826) sends filterSet + filterProfileId
+        // but the previous code created an empty FilterDetails sidecar and
+        // silently dropped both. Operators picked Set A + a profile in the
+        // dialog, hit save, success toast → reopened the filter and both
+        // fields were empty. Bulk upload (bulk-upload-filter.service.ts:240)
+        // already persisted them; single-create now matches.
+        //
+        // Validation: filterSet must be 'A' or 'B' if supplied; bad values
+        // return 400 from the schema validator before reaching here. If
+        // filterProfileId supplied, FK constraint catches a bad UUID.
+        await tx.filterDetails.create({
+          data: {
+            assetInstanceId: inst.id,
+            ...(data.filterSet ? { filterSet: data.filterSet } : {}),
+            ...(data.filterProfileId ? { filterProfileId: data.filterProfileId } : {}),
+          },
+        });
       }
 
       let cRel, ciRel;

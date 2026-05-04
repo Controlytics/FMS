@@ -167,18 +167,26 @@ export function useOffline() {
     } catch (e: any) {
       // Determine if this is a network error (should queue) or API error (should throw)
       const msg = String(e?.message || '').toLowerCase();
-      const code = e?.code || e?.error || '';
       const isNetErr = (e instanceof TypeError && msg.includes('fetch'))
         || msg.includes('failed to connect') || msg.includes('failed to fetch')
         || msg.includes('networkerror') || msg.includes('network request failed')
         || msg.includes('unable to resolve host') || msg.includes('econnrefused')
         || msg.includes('load failed') || msg.includes('tls') || msg.includes('ssl');
-      // Reauth errors should also queue (sync engine sends x-offline-replay to skip reauth)
-      const isReauthErr = code === 'REAUTH_REQUIRED' || code === 'REAUTH_FAILED';
-      if (!isNetErr && !isReauthErr) {
-        throw e; // Real API error (validation, conflict, etc.) — throw as-is
+      // Audit 2026-05-05 fix #2: REAUTH errors must NOT silently queue.
+      // The pre-fix logic queued REAUTH_REQUIRED / REAUTH_FAILED responses
+      // because the legacy `x-offline-replay: true` header bypass would
+      // replay them later "for free." The C1 audit fix this branch
+      // replaced that with the HMAC-signed grant — so the queued op WOULD
+      // still replay under the grant, silently overriding the operator's
+      // reauth refusal (e.g., typed wrong password and meant to abort).
+      // Now: bubble REAUTH errors up so the calling page surfaces the
+      // password dialog. The caller (filter-operations.tsx, mobile-
+      // operations.tsx) wraps cycle writes in reauth.execute(), which is
+      // where the dialog lives — bubbling here is the right path.
+      if (!isNetErr) {
+        throw e; // Real API error (validation, conflict, REAUTH, etc.) — throw as-is
       }
-      // Network error or reauth block — fall through to queue below
+      // Network error — fall through to queue below
     }
 
     // Offline or network error: queue the operation. Persist the cycle-bound
@@ -191,7 +199,16 @@ export function useOffline() {
     if (optimisticState) {
       // When starting a cycle offline, also mark the filter as having an active cycle
       const markCycleActive = type === 'start-and-advance' || type === 'start-cycle';
-      await updateFilterStateLocally(filterId, optimisticState, markCycleActive);
+      // Audit 2026-05-05 fix #3: route through recomputeAndCacheFilterState
+      // (not the lighter updateFilterStateLocally) so the cached tapeVersion
+      // is bumped via computeNextActions over the just-updated lifecycle state.
+      // Without this, chained offline ops on the same filter pulled the
+      // pre-start tapeVersion at queue time and hit 409 STALE_TAPE on replay
+      // even though the operator did everything right.
+      // Lazy-import to avoid circular deps (offline-cache imports from
+      // offline-store; use-offline already imports from offline-store).
+      const { recomputeAndCacheFilterState } = await import('../lib/offline-cache');
+      await recomputeAndCacheFilterState(filterId, optimisticState, markCycleActive);
     }
     await refreshPendingCount();
     return { executed: false };

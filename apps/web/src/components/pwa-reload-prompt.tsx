@@ -31,10 +31,38 @@ export function PwaReloadPrompt() {
     updateServiceWorker,
   } = useRegisterSW({
     onRegisteredSW(swUrl, r) {
+      if (!r) return;
       // Re-check for updates every 60s. The SW only DOWNLOADS new bundles
       // when this triggers; without it the only update path is page reload,
       // which defeats the point of background-update PWA.
-      if (r) setInterval(() => { void r.update(); }, 60_000);
+      //
+      // Audit 2026-05-05 fix #11: pause polling on hidden tabs. Pre-fix,
+      // 50 operators × 2 tabs each = ~100 SW probes per minute against
+      // /sw.js even when nothing was happening — visible in the API access
+      // log and burns the cache window. visibilitychange listener pauses
+      // the interval when the tab goes to background and runs a single
+      // catch-up update + restarts the interval when it comes back.
+      let interval: ReturnType<typeof setInterval> | null = null;
+      const start = () => {
+        if (interval) return;
+        interval = setInterval(() => { void r.update(); }, 60_000);
+      };
+      const stop = () => {
+        if (!interval) return;
+        clearInterval(interval);
+        interval = null;
+      };
+      const onVisChange = () => {
+        if (document.visibilityState === 'visible') {
+          void r.update(); // catch-up immediately on resume
+          start();
+        } else {
+          stop();
+        }
+      };
+      document.addEventListener('visibilitychange', onVisChange);
+      // Initial state — most tabs mount visible, but be defensive.
+      if (document.visibilityState === 'visible') start();
     },
     onRegisterError(err) {
       console.warn('[pwa] SW register error:', err);
