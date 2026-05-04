@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
-import { apiClient } from '../../lib/api-client';
+import { apiClient, api } from '../../lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 
 type AssignmentMode = 'BY_FILTER_SIZE' | 'BY_ENTITY' | 'BY_AHU' | 'BY_BLOCK' | 'BY_FILTER_SET';
 
@@ -142,16 +144,31 @@ export function CleaningProfileAssignmentPage() {
     setRules(prev => prev.map((r, i) => i === index ? { ...r, [field]: value } : r));
   };
 
-  const handleSave = async () => {
+  // Audit 2026-05-04 fix #5 (web-routes review H — lower-blast config
+  // surfaces). UPDATE_CONFIG_PAGE umbrella; backend mirror in
+  // static-routes/cleaning-profile-assignment.routes.ts.
+  const reauthCpa = useReauth();
+  const handleSave = () => {
     setSaving(true);
-    try {
-      await apiClient.put('/api/config/cleaning-profile-assignment', { mode, rules });
-      mutate('/api/config/cleaning-profile-assignment');
-      toast.success('Configuration saved', 'Cleaning profile assignment updated successfully.');
-    } catch (e: any) {
-      toast.error('Save failed', e.message || 'Failed to save configuration');
-    }
-    setSaving(false);
+    const body = { mode, rules };
+    reauthCpa.execute(
+      'UPDATE_CONFIG_PAGE',
+      async (password?: string) => {
+        if (password) await api.putWithReauth('/api/config/cleaning-profile-assignment', body, password);
+        else await apiClient.put('/api/config/cleaning-profile-assignment', body);
+      },
+      {
+        onSuccess: () => {
+          mutate('/api/config/cleaning-profile-assignment');
+          toast.success('Configuration saved', 'Cleaning profile assignment updated successfully.');
+          setSaving(false);
+        },
+        onError: (e: any) => {
+          toast.error('Save failed', e.message || 'Failed to save configuration');
+          setSaving(false);
+        },
+      },
+    );
   };
 
   const getInstanceName = (id: string) => {
@@ -408,6 +425,17 @@ export function CleaningProfileAssignmentPage() {
           </div>
         </div>
       </div>
+
+      <ReauthDialog
+        open={reauthCpa.isOpen}
+        password={reauthCpa.password}
+        error={reauthCpa.error}
+        isVerifying={reauthCpa.isVerifying}
+        onPasswordChange={reauthCpa.setPassword}
+        onConfirm={reauthCpa.confirm}
+        onCancel={() => { reauthCpa.cancel(); setSaving(false); }}
+        actionLabel="Update Cleaning Profile Assignment"
+      />
     </div>
   );
 }

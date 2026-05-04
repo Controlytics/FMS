@@ -2,6 +2,7 @@ import { type FastifyInstance } from 'fastify';
 import { buildContext } from '../../../lib/build-context.js';
 import { auditLog } from '../../../lib/audit.js';
 import { prisma } from '../../../lib/prisma.js';
+import { enforceReauth } from '../../../lib/reauth-check.js';
 
 export async function cleaningProfileAssignmentRoutes(app: FastifyInstance) {
   app.get('/cleaning-profile-assignment', {
@@ -31,7 +32,11 @@ export async function cleaningProfileAssignmentRoutes(app: FastifyInstance) {
       },
       response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } } },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    // Audit 2026-05-04 fix #5 (web-routes review H — lower-blast config
+    // surfaces). Routed through the umbrella UPDATE_CONFIG_PAGE action.
+    const { ok } = await enforceReauth('UPDATE_CONFIG_PAGE', req, reply);
+    if (!ok) return;
     const body = req.body as { mode: string; rules: any[] };
     const ctx = buildContext(req);
 

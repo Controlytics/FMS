@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
+import { invalidateRolePermsCache } from '../../plugins/rbac.js';
 
 export const roleRepository = {
   /** Find all roles ordered by hierarchy level descending. */
@@ -52,17 +53,24 @@ export const roleRepository = {
     });
   },
 
-  /** Update a role by name. */
+  /** Update a role by name.
+   *  Audit 2026-05-04 fix: invalidates the rbac plugin's role-perms cache
+   *  so a permissions change propagates to the next request immediately
+   *  rather than waiting up to 5s for the TTL to lapse. */
   async update(name: string, data: Record<string, unknown>) {
-    return prisma.role.update({
+    const result = await prisma.role.update({
       where: { name },
       data,
     });
+    invalidateRolePermsCache(name);
+    return result;
   },
 
-  /** Delete a role by name. */
+  /** Delete a role by name. Same cache invalidation as update(). */
   async delete(name: string) {
-    return prisma.role.delete({ where: { name } });
+    const result = await prisma.role.delete({ where: { name } });
+    invalidateRolePermsCache(name);
+    return result;
   },
 
   /** Count users assigned to a given role name. */

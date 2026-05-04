@@ -2,6 +2,7 @@ import { type FastifyInstance } from 'fastify';
 import { errorResponses } from '../../../lib/error-schemas.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { prisma } from '../../../lib/prisma.js';
+import { enforceReauth } from '../../../lib/reauth-check.js';
 
 // Keep in sync with ALL_CARDS in apps/web/src/routes/config/dashboard-cards.tsx
 const VALID_CARD_KEYS = new Set([
@@ -35,6 +36,10 @@ export async function dashboardCardsRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
+    // Audit 2026-05-04 fix #5 (web-routes review H — lower-blast config
+    // surfaces). Routed through the umbrella UPDATE_CONFIG_PAGE action.
+    const { ok } = await enforceReauth('UPDATE_CONFIG_PAGE', req, reply);
+    if (!ok) return;
     const { configValue } = req.body as { configValue: { roles?: Record<string, string[]> } };
     const ctx = buildContext(req);
 

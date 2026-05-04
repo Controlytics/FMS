@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
-import { apiClient } from '../../lib/api-client';
+import { apiClient, api } from '../../lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 
 
 interface CleaningReason {
@@ -17,19 +19,38 @@ export function CleaningReasonsConfigPage() {
   const [error, setError] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
   const [isNewReason, setIsNewReason] = useState(false);
+  const reauth = useReauth();
 
   useEffect(() => {
     if (config?.value) setReasons(Array.isArray(config.value) ? config.value : []);
   }, [config]);
 
-  const save = async () => {
+  // Audit 2026-05-04 fix #5 (web-routes review H — lower-blast config
+  // surfaces). UPDATE_CONFIG_PAGE umbrella; backend is gated via the
+  // dynamic-routes.ts PUT handler reading reauthAction from the def
+  // (filter-cleaning-reasons.def.ts now sets requiresReauth + reauthAction).
+  const save = () => {
     setSaving(true);
-    try {
-      await apiClient.put('/api/config/dynamic/filter-cleaning-reasons', { value: reasons });
-      mutate('/api/config/dynamic/filter-cleaning-reasons');
-      setError(null);
-    } catch (e: any) { setError(e.message || 'Failed to save cleaning reasons'); console.error(e); }
-    setSaving(false);
+    const body = { value: reasons };
+    reauth.execute(
+      'UPDATE_CONFIG_PAGE',
+      async (password?: string) => {
+        if (password) await api.putWithReauth('/api/config/dynamic/filter-cleaning-reasons', body, password);
+        else await apiClient.put('/api/config/dynamic/filter-cleaning-reasons', body);
+      },
+      {
+        onSuccess: () => {
+          mutate('/api/config/dynamic/filter-cleaning-reasons');
+          setError(null);
+          setSaving(false);
+        },
+        onError: (e: any) => {
+          setError(e.message || 'Failed to save cleaning reasons');
+          console.error(e);
+          setSaving(false);
+        },
+      },
+    );
   };
 
   const openAdd = () => {
@@ -247,6 +268,17 @@ export function CleaningReasonsConfigPage() {
           </div>
         </div>
       )}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setSaving(false); }}
+        actionLabel="Update Cleaning Reasons"
+      />
     </div>
   );
 }

@@ -138,7 +138,11 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       },
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    // Audit 2026-05-04 fix #5 (web-routes review H — lower-blast config
+    // surfaces). Routed through the umbrella UPDATE_CONFIG_PAGE action.
+    const { ok } = await enforceReauth('UPDATE_CONFIG_PAGE', req, reply);
+    if (!ok) return;
     const ctx = buildContext(req);
     const { ahuId } = req.params as { ahuId: string };
     const { mode } = req.body as { mode: 'BOTH' | 'SET_A' | 'SET_B' | 'DISABLED' };

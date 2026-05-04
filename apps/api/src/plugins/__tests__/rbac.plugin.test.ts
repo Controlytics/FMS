@@ -15,7 +15,7 @@ const { mockPrisma, mockAuditLog } = vi.hoisted(() => ({
 
 vi.mock('../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 
-import rbacPlugin from '../rbac.js';
+import rbacPlugin, { invalidateRolePermsCache } from '../rbac.js';
 
 function makeReq(user: any = { sub: 'u1', username: 'admin', role: 'ADMIN', sessionId: 's1' }) {
   return {
@@ -39,6 +39,11 @@ describe('rbacPlugin', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    // Audit 2026-05-04 fix (api-supporting M11): rbac plugin caches role
+    // permissions for 5s. Tests reuse the same role name across cases with
+    // different mockPrisma.role.findFirst return values; clear the cache
+    // before each test so the new mock is observed.
+    invalidateRolePermsCache();
     mockAuditLog.mockResolvedValue(undefined);
 
     const app = {

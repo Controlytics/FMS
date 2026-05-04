@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import useSWR, { mutate } from 'swr';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, api } from '@/lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 
 const ALL_CARDS = [
   { key: 'total_users', label: 'Total Users', description: 'User count with link to user management' },
@@ -30,6 +32,7 @@ export default function DashboardCardsConfig() {
   const [roleConfigs, setRoleConfigs] = useState<RoleConfig[]>([]);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const reauth = useReauth();
 
   const roles: any[] = rolesData?.roles ?? rolesData ?? [];
 
@@ -63,19 +66,33 @@ export default function DashboardCardsConfig() {
     }));
   };
 
-  const handleSave = async () => {
+  // Audit 2026-05-04 fix #5 (web-routes review H — lower-blast config
+  // surfaces). Routed through the umbrella UPDATE_CONFIG_PAGE action;
+  // backend mirror in static-routes/dashboard-cards.routes.ts.
+  const handleSave = () => {
     setSaving(true);
-    try {
-      const rolesMap: Record<string, string[]> = {};
-      for (const rc of roleConfigs) rolesMap[rc.roleName] = rc.cards;
-      await apiClient.put('/api/config/dashboard-cards', { configValue: { roles: rolesMap } });
-      mutate('/api/config/dashboard-cards/current');
-      setToast('Saved');
-      setTimeout(() => setToast(null), 2000);
-    } catch (e: any) {
-      setToast(e.message ?? 'Save failed');
-    }
-    setSaving(false);
+    const rolesMap: Record<string, string[]> = {};
+    for (const rc of roleConfigs) rolesMap[rc.roleName] = rc.cards;
+    const body = { configValue: { roles: rolesMap } };
+    reauth.execute(
+      'UPDATE_CONFIG_PAGE',
+      async (password?: string) => {
+        if (password) await api.putWithReauth('/api/config/dashboard-cards', body, password);
+        else await apiClient.put('/api/config/dashboard-cards', body);
+      },
+      {
+        onSuccess: () => {
+          mutate('/api/config/dashboard-cards/current');
+          setToast('Saved');
+          setTimeout(() => setToast(null), 2000);
+          setSaving(false);
+        },
+        onError: (e: any) => {
+          setToast(e.message ?? 'Save failed');
+          setSaving(false);
+        },
+      },
+    );
   };
 
   return (
@@ -138,6 +155,17 @@ export default function DashboardCardsConfig() {
           ))}
         </div>
       )}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setSaving(false); }}
+        actionLabel="Update Dashboard Cards"
+      />
     </div>
   );
 }

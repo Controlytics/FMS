@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useSWR, { mutate as globalMutate } from 'swr';
-import { apiClient } from '../../lib/api-client';
+import { apiClient, api } from '../../lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 
 type AhuMode = 'BOTH' | 'SET_A' | 'SET_B' | 'DISABLED';
 
@@ -32,22 +34,39 @@ export function AhuFilterSetConfigPage() {
   const [savingAhuId, setSavingAhuId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const reauth = useReauth();
 
-  const handleModeChange = async (ahuId: string, newMode: AhuMode) => {
+  // Audit 2026-05-04 fix #5 (web-routes review H — lower-blast config
+  // surfaces). UPDATE_CONFIG_PAGE umbrella; backend mirror in
+  // pm-schedules/routes.ts. Note: reauth fires per-row mode change so
+  // the password challenge surfaces once per AHU edit (cheap dropdown
+  // toggle, not a batched save).
+  const handleModeChange = (ahuId: string, newMode: AhuMode) => {
     setSavingAhuId(ahuId);
     setError('');
     setSuccess('');
-    try {
-      await apiClient.put(`/api/pm-schedules/ahu-configs/${ahuId}`, { mode: newMode });
-      await mutateList();
-      // Invalidate My Tasks so the change takes effect immediately on any open /my-tasks tab
-      globalMutate('/api/pm-schedules/due');
-      setSuccess('Saved');
-      setTimeout(() => setSuccess(''), 2000);
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to save AHU mode');
-    }
-    setSavingAhuId(null);
+    const body = { mode: newMode };
+    reauth.execute(
+      'UPDATE_CONFIG_PAGE',
+      async (password?: string) => {
+        if (password) await api.putWithReauth(`/api/pm-schedules/ahu-configs/${ahuId}`, body, password);
+        else await apiClient.put(`/api/pm-schedules/ahu-configs/${ahuId}`, body);
+      },
+      {
+        onSuccess: async () => {
+          await mutateList();
+          // Invalidate My Tasks so the change takes effect immediately on any open /my-tasks tab
+          globalMutate('/api/pm-schedules/due');
+          setSuccess('Saved');
+          setTimeout(() => setSuccess(''), 2000);
+          setSavingAhuId(null);
+        },
+        onError: (e: any) => {
+          setError(e.message ?? 'Failed to save AHU mode');
+          setSavingAhuId(null);
+        },
+      },
+    );
   };
 
   const ahus = (data?.ahus ?? []) as AhuConfigRow[];
@@ -267,6 +286,17 @@ export function AhuFilterSetConfigPage() {
           </div>
         </div>
       </div>
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setSavingAhuId(null); }}
+        actionLabel="Update AHU Filter-Set Mode"
+      />
     </div>
   );
 }
