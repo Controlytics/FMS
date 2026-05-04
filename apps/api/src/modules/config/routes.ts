@@ -22,6 +22,7 @@ import { tabletAccessRoutes } from './static-routes/tablet-access.routes.js';
 import { accessMatrixRoutes } from './static-routes/access-matrix.routes.js';
 import { rolesConfigRoutes } from './static-routes/roles.routes.js';
 import { cleaningProfileAssignmentRoutes } from './static-routes/cleaning-profile-assignment.routes.js';
+import { reportSettingsRoutes } from './static-routes/report-settings.routes.js';
 
 // Map config keys to reauth action names (consumed by the generic configEndpoint factory).
 const CONFIG_KEY_TO_ACTION: Record<string, string> = {
@@ -44,6 +45,7 @@ export default async function configRoutes(app: FastifyInstance) {
   await accessMatrixRoutes(app);
   await rolesConfigRoutes(app);
   await cleaningProfileAssignmentRoutes(app);
+  await reportSettingsRoutes(app);
 
   // Generic CRUD factory for configs whose only work is get/update a typed blob.
   // Used for: password-policy, login-security, session, datetime, pagination.

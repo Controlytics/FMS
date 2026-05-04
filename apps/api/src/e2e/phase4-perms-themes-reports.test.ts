@@ -241,17 +241,52 @@ describe('Phase 4 — Permissions / Themes / Reports', () => {
       // object is valid here — the GET-current endpoint exists and responds.
     });
 
-    // Documented gap: there is NO PUT/POST endpoint registered for
-    // report-settings. The static route only declares the GET-current
-    // surface (config/routes.ts:145). The def declares hasCustomPage:true
-    // which causes dynamic-routes.ts:33 to skip wiring a generic dynamic
-    // PUT for it, and no static-routes/report-settings.routes.ts exists.
-    // The frontend (apps/web/src/routes/config/report-settings.tsx:61)
-    // calls PUT /api/config/dynamic/report-settings — which 404s in this
-    // backend. Skip the round-trip test rather than fabricate a passing
-    // assertion.
-    it.skip('PUT round-trip — SKIP: no write endpoint registered for report-settings (gap)', () => {
-      // Intentionally skipped. See comment above.
+    // PUT round-trip — exercises the static route added in
+    // static-routes/report-settings.routes.ts that fixes the FE 404 bug.
+    // FE submits to /api/config/dynamic/report-settings; that path is now
+    // owned by reportSettingsRoutes (config/routes.ts registration list)
+    // because dynamic-routes.ts skips defs with hasCustomPage:true. The
+    // round-trip writes via PUT then re-reads via the public GET-current
+    // endpoint to confirm the systemConfig row was persisted.
+    it('PUT /api/config/dynamic/report-settings persists the payload (round-trip)', async () => {
+      const adminToken = await loginAs(app);
+
+      const payload = {
+        showHeader: false,
+        showLogo: false,
+        showCompanyName: true,
+        showReportTitle: true,
+        showDateTime: false,
+        showGeneratedBy: false,
+        customHeaderText: `phase4-test-${Date.now()}`,
+        showFooter: true,
+        showPageNumbers: false,
+        showTotalRecords: true,
+        customFooterText: 'phase4-footer',
+        recordsPerPage: 50,
+        compactMode: true,
+      };
+
+      const putRes = await app.inject({
+        method: 'PUT',
+        url: '/api/config/dynamic/report-settings',
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload,
+      });
+      expect(putRes.statusCode).toBe(200);
+      const putBody = JSON.parse(putRes.body);
+      expect(putBody.success).toBe(true);
+
+      // Re-read via the existing public GET-current endpoint and verify the
+      // payload round-tripped intact.
+      const getRes = await app.inject({
+        method: 'GET',
+        url: '/api/config/report-settings/current',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(getRes.statusCode).toBe(200);
+      const getBody = JSON.parse(getRes.body);
+      expect(getBody).toMatchObject(payload);
     });
   });
 
