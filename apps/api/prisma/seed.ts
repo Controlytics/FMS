@@ -312,88 +312,18 @@ async function main() {
     },
     {
       configKey: 'action-reauth',
-      configValue: {
-        actions: [
-          // User management
-          { action: 'CREATE_USER', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_USER', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_USER', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'BULK_DELETE_USERS', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'ENABLE_USER', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DISABLE_USER', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UNLOCK_USER', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'RESET_PASSWORD', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'PROCESS_RESET_REQUEST', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // Asset/Entity management
-          { action: 'CREATE_ASSET', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_ASSET', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_ASSET', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'CREATE_ASSET_TEMPLATE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_ASSET_TEMPLATE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_ASSET_TEMPLATE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'CREATE_ASSET_IDENTIFIER', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_ASSET_IDENTIFIER', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'CREATE_ASSET_RELATIONSHIP', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_ASSET_RELATIONSHIP', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // Filter operations
-          { action: 'START_CLEANING_CYCLE', roles: ['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'MAINTENANCE', 'OPERATOR'] },
-          { action: 'FILTER_BYPASS', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'TERMINATE_CLEANING_CYCLE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // Rule chains
-          { action: 'CREATE_RULE_CHAIN', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_RULE_CHAIN', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_RULE_CHAIN', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // Alarms
-          { action: 'ACKNOWLEDGE_ALARM', roles: ['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'MAINTENANCE'] },
-          { action: 'CLEAR_ALARM', roles: ['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR'] },
-          // Roles & Config
-          { action: 'CREATE_ROLE', roles: ['SUPER_ADMIN'] },
-          { action: 'UPDATE_ROLE', roles: ['SUPER_ADMIN'] },
-          { action: 'DELETE_ROLE', roles: ['SUPER_ADMIN'] },
-          { action: 'UPDATE_USERID_CONFIG', roles: ['SUPER_ADMIN'] },
-          { action: 'UPDATE_BRANDING', roles: ['SUPER_ADMIN'] },
-          { action: 'UPDATE_ROLE_CONFIG', roles: ['SUPER_ADMIN'] },
-          // Help articles
-          { action: 'CREATE_HELP_ARTICLE', roles: ['SUPER_ADMIN'] },
-          { action: 'UPDATE_HELP_ARTICLE', roles: ['SUPER_ADMIN'] },
-          { action: 'DELETE_HELP_ARTICLE', roles: ['SUPER_ADMIN'] },
-          // UNS
-          { action: 'OVERRIDE_UNS_PATH', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_UNS_MAPPING', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_UNS_CONFIG', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // Backup
-          { action: 'EXPORT_BACKUP', roles: ['SUPER_ADMIN'] },
-          { action: 'RESTORE_BACKUP', roles: ['SUPER_ADMIN'] },
-          // Block change approval
-          { action: 'APPROVE_BLOCK_CHANGE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'REJECT_BLOCK_CHANGE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // PM schedule approval
-          { action: 'APPROVE_PM_SCHEDULE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'REJECT_PM_SCHEDULE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'EDIT_PM_SCHEDULE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // Equipment groups
-          { action: 'CREATE_EQUIPMENT_GROUP', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_EQUIPMENT_GROUP', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_EQUIPMENT_GROUP', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // Filter profiles
-          { action: 'CREATE_FILTER_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_FILTER_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_FILTER_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'ASSIGN_FILTER_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // Cleaning profiles
-          { action: 'CREATE_CLEANING_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_CLEANING_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_CLEANING_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // Checklist profiles
-          { action: 'CREATE_CHECKLIST_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_CHECKLIST_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_CHECKLIST_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // PM schedule CRUD
-          { action: 'CREATE_PM_SCHEDULE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_PM_SCHEDULE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_PM_SCHEDULE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-        ],
-      },
+      // Flat record shape: { actionKey: roleNames[] }. Every reader (frontend
+      // page, isReauthRequired, getMyActions, actionReauthConfigSchema) uses
+      // this shape. The previous nested `{ actions: [{action, roles}, ...] }`
+      // shape silently disabled every reauth lookup (config[action] was always
+      // undefined) and made the PUT validator reject any save.
+      //
+      // Seeded empty so the system ships with reauth OFF by default.
+      // Operators opt actions in via the action-reauth admin page. Defaulting
+      // the policy on at install would surprise both existing tests (170+
+      // assertions written against the de-facto OFF state) and existing
+      // deployments that rely on no reauth being required.
+      configValue: {},
       configType: 'security',
       requiresReauth: false,
     },
