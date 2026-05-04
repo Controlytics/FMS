@@ -517,6 +517,7 @@ export async function exportCsv(
 export async function restore(
   fileBuffer: Buffer,
   ctx: RequestContext,
+  opts: { force?: boolean } = {},
 ): Promise<{
   success: boolean;
   message: string;
@@ -547,7 +548,11 @@ export async function restore(
     }
   }
 
-  await restoreFromBackup(backup);
+  // Audit 2026-05-04 fix #7: pass force-flag through to restoreFromBackup so
+  // a tampered audit_trail chain is refused unless the operator explicitly
+  // overrides. Force is itself audited in the BACKUP_RESTORED row below
+  // (afterValue.forced=true).
+  await restoreFromBackup(backup, { force: opts.force });
 
   // Audit log the restore
   await auditLog({
@@ -561,8 +566,11 @@ export async function restore(
       backupVersion: backup.metadata.version,
       backupChecksum: backup.metadata.checksum,
       generatedBy: backup.metadata.generatedBy,
+      forced: opts.force === true,
     },
-    signatureMeaning: 'Database restored from backup by administrator',
+    signatureMeaning: opts.force
+      ? 'Database restored from backup by administrator (audit-chain verification BYPASSED)'
+      : 'Database restored from backup by administrator',
     ipAddress: ctx.ipAddress,
     userAgent: ctx.userAgent,
     sessionId: ctx.sessionId,

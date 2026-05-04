@@ -94,12 +94,25 @@ export default async function backupRoutes(app: FastifyInstance) {
       const rawBuffer = Buffer.concat(chunks);
 
       const ctx = buildContext(req);
-      const result = await backupService.restore(rawBuffer, ctx);
+      // Audit 2026-05-04 fix #7: optional `force` field on the multipart
+      // form bypasses the audit-chain integrity check. Audited as
+      // forced=true on the BACKUP_RESTORED row for the regulator trail.
+      // Default false — refuse tampered backups silently overwriting
+      // history.
+      const forceField = (file.fields as any)?.force;
+      const force = forceField?.value === 'true' || forceField?.value === true;
+      const result = await backupService.restore(rawBuffer, ctx, { force });
       return result;
     } catch (err: any) {
       // Structured errors from the service carry a code property
       if (err.code && ['INVALID_BAK', 'INVALID_JSON', 'INVALID_BACKUP', 'INVALID_METADATA', 'CHECKSUM_MISMATCH'].includes(err.code)) {
         return reply.code(400).send({ error: err.code, message: err.message });
+      }
+      // Audit 2026-05-04 fix #7: structured chain-integrity refusal
+      // surfaces as 400 with the BACKUP_AUDIT_CHAIN_INVALID code so the
+      // operator UI can show "tampered backup, pass force to override".
+      if (err.statusCode === 400 && typeof err.message === 'string' && err.message.startsWith('BACKUP_AUDIT_CHAIN_INVALID')) {
+        return reply.code(400).send({ error: 'BACKUP_AUDIT_CHAIN_INVALID', message: err.message });
       }
       app.log.error(err);
       return reply.code(500).send({

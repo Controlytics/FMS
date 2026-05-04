@@ -35,6 +35,42 @@ export class ReportService {
     if (!template) throw { statusCode: 404, message: 'Template not found' };
     if (template.status !== 'ACTIVE') throw { statusCode: 400, message: 'Template is not active' };
 
+    // Audit 2026-05-04 fix #6 (api-supporting C4) — entitySlots authz.
+    //
+    // entitySlots is operator-supplied: { slotName: assetInstanceId, ... }.
+    // The previous flow trusted the IDs verbatim and passed them straight
+    // through to resolveAllTags, which renders missing-data placeholders
+    // for invented IDs without any 4xx — letting the operator probe the
+    // server for arbitrary UUID existence + render templates referencing
+    // entities they may not normally interact with.
+    //
+    // Validate: every ID supplied must resolve to a real AssetInstance.
+    // 404 on the FIRST unknown ID with the slot name in the message so the
+    // operator can fix their selection. (Per-entity-assignment authz —
+    // i.e. "operator assigned to BlockA can't render reports about BlockB"
+    // — is a deferred product decision; the current system has only
+    // permission-based RBAC, not entity-scoped read rules. When that ships,
+    // the additional check goes here.)
+    if (input.entitySlots && Object.keys(input.entitySlots).length > 0) {
+      const slotEntries = Object.entries(input.entitySlots).filter(([, v]) => v != null && v !== '');
+      const ids = slotEntries.map(([, v]) => v as string);
+      if (ids.length > 0) {
+        const found = await prisma.assetInstance.findMany({
+          where: { id: { in: ids } },
+          select: { id: true },
+        });
+        const foundSet = new Set(found.map(f => f.id));
+        for (const [slotName, id] of slotEntries) {
+          if (!foundSet.has(id as string)) {
+            throw {
+              statusCode: 404,
+              message: `entitySlots.${slotName}: asset instance "${id}" not found`,
+            };
+          }
+        }
+      }
+    }
+
     const config = (template.versions[0]?.config ?? {}) as any;
     const version = template.currentVersion;
 
