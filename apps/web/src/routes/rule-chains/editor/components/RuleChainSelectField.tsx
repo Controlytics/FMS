@@ -5,14 +5,12 @@ import useSWR from 'swr';
 // ---------------------------------------------------------------------------
 
 export function RuleChainSelectField({
-  fieldKey,
   label,
   description,
   value,
   onChange,
   currentChainId,
 }: {
-  fieldKey: string;
   label: string;
   description?: string;
   value: string;

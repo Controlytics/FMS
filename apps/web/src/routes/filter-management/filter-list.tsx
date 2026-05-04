@@ -96,6 +96,10 @@ export function FilterListPage() {
   const [createFilterAhu, setCreateFilterAhu] = useState('');
   const [createFilterName, setCreateFilterName] = useState('');
   const [createFilterSet, setCreateFilterSet] = useState<'A' | 'B'>('A');
+  // Reserved stub for the future "select cleaning profile at filter-create"
+  // UX. CreateFilterDialog does not yet expose a profile picker; the value
+  // stays '' so the conditional spread below never fires. Do not delete —
+  // re-wire when the dialog grows a filter-profile selector.
   const [createFilterProfile, setCreateFilterProfile] = useState('');
   const [createFilterAttrs, setCreateFilterAttrs] = useState<Record<string, any>>({});
   const [createFilterSubmitting, setCreateFilterSubmitting] = useState(false);
@@ -264,14 +268,15 @@ export function FilterListPage() {
     }
   };
 
-  // Walk up parent chain to find Block, Area and AHU ancestors
+  // Walk up parent chain to find Block, Area and AHU ancestors. Only the
+  // ahuName label is rendered today (table AHU column); area/block names
+  // are intentionally not surfaced here, but the IDs feed blockFilters /
+  // blockCounts filtering.
   const resolveAncestors = (filterId: string) => {
     let ahuId: string | null = null;
     let ahuName = '-';
     let areaId: string | null = null;
-    let areaName = '-';
     let blockId: string | null = null;
-    let blockName = '-';
     let currentId = instanceMap.get(filterId)?.parentId;
     const visited = new Set<string>();
     while (currentId && !visited.has(currentId)) {
@@ -284,28 +289,25 @@ export function FilterListPage() {
       }
       if (entity.templateId === areaTemplateId && !areaId) {
         areaId = entity.id;
-        areaName = entity.name;
       }
       if (blockIds.has(entity.id)) {
         blockId = entity.id;
-        blockName = entity.name;
         break;
       }
       currentId = entity.parentId;
     }
-    return { ahuId, ahuName, areaId, areaName, blockId, blockName };
+    return { ahuId, ahuName, areaId, blockId };
   };
 
   const enrichedFilters = useMemo(() => {
     return allFilters.map((f: any) => {
-      const { ahuId, ahuName, areaId, areaName, blockId, blockName } = resolveAncestors(f.id);
+      const { ahuId, ahuName, areaId, blockId } = resolveAncestors(f.id);
       return {
         id: f.id, name: f.name, filterSet: f.filterSet,
         currentState: f.currentLifecycleState,
         status: f.status ?? 'Active',
-        ahuId, ahuName, areaId, areaName, blockId, blockName,
+        ahuId, ahuName, areaId, blockId,
         filterType: f.attributes?.filterType ?? '-',
-        filterSize: f.attributes?.filterSize ?? '-',
         ahuType: f.attributes?.ahuType ?? '-',
         lastCleaningDate: f.attributes?.lastCleaningDate ?? null,
       };
@@ -344,6 +346,8 @@ export function FilterListPage() {
   }, [blockFilters, page, perPage]);
 
   const openStatusPanel = (filter: { id: string; name: string; currentState: string | null }) => {
+    // closePanel is declared further below — both are arrow consts and only
+    // invoked from event handlers, so the temporal dead zone never trips.
     closePanel(); // close retire panel if open
     setStatusPanelFilter(filter);
     setStatusPanelState(filter.currentState ?? 'INSTALLED');
@@ -720,6 +724,9 @@ export function FilterListPage() {
 
   const openCreateFilter = () => {
     setCreateFilterOpen(true);
+    // Pre-select when there is exactly one AHU in scope; the dialog still
+    // shows it as a normal <select> (operators may want to verify the choice
+    // before submit, hence we do not lock the dropdown).
     setCreateFilterAhu(bulkUploadAhus.length === 1 ? bulkUploadAhus[0].id : '');
     setCreateFilterName('');
     setCreateFilterSet('A');
@@ -831,8 +838,6 @@ export function FilterListPage() {
         if (nameIdx === -1) { setBulkUploadError('CSV must have a "name" column'); return; }
         if (setIdx === -1) { setBulkUploadError('CSV must have a "filterSet" column'); return; }
         const getCol = (cols: string[], key: string) => { const idx = colMap[key]; return idx !== undefined && idx < cols.length ? cols[idx].trim() : ''; };
-        // Build list of template field names (lowercase keys for matching)
-        const templateFieldKeys = filterTemplateSchema.map(f => f.fieldName.toLowerCase().replace(/\s+/g, ''));
         const rows: any[] = [];
         for (let i = 1; i < lines.length; i++) {
           const cols = lines[i].split(',').map(c => c.trim());

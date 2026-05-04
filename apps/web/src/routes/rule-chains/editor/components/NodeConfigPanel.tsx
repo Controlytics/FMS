@@ -316,7 +316,6 @@ export function NodeConfigPanel({
                         return (
                           <RuleChainSelectField
                             key={key}
-                            fieldKey={key}
                             label={label}
                             description={description}
                             value={(localConfig[key] as string) ?? ''}

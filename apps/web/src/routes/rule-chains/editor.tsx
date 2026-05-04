@@ -50,7 +50,13 @@ const NODE_TYPES: NodeTypes = { customRuleNode: CustomRuleNode };
 export function RuleChainEditorPage() {
   const { id: chainId } = useParams<{ id: string }>();
   const { toast } = useToast();
-  const { formatTime } = useDatetimeFormat();
+  // NodeConfigPanel calls useDatetimeFormat itself; SWR de-dupes the
+  // /api/config/datetime/current request. We keep this call here so the
+  // editor page warm-starts the cache before the panel mounts and so the
+  // hook's revalidation cycle is anchored to the page lifetime even when
+  // no node is selected. formatTime is intentionally unused at this level.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { formatTime: _formatTime } = useDatetimeFormat();
   const reauth = useReauth();
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
@@ -473,7 +479,11 @@ export function RuleChainEditorPage() {
         setSaving(false);
       }
     },
-    [chainId, chain, localName, localActive, firstNodeId, rfNodes, mutateChain, toast],
+    // doSave body reads chainId/chain/firstNodeId/rfNodes/mutateChain/toast
+    // only; localName + localActive are intentionally omitted to avoid
+    // identity churn (and re-running handleSave's deps) on every keystroke
+    // in the name field or active toggle.
+    [chainId, chain, firstNodeId, rfNodes, mutateChain, toast],
   );
 
   const handleSave = useCallback(async () => {

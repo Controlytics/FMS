@@ -25,9 +25,6 @@ export function chainToFlow(
         isFirst: chain.firstRuleNodeId === n.id,
         selected: n.id === selectedNodeId,
       } satisfies CustomNodeData,
-      // Store backend data so we can retrieve it
-      // @ts-ignore — ReactFlow allows arbitrary extras on Node
-      _backendData: n,
     };
   });
 

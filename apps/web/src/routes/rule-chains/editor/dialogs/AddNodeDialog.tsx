@@ -142,7 +142,6 @@ export function AddNodeDialog({
                 return (
                   <RuleChainSelectField
                     key={key}
-                    fieldKey={key}
                     label={fieldDef?.label ?? key}
                     description={fieldDef?.description}
                     value={(initialConfig[key] as string) ?? ''}
