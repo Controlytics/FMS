@@ -11,6 +11,7 @@ import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
 import { AppError } from '../../../lib/errors.js';
 import { findExistingByClientOpId } from '../../../lib/idempotency.js';
+import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
 import { computeChecksum } from '../helpers.js';
@@ -25,7 +26,6 @@ export async function advanceImpl(
   data: any,
 ) {
   const { targetState, parameters, equipmentId, cleaningAreaId, instrumentReadings, equipmentGroupId, dryerAction, dryerDurationMinutes } = data;
-  const offlineTime = data.offlinePerformedAt ? new Date(data.offlinePerformedAt) : undefined;
   const remarks = typeof data.remarks === "string" ? data.remarks.replace(/</g, "&lt;").replace(/>/g, "&gt;") : data.remarks;
   // Idempotent replay: same clientOpId == same logical operation. Return current
   // state instead of double-applying.
@@ -42,6 +42,14 @@ export async function advanceImpl(
   if (!cycle || cycle.status !== 'IN_PROGRESS') {
     throw new AppError(400, 'NO_ACTIVE_CYCLE', 'No active cleaning cycle found');
   }
+
+  // Validate offlinePerformedAt against cycle.startedAt floor + replay-only +
+  // future-skew + max-staleness. Audit 2026-05-04 fix C2 — see
+  // apps/api/src/lib/offline-time-window.ts.
+  const offlineTime = validateOfflinePerformedAt(data.offlinePerformedAt, {
+    isReplay: ctx.isOfflineReplay === true,
+    cycleStartedAt: cycle.startedAt,
+  });
 
   throwIfFailed(executor.assertTapeVersionFresh(localCtx, data.tapeVersion));
   throwIfFailed(executor.assertProfileAssigned(localCtx, cp?.id));

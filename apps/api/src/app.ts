@@ -61,6 +61,7 @@ import {
 import { startJobRunner, stopJobRunner } from '@digilog/queue';
 import { getTsdbPool, initTelemetryBatcher, closeTelemetryBatcher } from '@digilog/db';
 import { AppError } from './lib/errors.js';
+import { OfflineTimeError } from './lib/offline-time-window.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
 import cleaningProfileRoutes from './modules/cleaning-profiles/routes.js';import checklistProfileRoutes from './modules/checklist-profiles/routes.js';import filterProfileRoutes from './modules/filter-profiles/routes.js';
 import pmScheduleRoutes from './modules/pm-schedules/routes.js';import pmExecutionRoutes from './modules/pm-schedules/execution-routes.js';import filterOperationsRoutes from './modules/filter-operations/routes.js';import filterEventsRoutes from './modules/filter-operations/events-routes.js';
@@ -147,6 +148,16 @@ let lastErrorNotification = 0;
 app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
   if (err instanceof AppError) {
     return reply.code(err.statusCode).send({
+      error: err.code,
+      message: err.message,
+      ...(err.details ? { details: err.details } : {}),
+    });
+  }
+  // Audit 2026-05-04 fix C2: bounded offlinePerformedAt validator. Map the
+  // dedicated error class to a clean 400 with a stable error code so the
+  // client knows whether to retry, re-perform the action, or contact admin.
+  if (err instanceof OfflineTimeError) {
+    return reply.code(400).send({
       error: err.code,
       message: err.message,
       ...(err.details ? { details: err.details } : {}),

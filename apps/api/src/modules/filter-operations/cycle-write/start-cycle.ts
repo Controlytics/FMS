@@ -13,6 +13,7 @@ import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
 import { AppError } from '../../../lib/errors.js';
 import { findExistingByClientOpId } from '../../../lib/idempotency.js';
+import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
 import { computeChecksum } from '../helpers.js';
 import {
   getFilter,
@@ -30,8 +31,15 @@ export async function startCycleImpl(
   data: any,
 ) {
   const { cleaningReasonKey, cleaningAreaId, equipmentGroupId } = data;
-  // offlinePerformedAt: original timestamp from when the user performed the action offline
-  const offlineTime = data.offlinePerformedAt ? new Date(data.offlinePerformedAt) : undefined;
+  // offlinePerformedAt: tablet wall-clock timestamp when the operator
+  // physically performed the action offline. The tablet IS the source of
+  // truth — that's the point of offline operation. But the server validates
+  // the value (future-skew, max-staleness, replay-only) so a forged client
+  // can't back-date forged audit records (audit 2026-05-04 fix — C2).
+  // start-cycle has no prior cycle so cycleStartedAt is omitted.
+  const offlineTime = validateOfflinePerformedAt(data.offlinePerformedAt, {
+    isReplay: ctx.isOfflineReplay === true,
+  });
   // Idempotent replay: if this clientOpId was already processed, return current state
   // instead of creating a duplicate cycle.
   const clientOpId: string | null = data.clientOpId ?? null;

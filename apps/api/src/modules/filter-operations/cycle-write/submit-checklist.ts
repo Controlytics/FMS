@@ -13,6 +13,7 @@ import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
 import { AppError } from '../../../lib/errors.js';
 import { findExistingByClientOpId } from '../../../lib/idempotency.js';
+import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
 import {
@@ -32,10 +33,6 @@ export async function submitChecklistImpl(
 ) {
   const { answers } = data;
   const clientOpId: string | null = data.clientOpId ?? null;
-  // Honor offlinePerformedAt as the regulatory timestamp (operator's actual answer time).
-  // Without this, every offline-replayed checklist records the server-receive time,
-  // breaking 21 CFR Part 11 audit fidelity for offline operations.
-  const offlineTime: Date | undefined = data.offlinePerformedAt ? new Date(data.offlinePerformedAt) : undefined;
   // Optional version pin from the offline cache — server compares to live profile
   // versions to detect schema drift between cache and current state.
   const expectedProfileVersions: Record<string, number> | null = data.expectedProfileVersions ?? null;
@@ -59,6 +56,16 @@ export async function submitChecklistImpl(
   if (!cycle || cycle.status !== 'IN_PROGRESS') {
     throw new AppError(400, 'NO_ACTIVE_CYCLE', 'No active cleaning cycle found');
   }
+
+  // Honor offlinePerformedAt as the regulatory timestamp (operator's actual
+  // answer time). Without this, every offline-replayed checklist records the
+  // server-receive time, breaking 21 CFR Part 11 audit fidelity. Validation
+  // (replay-only / future-skew / max-staleness / cycle-start floor) is in
+  // apps/api/src/lib/offline-time-window.ts (audit 2026-05-04 fix C2).
+  const offlineTime = validateOfflinePerformedAt(data.offlinePerformedAt, {
+    isReplay: ctx.isOfflineReplay === true,
+    cycleStartedAt: cycle.startedAt,
+  });
 
   // Phase 8.3/8.5 staleness guard.
   throwIfFailed(executor.assertTapeVersionFresh(localCtx, data.tapeVersion));

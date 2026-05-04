@@ -14,5 +14,6 @@ export function buildContext(req: FastifyRequest): RequestContext {
     userAgent: req.headers['user-agent'],
     sessionId: req.user.sessionId,
     scope: req.user.scope,
+    isOfflineReplay: req.headers['x-offline-replay'] === 'true',
   };
 }
