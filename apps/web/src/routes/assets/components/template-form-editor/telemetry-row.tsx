@@ -40,7 +40,7 @@ export function TelemetryRow({ tel, idx, onUpdate, onRemove }: {
           <Input
             value={tel.unit}
             onChange={(e) => onUpdate(idx, 'unit', e.target.value)}
-            placeholder="e.g. \u00b0C, psi, %"
+            placeholder="e.g. °C, psi, %"
             className="text-xs"
           />
         </div>
