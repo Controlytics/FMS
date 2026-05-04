@@ -24,7 +24,9 @@ export function AdminRequestsPage() {
   const { user } = useAuth();
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const perms = user?.permissions ?? [];
-  const canApprove = isSuperAdmin || perms.includes('USER_CREATE');
+  // Audit 2026-05-04 fix (web-routes review M-tier + shared C4): align with
+  // backend rename — admin-requests routes now require ADMIN_REQUEST_REVIEW.
+  const canApprove = isSuperAdmin || perms.includes('ADMIN_REQUEST_REVIEW');
   const { formatDateTime } = useDatetimeFormat();
   const { toast } = useToast();
   const reauth = useReauth();

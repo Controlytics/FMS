@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
-import { apiClient } from '../../lib/api-client';
+import { apiClient, api } from '../../lib/api-client';
 import { useAuth } from '../../hooks/use-auth';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { useOffline } from '../../hooks/use-offline';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { onSyncEvent } from '../../lib/sync-engine';
 import { syncAllDataForOffline, type SyncProgress } from '../../lib/offline-sync-service';
 import { triggerSync, startSyncPolling } from '../../lib/sync-since';
@@ -40,6 +42,7 @@ export function MobileWrapperPage() {
   const { user, isLoading: authLoading, logout: authLogout } = useAuth();
   const { formatTime } = useDatetimeFormat();
   const { online, pendingCount, syncing, lastSyncMessage, manualSync, clearQueue, getQueueDetails, cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
+  const reauth = useReauth();
   const mobileNav = useNavigate();
 
   if (!authLoading && !user) return <Navigate to="/m/login" replace />;
@@ -204,7 +207,12 @@ export function MobileWrapperPage() {
   }
   const currentRfidTags = rfidSelectedFilter ? (rfidTagsByFilter.get(rfidSelectedFilter.id) ?? []) : [];
 
-  const assignRfid = async () => {
+  // Audit 2026-05-04 fix (web-routes review C3): RFID assign/unassign on the
+  // tablet path bypassed reauth. Web equivalents in
+  // assets/hooks/use-asset-mutations.ts already wrap in reauth — tablet path
+  // had drifted. CREATE_ASSET_IDENTIFIER / DELETE_ASSET_IDENTIFIER actions
+  // already declared in packages/shared/src/types/reauth-actions.ts:47-48.
+  const assignRfid = () => {
     if (!rfidSelectedFilter || !rfidInput.trim()) {
       setRfidError('Enter or scan a tag value.');
       return;
@@ -212,35 +220,62 @@ export function MobileWrapperPage() {
     setRfidSubmitting(true);
     setRfidError('');
     setRfidSuccess('');
-    try {
-      await apiClient.post('/api/assets/identifiers', {
-        assetId: rfidSelectedFilter.id,
-        identifierType: 'RFID',
-        identifierValue: rfidInput.trim(),
-      });
-      setRfidSuccess(`Tag assigned to "${rfidSelectedFilter.name}"`);
-      setRfidInput('');
-      await mutateIdentifiers();
-    } catch (err: any) {
-      setRfidError(err?.message ?? 'Failed to assign tag');
-    } finally {
-      setRfidSubmitting(false);
-    }
+    const filterName = rfidSelectedFilter.name;
+    const tagValue = rfidInput.trim();
+    reauth.execute(
+      'CREATE_ASSET_IDENTIFIER',
+      async (password?: string) => {
+        const body = {
+          assetId: rfidSelectedFilter!.id,
+          identifierType: 'RFID',
+          identifierValue: tagValue,
+        };
+        if (password) {
+          await api.postWithReauth('/api/assets/identifiers', body, password);
+        } else {
+          await apiClient.post('/api/assets/identifiers', body);
+        }
+      },
+      {
+        onSuccess: async () => {
+          setRfidSuccess(`Tag assigned to "${filterName}"`);
+          setRfidInput('');
+          await mutateIdentifiers();
+          setRfidSubmitting(false);
+        },
+        onError: (err: any) => {
+          setRfidError(err?.message ?? 'Failed to assign tag');
+          setRfidSubmitting(false);
+        },
+      },
+    );
   };
 
-  const unassignRfid = async (identifierId: string) => {
+  const unassignRfid = (identifierId: string) => {
     setRfidSubmitting(true);
     setRfidError('');
     setRfidSuccess('');
-    try {
-      await apiClient.delete(`/api/assets/identifiers/${identifierId}`);
-      setRfidSuccess('Tag removed');
-      await mutateIdentifiers();
-    } catch (err: any) {
-      setRfidError(err?.message ?? 'Failed to remove tag');
-    } finally {
-      setRfidSubmitting(false);
-    }
+    reauth.execute(
+      'DELETE_ASSET_IDENTIFIER',
+      async (password?: string) => {
+        if (password) {
+          await api.deleteWithReauth(`/api/assets/identifiers/${identifierId}`, password);
+        } else {
+          await apiClient.delete(`/api/assets/identifiers/${identifierId}`);
+        }
+      },
+      {
+        onSuccess: async () => {
+          setRfidSuccess('Tag removed');
+          await mutateIdentifiers();
+          setRfidSubmitting(false);
+        },
+        onError: (err: any) => {
+          setRfidError(err?.message ?? 'Failed to remove tag');
+          setRfidSubmitting(false);
+        },
+      },
+    );
   };
 
   // ---- My Tasks handlers ----
@@ -259,18 +294,37 @@ export function MobileWrapperPage() {
   };
 
   // ---- Approvals handlers ----
-  const handleApprovalAction = async (requestId: string, action: 'approve' | 'reject') => {
+  // Audit 2026-05-04 fix (web-routes review C2): tablet block-change approve/
+  // reject mirrors web (approvals/index.tsx) — must use reauth gate.
+  // APPROVE_BLOCK_CHANGE / REJECT_BLOCK_CHANGE keys live in
+  // packages/shared/src/types/reauth-actions.ts:104-105.
+  const handleApprovalAction = (requestId: string, action: 'approve' | 'reject') => {
     setProcessingApproval(requestId);
     setError('');
-    try {
-      await apiClient.post(`/api/block-change-requests/${requestId}/${action}`, { comment: approvalComment.trim() || undefined });
-      setSuccess(`Request ${action === 'approve' ? 'approved' : 'rejected'}`);
-      setApprovalComment('');
-      await mutateApprovals();
-    } catch (e: any) {
-      setError(e.message ?? `Failed to ${action} request`);
-    }
-    setProcessingApproval(null);
+    const reauthAction = action === 'approve' ? 'APPROVE_BLOCK_CHANGE' : 'REJECT_BLOCK_CHANGE';
+    reauth.execute(
+      reauthAction,
+      async (password?: string) => {
+        const body = { comment: approvalComment.trim() || undefined };
+        if (password) {
+          await api.postWithReauth(`/api/block-change-requests/${requestId}/${action}`, body, password);
+        } else {
+          await apiClient.post(`/api/block-change-requests/${requestId}/${action}`, body);
+        }
+      },
+      {
+        onSuccess: async () => {
+          setSuccess(`Request ${action === 'approve' ? 'approved' : 'rejected'}`);
+          setApprovalComment('');
+          await mutateApprovals();
+          setProcessingApproval(null);
+        },
+        onError: (e: any) => {
+          setError(e.message ?? `Failed to ${action} request`);
+          setProcessingApproval(null);
+        },
+      },
+    );
   };
 
   return (
@@ -895,6 +949,17 @@ export function MobileWrapperPage() {
           </button>
         </div>
       )}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setRfidSubmitting(false); setProcessingApproval(null); }}
+        actionLabel="Confirm action"
+      />
     </div>
   );
 }

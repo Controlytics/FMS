@@ -16,7 +16,7 @@ import ReactFlow, {
   type NodeTypes,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, api } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useReauth } from '@/hooks/use-reauth';
@@ -498,24 +498,33 @@ export function RuleChainEditorPage() {
   // Toggle active
   // ---------------------------------------------------------------------------
 
+  // Audit 2026-05-04 fix (web-routes review C5): toggle-active and name-save
+  // were PUT-ing /api/rule-chains/:id without reauth, while handleSave above
+  // already wraps the same endpoint in reauth.execute('UPDATE_RULE_CHAIN').
+  // Mirror the wrap so all three paths are equally challenged.
   const handleToggleActive = useCallback(async () => {
     if (!chainId) return;
     const newActive = !localActive;
-    try {
-      await apiClient.put(`/api/rule-chains/${chainId}`, {
-        name: localName,
-        isActive: newActive,
-      });
-      setLocalActive(newActive);
-      toast.success(
-        newActive ? 'Chain Activated' : 'Chain Deactivated',
-        `Rule chain is now ${newActive ? 'active' : 'inactive'}.`,
-      );
-      mutateChain();
-    } catch (err: any) {
-      toast.error('Toggle Failed', err?.message || 'Failed to update status.');
-    }
-  }, [chainId, localActive, localName, mutateChain, toast]);
+    await reauth.execute(
+      'UPDATE_RULE_CHAIN',
+      async (password?: string) => {
+        const body = { name: localName, isActive: newActive };
+        if (password) await api.putWithReauth(`/api/rule-chains/${chainId}`, body, password);
+        else await apiClient.put(`/api/rule-chains/${chainId}`, body);
+      },
+      {
+        onSuccess: () => {
+          setLocalActive(newActive);
+          toast.success(
+            newActive ? 'Chain Activated' : 'Chain Deactivated',
+            `Rule chain is now ${newActive ? 'active' : 'inactive'}.`,
+          );
+          mutateChain();
+        },
+        onError: (err: any) => toast.error('Toggle Failed', err?.message || 'Failed to update status.'),
+      },
+    );
+  }, [chainId, localActive, localName, mutateChain, toast, reauth]);
 
   // ---------------------------------------------------------------------------
   // Name edit save
@@ -523,15 +532,23 @@ export function RuleChainEditorPage() {
 
   const handleNameSave = useCallback(async () => {
     if (!chainId || !localName.trim()) return;
-    try {
-      await apiClient.put(`/api/rule-chains/${chainId}`, { name: localName.trim() });
-      setEditingName(false);
-      mutateChain();
-      toast.success('Name Updated', 'Rule chain name has been saved.');
-    } catch (err: any) {
-      toast.error('Failed', err?.message || 'Could not update name.');
-    }
-  }, [chainId, localName, mutateChain, toast]);
+    await reauth.execute(
+      'UPDATE_RULE_CHAIN',
+      async (password?: string) => {
+        const body = { name: localName.trim() };
+        if (password) await api.putWithReauth(`/api/rule-chains/${chainId}`, body, password);
+        else await apiClient.put(`/api/rule-chains/${chainId}`, body);
+      },
+      {
+        onSuccess: () => {
+          setEditingName(false);
+          mutateChain();
+          toast.success('Name Updated', 'Rule chain name has been saved.');
+        },
+        onError: (err: any) => toast.error('Failed', err?.message || 'Could not update name.'),
+      },
+    );
+  }, [chainId, localName, mutateChain, toast, reauth]);
 
   // ---------------------------------------------------------------------------
   // Clear debug events

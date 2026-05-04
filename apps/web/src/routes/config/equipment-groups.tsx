@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
-import { apiClient } from '../../lib/api-client';
+import { apiClient, api } from '../../lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
 
 interface Instrument {
@@ -51,6 +53,7 @@ const STAGE_CONFIG: Record<string, { bg: string; text: string; border: string; i
 export function EquipmentGroupsConfigPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const reauth = useReauth();
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const perms = user?.permissions ?? [];
   const canCreate = isSuperAdmin || perms.includes('EG_CREATE');
@@ -111,13 +114,26 @@ export function EquipmentGroupsConfigPage() {
     openEditor(g);
   };
 
-  const handleDelete = async (g: EquipmentGroup) => {
+  // Audit 2026-05-04 fix (web-routes review C4): equipment-group CRUD
+  // bypassed reauth despite CREATE/UPDATE/DELETE_EQUIPMENT_GROUP actions
+  // existing in packages/shared/src/types/reauth-actions.ts:99-101.
+  const handleDelete = (g: EquipmentGroup) => {
     if (!confirm(`Delete equipment group "${g.name}"?`)) return;
     setDeleteError('');
-    try {
-      await apiClient.delete(`/api/equipment-groups/${g.id}`);
-      mutate(`/api/equipment-groups?blockId=${selectedBlockId}`);
-    } catch (e: any) { setDeleteError(e.message || 'Failed to delete'); }
+    reauth.execute(
+      'DELETE_EQUIPMENT_GROUP',
+      async (password?: string) => {
+        if (password) {
+          await api.deleteWithReauth(`/api/equipment-groups/${g.id}`, password);
+        } else {
+          await apiClient.delete(`/api/equipment-groups/${g.id}`);
+        }
+      },
+      {
+        onSuccess: () => mutate(`/api/equipment-groups?blockId=${selectedBlockId}`),
+        onError: (e: any) => setDeleteError(e.message || 'Failed to delete'),
+      },
+    );
   };
 
   const updateInstrument = (idx: number, field: string, value: any) => {
@@ -142,25 +158,41 @@ export function EquipmentGroupsConfigPage() {
       if (inst.operatingMin >= inst.operatingMax) { setError(`Operating Min must be less than Operating Max for ${inst.description}`); return; }
     }
     setSaving(true); setError('');
-    try {
-      const payload = {
-        name: group.name!.trim(),
-        blockId: group.blockId,
-        instruments: group.instruments!.map(i => ({
-          serialNumber: i.serialNumber, instrumentId: i.instrumentId, uom: i.uom,
-          instrumentMin: Number(i.instrumentMin), instrumentMax: Number(i.instrumentMax),
-          operatingMin: Number(i.operatingMin), operatingMax: Number(i.operatingMax),
-          leastCount: Number(i.leastCount),
-        })),
-      };
-      if (isNew) await apiClient.post('/api/equipment-groups', payload);
-      else await apiClient.put(`/api/equipment-groups/${group.id}`, payload);
-      mutate(`/api/equipment-groups?blockId=${selectedBlockId}`);
-      setEditing(null);
-      setSavedToast(isNew ? 'Equipment group created' : 'Equipment group saved');
-      setTimeout(() => setSavedToast(''), 3000);
-    } catch (e: any) { setError(e.message || 'Failed to save'); }
-    setSaving(false);
+    const payload = {
+      name: group.name!.trim(),
+      blockId: group.blockId,
+      instruments: group.instruments!.map(i => ({
+        serialNumber: i.serialNumber, instrumentId: i.instrumentId, uom: i.uom,
+        instrumentMin: Number(i.instrumentMin), instrumentMax: Number(i.instrumentMax),
+        operatingMin: Number(i.operatingMin), operatingMax: Number(i.operatingMax),
+        leastCount: Number(i.leastCount),
+      })),
+    };
+    reauth.execute(
+      isNew ? 'CREATE_EQUIPMENT_GROUP' : 'UPDATE_EQUIPMENT_GROUP',
+      async (password?: string) => {
+        if (isNew) {
+          if (password) await api.postWithReauth('/api/equipment-groups', payload, password);
+          else await apiClient.post('/api/equipment-groups', payload);
+        } else {
+          if (password) await api.putWithReauth(`/api/equipment-groups/${group.id}`, payload, password);
+          else await apiClient.put(`/api/equipment-groups/${group.id}`, payload);
+        }
+      },
+      {
+        onSuccess: () => {
+          mutate(`/api/equipment-groups?blockId=${selectedBlockId}`);
+          setEditing(null);
+          setSavedToast(isNew ? 'Equipment group created' : 'Equipment group saved');
+          setTimeout(() => setSavedToast(''), 3000);
+          setSaving(false);
+        },
+        onError: (e: any) => {
+          setError(e.message || 'Failed to save');
+          setSaving(false);
+        },
+      },
+    );
   };
 
   const getStageConfig = (key: string) => STAGE_CONFIG[key] ?? { bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', icon: '' };
@@ -480,6 +512,17 @@ export function EquipmentGroupsConfigPage() {
           </div>
         </div>
       )}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setSaving(false); }}
+        actionLabel="Equipment Group"
+      />
     </div>
   );
 }

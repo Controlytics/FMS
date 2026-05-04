@@ -25,6 +25,12 @@ export const REAUTH_ACTIONS = {
   UPDATE_USERID_CONFIG: { label: 'Update User ID Config', category: 'Configuration' },
   UPDATE_BRANDING: { label: 'Update Branding', category: 'Configuration' },
   UPDATE_ROLE_CONFIG: { label: 'Update Role Config', category: 'Configuration' },
+  // C6 (review 2026-05-04): the action-reauth save itself was a privilege
+  // escalation — anyone with CONFIG_UPDATE could PUT /api/config/action-reauth
+  // without challenge, including disabling reauth on DELETE_USER then deleting
+  // users. Dedicated key (rather than reusing UPDATE_ROLE_CONFIG) keeps the
+  // audit trail unambiguous: "operator changed who-needs-reauth-for-what".
+  UPDATE_REAUTH_CONFIG: { label: 'Update Re-auth Config', category: 'Configuration' },
   // C3 (review 2026-05-04): notification-delivery routes called
   // enforceReauth('UPDATE_EMAIL_CONFIG'/'UPDATE_SMS_CONFIG') against actions
   // that did not exist in this map — isReauthRequired() would always return

@@ -240,7 +240,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/my-tasks" element={<RequireRole permissions={[PERMISSIONS.PM_READ]}><Suspense fallback={<LazyFallback />}><MyTasksPage /></Suspense></RequireRole>} />
             <Route path="/ahus/:id" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AhuDashboardPage /></Suspense></RequireRole>} />
             <Route path="/audit" element={<RequireRole permissions={[PERMISSIONS.AUDIT_READ]}><AuditTrailPage /></RequireRole>} />
-            <Route path="/admin-requests" element={<RequireRole permissions={[PERMISSIONS.USER_CREATE]}><Suspense fallback={<LazyFallback />}><AdminRequestsPage /></Suspense></RequireRole>} />
+            <Route path="/admin-requests" element={<RequireRole permissions={[PERMISSIONS.ADMIN_REQUEST_REVIEW]}><Suspense fallback={<LazyFallback />}><AdminRequestsPage /></Suspense></RequireRole>} />
             <Route path="/approvals" element={<RequireRole permissions={[PERMISSIONS.BLOCK_CHANGE_APPROVE, PERMISSIONS.BLOCK_CHANGE_REQUEST, PERMISSIONS.PM_APPROVE]}><Suspense fallback={<LazyFallback />}><ApprovalsPage /></Suspense></RequireRole>} />
 
             {/* Reports */}
