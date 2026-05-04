@@ -1,5 +1,51 @@
 # Changelog
 
+## [Unreleased] — P0 compliance branch close (2026-05-04)
+
+Branch: `fix/p0-compliance-2026-05-04` — 12 commits closing 8 of 9 P0 audit findings from `tasks/CODE-REVIEW-2026-05-04-summary.md` plus follow-up cleanup. Test counts: api **1277 / 0 failed / 8 skipped** (was 1249), web **104 / 104**.
+
+### Worst-impact bug closed (independently flagged by 2 reviewers)
+
+`a139fcb` — **HMAC-signed offline-replay grant replaces unauthenticated `x-offline-replay: true` header bypass**. New `apps/api/src/lib/offline-replay-token.ts` (jose HS256, dedicated `OFFLINE_REPLAY_SECRET`); new `POST /api/auth/offline-grant` requires password (NOT routed through configurable reauth registry); auth plugin verifies grant + decorates `req.offlineReplayVerified`. Bare legacy header returns 401 `OFFLINE_REPLAY_HEADER_DEPRECATED`. FE login fetches grant, sync-engine forwards as `x-offline-replay-token`. Tablet upgrade requires single re-login per device.
+
+### 21 CFR Part 11 audit-trail integrity
+
+- `7dc339c` — **Tamper-evident audit hash chain**. Schema: `audit_trail.previous_checksum` + `chain_position BIGSERIAL`. Write path: `pg_advisory_xact_lock` + chained `$executeRaw`. New `GET /api/audit/verify-chain` (SUPER_ADMIN). Detects in-place mutation, insertion, gap. Backup repository stringifies BigInt for JSON. ingestion.service routes through `auditLog()`.
+- `f6d1282` — **Bounded `offlinePerformedAt`**: tablet wall-clock stays source of truth (replay-only), but server validates: max 5min future skew, max 30 days stale, must be ≥ cycle.startedAt. New `OfflineTimeError` → HTTP 400. Wired into start-cycle, advance, submit-checklist; parity for bypass + terminate-cycle in `48b1320`.
+- `679e642` — **Backup chain-verify on restore**: `restoreFromBackup()` walks the backup's audit_trail and verifies chain integrity BEFORE installing. Tampered backups return 400 `BACKUP_AUDIT_CHAIN_INVALID`. Operator opts in via `force=true` form field — audited as `forced=true` on `BACKUP_RESTORED` row.
+
+### Privilege-escalation + reauth-coverage fixes
+
+- `7e5839a` — Renamed `'admin_requests.view'` privilege from `USER_CREATE` → new `ADMIN_REQUEST_REVIEW` permission. Added `UPDATE_EMAIL_CONFIG` + `UPDATE_SMS_CONFIG` to `REAUTH_ACTIONS` (notification-delivery routes referenced non-existent keys → step-up auth was silently disabled). Fixed start-cycle race (`SELECT ... FOR UPDATE`). Fixed submit-checklist null-state false 409 (`equals: null` instead of `undefined`).
+- `b8fb038` — Wrapped `reauth.execute()` on 6 FE skip sites: approvals (block-change), mobile-wrapper (block-change + RFID), config/equipment-groups, rule-chains/editor (toggle + name), config/action-reauth save itself (new `UPDATE_REAUTH_CONFIG` action — closes the meta-policy escalation: anyone with CONFIG_UPDATE could disable reauth on DELETE_USER then delete users).
+- `2596196` — 4 sensitive-config surfaces: access-matrix (`UPDATE_ROLE_CONFIG`), ldap (`UPDATE_LDAP_CONFIG`), audit deletion single + bulk (distinct `DELETE_AUDIT_RECORD` + `BULK_DELETE_AUDIT_RECORDS` so collapsing many rows under one challenge isn't possible). Added 15 missing `PERMISSION_META` entries (perms previously rendered as "Other" with raw key in role-edit UI). Removed stale `organizations` SIDEBAR_PRIVILEGE_MAP entry + 4 dead files.
+- `48b1320` — Template-kinds CRUD reauth (`CREATE/UPDATE/DELETE_TEMPLATE_KIND` — controlled-vocabulary edits cascade across every entity using the kind). Extracted `useBlockChangeApproval` hook so `approvals/index.tsx` and `mobile-wrapper.tsx` can't drift again (the bug they shared in `b8fb038` is exactly the failure mode the "tablet must NOT have a separate implementation" rule exists to prevent).
+
+### Reports + offline + JWT plumbing
+
+- `679e642` — `POST /api/reports/generate` rejects unknown entity IDs in `entitySlots` (HTTP 404 + slot name). Stops UUID-existence probing.
+- `d685e1e` — Drop `navigator.onLine` residue from offline-store + sync-since (Capacitor connectivity engine was being defeated). Surface partial-sync failures via new `SyncProgress.partialFailures` field — operator sees "Synced with warnings: …" instead of misleading green check.
+- `d322fc7` — Centralize JWT refresh via new `apiClient.refreshToken()` with in-flight Promise guard. The 30-min interval refresher in use-auth.ts had been a silent no-op on Capacitor APK (raw fetch with relative URL hit WebView origin, not the API host).
+
+### Compliance invariants → migration
+
+`17950db` — Moved 4 invariants from `prisma/sql/invariants.sql` (only run by seed.ts) to dedicated `20260504190000_compliance_invariants/migration.sql`: 1-IN_PROGRESS-per-filter unique partial index, filter_event ↔ cycle.filter_id consistency trigger, asset_relationship bidirectional-pair constraint trigger, audit_trail no-delete trigger. Idempotent. A `prisma migrate deploy`-only production cutover would have shipped without 21 CFR Part 11 invariant enforcement.
+
+### Operator runbook
+
+`17950db` (DEPLOY-WINDOWS § 10.3) documents: new `OFFLINE_REPLAY_SECRET` env var (required in production), the two new migrations to apply, single re-login per tablet after upgrade (queues then drain), `GET /api/audit/verify-chain` runbook, `offlinePerformedAt` server-side validation policy, `ADMIN_REQUEST_REVIEW` privilege rename.
+
+### Still pending (NOT closed by this branch)
+
+- **P0 #5** — UI for `/bypass` + `/terminate-cycle` (UX placement decision; backend ready)
+- 5 lower-blast config surfaces still unprotected: `notification-rules`, `dashboard-cards`, `cleaning-profile-assignment`, `filter-cleaning-reasons`, `notification-settings/email-settings` page-level wrap, `ahu-filter-set-config`, `checklist-form` signature flow
+- PWA `skipWaiting` + reload-prompt (operators submit stale contracts post-deploy)
+- Decision-tape `tapeVersion` integer overflow at 1e6 events/cycle
+- RBAC caching (4 sequential queries before every handler)
+- ~140 bare-string FKs (data-layer C3 — schema audit; orphan UnsMapping bug class)
+
+---
+
 ## [Unreleased] — Wave 8a: § 11 follow-ups close (2026-05-03)
 
 Final pass on `PHASE_5_RECENT_WORK.md § 11` outstanding work. Six parallel agents (Y/Z/AA/AB/AC/AD) closed three remaining items in a single dispatch.

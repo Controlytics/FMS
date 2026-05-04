@@ -13,7 +13,7 @@ apps/api/         — Fastify backend (TypeScript, port 3000)
 apps/web/         — React SPA (Vite, port 5175 dev)
 apps/android/     — Capacitor Android wrapper (DigiLog-FilterOps.apk)
 rfid_scan_app/    — Native Kotlin RFID scanner (KC-series UHF readers)
-packages/shared/  — Permissions (106), privileges (90), reauth (87), sidebar items (26), zod schemas
+packages/shared/  — Permissions (107), privileges (90), reauth (96), sidebar items (26), zod schemas
 packages/db/      — Prisma client + TimescaleDB pool + telemetry batcher
 packages/queue/   — graphile-worker job queue (Postgres-backed)
 docs/             — Project docs (current)
@@ -76,10 +76,10 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 - **Verify TLS up** — `curl -sk -o /dev/null -w "%{http_code}" https://localhost:3000/health` should return a code (even 401 means TLS is up).
 - **Don't use HTTPS with self-signed in Capacitor *dev* mode** — WebView's `fetch()` rejects self-signed certs (Capacitor's `BridgeActivity` overrides the WebViewClient after `onCreate`). Keep dev cleartext if testing in-WebView, or install root CA on the device.
 
-## System Stats (current — 2026-04-30, verified against live code post-Step-1 + MT removal)
-- **Backend:** 36 API modules under `apps/api/src/modules/`, 200+ endpoints
-- **Database:** **69 Prisma models, 23 enums**; TimescaleDB with 7 hypertables. TemplateKind is a lookup table (admin-editable since Step 1); not an enum. Phase A.3 added `FilterProfileVersion` sidecar; Phase A.4 added `EquipmentGroupVersion` sidecar; Step 4 (2026-05-02) replaced `FilterProfile.applicableTemplates` JSONB array with the `FilterProfileApplicableTemplate` join table (cascade FKs to AssetTemplate).
-- **Permissions:** **106** constants, **90** feature privileges, **87** reauth actions, **26** sidebar items (`VERSION_HISTORY_VIEW` + `version-history` sidebar entry added 2026-05-02 — SUPER_ADMIN by default; assignable via Role Privileges → Audit / Versions; reauth gained `UPDATE_PROFILE` (H1) and `RETIRE_FILTER`/`REPLACE_FILTER`/`BULK_UPLOAD_FILTERS` (C2) on 2026-05-04, plus `APPROVE_ADMIN_REQUEST` (M1) and `UPDATE_FILTER_LIFECYCLE` (M2) on 2026-05-04 — both audit-trail correctness fixes from `tasks/AUDIT-2026-05-04-linkage-review.md`)
+## System Stats (current — 2026-05-04, verified post P0 compliance branch)
+- **Backend:** **37** API modules under `apps/api/src/modules/`, 200+ endpoints
+- **Database:** **69 Prisma models, 23 enums**; TimescaleDB with **6** hypertables. TemplateKind is a lookup table (admin-editable since Step 1); not an enum. Phase A.3 added `FilterProfileVersion` sidecar; Phase A.4 added `EquipmentGroupVersion` sidecar; Step 4 (2026-05-02) replaced `FilterProfile.applicableTemplates` JSONB array with the `FilterProfileApplicableTemplate` join table (cascade FKs to AssetTemplate). Audit C3 (2026-05-04) added `audit_trail.previous_checksum` + `chain_position BIGSERIAL` for tamper-evident hash chain.
+- **Permissions:** **107** constants, **90** feature privileges, **96** reauth actions, **26** sidebar items. Recent additions: `ADMIN_REQUEST_REVIEW` (priv-escalation fix, replaces USER_CREATE for /admin-requests); 9 new reauth actions on the `fix/p0-compliance-2026-05-04` branch — `UPDATE_REAUTH_CONFIG` (meta-policy), `UPDATE_EMAIL_CONFIG` + `UPDATE_SMS_CONFIG` (notification-delivery), `UPDATE_LDAP_CONFIG`, `DELETE_AUDIT_RECORD` + `BULK_DELETE_AUDIT_RECORDS`, `CREATE/UPDATE/DELETE_TEMPLATE_KIND`. Plus the audit-fix actions from `tasks/AUDIT-2026-05-04-linkage-review.md` (`UPDATE_PROFILE`, `RETIRE_FILTER`/`REPLACE_FILTER`/`BULK_UPLOAD_FILTERS`, `APPROVE_ADMIN_REQUEST`, `UPDATE_FILTER_LIFECYCLE`).
 - **Rule chain:** 77 node types across 8 categories
 - **Config:** **30 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **27** corresponding pages (template-kinds added in Step 1)
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
