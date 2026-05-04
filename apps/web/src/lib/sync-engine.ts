@@ -8,9 +8,15 @@
  *   4. Compact synced operations older than retention window
  *
  * Every replayed call carries:
- *   - x-offline-replay: true            (skips reauth on backend)
+ *   - x-offline-replay-token: <jwt>     (HMAC-signed grant — replaces the
+ *                                       2026-05-04 audit C1 boolean header
+ *                                       bypass; obtained via
+ *                                       POST /api/auth/offline-grant after a
+ *                                       password challenge at login)
  *   - x-client-op-id: <uuid>            (idempotency key — backend dedups)
- *   - body.offlinePerformedAt           (preserves real action time in audit)
+ *   - body.offlinePerformedAt           (preserves real action time in audit;
+ *                                       server validates per audit C2 — see
+ *                                       apps/api/src/lib/offline-time-window.ts)
  */
 import { apiClient } from './api-client';
 import {
@@ -24,6 +30,20 @@ import {
   evictLruCache,
 } from './offline-store';
 import { onConnectivityChange } from './connectivity';
+
+/**
+ * Audit 2026-05-04 fix C1: read the offline-replay grant token from session
+ * (or backup in localStorage if the tab was reloaded) and shape it as a
+ * header object spread by every replay call. Returns {} if no token, in
+ * which case the backend will reject the call with REAUTH_REQUIRED — the
+ * operator must re-login to mint a fresh grant. This is the desired failure
+ * mode (loud, not silent).
+ */
+function getOfflineReplayHeader(): Record<string, string> {
+  const token = sessionStorage.getItem('offline_replay_token')
+    || localStorage.getItem('offline_replay_token_backup');
+  return token ? { 'x-offline-replay-token': token } : {};
+}
 
 type SyncListener = (event: { type: 'start' | 'progress' | 'complete' | 'error' | 'interrupted'; synced?: number; total?: number; error?: string }) => void;
 
@@ -84,7 +104,7 @@ async function executeOperation(op: { type: string; filterId: string; payload: R
   // and returns the cached response if the same id arrives twice. For start-and-advance
   // we suffix to differentiate the two underlying mutations.
   const headers: Record<string, string> = {
-    'x-offline-replay': 'true',
+    ...getOfflineReplayHeader(),
     ...(op.clientOpId ? { 'x-client-op-id': op.clientOpId } : {}),
   };
   const offlineTime = op.createdAt;
@@ -156,7 +176,7 @@ async function syncTombstones(): Promise<void> {
     try {
       await updateTombstoneStatus(t.id, 'syncing');
       const headers: Record<string, string> = {
-        'x-offline-replay': 'true',
+        ...getOfflineReplayHeader(),
         'x-client-op-id': t.clientOpId,
       };
       if (t.entityType === 'cycle') {

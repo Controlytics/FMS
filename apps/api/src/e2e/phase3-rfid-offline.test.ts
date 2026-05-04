@@ -35,7 +35,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type FastifyInstance } from 'fastify';
-import { buildApp, loginAs, authGet, authPost, authDelete, ADMIN_PASSWORD } from './test-helper.js';
+import { buildApp, loginAs, authGet, authPost, authDelete, obtainOfflineGrant, ADMIN_PASSWORD } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import { invalidateReauthCache } from '../lib/reauth-check.js';
 
@@ -255,15 +255,17 @@ describe('Phase 3 — RFID & Offline (identifier lookup + offline-replay header)
   });
 
   // =========================================================================
-  // 6. Offline-replay header skips reauth on a route guarded by enforceReauth
+  // 6. Offline-replay grant token skips reauth on a route guarded by enforceReauth
   //
-  // sync-engine.ts (apps/web/src/lib/sync-engine.ts L87, L159) sends
-  //   headers['x-offline-replay'] = 'true'
-  // and the backend reauth-check.ts L49 skips the reauth gate when that
-  // header is the literal string 'true'. This test proves both halves of
-  // that contract end-to-end.
+  // Audit 2026-05-04 fix C1: bare `x-offline-replay: true` header is no longer
+  // accepted. sync-engine.ts now obtains a signed grant via
+  // POST /api/auth/offline-grant at login, sends it as
+  //   headers['x-offline-replay-token'] = '<jwt>'
+  // and the backend auth plugin (plugins/auth.ts) verifies + decorates
+  // req.offlineReplayVerified, which reauth-check.ts honors. Grant is bound
+  // to the calling user + session — a stolen JWT cannot mint one.
   // =========================================================================
-  it('POST /api/assets/identifiers with x-offline-replay:true skips reauth (no password needed)', async () => {
+  it('POST /api/assets/identifiers with x-offline-replay-token skips reauth (no password needed)', async () => {
     // 6a — Inject a real reauth requirement in the schema-correct shape
     //      (Record<string, string[]>). The seed file uses {actions:[...]}
     //      which does not match actionReauthConfigSchema, so we override
@@ -304,13 +306,15 @@ describe('Phase 3 — RFID & Offline (identifier lookup + offline-replay header)
     const gateBody = JSON.parse(gateCheck.body);
     expect(gateBody.error).toBe('REAUTH_REQUIRED');
 
-    // 6c: same payload + x-offline-replay:true header (no password) → 201 created
+    // 6c: obtain a real signed grant, then call with x-offline-replay-token
+    //     (no password required) → 201 created
+    const offlineGrant = await obtainOfflineGrant(app, adminToken);
     const replayRes = await app.inject({
       method: 'POST',
       url: '/api/assets/identifiers',
       headers: {
         authorization: `Bearer ${adminToken}`,
-        'x-offline-replay': 'true',
+        'x-offline-replay-token': offlineGrant,
       },
       payload: {
         assetId: assetB,
@@ -323,6 +327,23 @@ describe('Phase 3 — RFID & Offline (identifier lookup + offline-replay header)
     const replayData = replayBody.data || replayBody;
     expect(replayData.identifierValue).toBe(identValueB);
     expect(replayData.assetId).toBe(assetB);
+
+    // 6d: bare legacy header is now rejected — proves the cutover is real.
+    const legacyRes = await app.inject({
+      method: 'POST',
+      url: '/api/assets/identifiers',
+      headers: {
+        authorization: `Bearer ${adminToken}`,
+        'x-offline-replay': 'true',
+      },
+      payload: {
+        assetId: assetB,
+        identifierType: 'RFID',
+        identifierValue: `${identValueB}-legacy-rejected`,
+      },
+    });
+    expect(legacyRes.statusCode).toBe(401);
+    expect(JSON.parse(legacyRes.body).error).toBe('OFFLINE_REPLAY_HEADER_DEPRECATED');
   });
 
   // =========================================================================

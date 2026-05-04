@@ -77,6 +77,27 @@ export function useAuth() {
     sessionStorage.setItem('access_token', res.token);
     localStorage.setItem('access_token_backup', res.token);
 
+    // Audit 2026-05-04 fix C1: fetch an offline-replay grant token using the
+    // password the user just supplied (still in scope) so the sync engine can
+    // replay queued offline ops after the bare `x-offline-replay: true`
+    // header bypass was removed. Best-effort — if it fails, the user simply
+    // can't replay until they reauth manually (clear failure mode, not silent
+    // bypass).
+    if (!res.user.forcePasswordChange) {
+      try {
+        const grant = await apiClient.post<{ token: string; expiresAt: string }>(
+          '/api/auth/offline-grant',
+          { _currentPassword: password },
+        );
+        sessionStorage.setItem('offline_replay_token', grant.token);
+        sessionStorage.setItem('offline_replay_expires', grant.expiresAt);
+        localStorage.setItem('offline_replay_token_backup', grant.token);
+        localStorage.setItem('offline_replay_expires_backup', grant.expiresAt);
+      } catch (e) {
+        console.warn('[auth] Failed to fetch offline-replay grant on login:', e);
+      }
+    }
+
     if (res.user.forcePasswordChange) {
       navigate('/change-password', { replace: true });
     } else {
@@ -102,6 +123,13 @@ export function useAuth() {
     sessionStorage.removeItem('access_token');
     localStorage.removeItem('access_token_backup');
     localStorage.removeItem('digilog_cached_user');
+    // Audit 2026-05-04 fix C1: drop the offline-replay grant on logout so a
+    // subsequent user (shared workstation) does not inherit the prior user's
+    // offline-mode authorization.
+    sessionStorage.removeItem('offline_replay_token');
+    sessionStorage.removeItem('offline_replay_expires');
+    localStorage.removeItem('offline_replay_token_backup');
+    localStorage.removeItem('offline_replay_expires_backup');
     // Clean up single-tab localStorage keys
     const myTabId = sessionStorage.getItem('digilog_tab_id');
     if (myTabId && localStorage.getItem('digilog_active_tab_id') === myTabId) {

@@ -96,9 +96,15 @@ export async function enforceReauth(
   req: FastifyRequest,
   reply: FastifyReply,
 ): Promise<{ ok: boolean }> {
-  // Offline-replayed operations: the user was already authenticated when they
-  // performed the action on the tablet. Skip reauth for these requests.
-  if (req.headers['x-offline-replay'] === 'true') return { ok: true };
+  // Audit 2026-05-04 fix C1 — offline-replay bypass.
+  //
+  // The previous implementation returned ok==true on a bare boolean header
+  // (`x-offline-replay: true`) — anyone with a valid JWT could set the header
+  // and bypass every reauth gate. Now the auth plugin (plugins/auth.ts)
+  // verifies an HMAC-signed grant token at onRequest time and decorates
+  // `req.offlineReplayVerified` only when the token is valid + bound to the
+  // current user+session. Bare boolean header is rejected upstream.
+  if (req.offlineReplayVerified === true) return { ok: true };
 
   const role = req.user.role;
   const actions = Array.isArray(action) ? action : [action];

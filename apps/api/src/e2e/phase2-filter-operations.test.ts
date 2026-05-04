@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
-import { loginAs } from './test-helper.js';
+import { loginAs, obtainOfflineGrant } from './test-helper.js';
 import authPlugin from '../plugins/auth.js';
 import auditLoggerPlugin from '../plugins/audit-logger.js';
 import rbacPlugin from '../plugins/rbac.js';
@@ -161,6 +161,7 @@ function getStateSnapshot(overrides: Record<string, unknown> = {}) {
 describe('Phase 2 — Filter Operations route-level e2e', () => {
   let app: FastifyInstance;
   let token: string;
+  let offlineGrant: string;
 
   beforeAll(async () => {
     // Build a minimal app inline — base `buildApp()` from test-helper doesn't
@@ -200,6 +201,9 @@ describe('Phase 2 — Filter Operations route-level e2e', () => {
     await app.ready();
 
     token = await loginAs(app);
+    // Audit 2026-05-04 fix C1: legacy `x-offline-replay: true` header is
+    // now rejected. Obtain a real HMAC-signed grant for replay calls.
+    offlineGrant = await obtainOfflineGrant(app, token);
   });
 
   afterAll(async () => {
@@ -210,16 +214,16 @@ describe('Phase 2 — Filter Operations route-level e2e', () => {
     vi.clearAllMocks();
   });
 
-  // Helper: authenticated POST that bypasses reauth via offline-replay header.
-  // (See lib/reauth-check.ts line 49 — the gate short-circuits when this
-  // header is set, regardless of action-reauth systemConfig state.)
+  // Helper: authenticated POST that bypasses reauth via offline-replay grant
+  // token. Audit 2026-05-04 fix C1 — bare `x-offline-replay: true` header is
+  // no longer accepted; tests obtain a real signed grant in beforeAll.
   function offlinePost(url: string, payload: unknown) {
     return app.inject({
       method: 'POST',
       url,
       headers: {
         authorization: `Bearer ${token}`,
-        'x-offline-replay': 'true',
+        'x-offline-replay-token': offlineGrant,
       },
       payload: payload as Record<string, unknown>,
     });

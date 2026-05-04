@@ -247,9 +247,11 @@ describe('H1 — PUT /api/auth/profile reauth gate', () => {
     expect(restoreRes.statusCode).toBe(200);
   });
 
-  it('skips reauth on offline replay (x-offline-replay: true header)', async () => {
-    // Offline-replay requests are pre-authenticated on the device; the helper
-    // explicitly bypasses reauth for them. Verify the same applies here.
+  // Audit 2026-05-04 fix C1: bare `x-offline-replay: true` header is no
+  // longer a reauth bypass. Tablets must obtain a signed grant token from
+  // POST /api/auth/offline-grant and send it as `x-offline-replay-token`.
+
+  it('rejects bare x-offline-replay: true header (deprecated bypass)', async () => {
     const res = await app.inject({
       method: 'PUT',
       url: '/api/auth/profile',
@@ -257,9 +259,35 @@ describe('H1 — PUT /api/auth/profile reauth gate', () => {
         authorization: `Bearer ${token}`,
         'x-offline-replay': 'true',
       },
+      payload: { fullName: 'H1 Should Be Rejected' },
+    });
+    expect(res.statusCode).toBe(401);
+    const body = JSON.parse(res.body);
+    expect(body.error).toBe('OFFLINE_REPLAY_HEADER_DEPRECATED');
+  });
+
+  it('skips reauth on offline replay when a valid grant token is supplied', async () => {
+    // Mint a grant via the new endpoint (requires password).
+    const grantRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/offline-grant',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { _currentPassword: TEST_PASSWORD },
+    });
+    expect(grantRes.statusCode).toBe(200);
+    const grantBody = JSON.parse(grantRes.body);
+    expect(grantBody.token).toBeTruthy();
+
+    // Use the grant on a profile update — should succeed without _currentPassword.
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/auth/profile',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'x-offline-replay-token': grantBody.token,
+      },
       payload: { fullName: 'H1 Offline Replay' },
     });
-
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.fullName).toBe('H1 Offline Replay');
@@ -270,9 +298,33 @@ describe('H1 — PUT /api/auth/profile reauth gate', () => {
       url: '/api/auth/profile',
       headers: {
         authorization: `Bearer ${token}`,
-        'x-offline-replay': 'true',
+        'x-offline-replay-token': grantBody.token,
       },
       payload: { fullName: 'H1 Profile Test Admin' },
     });
+  });
+
+  it('rejects offline-grant issuance without password', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/offline-grant',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(401);
+    const body = JSON.parse(res.body);
+    expect(body.error).toBe('PASSWORD_REQUIRED');
+  });
+
+  it('rejects offline-grant issuance with wrong password', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/offline-grant',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { _currentPassword: 'WrongPassword123!' },
+    });
+    expect(res.statusCode).toBe(401);
+    const body = JSON.parse(res.body);
+    expect(body.error).toBe('REAUTH_FAILED');
   });
 });
