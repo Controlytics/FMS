@@ -5,6 +5,7 @@ import { AppError } from '../../lib/errors.js';
 import { authService } from './auth.service.js';
 import { prisma } from '../../lib/prisma.js';
 import { signToken } from '../../lib/jwt.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 
 export default async function authRoutes(app: FastifyInstance) {
   // POST /api/auth/login
@@ -235,6 +236,14 @@ export default async function authRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    // H1 fix: gate self-profile updates behind reauth so a stolen JWT alone
+    // cannot rewrite the user's email/photo to an attacker-controlled value.
+    // The change-password endpoint is a separate flow with its own current-
+    // password check; UPDATE_PROFILE is a distinct action so audit trails
+    // can distinguish "user updated their profile" from "user changed password".
+    const { ok } = await enforceReauth('UPDATE_PROFILE', req, reply);
+    if (!ok) return;
+
     const body = req.body as { fullName?: string; email?: string; department?: string; photoUrl?: string };
     return authService.updateProfile(req.user.sub, body, req.ip, req.headers['user-agent'], req.user.sessionId);
   });

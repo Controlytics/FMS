@@ -9,6 +9,7 @@ export const REAUTH_ACTIONS = {
   UNLOCK_USER: { label: 'Unlock User', category: 'User Management' },
   RESET_PASSWORD: { label: 'Reset Password', category: 'User Management' },
   PROCESS_RESET_REQUEST: { label: 'Process Reset Request', category: 'User Management' },
+  UPDATE_PROFILE: { label: 'Update Own Profile', category: 'User Management' },
 
   // Config Changes
   UPDATE_PASSWORD_POLICY: { label: 'Update Password Policy', category: 'Configuration' },
@@ -66,6 +67,9 @@ export const REAUTH_ACTIONS = {
   CREATE_FILTER: { label: 'Create Filter', category: 'Filter Management' },
   EDIT_FILTER: { label: 'Edit Filter', category: 'Filter Management' },
   DELETE_FILTER: { label: 'Delete Filter', category: 'Filter Management' },
+  RETIRE_FILTER: { label: 'Retire Filter', category: 'Filter Management' },
+  REPLACE_FILTER: { label: 'Replace Filter', category: 'Filter Management' },
+  BULK_UPLOAD_FILTERS: { label: 'Bulk Upload Filters', category: 'Filter Management' },
   EDIT_HIERARCHY_NODE: { label: 'Edit Hierarchy Node', category: 'Filter Management' },
   DELETE_HIERARCHY_NODE: { label: 'Delete Hierarchy Node', category: 'Filter Management' },
   CREATE_CLEANING_PROFILE: { label: 'Create Cleaning Profile', category: 'Cleaning Profiles' },

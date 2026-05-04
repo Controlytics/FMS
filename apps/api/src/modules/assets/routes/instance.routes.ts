@@ -288,6 +288,13 @@ export default async function instanceRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    // Reauth must run BEFORE multipart consumption — req.body is undefined for
+    // multipart routes, so enforceReauth's body-extraction path is dead. The
+    // FE sends the password via the x-reauth-password header (FormData can't
+    // carry a JSON _currentPassword field), which the helper accepts.
+    const { ok } = await enforceReauth('BULK_UPLOAD_FILTERS', req, reply);
+    if (!ok) return;
+
     try {
       let csvBuffer: Buffer | null = null;
       let ahuId = '';
