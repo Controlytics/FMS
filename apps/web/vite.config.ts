@@ -42,6 +42,16 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [],
         cleanupOutdatedCaches: true,
+        // Audit 2026-05-04 fix (web-plumbing review H): without skipWaiting +
+        // clientsClaim, a freshly-deployed SW waits until ALL tabs close
+        // before activating. Operators on long-running tablet shifts kept
+        // submitting requests under the OLD bundle's contract long after the
+        // server upgraded. Now: new SW takes over on next request; the
+        // ReloadPrompt component (apps/web/src/components/pwa-reload-prompt.tsx)
+        // shows a dismissable banner so the operator can refresh to pick up
+        // the new bundle's UI and shape changes too.
+        skipWaiting: true,
+        clientsClaim: true,
       },
     }),
   ],

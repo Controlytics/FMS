@@ -98,6 +98,15 @@ export const REAUTH_ACTIONS = {
   CREATE_TEMPLATE_KIND: { label: 'Create Template Kind', category: 'Entity Management' },
   UPDATE_TEMPLATE_KIND: { label: 'Update Template Kind', category: 'Entity Management' },
   DELETE_TEMPLATE_KIND: { label: 'Delete Template Kind', category: 'Entity Management' },
+  // Audit 2026-05-04 fix #5 (web-routes review H — lower-blast config
+  // surfaces). Distinct keys would force operators to maintain a check
+  // matrix per page; this single umbrella reauth action covers the
+  // remaining smaller-blast config writes (dashboard-cards visibility,
+  // cleaning-profile-assignment rules, filter-cleaning-reasons
+  // dropdown, ahu-filter-set-config mode toggle). The audit row's
+  // targetType + targetId distinguishes the surface; the action is
+  // shared so operators can opt in / out via one reauth-policy entry.
+  UPDATE_CONFIG_PAGE: { label: 'Update Configuration Page', category: 'Configuration' },
 
   // Phase 2: Filter Management
   START_CLEANING_CYCLE: { label: 'Start Cleaning Cycle', category: 'Filter Management' },

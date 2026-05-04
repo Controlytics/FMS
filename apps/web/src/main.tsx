@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { SWRConfig } from 'swr';
 import { swrConfig } from './lib/swr-config';
 import { ErrorBoundary } from './components/error-boundary';
+import { PwaReloadPrompt } from './components/pwa-reload-prompt';
 import { RouteErrorBoundary } from './components/route-error-boundary';
 import { RequireRole } from './components/require-role';
 import { AppLayout } from './components/layout/app-layout';
@@ -262,6 +263,10 @@ createRoot(document.getElementById('root')!).render(
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
+      {/* Audit 2026-05-04 fix (web-plumbing review H): PWA reload prompt
+          mounted at the app root so SW updates surface to operators before
+          they keep submitting against stale contracts. */}
+      <PwaReloadPrompt />
     </SWRConfig>
     </ToastProvider>
     </ErrorBoundary>

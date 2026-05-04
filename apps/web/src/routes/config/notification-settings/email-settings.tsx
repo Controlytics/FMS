@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import useSWR from 'swr';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, api } from '@/lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
@@ -190,17 +192,28 @@ function EmailTab() {
     }
   };
 
-  const onSubmit = async (formData: EmailConfig) => {
+  // Audit 2026-05-04 fix #5 (web-routes review H5): outbound-comms credential
+  // edits go through reauth. UPDATE_EMAIL_CONFIG action declared this branch
+  // (commit 7e5839a) + backend already enforces — FE wrap completes the gate.
+  const reauth = useReauth();
+  const onSubmit = (formData: EmailConfig) => {
     setError('');
     setSuccess('');
-    try {
-      await apiClient.put('/api/notification-settings/email', formData);
-      setSuccess('Email settings saved successfully');
-      mutate();
-      reset(formData);
-    } catch (err: any) {
-      setError(err.message || 'Failed to save');
-    }
+    reauth.execute(
+      'UPDATE_EMAIL_CONFIG',
+      async (password?: string) => {
+        if (password) await api.putWithReauth('/api/notification-settings/email', formData, password);
+        else await apiClient.put('/api/notification-settings/email', formData);
+      },
+      {
+        onSuccess: () => {
+          setSuccess('Email settings saved successfully');
+          mutate();
+          reset(formData);
+        },
+        onError: (err: any) => setError(err.message || 'Failed to save'),
+      },
+    );
   };
 
   const onTest = async () => {
@@ -633,6 +646,17 @@ function EmailTab() {
           </div>
         </div>
       )}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Update Email Settings"
+      />
     </div>
   );
 }
@@ -661,17 +685,25 @@ function SmsTab() {
   const provider = watch('provider');
   const enabled = watch('enabled');
 
-  const onSubmit = async (formData: SmsConfig) => {
+  const reauth = useReauth();
+  const onSubmit = (formData: SmsConfig) => {
     setError('');
     setSuccess('');
-    try {
-      await apiClient.put('/api/notification-settings/sms', formData);
-      setSuccess('SMS settings saved successfully');
-      mutate();
-      reset(formData);
-    } catch (err: any) {
-      setError(err.message || 'Failed to save');
-    }
+    reauth.execute(
+      'UPDATE_SMS_CONFIG',
+      async (password?: string) => {
+        if (password) await api.putWithReauth('/api/notification-settings/sms', formData, password);
+        else await apiClient.put('/api/notification-settings/sms', formData);
+      },
+      {
+        onSuccess: () => {
+          setSuccess('SMS settings saved successfully');
+          mutate();
+          reset(formData);
+        },
+        onError: (err: any) => setError(err.message || 'Failed to save'),
+      },
+    );
   };
 
   const onTest = async () => {
@@ -846,6 +878,17 @@ function SmsTab() {
           </div>
         )}
       </div>
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Update SMS Settings"
+      />
     </div>
   );
 }
