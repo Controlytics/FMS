@@ -6,7 +6,7 @@ A 21 CFR Part 11–compliant digital logbook + IoT data platform with an integra
 - **36 API modules**, **200+ endpoints**, **69 Prisma models**, **23 enums**
 - **77 rule-chain node types** across 8 categories
 - **30 config definitions** with auto-discovery, **26 config pages**
-- **106 permissions**, **90 feature toggles**, **81 reauth actions**, **26 sidebar items**
+- **106 permissions**, **90 feature toggles**, **85 reauth actions**, **26 sidebar items**
 - **10 color themes**, configurable report layout, multi-channel notifications
 - **TimescaleDB** with 7 hypertables for telemetry / attributes / events / alarm history
 
@@ -111,7 +111,7 @@ All filter operations are recorded as immutable events with SHA-256 checksums, e
 - Report template designer + PDF generation engine + digital signatures
 - Configurable report header/footer/layout
 - Dynamic CSV bulk upload from template attributeSchema
-- 81 reauth actions
+- 85 reauth actions
 
 ## Phase 5 — Reports, Offline Hardening, RFID SDK, Filter Data Console (Apr 15–29, 2026)
 - Reports module phases A–F complete (template designer + generation engine + signatures)

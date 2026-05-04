@@ -9,7 +9,7 @@ Branch: DigitalFMS (active development).
 - **Backend:** 37 API modules
 - **Frontend:** 23 route folders/files (~85 pages)
 - **Database:** 69 Prisma models, 23 enums
-- **Permissions:** 106 constants, 90 feature privileges, 81 reauth actions across 16 categories, 26 sidebar items
+- **Permissions:** 106 constants, 90 feature privileges, 85 reauth actions across 16 categories, 26 sidebar items
 
 ## Backend Modules (37)
 admin-requests, assets (templates, instances, identifiers, relationships), audit, auth, backup, checklist-profiles, cleaning-profiles, config (with 30 auto-discovered defs), connectivity, dashboards, data-ingestion, deployment-check, entity-assignments, equipment-groups, filter-operations, filter-profiles, help, ldap, notification-delivery, notification-rules, notifications, org-admin, pm-schedules, qr-code, queries (telemetry/alarm/retention/export), report-templates, reports, roles, rule-chain, super-admin, system-health, tenant-admin, uns, uploads, user-groups, users — plus filter-set / filter-data-management surfaces under config.

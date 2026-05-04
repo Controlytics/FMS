@@ -59,7 +59,7 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 |---|---|
 | `permissions.ts` | **106** permission constants (PERMISSIONS enum + ALL_PERMISSIONS list) — 4 ORG_* perms removed in MT removal; `VERSION_HISTORY_VIEW` added 2026-05-02 |
 | `feature-privileges.ts` | **90** feature privileges + `FEATURE_TO_PERMISSION_MAP` — 2 org.* privileges removed in MT removal; `version_history.view` added 2026-05-02 |
-| `reauth-actions.ts` | **81** reauth actions across 16 categories |
+| `reauth-actions.ts` | **85** reauth actions across 16 categories (added `UPDATE_PROFILE` for H1 + `RETIRE_FILTER`/`REPLACE_FILTER`/`BULK_UPLOAD_FILTERS` for C2 on 2026-05-04) |
 | `roles.ts` | Role constants + hierarchy + display labels |
 | `permission-categories.ts` | Permission grouping for the role-access UI |
 | `sidebar-items.ts` | **26** sidebar items (Organizations entry removed in MT removal; `version-history` added 2026-05-02) |

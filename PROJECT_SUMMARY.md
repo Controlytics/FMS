@@ -32,7 +32,7 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 │   ├── web/            — React SPA (22 route folders/files, Vite + Tailwind)
 │   └── android/        — Capacitor wrapper for Android APK (incl. RfidPlugin.java for SDK-mode RFID)
 ├── packages/
-│   ├── shared/         — Zod schemas, permissions, types (106 permissions, 90 privileges, 81 reauth actions, 26 sidebar items)
+│   ├── shared/         — Zod schemas, permissions, types (106 permissions, 90 privileges, 85 reauth actions, 26 sidebar items)
 │   ├── db/             — Prisma client, TimescaleDB pool, telemetry batcher
 │   └── queue/          — graphile-worker job queue (Postgres-backed; Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis)
 ├── rfid_scan_app/      — Native Kotlin Android RFID scanner (predates RfidPlugin in DigiLog APK)
