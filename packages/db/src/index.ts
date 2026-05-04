@@ -10,4 +10,7 @@ export {
   closeTelemetryBatcher,
   getTelemetryBufferSize,
   getDeviceEventBufferSize,
+  // Audit 2026-05-04 fix (queue review H4): drop counters for system-health
+  // surface — operators can see lifetime overflow + requeue drop counts.
+  getTelemetryBatcherStats,
 } from './telemetry-batcher.js';

@@ -32,6 +32,31 @@ let flushIntervalMs = 1000;
 let maxBufferSize = 10_000;
 let isInitialized = false;
 
+/**
+ * Audit 2026-05-04 fix (queue review H4): drop counters for the
+ * monitoring/runbook surface. Previously every backpressure drop logged
+ * a single warn line and the dropped row vanished — operators had no
+ * way to count how many writes were lost over time, no metric to alert
+ * on. These counters are append-only since process start; they reset
+ * on `closeTelemetryBatcher()` so test runs start clean. Exposed via
+ * `getTelemetryBatcherStats()` for the system-health endpoint to
+ * surface to operators.
+ *
+ * 21 CFR Part 11 implication: dropped telemetry rows on backpressure
+ * are an undocumented data-loss path. Counters are the minimum-viable
+ * disclosure — a future commit should add an alarm hook (queue H4
+ * follow-up).
+ */
+const stats = {
+  telemetryDroppedOverflow: 0,
+  telemetryDroppedRequeue: 0,
+  deviceEventDroppedOverflow: 0,
+  deviceEventDroppedRequeue: 0,
+};
+export function getTelemetryBatcherStats(): Readonly<typeof stats> {
+  return stats;
+}
+
 export function initTelemetryBatcher(tsdbPool: pg.Pool, opts?: { batchSize?: number; flushIntervalMs?: number; maxBufferSize?: number }): void {
   if (isInitialized) return;
   pool = tsdbPool;
@@ -52,7 +77,8 @@ export function addTelemetryRow(row: TelemetryRow): void {
   // Backpressure: drop oldest rows when buffer exceeds max size
   if (telemetryBuffer.length >= maxBufferSize) {
     const dropped = telemetryBuffer.splice(0, Math.floor(maxBufferSize * 0.1));
-    console.warn(`[TelemetryBatcher] Buffer overflow — dropped ${dropped.length} oldest telemetry rows`);
+    stats.telemetryDroppedOverflow += dropped.length;
+    console.warn(`[TelemetryBatcher] Buffer overflow — dropped ${dropped.length} oldest telemetry rows (lifetime overflow drops: ${stats.telemetryDroppedOverflow})`);
   }
 
   telemetryBuffer.push(row);
@@ -67,7 +93,8 @@ export function addDeviceEventRow(row: DeviceEventRow): void {
   // Backpressure: drop oldest rows when buffer exceeds max size
   if (deviceEventBuffer.length >= maxBufferSize) {
     const dropped = deviceEventBuffer.splice(0, Math.floor(maxBufferSize * 0.1));
-    console.warn(`[TelemetryBatcher] Buffer overflow — dropped ${dropped.length} oldest device event rows`);
+    stats.deviceEventDroppedOverflow += dropped.length;
+    console.warn(`[TelemetryBatcher] Buffer overflow — dropped ${dropped.length} oldest device event rows (lifetime overflow drops: ${stats.deviceEventDroppedOverflow})`);
   }
 
   deviceEventBuffer.push(row);
@@ -106,22 +133,25 @@ export async function flushTelemetry(): Promise<void> {
   try {
     await pool.query(sql, values);
   } catch (err) {
-    // Put rows back on failure for retry, but respect max buffer size
-    if (telemetryBuffer.length + rows.length <= maxBufferSize) {
-      // Use loop to avoid call stack overflow with large arrays
-      for (let i = rows.length - 1; i >= 0; i--) {
-        telemetryBuffer.unshift(rows[i]);
-      }
+    // Audit 2026-05-04 fix (queue review H3): the previous implementation
+    // unshifted rows one-by-one in a loop = O(n*m) where n=existing buffer,
+    // m=requeued batch. Under sustained TSDB outage with batchSize=100 +
+    // a 10k buffer, every requeue copied ~5000 elements per row = 500K
+    // memory writes per flush. New approach: build the result with
+    // .concat() (one allocation, two copies) — O(n+m). Same logical
+    // result: failed rows go to the FRONT so they're retried first.
+    const space = Math.max(0, maxBufferSize - telemetryBuffer.length);
+    if (rows.length <= space) {
+      telemetryBuffer.splice(0, 0, ...rows);  // splice with spread is O(n+m)
     } else {
-      // Only re-queue what fits; drop oldest excess
-      const space = Math.max(0, maxBufferSize - telemetryBuffer.length);
-      if (space > 0) {
-        const requeue = rows.slice(-space);
-        for (let i = requeue.length - 1; i >= 0; i--) {
-          telemetryBuffer.unshift(requeue[i]);
-        }
+      // Only the last `space` rows fit; drop the oldest excess.
+      const requeue = rows.slice(-space);
+      const dropped = rows.length - space;
+      if (dropped > 0) {
+        stats.telemetryDroppedRequeue += dropped;
+        console.warn(`[TelemetryBatcher] Dropped ${dropped} telemetry rows on re-queue (buffer full; lifetime requeue drops: ${stats.telemetryDroppedRequeue})`);
       }
-      console.warn(`[TelemetryBatcher] Dropped ${rows.length - space} telemetry rows on re-queue (buffer full)`);
+      if (requeue.length > 0) telemetryBuffer.splice(0, 0, ...requeue);
     }
     throw err;
   } finally {
@@ -157,21 +187,19 @@ export async function flushDeviceEvents(): Promise<void> {
   try {
     await pool.query(sql, values);
   } catch (err) {
-    // Put rows back on failure for retry, but respect max buffer size
-    if (deviceEventBuffer.length + rows.length <= maxBufferSize) {
-      // Use loop to avoid call stack overflow with large arrays
-      for (let i = rows.length - 1; i >= 0; i--) {
-        deviceEventBuffer.unshift(rows[i]);
-      }
+    // Audit 2026-05-04 fix (queue review H3): same O(n+m) requeue as
+    // flushTelemetry — see that function's inline note.
+    const space = Math.max(0, maxBufferSize - deviceEventBuffer.length);
+    if (rows.length <= space) {
+      deviceEventBuffer.splice(0, 0, ...rows);
     } else {
-      const space = Math.max(0, maxBufferSize - deviceEventBuffer.length);
-      if (space > 0) {
-        const requeue = rows.slice(-space);
-        for (let i = requeue.length - 1; i >= 0; i--) {
-          deviceEventBuffer.unshift(requeue[i]);
-        }
+      const requeue = rows.slice(-space);
+      const dropped = rows.length - space;
+      if (dropped > 0) {
+        stats.deviceEventDroppedRequeue += dropped;
+        console.warn(`[TelemetryBatcher] Dropped ${dropped} device event rows on re-queue (buffer full; lifetime requeue drops: ${stats.deviceEventDroppedRequeue})`);
       }
-      console.warn(`[TelemetryBatcher] Dropped ${rows.length - space} device event rows on re-queue (buffer full)`);
+      if (requeue.length > 0) deviceEventBuffer.splice(0, 0, ...requeue);
     }
     throw err;
   } finally {
@@ -190,6 +218,12 @@ export async function closeTelemetryBatcher(): Promise<void> {
   }
   // Final flush
   await flushAll();
+  // Reset drop counters so test runs start from a clean slate; production
+  // closes the batcher only at shutdown so the reset is invisible.
+  stats.telemetryDroppedOverflow = 0;
+  stats.telemetryDroppedRequeue = 0;
+  stats.deviceEventDroppedOverflow = 0;
+  stats.deviceEventDroppedRequeue = 0;
   isInitialized = false;
 }
 
