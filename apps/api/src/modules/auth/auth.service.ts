@@ -399,10 +399,10 @@ export const authService = {
     const user = await authRepository.findUserByUsername(username);
     if (!user) return;
 
-    const existingRequest = await authRepository.findPendingResetRequest(user.username);
+    const existingRequest = await authRepository.findPendingResetRequest(user.id);
     if (existingRequest) return 'pending';
 
-    await authRepository.createResetRequest(user.username);
+    await authRepository.createResetRequest(user.id);
 
     await createNotification({
       type: 'PASSWORD_RESET_REQUEST', title: 'Password Reset Request',
