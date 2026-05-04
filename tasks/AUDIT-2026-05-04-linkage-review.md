@@ -46,11 +46,13 @@ Six parallel READ-ONLY review agents (RV1–RV6) audited the codebase for unconn
 **Symptom:** Self-profile update (name/email/department/photoUrl) requires no password re-verification. `POST /api/auth/change-password` correctly gates with current-password verification; profile update does not. An attacker with a stolen JWT could change the user's email to one they control.
 **Fix:** Wrap the route in `enforceReauth(...)` with a new or existing reauth action (`UPDATE_PROFILE`).
 
-### H2. /checklist/:entityId standalone page has no offline schema pinning
+### H2. /checklist/:entityId standalone page has no offline schema pinning — RECLASSIFIED 2026-05-04 by FX8 investigation
 **File:** `apps/web/src/routes/checklist-form/index.tsx:167` area
 **Source:** RV5
-**Symptom:** Standalone mobile-optimized checklist page fetches the entity once, reads `entity.template.checklistSchema`, and uses that for validation. If an admin edits the template AFTER the operator went offline, the operator's submission validates against schema A but the server expects schema B. Replay either silently corrupts the audit trail or 4xx-rejects.
-**Fix:** Snapshot `checklistSchema` in the offline entity cache at fetch time; use the pinned snapshot on offline replay. Mirrors Phase A.1 `cycle.checklistVersionPins` pattern but for the standalone page (which doesn't have a cycle context).
+**Original symptom:** Standalone mobile-optimized checklist page fetches the entity once, reads `entity.template.checklistSchema`, and uses that for validation. If an admin edits the template AFTER the operator went offline, the operator's submission validates against schema A but the server expects schema B.
+**FX8 finding (READ-ONLY): MISCLASSIFIED.** The page is purely ONLINE — no `useOffline`, no `executeOrQueue`, no offline-cache import; `apiClient.post` has no offline auto-queue; the `useOffline.executeOrQueue` switch (use-offline.ts:93) doesn't include `/api/data/checklist`; `vite.config.ts:42-43` sets `runtimeCaching:[]` + `navigateFallbackDenylist:[/^\/api\//]` (no SW background-sync queue). Server endpoint `apps/api/src/modules/data-ingestion/routes.ts:237-321` has `responses: {type:'object', additionalProperties:true}` (anything passes); `ingestion.service.ts:543` skips validation for `POST_CHECKLIST`; `ingestion.repository.ts:161-197` (saveChecklist) stores the answers blob verbatim with the question IDs the operator saw + SHA-256 hash. The audit's failure mode is **not reachable** under current code.
+**Decision:** No fix. Risk does not exist today.
+**Forward-looking note:** If offline support is ever added to this page, `ts_checklist_responses` (init-tsdb.sql:52-62) needs a `template_version` column at the same time. Tracked here as a guardrail for future feature work, NOT an active 21 CFR risk.
 
 ### H3. PUT /api/pm-executions/:id has no FE caller (orphan endpoint)
 **File:** `apps/api/src/modules/pm-schedules/execution-routes.ts:34`
