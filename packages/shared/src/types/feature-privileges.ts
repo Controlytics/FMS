@@ -275,8 +275,8 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'uns.view': ['UNS_VIEW'],
   'uns.manage': ['UNS_MANAGE'],
 
-  // Admin Requests
-  'admin_requests.view': ['USER_CREATE'],
+  // Admin Requests (2026-05-04 — fix C4 privilege escalation)
+  'admin_requests.view': ['ADMIN_REQUEST_REVIEW'],
 
   // Debug Traces
   'debug.view': ['READ_DEBUG_TRACE'],

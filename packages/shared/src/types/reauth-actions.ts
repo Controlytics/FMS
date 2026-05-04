@@ -25,6 +25,13 @@ export const REAUTH_ACTIONS = {
   UPDATE_USERID_CONFIG: { label: 'Update User ID Config', category: 'Configuration' },
   UPDATE_BRANDING: { label: 'Update Branding', category: 'Configuration' },
   UPDATE_ROLE_CONFIG: { label: 'Update Role Config', category: 'Configuration' },
+  // C3 (review 2026-05-04): notification-delivery routes called
+  // enforceReauth('UPDATE_EMAIL_CONFIG'/'UPDATE_SMS_CONFIG') against actions
+  // that did not exist in this map — isReauthRequired() would always return
+  // false, silently disabling the gate. Added so the operator-facing reauth
+  // policy page can require step-up auth on outbound-comms credential edits.
+  UPDATE_EMAIL_CONFIG: { label: 'Update Email Config', category: 'Configuration' },
+  UPDATE_SMS_CONFIG: { label: 'Update SMS Config', category: 'Configuration' },
 
   // Role Management
   CREATE_ROLE: { label: 'Create Role', category: 'Role Management' },

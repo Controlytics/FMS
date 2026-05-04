@@ -152,12 +152,24 @@ export async function submitChecklistImpl(
     `;
 
     // Check for duplicate submission (same stage, same cycle).
+    //
+    // Audit 2026-05-04 fix (api-core review C3): the previous query used
+    //   { path: ['afterStage'], equals: currentState ?? undefined }
+    // which collapses to `equals: undefined` when currentState is null
+    // (the case for the very first checklist before any STAGE has run).
+    // Prisma treats `equals: undefined` as "no JSON filter at all" — the
+    // query then matches every CHECKLIST_COMPLETED event for the cycle,
+    // including ones for other stages, producing a false-positive 409
+    // ALREADY_SUBMITTED that locks the operator out of the cycle.
+    // Use `equals: null` (Prisma's explicit JSON-null match) instead, so
+    // a stage-null event row is matched correctly and stage-other rows
+    // are not.
     const existing = await tx.filterEvent.findFirst({
       where: {
         filterId,
         cycleId: cycle.id,
         eventType: 'CHECKLIST_COMPLETED',
-        attributes: { path: ['afterStage'], equals: currentState ?? undefined },
+        attributes: { path: ['afterStage'], equals: currentState ?? (null as any) },
       },
     });
     if (existing) throw new AppError(409, 'ALREADY_SUBMITTED', `Checklist already submitted for ${prettyStageLabel(currentState)}`);

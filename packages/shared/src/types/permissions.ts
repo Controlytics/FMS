@@ -165,6 +165,12 @@ export const PERMISSIONS = {
   REPORT_DELETE: 'REPORT_DELETE',
   REPORT_EXPORT: 'REPORT_EXPORT',
 
+  // Admin Requests (2026-05-04 — review C4): own permission so the
+  // 'admin_requests.view' privilege does NOT need USER_CREATE. Earlier
+  // mapping was a privilege escalation — granting "review admin requests"
+  // also handed the user the ability to create users.
+  ADMIN_REQUEST_REVIEW: 'ADMIN_REQUEST_REVIEW',
+
   // Version History (2026-05-02): cross-entity audit-history viewer for the
   // four versioned entities (CleaningProfile lineage, FilterProfile sidecar,
   // ChecklistProfile sidecar, EquipmentGroup composite sidecar). SUPER_ADMIN

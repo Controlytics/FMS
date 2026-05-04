@@ -103,12 +103,25 @@ export async function startCycleImpl(
     }
   }
 
-  // Use transaction to prevent race conditions on double-start
+  // Use transaction to prevent race conditions on double-start.
+  //
+  // Audit 2026-05-04 fix (api-core review C2): the previous in-tx `findUnique`
+  // recheck did NOT acquire a row lock — two concurrent start-cycle requests
+  // for the same filter could both clear the recheck and both insert. Switch
+  // to `SELECT ... FOR UPDATE` so the second caller serializes behind the
+  // first's commit and observes the new currentCycleId before its own check.
+  // Mirrors the lock pattern used by advance/bypass/terminate via
+  // lockAndVerifyFilterState() in ./locking.ts.
   const cycle = await prisma["$transaction"](async (tx) => {
-    // Re-check inside transaction (currentCycleId now lives on FilterDetails — Step 6)
-    const recheckFD = await tx.filterDetails.findUnique({ where: { assetInstanceId: filterId }, select: { currentCycleId: true } });
-    if (recheckFD?.currentCycleId) {
-      const active = await tx.cleaningCycle.findFirst({ where: { id: recheckFD.currentCycleId, status: 'IN_PROGRESS' } });
+    const lockedRows = await tx.$queryRaw<Array<{ current_cycle_id: string | null }>>`
+      SELECT current_cycle_id
+      FROM filter_details
+      WHERE asset_instance_id = ${filterId}::uuid
+      FOR UPDATE
+    `;
+    const lockedCurrentCycleId = lockedRows[0]?.current_cycle_id ?? null;
+    if (lockedCurrentCycleId) {
+      const active = await tx.cleaningCycle.findFirst({ where: { id: lockedCurrentCycleId, status: 'IN_PROGRESS' } });
       if (active) throw new AppError(409, 'CYCLE_ACTIVE', 'Filter already has an active cleaning cycle');
     }
 
