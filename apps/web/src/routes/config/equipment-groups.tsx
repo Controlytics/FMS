@@ -67,6 +67,11 @@ export function EquipmentGroupsConfigPage() {
   const [savedToast, setSavedToast] = useState('');
   const [deleteError, setDeleteError] = useState('');
   const [previewInst, setPreviewInst] = useState<number | null>(null);
+  // M8 (2026-05-04): soft-lock dialog when admin edits a group that is in use
+  // by active cycles. Backend snapshot-then-bump (Phase A.4) protects validation
+  // — pinned cycles continue to validate against EquipmentGroupVersion at the
+  // pin. The dialog is a heads-up, not a block.
+  const [editConflict, setEditConflict] = useState<{ group: EquipmentGroup; activeCount: number } | null>(null);
 
   const blockTemplateId = (templatesData?.data ?? []).find((t: any) => t.name === 'Block')?.id;
   const blocks = (instancesData?.data ?? []).filter((e: any) => e.templateId === blockTemplateId);
@@ -82,9 +87,28 @@ export function EquipmentGroupsConfigPage() {
     setError('');
   };
 
-  const handleEdit = (g: EquipmentGroup) => {
+  const openEditor = (g: EquipmentGroup) => {
     setEditing({ group: { ...g, instruments: g.instruments.map(i => ({ ...i })) }, isNew: false });
     setError('');
+  };
+
+  const handleEdit = async (g: EquipmentGroup) => {
+    // M8 (2026-05-04): inline-derived active-cycle check. The cycles list
+    // returns equipmentGroupId on each row (CleaningCycle column, not stripped
+    // by the response schema), so we filter client-side. Fail-open on fetch
+    // error — the soft-lock is informational; a transient network blip must
+    // never wedge admin work.
+    try {
+      const res = await apiClient.get<{ data: any[] }>('/api/filters/cycles?status=IN_PROGRESS&limit=100');
+      const activeCount = (res.data ?? []).filter((c: any) => c.equipmentGroupId === g.id).length;
+      if (activeCount > 0) {
+        setEditConflict({ group: g, activeCount });
+        return;
+      }
+    } catch {
+      // swallow — proceed straight to the editor
+    }
+    openEditor(g);
   };
 
   const handleDelete = async (g: EquipmentGroup) => {
@@ -416,6 +440,41 @@ export function EquipmentGroupsConfigPage() {
                 className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-cyan-500 hover:to-teal-500 shadow-lg shadow-cyan-500/25 flex items-center justify-center gap-2">
                 {saving && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
                 {saving ? 'Saving...' : 'Save Equipment Group'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* M8 (2026-05-04): soft-lock advisory when admin attempts to edit a
+          group that is in use by active cycles. Backend snapshot-then-bump
+          (Phase A.4) protects validation integrity — pinned cycles continue
+          to validate against the EquipmentGroupVersion at the pin. The dialog
+          is a heads-up; admin can proceed. */}
+      {editConflict && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setEditConflict(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="h-1.5 bg-gradient-to-r from-amber-400 to-orange-500" />
+            <div className="px-6 py-5 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600 shrink-0">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-800">Group is in use</h2>
+                  <p className="text-sm text-slate-600 mt-1">
+                    This group is in use by {editConflict.activeCount} active cycle{editConflict.activeCount === 1 ? '' : 's'}. Edits will only affect future cycles; existing cycles use the pinned version.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
+              <button onClick={() => setEditConflict(null)}
+                className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">Cancel</button>
+              <button
+                onClick={() => { const g = editConflict.group; setEditConflict(null); openEditor(g); }}
+                className="flex-1 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl text-sm font-semibold hover:from-amber-400 hover:to-orange-400 shadow-lg shadow-amber-500/25">
+                Proceed with edit
               </button>
             </div>
           </div>
