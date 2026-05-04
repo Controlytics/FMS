@@ -279,6 +279,13 @@ describe('Auth endpoints', () => {
   // PUT /api/auth/profile
   // =============================================
   describe('PUT /api/auth/profile', () => {
+    // Note: the H1 audit fix (commit 24cf10e, 2026-05-04) added the
+    // UPDATE_PROFILE reauth gate to PUT /api/auth/profile. The 3 update
+    // tests below now supply the admin password (Admin@123) via the
+    // _currentPassword body field — same pattern auth-profile-reauth.test.ts
+    // uses. The 401-without-auth test is unaffected.
+    const ADMIN_PASSWORD = 'Admin@123';
+
     it('updates fullName and returns updated user', async () => {
       const token = await loginAs(app);
 
@@ -287,9 +294,10 @@ describe('Auth endpoints', () => {
       const originalProfile = JSON.parse(meRes.body);
       const originalName = originalProfile.fullName;
 
-      // Update fullName
+      // Update fullName (H1 reauth gate requires _currentPassword)
       const updateRes = await authPut(app, '/api/auth/profile', token, {
         fullName: 'Updated Admin Name',
+        _currentPassword: ADMIN_PASSWORD,
       });
 
       expect(updateRes.statusCode).toBe(200);
@@ -302,6 +310,7 @@ describe('Auth endpoints', () => {
       // Restore the original name
       const restoreRes = await authPut(app, '/api/auth/profile', token, {
         fullName: originalName,
+        _currentPassword: ADMIN_PASSWORD,
       });
       expect(restoreRes.statusCode).toBe(200);
       const restoredBody = JSON.parse(restoreRes.body);
@@ -313,6 +322,7 @@ describe('Auth endpoints', () => {
 
       const updateRes = await authPut(app, '/api/auth/profile', token, {
         department: 'Quality Assurance',
+        _currentPassword: ADMIN_PASSWORD,
       });
 
       expect(updateRes.statusCode).toBe(200);
@@ -320,7 +330,10 @@ describe('Auth endpoints', () => {
       expect(body.department).toBe('Quality Assurance');
 
       // Clean up: reset department
-      await authPut(app, '/api/auth/profile', token, { department: '' });
+      await authPut(app, '/api/auth/profile', token, {
+        department: '',
+        _currentPassword: ADMIN_PASSWORD,
+      });
     });
 
     it('returns 401 without authentication', async () => {
@@ -336,7 +349,9 @@ describe('Auth endpoints', () => {
     it('accepts empty body without error', async () => {
       const token = await loginAs(app);
 
-      const res = await authPut(app, '/api/auth/profile', token, {});
+      const res = await authPut(app, '/api/auth/profile', token, {
+        _currentPassword: ADMIN_PASSWORD,
+      });
 
       // Should succeed — no fields to update is still valid
       expect(res.statusCode).toBe(200);

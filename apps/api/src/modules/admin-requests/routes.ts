@@ -213,7 +213,11 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('CREATE_USER', req, reply);
+    // M1 (audit 2026-05-04): use APPROVE_ADMIN_REQUEST instead of CREATE_USER.
+    // The admin-request approve/reject flow covers password-reset / unlock /
+    // modify-user as well, none of which are user-creation. The dedicated
+    // action keeps the audit trail honest about WHICH role action this is.
+    const { ok } = await enforceReauth('APPROVE_ADMIN_REQUEST', req, reply);
     if (!ok) return;
 
     const { id } = req.params as { id: string };

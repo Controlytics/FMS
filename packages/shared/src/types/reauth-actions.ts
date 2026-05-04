@@ -10,6 +10,12 @@ export const REAUTH_ACTIONS = {
   RESET_PASSWORD: { label: 'Reset Password', category: 'User Management' },
   PROCESS_RESET_REQUEST: { label: 'Process Reset Request', category: 'User Management' },
   UPDATE_PROFILE: { label: 'Update Own Profile', category: 'User Management' },
+  // M1 (audit 2026-05-04): admin-request approve/reject was reusing CREATE_USER.
+  // That conflated audit trails for password-reset / unlock / modify-user
+  // approvals (none of which are user-creation). Distinct action keeps the
+  // audit trail truthful: "submitter created the user" vs "approver executed
+  // the request".
+  APPROVE_ADMIN_REQUEST: { label: 'Approve / Reject Admin Request', category: 'User Management' },
 
   // Config Changes
   UPDATE_PASSWORD_POLICY: { label: 'Update Password Policy', category: 'Configuration' },
@@ -70,6 +76,11 @@ export const REAUTH_ACTIONS = {
   RETIRE_FILTER: { label: 'Retire Filter', category: 'Filter Management' },
   REPLACE_FILTER: { label: 'Replace Filter', category: 'Filter Management' },
   BULK_UPLOAD_FILTERS: { label: 'Bulk Upload Filters', category: 'Filter Management' },
+  // M2 (audit 2026-05-04): manual filter lifecycle PATCH (INSTALLED / WASH_IN /
+  // ... / IN_USE) was reusing the generic UPDATE_ASSET action, hiding cleanroom
+  // lifecycle moves under the same audit key as ordinary asset edits. Dedicated
+  // action makes inspector audits unambiguous.
+  UPDATE_FILTER_LIFECYCLE: { label: 'Update Filter Lifecycle State', category: 'Filter Management' },
   EDIT_HIERARCHY_NODE: { label: 'Edit Hierarchy Node', category: 'Filter Management' },
   DELETE_HIERARCHY_NODE: { label: 'Delete Hierarchy Node', category: 'Filter Management' },
   CREATE_CLEANING_PROFILE: { label: 'Create Cleaning Profile', category: 'Cleaning Profiles' },

@@ -204,7 +204,7 @@ See `CHANGELOG.md` for full details.
 
 **Permissions Updates (snapshot at release; current totals are higher — see live counts in root `CLAUDE.md`):**
 - ~95 permission constants at release (now 109 — verify with `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts`)
-- 85 reauth actions across 16 categories (gained `UPDATE_PROFILE` (H1) + `RETIRE_FILTER` / `REPLACE_FILTER` / `BULK_UPLOAD_FILTERS` (C2) on 2026-05-04)
+- 87 reauth actions across 16 categories (gained `UPDATE_PROFILE` (H1) + `RETIRE_FILTER` / `REPLACE_FILTER` / `BULK_UPLOAD_FILTERS` (C2) on 2026-05-04, plus `APPROVE_ADMIN_REQUEST` (M1) + `UPDATE_FILTER_LIFECYCLE` (M2) on 2026-05-04 — both audit-trail correctness fixes from `tasks/AUDIT-2026-05-04-linkage-review.md`)
 - FEATURE_TO_PERMISSION_MAP entries include both frontend + backend permissions
 - Block change requests GET endpoint accepts BLOCK_CHANGE_REQUEST OR BLOCK_CHANGE_APPROVE
 - Backup export uses CONFIG_UPDATE (removed hardcoded SUPER_ADMIN check)

@@ -379,8 +379,11 @@ export function FilterListPage() {
     if (statusPanelState === (statusPanelFilter.currentState ?? '')) return;
     setStatusPanelSubmitting(true);
 
+    // M2 (audit 2026-05-04): UPDATE_FILTER_LIFECYCLE replaces generic
+    // UPDATE_ASSET so cleanroom lifecycle moves are distinguishable in the
+    // audit trail from ordinary asset edits.
     reauth.execute(
-      'UPDATE_ASSET',
+      'UPDATE_FILTER_LIFECYCLE',
       async (password?: string) => {
         const body = { lifecycleState: statusPanelState, remarks: statusPanelRemarks.trim() };
         if (password) {
@@ -542,8 +545,10 @@ export function FilterListPage() {
     let completed = 0;
     let failed = 0;
 
+    // M2 (audit 2026-05-04): UPDATE_FILTER_LIFECYCLE replaces generic
+    // UPDATE_ASSET. Mirrors the single-filter path above.
     reauth.execute(
-      'UPDATE_ASSET',
+      'UPDATE_FILTER_LIFECYCLE',
       async (password?: string) => {
         for (const id of ids) {
           try {

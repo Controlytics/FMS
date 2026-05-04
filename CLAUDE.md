@@ -13,7 +13,7 @@ apps/api/         — Fastify backend (TypeScript, port 3000)
 apps/web/         — React SPA (Vite, port 5175 dev)
 apps/android/     — Capacitor Android wrapper (DigiLog-FilterOps.apk)
 rfid_scan_app/    — Native Kotlin RFID scanner (KC-series UHF readers)
-packages/shared/  — Permissions (106), privileges (90), reauth (85), sidebar items (26), zod schemas
+packages/shared/  — Permissions (106), privileges (90), reauth (87), sidebar items (26), zod schemas
 packages/db/      — Prisma client + TimescaleDB pool + telemetry batcher
 packages/queue/   — graphile-worker job queue (Postgres-backed)
 docs/             — Project docs (current)
@@ -79,7 +79,7 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 ## System Stats (current — 2026-04-30, verified against live code post-Step-1 + MT removal)
 - **Backend:** 36 API modules under `apps/api/src/modules/`, 200+ endpoints
 - **Database:** **69 Prisma models, 23 enums**; TimescaleDB with 7 hypertables. TemplateKind is a lookup table (admin-editable since Step 1); not an enum. Phase A.3 added `FilterProfileVersion` sidecar; Phase A.4 added `EquipmentGroupVersion` sidecar; Step 4 (2026-05-02) replaced `FilterProfile.applicableTemplates` JSONB array with the `FilterProfileApplicableTemplate` join table (cascade FKs to AssetTemplate).
-- **Permissions:** **106** constants, **90** feature privileges, **85** reauth actions, **26** sidebar items (`VERSION_HISTORY_VIEW` + `version-history` sidebar entry added 2026-05-02 — SUPER_ADMIN by default; assignable via Role Privileges → Audit / Versions; reauth gained `UPDATE_PROFILE` (H1) and `RETIRE_FILTER`/`REPLACE_FILTER`/`BULK_UPLOAD_FILTERS` (C2) on 2026-05-04)
+- **Permissions:** **106** constants, **90** feature privileges, **87** reauth actions, **26** sidebar items (`VERSION_HISTORY_VIEW` + `version-history` sidebar entry added 2026-05-02 — SUPER_ADMIN by default; assignable via Role Privileges → Audit / Versions; reauth gained `UPDATE_PROFILE` (H1) and `RETIRE_FILTER`/`REPLACE_FILTER`/`BULK_UPLOAD_FILTERS` (C2) on 2026-05-04, plus `APPROVE_ADMIN_REQUEST` (M1) and `UPDATE_FILTER_LIFECYCLE` (M2) on 2026-05-04 — both audit-trail correctness fixes from `tasks/AUDIT-2026-05-04-linkage-review.md`)
 - **Rule chain:** 77 node types across 8 categories
 - **Config:** **30 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **27** corresponding pages (template-kinds added in Step 1)
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)

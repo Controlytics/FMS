@@ -459,7 +459,11 @@ export default async function instanceRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('UPDATE_ASSET', req, reply);
+    // M2 (audit 2026-05-04): use UPDATE_FILTER_LIFECYCLE instead of generic
+    // UPDATE_ASSET. Manual lifecycle moves (INSTALLED / WASH_IN / DRY_OUT / etc.)
+    // belong to the cleanroom filter workflow, not generic asset edits, and the
+    // audit key should reflect that for inspector traceability.
+    const { ok } = await enforceReauth('UPDATE_FILTER_LIFECYCLE', req, reply);
     if (!ok) return;
 
     const { id } = req.params as { id: string };

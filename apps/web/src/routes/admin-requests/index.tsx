@@ -49,8 +49,11 @@ export function AdminRequestsPage() {
     setProcessing(true);
     let response: any = null;
     const reqType = selectedRequest.requestType;
+    // M1 (audit 2026-05-04): APPROVE_ADMIN_REQUEST replaces the previous
+    // CREATE_USER reauth action so password-reset / unlock / modify-user
+    // approvals don't get logged under a misleading "create user" key.
     reauth.execute(
-      'CREATE_USER',
+      'APPROVE_ADMIN_REQUEST',
       async (password?: string) => {
         const body = { action, adminRemarks: adminRemarks.trim() };
         if (password) {
