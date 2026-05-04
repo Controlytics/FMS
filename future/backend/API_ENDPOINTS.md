@@ -144,7 +144,7 @@ The request body requires requester Employee ID; the flow audits both the reques
 | GET | `/:entityId` + `/:entityId/history` | |
 | POST | `/` + `PUT /:id` + `DELETE /:id` | |
 
-PM executions are separate: `POST /api/pm-executions/` and `PUT /api/pm-executions/:id`.
+PM executions are separate: `POST /api/pm-executions/` (start). PM completion is derived from cleaning-cycle records by the My Tasks endpoint, not from `PmExecution.status`, so there is no PUT — the formerly-orphan status endpoint was removed in the H3 cleanup (2026-05-04).
 
 ## Super-admin — `/api/super-admin`
 

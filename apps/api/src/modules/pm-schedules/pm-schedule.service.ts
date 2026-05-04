@@ -9,7 +9,8 @@
  *   • pm-shared.ts          — `checkPmEnabled` guard
  *   • pm-types.ts           — DTOs for the My Tasks page
  *   • pm-schedule-crud.ts   — getByEntity / create / update / delete / getHistory
- *   • pm-executions.ts      — createExecution / updateExecution
+ *   • pm-executions.ts      — createExecution (H3 cleanup 2026-05-04 removed
+ *                             the unused updateExecution helper)
  *   • pm-due-tasks.ts       — getDueTasks (My Tasks page)
  *   • pm-import.ts          — importSchedules + getTemplateCsv (CSV/XLSX upload)
  *   • pm-ahu-config.ts      — listAhuFilterSetConfigs / updateAhuFilterSetMode
@@ -64,10 +65,6 @@ export class PmScheduleService {
   // ─── Executions ───────────────────────────────────────────
   createExecution(ctx: RequestContext, data: any) {
     return executions.createExecution(ctx, data);
-  }
-
-  updateExecution(ctx: RequestContext, id: string, data: any) {
-    return executions.updateExecution(ctx, id, data);
   }
 
   // ─── My Tasks (due now / overdue) ─────────────────────────

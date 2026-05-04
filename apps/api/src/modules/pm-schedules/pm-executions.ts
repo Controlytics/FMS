@@ -1,6 +1,18 @@
 /**
- * PM Schedules — execution lifecycle: starting an execution against a
- * schedule entry, and updating its status (COMPLETED / OVERDUE / MISSED).
+ * PM Schedules — start a PM execution against a schedule entry.
+ *
+ * H3 cleanup (2026-05-04 audit): the `updateExecution` helper that flipped
+ * `PmExecution.status` to COMPLETED/OVERDUE/MISSED was removed alongside its
+ * `PUT /api/pm-executions/:id` route. Completion is derived from cleaning-cycle
+ * timestamps in `pm-due-tasks.ts` — `PmExecution.status` is never read by the
+ * My Tasks computation, so manually advancing it had no observable effect.
+ *
+ * Known downstream consequence: `pm-schedule-crud.ts:138` blocks schedule
+ * deletion when any `PmExecution.status === 'IN_PROGRESS'`. Without the PUT,
+ * that status never advances, so once a PM has been started against an entry
+ * the parent schedule is effectively locked. This matches the pre-cleanup
+ * reality (no FE caller existed before either) and is left in place — a real
+ * "abandon execution" UX would be a deliberate product decision.
  */
 import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
@@ -44,34 +56,4 @@ export async function createExecution(ctx: RequestContext, data: any) {
   });
 
   return execution;
-}
-
-export async function updateExecution(ctx: RequestContext, id: string, data: any) {
-  await checkPmEnabled();
-  const existing = await prisma.pmExecution.findUnique({ where: { id } });
-  if (!existing) throw new AppError(404, 'NOT_FOUND', 'PM execution not found');
-
-  // State machine validation: only IN_PROGRESS executions can be updated
-  if (existing.status !== 'IN_PROGRESS') {
-    throw new AppError(400, 'VALIDATION_ERROR', `Cannot update execution in ${existing.status} status`);
-  }
-
-  const updated = await prisma.pmExecution.update({
-    where: { id },
-    data: {
-      status: data.status,
-      completedAt: data.status === 'COMPLETED' ? new Date() : undefined,
-      notes: data.notes ?? existing.notes,
-    },
-  });
-
-  await auditLog({
-    userId: ctx.userId, userRole: ctx.userRole, action: 'PM_UPDATED',
-    targetType: 'pm_execution', targetId: id,
-    beforeValue: { status: existing.status },
-    afterValue: { status: updated.status },
-    ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-  });
-
-  return updated;
 }

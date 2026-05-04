@@ -1,5 +1,14 @@
 /**
- * PM Execution Routes — Start/complete PM executions.
+ * PM Execution Routes — start a PM execution.
+ *
+ * Lifecycle note: a `PmExecution` row is created in IN_PROGRESS state when an
+ * operator clicks "Start PM" from the schedule detail page. PM completion is
+ * derived from the underlying cleaning-cycle records by `pm-due-tasks.ts`
+ * (`cleanedInWindow` lookup against `cleaning_cycles.completedAt`), not from
+ * `PmExecution.status`. There is therefore no FE need to mutate the row's
+ * status — the prior `PUT /:id` endpoint had no caller and was removed during
+ * the H3 cleanup (2026-05-04 audit). Kept the POST: it is what the detail page
+ * `startPm()` handler hits.
  */
 import type { FastifyInstance } from 'fastify';
 import { PmScheduleService } from './pm-schedule.service.js';
@@ -29,27 +38,5 @@ export default async function pmExecutionRoutes(app: FastifyInstance) {
     const ctx = buildContext(req);
     const result = await service.createExecution(ctx, req.body);
     return reply.code(201).send(result);
-  });
-
-  app.put('/:id', {
-    preHandler: [app.requirePermission('PM_EXECUTE')],
-    schema: {
-      tags: ['PM Executions'],
-      summary: 'Update PM execution status',
-      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
-      body: {
-        type: 'object',
-        required: ['status'],
-        properties: {
-          status: { type: 'string', enum: ['COMPLETED', 'OVERDUE', 'MISSED'] },
-          notes: { type: 'string' },
-        },
-      },
-      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
-    },
-  }, async (req) => {
-    const ctx = buildContext(req);
-    const { id } = req.params as { id: string };
-    return service.updateExecution(ctx, id, req.body);
   });
 }

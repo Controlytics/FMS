@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
@@ -46,7 +46,16 @@ export function PmScheduleDetailPage() {
       {!schedule ? (
         <div className="bg-white border border-slate-200 rounded-xl p-8 text-center">
           <p className="text-slate-500">No PM schedule exists for {year}.</p>
-          <button disabled className="mt-4 px-4 py-2 bg-cyan-600 text-white rounded-lg opacity-50 cursor-not-allowed" title="Coming soon">Create Schedule</button>
+          <p className="text-xs text-slate-400 mt-2">Schedules are created by uploading a CSV/XLSX from the PM Schedules list (entries are routed to QA for approval).</p>
+          <Link
+            to="/pm-schedules"
+            className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-500 transition-colors"
+          >
+            Go to PM Schedules
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+            </svg>
+          </Link>
         </div>
       ) : (
         <>
