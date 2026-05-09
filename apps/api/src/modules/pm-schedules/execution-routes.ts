@@ -14,6 +14,7 @@ import type { FastifyInstance } from 'fastify';
 import { PmScheduleService } from './pm-schedule.service.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 
 export default async function pmExecutionRoutes(app: FastifyInstance) {
   const service = new PmScheduleService();
@@ -35,6 +36,12 @@ export default async function pmExecutionRoutes(app: FastifyInstance) {
       response: { 201: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
+    // Audit 2026-05-09 fix: starting a PM task creates the immutable
+    // PmExecution row — comparable to start-cycle (which IS reauth-gated).
+    // Tablet-left-unlocked attack surface: anyone walking by could stamp
+    // PM-task starts.
+    const { ok } = await enforceReauth('START_PM_TASK', req, reply);
+    if (!ok) return;
     const ctx = buildContext(req);
     const result = await service.createExecution(ctx, req.body);
     return reply.code(201).send(result);

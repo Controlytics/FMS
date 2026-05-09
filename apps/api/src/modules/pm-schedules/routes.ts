@@ -38,6 +38,13 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
+    // Audit 2026-05-09 fix: bulk PM upload was a high-trust mutation with
+    // no password challenge. SUPER_ADMIN uploads auto-approve every row
+    // (pm-import.ts:133), so a left-unlocked tablet could blast hundreds
+    // of approved entries. Reauth gate runs BEFORE multipart consumption
+    // for the same reason as the C2 audit fix on bulk-upload-filters.
+    const { ok } = await enforceReauth('UPLOAD_PM_SCHEDULES', req, reply);
+    if (!ok) return;
     try {
       const data = await req.file();
       if (!data) {
@@ -247,7 +254,12 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       },
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    // Audit 2026-05-09 fix: resubmit flips REJECTED → PENDING. Approve and
+    // reject already reauth — gate this for parity so all three lifecycle
+    // transitions on a PM entry are challengeable.
+    const { ok } = await enforceReauth('RESUBMIT_PM_ENTRY', req, reply);
+    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     const body = req.body as { plannedDate: string; toleranceDays?: number };

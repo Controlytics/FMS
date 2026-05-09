@@ -138,6 +138,15 @@ export const REAUTH_ACTIONS = {
   EDIT_PM_SCHEDULE: { label: 'Edit PM Entry', category: 'PM Schedules' },
   APPROVE_PM_SCHEDULE: { label: 'Approve PM Schedule', category: 'PM Schedules' },
   REJECT_PM_SCHEDULE: { label: 'Reject PM Schedule', category: 'PM Schedules' },
+  // Audit 2026-05-09 fix: bulk PM upload + execution-start + entry resubmit
+  // were missing reauth gates. SUPER_ADMIN bulk uploads auto-approve every
+  // row (pm-import.ts:133), so the upload was a high-trust mutation with no
+  // password challenge. PM execution start creates an immutable PmExecution
+  // row comparable to start-cycle (which IS reauth-gated). Resubmit flips
+  // REJECTED → PENDING — minor but inconsistent with approve/reject.
+  UPLOAD_PM_SCHEDULES: { label: 'Bulk Upload PM Schedules', category: 'PM Schedules' },
+  START_PM_TASK: { label: 'Start PM Task', category: 'PM Schedules' },
+  RESUBMIT_PM_ENTRY: { label: 'Resubmit PM Entry', category: 'PM Schedules' },
   CREATE_EQUIPMENT_GROUP: { label: 'Create Equipment Group', category: 'Equipment Groups' },
   UPDATE_EQUIPMENT_GROUP: { label: 'Update Equipment Group', category: 'Equipment Groups' },
   DELETE_EQUIPMENT_GROUP: { label: 'Delete Equipment Group', category: 'Equipment Groups' },

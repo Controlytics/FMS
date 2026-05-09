@@ -156,20 +156,36 @@ export function PmScheduleListPage() {
     } catch (e: any) { setUploadError(`Failed to download template: ${e.message ?? 'unknown error'}`); }
   };
 
-  const uploadFile = async (file: File) => {
+  // Audit 2026-05-09 fix: bulk upload was a high-trust mutation with no
+  // password challenge. SUPER_ADMIN uploads auto-approve every row
+  // (pm-import.ts:133). Reauth gate matches the BE-side enforceReauth
+  // added on the same commit.
+  const uploadFile = (file: File) => {
     setUploading(true); setUploadError(''); setResult(null);
-    try {
-      const form = new FormData(); form.append('file', file);
-      const res = await fetch('/api/pm-schedules/upload', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${sessionStorage.getItem('access_token') ?? localStorage.getItem('access_token_backup') ?? ''}` },
-        body: form,
-      });
-      const body = await res.json().catch(() => null);
-      if (!res.ok) setUploadError(body?.message ?? `Upload failed (HTTP ${res.status})`);
-      else { setResult(body as UploadResult); refreshAll(); }
-    } catch (e: any) { setUploadError(e.message ?? 'Upload failed'); }
-    setUploading(false);
+    reauth.execute(
+      'UPLOAD_PM_SCHEDULES',
+      async (password?: string) => {
+        const form = new FormData(); form.append('file', file);
+        const token = sessionStorage.getItem('access_token') ?? localStorage.getItem('access_token_backup') ?? '';
+        const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+        if (password) headers['x-reauth-password'] = password;
+        const res = await fetch('/api/pm-schedules/upload', { method: 'POST', headers, body: form });
+        const body = await res.json().catch(() => null);
+        if (!res.ok) {
+          // Throw with the server's structured error so reauth.execute can
+          // re-prompt on REAUTH_REQUIRED / REAUTH_FAILED, otherwise treat as
+          // a real upload failure.
+          const err: any = new Error(body?.message ?? `Upload failed (HTTP ${res.status})`);
+          err.code = body?.error;
+          throw err;
+        }
+        setResult(body as UploadResult);
+      },
+      {
+        onSuccess: () => { refreshAll(); setUploading(false); },
+        onError: (e: any) => { setUploadError(e?.message ?? 'Upload failed'); setUploading(false); },
+      },
+    );
   };
 
   const handleFile = async (file: File) => {
@@ -215,18 +231,30 @@ export function PmScheduleListPage() {
     });
   };
 
-  const handleResubmit = async (id: string) => {
+  // Audit 2026-05-09 fix: resubmit flips REJECTED → PENDING. Approve and
+  // reject already reauth — gate this for parity so all three lifecycle
+  // transitions on a PM entry are challengeable.
+  const handleResubmit = (id: string) => {
     if (!editDate) return;
     setProcessing(true);
-    try {
-      await apiClient.post(`/api/pm-schedules/entries/${id}/resubmit`, {
-        plannedDate: editDate,
-        ...(editTolerance ? { toleranceDays: Number(editTolerance) } : {}),
-      });
-      toast.success('Re-submitted', 'Entry sent for QA approval');
-      setEditingId(null); refreshAll();
-    } catch (e: any) { toast.error('Error', e?.message ?? 'Failed'); }
-    setProcessing(false);
+    const body = {
+      plannedDate: editDate,
+      ...(editTolerance ? { toleranceDays: Number(editTolerance) } : {}),
+    };
+    reauth.execute(
+      'RESUBMIT_PM_ENTRY',
+      async (password?: string) => {
+        if (password) await apiClient.postWithReauth(`/api/pm-schedules/entries/${id}/resubmit`, body, password);
+        else await apiClient.post(`/api/pm-schedules/entries/${id}/resubmit`, body);
+      },
+      {
+        onSuccess: () => {
+          toast.success('Re-submitted', 'Entry sent for QA approval');
+          setEditingId(null); refreshAll(); setProcessing(false);
+        },
+        onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setProcessing(false); },
+      },
+    );
   };
 
   const handleEdit = async (id: string) => {
