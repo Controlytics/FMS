@@ -201,6 +201,24 @@ export function PmScheduleListPage() {
           err.code = body?.error;
           throw err;
         }
+
+        // Auto-widen the date range + force statusFilter=ALL so the freshly
+        // uploaded entries are actually visible in the table below. Without
+        // this, operators see "Uploaded (Pending QA): N" but the table is
+        // empty because (a) the page defaults to the CURRENT MONTH only,
+        // (b) the year filter derives from dateFrom (so a 2027 upload is
+        // invisible from a 2026 view), and (c) non-superadmin uploads are
+        // PENDING but the operator may have an APPROVED tab selected.
+        const uploaded = (body as UploadResult)?.details?.imported ?? [];
+        if (uploaded.length > 0) {
+          const dates = uploaded.map(r => r.plannedDate).sort();
+          const uploadedMin = dates[0];
+          const uploadedMax = dates[dates.length - 1];
+          if (uploadedMin < dateFrom) setDateFrom(uploadedMin);
+          if (uploadedMax > dateTo) setDateTo(uploadedMax);
+          if (statusFilter !== 'ALL') setStatusFilter('ALL');
+        }
+
         setResult(body as UploadResult);
       },
       {
