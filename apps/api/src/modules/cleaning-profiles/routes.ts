@@ -211,57 +211,23 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
     return service.archive(ctx, id);
   });
 
-  // GET /:id/assigned-assets — Get assets assigned to this cleaning profile
-  app.get('/:id/assigned-assets', {
-    preHandler: [app.requireAnyPermission('FCP_READ', 'CP_TOGGLE')],
-    schema: {
-      tags: ['Cleaning Profiles'],
-      summary: 'Get assets assigned to this cleaning profile',
-      params: {
-        type: 'object',
-        required: ['id'],
-        properties: { id: { type: 'string', format: 'uuid' } },
-      },
-      response: {
-        200: { type: 'array', items: { type: 'object', additionalProperties: true } },
-        ...errorResponses,
-      },
-    },
-  }, async (req) => {
-    const ctx = buildContext(req);
-    const { id } = req.params as { id: string };
-    return service.getAssignedAssets(ctx, id);
-  });
-
-  // POST /:id/assign-assets — Assign assets to this cleaning profile
-  app.post('/:id/assign-assets', {
-    preHandler: [app.requireAnyPermission('FCP_UPDATE', 'CP_PAGE_EDIT')],
-    schema: {
-      tags: ['Cleaning Profiles'],
-      summary: 'Assign assets to this cleaning profile',
-      params: {
-        type: 'object',
-        required: ['id'],
-        properties: { id: { type: 'string', format: 'uuid' } },
-      },
-      body: {
-        type: 'object',
-        required: ['assetIds'],
-        properties: {
-          assetIds: { type: 'array', items: { type: 'string', format: 'uuid' } },
-        },
-      },
-      response: {
-        200: { type: 'object', properties: { success: { type: 'boolean' }, assignedCount: { type: 'integer' } } },
-        ...errorResponses,
-      },
-    },
-  }, async (req) => {
-    const ctx = buildContext(req);
-    const { id } = req.params as { id: string };
-    const { assetIds } = req.body as { assetIds: string[] };
-    return service.assignAssets(ctx, id, assetIds);
-  });
+  // Audit 2026-05-09 fix: removed 3 orphan endpoints that had no FE caller:
+  //
+  //   - POST /:id/validate    — FE validates client-side; service method
+  //                             validatePipeline() stays as the internal
+  //                             helper called by create + update at lines
+  //                             88, 152.
+  //   - GET  /:id/assigned-assets — no UI rendered the asset list. Removed
+  //                             with the unused service method.
+  //   - POST /:id/assign-assets   — no UI surfaced bulk-assign. Asset →
+  //                             filter-profile binding happens through the
+  //                             FilterProfile.cleaningProfileId field set
+  //                             at filter-profile create time. Removed with
+  //                             the unused service method.
+  //
+  // Dead routes are still attack surface (auth-only but unmaintained).
+  // Keeping them would require equivalent reauth review on every audit
+  // pass even though no operator can reach them.
 
   // GET /:id/versions — List all versions in this profile's lineage (Phase A.2)
   app.get('/:id/versions', {
@@ -316,31 +282,6 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
     return service.getVersion(ctx, id, Number(versionNumber));
   });
 
-  // POST /:id/validate — Validate pipeline
-  app.post('/:id/validate', {
-    preHandler: [app.requireAnyPermission('FCP_READ', 'CP_TOGGLE')],
-    schema: {
-      tags: ['Cleaning Profiles'],
-      summary: 'Validate pipeline structure',
-      body: {
-        type: 'object',
-        properties: {
-          stages: { type: 'array' },
-          connections: { type: 'array' },
-        },
-      },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            valid: { type: 'boolean' },
-            errors: { type: 'array', items: { type: 'string' } },
-          },
-        },
-      },
-    },
-  }, async (req) => {
-    const ctx = buildContext(req);
-    return service.validate(ctx, req.body);
-  });
+  // POST /:id/validate route removed (audit 2026-05-09 cleanup).
+  // The internal validatePipeline() helper is still called by create + update.
 }

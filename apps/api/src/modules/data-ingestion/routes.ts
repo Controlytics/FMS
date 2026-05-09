@@ -17,6 +17,7 @@ import { JOB_PRIORITY } from '@digilog/queue';
 import { getTsdbPool } from '@digilog/db';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { prisma } from '../../lib/prisma.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 import { resolveEntityByToken } from './entity-resolver.js';
 import { normalizeMessage, normalizeBatch } from './message-normalizer.js';
 import type { MessageType } from './message-normalizer.js';
@@ -267,6 +268,14 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
     if (!req.user?.sub) {
       return reply.code(401).send({ error: 'UNAUTHORIZED', message: 'User JWT required' });
     }
+
+    // Audit 2026-05-09 fix: align reauth posture with the cycle-bound
+    // POST /api/filters/:id/submit-checklist (which has gated this with
+    // SUBMIT_CHECKLIST_WITH_SIGNATURE since the C2 fixes). Two parallel
+    // submission paths must use the same gate so the auditor sees a
+    // consistent compliance contract on every checklist submission.
+    const { ok } = await enforceReauth('SUBMIT_CHECKLIST_WITH_SIGNATURE', req, reply);
+    if (!ok) return;
 
     const body = req.body as {
       entityId: string;

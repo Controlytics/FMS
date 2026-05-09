@@ -416,96 +416,13 @@ export class CleaningProfileService {
     return { success: true };
   }
 
-  async getAssignedAssets(_ctx: RequestContext, id: string) {
-    // Find all filter profiles that reference this cleaning profile
-    const filterProfiles = await prisma.filterProfile.findMany({
-      where: { cleaningProfileId: id },
-      select: { id: true },
-    });
-    const fpIds = filterProfiles.map(fp => fp.id);
-
-    if (fpIds.length === 0) return [];
-
-    // Find all assets assigned to these filter profiles.
-    // filterSet/currentLifecycleState/filterProfileId now live on FilterDetails (Step 6).
-    const assetsRaw = await prisma.assetInstance.findMany({
-      where: { filterDetails: { is: { filterProfileId: { in: fpIds } } } },
-      select: {
-        id: true, name: true,
-        filterDetails: { select: { filterSet: true, currentLifecycleState: true, filterProfileId: true } },
-      },
-      orderBy: { name: 'asc' },
-    });
-    return assetsRaw.map(a => ({
-      id: a.id, name: a.name,
-      filterSet: a.filterDetails?.filterSet ?? null,
-      currentLifecycleState: a.filterDetails?.currentLifecycleState ?? null,
-      filterProfileId: a.filterDetails?.filterProfileId ?? null,
-    }));
-  }
-
-  async assignAssets(ctx: RequestContext, id: string, assetIds: string[]) {
-    const profile = await this.getById(ctx, id);
-
-    // Find or create a filter profile for this cleaning profile
-    let filterProfile = await prisma.filterProfile.findFirst({
-      where: { cleaningProfileId: id },
-    });
-
-    if (!filterProfile) {
-      filterProfile = await prisma.filterProfile.create({
-        data: {
-          name: profile.name,
-          cleaningProfileId: id,
-          blockRestriction: 'OWN_BLOCK_ONLY',
-        },
-      });
-    } else {
-      // Update the filter profile name to match
-      await prisma.filterProfile.update({
-        where: { id: filterProfile.id },
-        data: { name: profile.name, cleaningProfileId: id },
-      });
-    }
-
-    // Unassign all current assets from this filter profile (FilterDetails — Step 6).
-    await prisma.filterDetails.updateMany({
-      where: { filterProfileId: filterProfile.id },
-      data: { filterProfileId: null },
-    });
-
-    // Assign selected assets. Each asset must already have a FilterDetails row
-    // (eager-created at instance.create time for FILTER-kind templates).
-    // For any asset without a row (legacy / non-filter), upsert is the safe path.
-    if (assetIds.length > 0) {
-      await Promise.all(assetIds.map(assetId =>
-        prisma.filterDetails.upsert({
-          where: { assetInstanceId: assetId },
-          update: { filterProfileId: filterProfile.id },
-          create: { assetInstanceId: assetId, filterProfileId: filterProfile.id },
-        })
-      ));
-    }
-
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole, action: 'ASSIGNED',
-      targetType: 'cleaning_profile', targetId: id,
-      afterValue: { assignedAssets: assetIds.length },
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-    });
-
-    return { success: true, assignedCount: assetIds.length };
-  }
-
-  async validate(_ctx: RequestContext, data: any) {
-    const errors: string[] = [];
-    try {
-      this.validatePipeline(data.stages ?? [], data.connections ?? []);
-    } catch (err: any) {
-      errors.push(err.message);
-    }
-    return { valid: errors.length === 0, errors };
-  }
+  // Audit 2026-05-09 cleanup: removed three unused public methods —
+  // getAssignedAssets(), assignAssets(), and validate() — along with their
+  // routes (POST /:id/validate, GET /:id/assigned-assets, POST /:id/assign-assets).
+  // Zero callers in the codebase. Asset → filter-profile binding is done
+  // at FilterProfile create time via cleaningProfileId; no separate
+  // bulk-assign UI was ever built. validatePipeline() (the internal helper
+  // called by create + update) is preserved.
 
   private validatePipeline(stages: any[], connections: any[]) {
     if (!stages || stages.length < 2) {

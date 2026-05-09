@@ -4,7 +4,9 @@ import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
+import { useReauth } from '@/hooks/use-reauth';
 import { Badge } from '@/components/ui/badge';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { QTYPE, type ChecklistQuestion, type AnswerValue, type AnswerMap, type EntityInstance } from './types';
 import { evaluateFormula, isQuestionVisible } from './helpers';
 import { QuestionCard } from './components/QuestionCard';
@@ -20,6 +22,7 @@ export function ChecklistPage() {
   const navigate = useNavigate();
   const { user, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
+  const reauth = useReauth();
 
   // Fetch entity details
   const {
@@ -154,33 +157,52 @@ export function ChecklistPage() {
       return;
     }
 
+    // Convert answers to flat object for API
+    const responsesObj: Record<string, unknown> = {};
+    Object.entries(answers).forEach(([questionId, value]) => {
+      if (value !== null && value !== undefined) {
+        responsesObj[questionId] = value;
+      }
+    });
+
     setSubmitting(true);
-    try {
-      // Convert answers to flat object for API
-      const responsesObj: Record<string, unknown> = {};
-      Object.entries(answers).forEach(([questionId, value]) => {
-        if (value !== null && value !== undefined) {
-          responsesObj[questionId] = value;
+    // Audit 2026-05-09 fix: standalone checklist submission must traverse the
+    // same reauth gate as the cycle-bound /api/filters/:id/submit-checklist
+    // path. The BE now enforces SUBMIT_CHECKLIST_WITH_SIGNATURE on
+    // POST /api/data/checklist; the FE wraps the call in reauth.execute() so
+    // the password dialog appears when policy demands it.
+    reauth.execute(
+      'SUBMIT_CHECKLIST_WITH_SIGNATURE',
+      async (password?: string) => {
+        if (password) {
+          await apiClient.postWithReauth('/api/data/checklist', {
+            entityId,
+            responses: responsesObj,
+          }, password);
+        } else {
+          await apiClient.post('/api/data/checklist', {
+            entityId,
+            responses: responsesObj,
+          });
         }
-      });
-
-      await apiClient.post('/api/data/checklist', {
-        entityId,
-        responses: responsesObj,
-      });
-
-      setSubmitted(true);
-      toast.success('Checklist submitted successfully.');
-    } catch (err: any) {
-      const msg = err?.message ?? 'Please try again.';
-      const isBodyTooLarge = msg.includes('too large') || msg.includes('BODY_TOO_LARGE');
-      toast.error(
-        isBodyTooLarge ? 'File too large' : 'Submission failed',
-        isBodyTooLarge ? 'Photo exceeds the maximum size limit. Please use a smaller image (under 5 MB).' : msg,
-      );
-    } finally {
-      setSubmitting(false);
-    }
+      },
+      {
+        onSuccess: () => {
+          setSubmitting(false);
+          setSubmitted(true);
+          toast.success('Checklist submitted successfully.');
+        },
+        onError: (err: any) => {
+          setSubmitting(false);
+          const msg = err?.message ?? 'Please try again.';
+          const isBodyTooLarge = msg.includes('too large') || msg.includes('BODY_TOO_LARGE');
+          toast.error(
+            isBodyTooLarge ? 'File too large' : 'Submission failed',
+            isBodyTooLarge ? 'Photo exceeds the maximum size limit. Please use a smaller image (under 5 MB).' : msg,
+          );
+        },
+      },
+    );
   };
 
   // ---- Render states ----
@@ -503,6 +525,16 @@ export function ChecklistPage() {
           </div>
         </div>
       )}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setSubmitting(false); }}
+      />
     </div>
   );
 }
