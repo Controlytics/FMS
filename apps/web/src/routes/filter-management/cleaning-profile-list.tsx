@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import useSWR, { mutate } from 'swr';
 import { useNavigate } from 'react-router-dom';
-import { apiClient } from '../../lib/api-client';
+import { apiClient, api } from '../../lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
@@ -28,8 +28,46 @@ export function CleaningProfileListPage() {
   const [status, setStatus] = useState('ACTIVE');
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const swrKey = `/api/filter-cleaning-profiles?page=${page}&limit=20&status=${status}`;
   const { data, isLoading } = useSWR<PaginatedResponse<CleaningProfile>>(swrKey);
+
+  // Audit 2026-05-09 fix: DELETE endpoint exists with reauth gate
+  // (DELETE_CLEANING_PROFILE) but no FE button rendered. Backend
+  // archive() returns 409 IN_USE if any FilterProfile or CleaningCycle
+  // binds the profile — toast surfaces that cleanly.
+  const confirmDelete = (e: React.MouseEvent, id: string, name: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setDeleteConfirm({ id, name });
+  };
+
+  const submitDelete = () => {
+    if (!deleteConfirm) return;
+    const { id, name } = deleteConfirm;
+    setDeleting(true);
+    reauth.execute(
+      'DELETE_CLEANING_PROFILE',
+      async (password?: string) => {
+        if (password) await api.deleteWithReauth(`/api/filter-cleaning-profiles/${id}`, password);
+        else await apiClient.delete(`/api/filter-cleaning-profiles/${id}`);
+      },
+      {
+        onSuccess: () => {
+          toast.success('Deleted', `Cleaning profile "${name}" deleted`);
+          setDeleteConfirm(null); setDeleting(false); mutate(swrKey);
+        },
+        onError: (e: any) => {
+          const msg = e?.code === 'IN_USE' || /in use/i.test(e?.message ?? '')
+            ? `Cannot delete — "${name}" is still in use by one or more filters or cycles.`
+            : (e?.message ?? 'Failed to delete profile');
+          toast.error('Error', msg);
+          setDeleting(false);
+        },
+      },
+    );
+  };
 
   const toggleStatus = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -192,12 +230,25 @@ export function CleaningProfileListPage() {
                       <span className={`w-1.5 h-1.5 rounded-full ${p.status === 'ACTIVE' ? 'bg-emerald-500' : p.status === 'DRAFT' ? 'bg-amber-500' : 'bg-slate-400'}`} />
                       {p.status === 'ACTIVE' ? 'Active' : p.status === 'DRAFT' ? 'Draft' : 'Inactive'}
                     </span>
-                    {canToggle && p.status !== 'DRAFT' && (
-                      <button onClick={(e) => toggleStatus(p.id, e)}
-                        className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${p.status === 'ACTIVE' ? 'bg-emerald-500' : 'bg-slate-300'}`}>
-                        <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-transform duration-200 ${p.status === 'ACTIVE' ? 'translate-x-5' : 'translate-x-0'}`} />
-                      </button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {canToggle && p.status !== 'DRAFT' && (
+                        <button onClick={(e) => toggleStatus(p.id, e)}
+                          aria-label={p.status === 'ACTIVE' ? 'Deactivate profile' : 'Activate profile'}
+                          className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${p.status === 'ACTIVE' ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+                          <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-transform duration-200 ${p.status === 'ACTIVE' ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button onClick={(e) => confirmDelete(e, p.id, p.name)}
+                          aria-label={`Delete ${p.name}`}
+                          title="Delete profile"
+                          className="w-7 h-7 rounded-full text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors flex items-center justify-center">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a2 2 0 012-2h2a2 2 0 012 2v3" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -237,7 +288,42 @@ export function CleaningProfileListPage() {
         </div>
       )}
       <ReauthDialog open={reauth.isOpen} password={reauth.password} error={reauth.error} isVerifying={reauth.isVerifying}
-        onPasswordChange={reauth.setPassword} onConfirm={reauth.confirm} onCancel={reauth.cancel} />
+        onPasswordChange={reauth.setPassword} onConfirm={reauth.confirm} onCancel={() => { reauth.cancel(); setDeleting(false); }} />
+
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+             onClick={() => !deleting && setDeleteConfirm(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
+               onClick={e => e.stopPropagation()}>
+            <div className="h-1.5 bg-gradient-to-r from-red-400 to-rose-500" />
+            <div className="px-6 py-5 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center text-red-600 shrink-0">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-800">Delete cleaning profile</h2>
+                  <p className="text-sm text-slate-600 mt-1">
+                    "{deleteConfirm.name}" will be deleted. If any filter or cycle is currently bound to this profile, the server will reject the delete with an error.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
+              <button type="button" onClick={() => setDeleteConfirm(null)} disabled={deleting}
+                      className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors disabled:opacity-50">
+                Cancel
+              </button>
+              <button type="button" onClick={submitDelete} disabled={deleting}
+                      className="flex-1 py-2.5 bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-xl text-sm font-semibold hover:from-red-400 hover:to-rose-400 shadow-lg shadow-red-500/25 disabled:opacity-50">
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

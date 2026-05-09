@@ -89,6 +89,11 @@ export function PmScheduleListPage() {
   const canEditEntry = isSuperAdmin || perms.includes('PM_EDIT_ENTRY');
   const canResubmit = isSuperAdmin || perms.includes('PM_RESUBMIT');
   const isApprover = isSuperAdmin || perms.includes('PM_APPROVE');
+  // Audit 2026-05-09 fix: PM schedule DELETE was an orphan endpoint
+  // (BE supports it with reauth, no FE caller). Surface a delete button
+  // per AHU group; backend pm-schedule-crud.ts:138 returns 409 if any
+  // execution is IN_PROGRESS, which surfaces as a clean toast.
+  const canDeleteSchedule = isSuperAdmin || perms.includes('PM_DELETE');
 
   // Table state
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -102,6 +107,8 @@ export function PmScheduleListPage() {
   const [rejectDialog, setRejectDialog] = useState<string[] | null>(null);
   const [rejectRemarks, setRejectRemarks] = useState('');
   const [processing, setProcessing] = useState(false);
+  const [deleteScheduleConfirm, setDeleteScheduleConfirm] = useState<{ scheduleId: string; ahuName: string } | null>(null);
+  const [deletingSchedule, setDeletingSchedule] = useState(false);
 
   // Pagination
   const paginationOptions = usePaginationConfig();
@@ -229,6 +236,37 @@ export function PmScheduleListPage() {
       onSuccess: () => { toast.success('Rejected', `${ids.length} entry(s) rejected`); setRejectDialog(null); setSelected(new Set()); refreshAll(); setProcessing(false); },
       onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setProcessing(false); },
     });
+  };
+
+  // Audit 2026-05-09 fix: PM schedule DELETE was an orphan endpoint —
+  // BE supports it with reauth (DELETE_PM_SCHEDULE), no FE caller. The
+  // service blocks delete with 409 if any execution is IN_PROGRESS
+  // (pm-schedule-crud.ts:138, deliberate soft-lock); operators see a
+  // clean toast in that case.
+  const submitDeleteSchedule = () => {
+    if (!deleteScheduleConfirm) return;
+    const { scheduleId, ahuName } = deleteScheduleConfirm;
+    setDeletingSchedule(true);
+    reauth.execute(
+      'DELETE_PM_SCHEDULE',
+      async (password?: string) => {
+        if (password) await apiClient.deleteWithReauth(`/api/pm-schedules/${scheduleId}`, password);
+        else await apiClient.delete(`/api/pm-schedules/${scheduleId}`);
+      },
+      {
+        onSuccess: () => {
+          toast.success('Deleted', `Schedule for "${ahuName}" deleted`);
+          setDeleteScheduleConfirm(null); setDeletingSchedule(false); refreshAll();
+        },
+        onError: (e: any) => {
+          const msg = e?.code === 'IN_PROGRESS' || /in progress/i.test(e?.message ?? '')
+            ? `Cannot delete — "${ahuName}" has a PM execution in progress. Wait for it to complete.`
+            : (e?.message ?? 'Failed to delete schedule');
+          toast.error('Error', msg);
+          setDeletingSchedule(false);
+        },
+      },
+    );
   };
 
   // Audit 2026-05-09 fix: resubmit flips REJECTED → PENDING. Approve and
@@ -499,6 +537,24 @@ export function PmScheduleListPage() {
                                 <button onClick={e => { e.stopPropagation(); toggleAhuExpand(group.ahuId); }}
                                   className="text-[10px] px-1.5 py-0.5 rounded border transition-colors font-medium" style={{ color: 'var(--theme-primary)', backgroundColor: 'var(--theme-primary-light)', borderColor: 'var(--theme-primary)' }}>
                                   {group.filterNames.length} filters {isExpanded ? '▾' : '▸'}
+                                </button>
+                              )}
+                              {/* Audit 2026-05-09 fix: surface DELETE schedule button on the
+                                  FIRST entry of each AHU group so operators can retire
+                                  schedules without DB intervention. */}
+                              {canDeleteSchedule && entryIdx === 0 && entry.scheduleId && (
+                                <button
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    setDeleteScheduleConfirm({ scheduleId: entry.scheduleId, ahuName: group.ahuName });
+                                  }}
+                                  aria-label={`Delete schedule for ${group.ahuName}`}
+                                  title="Delete this AHU's schedule"
+                                  className="ml-auto text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors w-6 h-6 rounded flex items-center justify-center"
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a2 2 0 012-2h2a2 2 0 012 2v3" />
+                                  </svg>
                                 </button>
                               )}
                             </div>
@@ -796,7 +852,45 @@ export function PmScheduleListPage() {
       )}
 
       <ReauthDialog open={reauth.isOpen} password={reauth.password} error={reauth.error} isVerifying={reauth.isVerifying}
-        onPasswordChange={reauth.setPassword} onConfirm={reauth.confirm} onCancel={reauth.cancel} actionLabel="PM Schedule Action" />
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setDeletingSchedule(false); setUploading(false); setProcessing(false); }}
+        actionLabel="PM Schedule Action" />
+
+      {deleteScheduleConfirm && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+             onClick={() => !deletingSchedule && setDeleteScheduleConfirm(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
+               onClick={e => e.stopPropagation()}>
+            <div className="h-1.5 bg-gradient-to-r from-red-400 to-rose-500" />
+            <div className="px-6 py-5 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center text-red-600 shrink-0">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-800">Delete PM schedule</h2>
+                  <p className="text-sm text-slate-600 mt-1">
+                    Delete the PM schedule for "{deleteScheduleConfirm.ahuName}"? All future planned entries for this AHU will be removed. If a PM execution is currently in progress, the server will reject the delete.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
+              <button type="button" onClick={() => setDeleteScheduleConfirm(null)} disabled={deletingSchedule}
+                      className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors disabled:opacity-50">
+                Cancel
+              </button>
+              <button type="button" onClick={submitDeleteSchedule} disabled={deletingSchedule}
+                      className="flex-1 py-2.5 bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-xl text-sm font-semibold hover:from-red-400 hover:to-rose-400 shadow-lg shadow-red-500/25 disabled:opacity-50">
+                {deletingSchedule ? 'Deleting...' : 'Delete schedule'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
