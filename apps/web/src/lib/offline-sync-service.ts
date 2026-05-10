@@ -102,9 +102,19 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
       // The batch failure itself is a soft failure (degraded path); the
       // per-filter loop tolerates individual misses.
       recordSoftFailure('filter-states-batch', err);
-      const filterTemplateId = (templatesRes?.data ?? []).find((t: any) => t.name === 'Filter')?.id;
+      // Bug fix 2026-05-10: was matching `t.name === 'Filter'` which breaks
+      // when admin renames the template or creates a variant. Match by
+      // stable `templateKind === 'FILTER'`. Instance API includes
+      // `template.templateKind` (instance.repository.ts:16) so we don't
+      // even need the templates response — but keep the templateId fallback
+      // path in case the instance projection ever drops it.
+      const filterTemplateIds = new Set(
+        (templatesRes?.data ?? [])
+          .filter((t: any) => t.templateKind === 'FILTER')
+          .map((t: any) => t.id),
+      );
       const filters = instances.filter((i: any) =>
-        (i.template?.name === 'Filter' || i.templateId === filterTemplateId) && i.isActive !== false && i.status !== 'Retired'
+        (i.template?.templateKind === 'FILTER' || filterTemplateIds.has(i.templateId)) && i.isActive !== false && i.status !== 'Retired'
       );
       let perFilterMisses = 0;
       for (const f of filters) {

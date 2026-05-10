@@ -76,8 +76,17 @@ export function EquipmentGroupsConfigPage() {
   // pin. The dialog is a heads-up, not a block.
   const [editConflict, setEditConflict] = useState<{ group: EquipmentGroup; activeCount: number } | null>(null);
 
-  const blockTemplateId = (templatesData?.data ?? []).find((t: any) => t.name === 'Block')?.id;
-  const blocks = (instancesData?.data ?? []).filter((e: any) => e.templateId === blockTemplateId);
+  // Bug fix 2026-05-10: this was matching `t.name === 'Block'` (case-sensitive,
+  // editable string), so the dropdown went empty whenever the admin renamed the
+  // template or created multiple block variants. Match by `templateKind === 'BLOCK'`
+  // — the protected stable code on the TemplateKind lookup table — same pattern
+  // PM-import already uses for AHU lookups (pm-import.ts:30).
+  const blockTemplateIds = new Set(
+    (templatesData?.data ?? [])
+      .filter((t: any) => t.templateKind === 'BLOCK')
+      .map((t: any) => t.id),
+  );
+  const blocks = (instancesData?.data ?? []).filter((e: any) => blockTemplateIds.has(e.templateId));
 
   useEffect(() => {
     if (blocks.length > 0 && !selectedBlockId) setSelectedBlockId(blocks[0].id);

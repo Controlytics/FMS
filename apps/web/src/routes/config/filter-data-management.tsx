@@ -241,10 +241,17 @@ export function FilterDataManagementPage() {
   const cyclesEnriched = useSWR<any>(tab === 'cleaning-cycles' ? '/api/filters/cycles?page=1&limit=50&includeEvents=true' : null);
   const cycleInstancesData = useSWR<any>(tab === 'cleaning-cycles' ? '/api/assets/instances?limit=500' : null);
   const cycleTemplatesData = useSWR<any>(tab === 'cleaning-cycles' ? '/api/assets/templates?limit=1000' : null);
-  const cycleFilterTemplateId = (cycleTemplatesData.data?.data ?? []).find((t: any) => t.name === 'Filter')?.id;
+  // Bug fix 2026-05-10: match by stable `templateKind === 'FILTER'`, not the
+  // editable `name`. Without this, the cycle attribute map was empty whenever
+  // the admin renamed the Filter template or created variants.
+  const cycleFilterTemplateIds = new Set(
+    (cycleTemplatesData.data?.data ?? [])
+      .filter((t: any) => t.templateKind === 'FILTER')
+      .map((t: any) => t.id),
+  );
   const cycleFilterAttrMap = new Map<string, Record<string, any>>();
   (cycleInstancesData.data?.data ?? []).forEach((i: any) => {
-    if (i.templateId === cycleFilterTemplateId) cycleFilterAttrMap.set(i.id, i.attributes ?? {});
+    if (cycleFilterTemplateIds.has(i.templateId)) cycleFilterAttrMap.set(i.id, i.attributes ?? {});
   });
   const enrichedCycles: any[] = cyclesEnriched.data?.data ?? [];
   const filteredEnrichedCycles = enrichedCycles.filter(c => !search || c.filterName?.toLowerCase().includes(search.toLowerCase()) || c.cycleCode?.toLowerCase().includes(search.toLowerCase()));
