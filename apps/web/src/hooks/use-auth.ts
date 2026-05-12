@@ -17,7 +17,6 @@ interface User {
   lastLogin: string | null;
   createdAt?: string;
   permissions?: string[];
-  scope?: string | null;
 }
 
 interface LoginResponse {

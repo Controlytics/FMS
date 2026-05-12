@@ -13,7 +13,6 @@ export function buildContext(req: FastifyRequest): RequestContext {
     ipAddress: req.ip,
     userAgent: req.headers['user-agent'],
     sessionId: req.user.sessionId,
-    scope: req.user.scope,
     // Audit 2026-05-04 fix C1: derive from the verified-grant flag set by
     // the auth plugin, NOT directly from the header. A request that sent
     // `x-offline-replay: true` without a valid grant has already been

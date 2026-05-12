@@ -15,11 +15,6 @@ export const ROLES = DEFAULT_ROLES;
 // Role is now a string type to support dynamic roles
 export type Role = string;
 
-// Single-tenant deployment: every role is GLOBAL.
-// The type is retained so existing call sites that assert .scope === 'GLOBAL'
-// keep compiling without modification.
-export type RoleScope = 'GLOBAL';
-
 // Interface for role data from the database
 export interface RoleData {
   id: string;
@@ -31,7 +26,6 @@ export interface RoleData {
   color: string;
   isSystem: boolean;
   isActive: boolean;
-  scope?: RoleScope;
 }
 
 // Default hierarchy levels for system roles
@@ -46,16 +40,6 @@ export const DEFAULT_ROLE_HIERARCHY: Record<string, number> = {
 
 // Keep ROLE_HIERARCHY export for backward compatibility
 export const ROLE_HIERARCHY = DEFAULT_ROLE_HIERARCHY;
-
-// Role scope mapping — single-tenant: every role is GLOBAL.
-export const ROLE_SCOPE: Record<string, RoleScope> = {
-  SUPER_ADMIN: 'GLOBAL',
-  ADMIN: 'GLOBAL',
-  SUPERVISOR: 'GLOBAL',
-  MAINTENANCE: 'GLOBAL',
-  OPERATOR: 'GLOBAL',
-  VIEWER: 'GLOBAL',
-};
 
 /**
  * @deprecated Use API endpoint /api/roles/:name/creatable instead

@@ -9,7 +9,6 @@ export interface RequestContext {
   ipAddress: string;   // req.ip
   userAgent?: string;  // req.headers['user-agent']
   sessionId: string;   // req.user.sessionId
-  scope?: string;      // GLOBAL | ORGANIZATION
   // True when the request carries the x-offline-replay header. Cycle-write
   // implementations consult this to decide whether to honor the operator-
   // supplied offlinePerformedAt or fall through to the server clock — see

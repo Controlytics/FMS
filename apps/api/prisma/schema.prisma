@@ -7,16 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum RoleScope {
-  GLOBAL
-}
-
-enum DashboardScope {
-  TENANT
-  ORGANIZATION
-  USER
-}
-
 enum AssigneeType {
   USER
   ROLE
@@ -70,7 +60,6 @@ model Dashboard {
   description String?        @db.VarChar(500)
   layout      Json           @default("{}") @db.JsonB // Grid layout config
   isDefault   Boolean        @default(false) @map("is_default")
-  scope       DashboardScope @default(TENANT)
   isActive    Boolean        @default(true) @map("is_active")
   createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz
@@ -129,7 +118,6 @@ model Role {
   color          String    @default("#6366f1") @db.VarChar(100) // Badge color for UI (CSS class)
   isSystem       Boolean   @default(false) @map("is_system") // System roles cannot be deleted
   isActive       Boolean   @default(true) @map("is_active")
-  scope          RoleScope @default(GLOBAL)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   createdBy      String?   @map("created_by") @db.VarChar(50)

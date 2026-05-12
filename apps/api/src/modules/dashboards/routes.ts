@@ -136,7 +136,6 @@ export default async function dashboardRoutes(app: FastifyInstance) {
           description: { type: 'string', maxLength: 500 },
           layout: { type: 'object' },
           isDefault: { type: 'boolean' },
-          scope: { type: 'string', enum: ['TENANT', 'ORGANIZATION', 'USER'] },
         },
       },
     },
@@ -154,7 +153,6 @@ export default async function dashboardRoutes(app: FastifyInstance) {
         description: body.description,
         layout: body.layout || {},
         isDefault: body.isDefault || false,
-        scope: body.scope || 'TENANT',
         createdBy: req.user.sub,
       },
     });
@@ -162,7 +160,7 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     await auditLog({
       userId: req.user.username, userRole: req.user.role,
       action: 'DASHBOARD_CREATED', targetType: 'dashboard', targetId: dashboard.id,
-      afterValue: { title: dashboard.title, scope: dashboard.scope },
+      afterValue: { title: dashboard.title },
       ipAddress: req.ip, userAgent: req.headers['user-agent'],
       sessionId: req.user.sessionId,
     });

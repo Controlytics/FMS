@@ -33,19 +33,6 @@ async function getSessionDurationHours(): Promise<number> {
   return hours;
 }
 
-// Role scope cache (5s TTL) — short to detect privilege changes quickly
-const roleScopeCache = new Map<string, { scope: string; cachedAt: number }>();
-const ROLE_SCOPE_CACHE_TTL = 5_000;
-
-async function getRoleScope(roleName: string): Promise<string> {
-  const now = Date.now();
-  const cached = roleScopeCache.get(roleName);
-  if (cached && (now - cached.cachedAt) < ROLE_SCOPE_CACHE_TTL) return cached.scope;
-  const roleRecord = await prisma.role.findFirst({ where: { name: roleName }, select: { scope: true } });
-  const scope = (roleRecord?.scope as string) ?? 'GLOBAL';
-  roleScopeCache.set(roleName, { scope, cachedAt: now });
-  return scope;
-}
 
 const isProduction = process.env.NODE_ENV === 'production';
 const PUBLIC_PATHS = [
@@ -119,16 +106,11 @@ async function authPlugin(app: FastifyInstance) {
         return reply.code(401).send({ error: 'ACCOUNT_INACTIVE', message: 'Account is not active' });
       }
 
-      // Lookup role scope from DB
-      const roleRecord = { scope: await getRoleScope(user.role) };
-      const scope = roleRecord?.scope || 'GLOBAL';
-
       // Patch req.user with authoritative DB values
       req.user = {
         ...req.user,
         role: user.role,
         username: user.username,
-        scope,
       };
 
       // Paths allowed when forcePasswordChange is true

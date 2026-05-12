@@ -47,7 +47,6 @@ async function main() {
       displayName: 'Super Admin',
       description: 'System owner with full access to all features',
       hierarchyLevel: 6,
-      scope: 'GLOBAL',
       permissions: [
         'USER_CREATE', 'USER_READ', 'USER_UPDATE', 'USER_DELETE', 'USER_ENABLE_DISABLE', 'USER_UNLOCK', 'USER_RESET_PASSWORD',
         'ADMIN_REQUEST_REVIEW',
@@ -203,7 +202,6 @@ async function main() {
         permissions: role.permissions,
         color: role.color,
         isSystem: role.isSystem,
-        ...(role.scope ? { scope: role.scope } : {}),
       },
       create: {
         name: role.name,
@@ -213,7 +211,6 @@ async function main() {
         permissions: role.permissions,
         color: role.color,
         isSystem: role.isSystem,
-        ...(role.scope ? { scope: role.scope } : {}),
         createdBy: 'system',
       },
     });

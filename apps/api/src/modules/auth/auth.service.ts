@@ -211,9 +211,8 @@ export const authService = {
     const sessionDurationHours = sessionCfg.sessionDurationHours ?? 8;
     const session = await authRepository.createSession(user.id, ip, userAgent, sessionDurationHours);
 
-    const loginRole = await prisma.role.findFirst({ where: { name: user.role }, select: { scope: true } });
     const token = await signToken({
-      sub: user.id, username: user.username, role: user.role, sessionId: session.id, scope: loginRole?.scope || "GLOBAL",
+      sub: user.id, username: user.username, role: user.role, sessionId: session.id,
     }, sessionDurationHours);
 
     await authRepository.updateUser(user.id, { failedLoginAttempts: 0, lastLogin: new Date(), lockoutUntil: null });
@@ -278,9 +277,7 @@ export const authService = {
     const user = await authRepository.findUserByIdSelect(userId);
     if (!user) return null;
     const permissions = await authRepository.getRolePermissions(user.role);
-    const roleRecord = await prisma.role.findFirst({ where: { name: user.role }, select: { scope: true } });
-    const scope = roleRecord?.scope || "GLOBAL";
-    return { ...user, permissions, scope };
+    return { ...user, permissions };
   },
 
   async updateProfile(userId: string, data: { fullName?: string; email?: string; department?: string; photoUrl?: string }, ip: string, userAgent: string | undefined, sessionId: string) {

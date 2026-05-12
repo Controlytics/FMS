@@ -9,9 +9,7 @@ const { mockVerifyToken, mockPrisma } = vi.hoisted(() => ({
     // resolve the sliding-window duration. findUnique kept for any other
     // call site that may want exact-PK lookup.
     systemConfig: { findFirst: vi.fn(), findUnique: vi.fn() },
-    // Resolve role scope (GLOBAL / ORGANIZATION). Default to ORGANIZATION
-    // unless the test overrides for a specific case.
-    role: { findFirst: vi.fn().mockResolvedValue({ scope: 'ORGANIZATION' }) },
+    role: { findFirst: vi.fn().mockResolvedValue({}) },
   },
 }));
 
@@ -122,7 +120,6 @@ describe('authPlugin', () => {
       sessionId: payload.sessionId,
       role: 'ADMIN',
       username: 'admin',
-      scope: 'ORGANIZATION',
     });
     expect(mockPrisma.session.update).toHaveBeenCalled(); // lastActiveAt + sliding expiry
   });
