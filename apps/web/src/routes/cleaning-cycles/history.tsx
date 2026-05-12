@@ -66,7 +66,7 @@ export function CleaningCycleHistoryPage() {
 
   const filterAttrMap = new Map<string, Record<string, any>>();
   (instancesData?.data ?? []).forEach((i) => {
-    if (i.templateId === filterTemplateId) filterAttrMap.set(i.id, i.attributes ?? {});
+    if (filterTemplateIds.has(i.templateId)) filterAttrMap.set(i.id, i.attributes ?? {});
   });
 
   const getStageInfo = (events: FilterEvent[], stage: string) => {
