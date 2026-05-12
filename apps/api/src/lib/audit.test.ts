@@ -1,30 +1,48 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { mockPrismaCreate, mockComputeChecksum } = vi.hoisted(() => ({
-  mockPrismaCreate: vi.fn(),
-  mockComputeChecksum: vi.fn(),
-}));
+// Audit 2026-05-04 fix C3: rewrote auditLog() to use a Postgres advisory
+// lock + raw SQL inside $transaction so the row chains to its predecessor.
+// Mocks reflect the new shape — tx.$queryRaw (lock + prior-row read) and
+// tx.$executeRaw (insert).
+
+const { mockTxQueryRaw, mockTxExecuteRaw, mockTransaction, mockComputeChainedChecksum, mockComputeChecksum } = vi.hoisted(() => {
+  return {
+    mockTxQueryRaw: vi.fn(),
+    mockTxExecuteRaw: vi.fn(),
+    mockTransaction: vi.fn(),
+    mockComputeChainedChecksum: vi.fn(),
+    mockComputeChecksum: vi.fn(),
+  };
+});
 
 vi.mock('./prisma.js', () => ({
   prisma: {
-    auditTrail: { create: mockPrismaCreate },
+    $transaction: mockTransaction,
   },
 }));
 
 vi.mock('./hash-chain.js', () => ({
+  computeChainedChecksum: mockComputeChainedChecksum,
   computeChecksum: mockComputeChecksum,
 }));
 
 import { auditLog } from './audit.js';
 
-describe('auditLog', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockComputeChecksum.mockReturnValue('sha256-checksum');
-    mockPrismaCreate.mockResolvedValue({});
-  });
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockComputeChainedChecksum.mockReturnValue('sha256-chained');
+  mockComputeChecksum.mockReturnValue('sha256-perrow');
+  // Default: no prior chain row → previousChecksum stays null.
+  mockTxQueryRaw.mockResolvedValue([]);
+  mockTxExecuteRaw.mockResolvedValue(1);
+  // Wire $transaction(callback) → callback({ $queryRaw, $executeRaw })
+  mockTransaction.mockImplementation(async (cb: (tx: any) => Promise<any>) =>
+    cb({ $queryRaw: mockTxQueryRaw, $executeRaw: mockTxExecuteRaw }));
+});
 
-  it('creates audit trail entry with checksum', async () => {
+describe('auditLog — C3 chain', () => {
+  it('writes a genesis row when audit_trail is empty (previousChecksum=null)', async () => {
+    mockTxQueryRaw.mockResolvedValueOnce([]); // prior chain row read returns nothing
     await auditLog({
       userId: 'admin',
       userRole: 'ADMIN',
@@ -35,54 +53,69 @@ describe('auditLog', () => {
       ipAddress: '127.0.0.1',
     });
 
-    expect(mockComputeChecksum).toHaveBeenCalledWith(expect.objectContaining({
-      userId: 'admin',
-      action: 'USER_CREATED',
-      targetType: 'user',
-      targetId: 'u1',
-    }));
-
-    expect(mockPrismaCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({
+    expect(mockTransaction).toHaveBeenCalledTimes(1);
+    // executeRaw is called twice (lock + insert); queryRaw once (select prior).
+    expect(mockTxExecuteRaw).toHaveBeenCalledTimes(2);
+    expect(mockTxQueryRaw).toHaveBeenCalledTimes(1);
+    expect(mockComputeChainedChecksum).toHaveBeenCalledWith(
+      expect.objectContaining({
         userId: 'admin',
         action: 'USER_CREATED',
-        checksum: 'sha256-checksum',
-        afterValue: { username: 'newuser' },
+        targetType: 'user',
+        targetId: 'u1',
       }),
+      null,
+    );
+  });
+
+  it('chains to the prior checksum when one exists', async () => {
+    mockTxQueryRaw.mockResolvedValueOnce([{ checksum: 'prior-sha-abc' }]);
+    await auditLog({
+      action: 'LOGOUT',
+      targetType: 'session',
+      targetId: 's1',
     });
+    expect(mockComputeChainedChecksum).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'LOGOUT' }),
+      'prior-sha-abc',
+    );
   });
 
   it('handles entries without afterValue', async () => {
     await auditLog({ action: 'LOGOUT', targetType: 'session', targetId: 's1' });
-
-    expect(mockPrismaCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({
+    expect(mockComputeChainedChecksum).toHaveBeenCalledWith(
+      expect.objectContaining({
         action: 'LOGOUT',
         afterValue: undefined,
       }),
-    });
+      null,
+    );
   });
 
-  it('deep clones beforeValue and afterValue', async () => {
+  it('deep clones afterValue before stringifying for insert', async () => {
     const afterValue = { nested: { key: 'value' } };
     await auditLog({ action: 'TEST', afterValue });
-
-    const createCall = mockPrismaCreate.mock.calls[0][0];
-    // Should be a copy, not the same reference
-    expect(createCall.data.afterValue).toEqual(afterValue);
-    expect(createCall.data.afterValue).not.toBe(afterValue);
+    const checksumCall = mockComputeChainedChecksum.mock.calls[0][0] as Record<string, unknown>;
+    // The cloned value reaches the checksum input; original object reference
+    // is not used (no mutation aliasing).
+    expect(checksumCall.afterValue).toEqual(afterValue);
+    expect(checksumCall.afterValue).not.toBe(afterValue);
   });
 
-  it('stores signatureMeaning', async () => {
+  it('passes signatureMeaning through to the insert', async () => {
     await auditLog({
       action: 'PASSWORD_CHANGED',
       signatureMeaning: 'User changed password',
     });
-
-    expect(mockPrismaCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        signatureMeaning: 'User changed password',
-      }),
-    });
+    // signatureMeaning is in the executeRaw template; verify both calls
+    // (lock + insert) ran, then check the insert's bind values include the
+    // signatureMeaning. Tagged-template arguments come through as a Sql
+    // template object; vitest captures them as `[strings, ...values]`.
+    expect(mockTxExecuteRaw).toHaveBeenCalledTimes(2);
+    // The 2nd executeRaw call is the INSERT — its values array should
+    // contain the signatureMeaning string.
+    const insertCall = mockTxExecuteRaw.mock.calls[1];
+    const valuesContain = JSON.stringify(insertCall).includes('User changed password');
+    expect(valuesContain).toBe(true);
   });
 });

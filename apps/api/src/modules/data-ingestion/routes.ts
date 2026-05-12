@@ -13,27 +13,16 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import path from 'path';
-import { Queue } from 'bullmq';
-import { getRedisConnection, QUEUES, JOB_PRIORITY } from '@digilog/queue';
+import { JOB_PRIORITY } from '@digilog/queue';
 import { getTsdbPool } from '@digilog/db';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { prisma } from '../../lib/prisma.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 import { resolveEntityByToken } from './entity-resolver.js';
 import { normalizeMessage, normalizeBatch } from './message-normalizer.js';
 import type { MessageType } from './message-normalizer.js';
 import { publishRpcRequest, getRpcResponse } from './rpc-handler.js';
-
-let ingestionQueue: Queue | null = null;
-
-function getIngestionQueue(): Queue {
-  if (!ingestionQueue) {
-    ingestionQueue = new Queue(QUEUES.INGESTION.name, {
-      connection: getRedisConnection(),
-      defaultJobOptions: QUEUES.INGESTION.defaultJobOptions,
-    });
-  }
-  return ingestionQueue;
-}
+import { enqueueIngestionJob } from './ingestion.service.js';
 
 // ─── Device Token Auth Middleware ─────────────────────────
 
@@ -104,10 +93,9 @@ async function enqueueMessage(
     ruleChainId: device.ruleChainId,
   });
 
-  const queue = getIngestionQueue();
   const priority = priorityOverride ?? JOB_PRIORITY.TELEMETRY;
 
-  await queue.add(messageType, msg, { priority, jobId: msg.messageId });
+  await enqueueIngestionJob(msg, { priority, jobId: msg.messageId });
 
   return { messageId: msg.messageId };
 }
@@ -135,11 +123,10 @@ async function enqueueBatch(
     ruleChainId: device.ruleChainId,
   });
 
-  const queue = getIngestionQueue();
   const messageIds: string[] = [];
 
   for (const msg of messages) {
-    await queue.add(messageType, msg, { priority, jobId: msg.messageId });
+    await enqueueIngestionJob(msg, { priority, jobId: msg.messageId });
     messageIds.push(msg.messageId);
   }
 
@@ -282,6 +269,14 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
       return reply.code(401).send({ error: 'UNAUTHORIZED', message: 'User JWT required' });
     }
 
+    // Audit 2026-05-09 fix: align reauth posture with the cycle-bound
+    // POST /api/filters/:id/submit-checklist (which has gated this with
+    // SUBMIT_CHECKLIST_WITH_SIGNATURE since the C2 fixes). Two parallel
+    // submission paths must use the same gate so the auditor sees a
+    // consistent compliance contract on every checklist submission.
+    const { ok } = await enforceReauth('SUBMIT_CHECKLIST_WITH_SIGNATURE', req, reply);
+    if (!ok) return;
+
     const body = req.body as {
       entityId: string;
       templateId?: string;
@@ -326,8 +321,7 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
       },
     });
 
-    const queue = getIngestionQueue();
-    await queue.add('POST_CHECKLIST', msg, {
+    await enqueueIngestionJob(msg, {
       priority: JOB_PRIORITY.CHECKLIST_SUBMISSION,
       jobId: msg.messageId,
     });

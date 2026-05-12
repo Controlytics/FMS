@@ -6,7 +6,9 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import { useReportConfig } from '@/hooks/use-report-config';
 import { useRoleColors } from '@/hooks/use-role-colors';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, api } from '@/lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { getDefaultTemplates } from '@digilog/shared';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { ACTION_COLORS, getAuditStatus, getAuditSummary } from './audit-helpers';
@@ -19,6 +21,7 @@ import { createReport } from '../../lib/pdf-report';
 
 export function AuditTrailPage() {
   const { user } = useAuth();
+  const reauth = useReauth();
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
   const paginationOptions = usePaginationConfig();
   const { config: reportConfig } = useReportConfig();
@@ -96,32 +99,52 @@ export function AuditTrailPage() {
   const isAllSelected = data?.data?.length > 0 && data.data.every((r: any) => selectedIds.has(r.id));
   const isSomeSelected = selectedIds.size > 0;
 
-  const deleteSingleAudit = async (id: string) => {
-    try {
-      await apiClient.delete(`/api/audit/${id}`);
-      setSelectedIds(prev => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-      mutate();
-    } catch (err) {
-      console.error('Failed to delete audit record:', err);
-    }
+  // Audit 2026-05-04 fix #5 (web-routes review H4): per § 11.10(e), audit
+  // deletion must be challengeable. Distinct keys for single vs bulk so the
+  // operator intent is recorded in the surviving audit trail.
+  const deleteSingleAudit = (id: string) => {
+    reauth.execute(
+      'DELETE_AUDIT_RECORD',
+      async (password?: string) => {
+        if (password) await api.deleteWithReauth(`/api/audit/${id}`, password);
+        else await apiClient.delete(`/api/audit/${id}`);
+      },
+      {
+        onSuccess: () => {
+          setSelectedIds(prev => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+          mutate();
+        },
+        onError: (err: any) => console.error('Failed to delete audit record:', err),
+      },
+    );
   };
 
-  const bulkDeleteAudit = async () => {
+  const bulkDeleteAudit = () => {
     setDeleting(true);
-    try {
-      await apiClient.post('/api/audit/bulk-delete', { ids: Array.from(selectedIds) });
-      setSelectedIds(new Set());
-      setShowDeleteConfirm(false);
-      mutate();
-    } catch (err) {
-      console.error('Failed to bulk delete audit records:', err);
-    } finally {
-      setDeleting(false);
-    }
+    reauth.execute(
+      'BULK_DELETE_AUDIT_RECORDS',
+      async (password?: string) => {
+        const body = { ids: Array.from(selectedIds) };
+        if (password) await api.postWithReauth('/api/audit/bulk-delete', body, password);
+        else await apiClient.post('/api/audit/bulk-delete', body);
+      },
+      {
+        onSuccess: () => {
+          setSelectedIds(new Set());
+          setShowDeleteConfirm(false);
+          mutate();
+          setDeleting(false);
+        },
+        onError: (err: any) => {
+          console.error('Failed to bulk delete audit records:', err);
+          setDeleting(false);
+        },
+      },
+    );
   };
 
   const clearFilters = () => {
@@ -311,6 +334,17 @@ export function AuditTrailPage() {
         deleting={deleting}
         onClose={() => setShowDeleteConfirm(false)}
         onConfirm={bulkDeleteAudit}
+      />
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setDeleting(false); }}
+        actionLabel="Delete Audit Record"
       />
     </div>
   );

@@ -1,10 +1,10 @@
 /**
  * Debug Recorder — Per-chain ring buffer for debug records.
  * Records node execution details when debug is enabled.
- * Streams to Redis pub/sub for real-time debug panel.
+ * Streams to internal-bus for real-time debug panel (Phase 4 — was Redis).
  */
 
-import IORedis from 'ioredis';
+import { bus } from '../../lib/internal-bus.js';
 import type { DebugRecord } from './types.js';
 import { getConfigOrDefault } from '../data-ingestion/ingestion-config.service.js';
 
@@ -13,20 +13,6 @@ const debugBuffers = new Map<string, DebugRecord[]>();
 const chainLastAccess = new Map<string, number>();
 const MAX_CHAINS = 1000;
 let maxBufferSize = 100;
-let redisPub: IORedis | null = null;
-
-function getRedisPublisher(): IORedis {
-  if (!redisPub) {
-    redisPub = new IORedis({
-      host: process.env.REDIS_HOST ?? 'localhost',
-      port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
-      password: process.env.REDIS_PASSWORD || undefined,
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
-    });
-  }
-  return redisPub;
-}
 
 /** Initialize the debug recorder with config. */
 export async function initDebugRecorder(): Promise<void> {
@@ -64,15 +50,8 @@ export function recordDebug(chainId: string, record: DebugRecord): void {
     buffer.shift();
   }
 
-  // Publish to Redis for real-time streaming
-  try {
-    const redis = getRedisPublisher();
-    redis.publish(`debug:rulechain:${chainId}`, JSON.stringify(record)).catch(() => {
-      // Non-critical
-    });
-  } catch {
-    // Non-critical
-  }
+  // Publish to internal-bus for real-time streaming
+  bus.emit(`debug:rulechain:${chainId}`, record);
 }
 
 /** Get the debug buffer for a chain. */
@@ -105,10 +84,11 @@ export async function isChainDebugEnabled(chainId: string): Promise<boolean> {
   }
 }
 
-/** Close the Redis publisher. */
+/**
+ * Phase 4 (2026-05-01): closeDebugRedis() retained as a no-op for backward
+ * compatibility with any caller that imported it. Bus is in-process — nothing
+ * to close.
+ */
 export async function closeDebugRedis(): Promise<void> {
-  if (redisPub) {
-    await redisPub.quit();
-    redisPub = null;
-  }
+  /* no-op — internal-bus has no resources to release */
 }

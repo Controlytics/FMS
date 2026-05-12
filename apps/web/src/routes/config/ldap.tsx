@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { api } from '../../lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 
 interface RoleMappingRow {
   ldapGroup: string;
@@ -24,7 +26,6 @@ interface LdapConfig {
   connectionTimeout: number;
   roleMappings: RoleMappingRow[];
   defaultRole: string;
-  defaultOrganizationId: string;
   syncAttributes: boolean;
 }
 
@@ -44,14 +45,13 @@ const DEFAULTS: LdapConfig = {
   connectionTimeout: 5000,
   roleMappings: [],
   defaultRole: 'OPERATOR',
-  defaultOrganizationId: '',
   syncAttributes: true,
 };
 
 export default function LdapConfigPage() {
   const { data: savedConfig, mutate } = useSWR<LdapConfig>('/api/ldap/config');
   const { data: rolesData } = useSWR<Array<{ name: string; displayName: string }>>('/api/roles/active');
-  const { data: orgsData } = useSWR<{ data: Array<{ id: string; name: string }> }>('/api/organizations?limit=100');
+  const reauth = useReauth();
 
   const [config, setConfig] = useState<LdapConfig>(DEFAULTS);
   const [saving, setSaving] = useState(false);
@@ -67,18 +67,33 @@ export default function LdapConfigPage() {
     setConfig(prev => ({ ...prev, [key]: value }));
   };
 
-  const handleSave = async () => {
+  // Audit 2026-05-04 fix #5 (web-routes review H2): LDAP config edits
+  // (bind credentials + base-DN) can redirect every login to an attacker-
+  // controlled directory. Distinct UPDATE_LDAP_CONFIG action key (vs
+  // UPDATE_LOGIN_SECURITY) so the audit trail makes the source-of-trust
+  // change explicit.
+  const handleSave = () => {
     setSaving(true);
     setSaveMsg(null);
-    try {
-      await api.put('/api/ldap/config', config);
-      mutate();
-      setSaveMsg({ type: 'success', text: 'LDAP configuration saved successfully' });
-      setTimeout(() => setSaveMsg(null), 5000);
-    } catch (e: any) {
-      setSaveMsg({ type: 'error', text: e.message || 'Failed to save' });
-    }
-    setSaving(false);
+    reauth.execute(
+      'UPDATE_LDAP_CONFIG',
+      async (password?: string) => {
+        if (password) await api.putWithReauth('/api/ldap/config', config, password);
+        else await api.put('/api/ldap/config', config);
+      },
+      {
+        onSuccess: () => {
+          mutate();
+          setSaveMsg({ type: 'success', text: 'LDAP configuration saved successfully' });
+          setTimeout(() => setSaveMsg(null), 5000);
+          setSaving(false);
+        },
+        onError: (e: any) => {
+          setSaveMsg({ type: 'error', text: e.message || 'Failed to save' });
+          setSaving(false);
+        },
+      },
+    );
   };
 
   const handleTest = async () => {
@@ -331,29 +346,6 @@ export default function LdapConfigPage() {
         </div>
       </div>
 
-      {/* User Provisioning */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
-          <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-            <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
-            User Provisioning
-          </h3>
-        </div>
-        <div className="p-6 space-y-4">
-          <p className="text-sm text-slate-500">Configure how LDAP users are provisioned in DigiLog on first login.</p>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Default Organization</label>
-              <select value={config.defaultOrganizationId || ''} onChange={e => updateField('defaultOrganizationId', e.target.value)}
-                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500/30">
-                <option value="">-- None --</option>
-                {orgsData?.data?.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-              </select>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Save Button */}
       <div className="flex justify-end gap-3 pb-6">
         <Link to="/config">
@@ -364,6 +356,17 @@ export default function LdapConfigPage() {
           {saving ? 'Saving...' : 'Save Configuration'}
         </button>
       </div>
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setSaving(false); }}
+        actionLabel="Update LDAP Configuration"
+      />
     </div>
   );
 }

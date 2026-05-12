@@ -1,13 +1,5 @@
 export const PERMISSIONS = {
 
-  // Organization management
-  ORG_MANAGE: 'ORG_MANAGE',
-  ORG_VIEW: 'ORG_VIEW',
-  ORG_CREATE: 'ORG_CREATE',
-  ORG_DELETE: 'ORG_DELETE',
-
-
-
   // User management
   USER_CREATE: 'USER_CREATE',
   USER_READ: 'USER_READ',
@@ -172,6 +164,21 @@ export const PERMISSIONS = {
   REPORT_SIGN: 'REPORT_SIGN',
   REPORT_DELETE: 'REPORT_DELETE',
   REPORT_EXPORT: 'REPORT_EXPORT',
+
+  // Admin Requests (2026-05-04 — review C4): own permission so the
+  // 'admin_requests.view' privilege does NOT need USER_CREATE. Earlier
+  // mapping was a privilege escalation — granting "review admin requests"
+  // also handed the user the ability to create users.
+  ADMIN_REQUEST_REVIEW: 'ADMIN_REQUEST_REVIEW',
+
+  // Version History (2026-05-02): cross-entity audit-history viewer for the
+  // four versioned entities (CleaningProfile lineage, FilterProfile sidecar,
+  // ChecklistProfile sidecar, EquipmentGroup composite sidecar). SUPER_ADMIN
+  // only by default; assignable to other roles via Role Privileges config.
+  // The four `/api/<entity>/:id/versions` route gates also accept this perm
+  // (in addition to the entity-specific read perms) so a user granted ONLY
+  // VERSION_HISTORY_VIEW can browse history without entity edit rights.
+  VERSION_HISTORY_VIEW: 'VERSION_HISTORY_VIEW',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

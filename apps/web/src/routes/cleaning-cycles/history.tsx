@@ -37,9 +37,16 @@ export function CleaningCycleHistoryPage() {
   const [downloading, setDownloading] = useState(false);
 
   const { data: instancesData } = useSWR<PaginatedResponse<FilterInstance>>('/api/assets/instances?limit=500');
-  const { data: templatesData } = useSWR<PaginatedResponse<{ id: string; name: string }>>('/api/assets/templates?limit=100');
-  const filterTemplateId = (templatesData?.data ?? []).find((t) => t.name === 'Filter')?.id;
-  const filterInstances = (instancesData?.data ?? []).filter((i) => i.templateId === filterTemplateId && i.isActive !== false && i.status !== 'Retired');
+  const { data: templatesData } = useSWR<PaginatedResponse<{ id: string; name: string; templateKind?: string }>>('/api/assets/templates?limit=1000');
+  // Bug fix 2026-05-10: match by stable `templateKind === 'FILTER'` not the
+  // editable `name`, so admins can rename / add filter template variants
+  // without breaking this dropdown (same pattern PM-import already uses).
+  const filterTemplateIds = new Set(
+    (templatesData?.data ?? [])
+      .filter((t) => t.templateKind === 'FILTER')
+      .map((t) => t.id),
+  );
+  const filterInstances = (instancesData?.data ?? []).filter((i) => filterTemplateIds.has(i.templateId) && i.isActive !== false && i.status !== 'Retired');
 
   const queryParams = new URLSearchParams({ page: String(page), limit: String(perPage), includeEvents: 'true' });
   if (status) queryParams.set('status', status);

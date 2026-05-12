@@ -9,6 +9,27 @@ import { onSyncEvent } from '../../lib/sync-engine';
 import { DryerDurationDialog } from '../filter-management/components/dryer-duration-dialog';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
 import { subscribeRfidTags } from '@/lib/rfid-bridge';
+// Phase 8.6 — shared executor + action-tape resolver + offline-cache helper.
+// All graph-walking decisions (next-stage, checklist-after-stage, cache
+// rewrites) route through these so client/server stay in lockstep.
+import { actionsForStage, getCurrentActions, hasActionKind } from '@/lib/action-tape';
+import {
+  cacheServerStateResponse,
+  recomputeAndCacheFilterState,
+} from '@/lib/offline-cache';
+// Phase 8.7 Wave-5 split — shared with desktop filter-operations.tsx.
+// validateOfflineGate + checklist-resolver + dryer countdown helpers all live
+// in lib/filter-ops so the two pages cannot drift again.
+import {
+  validateOfflineGate,
+  resolvePendingChecklistDialog,
+  findNextPendingChecklist,
+  useNowTick,
+  buildTempOptionsLinear,
+  findDryerTempInstrument,
+  projectDryerCountdown,
+} from '@/lib/filter-ops';
+import type { PendingChecklistBatchItem } from '@/lib/filter-ops';
 
 const STAGES = [
   { key: 'WASH_IN', label: 'Wash In', icon: '🚿', gradient: 'from-sky-500 to-sky-600', bg: 'bg-sky-50', border: 'border-sky-200', text: 'text-sky-700', needsBlock: true },
@@ -35,6 +56,7 @@ function buildIdentifierMap(identifiers: any[]): Record<string, { filterId: stri
   }
   return map;
 }
+
 
 export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialStageKey?: string; hideHeader?: boolean } = {}) {
   const { user, isLoading: authLoading, logout: authLogout } = useAuth();
@@ -73,6 +95,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [recentOps, setRecentOps] = useState<Array<{ stage: string; filter: string; time: string; queued?: boolean }>>([]);
+  // B7.4 (2026-05-02): advisory shown when admin edited the cycle's pinned
+  // EquipmentGroup mid-cycle. Persistent (no auto-clear) — operator can keep
+  // working on the pinned ranges, but should know the live group has moved.
+  // Cleared on goHome / openStage / scan reset.
+  const [equipmentGroupSyncWarning, setEquipmentGroupSyncWarning] = useState<{
+    groupId: string;
+    pinnedVersion: number;
+    liveVersion: number;
+    recommendation: 'CONTINUE_OR_TERMINATE_AND_RESTART';
+  } | null>(null);
 
   // RFID scan input ref + focus management. autoFocus only fires once on mount,
   // so after the first scan succeeds the input loses focus and subsequent RFID
@@ -100,6 +132,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const [dryerError, setDryerError] = useState('');
   const [checklistDialog, setChecklistDialog] = useState<{ filterId: string; filterName: string; checklists: any[] } | null>(null);
   const [checklistAnswers, setChecklistAnswers] = useState<Record<string, any>>({});
+  // Multi-filter batch checklist cycling — see findNextPendingChecklist().
+  // After the operator submits a queue (handleSubmitQueue) and ANY of the
+  // batched filters has a pending CHECKLIST gate, we open the dialog for the
+  // first such filter and stash the rest of the batch here. handleChecklistSubmit
+  // then walks this list after each successful submission, popping the dialog
+  // for the next filter that still has a pending checklist. Pre-fix the loop
+  // dropped the rest of the batch silently (PHASE_5_RECENT_WORK.md § 11).
+  const [pendingChecklistBatch, setPendingChecklistBatch] = useState<PendingChecklistBatchItem[]>([]);
 
   // Refocus the scan input whenever we enter the stage view, all dialogs close,
   // or success flashes. autoFocus only fires once on mount, so without this
@@ -230,7 +270,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
 
   // Data — always fetch when online, cache for offline
   const { data: instancesData } = useSWR(online ? '/api/assets/instances?limit=500' : null, { refreshInterval: 15000 });
-  const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=100' : null);
+  const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=1000' : null);
   const { data: reasonsData } = useSWR(online ? '/api/filters/reasons' : null);
   const { data: identifiersData } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null);
   const { data: equipGroupsData } = useSWR(online ? '/api/equipment-groups' : null);
@@ -413,8 +453,8 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const cleaningReasons = online ? ((reasonsData as any)?.reasons ?? reasonsData ?? []) : offlineReasons;
   const templates = (online ? (templatesData?.data ?? []) : offlineTemplates) as any[];
   const instances = online ? ((instancesData?.data ?? []) as any[]) : offlineFilters;
-  const filterTemplateId = templates.find((t: any) => t.name === 'Filter')?.id;
-  const blockTemplateId = templates.find((t: any) => t.name === 'Block')?.id;
+  const filterTemplateId = templates.find((t: any) => t.templateKind === 'FILTER')?.id;
+  const blockTemplateId = templates.find((t: any) => t.templateKind === 'BLOCK')?.id;
   const allFilters = instances.filter((f: any) => f.templateId === filterTemplateId && f.isActive !== false && f.status !== 'Retired');
   const blocks = instances.filter((i: any) => i.templateId === blockTemplateId);
 
@@ -428,9 +468,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     setActiveStage(stage);
     setView('stage');
     setScanValue(''); setRemarks(''); setError(''); setSuccess(''); setSelectedBlock(null);
+    setEquipmentGroupSyncWarning(null);
   };
 
-  const goHome = () => { setView('home'); setActiveStage(null); setReasonDialog(null); setEquipDialog(null); setChecklistDialog(null); setError(''); setSuccess(''); setScanQueue([]); };
+  const goHome = () => { setView('home'); setActiveStage(null); setReasonDialog(null); setEquipDialog(null); setChecklistDialog(null); setPendingChecklistBatch([]); setError(''); setSuccess(''); setScanQueue([]); setEquipmentGroupSyncWarning(null); };
 
   const resolveFilter = async (): Promise<{ filterId: string; filterName: string } | null> => {
     let filterId = ''; let filterName = '';
@@ -502,23 +543,27 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         const cached = cachedFilters.find((f: any) => f.id === item.filterId);
         const cachedState = await getCache<any>(`filter-state-${item.filterId}`) ?? {};
         const currentLifecycle = cached?.currentLifecycleState || cachedState.currentState || null;
-        let itemNextAllowed: string[] = cachedState.nextAllowedStages ?? [];
-        if (itemNextAllowed.length === 0 && cachedState.pipelineGraph) {
-          itemNextAllowed = computeNextStages(cachedState.pipelineGraph, currentLifecycle);
-        }
         const cycleInProgress = !!(cachedState.currentCycle?.id || cached?.currentCycleId);
+
+        // Phase 8.6 part 2: resolve the action tape — server actions[] when
+        // TAPE_PARALLEL=true (currently absent in dev), else local compute via
+        // the shared executor over loadLocalContextFromCache().
+        const itemActions = await getCurrentActions(item.filterId, cachedState.actions);
 
         const gate = validateOfflineGate({
           activeStageKey: activeStage.key,
           activeStageLabel: activeStage.label,
           online,
           currentLifecycle,
-          nextAllowed: itemNextAllowed,
+          actions: itemActions,
           hasGraph: !!cachedState.pipelineGraph?.stages,
           hasLinearPipeline: (cachedState.pipelineStages?.length ?? 0) > 0,
           pipelineGraph: cachedState.pipelineGraph,
           cycleInProgress,
-          hasPendingChecklist: (cachedState.pendingChecklist?.length ?? 0) > 0,
+          // Phase 8.7 cutover: derive checklist-pending from the resolved
+          // tape rather than the deprecated cached pendingChecklist field.
+          // itemActions is the executor-resolved tape for this filter.
+          hasPendingChecklist: hasActionKind(itemActions, 'SUBMIT_CHECKLIST'),
           dryerReadingsSubmitted: cachedState.currentCycle?.dryerReadingsSubmitted,
           homeBlockId: cachedState.homeBlock?.id,
           blockChangeStatus: cachedState.blockChangeStatus,
@@ -545,18 +590,32 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
       }
     }
-    // Offline parity: if any advanced item now has a pending checklist (per the
-    // cleaning profile), open the dialog for the first such filter. Treating
-    // CHECKLIST nodes as a stage ensures post-stage questions are never skipped.
+    // Offline parity: if any advanced item now has a pending checklist (per
+    // the cleaning profile), open the dialog for the FIRST such filter and
+    // stash the rest of the batch in `pendingChecklistBatch`. The cycle is
+    // resumed inside `handleChecklistSubmit` after each successful submit.
+    //
+    // Pre-fix bug (PHASE_5_RECENT_WORK.md § 11, session 04-20): the original
+    // `for…break` opened the dialog for the first matching filter and then
+    // never iterated to the rest of the batch — every other pending filter
+    // silently skipped the checklist gate.
     if (successCount > 0) {
       try {
-        for (const item of scanQueue) {
-          const cs = await getCache<any>(`filter-state-${item.filterId}`);
-          if (cs?.pendingChecklist?.length > 0) {
-            setChecklistDialog({ filterId: item.filterId, filterName: item.filterName, checklists: cs.pendingChecklist });
-            setChecklistAnswers({});
-            break;
-          }
+        // Phase 8.7 Wave-5: shared checklist-dialog resolver — mirrors the
+        // desktop advanceBatch site (filter-operations.tsx ~line 437).
+        const batchItems: PendingChecklistBatchItem[] = scanQueue.map(q => ({
+          filterId: q.filterId,
+          filterName: q.filterName,
+        }));
+        const next = await findNextPendingChecklist(batchItems, resolvePendingChecklistDialog);
+        if (next) {
+          setChecklistDialog({
+            filterId: next.item.filterId,
+            filterName: next.item.filterName,
+            checklists: next.checklists,
+          });
+          setChecklistAnswers({});
+          setPendingChecklistBatch(next.remaining);
         }
       } catch { /* ignore — user can re-scan to trigger */ }
     }
@@ -577,226 +636,31 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       || e.name === 'TypeError';
   };
 
-  // Compute nextAllowedStages — prefers the server's stageLookup if cached
-  // (authoritative — same algorithm as server's getNextStageKeys + walk-past-
-  // checklist logic), otherwise falls back to local graph walk.
-  const computeNextStages = (graph: any, currentStageKey: string | null, stageLookup?: any): string[] => {
-    // Tier 1: stageLookup from server response (B.7)
-    if (stageLookup && currentStageKey && Array.isArray(stageLookup[currentStageKey]?.nextStages)) {
-      return stageLookup[currentStageKey].nextStages;
-    }
-    if (!graph?.stages || !graph?.connections) return [];
-    // Find the current node by stateKey
-    let currentNode = currentStageKey
-      ? graph.stages.find((s: any) => s.stateKey === currentStageKey)
-      : graph.stages.find((s: any) => s.nodeType === 'START');
-    if (!currentNode) return [];
+  // SPIS: single-source offline gate. Implementation lives in
+  // `apps/web/src/lib/filter-ops/validate-offline-gate.ts`, shared with the
+  // desktop page so the two cannot drift. See `feedback_batch_single_parity.md`
+  // — desktop's `handleSubmitBatch` previously inlined the same logic; the
+  // Phase 8.7 Wave-5 split lifted both copies into one.
 
-    // Walk connections from current node, skipping CHECKLIST nodes to find reachable STAGE nodes
-    const reachable: string[] = [];
-    const visited = new Set<string>();
-    const walk = (nodeId: string) => {
-      if (visited.has(nodeId)) return;
-      visited.add(nodeId);
-      const outConns = graph.connections.filter((c: any) => c.fromStageId === nodeId);
-      for (const conn of outConns) {
-        const next = graph.stages.find((s: any) => s.id === conn.toStageId);
-        if (!next) continue;
-        if (next.nodeType === 'STAGE' && next.stateKey) reachable.push(next.stateKey);
-        else if (next.nodeType === 'CHECKLIST') walk(next.id); // skip checklist nodes
-      }
-    };
-    walk(currentNode.id);
-    return reachable;
-  };
-
-  // SPIS: single-source offline gate shared by handleSubmit (single scan) and
-  // handleSubmitQueue (batch). Every offline/online validation rule lives HERE
-  // — both callers must go through this. See memory: feedback_batch_single_parity.md.
-  type GateInput = {
-    activeStageKey: string;
-    activeStageLabel: string;
-    online: boolean;
-    currentLifecycle: string | null;
-    nextAllowed: string[];
-    hasGraph: boolean;
-    hasLinearPipeline: boolean;
-    pipelineGraph: any;
-    cycleInProgress: boolean;
-    hasPendingChecklist: boolean;
-    dryerReadingsSubmitted?: boolean;
-    homeBlockId?: string | null;
-    blockChangeStatus?: string | null;
-    selectedBlockId?: string | null;
-  };
-  type GateResult = { ok: true } | { ok: false; reason: string; blockChangeRequired?: boolean };
-  const validateOfflineGate = (g: GateInput): GateResult => {
-    const hasValidation = g.hasGraph || g.hasLinearPipeline || g.nextAllowed.length > 0;
-    if (!g.online && !hasValidation) {
-      return { ok: false, reason: 'offline data not cached — sync first' };
-    }
-    // Block assignment: home-block mismatch without approval
-    const homeMismatch = !!(g.homeBlockId && g.selectedBlockId && g.homeBlockId !== g.selectedBlockId && g.blockChangeStatus !== 'APPROVED');
-    if (!g.online && homeMismatch) {
-      return { ok: false, reason: 'block change approval required', blockChangeRequired: true };
-    }
-    // First-stage validation for brand-new cycles
-    if (!g.cycleInProgress && g.hasGraph) {
-      const firstStages = computeNextStages(g.pipelineGraph, null);
-      if (firstStages.length > 0 && !firstStages.includes(g.activeStageKey)) {
-        return { ok: false, reason: `cannot start cycle at ${g.activeStageLabel} — start at ${firstStages.map(s => s.replace(/_/g, ' ')).join(', ')}` };
-      }
-    }
-    // In-cycle: activeStage must be in nextAllowed
-    if (g.cycleInProgress && g.nextAllowed.length > 0 && !g.nextAllowed.includes(g.activeStageKey)) {
-      return { ok: false, reason: `is at ${(g.currentLifecycle ?? 'START').replace(/_/g, ' ')} — next allowed ${g.nextAllowed.map(s => s.replace(/_/g, ' ')).join(', ')}` };
-    }
-    // Offline: cycle-in-progress + empty nextAllowed is stale cache (unless checklist blocks)
-    if (!g.online && g.cycleInProgress && g.nextAllowed.length === 0 && !g.hasPendingChecklist) {
-      return { ok: false, reason: 'in-cycle but no next stage cached — re-sync' };
-    }
-    // DRY_IN guard
-    if (g.activeStageKey === 'DRY_IN' && g.dryerReadingsSubmitted) {
-      return { ok: false, reason: 'dry-in already recorded — scan on Dry Out' };
-    }
-    return { ok: true };
-  };
-
-  // Find CHECKLIST nodes that fire after a stage in the pipeline graph.
-  //
-  // Two-tier resolution (matches server logic — see filter-operations.service.ts
-  // collectChecklistsAfterStage AND the stageLookup table now returned by
-  // /current-state since commit 0c8de53):
-  //   1. If the cached state has stageLookup[stageKey].pendingChecklistProfileIds,
-  //      that's authoritative — server already walked the graph for us. Convert
-  //      the profile ids back into pseudo-nodes the buildOfflineChecklist helper
-  //      can resolve against the cached `checklist-profiles` store.
-  //   2. Otherwise walk the graph ourselves, RECURSIVELY through chained
-  //      CHECKLIST nodes (the previous version only looked at direct outConns
-  //      from the stage, so pipelines like
-  //          WASH_IN → CHECKLIST_A → CHECKLIST_B → WASH_OUT
-  //      would only surface CHECKLIST_A, leaving CHECKLIST_B silently skipped
-  //      offline — the bug operators reported as "checklist not coming at that
-  //      stage".)
-  const findChecklistsAfterStage = (graph: any, stageKey: string, stageLookup?: any): any[] => {
-    // Tier 1: server-computed authoritative answer
-    if (stageLookup && Array.isArray(stageLookup[stageKey]?.pendingChecklistProfileIds)) {
-      const ids: string[] = stageLookup[stageKey].pendingChecklistProfileIds;
-      // Pseudo-nodes — buildOfflineChecklist only reads node.configuration.checklistProfileId
-      // and node.id, so synthesizing them is fine.
-      return ids.map((profileId, i) => ({
-        id: `${stageKey}-checklist-${i}`,
-        nodeType: 'CHECKLIST',
-        configuration: { checklistProfileId: profileId },
-      }));
-    }
-    // Tier 2: fall back to graph walk (with chain support)
-    if (!graph?.stages || !graph?.connections) return [];
-    const stageNode = graph.stages.find((s: any) => s.stateKey === stageKey);
-    if (!stageNode) return [];
-    const checklists: any[] = [];
-    const visited = new Set<string>();
-    const walk = (nodeId: string) => {
-      if (visited.has(nodeId)) return;
-      visited.add(nodeId);
-      const outConns = graph.connections.filter((c: any) => c.fromStageId === nodeId);
-      for (const conn of outConns) {
-        const next = graph.stages.find((s: any) => s.id === conn.toStageId);
-        if (!next) continue;
-        if (next.nodeType === 'CHECKLIST') {
-          if (next.configuration?.checklistProfileId) checklists.push(next);
-          walk(next.id); // chain: CHECKLIST → CHECKLIST → STAGE
-        }
-        // STAGE / END / other → stop (we only collect checklists between THIS
-        // stage and the NEXT real stage, matching server semantics)
-      }
-    };
-    walk(stageNode.id);
-    return checklists;
-  };
-
-  // Build pendingChecklist from cached checklist profiles for CHECKLIST nodes.
-  // Skips profiles that don't have a `questions` array — happens if the cache
-  // was populated before the API supported ?expand=questions on the list
-  // endpoint. The next online refresh will repopulate with full questions.
-  const buildOfflineChecklist = async (checklistNodes: any[]): Promise<any[]> => {
-    const cachedProfiles = await getCache<any[]>('checklist-profiles') ?? [];
-    const result: any[] = [];
-    for (const node of checklistNodes) {
-      const profileId = node.configuration?.checklistProfileId;
-      if (!profileId) continue;
-      const profile = cachedProfiles.find((p: any) => p.id === profileId && p.isActive !== false);
-      if (profile && (!Array.isArray(profile.questions) || profile.questions.length === 0)) {
-        // Stale cache: profile exists but questions aren't there. Surface this
-        // so operators see a clear "re-sync" hint rather than an empty modal.
-        console.warn('[offline] checklist profile cached without questions', profileId);
-      }
-      if (!profile) continue;
-      result.push({
-        pipelineNodeId: node.id,
-        checklistProfileId: profileId,
-        checklistProfileName: profile.name,
-        questions: (profile.questions ?? []).sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
-      });
-    }
-    return result;
-  };
-
-  // Update cached filter state + IndexedDB after offline operation
-  const updateOfflineState = async (filterId: string, newStage: string, cycleStarted: boolean, blockId?: string) => {
-    try {
-      const { updateFilterStateLocally, cacheData } = await import('@/lib/offline-store');
-      await updateFilterStateLocally(filterId, newStage, cycleStarted);
-
-      const cachedState = await getCache<any>(`filter-state-${filterId}`) ?? {};
-      const graph = cachedState.pipelineGraph;
-      const stageLookup = cachedState.stageLookup; // server-computed (B.7)
-
-      // Check if pipeline has CHECKLIST nodes after the new stage. stageLookup
-      // takes precedence over local graph walk so we match server semantics
-      // (including chained CHECKLIST nodes between the same two stages).
-      const checklistNodes = findChecklistsAfterStage(graph, newStage, stageLookup);
-      const pendingChecklist = checklistNodes.length > 0
-        ? await buildOfflineChecklist(checklistNodes)
-        : [];
-
-      // If checklist is pending, block advancement (nextAllowedStages = [])
-      let nextAllowed: string[] = [];
-      let hasGraphData = false;
-      if (pendingChecklist.length > 0) {
-        nextAllowed = []; // blocked until checklist answered
-      } else if (graph || stageLookup) {
-        nextAllowed = computeNextStages(graph, newStage, stageLookup);
-        hasGraphData = true;
-      } else {
-        const pipeline: any[] = (cachedState.pipelineStages ?? [])
-          .filter((s: any) => s.stateKey)
-          .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-        const idx = pipeline.findIndex((s: any) => s.stateKey === newStage);
-        nextAllowed = (idx >= 0 && idx < pipeline.length - 1) ? [pipeline[idx + 1].stateKey] : [];
-        hasGraphData = pipeline.length > 0;
-      }
-
-      // Only mark cycle complete if we have pipeline data to verify it AND there are truly no next stages
-      const cycleComplete = hasGraphData && nextAllowed.length === 0 && pendingChecklist.length === 0 && !cycleStarted;
-      // Write the filter-state with a 24-hour TTL (matches the sync service).
-      // The default `cache()` helper uses 30 min, which is too short for long offline shifts —
-      // combined with navigator.onLine sometimes flipping to true on Capacitor Android WebViews,
-      // that shorter TTL caused the offline cycle state to appear "expired" and return null,
-      // which in turn made the pipeline appear unstarted after the user's first advance.
-      await cacheData(`filter-state-${filterId}`, {
-        ...cachedState,
-        currentState: cycleComplete ? null : newStage,
-        nextAllowedStages: cycleComplete ? [] : nextAllowed,
-        pendingChecklist,
-        currentCycle: cycleComplete ? null : (cachedState.currentCycle ?? (cycleStarted ? { id: `offline-${Date.now()}`, status: 'IN_PROGRESS', cleaningAreaId: blockId ?? selectedBlock?.id ?? null } : null)),
-      }, 24 * 60 * 60 * 1000);
-      // Clear both currentCycleId and currentLifecycleState in filters store when cycle completes
-      if (cycleComplete) {
-        const { clearOfflineCycleId } = await import('@/lib/offline-store');
-        await clearOfflineCycleId(filterId);
-      }
-    } catch { /* ignore */ }
+  // Phase 8.6 part 2: cache rewrite after a queued offline advance. Wraps
+  // `recomputeAndCacheFilterState` from `lib/offline-cache.ts` (the lib that
+  // replaces the deleted `computeNextStages` / `findChecklistsAfterStage` /
+  // `buildOfflineChecklist` / `updateOfflineState` helpers) with a refresh
+  // hook so the offline filter list re-renders after every cache rewrite.
+  // Same shape as the deleted helper — every existing call site stays
+  // identical.
+  const updateOfflineState = async (
+    filterId: string,
+    newStage: string,
+    cycleStarted: boolean,
+    blockId?: string,
+  ) => {
+    await recomputeAndCacheFilterState(
+      filterId,
+      newStage,
+      cycleStarted,
+      blockId ?? selectedBlock?.id ?? null,
+    );
     refreshOfflineData();
   };
 
@@ -819,10 +683,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         const cachedState = await getCache<any>(`filter-state-${filterId}`) ?? {};
 
         const currentLifecycle = cached?.currentLifecycleState || cachedState.currentState || null;
-        let nextAllowed: string[] = cachedState.nextAllowedStages ?? [];
-        if (nextAllowed.length === 0 && cachedState.pipelineGraph) {
-          nextAllowed = computeNextStages(cachedState.pipelineGraph, currentLifecycle);
-        }
+        // Phase 8.7 cutover (agent E): the offline state object no longer
+        // carries the deprecated `nextAllowedStages` / `pendingChecklist`
+        // fields. Downstream gate decisions read the tape directly via
+        // `getCurrentActions(filterId, state.actions)`. The cache row is
+        // still allowed to hold legacy mirrors for Wave 2 cleanup, but this
+        // synthesized state object exposes only the tape-native shape.
 
         // Active cycle: server returns currentCycle with id+status, offline has cached version
         const cycle = cachedState.currentCycle ?? null;
@@ -833,8 +699,6 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           filterName: cached?.name || filterName,
           currentState: currentLifecycle,
           currentCycle: hasCycle ? (cycle ?? { id: cached?.currentCycleId, status: 'IN_PROGRESS' }) : null,
-          nextAllowedStages: nextAllowed,
-          pendingChecklist: cachedState.pendingChecklist ?? [],
           pipelineStages: cachedState.pipelineStages ?? [],
           pipelineGraph: cachedState.pipelineGraph ?? null,
           equipmentGroup: cachedState.equipmentGroup ?? null,
@@ -842,6 +706,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           pmReasonKey: cachedState.pmReasonKey ?? null,
           blockChangeStatus: cachedState.blockChangeStatus ?? null,
           homeBlock: cachedState.homeBlock ?? null,
+          actions: cachedState.actions ?? null,
         };
       };
 
@@ -849,26 +714,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         try {
           const csUrl = `/api/filters/${filterId}/current-state${selectedBlock?.id ? `?cleaningAreaId=${encodeURIComponent(selectedBlock.id)}` : ''}`;
           state = await apiClient.get<any>(csUrl);
-          // Cache full server response for offline use. stageLookup MUST be
-          // included — it's the per-stage authoritative table the offline
-          // checklist + next-stage logic depends on (B.7). Without it, the
-          // client falls back to a graph walk that historically drifts from
-          // server semantics and was missing chained-CHECKLIST detection.
-          cache(`filter-state-${filterId}`, {
-            equipmentGroup: state.equipmentGroup ?? null,
-            blockEquipmentGroups: state.blockEquipmentGroups ?? [],
-            pendingChecklist: state.pendingChecklist ?? [],
-            pipelineStages: state.pipelineStages ?? [],
-            pipelineGraph: state.pipelineGraph ?? null,
-            stageLookup: state.stageLookup ?? null,
-            nextAllowedStages: state.nextAllowedStages ?? [],
-            isPmDue: state.isPmDue ?? false,
-            pmReasonKey: state.pmReasonKey ?? null,
-            currentCycle: state.currentCycle ?? null,
-            currentState: state.currentState ?? null,
-            homeBlock: state.homeBlock ?? null,
-            blockChangeStatus: state.blockChangeStatus ?? null,
-          }, 24 * 60 * 60 * 1000);
+          // Phase 8.7 cutover (agent E): route through cacheServerStateResponse
+          // so the deprecated mirror field NAMES stay quarantined inside
+          // offline-cache.ts. The cache row STILL persists pendingChecklist[]
+          // + nextAllowedStages[] (local-context.ts:466 reads pendingChecklist
+          // for CHECKLIST_COMPLETED synthesis — Wave 2 server work removes the
+          // server-side emission and the cache writes drop out naturally).
+          // stageLookup MUST be included — it's the per-stage authoritative
+          // table the offline checklist + next-stage logic depends on (B.7).
+          await cacheServerStateResponse(filterId, state);
         } catch (e: any) {
           if (isNetworkError(e)) {
             state = await buildOfflineState();
@@ -880,9 +734,21 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         state = await buildOfflineState();
       }
 
+      // B7.4 (2026-05-02): surface the equipmentGroupSyncWarning advisory if
+      // the server reported one. Online responses include it; offline-built
+      // state does not, so this clears any stale value when offline.
+      setEquipmentGroupSyncWarning(state.equipmentGroupSyncWarning ?? null);
+
       // Block duplicate submission
       const currentLifecycle = state.currentState;
-      const nextAllowed = state.nextAllowedStages ?? [];
+
+      // Phase 8.6 part 2: resolve action tape (server-emitted when present,
+      // else locally computed via the shared executor). Used by the gate AND
+      // the post-gate "already at" / "next allowed" online checks below.
+      const resolvedActions = await getCurrentActions(filterId, state.actions);
+      const nextAllowed: string[] = resolvedActions
+        .filter(a => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION')
+        .map(a => (a as { params: { targetState: string } }).params.targetState);
 
       // Shared SPIS gate (same helper used by handleSubmitQueue).
       // Only enforced offline — online callers get richer server-side validation.
@@ -892,12 +758,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           activeStageLabel: activeStage.label,
           online,
           currentLifecycle,
-          nextAllowed,
+          actions: resolvedActions,
           hasGraph: !!state.pipelineGraph?.stages,
           hasLinearPipeline: (state.pipelineStages?.length ?? 0) > 0,
           pipelineGraph: state.pipelineGraph,
           cycleInProgress: !!state.currentCycle,
-          hasPendingChecklist: (state.pendingChecklist?.length ?? 0) > 0,
+          // Phase 8.7 cutover: tape-derived. resolvedActions is the same tape
+          // the gate validates against — single source of truth.
+          hasPendingChecklist: hasActionKind(resolvedActions, 'SUBMIT_CHECKLIST'),
           dryerReadingsSubmitted: state.currentCycle?.dryerReadingsSubmitted,
           homeBlockId: state.homeBlock?.id,
           blockChangeStatus: state.blockChangeStatus,
@@ -934,6 +802,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         setLoading(false); return;
       }
 
+      // Phase 8.6 part 2: tape-derived "already at this stage" check. The
+      // tape's ADVANCE_TO_STAGE / SET_DRYER_DURATION targets are the next legal
+      // moves; if the operator scanned the SAME stage they're already on,
+      // there should be at least one onward move on the tape.
       if (currentLifecycle === activeStage.key && nextAllowed.length > 0) {
         setError(`Already at ${activeStage.label}. Next: ${nextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`);
         setLoading(false); return;
@@ -960,8 +832,21 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         return;
       }
 
-      if (state.pendingChecklist?.length > 0) { setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: state.pendingChecklist }); setChecklistAnswers({}); setLoading(false); return; }
-      if (nextAllowed.length > 0 && !nextAllowed.includes(activeStage.key)) {
+      // Phase 8.7 Wave-5: shared pre-advance checklist-dialog resolver. Pass
+      // the tape resolved above so we don't recompute it.
+      {
+        const dialogChecklists = await resolvePendingChecklistDialog(filterId, resolvedActions);
+        if (dialogChecklists) {
+          setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: dialogChecklists });
+          setChecklistAnswers({});
+          setLoading(false);
+          return;
+        }
+      }
+      // Phase 8.6 part 2: tape-derived "wrong stage" check. activeStage must
+      // appear as an ADVANCE / SET_DRYER target on the resolved tape; if not,
+      // surface the legal next stages from the same tape.
+      if (nextAllowed.length > 0 && !actionsForStage(activeStage.key, resolvedActions).some(a => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION')) {
         const atLabel = (currentLifecycle ?? 'START').replace(/_/g, ' ');
         setError(`Filter is at "${atLabel}". Next allowed: ${nextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`);
         setLoading(false); return;
@@ -1010,7 +895,19 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             setSuccess(`${fName} → ${activeStage.label} (PM auto)`);
             setRecentOps(prev => [{ stage: activeStage.key, filter: fName, time: formatTime(new Date()) }, ...prev].slice(0, 20));
             setScanValue(''); setRemarks(''); mutate('/api/assets/instances?limit=500');
-            if (result?.pendingChecklist?.length > 0) { setChecklistDialog({ filterId, filterName: fName, checklists: result.pendingChecklist }); setChecklistAnswers({}); }
+            // Phase 8.7 Wave-5: shared post-advance checklist resolver.
+            // Server POST responses may include actions[]; the resolver falls
+            // back to local executor + cached payload as needed.
+            {
+              const dialogChecklists = await resolvePendingChecklistDialog(
+                filterId,
+                (result as any)?.actions,
+              );
+              if (dialogChecklists) {
+                setChecklistDialog({ filterId, filterName: fName, checklists: dialogChecklists });
+                setChecklistAnswers({});
+              }
+            }
             setLoading(false); return;
           } catch (e: any) {
             if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
@@ -1057,14 +954,22 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       setScanValue(''); setRemarks('');
       if (executed) {
         mutate('/api/assets/instances?limit=500');
-        if (result?.pendingChecklist?.length > 0) { setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: result.pendingChecklist }); setChecklistAnswers({}); }
+        // Phase 8.7 Wave-5: shared post-advance checklist resolver.
+        const dialogChecklists = await resolvePendingChecklistDialog(
+          filterId,
+          (result as any)?.actions,
+        );
+        if (dialogChecklists) {
+          setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: dialogChecklists });
+          setChecklistAnswers({});
+        }
       } else {
         await updateOfflineState(filterId, activeStage.key, false);
-        // Offline parity: if the pipeline graph says this stage is followed by a checklist,
-        // compute it from cached profiles and pop the dialog immediately (same as online).
-        const cs = await getCache<any>(`filter-state-${filterId}`) ?? {};
-        if (cs.pendingChecklist?.length > 0) {
-          setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: cs.pendingChecklist });
+        // Offline parity: cache row was just rewritten by updateOfflineState
+        // above; resolver reads the recomputed tape via the local executor.
+        const dialogChecklists = await resolvePendingChecklistDialog(filterId);
+        if (dialogChecklists) {
+          setChecklistDialog({ filterId, filterName: filterName || state.filterName, checklists: dialogChecklists });
           setChecklistAnswers({});
         }
       }
@@ -1085,42 +990,18 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     if (!reasonDialog || !selectedReason) return;
     setLoading(true); setError('');
     try {
-      // Fall back to the filter's home block if no block was explicitly selected.
-      // Without this the equipment-group lookup below silently returns nothing
-      // (selectedBlock?.id is undefined), the WASH_IN flow skips readings, the
-      // cycle starts with no readings, and the operator jumps straight to the
-      // post-stage checklist — which is the bug the operator just hit.
-      let blockId: string | undefined = selectedBlock?.id;
-      let blockName: string | undefined = selectedBlock?.name;
-      if (!blockId && online) {
-        try {
-          const cs = await apiClient.get<any>(`/api/filters/${reasonDialog.filterId}/current-state`);
-          if (cs?.homeBlock?.id) {
-            blockId = cs.homeBlock.id;
-            blockName = cs.homeBlock.name;
-          }
-        } catch { /* leave blockId undefined */ }
-      }
-      if (!blockId && !online) {
-        const cs = await getCache<any>(`filter-state-${reasonDialog.filterId}`);
-        if (cs?.homeBlock?.id) {
-          blockId = cs.homeBlock.id;
-          blockName = cs.homeBlock.name;
-        }
-      }
-
-      const cyclePayload = { cleaningReasonKey: selectedReason, cleaningJustification: justification || undefined, cleaningAreaId: blockId };
-      const advancePayload = { targetState: reasonDialog.stage, cleaningAreaId: blockId, remarks: remarks || `${reasonDialog.stage.replace(/_/g, ' ')} - ${reasonDialog.filterName}` };
+      const cyclePayload = { cleaningReasonKey: selectedReason, cleaningJustification: justification || undefined, cleaningAreaId: selectedBlock?.id };
+      const advancePayload = { targetState: reasonDialog.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${reasonDialog.stage.replace(/_/g, ' ')} - ${reasonDialog.filterName}` };
 
       // Check for equipment groups BEFORE executing — works for both online and offline
-      if (reasonDialog.stage === 'WASH_IN' && blockId) {
+      if (reasonDialog.stage === 'WASH_IN' && selectedBlock?.id) {
         let groups: any[] = [];
         if (online) {
-          try { groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${blockId}`) ?? []; } catch {}
+          try { groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${selectedBlock.id}`) ?? []; } catch {}
         } else {
           // Offline: use cached equipment groups
           const cachedGroups = await getCache<any[]>('equipment-groups') ?? [];
-          groups = cachedGroups.filter((g: any) => g.blockId === blockId);
+          groups = cachedGroups.filter((g: any) => g.blockId === selectedBlock.id);
         }
         if (groups.length > 0) {
           // Save the cycle payload — equipment dialog will use it for the compound operation
@@ -1131,7 +1012,6 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           setLoading(false); return;
         }
       }
-      void blockName; // reserved for future toast messages
 
       // No equipment groups needed — queue compound operation directly
       const { executed: cycleExecuted, result } = await executeOrQueue(
@@ -1146,18 +1026,31 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         const filterIdSnap = reasonDialog.filterId;
         const filterNameSnap = reasonDialog.filterName;
         setScanValue(''); setRemarks(''); setReasonDialog(null);
-        // Offline parity: pop checklist dialog if pipeline prescribes one after this stage
-        const cs = await getCache<any>(`filter-state-${filterIdSnap}`) ?? {};
-        if (cs.pendingChecklist?.length > 0) {
-          setChecklistDialog({ filterId: filterIdSnap, filterName: filterNameSnap, checklists: cs.pendingChecklist });
-          setChecklistAnswers({});
+        // Phase 8.7 Wave-5: shared offline-parity checklist resolver. Cache
+        // row was just rewritten by updateOfflineState above.
+        {
+          const dialogChecklists = await resolvePendingChecklistDialog(filterIdSnap);
+          if (dialogChecklists) {
+            setChecklistDialog({ filterId: filterIdSnap, filterName: filterNameSnap, checklists: dialogChecklists });
+            setChecklistAnswers({});
+          }
         }
         setLoading(false); return;
       }
       setSuccess(`${reasonDialog.filterName} → ${reasonDialog.stage.replace(/_/g, ' ')}`);
       setRecentOps(prev => [{ stage: reasonDialog.stage, filter: reasonDialog.filterName, time: formatTime(new Date()) }, ...prev].slice(0, 20));
       setScanValue(''); setRemarks(''); setReasonDialog(null); mutate('/api/assets/instances?limit=500');
-      if (result?.pendingChecklist?.length > 0) { setChecklistDialog({ filterId: reasonDialog.filterId, filterName: reasonDialog.filterName, checklists: result.pendingChecklist }); setChecklistAnswers({}); }
+      // Phase 8.7 Wave-5: shared post-online checklist resolver.
+      {
+        const dialogChecklists = await resolvePendingChecklistDialog(
+          reasonDialog.filterId,
+          (result as any)?.actions,
+        );
+        if (dialogChecklists) {
+          setChecklistDialog({ filterId: reasonDialog.filterId, filterName: reasonDialog.filterName, checklists: dialogChecklists });
+          setChecklistAnswers({});
+        }
+      }
     } catch (e: any) {
       if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
         setBlockChangeDialog({ filterId: e.connectionInfo.filterId, filterName: reasonDialog?.filterName ?? '', homeBlockId: e.connectionInfo.homeBlockId, homeBlockName: e.connectionInfo.homeBlockName, requestedBlockId: e.connectionInfo.requestedBlockId, requestedBlockName: e.connectionInfo.requestedBlockName });
@@ -1256,30 +1149,44 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       const equipDialogSnapshot = equipDialog;
       setScanValue(''); setRemarks(''); setEquipDialog(null); setSelectedEquipGroup(null); setReadings({});
       if (executed) mutate('/api/assets/instances?limit=500');
-
-      // Resolve pendingChecklist via two sources of truth so the dialog always
-      // pops automatically after readings, regardless of how the advance
-      // response is shaped (or whether it was queued offline).
-      let pending: any[] = Array.isArray(result?.pendingChecklist) ? result.pendingChecklist : [];
-      if (pending.length === 0 && executed) {
-        try {
-          const refreshed = await apiClient.get<any>(`/api/filters/${equipDialogSnapshot.filterId}/current-state`);
-          if (Array.isArray(refreshed?.pendingChecklist) && refreshed.pendingChecklist.length > 0) {
-            pending = refreshed.pendingChecklist;
-          }
-        } catch { /* fall through to offline cache */ }
-      }
-      if (pending.length === 0) {
-        const cs = await getCache<any>(`filter-state-${equipDialogSnapshot.filterId}`) ?? {};
-        if (Array.isArray(cs?.pendingChecklist) && cs.pendingChecklist.length > 0) {
-          pending = cs.pendingChecklist;
+      // Phase 8.7 Wave-5: shared post-advance checklist resolver.
+      //   executed=true → server result.actions[] (when emitted)
+      //   queued=true   → updateOfflineState above rewrote the cache; the
+      //                   resolver reads via local executor over that cache.
+      {
+        const dialogChecklists = await resolvePendingChecklistDialog(
+          equipDialogSnapshot.filterId,
+          executed ? (result as any)?.actions : null,
+        );
+        if (dialogChecklists) {
+          setChecklistDialog({ filterId: equipDialogSnapshot.filterId, filterName: equipDialogSnapshot.filterName, checklists: dialogChecklists });
+          setChecklistAnswers({});
         }
       }
-      if (pending.length > 0) {
-        setChecklistDialog({ filterId: equipDialogSnapshot.filterId, filterName: equipDialogSnapshot.filterName, checklists: pending });
-        setChecklistAnswers({});
+    } catch (e: any) {
+      // B7.2: equipment-dialog flows go through `start-and-advance`, which
+      // calls start-cycle → validateBlockChange. A cross-block scan there
+      // can return 409 BLOCK_CHANGE_REQUIRED — pop the structured modal
+      // (same shape as reason-dialog catch above) instead of swallowing
+      // it as a generic "Failed" toast.
+      if (e?.code === 'BLOCK_CHANGE_REQUIRED' && e?.connectionInfo) {
+        setBlockChangeDialog({
+          filterId: e.connectionInfo.filterId,
+          filterName: equipDialog?.filterName ?? '',
+          homeBlockId: e.connectionInfo.homeBlockId,
+          homeBlockName: e.connectionInfo.homeBlockName,
+          requestedBlockId: e.connectionInfo.requestedBlockId,
+          requestedBlockName: e.connectionInfo.requestedBlockName,
+        });
+        setBlockChangeReason('');
+        // Clear equip-dialog state so the modal isn't stacked under it.
+        setEquipDialog(null); setSelectedEquipGroup(null); setReadings({});
+        setPendingCyclePayload(null);
+        setLoading(false);
+        return;
       }
-    } catch (e: any) { setError(e.message ?? 'Failed'); }
+      setError(e.message ?? 'Failed');
+    }
     setLoading(false);
   };
 
@@ -1288,21 +1195,65 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     for (const cl of checklistDialog.checklists) { for (const q of cl.questions) { if (q.required && (checklistAnswers[q.id] === undefined || checklistAnswers[q.id] === '')) { setError(`Answer required: "${q.question}"`); return; } } }
     setLoading(true); setError('');
     try {
-      const { executed } = await executeOrQueue('submit-checklist', checklistDialog.filterId, checklistDialog.filterName, { answers: checklistAnswers });
+      // Phase A.1: send the version each profile was rendered against — server
+      // returns 409 SCHEMA_DRIFT if the cycle pin doesn't match.
+      const expectedProfileVersions: Record<string, number> = {};
+      for (const cl of checklistDialog.checklists) {
+        if (typeof (cl as any).profileVersion === 'number') {
+          expectedProfileVersions[cl.checklistProfileId] = (cl as any).profileVersion;
+        }
+      }
+      const { executed } = await executeOrQueue('submit-checklist', checklistDialog.filterId, checklistDialog.filterName, { answers: checklistAnswers, expectedProfileVersions });
       setSuccess(`Checklist submitted${executed ? '' : ' (queued)'}`);
-      // After checklist answered, update cached state: clear pendingChecklist, compute next stages
+      // After checklist answered offline: force-clear pendingChecklist on
+      // the cache. The empty pending + has-CHECKLIST-after + current-stage
+      // combination is the "operator just submitted offline" footprint the
+      // loader's CHECKLIST_COMPLETED synthesis (`local-context.ts:459`)
+      // looks for — clearing pending IS what unblocks the gate next read.
+      // Then re-derive nextAllowedStages + actions from the tape so other
+      // gate sites see the unblocked state immediately.
       if (!executed) {
         try {
-          const cs = await getCache<any>(`filter-state-${checklistDialog.filterId}`) ?? {};
-          const currentStage = cs.currentState;
-          // Walk past checklist nodes to find next STAGE nodes — prefer
-          // server-computed stageLookup so we match what the next /current-state
-          // would return after the answered checklist syncs back online.
-          const nextAllowed = computeNextStages(cs.pipelineGraph, currentStage, cs.stageLookup);
-          cache(`filter-state-${checklistDialog.filterId}`, { ...cs, pendingChecklist: [], nextAllowedStages: nextAllowed }, 24 * 60 * 60 * 1000);
+          const filterIdCl = checklistDialog.filterId;
+          const cs = await getCache<any>(`filter-state-${filterIdCl}`) ?? {};
+          const clearedRow = { ...cs, pendingChecklist: [] };
+          await cache(`filter-state-${filterIdCl}`, clearedRow, 24 * 60 * 60 * 1000);
+          // Now the loader will synthesize CHECKLIST_COMPLETED → executor
+          // emits the unblocked tape. Persist it on the cache row.
+          const tape = await getCurrentActions(filterIdCl, null);
+          const newAllowed = tape
+            .filter(a => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION')
+            .map(a => (a as { params: { targetState: string } }).params.targetState);
+          await cache(
+            `filter-state-${filterIdCl}`,
+            { ...clearedRow, nextAllowedStages: newAllowed, actions: tape },
+            24 * 60 * 60 * 1000,
+          );
         } catch { /* ignore */ }
       }
-      setChecklistDialog(null); setChecklistAnswers({});
+      // Multi-filter batch cycling: walk the remaining batch (set by
+      // handleSubmitQueue) for the next filter that still has a pending
+      // checklist. If none remain, the dialog closes; otherwise we re-open
+      // it pointing at the next filter. Filters whose checklist was just
+      // submitted resolve to `null` and are skipped automatically.
+      let nextDialog: { filterId: string; filterName: string; checklists: any[] } | null = null;
+      let nextRemaining: PendingChecklistBatchItem[] = [];
+      if (pendingChecklistBatch.length > 0) {
+        try {
+          const next = await findNextPendingChecklist(pendingChecklistBatch, resolvePendingChecklistDialog);
+          if (next) {
+            nextDialog = {
+              filterId: next.item.filterId,
+              filterName: next.item.filterName,
+              checklists: next.checklists,
+            };
+            nextRemaining = next.remaining;
+          }
+        } catch { /* ignore — falls through to close dialog */ }
+      }
+      setChecklistDialog(nextDialog);
+      setChecklistAnswers({});
+      setPendingChecklistBatch(nextRemaining);
       if (executed) mutate('/api/assets/instances?limit=500');
     } catch (e: any) { setError(e.message ?? 'Failed'); }
     setLoading(false);
@@ -1334,6 +1285,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     setActiveStage(washIn);
     setView('stage');
     setScanValue(''); setRemarks(''); setError(''); setSelectedBlock(null);
+    // B7.4 follow-up (Issue #1): mirror openStage — entering a fresh stage
+    // context must drop any advisory tied to a prior cycle.
+    setEquipmentGroupSyncWarning(null);
     setSuccess(`Ready to clean filters from ${task.ahuName}. Scan each filter now.`);
   };
 
@@ -1473,6 +1427,17 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         </div>
       )}
       {error && <div className="mx-4 mt-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 shadow-sm">{error}</div>}
+      {/* B7.4 (2026-05-02): equipmentGroupSyncWarning advisory — admin edited
+          the cycle's pinned EquipmentGroup mid-cycle. Persistent (no auto-clear);
+          operator may continue on the pinned ranges or terminate-and-restart. */}
+      {equipmentGroupSyncWarning && (
+        <div className="mx-4 mt-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 shadow-sm flex items-start gap-2">
+          <svg className="w-4 h-4 mt-0.5 shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+          <span>
+            Equipment group has been updated by admin (you started on v{equipmentGroupSyncWarning.pinnedVersion}, current is v{equipmentGroupSyncWarning.liveVersion}). Your readings will continue to validate against the version you started with — terminate-and-restart only if you need the new ranges.
+          </span>
+        </div>
+      )}
 
       {/* ─── CONTENT ─── */}
       <div className="flex-1 overflow-y-auto">
@@ -1951,7 +1916,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 {selectedBlock && (
                   <div className="flex items-center justify-between bg-cyan-50 border border-cyan-200 rounded-xl px-3 py-2">
                     <span className="text-xs text-cyan-700 font-medium">Block: {selectedBlock.name}</span>
-                    <button onClick={() => setSelectedBlock(null)} className="text-[10px] text-cyan-600 underline">Change</button>
+                    <button onClick={() => {
+                      // B7.4 follow-up (Issue #1): clear the equipment-group
+                      // sync advisory when operator switches block intra-stage.
+                      // The advisory is bound to the previously scanned filter
+                      // and would leak onto the next scan view until the next
+                      // current-state response replaces it. goHome already
+                      // clears this; the in-place block change must too.
+                      setEquipmentGroupSyncWarning(null);
+                      setSelectedBlock(null);
+                    }} className="text-[10px] text-cyan-600 underline">Change</button>
                   </div>
                 )}
 
@@ -2025,7 +1999,6 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                         online={online}
                         getCache={getCache}
                         executeOrQueue={executeOrQueue}
-                        updateOfflineState={updateOfflineState}
                         onSuccess={(msg) => { setSuccess(msg); mutate('/api/assets/instances?limit=500'); refreshOfflineData(); }}
                         onError={setError}
                       />
@@ -2201,7 +2174,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               {error && <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
             </div>
             <div className="px-5 py-4 border-t border-slate-200 shrink-0 flex gap-3">
-              <button onClick={() => setChecklistDialog(null)} disabled={loading} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition-colors disabled:opacity-40">Cancel</button>
+              <button onClick={() => { setChecklistDialog(null); setPendingChecklistBatch([]); }} disabled={loading} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition-colors disabled:opacity-40">Cancel</button>
               <button onClick={handleChecklistSubmit} disabled={loading} className="flex-1 py-3 bg-purple-600 text-white rounded-xl font-bold disabled:opacity-40 flex items-center justify-center gap-2 hover:bg-purple-500 transition-colors">
                 {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <>Submit Checklist</>}
               </button>
@@ -2261,24 +2234,19 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
  * Works both online (SWR polling) and offline (cached state).
  */
 function DryingFilterCard({
-  filterId, filterName, online, getCache, executeOrQueue, updateOfflineState, onSuccess, onError,
+  filterId, filterName, online, getCache, executeOrQueue, onSuccess, onError,
 }: {
   filterId: string; filterName: string; online: boolean;
   getCache: <T>(key: string) => Promise<T | null>;
-  executeOrQueue: any; updateOfflineState: any;
+  executeOrQueue: any;
   onSuccess: (msg: string) => void; onError: (msg: string) => void;
 }) {
-  const [now, setNow] = useState(() => Date.now());
+  // Phase 8.7 Wave-5: shared 1Hz tick — same hook the desktop DryingFilterRow uses.
+  const now = useNowTick();
   const [temp, setTemp] = useState<number | ''>('');
   const [submitting, setSubmitting] = useState(false);
   const [cycleData, setCycleData] = useState<any>(null);
   const [equipGroup, setEquipGroup] = useState<any>(null);
-
-  // Live timer — tick every second
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
   // Restore previously selected temperature from cache (survives navigation)
   useEffect(() => {
     getCache<number>(`dryer-temp-${filterId}`).then(saved => {
@@ -2321,8 +2289,9 @@ function DryingFilterCard({
     }
   }, [filterId, online]);
 
-  const startedAt = cycleData?.dryerStartedAt ? new Date(cycleData.dryerStartedAt).getTime() : null;
-  const durationMin: number | null = cycleData?.dryerDurationMinutes ?? null;
+  // Phase 8.7 Wave-5: shared countdown projection (same shape desktop uses).
+  const projection = projectDryerCountdown(cycleData, now);
+  const { startedAt, durationMin, halfReached, remainingMin, remainingSecPart, progressPct } = projection;
 
   if (!startedAt || !durationMin) {
     return (
@@ -2333,27 +2302,14 @@ function DryingFilterCard({
     );
   }
 
-  const halfMs = (durationMin * 60_000) / 2;
-  const totalMs = durationMin * 60_000;
-  const elapsedMs = now - startedAt;
-  const halfReached = elapsedMs >= halfMs;
-  const remainingSec = Math.max(0, Math.ceil((halfMs - elapsedMs) / 1000));
-  const remainingMin = Math.floor(remainingSec / 60);
-  const remainingSecPart = remainingSec % 60;
-  const progressPct = Math.min(100, (elapsedMs / totalMs) * 100);
-
-  // Find dryer temperature instrument
-  const dryerInstrument = (equipGroup?.instruments ?? []).find(
-    (i: any) => i.stageKey === 'DRY_IN' && /temp/i.test(i.description ?? ''),
-  );
-  const tempOptions: number[] = [];
-  if (dryerInstrument) {
-    const { operatingMin, operatingMax, leastCount } = dryerInstrument;
-    const step = leastCount > 0 ? leastCount : 1;
-    for (let v = operatingMin; v <= operatingMax + 0.001; v = Math.round((v + step) * 100) / 100) {
-      tempOptions.push(v);
-    }
-  }
+  // Phase 8.7 Wave-5: shared instrument lookup. Mobile keeps the linear
+  // option-walker (preserves byte-equivalent runtime; desktop uses the
+  // snapped flavour because of the original buildTempOptions implementation
+  // there).
+  const dryerInstrument = findDryerTempInstrument(equipGroup);
+  const tempOptions: number[] = dryerInstrument
+    ? buildTempOptionsLinear(dryerInstrument.operatingMin, dryerInstrument.operatingMax, dryerInstrument.leastCount)
+    : [];
   const tempUom = dryerInstrument?.uom ?? '°C';
 
   const handleTempSubmit = async () => {
@@ -2372,8 +2328,11 @@ function DryingFilterCard({
         instrumentReadings: readings,
         remarks: `Dryer temperature ${temp}${tempUom} - ${filterName}`,
       }, 'DRY_IN');
-      if (!executed) await updateOfflineState(filterId, 'DRY_IN', false);
-      // Mark readings as submitted in cache (read AFTER updateOfflineState to get latest) + clear persisted temp
+      // Phase 8.6 part 2: route the offline cache rewrite through the
+      // shared `recomputeAndCacheFilterState` helper instead of a prop-drilled
+      // callback. Same behaviour, no parent wiring.
+      if (!executed) await recomputeAndCacheFilterState(filterId, 'DRY_IN', false, null);
+      // Mark readings as submitted in cache (read AFTER recompute to get latest) + clear persisted temp
       try {
         const freshState = await getCache<any>(`filter-state-${filterId}`) ?? {};
         const { cacheData } = await import('@/lib/offline-store');

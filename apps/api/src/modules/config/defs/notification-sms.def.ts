@@ -13,8 +13,16 @@ export const notificationSmsDef: ModuleConfigDefinition = {
   hasCustomPage: true,
   customPagePath: '/config/sms-settings',
   settings: [
-    { key: 'provider', type: 'select', label: 'Provider', default: 'aws-sns', group: 'Provider',
-      options: [{ value: 'aws-sns', label: 'AWS SNS' }, { value: 'twilio', label: 'Twilio' }] },
+    // P3 (2026-05-02): AWS SNS removed. Default is now http-gateway because it
+    // covers MSG91 / Plivo / AfricasTalking / Kaleyra / custom backends with
+    // a single configurable URL + body-template; operators don't need a
+    // dedicated provider entry per service.
+    { key: 'provider', type: 'select', label: 'Provider', default: 'http-gateway', group: 'Provider',
+      options: [
+        { value: 'http-gateway', label: 'HTTP Gateway (MSG91 / Plivo / custom)' },
+        { value: 'twilio', label: 'Twilio' },
+        { value: 'vonage', label: 'Vonage (Nexmo)' },
+      ] },
     { key: 'enabled', type: 'boolean', label: 'Enable SMS', default: false, group: 'General' },
   ],
 };

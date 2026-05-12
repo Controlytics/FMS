@@ -4,11 +4,40 @@
  */
 
 const DB_NAME = 'digilog-offline';
-const DB_VERSION = 2;
+// Phase 8.3: bumped 2 -> 3 to add `tapeVersion` to OfflineOperation rows.
+// Phase 8.4 (M-3, 2026-05-02): bumped 3 -> 4. The server schema now
+// REQUIRES `tapeVersion` on cycle-bound writes, so leaving rows with
+// `tapeVersion === undefined` would produce 400 SCHEMA_ERROR on replay.
+// The v3 -> v4 upgrade walks the operations store and normalizes any
+// row with undefined tapeVersion to null in place. Null still skips the
+// staleness check on the server (the schema has nullable handling), so
+// pre-8.3 leftover ops still drain — they're just not fresher than the
+// queue assumed at write time.
+//
+// Phase 8.4b (Option D, 2026-05-02): bumped 4 -> 5. Adds 6 new object stores
+// for the versioned local cache fed by GET /api/sync/since:
+//   - syncFilterCleaningProfiles (keyPath id)
+//   - syncFilterProfiles (keyPath id)
+//   - syncEquipmentGroups (keyPath id)
+//   - syncChecklistProfiles (keyPath id) — populated in 8.4a follow-up
+//   - syncAssetTemplates (keyPath id) — populated in 8.4a follow-up
+//   - syncFilters (keyPath id) — note: NOT named "filters" because the
+//       legacy `filters` store at top of this file holds CachedFilter rows
+//       in a different shape. Renaming would require migrating live data;
+//       the new store is a parallel, additive cache.
+//   - syncVersionState (keyPath key) — single-row store ('current' key)
+//       holding {profileVersion, filterProfileVersion, equipmentGroupVersion,
+//       checklistVersion, assetTemplateVersion, filterUpdatedSince}.
+const DB_VERSION = 5;
 
 // Single source of truth for offline-critical TTLs. Long shifts (>= 12h)
 // require everything that participates in cleaning to outlive a full day,
 // otherwise mid-shift cache evictions break dialogs offline.
+
+// Audit 2026-05-04 fix #3 (web-plumbing review C2/C3): Capacitor-aware
+// connectivity check — navigator.onLine lies on Android WebViews.
+import { isOnline as connIsOnline } from './connectivity';
+
 export const OFFLINE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 export const SHORT_TTL_MS = 30 * 60 * 1000;        // 30 min — for non-critical UI caches
 export const SYNCED_OP_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -27,6 +56,20 @@ interface OfflineOperation {
   error?: string;
   retryCount: number;
   syncedAt?: string;
+  /**
+   * Tape version observed at queue time. Sent on the replay so the server
+   * can reject (409 STALE_TAPE) if another writer changed the cycle while
+   * this op sat queued.
+   *
+   * Phase 8.4 (M-3, 2026-05-02): tightened from `?: number | null` (3
+   * states: undefined / null / number) to `: number | null` (2 states).
+   * The v3 -> v4 IDB upgrade backfills any pre-existing row with
+   * undefined to null in place, so every live op in the store has a
+   * deterministic shape. `null` still means "no staleness check" — used
+   * for pre-8.3 leftover ops and for non-cycle-bound writes (start-cycle,
+   * the start-step of start-and-advance).
+   */
+  tapeVersion: number | null;
 }
 
 interface Tombstone {
@@ -42,6 +85,26 @@ interface Tombstone {
   status: 'pending' | 'syncing' | 'synced' | 'failed';
   error?: string;
   retryCount: number;
+  /**
+   * Phase 8.7 follow-up (2026-05-03): tape version observed at queue time
+   * for entityType='cycle' tombstones. The server's
+   * `POST /api/filters/:id/terminate-cycle` route REQUIRES `tapeVersion` in
+   * the body since commit f8fae1d, so any cycle tombstone replayed without
+   * this field would 400 SCHEMA_ERROR.
+   *
+   * Optional (no IDB schema bump): there are currently zero live callers
+   * that queue cycle terminate tombstones — every UI terminate path goes
+   * through `useOffline.executeOrQueue('terminate', ...)` which queues to
+   * the `operations` store, not `tombstones`. So no on-disk rows exist
+   * that need migration. Future callers MUST capture this field at queue
+   * time (mirror the cycle-bound pattern in use-offline.ts:108-115 — read
+   * from `filter-state-{filterId}` cache). The sync engine forwards the
+   * value when present and omits the body field when absent/null.
+   *
+   * `block-change-request` tombstones never need this field (deletes a
+   * separate entity with no tape concept).
+   */
+  tapeVersion?: number | null;
 }
 
 interface CachedFilter {
@@ -66,11 +129,35 @@ interface CachedData {
   expiresAt: string;
 }
 
+/**
+ * Phase 8.4 M-3 — pure helper used by the v3 -> v4 IDB upgrade.
+ *
+ * Mutates `row` in place if its `tapeVersion` is undefined (the pre-8.3 +
+ * pre-8.4-tightening shape) and returns `true` so the caller knows to
+ * `cursor.update(row)`. Otherwise returns `false` (no write needed).
+ *
+ * Exported for direct unit-testing — exercising the cursor inside a real
+ * IDB upgrade transaction would require a heavyweight fake-indexeddb dev
+ * dep we don't have, but the migration policy itself is tiny and worth
+ * testing explicitly.
+ */
+export function normalizeOpForV4(row: { tapeVersion?: number | null }): boolean {
+  if (row.tapeVersion === undefined) {
+    (row as { tapeVersion: number | null }).tapeVersion = null;
+    return true;
+  }
+  return false;
+}
+
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (event) => {
       const db = req.result;
+      const upgradeTx = req.transaction; // versionchange transaction — must use this for cursor work below
+      const oldVersion = (event as IDBVersionChangeEvent).oldVersion ?? 0;
+
+      // Schema bootstrap (idempotent): create stores/indexes that don't exist.
       if (!db.objectStoreNames.contains('operations')) {
         const opStore = db.createObjectStore('operations', { keyPath: 'id' });
         opStore.createIndex('status', 'status', { unique: false });
@@ -86,6 +173,38 @@ function openDB(): Promise<IDBDatabase> {
         const tsStore = db.createObjectStore('tombstones', { keyPath: 'id' });
         tsStore.createIndex('status', 'status', { unique: false });
         tsStore.createIndex('createdAt', 'createdAt', { unique: false });
+      }
+
+      // Phase 8.4 M-3 (2026-05-02): v3 -> v4 normalizes any pre-8.3
+      // OfflineOperation row with undefined tapeVersion to explicit null.
+      // The TypeScript type was tightened from `?: number | null` to
+      // `: number | null`, so the on-disk shape must match. Cursor-iterate
+      // the operations store inside the versionchange transaction.
+      if (oldVersion < 4 && upgradeTx) {
+        const opStore = upgradeTx.objectStore('operations');
+        const cursorReq = opStore.openCursor();
+        cursorReq.onsuccess = () => {
+          const cursor = cursorReq.result;
+          if (!cursor) return;
+          const row = cursor.value as OfflineOperation;
+          if (normalizeOpForV4(row)) cursor.update(row);
+          cursor.continue();
+        };
+      }
+
+      // Phase 8.4b (Option D, 2026-05-02): v4 -> v5 adds the 7 versioned-
+      // local-cache stores. Idempotent — only creates stores that don't yet
+      // exist. Each store is keyPath: 'id' except syncVersionState which is
+      // keyed by 'key' (single-row store with key='current').
+      if (oldVersion < 5) {
+        for (const name of SYNC_ID_STORES) {
+          if (!db.objectStoreNames.contains(name)) {
+            db.createObjectStore(name, { keyPath: 'id' });
+          }
+        }
+        if (!db.objectStoreNames.contains('syncVersionState')) {
+          db.createObjectStore('syncVersionState', { keyPath: 'key' });
+        }
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -153,7 +272,11 @@ export async function getCachedData<T>(key: string): Promise<T | null> {
       if (!result) { resolve(null); return; }
       // When offline, always return cached data regardless of expiry — better
       // stale data than no data when the operator can't reach the server.
-      if (navigator.onLine && new Date(result.expiresAt) < new Date()) { resolve(null); return; }
+      // Audit 2026-05-04 fix #3 (web-plumbing review C2): use the Capacitor-
+      // aware connectivity engine, not raw navigator.onLine. On Android
+      // WebViews navigator.onLine lies; this gate would silently drop fresh
+      // cache rows for tablets that THINK they're online but aren't.
+      if (connIsOnline() && new Date(result.expiresAt) < new Date()) { resolve(null); return; }
       // Touch lastAccessedAt for LRU
       result.lastAccessedAt = new Date().toISOString();
       store.put(result);
@@ -285,11 +408,26 @@ export async function clearOfflineCycleId(filterId: string): Promise<void> {
 
 // === Operation Queue ===
 
-export async function queueOperation(op: Omit<OfflineOperation, 'id' | 'clientOpId' | 'createdAt' | 'status' | 'retryCount'>): Promise<string> {
+/**
+ * Input shape for `queueOperation`: the on-store row type (`OfflineOperation`)
+ * minus the engine-managed fields, with `tapeVersion` widened to allow
+ * `undefined` from callers that haven't been threaded through yet. The
+ * persistence layer always normalizes to `number | null` (M-3 / v4).
+ */
+type QueueInput = Omit<OfflineOperation, 'id' | 'clientOpId' | 'createdAt' | 'status' | 'retryCount' | 'tapeVersion'> & {
+  tapeVersion?: number | null;
+};
+
+export async function queueOperation(op: QueueInput): Promise<string> {
   const db = await openDB();
   const id = `op-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const clientOpId = generateClientOpId();
   const tx = db.transaction('operations', 'readwrite');
+  // Phase 8.4 M-3: persist tapeVersion as `number | null` only — no undefined
+  // on the wire. The IDB upgrade also normalizes any pre-existing v3 rows
+  // with undefined tapeVersion. Callers that don't supply tapeVersion (pre-
+  // cutover paths, non-cycle-bound writes) get null; the sync engine
+  // omits the body field entirely when null.
   tx.objectStore('operations').put({
     ...op,
     id,
@@ -297,6 +435,7 @@ export async function queueOperation(op: Omit<OfflineOperation, 'id' | 'clientOp
     createdAt: new Date().toISOString(),
     status: 'pending',
     retryCount: 0,
+    tapeVersion: op.tapeVersion ?? null,
   });
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve(id);
@@ -454,11 +593,129 @@ export async function clearAllOperations(): Promise<void> {
   });
 }
 
-// === Online/Offline Detection ===
+// === Phase 8.4b — Versioned local-cache stores (Option D) ===
 
-export function isOnline(): boolean {
-  return navigator.onLine;
+/**
+ * Names of the v5 sync stores that share keyPath 'id'. Listed once to keep
+ * the upgrade path, type union, and helper functions in lockstep.
+ */
+export const SYNC_ID_STORES = [
+  'syncFilterCleaningProfiles',
+  'syncFilterProfiles',
+  'syncEquipmentGroups',
+  'syncChecklistProfiles',
+  'syncAssetTemplates',
+  'syncFilters',
+] as const;
+
+export type SyncEntityStore = typeof SYNC_ID_STORES[number];
+
+export interface VersionState {
+  /** Single-row store key — always 'current' for this app. */
+  key: 'current';
+  profileVersion: number;
+  filterProfileVersion: number;
+  equipmentGroupVersion: number;
+  checklistVersion: number;
+  assetTemplateVersion: number;
+  /** ISO-8601 timestamp; null = no rows seen yet (full sync on first call). */
+  filterUpdatedSince: string | null;
+  /** ISO-8601 of the last successful syncSince() call. */
+  lastSyncedAt: string | null;
 }
+
+/** The default cursors for a fresh client. */
+export const DEFAULT_VERSION_STATE: VersionState = {
+  key: 'current',
+  profileVersion: 0,
+  filterProfileVersion: 0,
+  equipmentGroupVersion: 0,
+  checklistVersion: 0,
+  assetTemplateVersion: 0,
+  filterUpdatedSince: null,
+  lastSyncedAt: null,
+};
+
+/**
+ * Bulk-write rows into one of the v5 sync stores. Uses `put` so individual
+ * rows update by primary key without disturbing the rest of the cache. Does
+ * NOT clear the store first — `syncSince()` is incremental, the FE only
+ * receives rows newer than the cursor. (For full re-sync, the caller can
+ * reset versionState to defaults; the next call returns everything.)
+ */
+export async function cacheEntities<T extends { id: string }>(
+  storeName: SyncEntityStore,
+  rows: T[],
+): Promise<void> {
+  if (rows.length === 0) return;
+  const db = await openDB();
+  const tx = db.transaction(storeName, 'readwrite');
+  const store = tx.objectStore(storeName);
+  for (const row of rows) store.put(row);
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function getCachedEntity<T = any>(
+  storeName: SyncEntityStore,
+  id: string,
+): Promise<T | null> {
+  const db = await openDB();
+  const tx = db.transaction(storeName, 'readonly');
+  const req = tx.objectStore(storeName).get(id);
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve((req.result ?? null) as T | null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getAllCachedEntities<T = any>(
+  storeName: SyncEntityStore,
+): Promise<T[]> {
+  const db = await openDB();
+  const tx = db.transaction(storeName, 'readonly');
+  const req = tx.objectStore(storeName).getAll();
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve((req.result ?? []) as T[]);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** Read the current versionState row, returning DEFAULT_VERSION_STATE on miss. */
+export async function getVersionState(): Promise<VersionState> {
+  const db = await openDB();
+  const tx = db.transaction('syncVersionState', 'readonly');
+  const req = tx.objectStore('syncVersionState').get('current');
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => {
+      const row = req.result as VersionState | undefined;
+      resolve(row ?? { ...DEFAULT_VERSION_STATE });
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** Replace the versionState row. Caller passes the merged shape. */
+export async function setVersionState(state: VersionState): Promise<void> {
+  const db = await openDB();
+  const tx = db.transaction('syncVersionState', 'readwrite');
+  tx.objectStore('syncVersionState').put({ ...state, key: 'current' });
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// === Online/Offline Detection ===
+//
+// Audit 2026-05-04 fix #3: these helpers were unused (use-offline.ts already
+// imports the Capacitor-aware variants from connectivity.ts). Re-exporting
+// the connectivity API here so any future caller importing from this file
+// gets the right behavior automatically.
+
+export const isOnline = connIsOnline;
 
 export function onOnlineStatusChange(callback: (online: boolean) => void): () => void {
   const handleOnline = () => callback(true);

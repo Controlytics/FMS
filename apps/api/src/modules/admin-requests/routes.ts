@@ -129,11 +129,11 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
 
   // 2. GET / — List all requests (admin only)
   app.get('/', {
-    preHandler: [app.requirePermission('USER_CREATE')],
+    preHandler: [app.requirePermission('ADMIN_REQUEST_REVIEW')],
     schema: {
       tags: ['Admin Requests'],
       summary: 'List admin requests',
-      description: 'List all admin requests. Requires USER_CREATE permission.',
+      description: 'List all admin requests. Requires ADMIN_REQUEST_REVIEW permission.',
       querystring: {
         type: 'object',
         properties: {
@@ -162,7 +162,7 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
 
   // 3. GET /pending-count — Count pending requests (admin only)
   app.get('/pending-count', {
-    preHandler: [app.requirePermission('USER_CREATE')],
+    preHandler: [app.requirePermission('ADMIN_REQUEST_REVIEW')],
     schema: {
       tags: ['Admin Requests'],
       summary: 'Count pending admin requests',
@@ -180,7 +180,7 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
 
   // 4. POST /:id/process — Approve or reject a request (admin only, reauth)
   app.post('/:id/process', {
-    preHandler: [app.requirePermission('USER_CREATE')],
+    preHandler: [app.requirePermission('ADMIN_REQUEST_REVIEW')],
     schema: {
       tags: ['Admin Requests'],
       summary: 'Process (approve/reject) an admin request',
@@ -213,7 +213,11 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('CREATE_USER', req, reply);
+    // M1 (audit 2026-05-04): use APPROVE_ADMIN_REQUEST instead of CREATE_USER.
+    // The admin-request approve/reject flow covers password-reset / unlock /
+    // modify-user as well, none of which are user-creation. The dedicated
+    // action keeps the audit trail honest about WHICH role action this is.
+    const { ok } = await enforceReauth('APPROVE_ADMIN_REQUEST', req, reply);
     if (!ok) return;
 
     const { id } = req.params as { id: string };

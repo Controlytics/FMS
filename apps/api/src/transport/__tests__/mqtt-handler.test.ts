@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { mockPrisma, mockNormalizeBatch, mockOnRpcResponse, mockQueueAdd } = vi.hoisted(() => ({
+const { mockPrisma, mockNormalizeBatch, mockOnRpcResponse, mockEnqueueIngestionJob } = vi.hoisted(() => ({
   mockPrisma: {
     unsMapping: { findUnique: vi.fn() },
     assetInstance: { findUnique: vi.fn() },
@@ -9,7 +9,7 @@ const { mockPrisma, mockNormalizeBatch, mockOnRpcResponse, mockQueueAdd } = vi.h
   },
   mockNormalizeBatch: vi.fn(),
   mockOnRpcResponse: vi.fn(),
-  mockQueueAdd: vi.fn(),
+  mockEnqueueIngestionJob: vi.fn(),
 }));
 
 vi.mock('../../lib/prisma.js', () => ({ prisma: mockPrisma }));
@@ -19,12 +19,13 @@ vi.mock('../../modules/data-ingestion/message-normalizer.js', () => ({
 vi.mock('../../modules/data-ingestion/rpc-handler.js', () => ({
   onRpcResponse: mockOnRpcResponse,
 }));
-vi.mock('bullmq', () => {
-  function MockQueue() { return { add: mockQueueAdd }; }
-  return { Queue: MockQueue };
-});
+// Mock ingestion.service so mqtt-handler's `enqueueIngestionJob` import does
+// not transitively pull in `@digilog/db` (which vitest-vite cannot resolve as
+// a workspace package in this test environment).
+vi.mock('../../modules/data-ingestion/ingestion.service.js', () => ({
+  enqueueIngestionJob: mockEnqueueIngestionJob,
+}));
 vi.mock('@digilog/queue', () => ({
-  getRedisConnection: vi.fn().mockReturnValue({}),
   QUEUES: {
     INGESTION: {
       name: 'ingestion',
@@ -91,12 +92,12 @@ describe('mqtt-handler', () => {
       });
       mockPrisma.deviceCredential.findUnique.mockResolvedValue({ id: 'cred-1' });
       mockNormalizeBatch.mockReturnValue([{ messageId: 'm1', data: { temperature: 25 } }]);
-      mockQueueAdd.mockResolvedValue({});
+      mockEnqueueIngestionJob.mockResolvedValue(undefined);
 
       await handleMqttMessage(topic, payload);
 
       expect(mockNormalizeBatch).toHaveBeenCalled();
-      expect(mockQueueAdd).toHaveBeenCalled();
+      expect(mockEnqueueIngestionJob).toHaveBeenCalled();
       expect(mockPrisma.connectivityStatus.upsert).toHaveBeenCalled();
     });
 
@@ -140,7 +141,7 @@ describe('mqtt-handler', () => {
       });
       mockPrisma.deviceCredential.findUnique.mockResolvedValue(null);
       mockNormalizeBatch.mockReturnValue([{ messageId: 'm1' }]);
-      mockQueueAdd.mockResolvedValue({});
+      mockEnqueueIngestionJob.mockResolvedValue(undefined);
 
       await handleMqttMessage(topic, payload);
 
@@ -165,7 +166,7 @@ describe('mqtt-handler', () => {
       });
       mockPrisma.deviceCredential.findUnique.mockResolvedValue(null);
       mockNormalizeBatch.mockReturnValue([{ messageId: 'm1' }]);
-      mockQueueAdd.mockResolvedValue({});
+      mockEnqueueIngestionJob.mockResolvedValue(undefined);
 
       await handleMqttMessage(topic, payload);
 

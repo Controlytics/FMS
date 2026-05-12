@@ -1,98 +1,95 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
+// fetchAllTablesRaw discovers tables via pg_tables, then queries each. We
+// stub $queryRawUnsafe with two response shapes:
+//   1. The pg_tables / information_schema introspection queries return rows
+//      describing the schema (table list + FK list).
+//   2. Subsequent SELECT * FROM "<table>" queries return [].
+// To keep the stub simple and intent-revealing, mockResolvedValueOnce()
+// chains the responses in order.
 const { mockPrisma } = vi.hoisted(() => ({
   mockPrisma: {
-    user: { findMany: vi.fn() },
-    role: { findMany: vi.fn() },
-    systemConfig: { findMany: vi.fn() },
-    auditTrail: { findMany: vi.fn() },
-    notification: { findMany: vi.fn(), deleteMany: vi.fn() },
-    passwordHistory: { findMany: vi.fn(), createMany: vi.fn() },
-    session: { findMany: vi.fn(), deleteMany: vi.fn() },
-    fieldIdConfig: { findMany: vi.fn(), createMany: vi.fn() },
-    userConfig: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
-    roleConfig: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
-    passwordResetRequest: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
     $queryRawUnsafe: vi.fn(),
-    $transaction: vi.fn(),
     $executeRawUnsafe: vi.fn(),
+    $transaction: vi.fn(),
   },
 }));
 
 vi.mock('../../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 
-import { fetchAllTablesRaw, fetchAllTablesPrisma, resetAuditSequence } from '../backup.repository.js';
+import {
+  fetchAllTablesRaw,
+  resetAuditSequence,
+  getAllTables,
+} from '../backup.repository.js';
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe('backup.repository', () => {
-  beforeEach(() => vi.clearAllMocks());
+  describe('getAllTables', () => {
+    it('lists public tables in topological FK order, excluding the excluded set', async () => {
+      // pg_tables → 3 tables; FK introspection → users -> roles
+      mockPrisma.$queryRawUnsafe
+        .mockResolvedValueOnce([
+          { tablename: 'roles' },
+          { tablename: 'users' },
+          { tablename: '_prisma_migrations' }, // EXCLUDED — should be filtered
+        ])
+        .mockResolvedValueOnce([
+          { table_name: 'users', referenced_table: 'roles' },
+        ]);
 
-  describe('fetchAllTablesRaw', () => {
-    it('queries each DB table via raw SQL', async () => {
-      mockPrisma.$queryRawUnsafe.mockResolvedValue([]);
-      const result = await fetchAllTablesRaw();
-      expect(typeof result).toBe('object');
-      // Should have queried multiple tables
-      expect(mockPrisma.$queryRawUnsafe.mock.calls.length).toBeGreaterThan(0);
-    });
+      const tables = await getAllTables();
 
-    it('uses ORDER BY for audit_trail table', async () => {
-      mockPrisma.$queryRawUnsafe.mockResolvedValue([]);
-      await fetchAllTablesRaw();
-      const auditCall = mockPrisma.$queryRawUnsafe.mock.calls.find(
-        (call: string[]) => call[0].includes('audit_trail'),
-      );
-      expect(auditCall).toBeDefined();
-      expect(auditCall![0]).toContain('ORDER BY id ASC');
+      expect(tables).not.toContain('_prisma_migrations');
+      expect(tables).toContain('roles');
+      expect(tables).toContain('users');
+      // roles has no deps, users depends on roles → roles must come first
+      expect(tables.indexOf('roles')).toBeLessThan(tables.indexOf('users'));
     });
   });
 
-  describe('fetchAllTablesPrisma', () => {
-    it('fetches all tables using Prisma models', async () => {
-      mockPrisma.user.findMany.mockResolvedValue([]);
-      mockPrisma.role.findMany.mockResolvedValue([]);
-      mockPrisma.systemConfig.findMany.mockResolvedValue([]);
-      mockPrisma.auditTrail.findMany.mockResolvedValue([]);
-      mockPrisma.notification.findMany.mockResolvedValue([]);
-      mockPrisma.passwordHistory.findMany.mockResolvedValue([]);
-      mockPrisma.session.findMany.mockResolvedValue([]);
-      mockPrisma.fieldIdConfig.findMany.mockResolvedValue([]);
-      mockPrisma.userConfig.findMany.mockResolvedValue([]);
-      mockPrisma.roleConfig.findMany.mockResolvedValue([]);
-      mockPrisma.passwordResetRequest.findMany.mockResolvedValue([]);
+  describe('fetchAllTablesRaw', () => {
+    it('queries every discovered table via $queryRawUnsafe', async () => {
+      mockPrisma.$queryRawUnsafe
+        .mockResolvedValueOnce([{ tablename: 'roles' }, { tablename: 'users' }]) // pg_tables
+        .mockResolvedValueOnce([]) // foreign-keys (no FKs found)
+        .mockResolvedValueOnce([{ id: 1 }]) // SELECT * FROM "roles"
+        .mockResolvedValueOnce([{ id: 2 }]); // SELECT * FROM "users"
 
-      const result = await fetchAllTablesPrisma();
-      expect(result).toHaveProperty('users');
+      const result = await fetchAllTablesRaw();
+
       expect(result).toHaveProperty('roles');
-      expect(result).toHaveProperty('auditTrail');
-      expect(result).toHaveProperty('systemConfig');
-      expect(result).toHaveProperty('notifications');
+      expect(result).toHaveProperty('users');
+      // 1 introspection (pg_tables) + 1 FKs + 2 selects
+      expect(mockPrisma.$queryRawUnsafe).toHaveBeenCalledTimes(4);
     });
 
-    it('orders audit trail by id ascending', async () => {
-      mockPrisma.user.findMany.mockResolvedValue([]);
-      mockPrisma.role.findMany.mockResolvedValue([]);
-      mockPrisma.systemConfig.findMany.mockResolvedValue([]);
-      mockPrisma.auditTrail.findMany.mockResolvedValue([]);
-      mockPrisma.notification.findMany.mockResolvedValue([]);
-      mockPrisma.passwordHistory.findMany.mockResolvedValue([]);
-      mockPrisma.session.findMany.mockResolvedValue([]);
-      mockPrisma.fieldIdConfig.findMany.mockResolvedValue([]);
-      mockPrisma.userConfig.findMany.mockResolvedValue([]);
-      mockPrisma.roleConfig.findMany.mockResolvedValue([]);
-      mockPrisma.passwordResetRequest.findMany.mockResolvedValue([]);
+    it('orders the audit_trail SELECT by id ASC for byte-for-byte reproducible backups', async () => {
+      mockPrisma.$queryRawUnsafe
+        .mockResolvedValueOnce([{ tablename: 'audit_trail' }, { tablename: 'roles' }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
 
-      await fetchAllTablesPrisma();
-      expect(mockPrisma.auditTrail.findMany).toHaveBeenCalledWith({ orderBy: { id: 'asc' } });
+      await fetchAllTablesRaw();
+
+      const auditCall = mockPrisma.$queryRawUnsafe.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('audit_trail') && (call[0] as string).startsWith('SELECT'),
+      );
+      expect(auditCall).toBeDefined();
+      expect(auditCall![0] as string).toContain('ORDER BY id ASC');
     });
   });
 
   describe('resetAuditSequence', () => {
-    it('resets audit_trail sequence via raw SQL', async () => {
-      mockPrisma.$executeRawUnsafe.mockResolvedValue(undefined);
-      await resetAuditSequence();
-      expect(mockPrisma.$executeRawUnsafe).toHaveBeenCalledWith(
-        expect.stringContaining('setval'),
-      );
+    it('is a no-op: audit_trail PK is a UUID with no sequence to reset', async () => {
+      // Function exists for API stability; should not touch the database.
+      await expect(resetAuditSequence()).resolves.toBeUndefined();
+      expect(mockPrisma.$executeRawUnsafe).not.toHaveBeenCalled();
+      expect(mockPrisma.$queryRawUnsafe).not.toHaveBeenCalled();
     });
   });
 });

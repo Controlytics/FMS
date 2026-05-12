@@ -157,7 +157,6 @@ async function executeApproval(
           department,
           role: requestedRole,
           password: temporaryPassword,
-          organizationId: ctx.organizationId,
         },
         ctx,
       );

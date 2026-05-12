@@ -3,6 +3,7 @@ import { actionReauthConfigSchema } from '@digilog/shared';
 import { errorResponses } from '../../../lib/error-schemas.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { configService } from '../config.service.js';
+import { enforceReauth } from '../../../lib/reauth-check.js';
 
 // Action Re-authentication Configuration routes.
 // Extracted from the main config/routes.ts monolith — see TODO in that file
@@ -40,7 +41,14 @@ export async function actionReauthRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    // Audit 2026-05-04 fix (web-routes review C6): the action-reauth save
+    // itself bypassed reauth — trivial privilege escalation (admin disables
+    // reauth on DELETE_USER, then deletes users without challenge). Gate
+    // this endpoint behind UPDATE_REAUTH_CONFIG so the meta-policy edit is
+    // itself password-challenged.
+    const { ok } = await enforceReauth('UPDATE_REAUTH_CONFIG', req, reply);
+    if (!ok) return;
     const ctx = buildContext(req);
     const data = await configService.updateActionReauth(req.body, actionReauthConfigSchema, ctx);
     return { success: true, data };

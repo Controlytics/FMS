@@ -79,14 +79,15 @@ registerNode({
       } else if (target === 'related') {
         const relationType = (config.relationType as string) ?? 'CONTAINS';
         const rel = await prisma.assetRelationship.findFirst({
-          where: { sourceAssetId: ctx.entityId, relationshipType: relationType },
+          where: { sourceAssetId: ctx.entityId, relationshipType: relationType as any },
           select: { targetAsset: { select: { id: true, name: true, templateId: true, unsPath: true } } },
         });
-        if (rel?.targetAsset) {
+        const target = (rel as any)?.targetAsset;
+        if (target) {
           const meta = { ...ctx.metadata, originalEntityId: ctx.entityId };
           return {
             output: 'Success',
-            message: { ...message, _entityId: rel.targetAsset.id, _entityName: rel.targetAsset.name },
+            message: { ...message, _entityId: target.id, _entityName: target.name },
             metadata: meta,
           };
         }
@@ -296,9 +297,9 @@ registerNode({
     try {
       const relationType = (config.relationType as string) ?? 'CONTAINS';
       const direction = (config.direction as string) ?? 'source';
-      const where = direction === 'source'
-        ? { sourceAssetId: ctx.entityId, relationshipType: relationType }
-        : { targetAssetId: ctx.entityId, relationshipType: relationType };
+      const where = (direction === 'source'
+        ? { sourceAssetId: ctx.entityId, relationshipType: relationType as any }
+        : { targetAssetId: ctx.entityId, relationshipType: relationType as any });
       const rels = await prisma.assetRelationship.findMany({
         where,
         select: direction === 'source'

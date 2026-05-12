@@ -1,55 +1,53 @@
 # System Requirements
 
-## Server (Production — EC2)
-- **OS:** Ubuntu 20.04+ (tested on Ubuntu 22.04)
-- **CPU:** 2+ cores (t3.large recommended for production)
+> **DigiLog runs on local Windows only as of Phase 5 (2026-04-29).** EC2 / Linux / PM2 production paths were retired in commit `251be95`. The historical production stack table is preserved below for archival reference; the canonical install path is `DEPLOY-WINDOWS.md` at the repo root.
+
+## Server (current — Windows local)
+- **OS:** Windows Server 2019 / 2022 or Windows 10 / 11 Pro
+- **CPU:** 2+ cores
 - **RAM:** 4GB minimum, 8GB recommended
 - **Disk:** 20GB+ (depends on data volume)
-- **EC2 IP:** 34.232.224.0 (may change on restart)
 
-## Software Dependencies
+## Software Dependencies (current)
 | Component | Version | Purpose |
 |-----------|---------|---------|
-| Node.js | 20.x | Application runtime |
-| PostgreSQL | 18 | Primary database (Prisma ORM, 57 models, 17 enums) |
-| TimescaleDB | 2.x | Time-series extension (database: digilog_tsdb) |
-| Redis | 5 | Cache and job queue (BullMQ) |
-| EMQX | 5.x | MQTT broker |
-| Nginx | 1.18+ | Reverse proxy |
-| PM2 | 5.x | Process manager (production) |
-| Prisma | Latest | ORM for PostgreSQL |
+| Node.js | 20.x or 22.x | Application runtime |
+| PostgreSQL | 18 | Primary database (Prisma ORM, **69 models, 23 enums**) — also hosts the graphile-worker queue schema |
+| TimescaleDB | latest for PG 18 | Time-series extension (database: digilog_tsdb, 7 hypertables) |
+| Mosquitto | 2.0.x | MQTT broker (Phase 1 of windows-friendly-rewrite swapped from EMQX). Install via `scripts/install-mosquitto.ps1`. |
+| Microsoft Edge | preinstalled on Win10+/Server 2019+ | Used by `puppeteer-core` for PDF report rendering (Phase 3 swap) |
+| ~~Memurai (Redis)~~ | RETIRED | Phase 4 (2026-05-01): pub/sub moved in-process. Do NOT install. |
+| Reverse proxy (Nginx / IIS) | optional | Customer-choice; not bundled after Phase 4 of the windows-friendly-rewrite. Default is Fastify-direct on `:3000`. |
+| Prisma | 6.x | ORM for PostgreSQL |
 
 ## Local Development (Windows)
 | Component | Version | Notes |
 |-----------|---------|-------|
-| Node.js | 20.x | Application runtime |
-| PostgreSQL | 18 | Primary database |
-| Redis | 5 | Via Redis for Windows or WSL |
-| EMQX | 5.x | MQTT broker |
-| tsx | Latest | API dev server (replaces PM2 locally) |
-| Vite | Latest | Frontend dev server |
+| Node.js | 20.x or 22.x | Application runtime |
+| PostgreSQL | 18 | Primary database with TimescaleDB extension |
+| Mosquitto | 2.0.x | Optional unless testing MQTT ingest |
+| ~~Memurai (Redis)~~ | RETIRED | Phase 4: not used by DigiLog anymore |
+| tsx | latest | API dev server (auto-reload) |
+| Vite | latest | Frontend dev server |
 
 ## Monorepo Structure
 ```
 apps/api/     — Fastify backend (TypeScript, port 3000)
 apps/web/     — React frontend (Vite SPA, Tailwind CSS)
 packages/shared/ — Shared types, schemas, constants
-packages/db/     — TimescaleDB connection pool
-packages/queue/  — BullMQ job queue
+packages/db/     — Prisma client + TimescaleDB pool + telemetry batcher
+packages/queue/  — graphile-worker job queue (Postgres-backed)
 ```
 
-## Ports
+## Ports (current)
 | Port | Service | Required |
 |------|---------|----------|
-| 80 | Nginx (HTTP) | Yes (production) |
-| 443 | Nginx (HTTPS) | Optional |
-| 3000 | Fastify API | Internal |
-| 5432 | PostgreSQL | Internal |
-| 6379 | Redis | Internal |
-| 1883 | MQTT (TCP) | For devices |
-| 8883 | MQTT (TLS) | For devices (secure) |
-| 8083 | MQTT (WebSocket) | Optional |
-| 18083 | EMQX Dashboard | Optional |
+| 3000 | Fastify API + SPA (HTTPS via mkcert) | Yes |
+| 5432 | PostgreSQL (app + tsdb + queue schema) | Internal |
+| ~~6379~~ | ~~Redis~~ | RETIRED (Phase 4 — 2026-05-01) |
+| 1883 | MQTT (Mosquitto, TCP) | For devices |
+
+> Legacy ports — 80/443 (Nginx), 18083 (EMQX dashboard), 8883/8083/8084 (EMQX TLS / WS / WSS) — are no longer part of the standard install. Customers who add a reverse proxy in front of Fastify will reintroduce 80/443.
 
 ## Browser Support
 - Chrome 90+, Firefox 90+, Safari 15+, Edge 90+

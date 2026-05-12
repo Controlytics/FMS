@@ -65,8 +65,10 @@ describe('Audit Trail endpoints', () => {
     });
 
     it('returns 404 for non-existent entry', async () => {
-      // Audit IDs are integers — use a very large number that won't exist
-      const res = await authGet(app, '/api/audit/999999999', adminToken);
+      // AuditTrail.id is a UUID. Using a syntactically valid UUID that
+      // won't collide with a real row exercises the 404 path; numeric
+      // strings make Prisma throw a UUID parse error → 500.
+      const res = await authGet(app, '/api/audit/00000000-0000-0000-0000-000000000000', adminToken);
       expect(res.statusCode).toBe(404);
     });
   });
@@ -98,7 +100,7 @@ describe('Audit Trail endpoints', () => {
     });
 
     it('returns 404 for a non-existent audit record', async () => {
-      const res = await authDelete(app, '/api/audit/999999999', adminToken, ADMIN_PASSWORD);
+      const res = await authDelete(app, '/api/audit/00000000-0000-0000-0000-000000000000', adminToken, ADMIN_PASSWORD);
       expect(res.statusCode).toBe(404);
     });
   });
@@ -131,11 +133,13 @@ describe('Audit Trail endpoints', () => {
     });
 
     it('returns count 0 when none of the IDs exist (or 500 if trigger missing)', async () => {
+      // ids must be UUID strings (auditTrail.id is uuid). Numeric ids
+      // cause the Fastify schema validator to 400 before the route runs.
       const res = await authPost(
         app,
         '/api/audit/bulk-delete',
         adminToken,
-        { ids: [999999990, 999999991] },
+        { ids: ['00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002'] },
         ADMIN_PASSWORD,
       );
 

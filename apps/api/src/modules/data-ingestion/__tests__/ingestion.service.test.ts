@@ -6,7 +6,9 @@ const {
   mockDeviceCredentialFindUnique,
   mockAssetTemplateFindUnique,
   mockAlarmUpdateMany,
+  mockAlarmFindFirst,
   mockAuditTrailCreate,
+  mockAuditLog,
   mockAssetInstanceFindUnique,
   mockComputeChecksum,
   mockGetConfigOrDefault,
@@ -27,13 +29,23 @@ const {
   mockAddDeviceEventRow,
   mockPublish,
   mockQuit,
-  mockQueueAdd,
-  mockGetRedisConnection,
+  mockGetProducer,
+  mockAddJob,
 } = vi.hoisted(() => ({
   mockDeviceCredentialFindUnique: vi.fn(),
   mockAssetTemplateFindUnique: vi.fn(),
   mockAlarmUpdateMany: vi.fn(),
+  // Stage 7 (rule chain) does an alarm.findFirst dedup check before
+  // creating a new alarm. Default to null = no existing active alarm so
+  // createAlarm fires.
+  mockAlarmFindFirst: vi.fn().mockResolvedValue(null),
   mockAuditTrailCreate: vi.fn(),
+  // C3 (2026-05-04): ingestion.service.ts no longer calls
+  // prisma.auditTrail.create directly — it routes through lib/audit.js
+  // (chained writes via $transaction + advisory lock). Mock the helper here
+  // so the pipeline can call it without the real prisma adapter, and the
+  // Stage-10 test inspects this mock instead of mockAuditTrailCreate.
+  mockAuditLog: vi.fn().mockResolvedValue(undefined),
   mockAssetInstanceFindUnique: vi.fn(),
   mockComputeChecksum: vi.fn(),
   mockGetConfigOrDefault: vi.fn(),
@@ -54,8 +66,8 @@ const {
   mockAddDeviceEventRow: vi.fn(),
   mockPublish: vi.fn(),
   mockQuit: vi.fn(),
-  mockQueueAdd: vi.fn(),
-  mockGetRedisConnection: vi.fn(),
+  mockGetProducer: vi.fn(),
+  mockAddJob: vi.fn(),
 }));
 
 // ── vi.mock declarations ───────────────────────────────────────────────
@@ -70,6 +82,7 @@ vi.mock('../../../lib/prisma.js', () => ({
     },
     alarm: {
       updateMany: mockAlarmUpdateMany,
+      findFirst: mockAlarmFindFirst,
     },
     auditTrail: {
       create: mockAuditTrailCreate,
@@ -82,6 +95,11 @@ vi.mock('../../../lib/prisma.js', () => ({
 
 vi.mock('../../../lib/hash-chain.js', () => ({
   computeChecksum: mockComputeChecksum,
+  computeChainedChecksum: mockComputeChecksum,
+}));
+
+vi.mock('../../../lib/audit.js', () => ({
+  auditLog: mockAuditLog,
 }));
 
 vi.mock('../ingestion-config.service.js', () => ({
@@ -121,29 +139,26 @@ vi.mock('@digilog/db', () => ({
   addDeviceEventRow: mockAddDeviceEventRow,
 }));
 
-vi.mock('ioredis', () => ({
-  default: class MockRedis {
-    publish = mockPublish;
-    quit = mockQuit;
-  },
-}));
-
-vi.mock('bullmq', () => ({
-  Queue: class MockQueue {
-    add = mockQueueAdd;
+// Phase 4 (2026-05-01): bus.emit replaces redisPub.publish.
+vi.mock('../../../lib/internal-bus.js', () => ({
+  bus: {
+    emit: mockPublish,
+    on: vi.fn(() => () => {}),
+    off: vi.fn(),
+    listenerCount: vi.fn(() => 0),
   },
 }));
 
 vi.mock('@digilog/queue', () => ({
-  getRedisConnection: mockGetRedisConnection,
+  getProducer: mockGetProducer,
   QUEUES: {
     NOTIFICATION: {
       name: 'notification',
-      defaultJobOptions: { removeOnComplete: true, removeOnFail: false },
+      defaultJobOptions: { attempts: 3, removeOnComplete: true, removeOnFail: false },
     },
     INGESTION: {
       name: 'ingestion',
-      defaultJobOptions: { removeOnComplete: true, removeOnFail: false },
+      defaultJobOptions: { attempts: 3, removeOnComplete: true, removeOnFail: false },
     },
   },
   JOB_PRIORITY: {
@@ -209,7 +224,8 @@ beforeEach(() => {
   mockComputeChecksum.mockReturnValue('test-checksum');
   mockAuditTrailCreate.mockResolvedValue({ id: 'audit-001' });
   mockPublish.mockResolvedValue(1);
-  mockQueueAdd.mockResolvedValue({ id: 'job-001' });
+  mockAddJob.mockResolvedValue({ id: 'job-001' });
+  mockGetProducer.mockResolvedValue({ addJob: mockAddJob, release: vi.fn() });
   mockMarkOnline.mockResolvedValue(undefined);
   mockAddToDLQ.mockResolvedValue(undefined);
   mockFinalizeTrace.mockResolvedValue(undefined);
@@ -636,18 +652,17 @@ describe('processIngestionMessage', () => {
       const result = await processIngestionMessage(msg);
 
       expect(result.success).toBe(true);
-      expect(mockComputeChecksum).toHaveBeenCalledOnce();
-      expect(mockAuditTrailCreate).toHaveBeenCalledOnce();
-      expect(mockAuditTrailCreate).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          action: 'DATA_ATTRIBUTES_UPDATED',
-          targetType: 'ENTITY',
-          targetId: 'entity-001',
-          userId: 'user-001',
-          userName: 'John Doe',
-          checksum: 'test-checksum',
-        }),
-      });
+      // C3 (2026-05-04): ingestion routes audit through lib/audit.auditLog()
+      // for chained writes. Assert on the helper call shape instead of the
+      // direct prisma.auditTrail.create call.
+      expect(mockAuditLog).toHaveBeenCalledOnce();
+      expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'DATA_ATTRIBUTES_UPDATED',
+        targetType: 'ENTITY',
+        targetId: 'entity-001',
+        userId: 'user-001',
+        userName: 'John Doe',
+      }));
     });
 
     it('does NOT create audit trail for POST_TELEMETRY', async () => {
@@ -666,28 +681,21 @@ describe('processIngestionMessage', () => {
   });
 
   // ── Stage 11: Event Emission ────────────────────────────────────────
-
+  // Phase 4 (2026-05-01): bus.emit is in-process synchronous fire-and-forget.
+  // It cannot fail at runtime the way redis.publish could (no network, no
+  // connection state). The "emit failure → WARN_EMIT_WS_FAILED" path was
+  // removed because it's unreachable. If a listener throws, the bus wrapper
+  // swallows the error so it can't propagate back to the publisher.
   describe('Stage 11 — Event Emission', () => {
-    it('adds warning but returns success:true when emission fails', async () => {
-      // Make Redis publish throw
-      mockPublish.mockRejectedValue(new Error('Redis connection lost'));
-
+    it('publishes event without errors', async () => {
       const msg = makeMessage({
         credentialId: '',
         messageType: 'POST_TELEMETRY',
         data: { temperature: 25.5 },
       });
-
       const result = await processIngestionMessage(msg);
-
-      // Pipeline should still succeed — emit failures are warnings
       expect(result.success).toBe(true);
-      expect(result.warnings).toEqual(
-        expect.arrayContaining([
-          expect.stringContaining('WARN_EMIT'),
-        ]),
-      );
-      // Should NOT route to DLQ
+      expect(mockPublish).toHaveBeenCalledWith('ws:events', expect.any(Object));
       expect(mockAddToDLQ).not.toHaveBeenCalled();
     });
   });

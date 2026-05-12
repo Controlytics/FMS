@@ -15,7 +15,9 @@ apps/web/src/  ← Same React source code
      │
      └── npx vite build       → apps/web/dist/             (static files)
               │
-              ├── Nginx serves dist/  → https://server-ip   (WEB browser)
+              ├── Fastify API serves dist/ on https://server-ip:3000   (WEB browser)
+              │   (a reverse proxy in front is optional / customer-choice
+              │    after Phase 4 of the windows-friendly-rewrite)
               │
               └── Capacitor copies dist/ into APK
                   apps/android/android/app/src/main/
@@ -23,7 +25,7 @@ apps/web/src/  ← Same React source code
                   → DigiLog-FilterOps.apk                   (TABLET)
 ```
 
-**Web browser:** API calls use relative URLs (`/api/*`), proxied by Nginx to `https://localhost:3000`.
+**Web browser:** API calls hit `https://<server>:3000/api/*` directly. In dev, the Vite dev server (`http://localhost:5175`) makes browser-allowed `http → https` fetches to `https://localhost:3000`.
 
 **Tablet APK:** API calls use absolute URL baked at build time (`VITE_API_URL=https://192.168.1.22:3000`), because the APK's origin is `capacitor://localhost`.
 
@@ -33,22 +35,23 @@ apps/web/src/  ← Same React source code
 
 ```
 ┌──── Web Browser ────┐       ┌──── Tablet APK ──────┐
-│ https://server-ip   │       │ capacitor://localhost │
-│ /api/* → Nginx      │       │ VITE_API_URL baked in│
+│ https://server:3000 │       │ capacitor://localhost │
+│ /api/* direct       │       │ VITE_API_URL baked in │
 └────────┬────────────┘       └────────┬─────────────┘
          │  HTTPS (LAN)                │  HTTPS (WiFi)
          ▼                             ▼
 ┌──────────────────────────────────────────────────────┐
 │              Fastify API (:3000)                      │
 │  ┌──────────┐ ┌──────────┐ ┌──────────────────────┐  │
-│  │ 34 Route │ │  Auth    │ │  Reauth Check        │  │
+│  │ 37 Route │ │  Auth    │ │  Reauth Check        │  │
 │  │ Modules  │ │  Plugin  │ │  (x-offline-replay)  │  │
 │  └────┬─────┘ └──────────┘ └──────────────────────┘  │
 │       │                                               │
 │  ┌────┴─────────────────────────────────────────┐     │
-│  │  PostgreSQL (digilog_db) — 63 models         │     │
-│  │  Redis/Memurai — BullMQ job queues           │     │
-│  │  EMQX — MQTT broker for IoT devices          │     │
+│  │  PostgreSQL (digilog_db) — 69 models         │     │
+│  │  graphile-worker on Postgres — job queues    │     │
+│  │  Mosquitto 2.0 — MQTT broker for IoT devices │     │
+│  │  (Phase 4 — Redis retired; pub/sub is in-process)│     │
 │  └──────────────────────────────────────────────┘     │
 └──────────────────────────────────────────────────────┘
 ```

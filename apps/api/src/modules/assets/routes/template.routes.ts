@@ -37,6 +37,7 @@ export default async function templateRoutes(app: FastifyInstance) {
                   description: { type: 'string' },
                   category: { type: 'string' },
                   icon: { type: 'string' },
+                  templateKind: { type: 'string', maxLength: 50 },
                   version: { type: 'integer' },
                   attributeSchema: { type: 'array' },
                   telemetrySchema: { type: 'array' },
@@ -76,7 +77,6 @@ export default async function templateRoutes(app: FastifyInstance) {
 
     // Inject assignment visibility filter for templates
     const role = req.user?.role;
-    const orgId = req.user?.organizationId;
     const userId = req.user?.sub;
 
     let visibilityFilter: Record<string, unknown> | undefined;
@@ -89,7 +89,6 @@ export default async function templateRoutes(app: FastifyInstance) {
       const templateAssignments = await prisma.templateAssignment.findMany({
         where: {
           OR: [
-            { assigneeType: "ORGANIZATION", organizationId: orgId },
             { assigneeType: "USER", userId },
           ],
         },
@@ -128,6 +127,7 @@ export default async function templateRoutes(app: FastifyInstance) {
             description: { type: 'string' },
             category: { type: 'string' },
             icon: { type: 'string' },
+            templateKind: { type: 'string', maxLength: 50 },
             version: { type: 'integer' },
             attributeSchema: { type: 'array' },
             telemetrySchema: { type: 'array' },
@@ -176,6 +176,7 @@ export default async function templateRoutes(app: FastifyInstance) {
           description: { type: 'string' },
           category: { type: 'string', enum: ['General', 'Equipment', 'Room', 'Building', 'Sensor', 'Vehicle', 'Utility', 'Process', 'Storage', 'Laboratory'], description: 'Template category' },
           icon: { type: 'string' },
+          templateKind: { type: 'string', maxLength: 50, description: 'TemplateKind code (FK → /api/template-kinds). Must be UPPER_SNAKE_CASE. The 6 system kinds (BLOCK / AREA / AHU / FILTER / EQUIPMENT / OTHER) are seeded; admins can add more at runtime via the Configuration UI.' },
           attributeSchema: { type: 'array' },
           expectedIdentifiers: { type: 'array' },
           expectedRelationships: { type: 'array', description: 'Expected relationship type definitions' },
@@ -236,6 +237,7 @@ export default async function templateRoutes(app: FastifyInstance) {
           description: { type: 'string' },
           category: { type: 'string', enum: ['General', 'Equipment', 'Room', 'Building', 'Sensor', 'Vehicle', 'Utility', 'Process', 'Storage', 'Laboratory'], description: 'Template category' },
           icon: { type: 'string' },
+          templateKind: { type: 'string', maxLength: 50, description: 'TemplateKind code (FK → /api/template-kinds). Must be UPPER_SNAKE_CASE. The 6 system kinds (BLOCK / AREA / AHU / FILTER / EQUIPMENT / OTHER) are seeded; admins can add more at runtime via the Configuration UI.' },
           attributeSchema: { type: 'array' },
           expectedIdentifiers: { type: 'array' },
           expectedRelationships: { type: 'array', description: 'Expected relationship type definitions' },

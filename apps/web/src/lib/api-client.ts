@@ -39,6 +39,14 @@ class ApiClient {
         if (!url.includes('/api/auth/login')) {
           sessionStorage.removeItem('access_token');
           localStorage.removeItem('access_token_backup');
+          // Also drop cached user + single-tab keys. Without this, the cached
+          // user kept `isAuthenticated` truthy on /login, /login auto-navigated
+          // back to /, dashboard SWR queries 401'd, and the page ping-ponged
+          // between / and /login forever.
+          localStorage.removeItem('digilog_cached_user');
+          localStorage.removeItem('digilog_active_tab_id');
+          localStorage.removeItem('digilog_tab_heartbeat');
+          localStorage.removeItem('digilog_active_user_id');
           // Redirect to login — use mobile login for /m routes
           const isMobile = window.location.pathname.startsWith('/m');
           const loginPath = isMobile ? '/m/login' : '/login';
@@ -61,6 +69,13 @@ class ApiClient {
       // Lockout-progress field — backend sends this on INVALID_PASSWORD so the
       // login UI can show "X attempts remaining before lockout".
       if (err.attemptsRemaining !== undefined) (error as any).attemptsRemaining = err.attemptsRemaining;
+      // Phase 8.3 STALE_TAPE: lift currentTapeVersion from `details` to a
+      // top-level field so callers (sync-engine, mobile-operations) don't have
+      // to dig through connectionInfo. Mirrors the attemptsRemaining lift just
+      // above. Only present on 409 STALE_TAPE — caller branches on err.code.
+      if (err.details?.currentTapeVersion !== undefined) {
+        (error as any).currentTapeVersion = err.details.currentTapeVersion;
+      }
       throw error;
     }
 
@@ -107,6 +122,58 @@ class ApiClient {
   }
   getWithReauth<T>(url: string, password: string) {
     return this.withReauth<T>('GET', url, password);
+  }
+
+  /**
+   * Audit 2026-05-04 fix #4 (web-plumbing review H — JWT refresh
+   * fragmentation). Centralised JWT refresh.
+   *
+   * The previous flow had THREE independent refresh sites:
+   *   - use-auth.ts 30-min interval used raw `fetch('/api/auth/refresh')`
+   *     (relative URL — silent no-op on Capacitor APK because the WebView
+   *     origin is capacitor://, not the API host)
+   *   - sync-engine.ts had its own inline refresh helper
+   *   - nothing on the request path — a token expiring mid-request would
+   *     trigger 401 logout instead of silent renewal
+   *
+   * Now: every refresh goes through this method. Goes through the normal
+   * apiClient.post which uses VITE_API_URL → reaches the API on tablets.
+   *
+   * In-flight Promise guard means concurrent callers (interval + sync
+   * engine + tab-switch wakeup) share one network request.
+   *
+   * Returns true on success, false on any failure (network or 401).
+   * Caller decides whether to log out on false (typically: only the
+   * interval refresher logs out; per-request callers let the next
+   * request 401 through the normal logout path).
+   */
+  private inFlightRefresh: Promise<boolean> | null = null;
+  refreshToken(): Promise<boolean> {
+    if (this.inFlightRefresh) return this.inFlightRefresh;
+    this.inFlightRefresh = (async () => {
+      const token = this.getToken();
+      if (!token) return false;
+      try {
+        const data = await this.post<{ token?: string }>('/api/auth/refresh', {});
+        if (data?.token) {
+          sessionStorage.setItem('access_token', data.token);
+          localStorage.setItem('access_token_backup', data.token);
+          return true;
+        }
+        return false;
+      } catch {
+        // Silent — caller decides what to do. The request layer's normal
+        // 401 handling will take over on subsequent requests if the token
+        // really is dead.
+        return false;
+      } finally {
+        // Clear after a microtask so concurrent callers awaiting the same
+        // promise still get the result; only NEW callers after this point
+        // fire a fresh refresh.
+        queueMicrotask(() => { this.inFlightRefresh = null; });
+      }
+    })();
+    return this.inFlightRefresh;
   }
 }
 

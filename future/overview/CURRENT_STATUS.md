@@ -51,7 +51,7 @@
 - **PM QA Approval Workflow:** `PmEntryApprovalStatus` enum + 11 columns; `PM_APPROVE` permission; `getDueTasks` filters APPROVED only
 - **PM My Tasks** at `/my-tasks` — past-date validation, per-AHU filter-set mode (BOTH / SET_A / SET_B / DISABLED), PM auto-reason on mobile (`isPmDue` + `pmReasonKey`)
 - Equipment groups with per-block scoping
-- **Reports module (complete A–F):** template designer (`@dnd-kit`-driven), PDF engine (Puppeteer + chartjs-node-canvas + Handlebars), 5 data sources (attribute / identifier / telemetry / timestamp / meta), digital signatures, status workflow `DRAFT → PENDING_SIGNATURE → SIGNED / REJECTED`; 4 Prisma models, 9 `REPORT_*` permissions, 6 reauth actions, 2 sidebar items
+- **Reports module (complete A–F):** template designer (`@dnd-kit`-driven), PDF engine (puppeteer-core + Microsoft Edge + @napi-rs/canvas + Handlebars — Phase 3 of windows-friendly-rewrite swapped from `puppeteer` + `chartjs-node-canvas`), 5 data sources (attribute / identifier / telemetry / timestamp / meta), digital signatures, status workflow `DRAFT → PENDING_SIGNATURE → SIGNED / REJECTED`; 4 Prisma models, 9 `REPORT_*` permissions, 6 reauth actions, 2 sidebar items
 
 ### RFID + mobile
 - **Native RFID SDK plugin in DigiLog APK** — `RfidPlugin.java` (at `apps/android/android/app/src/main/java/com/digilog/filtermanagement/`) wraps `Reader_Usb.jar`, paired with `apps/web/src/lib/rfid-bridge.ts`; supports SDK mode AND UKB mode
@@ -105,7 +105,9 @@
 
 ### Environment / infrastructure
 - **TimescaleDB name:** the telemetry DB is `digilog_tsdb`, **not** `digilog_db`. TSDB_* env vars pointed at the wrong DB fail silently or spectacularly.
-- **Redis ≥5:** BullMQ requires it. Old Redis 3 crashes the API on boot. Memurai ≥5 is the supported Windows substitute.
+- **Redis is now optional, ≥5 only when used:** Phase 2 of windows-friendly-rewrite (commit `7832af1`) moved the job queue to graphile-worker on Postgres, so BullMQ + Redis are no longer required. Redis is still used for non-queue pub/sub (WebSocket events, RPC routing, pipeline tracer, debug recorder); if you do install it, ≥5 is required (Redis 3 still crashes the API at boot). Phase 4 will move pub/sub to PG `LISTEN/NOTIFY` to drop the dependency entirely.
+- **MQTT broker is Mosquitto 2.0** (Phase 1 of windows-friendly-rewrite swapped from EMQX). Install via `scripts/install-mosquitto.ps1` from elevated PowerShell. SCM-managed broker has CWD=System32 and no stdout, so the install script rewrites the deployed conf with absolute paths + file logging — see `windowsIssues.md` § 3 for the live-discovered failure modes if the rewrite step is bypassed.
+- **PDF/chart pipeline is puppeteer-core + Edge + @napi-rs/canvas** (Phase 3). `PUPPETEER_EXECUTABLE_PATH` env override; auto-detected in this order on Windows: Edge → Chrome → Linux Chromium → macOS .app bundles. No bundled Chromium download, no node-gyp/MSVC.
 - **`API_HTTPS=true`:** without `certs/server.{key,crt}` (mkcert-generated, rooted by `certs/rootCA.pem`), the API crashes on startup.
 - **`tsx watch` for dev**, `tsc -p` then `node dist/app.js` for prod-style local builds. PM2 / EC2 are no longer used.
 

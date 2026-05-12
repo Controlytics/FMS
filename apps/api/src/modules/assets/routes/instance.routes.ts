@@ -52,7 +52,6 @@ export default async function instanceRoutes(app: FastifyInstance) {
                   currentLifecycleState: { type: ['string', 'null'], nullable: true },
                   currentCycleId: { type: ['string', 'null'], nullable: true },
                   filterSet: { type: ['string', 'null'], nullable: true },
-                  organizationId: { type: ['string', 'null'], nullable: true },
                   template: {
                     type: 'object',
                     properties: { name: { type: 'string' }, icon: { type: 'string' } },
@@ -74,7 +73,6 @@ export default async function instanceRoutes(app: FastifyInstance) {
 
     // Inject assignment visibility filter
     const role = req.user?.role;
-    const orgId = req.user?.organizationId;
     const userId = req.user?.sub;
 
     let visibilityFilter: Record<string, unknown> | undefined;
@@ -87,7 +85,6 @@ export default async function instanceRoutes(app: FastifyInstance) {
       const entityAssignments = await prisma.entityAssignment.findMany({
         where: {
           OR: [
-            { assigneeType: "ORGANIZATION", organizationId: orgId },
             { assigneeType: "USER", userId },
             { assigneeType: "ROLE", roleValue: role },
           ],
@@ -99,7 +96,6 @@ export default async function instanceRoutes(app: FastifyInstance) {
       const templateAssignments = await prisma.templateAssignment.findMany({
         where: {
           OR: [
-            { assigneeType: "ORGANIZATION", organizationId: orgId },
             { assigneeType: "USER", userId },
           ],
         },
@@ -111,14 +107,16 @@ export default async function instanceRoutes(app: FastifyInstance) {
       const assignedTemplateIds = templateAssignments.map((a: any) => a.templateId);
 
       const orConditions: any[] = [];
-      if (orgId) orConditions.push({ organizationId: orgId });
       if (assignedEntityIds.length > 0) orConditions.push({ id: { in: assignedEntityIds } });
       if (assignedTemplateIds.length > 0) orConditions.push({ templateId: { in: assignedTemplateIds } });
 
       if (orConditions.length > 0) {
         visibilityFilter = { OR: orConditions };
+      } else {
+        // Default deny — non-admin user with no USER/ROLE/template assignments sees nothing.
+        // Prisma emits WHERE 1=0 for `in: []`, so pagination/totals stay correct.
+        visibilityFilter = { id: { in: [] } };
       }
-      // If no org, no assignments — user passed permission check, show all instances
     }
     return instanceService.list(query, visibilityFilter);
   });
@@ -155,7 +153,6 @@ export default async function instanceRoutes(app: FastifyInstance) {
   }, async (req) => {
     // Inject same visibility filter for tree
     const role = req.user?.role;
-    const orgId = req.user?.organizationId;
     const userId = req.user?.sub;
 
     if (role === "SUPER_ADMIN" || role === "ADMIN") {
@@ -164,7 +161,6 @@ export default async function instanceRoutes(app: FastifyInstance) {
       const { prisma } = await import("../../../lib/prisma.js");
       const entityAssignments = await prisma.entityAssignment.findMany({
         where: { OR: [
-          { assigneeType: "ORGANIZATION", organizationId: orgId },
           { assigneeType: "USER", userId },
           { assigneeType: "ROLE", roleValue: role },
         ]},
@@ -173,7 +169,6 @@ export default async function instanceRoutes(app: FastifyInstance) {
       });
       const templateAssignments = await prisma.templateAssignment.findMany({
         where: { OR: [
-          { assigneeType: "ORGANIZATION", organizationId: orgId },
           { assigneeType: "USER", userId },
         ]},
         select: { templateId: true },
@@ -182,12 +177,11 @@ export default async function instanceRoutes(app: FastifyInstance) {
       const eIds = entityAssignments.map((a: any) => a.entityId);
       const tIds = templateAssignments.map((a: any) => a.templateId);
       const orConditions: any[] = [];
-      if (orgId) orConditions.push({ organizationId: orgId });
       if (eIds.length) orConditions.push({ id: { in: eIds } });
       if (tIds.length) orConditions.push({ templateId: { in: tIds } });
       if (orConditions.length === 0) {
-        // No org or assignments — user passed permission check, show all
-        return instanceService.getTree();
+        // Default deny — non-admin user with no USER/ROLE/template assignments sees nothing.
+        return [];
       }
       return instanceService.getTree({ OR: orConditions });
     }
@@ -294,6 +288,13 @@ export default async function instanceRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    // Reauth must run BEFORE multipart consumption — req.body is undefined for
+    // multipart routes, so enforceReauth's body-extraction path is dead. The
+    // FE sends the password via the x-reauth-password header (FormData can't
+    // carry a JSON _currentPassword field), which the helper accepts.
+    const { ok } = await enforceReauth('BULK_UPLOAD_FILTERS', req, reply);
+    if (!ok) return;
+
     try {
       let csvBuffer: Buffer | null = null;
       let ahuId = '';
@@ -458,7 +459,11 @@ export default async function instanceRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('UPDATE_ASSET', req, reply);
+    // M2 (audit 2026-05-04): use UPDATE_FILTER_LIFECYCLE instead of generic
+    // UPDATE_ASSET. Manual lifecycle moves (INSTALLED / WASH_IN / DRY_OUT / etc.)
+    // belong to the cleanroom filter workflow, not generic asset edits, and the
+    // audit key should reflect that for inspector traceability.
+    const { ok } = await enforceReauth('UPDATE_FILTER_LIFECYCLE', req, reply);
     if (!ok) return;
 
     const { id } = req.params as { id: string };

@@ -57,7 +57,7 @@ export async function bulkUploadFilters(
   // 2. Validate AHU
   const ahu = await prisma.assetInstance.findUnique({
     where: { id: ahuId },
-    select: { id: true, name: true, templateId: true, organizationId: true },
+    select: { id: true, name: true, templateId: true },
   });
   if (!ahu) {
     return { results: [{ row: 1, name: '', status: 'error', error: 'AHU not found' }], created: 0, failed: 1 };
@@ -222,18 +222,24 @@ export async function bulkUploadFilters(
     const created: { idx: number; name: string; id: string }[] = [];
 
     for (const row of validRows) {
+      // filterSet + filterProfileId now live on FilterDetails (Step 6).
+      // The bulk-uploaded template is FILTER-kind so we eagerly create the sidecar.
       const inst = await tx.assetInstance.create({
         data: {
           name: row.name,
           templateId: filterTemplate.id,
           templateVersion: filterTemplate.version,
           parentId: ahuId,
-          filterSet: row.filterSet,
-          filterProfileId: row.filterProfileId,
           attributes: row.attributes,
-          organizationId: ahu.organizationId,
           createdBy: ctx.userId,
         } as any,
+      });
+      await tx.filterDetails.create({
+        data: {
+          assetInstanceId: inst.id,
+          filterSet: row.filterSet,
+          filterProfileId: row.filterProfileId,
+        },
       });
 
       // AHU relationships

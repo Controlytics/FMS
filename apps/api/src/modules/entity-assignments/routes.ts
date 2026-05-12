@@ -29,25 +29,19 @@ export default async function entityAssignmentRoutes(app: FastifyInstance) {
       take: 500, // Bound the result set
     });
 
-    // Batch fetch users and orgs to avoid N+1 queries
+    // Batch fetch users to avoid N+1 queries
     const userIds = [...new Set(assignments.filter(a => a.assigneeType === 'USER' && a.userId).map(a => a.userId!))];
-    const orgIds = [...new Set(assignments.filter(a => a.assigneeType === 'ORGANIZATION' && a.organizationId).map(a => a.organizationId!))];
 
-    const [users, orgs] = await Promise.all([
-      userIds.length > 0 ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, fullName: true, username: true } }) : Promise.resolve([]),
-      orgIds.length > 0 ? prisma.organization.findMany({ where: { id: { in: orgIds } }, select: { id: true, name: true } }) : Promise.resolve([]),
-    ]);
+    const users = userIds.length > 0
+      ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, fullName: true, username: true } })
+      : [];
     const userMap = new Map(users.map(u => [u.id, u]));
-    const orgMap = new Map(orgs.map(o => [o.id, o]));
 
     const enriched = assignments.map(a => {
       let assigneeName = '';
       if (a.assigneeType === 'USER' && a.userId) {
         const user = userMap.get(a.userId);
         assigneeName = user ? `${user.fullName} (${user.username})` : 'Unknown User';
-      } else if (a.assigneeType === 'ORGANIZATION' && a.organizationId) {
-        const org = orgMap.get(a.organizationId);
-        assigneeName = org?.name || 'Unknown Org';
       } else if (a.assigneeType === 'ROLE' && a.roleValue) {
         assigneeName = `Role: ${a.roleValue}`;
       }
@@ -67,9 +61,8 @@ export default async function entityAssignmentRoutes(app: FastifyInstance) {
         required: ['entityId', 'assigneeType'],
         properties: {
           entityId: { type: 'string', format: 'uuid' },
-          assigneeType: { type: 'string', enum: ['USER', 'ORGANIZATION', 'ROLE'] },
+          assigneeType: { type: 'string', enum: ['USER', 'ROLE'] },
           userId: { type: 'string', format: 'uuid' },
-          organizationId: { type: 'string', format: 'uuid' },
           roleValue: { type: 'string' },
           permissions: {
             type: 'object',
@@ -97,9 +90,6 @@ export default async function entityAssignmentRoutes(app: FastifyInstance) {
     if (body.assigneeType === 'USER' && body.userId) {
       const user = await prisma.user.findUnique({ where: { id: body.userId } });
       if (!user) return reply.code(404).send({ error: 'User not found' });
-    } else if (body.assigneeType === 'ORGANIZATION' && body.organizationId) {
-      const org = await prisma.organization.findUnique({ where: { id: body.organizationId } });
-      if (!org) return reply.code(404).send({ error: 'Organization not found' });
     } else if (body.assigneeType === 'ROLE' && !body.roleValue) {
       return reply.code(400).send({ error: 'roleValue required for ROLE assignee type' });
     }
@@ -107,7 +97,6 @@ export default async function entityAssignmentRoutes(app: FastifyInstance) {
     // Check for duplicate
     const existingWhere: any = { entityId: body.entityId, assigneeType: body.assigneeType };
     if (body.userId) existingWhere.userId = body.userId;
-    if (body.organizationId) existingWhere.organizationId = body.organizationId;
     if (body.roleValue) existingWhere.roleValue = body.roleValue;
 
     const existing = await prisma.entityAssignment.findFirst({ where: existingWhere });
@@ -118,7 +107,6 @@ export default async function entityAssignmentRoutes(app: FastifyInstance) {
         entityId: body.entityId,
         assigneeType: body.assigneeType,
         userId: body.userId || null,
-        organizationId: body.organizationId || null,
         roleValue: body.roleValue || null,
         permissions: body.permissions || { view: true, control: false, configure: false },
         createdBy: req.user.username,
@@ -131,7 +119,7 @@ export default async function entityAssignmentRoutes(app: FastifyInstance) {
       afterValue: {
         entityId: body.entityId, entityName: entity.name,
         assigneeType: body.assigneeType, userId: body.userId,
-        organizationId: body.organizationId, roleValue: body.roleValue,
+        roleValue: body.roleValue,
       },
       ipAddress: req.ip, userAgent: req.headers['user-agent'],
       sessionId: req.user.sessionId,
@@ -150,9 +138,8 @@ export default async function entityAssignmentRoutes(app: FastifyInstance) {
         required: ['entityIds', 'assigneeType'],
         properties: {
           entityIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
-          assigneeType: { type: 'string', enum: ['USER', 'ORGANIZATION', 'ROLE'] },
+          assigneeType: { type: 'string', enum: ['USER', 'ROLE'] },
           userId: { type: 'string', format: 'uuid' },
-          organizationId: { type: 'string', format: 'uuid' },
           roleValue: { type: 'string' },
           permissions: { type: 'object' },
         },
@@ -170,7 +157,6 @@ export default async function entityAssignmentRoutes(app: FastifyInstance) {
             entityId,
             assigneeType: body.assigneeType,
             userId: body.userId || undefined,
-            organizationId: body.organizationId || undefined,
             roleValue: body.roleValue || undefined,
           },
         });
@@ -184,7 +170,6 @@ export default async function entityAssignmentRoutes(app: FastifyInstance) {
             entityId,
             assigneeType: body.assigneeType,
             userId: body.userId || null,
-            organizationId: body.organizationId || null,
             roleValue: body.roleValue || null,
             permissions: body.permissions || { view: true, control: false, configure: false },
             createdBy: req.user.username,
@@ -273,7 +258,7 @@ export default async function entityAssignmentRoutes(app: FastifyInstance) {
       action: 'ENTITY_UNASSIGNED', targetType: 'entity_assignment', targetId: id,
       afterValue: {
         entityId: existing.entityId, assigneeType: existing.assigneeType,
-        userId: existing.userId, organizationId: existing.organizationId,
+        userId: existing.userId,
       },
       ipAddress: req.ip, userAgent: req.headers['user-agent'],
       sessionId: req.user.sessionId,
@@ -298,14 +283,13 @@ export default async function entityAssignmentRoutes(app: FastifyInstance) {
   }, async (req) => {
     const { page = 1, limit = 50 } = req.query as any;
     const role = req.user.role;
-    const orgId = req.user.organizationId;
     const userId = req.user.sub;
 
     // SUPER_ADMIN sees all
     if (role === 'SUPER_ADMIN') {
       const where: any = { isActive: true };
       const [data, total] = await Promise.all([
-        prisma.assetInstance.findMany({ where, skip: (page - 1) * limit, take: limit, select: { id: true, name: true, status: true, templateId: true, organizationId: true } }),
+        prisma.assetInstance.findMany({ where, skip: (page - 1) * limit, take: limit, select: { id: true, name: true, status: true, templateId: true } }),
         prisma.assetInstance.count({ where }),
       ]);
       return { data, total, page, limit };
@@ -315,18 +299,17 @@ export default async function entityAssignmentRoutes(app: FastifyInstance) {
     if (role === 'ADMIN') {
       const where = { isActive: true };
       const [data, total] = await Promise.all([
-        prisma.assetInstance.findMany({ where, skip: (page - 1) * limit, take: limit, select: { id: true, name: true, status: true, templateId: true, organizationId: true } }),
+        prisma.assetInstance.findMany({ where, skip: (page - 1) * limit, take: limit, select: { id: true, name: true, status: true, templateId: true } }),
         prisma.assetInstance.count({ where }),
       ]);
       return { data, total, page, limit };
     }
 
-    // Other roles: see org entities + directly assigned
+    // Other roles: directly assigned entities only
     const entityIdsFromAssignment = await prisma.entityAssignment.findMany({
       where: {
         OR: [
           { assigneeType: 'USER', userId },
-          { assigneeType: 'ORGANIZATION', organizationId: orgId },
           { assigneeType: 'ROLE', roleValue: role },
         ],
       },
@@ -336,16 +319,15 @@ export default async function entityAssignmentRoutes(app: FastifyInstance) {
     const assignedIds = entityIdsFromAssignment.map(a => a.entityId);
 
     const orConditions: any[] = [];
-    if (orgId) orConditions.push({ organizationId: orgId });
     if (assignedIds.length > 0) orConditions.push({ id: { in: assignedIds } });
 
-    // If no org and no assignments, show all (user passed permission check)
+    // If no assignments, show all (user passed permission check)
     const where: any = orConditions.length > 0
       ? { isActive: true, OR: orConditions }
       : { isActive: true };
 
     const [data, total] = await Promise.all([
-      prisma.assetInstance.findMany({ where, skip: (page - 1) * limit, take: limit, select: { id: true, name: true, status: true, templateId: true, organizationId: true } }),
+      prisma.assetInstance.findMany({ where, skip: (page - 1) * limit, take: limit, select: { id: true, name: true, status: true, templateId: true } }),
       prisma.assetInstance.count({ where }),
     ]);
 

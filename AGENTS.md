@@ -5,14 +5,14 @@ DigiLog (21cfrlogbook) — IoT data logging platform with 21 CFR Part 11 complia
 Monorepo: Fastify API (apps/api), React SPA (apps/web), shared packages.
 Branch: DigitalFMS (active development).
 
-## Current Module Count
-- **Backend:** 34 API modules
-- **Frontend:** 20+ route groups
-- **Database:** 57 Prisma models, 17 enums
-- **Permissions:** 52+ across 6 roles
+## Current Module Count (verified 2026-04-29)
+- **Backend:** 37 API modules
+- **Frontend:** 23 route folders/files (~85 pages)
+- **Database:** 69 Prisma models, 23 enums
+- **Permissions:** 106 constants, 90 feature privileges, 87 reauth actions across 16 categories, 26 sidebar items (M1 + M2 audit fixes 2026-05-04 added `APPROVE_ADMIN_REQUEST` and `UPDATE_FILTER_LIFECYCLE` — distinguish admin-request approvals from generic user creation, and filter lifecycle moves from generic asset edits)
 
-## Backend Modules (34)
-admin-requests, assets (templates, instances, identifiers, relationships), audit, auth, backup, checklist-profiles, cleaning-profiles, config, connectivity, dashboards, data-ingestion, deployment-check, entity-assignments, equipment-groups, filter-operations, filter-profiles, help, ldap, notification-delivery, notification-rules, notifications, org-admin, pm-schedules, qr-code, queries (telemetry/alarm/retention/export), roles, rule-chain, super-admin, system-health, tenant-admin, uns, uploads, user-groups, users
+## Backend Modules (37)
+admin-requests, assets (templates, instances, identifiers, relationships), audit, auth, backup, checklist-profiles, cleaning-profiles, config (with 30 auto-discovered defs), connectivity, dashboards, data-ingestion, deployment-check, entity-assignments, equipment-groups, filter-operations, filter-profiles, help, ldap, notification-delivery, notification-rules, notifications, org-admin, pm-schedules, qr-code, queries (telemetry/alarm/retention/export), report-templates, reports, roles, rule-chain, super-admin, system-health, tenant-admin, uns, uploads, user-groups, users — plus filter-set / filter-data-management surfaces under config.
 
 ## Review Focus Areas
 
@@ -30,7 +30,7 @@ admin-requests, assets (templates, instances, identifiers, relationships), audit
 - Services should use proper error handling with Fastify error codes
 - Database queries via Prisma ORM only (TimescaleDB = digilog_tsdb via pg pool)
 - Check tenant isolation: multi-tenant queries must filter by orgId/tenantId
-- BullMQ jobs must handle failures gracefully
+- graphile-worker jobs must handle failures gracefully (Phase 2 of windows-friendly-rewrite swapped from BullMQ + Redis to Postgres-backed queue)
 - Filter operations must enforce checklist completion before stage advance
 - Pipeline validation: check graph connectivity, stateKeys, checklist profile references
 

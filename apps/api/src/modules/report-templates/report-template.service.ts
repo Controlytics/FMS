@@ -5,16 +5,13 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
-import { orgScope } from '../../lib/org-scope.js';
-
-function orgFilter(ctx: RequestContext) { return orgScope(ctx); }
 
 export class ReportTemplateService {
 
-  async list(ctx: RequestContext, query: { page?: number; limit?: number; status?: string; search?: string }) {
+  async list(_ctx: RequestContext, query: { page?: number; limit?: number; status?: string; search?: string }) {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
-    const where: any = { ...orgFilter(ctx) };
+    const where: any = {};
 
     if (query.status) {
       where.status = query.status;
@@ -54,9 +51,9 @@ export class ReportTemplateService {
     };
   }
 
-  async getById(ctx: RequestContext, id: string) {
+  async getById(_ctx: RequestContext, id: string) {
     const template = await prisma.reportTemplate.findFirst({
-      where: { id, ...orgFilter(ctx) },
+      where: { id },
       include: {
         creator: { select: { fullName: true, username: true } },
         versions: {
@@ -75,25 +72,12 @@ export class ReportTemplateService {
   }
 
   async create(ctx: RequestContext, data: { name: string; description?: string; config: Record<string, any> }) {
-    if (!ctx.organizationId && ctx.scope !== 'GLOBAL' && ctx.userRole !== 'SUPER_ADMIN') {
-      throw new AppError(400, 'VALIDATION_ERROR', 'Organization context required');
-    }
-
-    // For SUPER_ADMIN / GLOBAL scope without org, fall back to the first organization
-    let orgId = ctx.organizationId;
-    if (!orgId) {
-      const defaultOrg = await prisma.organization.findFirst({ orderBy: { createdAt: 'asc' } });
-      if (!defaultOrg) throw new AppError(400, 'VALIDATION_ERROR', 'No organization exists — create one first');
-      orgId = defaultOrg.id;
-    }
-
     const template = await prisma.reportTemplate.create({
       data: {
         name: data.name,
         description: data.description ?? null,
         status: 'DRAFT',
         currentVersion: 1,
-        orgId,
         createdBy: ctx.userSub,
         versions: {
           create: {

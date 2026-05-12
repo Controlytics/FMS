@@ -960,7 +960,7 @@ export async function closeProducer() {
 }
 
 // --- BullMQ-compatible shims (kept during migration; remove in Task 2.10) ---
-export { getQueueConnection, getWorkerConnection, getRedisConnection } from './connection.bullmq.js';
+export { getQueueConnection, getWorkerConnection, getRedisConnection, closeRedisConnection } from './connection.bullmq.js';
 ```
 
 - [ ] **Step 4: Move existing BullMQ-Redis code to `connection.bullmq.ts`**

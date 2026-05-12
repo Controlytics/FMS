@@ -10,13 +10,10 @@ vi.mock('./prisma.js', () => ({
   },
 }));
 
-// Mock the shared schema to pass through our test config as-is
-vi.mock('@digilog/shared', () => ({
-  userIdConfigSchema: {
-    safeParse: (data: any) => ({ success: true, data }),
-    parse: () => ({ length: 8, format: 'LETTERS_NUMBERS', letterCase: 'ANY', prefix: '', prefixSeparator: '' }),
-  },
-}));
+// Use the real userIdConfigSchema (it applies zod defaults like
+// format: 'LETTERS_NUMBERS' when fields are missing). The previous mock
+// just passed config through unchanged, which broke the "no config in DB"
+// case where the impl needs zod-applied defaults to populate cfg.format.
 
 import { validateUserId } from './user-id-validator.js';
 
@@ -27,7 +24,7 @@ function mockConfig(overrides: Record<string, unknown> = {}) {
     configValue: {
       length: 8,
       format: 'LETTERS_NUMBERS',
-      letterCase: 'ANY',
+      letterCase: 'MIXED',
       prefix: '',
       prefixSeparator: '',
       ...overrides,
@@ -180,7 +177,7 @@ describe('validateUserId', () => {
     });
 
     it('passes ANY case for mixed case', async () => {
-      mockConfig({ length: 5, format: 'LETTERS_ONLY', letterCase: 'ANY' });
+      mockConfig({ length: 5, format: 'LETTERS_ONLY', letterCase: 'MIXED' });
       const result = await validateUserId('AbCdE');
       expect(result.valid).toBe(true);
     });

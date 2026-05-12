@@ -8,7 +8,7 @@ React 19 SPA built with Vite 6. In dev it runs on the Vite dev server (port 5175
 # Local Development (Windows)
 cd apps/web && npx vite --host         # Dev server on port 5175
 
-# Build (for Nginx serving or APK packaging)
+# Build (consumed by the Fastify static-serve at :3000 and by Capacitor for the APK)
 cd apps/web && npx vite build          # Outputs to apps/web/dist/
 
 # Update APK with the latest build
@@ -16,10 +16,32 @@ cd apps/android && npx cap copy android
 cd apps/android/android && ./gradlew assembleDebug
 ```
 
+## Testing
+```bash
+cd apps/web && npm test                # Run vitest once (CI-style, exit 0/1)
+cd apps/web && npm run test:watch      # Re-run on file change
+
+# Or run a single suite directly:
+cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
+```
+
+- Runner: vitest 3.x with `environment: 'jsdom'` and `@vitejs/plugin-react`.
+- Config: `apps/web/vitest.config.ts` (intentionally separate from
+  `vite.config.ts` — the dev/build config reads HTTPS certs at module load
+  and registers VitePWA, neither of which belongs in a unit-test runner).
+- Setup: `apps/web/src/test-setup.ts` registers `@testing-library/jest-dom`
+  matchers for component tests that arrive later.
+- Workspace: `vitest.workspace.ts` at the repo root includes the web project,
+  so `npm run test` from root picks it up alongside api / shared / integration.
+- First suite (B7.1, 2026-05-02): `routes/version-history/__tests__/diff.test.ts`
+  covers the `diffSnapshots()` engine in `routes/version-history/index.tsx` —
+  10 cases across scalar / keyed-array / set-style / meta-filter / no-change
+  branches, all four EntityKinds.
+
 ## Key Paths
 - Source: `apps/web/src/`
 - Entry: `apps/web/src/main.tsx`
-- Routes: `apps/web/src/routes/` (20+ page modules)
+- Routes: `apps/web/src/routes/` (23 route folders/files; ~85 pages; **81 `<Route>` definitions** in `main.tsx`)
 - Hooks: `apps/web/src/hooks/` (auth, branding, datetime, pagination, reauth, session, single-tab, toast, field-labels)
 - Components: `apps/web/src/components/` (layout, UI primitives, dialogs)
 - API Client: `apps/web/src/lib/api-client.ts`

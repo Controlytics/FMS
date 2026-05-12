@@ -35,11 +35,46 @@ export class ReportService {
     if (!template) throw { statusCode: 404, message: 'Template not found' };
     if (template.status !== 'ACTIVE') throw { statusCode: 400, message: 'Template is not active' };
 
+    // Audit 2026-05-04 fix #6 (api-supporting C4) — entitySlots authz.
+    //
+    // entitySlots is operator-supplied: { slotName: assetInstanceId, ... }.
+    // The previous flow trusted the IDs verbatim and passed them straight
+    // through to resolveAllTags, which renders missing-data placeholders
+    // for invented IDs without any 4xx — letting the operator probe the
+    // server for arbitrary UUID existence + render templates referencing
+    // entities they may not normally interact with.
+    //
+    // Validate: every ID supplied must resolve to a real AssetInstance.
+    // 404 on the FIRST unknown ID with the slot name in the message so the
+    // operator can fix their selection. (Per-entity-assignment authz —
+    // i.e. "operator assigned to BlockA can't render reports about BlockB"
+    // — is a deferred product decision; the current system has only
+    // permission-based RBAC, not entity-scoped read rules. When that ships,
+    // the additional check goes here.)
+    if (input.entitySlots && Object.keys(input.entitySlots).length > 0) {
+      const slotEntries = Object.entries(input.entitySlots).filter(([, v]) => v != null && v !== '');
+      const ids = slotEntries.map(([, v]) => v as string);
+      if (ids.length > 0) {
+        const found = await prisma.assetInstance.findMany({
+          where: { id: { in: ids } },
+          select: { id: true },
+        });
+        const foundSet = new Set(found.map(f => f.id));
+        for (const [slotName, id] of slotEntries) {
+          if (!foundSet.has(id as string)) {
+            throw {
+              statusCode: 404,
+              message: `entitySlots.${slotName}: asset instance "${id}" not found`,
+            };
+          }
+        }
+      }
+    }
+
     const config = (template.versions[0]?.config ?? {}) as any;
     const version = template.currentVersion;
 
-    // 2. Get org name for meta resolution
-    const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId ?? template.orgId } });
+    // 2. Resolve user for meta resolution
     const user = await prisma.user.findUnique({ where: { id: ctx.userSub } });
 
     const reportName = input.name || `${template.name} - ${new Date().toLocaleDateString()}`;
@@ -51,10 +86,10 @@ export class ReportService {
         start: input.timeRangeStart ? new Date(input.timeRangeStart) : new Date(Date.now() - 86400_000),
         end: input.timeRangeEnd ? new Date(input.timeRangeEnd) : new Date(),
       },
-      orgId: ctx.organizationId ?? template.orgId,
+      orgId: '',
       userId: ctx.userSub,
       userName: user?.fullName ?? ctx.userId,
-      orgName: org?.name ?? '',
+      orgName: '',
       reportName,
       templateName: template.name,
     };
@@ -89,7 +124,6 @@ export class ReportService {
         pdfPath,
         pdfSize: pdfBuffer.length,
         generatedBy: ctx.userSub,
-        orgId: resCtx.orgId,
       },
     });
 
@@ -109,14 +143,11 @@ export class ReportService {
     return report;
   }
 
-  async list(ctx: RequestContext, query: { page?: number; limit?: number; status?: string; templateId?: string }) {
+  async list(_ctx: RequestContext, query: { page?: number; limit?: number; status?: string; templateId?: string }) {
     const page = Math.max(1, query.page ?? 1);
     const limit = Math.min(100, Math.max(1, query.limit ?? 20));
     const where: any = {};
 
-    if (ctx.userRole !== 'SUPER_ADMIN' && ctx.organizationId) {
-      where.orgId = ctx.organizationId;
-    }
     if (query.status) where.status = query.status;
     if (query.templateId) where.templateId = query.templateId;
 

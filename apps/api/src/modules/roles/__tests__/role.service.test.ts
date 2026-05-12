@@ -150,7 +150,9 @@ describe('roleService', () => {
 
       const result = await roleService.getCreatableRoles('ADMIN');
       expect(result).toHaveLength(2);
-      expect(mockRoleRepo.findCreatableRoles).toHaveBeenCalledWith(5);
+      // findCreatableRoles takes (hierarchyLevel, includeSuperAdmin). The
+      // service passes false for ADMIN; only SUPER_ADMIN gets true.
+      expect(mockRoleRepo.findCreatableRoles).toHaveBeenCalledWith(5, false);
     });
 
     it('throws NotFoundError for unknown role', async () => {

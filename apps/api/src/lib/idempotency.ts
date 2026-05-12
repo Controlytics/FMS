@@ -30,12 +30,21 @@ export function getClientOpId(req: FastifyRequest, body?: Record<string, any>): 
 /**
  * Has this clientOpId already been processed for this filter? Used at the
  * start of every mutation to short-circuit duplicate replays.
+ *
+ * Optionally scope by cycleId so a clientOpId reused across a previous
+ * (terminated/completed) cycle and a fresh one cannot collide. Pass null
+ * for mutations that run before a cycle exists (e.g. startCycle).
  */
-export async function findExistingByClientOpId(filterId: string, clientOpId: string): Promise<boolean> {
+export async function findExistingByClientOpId(
+  filterId: string,
+  clientOpId: string,
+  cycleId?: string | null,
+): Promise<boolean> {
   const existing = await prisma.filterEvent.findFirst({
     where: {
       filterId,
       attributes: { path: ['clientOpId'], equals: clientOpId },
+      ...(cycleId ? { cycleId } : {}),
     },
     select: { id: true },
   });

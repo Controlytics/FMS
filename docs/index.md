@@ -3,10 +3,10 @@
 A 21 CFR Part 11–compliant digital logbook + IoT data platform with an integrated **Digital Filter Management System** for pharmaceutical cleanrooms.
 
 ## Platform stats (current — 2026-04-29, verified against live code)
-- **37 API modules**, **200+ endpoints**, **64 Prisma models**, **22 enums**
+- **36 API modules**, **200+ endpoints**, **69 Prisma models**, **23 enums**
 - **77 rule-chain node types** across 8 categories
 - **30 config definitions** with auto-discovery, **26 config pages**
-- **109 permissions**, **91 feature toggles**, **81 reauth actions**, **26 sidebar items**
+- **106 permissions**, **90 feature toggles**, **87 reauth actions**, **26 sidebar items** (reauth gained `APPROVE_ADMIN_REQUEST` (M1) + `UPDATE_FILTER_LIFECYCLE` (M2) on 2026-05-04 — audit-trail correctness fixes from `tasks/AUDIT-2026-05-04-linkage-review.md`)
 - **10 color themes**, configurable report layout, multi-channel notifications
 - **TimescaleDB** with 7 hypertables for telemetry / attributes / events / alarm history
 
@@ -86,8 +86,8 @@ POST /api/filters/:id/submit-checklist  — Submit checklist answers
 POST /api/filters/:id/bypass            — Bypass stage (deviation)
 POST /api/filters/:id/terminate         — Terminate cycle
 GET  /api/filters/:id/current-state     — Filter state + next actions
-GET  /api/filter/cycles                 — List cleaning cycles
-GET  /api/filter/events                 — List filter events
+GET  /api/filters/cycles                — List cleaning cycles
+GET  /api/filters/events                — List filter events
 GET  /api/cleaning-profiles             — List cleaning profiles
 GET  /api/filter-profiles               — List filter profiles
 GET  /api/pm-schedules                  — List PM schedules
@@ -111,7 +111,7 @@ All filter operations are recorded as immutable events with SHA-256 checksums, e
 - Report template designer + PDF generation engine + digital signatures
 - Configurable report header/footer/layout
 - Dynamic CSV bulk upload from template attributeSchema
-- 81 reauth actions
+- 87 reauth actions
 
 ## Phase 5 — Reports, Offline Hardening, RFID SDK, Filter Data Console (Apr 15–29, 2026)
 - Reports module phases A–F complete (template designer + generation engine + signatures)

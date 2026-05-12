@@ -2,10 +2,19 @@ import fp from 'fastify-plugin';
 import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { verifyToken, type JwtPayload } from '../lib/jwt.js';
 import { prisma } from '../lib/prisma.js';
+import {
+  verifyOfflineReplayToken,
+  OfflineReplayTokenError,
+  OFFLINE_REPLAY_TOKEN_HEADER,
+  LEGACY_OFFLINE_REPLAY_HEADER,
+} from '../lib/offline-replay-token.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
     user: JwtPayload;
+    /** True only after a verified offline-replay grant token has been
+     * presented for the current request. Audit 2026-05-04 fix C1. */
+    offlineReplayVerified?: boolean;
   }
 }
 
@@ -33,7 +42,7 @@ async function getRoleScope(roleName: string): Promise<string> {
   const cached = roleScopeCache.get(roleName);
   if (cached && (now - cached.cachedAt) < ROLE_SCOPE_CACHE_TTL) return cached.scope;
   const roleRecord = await prisma.role.findFirst({ where: { name: roleName }, select: { scope: true } });
-  const scope = (roleRecord?.scope as string) ?? 'ORGANIZATION';
+  const scope = (roleRecord?.scope as string) ?? 'GLOBAL';
   roleScopeCache.set(roleName, { scope, cachedAt: now });
   return scope;
 }
@@ -101,33 +110,24 @@ async function authPlugin(app: FastifyInstance) {
         return reply.code(401).send({ error: 'SESSION_EXPIRED', message: 'Session exceeded maximum duration. Please log in again.' });
       }
 
-      // Check user status and sync role + tenant from DB
+      // Check user status and sync role from DB
       const user = await prisma.user.findUnique({
         where: { id: payload.sub },
-        select: { role: true, username: true, status: true, organizationId: true, forcePasswordChange: true, passwordExpiresAt: true },
+        select: { role: true, username: true, status: true, forcePasswordChange: true, passwordExpiresAt: true },
       });
       if (!user || user.status !== 'ENABLED') {
         return reply.code(401).send({ error: 'ACCOUNT_INACTIVE', message: 'Account is not active' });
       }
 
-      // Check if user's organization is active
-      if (user.organizationId) {
-        const org = await prisma.organization.findUnique({ where: { id: user.organizationId }, select: { isActive: true } });
-        if (org && !org.isActive) {
-          return reply.code(403).send({ error: 'ORG_INACTIVE', message: 'Your organization has been deactivated. Contact administrator.' });
-        }
-      }
-
       // Lookup role scope from DB
       const roleRecord = { scope: await getRoleScope(user.role) };
-      const scope = roleRecord?.scope || (user.role === 'SUPER_ADMIN' ? 'GLOBAL' : 'ORGANIZATION');
+      const scope = roleRecord?.scope || 'GLOBAL';
 
       // Patch req.user with authoritative DB values
       req.user = {
         ...req.user,
         role: user.role,
         username: user.username,
-        organizationId: user.organizationId || undefined,
         scope,
       };
 
@@ -173,6 +173,36 @@ async function authPlugin(app: FastifyInstance) {
           expiresAt: new Date(Date.now() + durationHours * 60 * 60 * 1000),
         },
       });
+
+      // Audit 2026-05-04 fix C1: verify offline-replay grant token (if any).
+      //
+      // Tablets in offline-replay mode send `x-offline-replay-token: <jwt>`.
+      // We verify it here in onRequest so the result is available to ALL
+      // downstream code (buildContext, enforceReauth, route handlers, the
+      // offlinePerformedAt validator) without making 146 buildContext sites
+      // async. Rejecting bare `x-offline-replay: true` (the legacy boolean
+      // header) here makes the upgrade fail loud, not silent.
+      const replayToken = req.headers[OFFLINE_REPLAY_TOKEN_HEADER];
+      if (replayToken) {
+        try {
+          await verifyOfflineReplayToken(
+            Array.isArray(replayToken) ? replayToken[0] : replayToken,
+            req.user.sub,
+            req.user.sessionId,
+          );
+          req.offlineReplayVerified = true;
+        } catch (err: any) {
+          if (err instanceof OfflineReplayTokenError) {
+            return reply.code(401).send({ error: err.code, message: err.message });
+          }
+          throw err;
+        }
+      } else if (req.headers[LEGACY_OFFLINE_REPLAY_HEADER] === 'true') {
+        return reply.code(401).send({
+          error: 'OFFLINE_REPLAY_HEADER_DEPRECATED',
+          message: 'Bare `x-offline-replay: true` is no longer accepted. Obtain an offline-replay grant via POST /api/auth/offline-grant and send it as `x-offline-replay-token`.',
+        });
+      }
     } catch {
       return reply.code(401).send({ error: 'TOKEN_EXPIRED', message: 'Invalid or expired token' });
     }

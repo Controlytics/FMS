@@ -1,12 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
-import { apiClient } from '../../lib/api-client';
+import { apiClient, api } from '../../lib/api-client';
 import { useAuth } from '../../hooks/use-auth';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { useOffline } from '../../hooks/use-offline';
+import { useReauth } from '@/hooks/use-reauth';
+import { useBlockChangeApproval } from '@/hooks/use-block-change-approval';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { onSyncEvent } from '../../lib/sync-engine';
 import { syncAllDataForOffline, type SyncProgress } from '../../lib/offline-sync-service';
+import { triggerSync, startSyncPolling } from '../../lib/sync-since';
 import { MobileOperationsPage } from './mobile-operations';
 
 const STAGES = [
@@ -39,6 +43,11 @@ export function MobileWrapperPage() {
   const { user, isLoading: authLoading, logout: authLogout } = useAuth();
   const { formatTime } = useDatetimeFormat();
   const { online, pendingCount, syncing, lastSyncMessage, manualSync, clearQueue, getQueueDetails, cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
+  const reauth = useReauth();
+  // Audit 2026-05-04 follow-up: shared block-change approval flow with web
+  // approvals page so the two implementations can't drift again. Uses its
+  // own reauth instance (the `reauth` above is for RFID assign/unassign).
+  const blockChangeApproval = useBlockChangeApproval();
   const mobileNav = useNavigate();
 
   if (!authLoading && !user) return <Navigate to="/m/login" replace />;
@@ -80,6 +89,19 @@ export function MobileWrapperPage() {
     });
   }, [online, user]);
 
+  // Phase 8.4b — versioned-cache sync (Option D). Runs in parallel with the
+  // legacy syncAllDataForOffline above. Different cache (the v5 sync stores
+  // vs. legacy `cache` key/value blobs) — additive, doesn't replace. Wires
+  // up visibilitychange + online + 60s poll triggers so the cache stays
+  // fresh while the tablet is foregrounded. Will replace the legacy path
+  // in 8.6 once the shared executor lands.
+  useEffect(() => {
+    if (!user) return;
+    triggerSync('mobile-app-start');
+    const teardown = startSyncPolling();
+    return () => teardown();
+  }, [user]);
+
   // Re-sync after operations are synced back to server (keeps cache fresh)
   useEffect(() => {
     const cleanup = onSyncEvent((event) => {
@@ -96,7 +118,7 @@ export function MobileWrapperPage() {
 
   // SWR for live data while online (refresh intervals for real-time updates)
   const { data: instancesData } = useSWR(online ? '/api/assets/instances?limit=500' : null, { refreshInterval: 15000 });
-  const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=100' : null);
+  const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=1000' : null);
   const { data: identifiersData, mutate: mutateIdentifiers } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null, { refreshInterval: 30000 });
 
   // My Tasks + Approvals
@@ -151,7 +173,7 @@ export function MobileWrapperPage() {
 
   const templates = (online ? (templatesData?.data ?? []) : offlineTemplates) as any[];
   const instances = online ? ((instancesData?.data ?? []) as any[]) : offlineFilters;
-  const filterTemplateId = templates.find((t: any) => t.name === 'Filter')?.id;
+  const filterTemplateId = templates.find((t: any) => t.templateKind === 'FILTER')?.id;
   const allFilters = instances.filter((f: any) => f.templateId === filterTemplateId && f.isActive !== false && f.status !== 'Retired');
 
   const stageCounts: Record<string, number> = {};
@@ -190,7 +212,12 @@ export function MobileWrapperPage() {
   }
   const currentRfidTags = rfidSelectedFilter ? (rfidTagsByFilter.get(rfidSelectedFilter.id) ?? []) : [];
 
-  const assignRfid = async () => {
+  // Audit 2026-05-04 fix (web-routes review C3): RFID assign/unassign on the
+  // tablet path bypassed reauth. Web equivalents in
+  // assets/hooks/use-asset-mutations.ts already wrap in reauth — tablet path
+  // had drifted. CREATE_ASSET_IDENTIFIER / DELETE_ASSET_IDENTIFIER actions
+  // already declared in packages/shared/src/types/reauth-actions.ts:47-48.
+  const assignRfid = () => {
     if (!rfidSelectedFilter || !rfidInput.trim()) {
       setRfidError('Enter or scan a tag value.');
       return;
@@ -198,35 +225,62 @@ export function MobileWrapperPage() {
     setRfidSubmitting(true);
     setRfidError('');
     setRfidSuccess('');
-    try {
-      await apiClient.post('/api/assets/identifiers', {
-        assetId: rfidSelectedFilter.id,
-        identifierType: 'RFID',
-        identifierValue: rfidInput.trim(),
-      });
-      setRfidSuccess(`Tag assigned to "${rfidSelectedFilter.name}"`);
-      setRfidInput('');
-      await mutateIdentifiers();
-    } catch (err: any) {
-      setRfidError(err?.message ?? 'Failed to assign tag');
-    } finally {
-      setRfidSubmitting(false);
-    }
+    const filterName = rfidSelectedFilter.name;
+    const tagValue = rfidInput.trim();
+    reauth.execute(
+      'CREATE_ASSET_IDENTIFIER',
+      async (password?: string) => {
+        const body = {
+          assetId: rfidSelectedFilter!.id,
+          identifierType: 'RFID',
+          identifierValue: tagValue,
+        };
+        if (password) {
+          await api.postWithReauth('/api/assets/identifiers', body, password);
+        } else {
+          await apiClient.post('/api/assets/identifiers', body);
+        }
+      },
+      {
+        onSuccess: async () => {
+          setRfidSuccess(`Tag assigned to "${filterName}"`);
+          setRfidInput('');
+          await mutateIdentifiers();
+          setRfidSubmitting(false);
+        },
+        onError: (err: any) => {
+          setRfidError(err?.message ?? 'Failed to assign tag');
+          setRfidSubmitting(false);
+        },
+      },
+    );
   };
 
-  const unassignRfid = async (identifierId: string) => {
+  const unassignRfid = (identifierId: string) => {
     setRfidSubmitting(true);
     setRfidError('');
     setRfidSuccess('');
-    try {
-      await apiClient.delete(`/api/assets/identifiers/${identifierId}`);
-      setRfidSuccess('Tag removed');
-      await mutateIdentifiers();
-    } catch (err: any) {
-      setRfidError(err?.message ?? 'Failed to remove tag');
-    } finally {
-      setRfidSubmitting(false);
-    }
+    reauth.execute(
+      'DELETE_ASSET_IDENTIFIER',
+      async (password?: string) => {
+        if (password) {
+          await api.deleteWithReauth(`/api/assets/identifiers/${identifierId}`, password);
+        } else {
+          await apiClient.delete(`/api/assets/identifiers/${identifierId}`);
+        }
+      },
+      {
+        onSuccess: async () => {
+          setRfidSuccess('Tag removed');
+          await mutateIdentifiers();
+          setRfidSubmitting(false);
+        },
+        onError: (err: any) => {
+          setRfidError(err?.message ?? 'Failed to remove tag');
+          setRfidSubmitting(false);
+        },
+      },
+    );
   };
 
   // ---- My Tasks handlers ----
@@ -245,18 +299,24 @@ export function MobileWrapperPage() {
   };
 
   // ---- Approvals handlers ----
-  const handleApprovalAction = async (requestId: string, action: 'approve' | 'reject') => {
+  const handleApprovalAction = (requestId: string, action: 'approve' | 'reject') => {
     setProcessingApproval(requestId);
     setError('');
-    try {
-      await apiClient.post(`/api/block-change-requests/${requestId}/${action}`, { comment: approvalComment.trim() || undefined });
-      setSuccess(`Request ${action === 'approve' ? 'approved' : 'rejected'}`);
-      setApprovalComment('');
-      await mutateApprovals();
-    } catch (e: any) {
-      setError(e.message ?? `Failed to ${action} request`);
-    }
-    setProcessingApproval(null);
+    blockChangeApproval.process(requestId, action, approvalComment.trim(), {
+      mutateKeys: approvalsKey ? [approvalsKey] : [],
+      onSuccess: () => {
+        setSuccess(`Request ${action === 'approve' ? 'approved' : 'rejected'}`);
+        setApprovalComment('');
+        // mutateApprovals is the SWR key-bound mutator; the hook also fires
+        // mutate(approvalsKey) but we keep this for the local SWR instance.
+        void mutateApprovals();
+        setProcessingApproval(null);
+      },
+      onError: (e: any) => {
+        setError(e.message ?? `Failed to ${action} request`);
+        setProcessingApproval(null);
+      },
+    });
   };
 
   return (
@@ -881,6 +941,27 @@ export function MobileWrapperPage() {
           </button>
         </div>
       )}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setRfidSubmitting(false); }}
+        actionLabel="RFID Tag"
+      />
+      <ReauthDialog
+        open={blockChangeApproval.reauth.isOpen}
+        password={blockChangeApproval.reauth.password}
+        error={blockChangeApproval.reauth.error}
+        isVerifying={blockChangeApproval.reauth.isVerifying}
+        onPasswordChange={blockChangeApproval.reauth.setPassword}
+        onConfirm={blockChangeApproval.reauth.confirm}
+        onCancel={() => { blockChangeApproval.reauth.cancel(); setProcessingApproval(null); }}
+        actionLabel="Process Block Change"
+      />
     </div>
   );
 }

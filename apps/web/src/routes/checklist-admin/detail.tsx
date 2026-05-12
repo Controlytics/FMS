@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
-import { apiClient } from '../../lib/api-client';
+import { apiClient, api } from '../../lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -42,6 +42,12 @@ export function ChecklistProfileDetailPage() {
   const perms = user?.permissions ?? [];
   const canEdit = isSuperAdmin || perms.includes('CHECKLIST_EDIT');
   const canDelete = isSuperAdmin || perms.includes('CHECKLIST_DELETE');
+  // M4 (2026-05-03): version history is gated by VERSION_HISTORY_VIEW (the
+  // same perm /version-history route uses). SUPER_ADMIN bypasses per the
+  // standard pattern. Backend `GET /api/checklist-profiles/:id/versions`
+  // also accepts CHECKLIST_READ, but the deep-link target page strictly
+  // requires VERSION_HISTORY_VIEW, so don't render a link the user can't follow.
+  const canViewHistory = isSuperAdmin || perms.includes('VERSION_HISTORY_VIEW');
   const reauth = useReauth();
   const swrKey = `/api/checklist-profiles/${id}`;
   const { data: profile, isLoading } = useSWR(id ? swrKey : null);
@@ -52,6 +58,43 @@ export function ChecklistProfileDetailPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [optionInput, setOptionInput] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Audit 2026-05-09 fix: BE PUT /api/checklist-profiles/:id accepts
+  // name/description/isActive but the FE detail page was read-only —
+  // operators had to delete + recreate to rename. Inline edit panel toggled
+  // by a pencil icon next to the title.
+  const [editProfileMode, setEditProfileMode] = useState(false);
+  const [editProfileForm, setEditProfileForm] = useState({ name: '', description: '', isActive: true });
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  const openEditProfile = () => {
+    setEditProfileForm({
+      name: profile?.name ?? '',
+      description: profile?.description ?? '',
+      isActive: profile?.isActive ?? true,
+    });
+    setEditProfileMode(true);
+  };
+
+  const submitEditProfile = () => {
+    if (!id || !editProfileForm.name.trim()) return;
+    setSavingProfile(true);
+    const body = {
+      name: editProfileForm.name.trim(),
+      description: editProfileForm.description.trim() || null,
+      isActive: editProfileForm.isActive,
+    };
+    reauth.execute(
+      'UPDATE_CHECKLIST_PROFILE',
+      async (password?: string) => {
+        if (password) await api.putWithReauth(`/api/checklist-profiles/${id}`, body, password);
+        else await apiClient.put(`/api/checklist-profiles/${id}`, body);
+      },
+      {
+        onSuccess: () => { mutate(swrKey); setEditProfileMode(false); setSavingProfile(false); },
+        onError: (e: any) => { setError(e?.message ?? 'Failed to update checklist profile'); setSavingProfile(false); },
+      },
+    );
+  };
 
   const questions = profile?.questions ?? [];
   const sections = [...new Set(questions.map((q: any) => q.section || 'General'))];
@@ -142,15 +185,76 @@ export function ChecklistProfileDetailPage() {
               <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white shadow-lg" style={{ background: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
               </div>
-              <div>
-                <h1 className="text-xl font-bold text-slate-800">{profile?.name ?? 'Checklist'}</h1>
-                {profile?.description && <p className="text-sm text-slate-400 mt-0.5">{profile.description}</p>}
+              <div className="flex-1">
+                {editProfileMode ? (
+                  <div className="space-y-2 max-w-xl">
+                    <input type="text" value={editProfileForm.name}
+                           onChange={e => setEditProfileForm(f => ({ ...f, name: e.target.value }))}
+                           placeholder="Profile name"
+                           className="w-full px-3 py-2 text-base font-bold text-slate-800 border border-slate-300 rounded-lg focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-100" />
+                    <input type="text" value={editProfileForm.description}
+                           onChange={e => setEditProfileForm(f => ({ ...f, description: e.target.value }))}
+                           placeholder="Description (optional)"
+                           className="w-full px-3 py-1.5 text-sm text-slate-600 border border-slate-300 rounded-lg focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-100" />
+                    <label className="inline-flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                      <input type="checkbox" checked={editProfileForm.isActive}
+                             onChange={e => setEditProfileForm(f => ({ ...f, isActive: e.target.checked }))}
+                             className="w-4 h-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+                      Active (available for use in cleaning profiles)
+                    </label>
+                    <div className="flex items-center gap-2 pt-1">
+                      <button onClick={submitEditProfile} disabled={savingProfile || !editProfileForm.name.trim()}
+                              className="px-3 py-1.5 bg-cyan-600 text-white rounded-lg text-xs font-semibold hover:bg-cyan-700 disabled:opacity-50">
+                        {savingProfile ? 'Saving…' : 'Save'}
+                      </button>
+                      <button onClick={() => setEditProfileMode(false)} disabled={savingProfile}
+                              className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-200 disabled:opacity-50">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div>
+                      <h1 className="text-xl font-bold text-slate-800">{profile?.name ?? 'Checklist'}</h1>
+                      {profile?.description && <p className="text-sm text-slate-400 mt-0.5">{profile.description}</p>}
+                    </div>
+                    {canEdit && profile && (
+                      <button onClick={openEditProfile}
+                              aria-label="Edit profile metadata"
+                              title="Edit profile name / description / active status"
+                              className="ml-1 w-7 h-7 rounded text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 transition-colors flex items-center justify-center">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
-            <span className={`px-3 py-1.5 text-xs rounded-full font-semibold flex items-center gap-1.5 ${profile?.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-              <span className={`w-2 h-2 rounded-full ${profile?.isActive ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-              {profile?.isActive ? 'Active' : 'Inactive'}
-            </span>
+            <div className="flex items-center gap-3">
+              {/* M4 (2026-05-03): deep-link to the cross-entity Version History page,
+                  pre-tabbed to checklist-profile and pre-selected to this id.
+                  Lightweight discoverability fix — keeps all version-list / diff
+                  rendering on the dedicated page; no extra fetches here. */}
+              {canViewHistory && id && (
+                <button
+                  onClick={() => navigate(`/version-history?entity=checklist-profile&id=${id}`)}
+                  className="px-3 py-1.5 text-xs rounded-full font-semibold flex items-center gap-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 hover:border-indigo-300 transition-colors"
+                  title="View archived versions and diffs for this checklist profile"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Version History
+                </button>
+              )}
+              <span className={`px-3 py-1.5 text-xs rounded-full font-semibold flex items-center gap-1.5 ${profile?.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                <span className={`w-2 h-2 rounded-full ${profile?.isActive ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                {profile?.isActive ? 'Active' : 'Inactive'}
+              </span>
+            </div>
           </div>
 
           {/* Stats */}

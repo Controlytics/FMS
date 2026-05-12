@@ -13,11 +13,13 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 | Layer | Technology | Details |
 |---|---|---|
 | **Frontend** | React 19 + TypeScript | Vite SPA, Tailwind CSS, SWR, ReactFlow |
-| **Backend** | Node.js + Fastify 5 | TypeScript, 37 API modules, 200+ endpoints |
-| **Primary DB** | PostgreSQL 18 | 64 Prisma models, 22 enums |
+| **Backend** | Node.js + Fastify 5 | TypeScript, 36 API modules, 200+ endpoints (org-admin + tenant-admin removed in MT removal 2026-04-30) |
+| **Primary DB** | PostgreSQL 18 | 69 Prisma models, 23 enums (TemplateKind lookup; MT removal dropped Organization; Step 6 added FilterDetails 1:1 sidecar; Step 5b A.1 added ChecklistProfileVersion immutable-history table; Phase A.2 added `FilterCleaningProfile.lineageId` for rowful version-history tracking — no new model; Phase A.3 added `FilterProfileVersion` sidecar; Phase A.4 added `EquipmentGroupVersion` sidecar — group + 3 instruments composite snapshot per version; **Step 4 (2026-05-02)** replaced `FilterProfile.applicableTemplates` JSONB array with `FilterProfileApplicableTemplate` join table — cascade FKs to AssetTemplate kill the dangling-reference foot-gun, and AssetTemplate delete is guarded with 409 IN_USE) |
 | **Time-Series DB** | TimescaleDB | 7 hypertables for telemetry data |
-| **Cache / Queue** | Redis 7 (Memurai on Windows) | BullMQ job queues, pub/sub |
-| **MQTT Broker** | EMQX 5.x | IoT device communication |
+| **Job Queue** | graphile-worker on PostgreSQL | LISTEN/NOTIFY + SKIP LOCKED + advisory locks; no separate Redis service |
+| **Pub/sub (in-process)** | EventEmitter bus + Map TTL cache | Phase 4 (2026-05-01) retired Redis. WebSocket events, RPC correlation, pipeline tracer, debug recorder all in-process. |
+| **MQTT Broker** | Mosquitto 2.0 | Windows-native service via `scripts/install-mosquitto.ps1` (Phase 1 of windows-friendly-rewrite swapped from EMQX) |
+| **PDF + charts** | puppeteer-core + Edge + @napi-rs/canvas | No bundled Chromium, no node-gyp / MSVC (Phase 3 of windows-friendly-rewrite) |
 | **Mobile** | Capacitor (Android APK) | Wraps web app for tablet use |
 | **RFID** | Kotlin Android app | KC-series UHF reader integration |
 
@@ -26,25 +28,24 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 ```
 21cfrlogbook-DigitalFMS/
 ├── apps/
-│   ├── api/            — Fastify backend (37 modules, TypeScript)
-│   ├── web/            — React SPA (22 route modules, Vite + Tailwind)
-│   └── android/        — Capacitor wrapper for Android APK
+│   ├── api/            — Fastify backend (36 modules, TypeScript)
+│   ├── web/            — React SPA (22 route folders/files, Vite + Tailwind)
+│   └── android/        — Capacitor wrapper for Android APK (incl. RfidPlugin.java for SDK-mode RFID)
 ├── packages/
-│   ├── shared/         — Zod schemas, permissions, types (109 permissions, 91 privileges, 81 reauth actions, 26 sidebar items)
+│   ├── shared/         — Zod schemas, permissions, types (106 permissions, 90 privileges, 87 reauth actions, 26 sidebar items) — reauth count grew from 85 with M1 + M2 audit fixes 2026-05-04 (`APPROVE_ADMIN_REQUEST`, `UPDATE_FILTER_LIFECYCLE`)
 │   ├── db/             — Prisma client, TimescaleDB pool, telemetry batcher
-│   └── queue/          — BullMQ job queues (5 queues) + Redis connection
-├── rfid_scan_app/      — Native Kotlin Android RFID scanner
-├── deploy/             — Nginx config, Linux setup scripts
-├── scripts/            — Windows PowerShell deployment scripts
-├── certs/              — SSL certificates (server.crt, server.key, rootCA.pem)
+│   └── queue/          — graphile-worker job queue (Postgres-backed; Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis)
+├── rfid_scan_app/      — Native Kotlin Android RFID scanner (predates RfidPlugin in DigiLog APK)
+├── scripts/            — Windows PowerShell deployment scripts (package + install + install-mosquitto)
+├── certs/              — mkcert TLS infrastructure (server.crt, server.key, rootCA.pem)
 └── docs/               — Full documentation site
 ```
 
 ## Key Features
 
 ### Phase 1: Core Platform
-- Multi-tenant organization management
-- Role-based access control (RBAC) with 109 permissions
+- Single-tenant deployment (multi-tenancy removed 2026-04-30)
+- Role-based access control (RBAC) with 106 permissions
 - JWT authentication with session management
 - Asset template and instance management (hierarchical)
 - Rule chain engine (77 node types across 8 categories)
@@ -91,8 +92,8 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 |---|---|
 | Prisma models | 64 |
 | Database enums | 22 |
-| Permission constants | 109 |
-| Feature privileges | 91 |
+| Permission constants | 106 |
+| Feature privileges | 90 |
 | Re-auth actions | 81 |
 | Sidebar items | 26 |
 | API modules | 37 |
@@ -103,7 +104,7 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 | Frontend routes | 85+ |
 | Custom React hooks | 14 |
 | Frontend lib modules | 15 |
-| BullMQ job queues | 5 |
+| graphile-worker queues / cron tasks | 5 (`ingestion`, `notification`, `dlq_check`, `connectivity_check`, `retention_cleanup` — Phase 2 swap) |
 
 ## Security & Compliance
 
@@ -111,7 +112,7 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 - **Electronic signatures**: Password re-authentication for sensitive operations
 - **Audit trail**: Every mutation logged with SHA-256 hash-chain verification
 - **Immutable records**: Filter events stored with checksums, cannot be modified
-- **Access control**: Role-based permissions with 95 granular controls
+- **Access control**: Role-based permissions with 106 granular controls (verified by `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts`)
 - **Session management**: Auto-logout on inactivity, single-tab enforcement
 - **Password policies**: Configurable complexity, expiry, and history requirements
 
@@ -127,13 +128,14 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 
 ### Production Deployment (Windows Server)
 - Self-contained ZIP package via `scripts/package-for-production.ps1`
-- PowerShell-based automated installation via `scripts/install-on-target.ps1`
-- NSSM for Windows Service registration (the API runs as a Windows service)
-- Optional Nginx reverse proxy for SPA + API
-- Firewall rules auto-configured
+- PowerShell-based automated installation via `scripts/install-on-target.ps1` (also runs `install-mosquitto.ps1` for the broker)
+- API serves SPA + `/api/*` directly on `:3000` over HTTPS (mkcert)
+- Reverse proxy (Nginx / IIS) is optional / customer-choice — not bundled after Phase 4 of the windows-friendly-rewrite
+- Managed Windows-service launcher is Phase 5 work; NSSM stopgap documented in `DEPLOY-WINDOWS.md` § 7
+- Firewall rules auto-configured (80, 443, 3000, 1883)
 
 ### Prerequisites
-- Node.js 20+, PostgreSQL 18 + TimescaleDB, Memurai (Redis), EMQX 5.x, Nginx
+- Node.js 20+, PostgreSQL 18 + TimescaleDB, Mosquitto 2.0 (installed by script). **No Redis dependency** — Phase 2 moved the queue to graphile-worker on Postgres; Phase 4 retired Redis pub/sub via in-process EventEmitter bus.
 
 ### Default Login
 - Username: `superadmin`

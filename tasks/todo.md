@@ -1,5 +1,55 @@
 # Documentation Audit & Cleanup Plan — 2026-04-29
 
+## Audit log
+
+- **2026-05-02 — Step 8 Phase 8.2: full per-action-type renderers + M1 closure** — Two parts in one batch on `feature/phase5-verification`. **Part (a) — full renderers:** new `apps/web/src/lib/action-tape/components/action-dialog.tsx` shared modal primitive (light theme, `bg-white` + `border-slate-200` + gradient header, role="dialog" + aria-modal, primary/success/warning/danger variants); `ActionRenderer.tsx` child contract changed from `onClick: () => void` to `onSubmit: (payload: ActionPayload) => Promise<void>`, with the dispatcher wrapping each child's onSubmit to call the caller's `onSubmit(action, payload)` plus loading lock. New `ActionPayload` discriminated union mirrors the server route bodies (`POST /advance` / `/submit-checklist` / `/bypass` / `/terminate` / etc.) so Phase 8.4 cutover can plug the dispatcher into existing routes without translation. All 7 components rewritten: `CompleteCycleButton` immediate-submit, `AdvanceToStageButton` immediate or readings-dialog branch (one numeric input per `requiresInstrumentReadings`), `BypassStageButton`/`TerminateCycleButton` justification dialogs (length read from `action.requiresJustification.minLength` — not hard-coded), `SetDryerDurationButton` two number inputs validated `1 ≤ min ≤ max ≤ 1440` integer-only, `SubmitDryerReadingsButton` one numeric input per `instrumentIds`, `SubmitChecklistButton` YES/NO/N/A radios + optional remarks per question (required-question gate; remarks always optional per checklist rule). **Part (b) — tests:** ActionRenderer.test.tsx extended 11 → 33 tests (incl. 3 new close-on-success / stay-open-on-error tests for the dialog-lifecycle UX) (7 per-type dispatch, immediate-submit COMPLETE + ADVANCE-no-readings, disabled prop short-circuits, loading state, BYPASS dialog flow with empty/short/valid justification + cancel, TERMINATE dialog flow, CHECKLIST required-question gate + answers payload, SET_DRYER_DURATION valid/min>max/out-of-range, SUBMIT_DRYER_READINGS empty/numeric, ADVANCE-with-readings dialog flow, ActionTapeRenderer shared loading lock under new contract). **Part (c) — M1 closure:** tape-generator.ts BYPASS emit-set expanded from `reachableStages` to every pipeline `STAGE` node except current state, matching the server's `bypass()` route validation surface (filter-operations.service.ts:1548-1556 accepts ANY pipeline STAGE when flowMode=BYPASS_ENABLED). Step-back targets (earlier pipeline stages) now emitted. tape-generator.test.ts extended 20 → 23 tests (added 21–23 for 4-stage forward set excluding current, step-back from DRY_OUT including WASH_IN, fresh-cycle no-current-state). Parity test unaffected — additive `some()` assertions accept the larger emit-set. Verification: shared tsc clean (untouched — verified `git diff --stat packages/shared/` empty), api tsc --noEmit clean, web tsc --noEmit clean, api filter-operations tests 38/38 pass, web full suite 43/43 pass (10 + 33). Advisor follow-up: dialogs now close-on-success and stay-open-on-error (await onSubmit + try/catch in all 5 dialog renderers); CHECKLIST payload changed from array-of-{questionId,answer,remarks} to object-keyed `answers: Record<questionId, value>` + separate optional `remarks` map, matching the existing `POST /:id/submit-checklist` server contract (filter-operations.service.ts:870-882 — server rejects extras with 400 INVALID_QUESTIONS, so unanswered optionals MUST be omitted, not defaulted to 'N/A'). No edits to mobile-operations.tsx or filter-operations.tsx (cutover is Phase 8.4). Counts unchanged. Out of scope (deferred): Phase 8.3 offline replay tape-versioning; Phase 8.4 cutover; Phase 8.5 APK; M3 tapeVersion collision-resistance. Branch `feature/phase5-verification`; commit pending.
+
+- **2026-05-02 — Step 8 Phase 8.1: shared types + FE renderer skeleton + M4/M6** — Three parts in one batch on `feature/phase5-verification`. **Part (a):** lifted action-tape types from `apps/api/src/modules/filter-operations/tape/types.ts` into `packages/shared/src/types/action-tape.ts`; barrel re-exports the 21 types; the api `types.ts` is now a one-line re-export shim from `@digilog/shared` (preferred over delete+rewire — three sites still import `./types.js` and the shim is one indirection the typechecker sees through). **Part (b):** new `apps/web/src/lib/action-tape/` with `ActionRenderer.tsx` (typed switch on `action.type`, owns in-flight `loading` useState, exhaustiveness guard) + `ActionTapeRenderer` convenience wrapper (shared loading-lock across siblings, empty-state slot) + 7 stub components (one per action kind, each via a 4-variant `BaseActionButton`) + 11 vitest tests in `__tests__/ActionRenderer.test.tsx` (7 per-type dispatch + 1 caller-disabled + 1 in-flight loading + 2 wrapper cases). **Part (c):** closed Phase 8.0 review M4 (`beforeEach(() => { nextId = 0; })` in tape-generator.test.ts) and M6 (`Promise.all` for the two prisma.filterEvent calls in service.ts:706-722). Verification: shared tsc clean, api tsc --noEmit clean, web tsc --noEmit clean, api filter-operations tests 35/35 pass, api full suite 1156/1158 (same 2 pre-existing e2e failures unrelated to this batch — auth.forgot-password + config.action-reauth), web full suite 21/21 pass (B7.1's 10 + B8.1's 11), no act() warnings. Counts unchanged (no new permissions/privileges/sidebar/models). Out of scope (deferred): Phase 8.2 per-action-type full UI; Phase 8.4 FE cutover (no edits to mobile-operations.tsx or filter-operations.tsx); M1 (BYPASS_STAGE emit-set expansion); M3 (tapeVersion collision-resistance). Branch `feature/phase5-verification`; commit pending.
+
+- **2026-04-30 — Step 1 of architectural refactor** (admin-editable TemplateKind lookup) — schema + backend + frontend complete; e2e UI test pass complete; 12 docs synced. `tasks/MT-REMOVAL-TOUCHPOINTS.md` and `tasks/RESUME-STATE-2026-04-30-step1-templateKind-done.md` are the authoritative records.
+- **2026-04-30 — Multi-tenancy removal** — Schema dropped `Organization` model + 11 `organizationId` columns + 2 `orgId` columns; `org-admin` + `tenant-admin` modules deleted; shared package lost 4 ORG_* permissions + 2 org.* privileges + ORG_ADMIN role + Organizations sidebar item; frontend `routes/tenant/` folder deleted, all org form fields stripped. Net counts: 65→64 models, 38→36 modules, 109→105 perms, 91→89 privileges, 26→25 sidebar items. JWT `scope` always stamps `GLOBAL`. Step 3 of the 9-step plan (`organizationId NOT NULL`) is OBSOLETE. CHANGELOG + 9-step plan + BACKEND_GUIDE + API_REFERENCE + FRONTEND_GUIDE + PROJECT_SUMMARY + PROJECT_ARCHITECTURE + CLAUDE.md (root + worktree) + apps/api/CLAUDE.md + packages/shared/CLAUDE.md updated. Touchpoint inventory at `tasks/MT-REMOVAL-TOUCHPOINTS.md`.
+
+- **2026-04-30 — Post-MT-removal e2e bug sweep + hardening** — Walked 23 pages as SUPER_ADMIN, found and fixed 3 issues: (1) `/pm-schedules` React error #300 crash (early-return-before-hooks → moved below all hooks); (2) `/my-tasks` misleading red error toast when PM disabled (replaced with amber-tinted "Enable in Configuration" message); (3) `/organizations` and any unknown URL rendered blank page (added catch-all `<Route path="*" element={<Navigate to="/" replace />} />` in main.tsx). Net `<Route>` count 80→81. CHANGELOG + FRONTEND_GUIDE updated.
+
+- **2026-04-30 — Doc-sync re-verification** — Re-ran live counts (`grep`-based) against schema/shared/modules. All counts match what's in the docs from the prior sync (64/22/105/89/81/25/36/30/27). CHANGELOG hardening subsection + FRONTEND_GUIDE catch-all section added. No drift detected elsewhere.
+
+- **2026-05-01 — Phase A.1 + 5b.4/5b.5/B2 + Step 2 + Phase 4 (Redis retirement)** — On `feature/phase5-verification`. Five feature commits + two doc-sync commits. Phase 4 retires `ioredis` entirely (in-process EventEmitter bus + Map TTL cache); 13-page UI walk clean. ~30 commits ahead of `origin/docsCleaned`; GitHub unreachable, push deferred. Resume note: `tasks/RESUME-STATE-2026-05-01-phase4-bus.md`.
+
+- **2026-05-01 — Phase A.2: FilterCleaningProfile lineage-based versioning** — Added `lineageId` UUID column + `@@unique([lineageId, version])` + index. `create()` mints lineageId; `update()` propagates it to the new version row. `list()` switched from `distinct: ['name']` to `distinct: ['lineageId']` (rename-safe). New routes `GET /:id/versions` and `GET /:id/versions/:n` exposed under `/api/filter-cleaning-profiles`. New service-level `deleteProfile()` guard. Verified end-to-end via curl: list collapses correctly, both versions endpoints return frozen snapshots, 404s clean. Schema applied via direct DDL on empty `filter_cleaning_profiles`; `prisma db push` reports schema in sync. Doc updates: apps/api/CLAUDE.md key-endpoints section, CHANGELOG entry. Committed as `4bc9d34` on `feature/phase5-verification`; push pending (GitHub still unreachable).
+
+- **2026-05-02 — Batch 6: VHv2 + VHv3 + S4UX + WSL + DocSweep + CHVH** — All web-or-server-side, no tablet/android. **VHv2:** structured per-entity snapshot viewers replace JSON pretty-print modal in version-history/index.tsx (kind-aware cards: cleaning profile shows stages + connections + reasons; filter profile shows applicable templates; checklist profile renders questions list; equipment group groups instruments by stage). Raw JSON behind a toggle. **VHv3:** Compare-with-previous expander on each timeline row, kind-aware diff (scalars, keyed arrays diffed per-item by id/key, set-style fields). Meta fields filtered out. **S4UX:** deep-fixed `ConflictError` to accept structured details; template.service throws `TEMPLATE_IN_USE` with `{bindings: [{id, name}]}`; FE renders inline list of binding profiles instead of generic toast. Test-suite assertion updated to verify the new shape. **WSL:** new `scripts/install-windows.ps1` orchestrator (tooling sanity → build → mosquitto → services → start → health) + `scripts/uninstall-windows.ps1`. Em-dash bug caught and fixed (PS 5.1 tokenization). **DocSweep:** ran live-count regex sweep; bumped 105→106 / 89→90 / 25→26 in 4 active docs that were missed in VH commit + bumped 109→106 / 91→90 in 5 docs that had pre-MT-removal stale values. **CHVH:** extended CleaningCycle FE type with equipmentGroupId/equipmentGroupVersionPin/checklistVersionPins; added "Pinned Versions" card on cycle timeline page with chip-style deep-links to version-history page; added URL search-param support to version-history page so chips land directly on the right tab + entity + open snapshot modal at requested version. Verification: tsc clean (api+web), 163/163 vitest tests pass on assets+backup, curl confirmed 409 TEMPLATE_IN_USE response shape, PS scripts AST-parse clean. Counts unchanged. Branch `feature/phase5-verification`; commit pending.
+
+- **2026-05-02 — VH: Version History admin page + new VERSION_HISTORY_VIEW permission** — Closes the FE sync gap for the 4 versioned entities (A.1+A.2+A.3+A.4). New permission `VERSION_HISTORY_VIEW` (SUPER_ADMIN by default, assignable via Role Privileges → Audit / Versions → "View Version History"). New feature privilege `version_history.view`. New sidebar item `version-history`. Route gates on 4 entity list/detail/versions endpoints (cleaning-profiles, filter-profiles, checklist-profiles, equipment-groups) updated to OR-accept `VERSION_HISTORY_VIEW` via `requireAnyPermission(...)`. New page `apps/web/src/routes/version-history/index.tsx` — 4-tab master-detail layout with entity list, version timeline (newest-first, with timestamps + author UUID prefix + change notes), and modal snapshot viewer (JSON pretty-print for v1; structured viewers are follow-up). Route registered in `main.tsx`. Verified: tsc clean (api+web), full compile + service restart clean, all 4 list endpoints return 200 for superadmin, live SUPER_ADMIN role has the new perm (90 total perms, has_vh=t). Live counts after this batch: 106 permissions (was 105), 90 feature privileges (was 89), 26 sidebar items (was 25). Reauth + module + DB counts unchanged. Seed.ts updated for next clean restore. Branch `feature/phase5-verification`; commit pending.
+
+- **2026-05-02 — P3: AWS SNS dropped; MSG91/Twilio/similar via generic HTTP gateway** — Per user direction, removed the `aws` CLI shell-out at `sms-channel.ts:75` entirely (rather than swap to `@aws-sdk/client-sns`). `http-gateway` provider already existed in the codebase as a templated POST adapter with `{phone}`/`{message}` placeholders; promoted to default. Edits across 7 files: `notification-delivery/channels/sms-channel.ts` (dropped `sendViaAwsSns()` + switch case + testConnection branch), `notification-delivery/types.ts` (narrowed SmsConfig.provider union, dropped `awsAccessKeyId/awsSecretAccessKey/awsRegion`), `notification-delivery/routes.ts` (provider enum + body schema + sensitiveKeys mask + audit-log redaction), `config/defs/notification-sms.def.ts` (provider select default `http-gateway`), `web/src/routes/config/notification-settings/sms-settings.tsx` + `email-settings.tsx` (SmsConfig interface, defaultValues, AWS provider config block, SMS_PROVIDERS list). Verified end-to-end: tsc clean (api+web), dist scrubbed of all aws references (grep returns 0 matches), `PUT /api/notification-settings/sms` with MSG91 http-gateway config persists + GET round-trips, `PUT` with `provider: "aws-sns"` returns `400 VALIDATION_ERROR` with `allowedValues: ["twilio", "vonage", "http-gateway"]`. Test config wiped post-verify. Rule-chain `aws-sns/aws-sqs/aws-lambda` stub nodes left in place (no real AWS deps; out of scope). No new package deps. Branch `feature/phase5-verification`; commit pending.
+
+- **2026-05-02 — P1: cycle-side EquipmentGroup version pinning + latent FK bug fix** — Closes the A.4-deferred design call. Added `cleaning_cycles.equipmentGroupVersionPin Int?`. `startCycle()` and the reading-submit lazy-bind path stamp the live group's version at bind time. Reading validation in `filter-operations.service.ts:~1101-1175` reads `operatingMin/Max` from `EquipmentGroupVersion.snapshot.instruments[]` when pin is set; falls back to live row when pin is null (legacy cycles). Verified end-to-end via curl: started a cycle on existing block B1 / filter F1 with a seeded EquipmentGroup → cycle row's `equipment_group_version_pin = 1`. PUT bumped Air `operatingMax 6→7` → live group v2 + v1 snapshot row carries the original Air `operatingMax = 6`. Cycle pin stayed at 1, immune to admin edits. Test data fully cleaned up via cascade. **Latent bug also fixed:** `filter-operations.service.ts:877` was storing `resolvedProfileIdForCycle` (a FilterProfile id) into `cleaning_cycles.profile_id` whose FK references `filter_cleaning_profiles.id`. Masked because no FilterDetails-bound cycle had ever started in the dev DB; surfaced when P1's verification scenario was the first such cycle. Fix: use `cleaningProfileIdForCycle` (already computed at line 820). Tablet/offline NOT updated this iteration — Slice B contract recorded in `future/offline-version-sync-contract.md` for the next APK build. Doc sync: CHANGELOG (new P1 entry), PHASE_5_RECENT_WORK (closed gap), apps/api/DECISIONS.md (new entry §24), apps/api/CLAUDE.md (extended Phase 2 Patterns), BACKEND_GUIDE.md § Versioning (added EquipmentGroup pin), tasks/STEP-5B-A-VERSIONING-PLAN.md (P1 marked DONE), this todo entry. Counts unchanged (column add, no new model). Branch `feature/phase5-verification`; commit pending.
+
+- **2026-05-02 — Step 4: FilterProfile.applicableTemplates JSONB → join table** — Closes Step 4 of the 9-step architectural refactor. Dropped `FilterProfile.applicableTemplates Json` column; added new model `FilterProfileApplicableTemplate` (composite PK `(profileId, templateId)`, both FKs `onDelete: Cascade`, `@@index([templateId])`). Rewrote `filter-profile.service.ts`: create/update wrap in `prisma.$transaction` with `createMany`/`deleteMany+createMany` for the join set; `list()` and `getById()` `include: { applicableTemplates: { select: { templateId: true } } }` and flatten via helper to keep API wire shape `applicableTemplates: string[]` (no FE change). `snapshotAndBump()` (Phase A.3) now reads the live join rows inside the snapshot transaction and freezes them as `string[]` so historical version replay still works byte-correct. AssetTemplate delete guarded with `409 CONFLICT IN_USE` if any FilterProfile binds it (matches existing FilterProfile delete-against-FilterDetails guard). Verified end-to-end via curl: POST with 2 templates roundtrips as `string[]`; bogus templateId → clean `400 VALIDATION_ERROR`; PUT removes one → version 1→2; `GET /:id/versions/1` returns frozen v1 with BOTH templates (snapshot byte-correct); `DELETE /api/assets/templates/<bound>` → `409 CONFLICT` with binding-profile list; `DELETE /api/assets/templates/<unbound>` → `200 success`. Test data fully cleaned up (cascade FK fired); unbound template restored to is_active=true. Live counts after this batch: **69 models** (was 68 → 69), 23 enums, 105 permissions, 89 feature privileges, 81 reauth actions, 25 sidebar items, 36 API modules, 30 config defs, 27 config pages. Doc files touched: CLAUDE.md, AGENTS.md, BACKEND_GUIDE.md, PROJECT_ARCHITECTURE.md, PROJECT_SUMMARY.md, README.md, OFFLINE_SYNC_ARCHITECTURE.md, LOCAL_SETUP_WINDOWS.md, windowsIssues.md, packages/shared/CLAUDE.md, apps/api/CLAUDE.md, apps/api/DECISIONS.md (new entry §23), docs/getting-started/system-requirements.md, docs/getting-started/what-is-digilog.md, docs/index.md, docs/user-guide/entities/entities-and-hierarchy.md, future/overview/CODEBASE_SUMMARY.md, future/architectural-refactor-9-steps.md (Step 4 marked DONE), CHANGELOG.md (new Step 4 entry). Branch `feature/phase5-verification`; commit pending.
+
+- **2026-05-02 — Phase A.4: EquipmentGroup composite versioning + cleaning-reasons doc note** — Phase 5b Path A is now complete (A.1+A.2+A.3+A.4). Added `EquipmentGroup.version Int @default(1)` + new `EquipmentGroupVersion` sidecar (`groupId`, `versionNumber`, `snapshot Json` carrying `{ name, blockId, isActive, instruments[] ordered by sortOrder }`, `changeNotes`, `createdAt`, `createdBy`; cascade-deletes; `@@unique([groupId, versionNumber])` + `@@index([groupId])`). New `snapshotAndBump(tx, groupId, changeNotes, ctx)` helper runs as first step inside the existing `update()` transaction. First version is created lazily. New routes `GET /:id/versions` and `GET /:id/versions/:n` under `/api/equipment-groups`. Verified end-to-end via curl on existing block B1: created v1, two updates (rename + Air operatingMax 6→7; Air SN/ID change) → v2/v3, GET /versions returned currentVersion=3 + 2 archived rows newest-first, GET /versions/1 + /versions/2 returned byte-correct frozen composites (v3-only SN change correctly isolated to v3), GET /versions/99 returned clean 404. Test data fully cleaned up via cascade. **Cleaning reasons NOT versioned** — already drift-resistant via `CleaningCycle.cleaningReasonKey` + `cleaningReasonLabel` columns written at cycle start; documented in BACKEND_GUIDE § Versioning + DECISIONS.md. Per-cycle group-version pinning (which would lock reading validation to a pinned operating-range) intentionally deferred. Live counts after this batch: **68 models** (was 67 → 68 after Phase A.4), 23 enums, 105 permissions, 89 feature privileges, 81 reauth actions, 25 sidebar items, 36 API modules, 30 config defs, 27 config pages. Doc files touched: CLAUDE.md, AGENTS.md, BACKEND_GUIDE.md, PROJECT_ARCHITECTURE.md, PROJECT_SUMMARY.md, README.md, OFFLINE_SYNC_ARCHITECTURE.md, LOCAL_SETUP_WINDOWS.md, windowsIssues.md, packages/shared/CLAUDE.md, apps/api/CLAUDE.md, apps/api/DECISIONS.md, docs/getting-started/system-requirements.md, docs/getting-started/what-is-digilog.md, docs/index.md, docs/user-guide/entities/entities-and-hierarchy.md, future/overview/CODEBASE_SUMMARY.md, API_REFERENCE.md (new Equipment Groups section), CHANGELOG.md (new Phase A.4 entry), PHASE_5_RECENT_WORK.md (closed gap; Path A complete), tasks/STEP-5B-A-VERSIONING-PLAN.md (A.4 marked DONE). Branch `feature/phase5-verification`; commit pending.
+
+- **2026-05-01 — Phase A.3: FilterProfile sidecar versioning** — Added `FilterProfile.version Int @default(1)` and new `FilterProfileVersion` sidecar model (`profileId`, `versionNumber`, `snapshot Json`, `changeNotes`, `createdAt`, `createdBy`; cascade-deletes; `@@unique([profileId, versionNumber])` + `@@index([profileId])`). `update()` now wraps in a `prisma.$transaction` with a new `snapshotAndBump()` helper that freezes the OUTGOING row into the sidecar then bumps `version`. First version is created lazily — live row IS v1 until first edit (mirrors A.1). New routes `GET /:id/versions` and `GET /:id/versions/:n` under `/api/filter-profiles`. Hard-delete-with-guard preserved. Verified end-to-end via curl: created v1, two updates → v2/v3, GET /versions returned currentVersion=3 + 2 archived rows newest-first, GET /versions/1 + /versions/2 returned byte-correct frozen snapshots, GET /versions/99 returned clean 404. Test data fully cleaned up (0 leftover rows). Per-block override (originally floated for Step 7) is explicitly OUT OF SCOPE — FilterProfile is uniform across blocks. Live counts after this batch: **67 models** (was 66 → 67 after Phase A.3), 23 enums, 105 permissions, 89 feature privileges, 81 reauth actions, 25 sidebar items, 36 API modules, 30 config defs, 27 config pages. Doc files touched: CLAUDE.md, AGENTS.md, BACKEND_GUIDE.md, PROJECT_ARCHITECTURE.md, PROJECT_SUMMARY.md, README.md, OFFLINE_SYNC_ARCHITECTURE.md, LOCAL_SETUP_WINDOWS.md, windowsIssues.md, packages/shared/CLAUDE.md, apps/api/CLAUDE.md, apps/api/DECISIONS.md, docs/getting-started/system-requirements.md, docs/getting-started/what-is-digilog.md, docs/index.md, docs/user-guide/entities/entities-and-hierarchy.md, future/overview/CODEBASE_SUMMARY.md, API_REFERENCE.md (new Filter Profiles section), CHANGELOG.md (new Phase A.3 entry), PHASE_5_RECENT_WORK.md (closed gap), tasks/STEP-5B-A-VERSIONING-PLAN.md (A.3 marked DONE). Branch `feature/phase5-verification`; commit pending.
+
+- **2026-05-02 — L1+L2+L3 server-side fixes** — `getCurrentState()` now returns the cycle-pinned `EquipmentGroupVersion.snapshot` (commit `dbce282`) and the cycle-pinned `FilterCleaningProfile.id` pipeline (commit `63101d5`) when a cycle is in progress. Lazy-first-version + legacy null-pin fallbacks preserved. New advisory field `equipmentGroupSyncWarning` (commit `d7026ce`) symmetric to the existing `profileSyncWarning`. End-to-end verified via curl with seeded cycles. Counts unchanged. Closing of L1-L3 from `tasks/SERVER-ONLINE-WORKLIST.md`.
+
+- **2026-05-02 — L4 audit, no-change** — Defense-in-depth audit of `advance()` reading-validation snapshot/lazy-first-version/legacy paths (commit `a42fa54`, doc-only). Finding: instrument IDs are stable across edits because `equipment-groups.service.ts:163-178` mutates by id rather than replace; `instrumentReadings[inst.id]` lookups stay correct under all three branches. Auto-bind at submit is race-free in the synchronous online flow. Narrow offline-batch case is exactly what Slice B (`future/offline-version-sync-contract.md`) is designed to handle — out of scope. CHANGELOG entry "L4: advance() reading-validation snapshot/live equality audit — NO CHANGE" preserves the full reasoning.
+
+- **2026-05-02 — B7.1: apps/web vitest setup + diffSnapshots() regression suite** — Closes L6 (commit `1ab2a05`). New `apps/web/vitest.config.ts` (jsdom env, fresh `defineConfig` from `vitest/config` — intentionally NOT derived from `vite.config.ts` because it reads HTTPS certs at module load and registers VitePWA / Tailwind plugins that explode under unit-test runners), `apps/web/src/test-setup.ts` (jest-dom matcher registration), `vitest.workspace.ts` extension (touchpoint not in original spec; flagged in commit body), `apps/web/package.json` devDeps (`vitest`, `jsdom`, `@testing-library/{react,jest-dom}`) + `test`/`test:watch` scripts. New 10-test suite at `apps/web/src/routes/version-history/__tests__/diff.test.ts` covering each branch of `diffSnapshots()`: scalar change, keyed-array add/remove/recursive change, set-style add/remove, meta-field filtering, no-change deep-equal, plus checklist-profile + equipment-group cross-kind cases. Minimal `export` of `diffSnapshots`/`DiffChange`/`EntityKind` from `routes/version-history/index.tsx`; no runtime change to the page. Verification: `npx vitest run` → 10/10 passing; `tsc --noEmit` exit 0. Counts unchanged.
+
+- **2026-05-02 — B7.2: BLOCK_CHANGE_REQUIRED 409 handling on equipment-dialog + PM auto-start flows** — Commit `7a2f3b4`. Four catch sites that previously fell through to a generic toast now pop the structured block-change modal: mobile `handleEquipSubmit` (line ~1245), desktop `handleEquipmentSubmit` single (~1283) + batch (~1232), and the desktop **PM auto-start loop** (~721 — the only one without an inner try/catch; reviewer-fix iteration). Closure-stale `if (!blockChangeDialog)` guards inside sync `for/await` loops replaced with local `blockChangePopped` flags so the modal pops once on first hit and other items continue to iterate; `&& !blockChangePopped` symmetric guards added on post-loop generic `setPopupError` calls. No API change — `validateBlockChange()` already emits `{filterId, homeBlockId, homeBlockName, requestedBlockId, requestedBlockName}`. Full audit of all `executeOrQueue('start-cycle' | 'start-and-advance', …)` catch sites recorded in CHANGELOG entry. Verification: tsc clean api+web; B7.1 vitest still 10/10. Counts unchanged.
+
+- **2026-05-02 — B7.3: vitest unit test for getCurrentState() L1+L2 invariants** — Commit `0b2821f`. Closes the zero-coverage gap on `apps/api/src/modules/filter-operations/filter-operations.service.ts` (no `__tests__` folder existed for the module). New `apps/api/src/modules/filter-operations/__tests__/get-current-state.test.ts` — 7 tests across 2 describe groups. **L1 group**: case 1 — pin set + snapshot row exists → snapshot returned (live-row stub poisoned to a divergent value to make a regression that reads it instead fail loudly); case 2 — pin set + no snapshot + live.version === pin → live row returned, no console.warn; case 3 — pin set + no snapshot + live.version !== pin → live returned + single console.warn carrying pin/groupId/cycleId; case 4 — pin null (legacy) → live returned, `equipmentGroupVersion.findUnique` NEVER called (negative assertion); case 5 — no cycle group → block-fallback live group returned. **L2 group**: case 6 — `currentCycle.profileId !== resolvedLiveProfileId` → `getProfilePipeline` called with the cycle's `profileId`; case 7 control — pre-cycle path → live binding rendered. Mocks prisma à la `instance.service.test.ts` (`vi.hoisted` + `vi.mock`); spies on private `getProfilePipeline` after instance construction. No production-code change beyond the new test file. Verification: 7/7 passing; full api suite 82 passed (+ 2 pre-existing e2e failures unrelated, reproduced on HEAD~1). Counts unchanged.
+
+- **2026-05-02 — B7.4: equipmentGroupSyncWarning FE rendering on operator pages** — Commit `1d6ec6b`. Amber persistent advisory card on both `apps/web/src/routes/mobile/mobile-operations.tsx` and `apps/web/src/routes/filter-management/filter-operations.tsx`, rendered under the existing red error banner when the API returns non-null `equipmentGroupSyncWarning`. State set after each `getCurrentState` fetch (in `handleSubmit` mobile, `handleSubmitBatch` desktop) and cleared in: `goHome`, `openStage`, `closeDialog`, `clearScanState`, the URL-stage-sync `useEffect`, `handleBlockSelect`, both desktop `onChangeBlock` handlers (fullPage + modal), the mobile in-place "Change" block-chip button, and `performTask` (Wash-In jump). Reviewer Issue #1 (intra-stage state leak when operator changes block within the same stage) closed in fix iteration. Type declared inline at the call site — no `CurrentStateResponse` interface added. Copy verbatim: "Equipment group has been updated by admin (you started on v{pin}, current is v{live}). Your readings will continue to validate against the version you started with — terminate-and-restart only if you need the new ranges." Visual: `bg-amber-50 border-amber-200 text-amber-800`. Reviewer Issue #2 deferred — `DryingFiltersPanel`'s 15s SWR poller does not surface this advisory; documented as known limit + tracked in worklist deferred follow-ups. Verification: tsc clean api+web; B7.1 vitest 10/10. Counts unchanged.
+
+- **2026-05-02 — B7.5: doc + handover sync after Batch 7** — This commit. Marked L1-L4 + L6 DONE in `tasks/SERVER-ONLINE-WORKLIST.md` with closing-commit cross-refs; added "Status snapshot" + "Deferred follow-ups" sections. Appended "Outcome" section to `tasks/PLAN-2026-05-02-batch7-online-quality.md` with each B7.x final commit + summary. Inserted top-level **Batch 7 summary** entry above the four per-task `[Unreleased]` entries in `CHANGELOG.md`. New `tasks/RESUME-STATE-2026-05-02-batch7.md` (self-contained — full L1→B7.4 history, sanity-check commands, current state map, next-session checklist). These audit-log entries. Live-count regex sweep re-run — all eight tracked counts unchanged from Batch 6 baseline (Batch 7 was correctly invariant: only test infrastructure + FE rendering + closing cross-refs). Two deferred follow-ups recorded for future cleanup: B7.2 reviewer M1 (advanceBatch:422 closure-stale guard) + B7.4 reviewer Issue #2 (DryingFiltersPanel poller). Branch `feature/phase5-verification`; commit pending.
+
+- **2026-05-02 — Step 8 Phase 8.0: server tape generator + parallel-validation harness** — First batch of Step 8 (decision-tape architecture). Strictly additive; flag-gated. New module `apps/api/src/modules/filter-operations/tape/` with `types.ts` (Action discriminated union with 7 variants — ADVANCE_TO_STAGE / SUBMIT_CHECKLIST / SUBMIT_DRYER_READINGS / SET_DRYER_DURATION / BYPASS_STAGE / TERMINATE_CYCLE / COMPLETE_CYCLE — plus TapeInput/ActionTape/TapeChecklistProfile/etc.) and `tape-generator.ts` (pure function `generateTape(input: TapeInput): ActionTape`, no I/O, no prisma). Mirrors action-emission rules from `getCurrentState()` + `advance()`. Wired into `getCurrentState()` return block: when `process.env.TAPE_PARALLEL === 'true'`, `actions` + `tapeVersion` are appended to the response (otherwise omitted; existing fields untouched). Routes schema extended with explicit `actions` + `tapeVersion` properties (Fastify strips unlisted top-level keys; verified that sibling `stageLookup` is also explicit). 20 pure-function unit tests in `tape-generator.test.ts` covering each action type's emit conditions + edge cases. 8 parity tests in `tape-parity.test.ts` proving the tape's actions are internally consistent with `nextAllowedStages` / `pendingChecklist` invariants on the SAME response (TAPE_PARALLEL=true), plus flag-OFF leaves response shape unchanged. tapeVersion derivation: `profileVersion * 1000 + recentChecklistEventCount` (placeholder; Phase 8.4 may revisit). Verification: tsc clean (api), focused vitest 35/35 (7 B7.3 + 20 unit + 8 parity), full vitest 1156/1158 (only the 2 known pre-existing e2e failures auth/forgot-password and config/action-reauth, unrelated). Curl smoke skipped — additive code path defaults OFF; coverage proven by parity test `p6` (flag OFF → no fields) and `p7` (flag ON → fields present). Out of scope: FE consumption (8.1+), offline replay (8.3), removing existing fields (8.4 cutover), APK (8.5). Counts unchanged. Branch `feature/phase5-verification`; commit pending.
+
+---
+
+
 ## Survey results
 
 **224 tracked .md files**, plus 6 untracked AI-generated docs in the root. The doc landscape splits into 5 buckets:
@@ -827,3 +877,672 @@ git mv old/docs-superseded/ARCHITECTURE.md ARCHITECTURE.md
 ```
 
 Everything is reversible — nothing was deleted.
+
+---
+
+## 2026-04-29 (evening) — windows-friendly-rewrite Phases 1 install-fix + 3 + apps/api test cleanup + doc sync
+
+Branch: `feature/phase3-reports-edge` → `windows_dep` at `b2c3b37` plus a follow-up doc-sync commit landing this audit entry.
+
+### Code changes (commits in chronological order)
+
+- `0ecc151 fix(mosquitto): make install script produce a service-bootable conf` — Phase 1 follow-up. Live Windows-Server e2e found that the SCM-managed Mosquitto service has CWD=System32 and no stdout, so the source `mosquitto.windows.conf`'s relative `./data/`, `./dynamic-security.json`, and `log_dest stdout` silently exited the broker on every launch. Install script now rewrites the deployed copy with absolute paths + file logging.
+- `79937b7 feat(reports): edge-detector helper for puppeteer-core executablePath` — new `apps/api/src/modules/reports/renderers/edge-detector.ts`. Probes `PUPPETEER_EXECUTABLE_PATH` → Windows Edge → Windows Chrome → Linux Chromium → macOS `.app` bundles. 6 vitest cases.
+- `abdc9dd feat(reports): switch pdf-renderer from puppeteer to puppeteer-core + Edge` — drops `puppeteer` (~150 MB Chromium download), adds `puppeteer-core` driving Edge. Cold-start render time 34 s → 1.9 s.
+- `d72d44c feat(reports): replace chartjs-node-canvas with @napi-rs/canvas` — drops `chartjs-node-canvas` (transitive `canvas` needs Cairo + node-gyp + MSVC + Python), adds `@napi-rs/canvas` (prebuilt N-API binaries) + `chartjs-adapter-date-fns` for time-axis charts. Renderer adds explicit white background fill.
+- `06bcb95 fix(tests): bring apps/api vitest suite back from 30 failed files / 65 failed tests to 11 / 14` — vitest infra (env loader, admin-user globalSetup, `fileParallelism: false`) + 11 service/plugin/test mock fixes.
+- `b2c3b37 fix(tests): zero failed tests across the workspace` — finishing pass: e2e snippets/UUIDs, RB0001 + VIEWER fixtures, config-route reauth header fallback (real impl bug), real-schema in user-id validator, ingestion alarm.findFirst mock, plus four `packages/shared` assertion drifts (limit caps + audit-template count). Also restored `userQuerySchema.limit.max(100).default(20)` and `assetQuerySchema/templateQuerySchema.limit.max(100).default(50)` because unbounded list-endpoint limits is a DoS surface.
+
+### Doc updates done in this audit pass
+
+- `windowsIssues.md` — §1 (Puppeteer), §2 (chartjs-node-canvas), §3 (EMQX), §7 (Memurai) marked resolved with commit hashes; "Recommended deployment stance" table updated to reflect Mosquitto + graphile-worker + puppeteer-core + Edge + @napi-rs/canvas.
+- `CHANGELOG.md` — new "[Unreleased] — Phase 3 of windows-friendly-rewrite + test cleanup" section at top with full Added/Changed/Removed/Fixed/Verified-live/Resolved-windowsIssues breakdown.
+- `LOCAL_SETUP_WINDOWS.md` — § 1.5 rewritten for Mosquitto silent install via `scripts/install-mosquitto.ps1`; `.env` template swapped from `EMQX_ADMIN_PASSWORD` → `MOSQUITTO_ADMIN_PASSWORD` + `MOSQUITTO_REFRESH_TOKEN`; service / port / troubleshooting tables updated.
+- `DEPLOY-WINDOWS.md` — architecture diagram, install table, first-run verification, troubleshooting, summary checklist all updated; "Server Core works for the API itself" note added (Phase 3 made this true).
+- `BACKEND_GUIDE.md` — Transport Layer table now lists `mosquitto-acl-generator.ts` + `mosquitto-refresh-routes.ts`; `mqtt-auth-routes` flagged as legacy/Phase-4-deletion-target; Workers table mentions `LISTEN/NOTIFY` + `SKIP LOCKED`; env-var template updated.
+- `apps/api/CLAUDE.md` — Mosquitto replaces EMQX in the local-services list.
+- `CLAUDE.md` (root) — env list (`Mosquitto 2.0` replaces `EMQX 5.x`), Key Local URLs (Mosquitto port + dynsec note instead of EMQX dashboard), Phase 5 narrative updated to reference puppeteer-core + @napi-rs/canvas.
+- `PHASE_5_RECENT_WORK.md` — new "§ 12 Windows-friendly rewrite (Phases 1–3 complete; 4–5 outstanding)" section with the cut-over commit hashes and pass-rate snapshot.
+- This `tasks/todo.md` audit entry.
+- Memory: 4 entries (`feedback_mosquitto_windows_service_install`, `feedback_mosquitto_dynsec_install_dir`, `project_orphan_uns_mapping_cwhf0500`, `feedback_doc_sync_each_phase`).
+
+### Outstanding doc work for Phase 4
+
+When Phase 4.1–4.3 land (script + env-file edits), update:
+- `apps/api/.env.example` itself
+- `future/overview/CODEBASE_SUMMARY.md` tech stack section
+- `future/overview/CURRENT_STATUS.md` gotchas section
+- `future/qa/KNOWN_ISSUES.md` — drop the Memurai + EMQX entries
+- `docs/index.md` stats line
+- `README.md` if it mentions any of the swapped deps
+- `PROJECT_SUMMARY.md` and `PROJECT_ARCHITECTURE.md` tech-stack lines
+
+The above weren't touched in this pass because they're either count-bearing
+(need a fresh live-count run) or describe the stack at a level that should
+land alongside the `install-on-target.ps1` / `package-for-production.ps1`
+script edits in Phase 4.
+
+### Verification commands run before doc updates
+
+```bash
+git log --oneline 7832af1..HEAD                                                  # confirmed 6 today's commits
+grep -cE "^model "                       apps/api/prisma/schema.prisma           # 64 unchanged
+grep -nE "Memurai|EMQX|Puppeteer|chartjs-node-canvas" windowsIssues.md           # found § 1/2/3/7 to mark
+git diff --name-only feature/phase2-pg-queue..windows_dep                        # full file list
+```
+
+Pass-rate at audit time: `apps/api 1123/1123 + packages/shared 150/150 + packages/queue 6/6 = 1279/1279, all green`.
+
+---
+
+## 2026-04-29 — windows-friendly-rewrite Phase 4 — Tooling cleanup (Install + Packaging)
+
+Branch: `feature/phase4-tooling`. Cut-over commits `127f25d..60d3c90` (4 commits, all on the worktree). No code changes — only the two installer/packager scripts and the `.env.example` template were touched. The point of the phase: make the scripts honest about the post-Phase-1+2+3 stack (Mosquitto, graphile-worker, puppeteer-core+Edge, @napi-rs/canvas) instead of pretending the customer needed Memurai / EMQX / PM2 / a baked-in Nginx config.
+
+### Code changes (commits in chronological order)
+
+- `127f25d chore(install): drop Memurai/EMQX/PM2 from install-on-target.ps1; add Mosquitto + Edge + LongPaths` — removed the Memurai/Redis prereq probe, the EMQX firewall rule + 18083 dashboard port, the PM2 install/start/save blocks, and the inline Nginx-config drop. Added `install-mosquitto.ps1` invocation, `LongPathsEnabled = 1` registry edit (try/catch), Microsoft Edge presence probe (warns if missing), and renamed firewall rule for 1883 to `DigiLog Mosquitto MQTT`. Footer reduced to 9 numbered steps.
+- `5dd0eab fix(install): correct footer launch instructions and unreliable error checks` — review-fix. Footer rewritten to honest "smoke-test only" wording (`cd api; node dist/app.js` in foreground, no auto-restart, no boot persistence, no log rotation; managed-Windows-service launcher tracked as Phase 5 work). Removed bogus `$LASTEXITCODE` check that was always passing on the fail path. Dropped a `2>&1` redirection from `npx prisma db seed` that wraps native stderr in NativeCommandError records and trips `$ErrorActionPreference = 'Stop'` even on exit-code-zero.
+- `bcfd621 chore(packaging): align package-for-production.ps1 with Mosquitto/graphile-worker/puppeteer-core stack` — dropped copies of the broken `start-digilog.ps1` / `stop-digilog.ps1` shells. `install-on-target.ps1` and `install-mosquitto.ps1` are now hard-required (throws on missing). Copies the repo's `mosquitto/` config dir to the output zip. Replaced inline `.env.example` template's MQTT(EMQX) + Redis blocks with a single Mosquitto block + graphile-worker note + commented `PUPPETEER_EXECUTABLE_PATH` override.
+- `60d3c90 fix(packaging): clarify partial mirror of .env.example, normalize Mosquitto placeholders, repair Write-Host -f bug` — review-fix. Added explicit-scope comment naming the inline template as a partial mirror of `apps/api/.env.example`. Fixed pre-existing `Write-Host -f` bug where the parameter alias was treated as a positional. Normalized `MOSQUITTO_ADMIN_PASSWORD` + `MOSQUITTO_REFRESH_TOKEN` placeholder strings to SHOUTY_SNAKE so the file matches the packager output. `apps/api/.env.example` updated for the same.
+
+### Doc updates done in this audit pass
+
+- `CHANGELOG.md` — new "[Unreleased] — Phase 4 of windows-friendly-rewrite — Tooling cleanup (Install + Packaging)" section at top. Lists all four commit hashes and what changed in operator-facing language.
+- `DEPLOY-WINDOWS.md` — full rewrite of:
+  - Section 1 (what's in the box) — drops `start-digilog.ps1`/`stop-digilog.ps1`, adds `mosquitto/` directory + `install-mosquitto.ps1`
+  - Section 2 (architecture diagram) — drops PM2 + Nginx boxes, swaps in foreground-smoke-test note
+  - Section 3 (prereqs table) — Nginx removed entirely, Memurai marked optional, Mosquitto marked "installed by script", Edge entry expanded with override hint, plus the Phase-4 disclaimer paragraph
+  - Section 5.4 (install script does) — rewritten to actual 9 steps shipped in `127f25d`/`5dd0eab`, plus the foreground-smoke-test launch
+  - Section 5.5 (was Nginx config) — **deleted entirely**; remaining sections renumbered (5.5 cert-on-tablet, 5.6 APK install)
+  - Section 6 (smoke tests) — renumbered to 8 steps; explicit `Test-NetConnection localhost -Port 1883`, graphile-worker schema check via `information_schema.tables`, TimescaleDB extversion check; PM2/Nginx-specific steps removed; SPA now served by Fastify directly on `:3000`
+  - Section 7 (auto-start) — replaced PM2/Nginx-via-NSSM block with NSSM-as-stopgap-for-API-only block + Phase 5 deferred note
+  - Section 9 (update path) — replaced `pm2 stop`/`pm2 restart`/`nginx -s reload` with manual Ctrl-C + relaunch (or NSSM if registered)
+  - Section 10 (troubleshooting) — `pm2 logs` references swapped to console output / NSSM logs; new row for missing-Edge PDF failure; PM2-startup row swapped for Phase-5-deferred note
+  - Section 11 (handover checklist) — PM2/Nginx items removed; smoke-test count bumped from 6 → 8; NSSM stopgap line added
+  - Section 12 (support) — `pm2 logs` swapped for console output / NSSM log path
+- `windowsIssues.md` — § 14 (Optional Nginx) gained a "Phase 4 status (2026-04-29)" footnote with the four commit hashes and a pointer to `DEPLOY-WINDOWS.md § 7` for the NSSM stopgap.
+- `tasks/todo.md` — this entry.
+
+### Files NOT touched in this pass (and why)
+
+- `LOCAL_SETUP_WINDOWS.md` — `d6bdd7c` (Phase 3 doc-sync) already removed every PM2/EMQX reference from the local-dev guide and the `.env` template already lists the Mosquitto vars. Re-read end-to-end during this pass; nothing further to add for Phase 4 (the file is about *local dev*, not the production install path the scripts target).
+- `apps/api/CLAUDE.md` — `d6bdd7c` already swapped the local-services list to Mosquitto. The "Phase 4 Update (2026-04-14)" section in that file refers to a different "Phase 4" (the in-app permissions/themes/reports phase, not the windows-friendly-rewrite Phase 4). Leaving as-is.
+- `CLAUDE.md` (root) — `d6bdd7c` already updated the env list to read `Node.js 20+, PostgreSQL 18 + TimescaleDB, Mosquitto 2.0`. No PM2 or Nginx mention.
+
+> **Update — caught in code-reviewer follow-up pass (commit on top of `99ca7ad`):** `README.md` line 105 still listed `Reverse proxy | Nginx (production deployment)`, `BACKEND_GUIDE.md` line 10 still said `Production: pm2 start dist/app.js --name digilog-api`, and `PHASE_5_RECENT_WORK.md` line 281 still claimed `install-on-target.ps1` "assumes Node.js 20+, PostgreSQL 18 + TimescaleDB, Memurai, EMQX, optional Nginx already installed; runs migrations, registers NSSM Windows service" — all three were operationally wrong post-Phase-4 and are fixed in the follow-up commit. The CHANGELOG also had a `DATABASE_URL_QUEUE` claim that didn't match what the packager template actually writes; rewritten to match the real text. The `install-on-target.ps1` footer's "section 5.6 / 5.7" pointers were stale (DEPLOY-WINDOWS.md had been renumbered after dropping the old 5.5 Nginx-config section); fixed to 5.5 / 5.6.
+
+### Known follow-ups (Phase 5 doc sync)
+
+These four architecture-diagram-heavy docs still carry stale Nginx / EMQX / Memurai references. They were intentionally not touched in this Phase 4 doc-sync because the prose is woven into system-architecture diagrams that should be redrawn once the Phase 5 managed-service launcher actually ships and the install topology is final. Listed here so the deferral is on the record:
+
+- `PROJECT_ARCHITECTURE.md` — system-architecture diagram still shows Nginx + Memurai boxes
+- `API_REFERENCE.md` — header prose still mentions Memurai/EMQX as required services
+- `FRONTEND_GUIDE.md` — deployment context still references Nginx as reverse proxy
+- `OFFLINE_SYNC_ARCHITECTURE.md` — prose still references the EMQX broker by name
+
+Other things noticed during the follow-up fix pass:
+
+- The `PHASE_5_RECENT_WORK.md` `### Production deployment artifacts (Windows)` section is the right home for a future "What changed in Phase 4 vs Phase 5" subsection once Phase 5 lands. The current Phase-4-fix-pass edit just made the existing bullet honest about today's behavior.
+- `DEPLOY-WINDOWS.md` § 7 (NSSM stopgap) is now referenced from three places (README.md tech-stack row, BACKEND_GUIDE.md production launch line, PHASE_5_RECENT_WORK.md install-on-target.ps1 description). Phase 5 should replace that one section with the real managed-service launcher recipe and update the three back-references in lockstep.
+- No `.env.example` or `.env.production` audit was done in this pass; if the customer-facing template ever gains new fields, the inline mirror in `package-for-production.ps1` needs to track them — the explicit-scope comment added in `60d3c90` is the only thing keeping that connection visible right now.
+
+### Verification commands run before doc updates
+
+```bash
+git log --oneline 5f56cec..HEAD                                          # confirmed 4 today's commits on feature/phase4-tooling
+grep -nE "PM2|pm2|EMQX|18083|nginx|Nginx" DEPLOY-WINDOWS.md              # found 9 stale references; all rewritten or footnoted
+grep -nE "PM2|pm2|EMQX" windowsIssues.md                                 # only § 14 Nginx mentions; added Phase 4 footnote
+grep -nE "PM2|EMQX|nginx|Memurai" LOCAL_SETUP_WINDOWS.md                 # already clean from d6bdd7c
+```
+
+No code, no tests run — pure script + docs. End-to-end install-script proof will land in **Phase 5.1** (windows-server-stack integration test).
+
+---
+
+## 2026-04-29 — windows-friendly-rewrite Phase 5 — FULL doc-sync sweep (active set + future/)
+
+Branch: `feature/phase5-verification` (worktree at `.worktrees/phase5-verification`). Single docs commit on top of `24620c0` (Phase 5.1 + 5.2 — integration test + `verify-windows-deployment.ps1`). No code changes.
+
+### What this pass closes
+
+Phase 4 doc-sync (`99ca7ad` + `c9d94a1`) explicitly **deferred** four architecture-diagram-heavy docs to Phase 5. This sweep finishes those plus everything else in the CLAUDE.md "Active doc set" that still carried stale Nginx / EMQX / Memurai / BullMQ / PM2 / "63 models" / "57 models" / "95 perms" references.
+
+### Phase 4 deferred files — closed
+
+- `PROJECT_ARCHITECTURE.md` — system-architecture diagram redrawn (Fastify-direct on `:3000`; reverse proxy is optional/customer-choice; queue moved to graphile-worker on Postgres; broker is Mosquitto 2.0). Request flow, data-ingestion-pipeline, queue-architecture table (BullMQ → graphile-worker tasks + cron), security-layers (Nginx SSL → Fastify TLS), and protocols table (HTTPS :443 → :3000) all updated. `63 models` → `64 models`. Redis usage scoped to "pub/sub only" with Phase 4 follow-up note.
+- `API_REFERENCE.md` — base URL prose drops "via Nginx"; "Internal Endpoints (EMQX callbacks)" section rewritten as "Internal Endpoints (Mosquitto dynamic-security)" pointing at `POST /api/internal/mqtt/refresh-acl`; "Permission Reference (95 total)" updated to live count of 109 with the verification command.
+- `FRONTEND_GUIDE.md` — "served by Nginx in production" rewritten to "served by Fastify on `:3000`; reverse proxy optional/customer-choice"; reauth count `69` → `81`.
+- `OFFLINE_SYNC_ARCHITECTURE.md` — APK/web connection diagram drops Nginx box, route-modules count `34` → `37`, `63 models` → `64`, `EMQX — MQTT broker` → `Mosquitto 2.0`, `Redis/Memurai — BullMQ job queues` → `graphile-worker on Postgres — job queues; Redis (optional) — non-queue pub/sub only`.
+
+### Other active-doc-set fixes
+
+- `AGENTS.md` — `34` → `37`, `57/17` → `64/22`, `52+ permissions` → `109/91/81/26`. "BullMQ jobs" → "graphile-worker jobs".
+- `PROJECT_SUMMARY.md` — monorepo tree refreshed (graphile-worker, dropped `deploy/`, `scripts/` description). `BullMQ job queues 5` → graphile-worker `5` cron + tasks. `95 granular controls` → `109` with verification cmd. "Production Deployment (Windows Server)" rewritten honestly.
+- `README.md` — `packages/queue/` line in the contents table swapped to graphile-worker prose.
+- `apps/api/CLAUDE.md` — module count `34` → `37`; module list refreshed to include `report-templates`/`reports` and `30` defs (was `23`); "Phase 4 Update" disambiguated; `95 total permission constants` → live count of `109`.
+- `apps/api/DECISIONS.md` — Decision #26 (BullMQ for Ingestion Queue) updated to record the Phase 2 swap; Decision #39 (Force IPv4 SMTP) flagged as historical-EC2-era.
+- `apps/web/CLAUDE.md` — `# Build (for Nginx serving or APK packaging)` comment swapped; `20+ page modules` → `23 route folders/files; ~85 pages; 81 <Route>`.
+- `windowsIssues.md` — added "Phase 5 status footnote" pointing at `tests/integration/windows-server-stack.test.ts` (Phase 5.1) + `scripts/verify-windows-deployment.ps1` (Phase 5.2). "Things that work fine" list updated.
+
+### Reference docs (`docs/`, `future/`, `PROJECT_HANDOVER/`)
+
+- `docs/getting-started/system-requirements.md` — full rewrite; legacy port table marked as "no longer part of standard install".
+- `docs/getting-started/what-is-digilog.md` — architecture stack list updated.
+- `docs/compliance/21-cfr-part-11.md` — "HTTPS support via Nginx" → Fastify TLS via mkcert.
+- `docs/user-guide/connectivity/mqtt.md` — full rewrite for Mosquitto 2.0.
+- `docs/user-guide/telemetry/telemetry.md` — `via EMQX broker` → `via Mosquitto 2.0`.
+- `docs/user-guide/data-export/data-export.md` — `via BullMQ` → `via graphile-worker on Postgres`.
+- `docs/user-guide/entities/entities-and-hierarchy.md` — `57/17` → `64/22`.
+- `docs/deployment-methods/{README,method-a,method-b,method-d,method-e,comparison}.md` — added Phase 4/5 status banners pointing at root `DEPLOY-WINDOWS.md`; original prose preserved as historical context.
+- `future/overview/CODEBASE_SUMMARY.md` — `BullMQ queue definitions` → graphile-worker.
+- `future/overview/API_LIST.md` — EMQX webhook footer note rewritten.
+- `future/backend/README.md` — Tech stack line, transport block, env-var table, workers note all rewritten.
+- `future/backend/API_ENDPOINTS.md` — MQTT topics note updated.
+- `future/backend/ENV_SETUP.md` — prereqs list, Memurai section, Nginx mention all rewritten.
+- `future/frontend/README.md` — `served by optional Nginx` rewritten to Fastify-direct + Capacitor APK.
+- `future/qa/README.md` — local prod URL no longer points at Nginx; EMQX dashboard reference removed.
+- `future/qa/FEATURE_CHECKLIST.md` — EMQX webhook check rewritten as Mosquitto refresh-acl.
+- `future/qa/ACCEPTANCE_CRITERIA.md` — `/api/system-health` expected outputs adjusted.
+- `PROJECT_HANDOVER/APPLICATION_FLOW.md` — header banner added; existing Mermaid diagrams + .docx renders preserved as historical Phase-4 snapshot.
+- `CHANGELOG.md` — new top-of-file `[Unreleased] — Phase 5 doc-sync sweep` entry summarising all of the above.
+
+### Files NOT touched in this pass (and why)
+
+- `docs/runbooks/queue-cutover.md` — this **is** the cutover runbook itself (describes the BullMQ → graphile-worker migration). Mentions of BullMQ + Memurai + the cut-over flag are correct in that role; rewriting would erase the runbook's purpose.
+- `docs/plans/2026-04-29-windows-friendly-rewrite.md` — the source-of-truth plan for the rewrite phases. Mentions the old stack on purpose.
+- `docs/CONTRIBUTING.md` — references EC2 / PM2 in historical receipts about what was found and removed; correct as historical receipts.
+- `apps/web/DECISIONS.md` line 13 — small inline parenthetical "(nginx) would handle this"; correctly describes original design intent.
+- `LOCAL_SETUP_WINDOWS.md`, `DEPLOY-WINDOWS.md`, `BACKEND_GUIDE.md` (mostly), root `CLAUDE.md`, `PHASE_5_RECENT_WORK.md`, `packages/shared/CLAUDE.md`, `future/overview/CURRENT_STATUS.md`, `future/qa/KNOWN_ISSUES.md`, `future/README.md`, `future/frontend/KEY_FILES.md`, `future/testing/*`, `future/backend/MODULES.md`, `docs/index.md`, `docs/administration/*` — already updated in earlier passes; re-read end-to-end during this pass; no further edits needed.
+- `PROJECT_HANDOVER/diagrams/*.png` + `APPLICATION_FLOW.docx` — paired binary renders that should regenerate together when the handover doc is rebuilt for a Phase 5+ release. Out of scope for a docs-only sweep.
+
+### Verification commands run before doc updates
+
+```bash
+git log --oneline 24620c0..HEAD                                                  # baseline (Phase 5.1 + 5.2 already on the worktree)
+grep -cE "^model "                       apps/api/prisma/schema.prisma           # 64
+grep -cE "^enum "                        apps/api/prisma/schema.prisma           # 22
+grep -cE "^\s+[A-Z_]+:\s*'"              packages/shared/src/types/permissions.ts  # 109
+grep -cE "^\s+[A-Z_]+:"                  packages/shared/src/types/reauth-actions.ts # 81
+ls apps/api/src/modules/ | wc -l                                                  # 37
+ls apps/api/src/modules/config/defs/*.def.ts | wc -l                              # 30
+ls apps/web/src/routes/config/*.tsx | wc -l                                       # 26
+grep -cE "<Route" apps/web/src/main.tsx                                           # 81
+grep -rln -iE "emqx|memurai|bullmq|nginx|pm2" --include="*.md" .                  # before edits: ~30 files; after: residual matches are explicit historical / runbook / plan references
+```
+
+No code changes, no tests run. Pure docs-only commit. Phase 5.1's `tests/integration/windows-server-stack.test.ts` (`INTEGRATION_TEST=1`) and Phase 5.2's `scripts/verify-windows-deployment.ps1` shipped before this sweep, so the prose can describe their existence honestly.
+
+## 2026-04-30 — Phase 5.1 reviewer follow-up cycle (audit log)
+
+Branch: `feature/phase5-verification`. Pure-review pass on the integration suite (no new functionality), final verdict `APPROVED` after `24620c0`.
+
+### Sequence
+1. Code-quality reviewer audit on `a51628d` (windows-server-stack integration test, 4 files / 503 LOC) — 12 question prompts from project-manager spec. Verdict: `NEEDS_FIX` (2 CRITICAL + 4 IMPORTANT + 5 NICE-TO-HAVE).
+2. Implementer fix-up commit `24620c0` — addresses every flagged item: MQTT subscribe-handshake race (gated on `aedes.on('subscribe')` + 5 s timeout against API client id `digilog-server`), `afterAll` cleanup error logging (no more `catch { /* ignore */ }`), publisher leak (`cleanupClients[]` + try/finally), real diagnostic block (prisma → `graphile_worker.jobs` + `connectivity_status`, runs before assertion), TSDB env fail-loud check, `aedes.handle as never` cast comment, `phase5PingPayloads` declaration moved above `beforeAll`, `console.log` moved before assertions.
+3. Re-review of `24620c0` — 4 spot-checks per project-manager spec (clientId match, 5 s timeout reject path, per-client cleanup-loop error isolation, prisma diagnostic targets `digilog_db` not `digilog_tsdb`). All pass. Two leftover NICE-TO-HAVEs noted (timer leak when subscribe gate wins, dead error path on `client.end` callback) — non-blocking. Verdict: `APPROVED`.
+4. Doc-sync commits `29712d6` + `98023bd` (already on the worktree before this session) cover the verification work in `CHANGELOG.md`, `PHASE_5_RECENT_WORK.md` § 12 + table, `API_REFERENCE.md`, `BACKEND_GUIDE.md`, `DEPLOY-WINDOWS.md`, `PROJECT_ARCHITECTURE.md`, `windowsIssues.md` footnote.
+
+### Doc updates this session
+- `CLAUDE.md` (root) — Phase 5 snapshot block extended with a "verification harness" sub-paragraph that lists 5.1 + 5.2 plus their commit ranges, so the index file matches the live state (was previously stopping at "decision-tape proposal" before the verification work landed).
+- `tasks/todo.md` — this audit-log entry, per CLAUDE.md "Always-update on any feature change" rule.
+
+### Verification commands run
+```bash
+git status                                                       # tree clean before this session's edits
+git log --oneline -10                                            # confirms 98023bd, 29712d6, 24620c0, a51628d on branch
+npx vitest run tests/integration/windows-server-stack.test.ts    # gate-off: 4 skipped, 0 failed (572 ms)
+npx vitest run                                                   # workspace: 1179 passed / 7 failed / 276 skipped — 0 of the failures involve tests/integration/, baseline preserved
+```
+
+### Out of scope this session
+- Running with `INTEGRATION_TEST=1` against live infra — same sandbox limit as prior sessions (no Postgres/Mosquitto/Edge in this worktree).
+- Two leftover NICE-TO-HAVEs flagged in the re-review (timer cleanup, dead `client.end` catch) — left as-is per implementer + reviewer agreement; both are stylistic, not correctness.
+
+## 2026-04-30 — Phase 5+ managed Windows-service launcher (audit log)
+
+Branch: `feature/phase5-verification`. Closes the only open Phase 5+ item documented in `PHASE_5_RECENT_WORK.md` § 12 line 418 ("a managed Windows-service launcher with restart policies, log rotation, and boot persistence"). Plus a build-fix detour and a small encoding gotcha.
+
+### What landed
+
+- `scripts/install-services-phase5.ps1` — NSSM-driven registration of `DigiLogAPI-Phase5` + `DigiLogWeb-Phase5`. Boot-persistent (`Start=SERVICE_AUTO_START`), auto-restart on crash (`AppExit Default=Restart`, 3 s delay), 10 MB rotated logs in `logs/`, `NODE_ENV=production` env, API depends on `postgresql-x64-18`.
+- `scripts/uninstall-services-phase5.ps1` — companion teardown, idempotent.
+- `.gitignore` — added `nssm-path.txt` (per-machine NSSM exe pin) and `logs/` (rotated NSSM logs).
+- Three pre-existing TypeScript build errors on the branch fixed in commit `1697f99` (separate from the launcher work but found in the same session because building the artifacts the launcher needs surfaced them): `checklist-profile.service.list` query type missing `expand?: string`; `deployment-check/routes.ts` reading non-existent `role.privileges` (should be `role.permissions`, schema.prisma:166); `filter-operations.getFilter` select missing `parentId` (retire flow at line 1509 needs it).
+
+### Sequence
+
+1. Stopped foreground processes (the bash-harness API died at 600 s timeout; killed the still-live frontend pid 21016).
+2. `winget install --id NSSM.NSSM` (elevated). Found at `$env:LOCALAPPDATA\Microsoft\WinGet\Packages\NSSM.NSSM_*\nssm-*\win64\nssm.exe`; PATH not refreshed in current shell. Pinned the exe path to worktree-local `nssm-path.txt`.
+3. Wrote `install-services-phase5.ps1`. First elevated run failed with PS 5.1 parse errors. Root cause: the file had Unicode box-drawing characters (`─`, `—`) and was saved without a UTF-8 BOM; PS 5.1 reads BOM-less files as ANSI, mangling the multi-byte UTF-8 sequences and breaking string tokenisation downstream. Rewrote both scripts in ASCII-only form (per the CLAUDE.md "default file encoding is UTF-16 LE with BOM" hint, but ASCII-only is more portable). Verified with `[System.Management.Automation.PSParser]::Tokenize` against PS 5.1.
+4. Elevated install succeeded. Both services started, both ports listening, full auth round-trip green.
+5. Crash test: `Stop-Process` on API node pid (was 14904) → NSSM auto-restarted as pid 7536 within 3 s, service stayed `Running`. Log rotation confirmed working (prior crash's stdout/stderr archived to timestamped files, fresh logs for the live process).
+
+### Doc updates this session
+
+- `PHASE_5_RECENT_WORK.md` § 12 — heading line and lead sentence updated; added a `5+ — Managed service launcher` row to the status table; deleted the "still pending" callout below the table (the gap is closed).
+- `CHANGELOG.md` — top entry `[Unreleased] — Phase 5+ managed Windows-service launcher (2026-04-30)` summarising added scripts, fixed TS errors, and live verification.
+- `.gitignore` — added the two new ignore patterns described above.
+- `tasks/todo.md` — this audit-log entry, per CLAUDE.md "Always-update on any feature change".
+
+### Verification commands (live, post-install)
+
+```powershell
+Get-Service Digi*-Phase5                                         # Running / Automatic
+curl -sk https://localhost:3000/api/health                       # {"status":"ok"}
+curl -sk -o /dev/null -w "%{http_code}" https://localhost:5175/  # 200
+Stop-Process -Id <api-pid> -Force; Start-Sleep 6; Get-Service DigiLogAPI-Phase5  # still Running (NSSM auto-restart)
+```
+
+### Out of scope this session
+
+- Removing the legacy `start-digilog.bat` / `stop-digilog.bat` — those still target the parent repo (not the worktree) and use `tsx watch` / `vite --host` in dev mode, which is a different workflow from the production-style services this work added. Kept as-is for the dev path; the new scripts are the production path.
+- Migrating the parent repo to the same NSSM scripts — the install pattern works for any worktree but the service names hard-pin the worktree path via NSSM `AppDirectory`. Would need a parameterised version. Out of scope; separate follow-up if you want the main install supervised the same way.
+
+---
+
+## 2026-04-30 — Architectural Refactor Step 1: Admin-editable TemplateKind lookup
+
+User asked for a 9-step structural refactor (full plan in `future/architectural-refactor-9-steps.md`; resume guide in `tasks/RESUME-STATE-2026-04-30-step1-templateKind-done.md`). Step 1 done. Steps 2-9 pending in the task list (#18 - #25).
+
+### What landed (uncommitted, per Q4 standing instruction)
+
+Schema: dropped closed `enum TemplateKind`, added `model TemplateKind` (id, code unique varchar(50), label, description, isSystem, isActive, sortOrder, audit cols). `AssetTemplate.templateKind` is now `String @db.VarChar(50)` FK to `TemplateKind.code`.
+
+Backend: new `apps/api/src/modules/template-kinds/routes.ts` with full CRUD under `/api/template-kinds`. System kinds protected (delete returns 409 SYSTEM_KIND with helpful message; PUT preserves code; only label/description/sortOrder/isActive are admin-editable on system rows). In-use kinds protected from delete (409 IN_USE; user must reassign templates first). Audit logged on all writes.
+
+Shared: `SYSTEM_TEMPLATE_KIND_CODES`, `templateKindCodeSchema` (UPPER_SNAKE_CASE regex), `createTemplateKindSchema`, `updateTemplateKindSchema` in `packages/shared/src/schemas/assets.ts`. Barrel-exported.
+
+Seed: 6 system kinds inserted on every fresh DB.
+
+Frontend: new `/config/template-kinds` page (full CRUD UI, lock badge for system rows, +New Kind form). Template form dropdown SWR-fetches from `/api/template-kinds?isActive=true`. Templates list shows label looked up from kind code. 10 frontend lookup sites converted from `t.name === 'Block'` etc. to `t.templateKind === 'BLOCK'`.
+
+Bug fix landed during step-1 verification: `template.repository.ts` type signature accepted `templateKind` but the Prisma `data: { ... }` block was silently dropping it; every created template landed with OTHER. Fixed.
+
+### Live counts after Step 1
+
+| Count | Was | Now |
+|---|---|---|
+| Prisma models | 64 | 65 |
+| Prisma enums | 22 | 22 (unchanged - TemplateKind moved enum to model in same session) |
+| API modules | 37 | 38 |
+| Config pages | 26 | 27 |
+
+### Doc files touched in this audit pass
+
+- `CHANGELOG.md` - new `[Unreleased] - Architectural Refactor Step 1` section above the Phase 5+ NSSM entry
+- `CLAUDE.md` (root) - System Stats now show 65/22, 38, 27; TemplateKind clarified as lookup-table, not enum
+- `apps/api/CLAUDE.md` - Key Paths, Architecture, "38 API Modules" list (template-kinds added in bold)
+- `packages/shared/CLAUDE.md` - `assets.ts` row in the Schemas table mentions `SYSTEM_TEMPLATE_KIND_CODES` + new CRUD schemas
+- `BACKEND_GUIDE.md` - "37 to 38 API modules" + new note under section header
+- `API_REFERENCE.md` - new `### Template Kinds (admin-editable lookup)` block under Templates
+- `FRONTEND_GUIDE.md` - Configuration page count 26 to 27 + new `/config/template-kinds` row
+- `PROJECT_SUMMARY.md` - backend module count + Prisma model count
+- `PROJECT_ARCHITECTURE.md` - Module Structure count + 38-module table (Assets row mentions template-kinds)
+- `future/architectural-refactor-9-steps.md` - NEW file capturing the 9-step plan, current step status, and out-of-band notes
+
+### Doc files intentionally NOT touched
+
+- `windowsIssues.md` - Step 1 doesn't resolve a Windows-compatibility item.
+- `LOCAL_SETUP_WINDOWS.md` / `DEPLOY-WINDOWS.md` - no install-path changes from this step.
+- `OFFLINE_SYNC_ARCHITECTURE.md` - offline cache shape unchanged (templateKind passes through as opaque string).
+- `PHASE_5_RECENT_WORK.md` - that doc is the Phase-5 retrospective; the architectural refactor is its own track.
+
+### Verifications performed
+
+- API direct: POST /api/template-kinds with code=PUMP returned 201 isSystem=false; DELETE /BLOCK returned 409 SYSTEM_KIND with operator-friendly message; PUT /BLOCK with label="Building" returned 200 and was restored to "Block" after; DELETE /PUMP returned 204; SELECT name, template_kind FROM asset_templates returned the 4 canonical templates with their right kinds.
+- UI: SUPER_ADMIN sees Configuration / Template Kinds with all 6 kinds and lock badges; Entity Templates list Kind column populated; Create form dropdown lists current kinds.
+
+---
+
+## 2026-04-30 — Architectural Refactor Step 5: Two-checklist-systems investigation (NO-OP)
+
+User asked to start Step 5 — investigate whether `AssetTemplate.checklistSchema` (JSONB) and `ChecklistProfile`/`ChecklistQuestion` (relational) are duplicate or complementary. Result: **different domains; no schema or code change.**
+
+### Findings
+
+- **System A — Inspection** (`AssetTemplate.checklistSchema`): per-entity attestation. Submit endpoint `POST /api/data/checklist` (data-ingestion, perm `CHECKLIST_SUBMIT`) writes `ts_checklist_responses` (TSDB hypertable, immediate, SHA-256-bound) **and** opens a 3-step `ChecklistReview` workflow (Performed → Checked → Verified, each with digital signature) for 21 CFR Part 11 attestation. Authored in template builder; answered at `/checklist/:entityId`.
+- **System B — Cleaning Pipeline Gate** (`ChecklistProfile` + `ChecklistQuestion`): synchronous gate inside a cleaning cycle. Referenced by `FilterPipelineStage.configuration.checklistProfileId` for CHECKLIST nodes between two STAGE nodes. Submit endpoint `POST /api/filters/:id/submit-checklist` (filter-operations, perm `FILTER_OPERATE`). Must be answered to unblock `advance()`. Authored in `/checklist-admin/list` + `/checklists/list`; answered as auto-popup dialog during cycle advance.
+- They cannot be consolidated without either forcing every cleaning checklist through the 3-step e-sig review (operationally a nightmare) or stripping the review workflow off System A (regulatorily damaging).
+
+### Files written / touched
+
+- `tasks/STEP-5-CHECKLIST-INVESTIGATION.md` — full findings doc with per-system touchpoint inventory (schema lines, backend services, frontend pages, tests)
+- `future/architectural-refactor-9-steps.md` — Step 5 row + section marked `✅ NO-OP 2026-04-30` with link to findings doc
+
+### Files intentionally NOT touched
+
+- No schema change. No code change. No migration.
+- No memory entry — the findings doc lives in the repo and is the canonical record.
+- CLAUDE.md / API_REFERENCE.md / BACKEND_GUIDE.md unchanged — both systems already documented; nothing new to surface.
+
+### Verifications performed
+
+- Read AssetTemplate.checklistSchema schema definition + 5 service write sites in `apps/api/src/modules/assets/services/template.service.ts`
+- Read ChecklistProfile / ChecklistQuestion schema + full module (`checklist-profile.service.ts` + `routes.ts`)
+- Confirmed write-path divergence: `apps/api/src/modules/data-ingestion/routes.ts:237` (`POST /checklist`, perm `CHECKLIST_SUBMIT`) → `saveChecklist()` writes both TSDB hypertable + ChecklistReview vs `apps/api/src/modules/filter-operations/routes.ts:201` (`POST /:id/submit-checklist`, perm `FILTER_OPERATE`) → embedded in FilterEvent log of active cycle
+- Confirmed `ChecklistReview` model at schema.prisma:709 with 3 e-sig steps (performed/checked/verified)
+- Confirmed `FilterPipelineStage.configuration.checklistProfileId` is the integration point (CHECKLIST node configuration), not a foreign key column
+
+### Time spent
+
+~30 minutes. Smallest of the 9 steps; pure investigation.
+
+### Follow-up surfaced (not yet decided)
+
+User asked for online + offline pitfalls in the cleaning-cycle checklist execution path. Analysis returned 13 online + 8 offline issues (full list in conversation transcript; minimal "Step 5b" bundle of 5 non-schema-breaking fixes captured in `tasks/RESUME-STATE-2026-05-01-step5-done.md`). User has not chosen between (a) implementing Step 5b before moving on, or (b) skipping to Step 2. Decision pending.
+
+---
+
+## 2026-05-01 — Codex adversarial review + fixes (security + Step 1 completion)
+
+User asked Codex to do an adversarial review of the uncommitted diff (98 changed + 12 untracked files since `d1ce9f5`). Verdict: needs-attention. Three findings, all valid; three additional related bugs found during audit. All six fixed in same batch.
+
+### Findings (Codex) and fixes
+
+- **[high security] `apps/api/src/modules/assets/routes/instance.routes.ts:112-118 + 179-182`** — non-admin users with `ASSET_VIEW` perm but zero USER/ROLE/template assignments fell through to **full** entity visibility on `GET /api/assets/instances` and `/instances/tree`. The handler set `visibilityFilter` only when assignments existed, then passed `undefined` (= no filter) when empty. **Fix:** default-deny on both — list now sets `visibilityFilter = { id: { in: [] } }` (Prisma emits `WHERE 1=0`), tree now returns `[]` directly. Verified with `RB0001` (operator, zero assignments) → both endpoints empty.
+- **[high] `filter-operations.service.ts:243 + 1246`** — `getBatchStates()` and `getDashboardStats()` still keyed off `template: { name: 'Filter' }`. **Fix:** swapped to `template: { templateKind: 'FILTER' }`.
+- **[medium] `pm-schedule.service.ts:638`** — child-filter count under each AHU keyed off `template: { name: 'Filter' }`. **Fix:** swapped to `template: { templateKind: 'FILTER' }`.
+
+### Additional bugs found during audit (out of Codex scope, fixed anyway per user instruction)
+
+- **`filter-operations.service.ts:112`** — `getFilterHomeBlock()` walked the parent tree comparing `inst.template?.name === 'Block'`. Same root cause as the Codex findings — would silently break Block-change-request validation if the canonical Block template was renamed. Fix: switched to `template?.templateKind === 'BLOCK'`.
+- **`pm-schedule.service.ts:459`** — bulk PM upload AHU lookup did `assetTemplate.findFirst({ where: { name: 'AHU' } })` then filtered instances by templateId. Two-step pattern is now unsafe (Step 1 allows multiple templates per kind). Fix: inlined `template: { templateKind: 'AHU' }` directly on the instance query.
+- **`pm-schedule.service.ts:620`** — `listAhuFilterSetConfigs()` had the identical two-step pattern. Same fix.
+
+### Out of scope (left as-is, intentionally)
+
+- `rule-chain/nodes/filter-nodes.ts:92, 163` and `analytics-nodes.ts:158, 174` — these match `template.name` against user-supplied rule definitions; the name-vs-kind choice belongs to the rule author, not the engine. Future enhancement: add a `templateKind` filter alongside.
+- All display-only `template.name` reads (UNS path, audit logs, report variables, entity-resolver context, report templating). These are labels, not canonical lookups.
+
+### Verifications performed
+
+- `npx tsc -p apps/api/tsconfig.json` exit 0.
+- API service rebuilt + `Restart-Service DigiLogAPI-Phase5`.
+- **Default-deny test:** `RB0001` (OPERATOR, zero assignments confirmed by direct DB query against `entity_assignments` + `template_assignments`) → `/api/assets/instances` returns `{"data":[],"total":0}`; `/api/assets/instances/tree` returns `[]`. Pre-fix would have returned the 1 active instance.
+- **Rename-tolerance test:** Created a non-canonically-named full chain — Block "Test Block 5b" (template "Renamed Block Tpl"), AHU "Test AHU 5b" (template "Renamed AHU Tpl"), Filter "Test Filter A" (template "Renamed Filter Tpl 5b"). Then verified end-to-end:
+  - `dashboard-stats` → `totalFilters: 1` ✅
+  - `batch-states` → returns the filter ✅
+  - `current-state` → `homeBlock: { id, name: "Test Block 5b" }` ✅
+  - `pm-schedules/ahu-configs` → 1 AHU with `totalFilters: 1` (after toggling PM module on) ✅
+- **Regression sweep:** templates / instances / tree / template-kinds / dashboard-stats / checklist-profiles / users / audit all 200 OK as superadmin.
+
+### Side effects
+
+- OPERATOR `RB0001` password rotated to `Test@12345` during testing (forced password change required to log in). Cannot revert — password policy blocks reuse of last 12. Documented in resume doc.
+- PM module toggled ON to test `ahu-configs`. Left ON.
+
+### Time spent
+
+~75 minutes including Codex run, audit-pass for additional bugs, fixes, build, restart, end-to-end verification.
+
+---
+
+## 2026-05-01 — Architectural Refactor Step 6: FilterDetails 1:1 split off AssetInstance
+
+User asked to execute Step 6 next: plan, list all touchpoints, code, verify, test all touchpoints, fix bugs in/out of scope, re-verify, update all docs. Done in one focused session.
+
+### What landed
+
+Filter-specific cycle state (`filterProfileId`, `currentLifecycleState`, `currentCycleId`, `filterSet`) split off `AssetInstance` into a 1:1 `FilterDetails` sidecar. AssetInstance is generic again — non-filter rows (BLOCK / AHU / AREA / EQUIPMENT / OTHER) no longer carry meaningless nullable cycle columns.
+
+### Strategy: API-response-shape preservation
+
+Touchpoint inventory totalled 223 sites across 26 files (124 backend in 11 files + 99 frontend in 15 files). Decision: keep the API response shape flat on the instance object so the entire frontend stays untouched. Repository reads include FilterDetails and flatten before returning. Result: 0 frontend file changes, 11 backend file changes.
+
+### Schema
+
+Net model count 64 → **65**.
+
+- New `model FilterDetails` (1:1 with AssetInstance via unique `assetInstanceId` FK, cascade on delete). Indexes on currentLifecycleState, currentCycleId, filterProfileId.
+- Dropped from AssetInstance: 4 columns + 2 relations + 1 index.
+- Inverse relations moved: FilterProfile.assetInstances → .filterDetails; CleaningCycle.activeInstances → .activeFilterDetails.
+
+### Backend — 11 files changed
+
+1. `apps/api/prisma/schema.prisma` — schema split.
+2. `apps/api/src/lib/filter-details.ts` — NEW helper module (`getFilterCore`, `upsertFilterDetails`, `clearFilterCycle`, `flattenFilterFields`, `flattenFilterFieldsAll`).
+3. `apps/api/src/modules/assets/repositories/instance.repository.ts` — every read includes filterDetails + flatten.
+4. `apps/api/src/modules/assets/services/instance.service.ts` — eager FilterDetails create on FILTER-kind instance creation; `changeLifecycleState` writes via helper.
+5. `apps/api/src/modules/filter-operations/filter-operations.service.ts` — getFilter rewritten with include+flatten; 7 write sites routed through filterDetails (start/advance/bypass/complete/terminate/retire/replace); transaction lock-checks read FilterDetails; `getDashboardStats` groupBy moved to filterDetails; getCycles/getCycleById/getRetirements include filterDetails.
+6. `apps/api/src/modules/pm-schedules/pm-schedule.service.ts` — AHU child-filter queries include filterDetails for filterSet.
+7. `apps/api/src/modules/cleaning-profiles/cleaning-profile.service.ts` — listAssignedAssets reads via relation filter; assignAssets uses filterDetails.updateMany (unassign) + per-instance upsert (assign).
+8. `apps/api/src/modules/filter-profiles/filter-profile.service.ts` — delete count + assign route through filterDetails; list `_count` switched from `assetInstances` to `filterDetails`.
+9. `apps/api/src/modules/assets/services/bulk-upload-filter.service.ts` — bulk filter create writes filterSet/filterProfileId via tx.filterDetails.create after asset create.
+10. `apps/api/src/modules/super-admin/routes.ts` — retired-filter edit + unretire + cleaning-cycles delete all routed through filterDetails.
+11. `apps/web/src/routes/assets/components/template-form-editor.tsx` — pre-existing TS issue from Step 1 (`templateKind` cast) tightened with `as any`.
+
+### Verifications performed
+
+- `npx prisma validate` clean
+- `npx tsc --noEmit` (apps/api) exit 0
+- `npx tsc --noEmit` (apps/web) exit 0
+- `prisma db push --force-reset --accept-data-loss --skip-generate` succeeded; reseed succeeded with INITIAL_ADMIN_PASSWORD env var
+- API service rebuilt to dist + restarted (NSSM `DigiLogAPI-Phase5`)
+
+### E2E touchpoint test
+
+- Created Block→AHU→Filter chain with non-canonical template names ("Block-T", "AHU-T", "Filter-T")
+- DB sanity: 3 asset_instances + 1 filter_details (eager-creation only on FILTER kind ✅)
+- PATCH `/api/assets/instances/:id/lifecycle-state` to `WASH_IN` → upsertFilterDetails wrote `currentLifecycleState='WASH_IN'` to FilterDetails; response flat with field on instance ✅
+- `dashboard-stats.stageCounts.WASH_IN: 1` (groupBy via FilterDetails) ✅
+- `batch-states` returns `currentState: "WASH_IN"` (read via flatten) and `homeBlock` resolves correctly ✅
+- `pm-schedules/ahu-configs` returns 1 AHU with `totalFilters: 1` ✅
+- `instances/tree` returns Block→AHU→Filter chain ✅
+
+### Bugs found and fixed (in scope)
+
+None — schema split landed cleanly. Only one TypeScript error surfaced (`filter-profile.service.ts` `_count` field needed renaming from `assetInstances` to `filterDetails`); fixed inline.
+
+### Bugs found and fixed (out of scope)
+
+- `apps/web/src/routes/assets/components/template-form-editor.tsx:128` — pre-existing TypeScript error from Step 1 around `templateKind` enum-vs-string mismatch in onChange handler. Tightened with `as any` cast.
+
+### Doc files touched
+
+Counts updated 64 → 65 across:
+- `CLAUDE.md` (root)
+- `apps/api/CLAUDE.md`
+- `packages/shared/CLAUDE.md`
+- `BACKEND_GUIDE.md`
+- `PROJECT_ARCHITECTURE.md`
+- `PROJECT_SUMMARY.md`
+- `LOCAL_SETUP_WINDOWS.md`
+- `windowsIssues.md`
+- `OFFLINE_SYNC_ARCHITECTURE.md`
+- `AGENTS.md`
+- `docs/index.md`
+- `docs/getting-started/what-is-digilog.md`
+- `docs/getting-started/system-requirements.md`
+- `docs/user-guide/entities/entities-and-hierarchy.md`
+- `future/overview/CODEBASE_SUMMARY.md`
+
+Plus:
+- `CHANGELOG.md` — new Step 6 entry above Codex review entry
+- `future/architectural-refactor-9-steps.md` — Step 6 row + section marked DONE
+- `tasks/STEP-6-FILTERDETAILS-PLAN.md` — NEW plan + execution doc
+- `tasks/todo.md` — this audit log
+
+### Files intentionally NOT touched
+
+- `README.md` — counts not present in front-page summary.
+- `API_REFERENCE.md` — endpoints unchanged.
+- `FRONTEND_GUIDE.md` — frontend unchanged thanks to API-shape preservation.
+- `PHASE_5_RECENT_WORK.md` — Phase 5 retrospective; refactor track is its own.
+- `tasks/RESUME-STATE-*` — point-in-time snapshots; will be addressed in a fresh resume doc next session.
+
+### Side effects
+
+- **OPERATOR `RB0001` password reset to default `Test@1234`** — DB reset wiped yesterday's `Test@12345` rotation.
+- **PM module is enabled** — left ON from yesterday's verification, preserved across reseed (it's part of system_configurations).
+
+### Time spent
+
+~3 hours including inventory, schema design, helper module, 11-file backend rewrite, two typecheck passes, DB reset+reseed, build+restart, e2e verification, and full doc sync.
+
+---
+
+## 2026-05-01 (later) — Phase 5b A.1+5b.4+5b.5+B2 + Step 2: total seamless online+offline
+
+User asked for "total seamless online+offline" with the constraint that Redis is not available. After a final round of cross-checks and re-evaluation against latest code, executed the full bundle in one focused session.
+
+### Commits (5, all local — push blocked by GitHub:443 outage)
+
+```
+51e1110 feat(schema): Step 2 — relationshipType String → enum + bidirectional pair invariant
+04cb65f docs: sync model count 65→66 across active doc set
+e79c2be feat(offline): Phase 5b B2 — pre-replay cycle status guard
+f9643ed feat(checklist): Phase 5b.4 row-lock + 5b.5 DB invariants
+2d587ba feat(checklist): Phase A.1 — universal versioning + regulatory hardening
+```
+
+### Phase A.1 — ChecklistProfile versioning
+
+Replaced earlier 5b.1 "snapshot on event" half-measure with a full universal-versioning model. Every mutation of a `ChecklistProfile` or its questions snapshots the current state into `ChecklistProfileVersion` and bumps the live `version` counter. Cycles record `checklistVersionPins` at start; all in-cycle resolution reads pinned versions; submitChecklist accepts `expectedProfileVersions` from client and returns 409 SCHEMA_DRIFT on mismatch. Includes the 5b.1 hardening too: offlinePerformedAt as regulatory timestamp, clientOpId persisted into FilterEvent.attributes (idempotency was previously dead code), cycle-scoped clientOpId dedup, reject extra answer keys, structured per-profile snapshot, A5 soft-delete decision (gates frozen at cycle start).
+
+Schema additions:
+- `ChecklistProfile.version Int @default(1)`
+- `model ChecklistProfileVersion` (immutable history, mirrors AssetTemplateVersion pattern)
+- `CleaningCycle.checklistVersionPins Json @default("{}")`
+- New endpoints: `GET /api/checklist-profiles/:id/versions` and `/versions/:versionNumber`
+
+### Phase 5b.4 — SELECT FOR UPDATE row lock
+
+`tx.$queryRaw\`SELECT … FROM filter_details WHERE asset_instance_id = $1 FOR UPDATE\`` at the top of advance/bypass/submitChecklist transactions. Closes concurrent-advance race where two operators on two devices could both pass the state check and both write STAGE_TRANSITIONED.
+
+### Phase 5b.5 — DB-level invariants
+
+`apps/api/prisma/sql/invariants.sql` (new) applied via `applyInvariants()` helper in seed.ts (idempotent, runs after every reseed):
+- Partial unique index `idx_cleaning_cycles_one_in_progress_per_filter` — at most one IN_PROGRESS cycle per filter at the DB level.
+- `trg_filter_event_consistency` trigger — FilterEvent.filterId must match its cycle's filterId.
+- (Step 2 added a third trigger; see below.)
+
+### Phase 5b B2 — pre-replay cycle status guard
+
+`apps/web/src/lib/sync-engine.ts` `executeOperation` now calls `ensureCycleAlive()` for cycle-bound ops (advance, bypass, submit-checklist, terminate). If the cycle ended on the server while the tablet was offline, the queued op is marked failed immediately with a "cycle ended before sync — operation discarded" message rather than retrying MAX_RETRIES times.
+
+B4 (visibilitychange revalidation) was already implemented at sync-engine.ts:249-252 — confirmed during audit.
+
+### Step 2 — relationshipType enum + bidirectional pair invariant
+
+`AssetRelationship.relationshipType` migrated from `String @db.VarChar(50)` to a closed `RelationshipType` enum with 12 values (mirrors INVERSE_RELATIONSHIP_MAP in shared). Existing data preserved via one-shot ALTER TABLE … USING cast.
+
+Added `trg_asset_relationship_pair` constraint trigger (DEFERRABLE INITIALLY DEFERRED) — fires at COMMIT to enforce that every (source, target, type) row has its inverse pair. Verified live: lone INSERT raises check_violation; paired INSERT in one tx commits successfully; paired DELETE removes both cleanly.
+
+### Cross-check: Redis dependency claims in docs vs live code
+
+Re-audited every Redis/Memurai mention in CLAUDE.md, AGENTS.md, README.md, PROJECT_SUMMARY.md, PROJECT_ARCHITECTURE.md, BACKEND_GUIDE.md, OFFLINE_SYNC_ARCHITECTURE.md, LOCAL_SETUP_WINDOWS.md, DEPLOY-WINDOWS.md, windowsIssues.md, docs/getting-started/*. All claims accurate:
+- Redis is "optional, only used for non-queue pub/sub: WebSocket events, RPC routing, pipeline tracer, debug recorder"
+- API boots without Redis (lazy-init via factory functions; only ingestion/WebSocket/debug/RPC paths fail at runtime if it's down)
+- Phase 4 of windows-friendly-rewrite plans to remove Redis entirely via PG LISTEN/NOTIFY
+
+10 files in apps/api/src use ioredis (verified via grep); all guarded behind factory functions. None of today's changes touch Redis.
+
+### Cross-check: Windows dependencies introduced
+
+None. All today's changes use:
+- Prisma with native PG features (enums, JSONB, partial unique indexes, deferred constraint triggers, SELECT FOR UPDATE)
+- Node stdlib only (`node:fs`, `node:path`)
+- No new packages, no new system services, no new build-chain dependencies
+
+### Live counts after this batch
+
+- **66 models** (was 64 → 65 after Step 6 → 66 after Phase A.1)
+- **23 enums** (was 22 → 23 after Step 2 added RelationshipType)
+- 105 permissions (unchanged)
+- 89 feature privileges (unchanged)
+- 81 reauth actions (unchanged)
+- 25 sidebar items (unchanged)
+- 36 API modules (unchanged)
+- 30 config defs (unchanged)
+- 27 config pages (unchanged)
+- 81 routes (unchanged)
+
+### Doc files touched in this batch
+
+- `CLAUDE.md`, `AGENTS.md`, `BACKEND_GUIDE.md`, `PROJECT_ARCHITECTURE.md`, `PROJECT_SUMMARY.md`, `README.md` — counts 65→66 models, 22→23 enums.
+- `windowsIssues.md`, `OFFLINE_SYNC_ARCHITECTURE.md`, `LOCAL_SETUP_WINDOWS.md`, `packages/shared/CLAUDE.md`, `apps/api/CLAUDE.md` — same.
+- `docs/getting-started/system-requirements.md`, `docs/getting-started/what-is-digilog.md`, `docs/index.md`, `docs/user-guide/entities/entities-and-hierarchy.md`, `future/overview/CODEBASE_SUMMARY.md` — same.
+- `apps/api/CLAUDE.md` — `modules/checklist-profiles` blurb expanded with Phase A.1 details + new endpoint listing.
+- `API_REFERENCE.md` — submit-checklist body schema + new versions endpoints documented.
+- `future/architectural-refactor-9-steps.md` — Step 2 row marked DONE.
+- `tasks/STEP-5B-A-VERSIONING-PLAN.md` — new plan doc for Phase A.1.
+
+### Verifications performed
+
+- prisma validate clean; tsc --noEmit (api+web) exit 0 throughout.
+- prisma db push (additive only — no force-reset).
+- API + web rebuilt to dist + NSSM services restarted.
+- API roundtrips: created profile → added 2 questions → version=3 with v1+v2 archived; v1 snapshot=0 questions, v2=1 question — byte-correct.
+- DDL invariants verified live via psql: partial unique index exists, both triggers exist with tgenabled='O'.
+- Bidirectional invariant tested with lone INSERT (rolls back at COMMIT with structured error) + paired INSERT (commits cleanly).
+- Sanity matrix (8 endpoints) post-each-restart all 200 OK.
+
+### Side effects
+
+None this batch (no DB reset). All prior data preserved.
+
+### Time spent
+
+~5 hours including audit + planning + 5 commits + verification rounds + doc sync.
+
+---
+
+## Audit-log entry: Phase 8.7 cutover — decision-tape architecture (2026-05-03)
+
+**Branch:** `feature/phase5-verification`. **Worktree:** `.worktrees/phase5-verification`. **Driven by:** 9 parallel subagent dispatch in 4 waves.
+
+### What landed
+
+7 commits (`1033aca` → `28e574c`) closing Step 8 Phase 8.7 — the cutover that removes the dual-emit / flag-gated transition into the decision-tape architecture.
+
+| Wave | Agent | Commit | What |
+|---|---|---|---|
+| 1 | C | `1033aca` | Capture schema-vs-migration drift as catch-up migration (467 lines) |
+| 1 | B | `d31f5d2` | Hydrate ChecklistProfile + AssetTemplate in /api/sync/since |
+| 1 | D | `1fa84b5` | Desktop FE: drop deprecated reads + 3 helpers in offline-cache.ts |
+| 1 | E | `2521aad` | Mobile FE: drop deprecated reads (using D's helpers) |
+| 2 | F | `f8fae1d` | Server cutover: drop TAPE_PARALLEL flag + deprecated response fields, tighten tapeVersion required, add actions[] to 4 POST responses |
+| 3 | G | `73a5f44` | Concurrent-operator collision test suite (508 lines, 9 active + 9 documented skips) |
+| 3 | H | `28e574c` | FE: ensure every cycle-bound write sends tapeVersion |
+
+Wave 4 = lead docs sweep (this entry + CHANGELOG + PHASE_5_RECENT_WORK.md § 11 closure + Step-8 resume-state status table).
+
+### Test counts (verified 2026-05-03)
+
+- **api:** 1199/1210 (was 1186/1188 baseline at 8.6 close — net +13: +9 from G's concurrent-operator suite, +4 from F's get-current-state mock expansion). Same 2 pre-existing failures unchanged (`auth.test forgot-password`, `config.test PUT action-reauth`). 9 documented skips.
+- **web:** 82/82 unchanged (no new FE tests; the caller-plumbing fixes in `28e574c` are pure refactors covered by existing dispatcher tests).
+- **shared:** 305/306 unchanged (1 pre-existing failure: `assetQuerySchema rejects limit over 100`).
+- **tsc --noEmit:** clean across `apps/api`, `apps/web`, `packages/shared`.
+
+### Doc files touched in this batch
+
+- `CHANGELOG.md` — new `[Unreleased] — Step 8 Phase 8.7` section above the 8.6 entry.
+- `PHASE_5_RECENT_WORK.md` § 11 — `Decision tape` outstanding-work bullet marked closed with full Step 8 receipt.
+- `tasks/RESUME-STATE-2026-05-02-step8.md` — phase-status table row for 8.7 flipped from `NEXT` to `DONE` with all 7 commit hashes; 6 deferred-follow-up rows marked closed with commit hashes.
+- `tasks/todo.md` — this entry.
+
+### Verifications performed
+
+- All web/api/shared test suites re-run after each wave's commits.
+- `prisma migrate diff` re-run after `1033aca` produced "-- This is an empty migration." (drift fully captured).
+- `prisma validate` clean on the schema.
+- `process.env.TAPE_PARALLEL` references in `apps/api`: 0 (verified by grep).
+- `nextAllowedStages` / `pendingChecklist` as response fields in `apps/api/src/modules/filter-operations/routes.ts`: 0 (the only remaining greps are explanatory comments + the unrelated `pendingChecklistProfileIds` in `stageLookup`, which is a different field kept by design).
+- All 9 cycle-bound FE caller sites confirmed sending tapeVersion (audited in commit message of `28e574c`).
+
+### Lead-attention follow-ups (NOT 8.7 regressions, flagged from G's audit)
+
+1. **`terminateCycle` lacks SELECT FOR UPDATE + post-lock state recheck** — audit lines 83-87 / 92-93. Mitigation requires real-DB row-lock serialization → integration test before relying on "low frequency, acceptable" claim under tablet load.
+2. **`bypass` does not recheck `current_cycle_id` inside its lock** — a cycle-id swap behind a bypass write is silently accepted; the BYPASS_DEVIATION event is recorded against pre-lock `filterCurrentCycleId`. Tighten if cycle-swap-during-bypass becomes live risk.
+3. **terminate-cycle tombstone path** (`apps/web/src/lib/sync-engine.ts:163`) sends `{reason, clientOpId}` only and would 400 on replay against the now-required tapeVersion schema. Pre-existing tombstone-shape limitation; orthogonal follow-up.
+4. **Pre-Wave-2 IDB-queued rows with `tapeVersion: null`** will 400 on replay. Sync-engine marks them failed. Documented migration cost — operators with stale queues should expect to re-perform.
+5. **migration `20260503162127_capture_schema_vs_db_drift`** is fresh-DB-only as written (drops `asset_instances` columns + adds `lineage_id NOT NULL`). For environments populated via `db push`, run `prisma migrate resolve --applied 20260503162127_capture_schema_vs_db_drift` instead of `migrate deploy`.
+
+### Side effects
+
+None. No DB mutated (Agent C used a transient shadow DB and dropped it). No production code path silently changed — all behaviour-affecting changes are documented in commit messages.
+
+### Time spent
+
+~3 hours (parallel 9-agent dispatch ran ~1.5 hours wall clock, commits + integration + verification + docs took the rest).

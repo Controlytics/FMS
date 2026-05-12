@@ -12,11 +12,9 @@
  */
 
 import { prisma } from '../../lib/prisma.js';
-import { computeChecksum } from '../../lib/hash-chain.js';
 import { flushAll } from '@digilog/db';
-import { Queue } from 'bullmq';
-import { getRedisConnection, QUEUES, JOB_PRIORITY } from '@digilog/queue';
-import IORedis from 'ioredis';
+import { QUEUES, JOB_PRIORITY, getProducer } from '@digilog/queue';
+import { bus } from '../../lib/internal-bus.js';
 import type { IngestionMessage } from './message-normalizer.js';
 import { getConfigOrDefault } from './ingestion-config.service.js';
 import { markOnline } from './connectivity-tracker.js';
@@ -41,33 +39,79 @@ import { addToDLQ } from './dlq-manager.js';
 import { addDeviceEventRow } from '@digilog/db';
 import { dispatchNotification } from "../notification-delivery/notification-dispatcher.js";
 
-// ─── Redis publisher for Stage 11 ──────────────────────
+// ─── Stage 11 fan-out goes through internal-bus (Phase 4 — was Redis) ──
 
-let redisPub: IORedis | null = null;
+// ─── Notification enqueue helper ────────────────────────
+// Notification has no in-process consumer in the current codebase — jobs are
+// produced here but nothing dequeues them yet. A real notification handler
+// will be wired in a follow-up phase; until then the jobs accumulate in
+// graphile_worker.jobs and can be inspected by ops.
 
-function getRedisPublisher(): IORedis {
-  if (!redisPub) {
-    redisPub = new IORedis({
-      host: process.env.REDIS_HOST ?? 'localhost',
-      port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
-      password: process.env.REDIS_PASSWORD || undefined,
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
-    });
-  }
-  return redisPub;
+export interface EnqueueNotificationOptions {
+  /** Lower number = sooner (graphile-worker priority). */
+  priority?: number;
+  /** Idempotency key — maps to graphile-worker `jobKey`. */
+  jobId?: string;
 }
 
-let notificationQueue: Queue | null = null;
+/**
+ * Enqueue a notification job. The fixed task identifier `'notification'`
+ * means the discriminator lives inside the payload (`payload.type`) rather
+ * than in the task name — kept this way so the existing call sites
+ * (`alarm_notification`, `rule_chain_notification`, etc.) don't need to
+ * change. `maxAttempts` is read from QUEUES.NOTIFICATION.defaultJobOptions
+ * .attempts so the constant is the single source of truth.
+ */
+export async function enqueueNotificationJob(
+  _jobName: string,
+  payload: Record<string, unknown>,
+  options: EnqueueNotificationOptions = {},
+): Promise<void> {
+  const producer = await getProducer();
+  await producer.addJob(
+    'notification',
+    payload,
+    {
+      priority: options.priority,
+      jobKey: options.jobId,
+      maxAttempts: QUEUES.NOTIFICATION.defaultJobOptions.attempts,
+    },
+  );
+}
 
-function getNotificationQueue(): Queue {
-  if (!notificationQueue) {
-    notificationQueue = new Queue(QUEUES.NOTIFICATION.name, {
-      connection: getRedisConnection(),
-      defaultJobOptions: QUEUES.NOTIFICATION.defaultJobOptions,
-    });
-  }
-  return notificationQueue;
+// ─── Ingestion enqueue helper ───────────────────────────
+// Single chokepoint for enqueueing into the ingestion queue. Callers
+// (mqtt-handler, HTTP routes, dlq-manager) all funnel through here.
+
+export interface EnqueueIngestionOptions {
+  /** Lower number = sooner (graphile-worker priority). */
+  priority?: number;
+  /** Idempotency key — maps to graphile-worker `jobKey`. */
+  jobId?: string;
+}
+
+/**
+ * Enqueue an ingestion message via graphile-worker. The payload wraps the
+ * message in `{ msg }` so the task handler can destructure a single,
+ * well-defined shape (vs. a bare message object whose fields could collide
+ * with future task-level metadata). `maxAttempts` is read from
+ * QUEUES.INGESTION.defaultJobOptions.attempts so the constant is the single
+ * source of truth.
+ */
+export async function enqueueIngestionJob(
+  msg: IngestionMessage,
+  options: EnqueueIngestionOptions = {},
+): Promise<void> {
+  const producer = await getProducer();
+  await producer.addJob(
+    'ingestion',
+    { msg },
+    {
+      priority: options.priority,
+      jobKey: options.jobId,
+      maxAttempts: QUEUES.INGESTION.defaultJobOptions.attempts,
+    },
+  );
 }
 
 // ─── Rate limiting state (in-memory) ───────────────────
@@ -99,7 +143,7 @@ export interface PipelineResult {
 
 /**
  * Process a single ingestion message through the pipeline.
- * Called by the BullMQ worker for each job.
+ * Called by the graphile-worker `ingestionTask` for each job.
  */
 export async function processIngestionMessage(msg: IngestionMessage): Promise<PipelineResult> {
   const warnings: string[] = [];
@@ -332,8 +376,7 @@ export async function processIngestionMessage(msg: IngestionMessage): Promise<Pi
 
       for (const notification of ruleChainNotifications) {
         try {
-          const queue = getNotificationQueue();
-          await queue.add('rule_chain_notification', {
+          await enqueueNotificationJob('rule_chain_notification', {
             type: notification.type,
             entityId: msg.entityId,
             title: notification.title,
@@ -479,9 +522,10 @@ export async function processIngestionMessage(msg: IngestionMessage): Promise<Pi
     const failedStage = trace?.failedStage ?? 'unknown';
     await addToDLQ(msg, errorMessage, failedStage);
 
-    // NOTE: Returning { success: false } instead of re-throwing so BullMQ marks
-    // the job as completed (DLQ handles retries). Re-throwing would cause infinite
-    // BullMQ retries for permanently invalid messages.
+    // NOTE: Returning { success: false } instead of re-throwing so the queue
+    // worker marks the job as completed (DLQ handles retries). Re-throwing
+    // would cause graphile-worker to retry until maxAttempts for permanently
+    // invalid messages.
     return {
       success: false,
       messageId: msg.messageId,
@@ -735,54 +779,38 @@ async function executeStage10(msg: IngestionMessage): Promise<void> {
     dataKeys: Object.keys(msg.data).filter((k) => !k.startsWith('_')),
   };
 
-  const checksum = computeChecksum({
-    timestamp: timestamp.toISOString(),
+  // Audit 2026-05-04 fix C3: route through the chained auditLog() helper so
+  // ingestion-time audit rows participate in the tamper-evident chain. The
+  // helper acquires the advisory lock + computes the chain link.
+  const { auditLog } = await import('../../lib/audit.js');
+  await auditLog({
     userId,
+    userName: msg.metadata?.userName ?? undefined,
+    userRole: msg.metadata?.userRole ?? undefined,
     action,
     targetType,
     targetId: msg.entityId,
     afterValue,
-  } as Record<string, unknown>);
-
-  // Audit write MUST succeed — failure = CRITICAL → DLQ
-  await prisma.auditTrail.create({
-    data: {
-      timestamp,
-      userId,
-      userName: msg.metadata?.userName ?? undefined,
-      userRole: msg.metadata?.userRole ?? undefined,
-      action,
-      targetType,
-      targetId: msg.entityId,
-      afterValue,
-      ipAddress: msg.sourceIp || undefined,
-      sessionId: msg.metadata?.sessionId ?? undefined,
-      checksum,
-    },
+    ipAddress: msg.sourceIp || undefined,
+    sessionId: msg.metadata?.sessionId ?? undefined,
   });
 }
 
 // ─── Stage 11: Event Emission ───────────────────────────
 
 async function executeStage11(msg: IngestionMessage, warnings: string[]): Promise<void> {
-  // 1. Publish to Redis pub/sub for WebSocket broadcast
-  try {
-    const redis = getRedisPublisher();
-    await redis.publish('ws:events', JSON.stringify({
-      entityId: msg.entityId,
-      type: msg.messageType,
-      data: msg.data,
-      timestamp: msg.timestamp,
-    }));
-  } catch {
-    warnings.push('WARN_EMIT_WS_FAILED');
-  }
+  // 1. Publish to internal-bus for WebSocket broadcast (Phase 4 — was Redis)
+  bus.emit('ws:events', {
+    entityId: msg.entityId,
+    type: msg.messageType,
+    data: msg.data,
+    timestamp: msg.timestamp,
+  });
 
   // 2. Enqueue notification if alarm created
   if (msg.messageType === 'ALARM') {
     try {
-      const queue = getNotificationQueue();
-      await queue.add('alarm_notification', {
+      await enqueueNotificationJob('alarm_notification', {
         type: 'ALARM',
         entityId: msg.entityId,
         title: `Alarm: ${msg.data.alarmType ?? 'Unknown'}`,
@@ -919,12 +947,11 @@ async function evaluateTemplateAlarmRules(
   }
 }
 
-/** Close the Redis publisher used by the pipeline and clean up timers. */
+/**
+ * Phase 4 (2026-05-01): bus is in-process — no resources to close. Retained
+ * as a no-op + timer cleanup so existing app shutdown handlers still type-check.
+ */
 export async function closePipelineRedis(): Promise<void> {
   clearInterval(rateLimitCleanupTimer);
   rateLimitMap.clear();
-  if (redisPub) {
-    await redisPub.quit();
-    redisPub = null;
-  }
 }

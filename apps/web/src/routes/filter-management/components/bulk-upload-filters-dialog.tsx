@@ -45,11 +45,18 @@ export function BulkUploadFiltersDialog({ open, onClose, ahuId, ahuName, onSucce
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Fetch blocks for dropdown
-  const { data: templatesData } = useSWR(open ? '/api/assets/templates?limit=100' : null);
+  const { data: templatesData } = useSWR(open ? '/api/assets/templates?limit=1000' : null);
   const { data: instancesData } = useSWR(open ? '/api/assets/instances?limit=500' : null);
 
-  const blockTemplateId = (templatesData?.data ?? []).find((t: any) => t.name === 'Block')?.id;
-  const blocks = (instancesData?.data ?? []).filter((e: any) => e.templateId === blockTemplateId);
+  // Bug fix 2026-05-10: match by stable `templateKind === 'BLOCK'`, not the
+  // editable `name`. Without this, admins who renamed the Block template
+  // (or added variants) saw an empty Block dropdown.
+  const blockTemplateIds = new Set(
+    (templatesData?.data ?? [])
+      .filter((t: any) => t.templateKind === 'BLOCK')
+      .map((t: any) => t.id),
+  );
+  const blocks = (instancesData?.data ?? []).filter((e: any) => blockTemplateIds.has(e.templateId));
 
   useEffect(() => { if (!open) reset(); }, [open]);
 

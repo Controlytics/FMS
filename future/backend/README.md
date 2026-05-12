@@ -1,7 +1,7 @@
 # Backend — Quick Tour
 
 **Location:** `apps/api/`
-**Tech:** Fastify 5.2 + TypeScript (ESM, `"type": "module"`), Prisma 6.3 (PostgreSQL 18), raw `pg` pool (TimescaleDB), BullMQ 5.70 + Memurai (Redis ≥5), EMQX 5/MQTT, Puppeteer 24.40 for PDF, `jose` 6 for JWT, `ldapts` 8.1 for LDAP.
+**Tech:** Fastify 5.2 + TypeScript (ESM, `"type": "module"`), Prisma 6.3 (PostgreSQL 18), raw `pg` pool (TimescaleDB), graphile-worker on Postgres for the job queue (Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis; commit `7832af1`), Mosquitto 2.0 for MQTT (Phase 1 swapped from EMQX), `puppeteer-core` 24.42 + Microsoft Edge + `@napi-rs/canvas` for PDF reports (Phase 3 swapped from `puppeteer` + `chartjs-node-canvas`), `jose` 6 for JWT, `ldapts` 8.1 for LDAP. Memurai/Redis is **optional** — used only for non-queue pub/sub (WebSocket events, RPC routing, pipeline tracer, debug recorder).
 **Entry:** `apps/api/src/app.ts`
 **Dev:** `cd apps/api && npm run dev` → `tsx watch src/app.ts`
 **Build + run (prod-style local):** `npm run build` (tsc) → `node dist/app.js`. PM2 / EC2 are no longer in scope (removed in commit `251be95`).
@@ -15,7 +15,7 @@ apps/api/src/
 ├── plugins/                Fastify plugins (audit-logger, auth, rbac)
 ├── modules/                Feature modules (see MODULES.md)
 ├── transport/              MQTT client + handler + WS handler + MQTT auth HTTP routes
-├── workers/                BullMQ workers (ingestion, maintenance)
+├── workers/                graphile-worker tasks (ingestion concurrency:10; maintenance via cron `pg_advisory_lock` leader election)
 ├── e2e/                    Vitest integration tests hitting a real DB
 └── types/                  Ambient typings
 ```
@@ -66,16 +66,17 @@ Defined in `plugins/auth.ts`:
 
 ## Workers (`src/workers/`)
 
-- **`ingestion.worker.ts`** — consumes the BullMQ `ingestion` queue; validates telemetry, pushes to TimescaleDB via the batcher in `@digilog/db`.
+- **`ingestion.worker.ts`** — consumes the graphile-worker `ingestion` task on Postgres; validates telemetry, pushes to TimescaleDB via the batcher in `@digilog/db`.
 - **`maintenance.worker.ts`** — scheduled/periodic jobs (retention cleanup, PM-due computation, etc.).
 
 Start/stop helpers (`startIngestionWorker`, `startMaintenanceWorker`) are invoked from `app.ts`.
 
 ## Transport (`src/transport/`)
 
-- `mqtt-client.ts` — connects the API process to EMQX (outbound and internal pub/sub).
-- `mqtt-handler.ts` — routes inbound device messages to the same ingestion pipeline as HTTP.
-- `mqtt-auth-routes.ts` — EMQX webhook endpoints (`/api/internal/mqtt/*`) for auth + ACL.
+- `mqtt-client.ts` — connects the API process to Mosquitto 2.0 (outbound + internal pub/sub). Phase 1 of windows-friendly-rewrite swapped from EMQX. Mode-flag `USE_MOSQUITTO=true` selects the new path; legacy EMQX path conditionally available for compatibility.
+- `mqtt-handler.ts` — routes inbound device messages to the same ingestion pipeline as HTTP; enqueues via graphile-worker `addJob`.
+- `mosquitto-acl-generator.ts` + `mosquitto-refresh-routes.ts` — translate active `DeviceCredential` rows into Mosquitto v2 dynamic-security JSON, exposed via `POST /api/internal/mqtt/refresh-acl` (Bearer-auth via `MOSQUITTO_REFRESH_TOKEN`).
+- `mqtt-auth-routes.ts` — legacy EMQX webhook endpoints (`/api/internal/mqtt/auth`, `/acl`); conditionally registered when `USE_MOSQUITTO=false`. Slated for deletion in Phase 4 of the windows-friendly-rewrite.
 - `ws-handler.ts` — WebSocket multiplex for entity updates; per-entity Redis pub/sub fan-out.
 
 ## Env vars (see `.env.example`)
@@ -84,8 +85,8 @@ Start/stop helpers (`startIngestionWorker`, `startMaintenanceWorker`) are invoke
 |---|---|
 | App DB (Prisma) | `DATABASE_URL` |
 | TimescaleDB | `TSDB_HOST`, `TSDB_PORT`, `TSDB_DATABASE`, `TSDB_USER`, `TSDB_PASSWORD`, `TSDB_POOL_MAX` |
-| MQTT / EMQX | `MQTT_ENABLED`, `MQTT_BROKER_HOST`, `MQTT_BROKER_PORT`, `MQTT_BROKER_TLS_PORT`, `MQTT_BROKER_WS_PORT`, `MQTT_BROKER_WSS_PORT`, `MQTT_AUTH_CALLBACK_URL`, `EMQX_ADMIN_PASSWORD` |
-| Redis | `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` |
+| MQTT / Mosquitto | `MQTT_ENABLED`, `MQTT_BROKER_HOST`, `MQTT_BROKER_PORT`, `USE_MOSQUITTO`, `MOSQUITTO_ADMIN_PASSWORD`, `MOSQUITTO_REFRESH_TOKEN`, `MOSQUITTO_DYNSEC_PATH` (optional). Legacy EMQX vars (`EMQX_ADMIN_PASSWORD`, `MQTT_AUTH_CALLBACK_URL`) only when `USE_MOSQUITTO=false`. |
+| Redis (optional, pub/sub only) | `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` — queue moved to Postgres in Phase 2 |
 | SMTP | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` |
 | UNS | `UNS_ROOT_PREFIX`, `UNS_VERSION` |
 | JWT | `JWT_SECRET`, `VERIFICATION_TOKEN_SECRET`, `JWT_EXPIRES_IN` |

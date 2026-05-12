@@ -5,6 +5,8 @@ import { AppError } from '../../lib/errors.js';
 import { authService } from './auth.service.js';
 import { prisma } from '../../lib/prisma.js';
 import { signToken } from '../../lib/jwt.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
+import { signOfflineReplayToken } from '../../lib/offline-replay-token.js';
 
 export default async function authRoutes(app: FastifyInstance) {
   // POST /api/auth/login
@@ -124,7 +126,7 @@ export default async function authRoutes(app: FastifyInstance) {
     const durationHours = (sessionCfg?.configValue as any)?.sessionDurationHours ?? 8;
 
     // Read current user from DB to get latest role (in case it was changed by an admin)
-    const currentUser = await prisma.user.findUnique({ where: { id: req.user.sub }, select: { role: true, username: true, status: true, organizationId: true } });
+    const currentUser = await prisma.user.findUnique({ where: { id: req.user.sub }, select: { role: true, username: true, status: true } });
     if (!currentUser || currentUser.status !== 'ENABLED') {
       return reply.code(401).send({ error: 'ACCOUNT_INACTIVE', message: 'Account is not active' });
     }
@@ -135,8 +137,6 @@ export default async function authRoutes(app: FastifyInstance) {
       username: currentUser.username,
       role: currentUser.role,
       sessionId: req.user.sessionId,
-      
-      organizationId: currentUser.organizationId || undefined,
     }, durationHours);
 
     return { token: newToken, expiresIn: `${durationHours}h` };
@@ -195,7 +195,6 @@ export default async function authRoutes(app: FastifyInstance) {
             lastLogin: { type: 'string', nullable: true, format: 'date-time' },
             createdAt: { type: 'string', format: 'date-time' },
             permissions: { type: 'array', items: { type: 'string' } },
-            organizationId: { type: 'string', nullable: true },
             scope: { type: 'string', nullable: true },
           },
         },
@@ -238,6 +237,14 @@ export default async function authRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    // H1 fix: gate self-profile updates behind reauth so a stolen JWT alone
+    // cannot rewrite the user's email/photo to an attacker-controlled value.
+    // The change-password endpoint is a separate flow with its own current-
+    // password check; UPDATE_PROFILE is a distinct action so audit trails
+    // can distinguish "user updated their profile" from "user changed password".
+    const { ok } = await enforceReauth('UPDATE_PROFILE', req, reply);
+    if (!ok) return;
+
     const body = req.body as { fullName?: string; email?: string; department?: string; photoUrl?: string };
     return authService.updateProfile(req.user.sub, body, req.ip, req.headers['user-agent'], req.user.sessionId);
   });
@@ -343,5 +350,93 @@ export default async function authRoutes(app: FastifyInstance) {
       return { success: true, message: 'A password reset request is already pending. Please contact your administrator.' };
     }
     return { success: true, message: 'If the user ID exists, a password reset request has been submitted.' };
+  });
+
+  // POST /api/auth/offline-grant — audit 2026-05-04 fix C1.
+  //
+  // Issue an HMAC-signed offline-replay grant token. Replaces the previous
+  // unauthenticated `x-offline-replay: true` header. The grant proves that:
+  //   - the holder is the named user (token sub == JWT sub)
+  //   - the holder owned the password at issuance time (verified inline below)
+  //   - the holder was on this session (token sid == JWT sessionId)
+  // Default lifetime: 24h. Tablets fetch one at login (or on first transition
+  // to offline mode) and present it on every replay call as
+  // `x-offline-replay-token: <token>`.
+  //
+  // The password verify here is HARD-CODED (not configurable via the
+  // action-reauth registry). The grant token IS the offline-mode auth proof —
+  // if operators could disable the password check on grant issuance, the
+  // entire C1 fix collapses (anyone with a JWT could mint grants). All the
+  // configurable per-action reauth gates (RETIRE_FILTER etc.) accept the
+  // grant via plugins/auth.ts in offline-replay mode; the grant endpoint
+  // itself must hold its line.
+  //
+  // Audit row records the grant issuance with action GRANT_OFFLINE_REPLAY
+  // for the audit trail (who minted what grant when, from which session/IP).
+  // The legacy `x-offline-replay: true` header is now rejected upstream in
+  // plugins/auth.ts.
+  app.post('/offline-grant', {
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    schema: {
+      tags: ['Auth'],
+      summary: 'Issue offline-replay grant',
+      description: 'Issue a signed offline-replay grant token. Required to replay queued offline operations after this branch. Bound to the calling user + session. Always requires the current password (sent in body field _currentPassword OR header x-reauth-password) — not configurable via the action-reauth registry.',
+      body: {
+        type: 'object',
+        properties: {
+          _currentPassword: { type: 'string', description: 'Current password (or send via x-reauth-password header).' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            token: { type: 'string', description: 'Send back as `x-offline-replay-token` header on replay.' },
+            expiresAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const body = req.body as Record<string, unknown> | undefined;
+    const password = (body?._currentPassword as string)
+      ?? (req.headers['x-reauth-password'] as string);
+    if (!password) {
+      return reply.code(401).send({
+        error: 'PASSWORD_REQUIRED',
+        message: 'Current password is required to issue an offline-replay grant.',
+      });
+    }
+    const user = await prisma.user.findUnique({ where: { id: req.user.sub } });
+    if (!user) {
+      return reply.code(401).send({ error: 'USER_NOT_FOUND', message: 'User not found.' });
+    }
+    const { verifyPassword } = await import('../../lib/password.js');
+    const ok = await verifyPassword(password, user.passwordHash);
+    if (!ok) {
+      return reply.code(401).send({
+        error: 'REAUTH_FAILED',
+        message: 'Incorrect password. Please try again.',
+      });
+    }
+
+    const grant = await signOfflineReplayToken(req.user.sub, req.user.sessionId);
+
+    // Audit grant issuance for traceability.
+    const { auditLog } = await import('../../lib/audit.js');
+    await auditLog({
+      userId: req.user.username,
+      userRole: req.user.role,
+      action: 'GRANT_OFFLINE_REPLAY',
+      targetType: 'session',
+      targetId: req.user.sessionId,
+      afterValue: { expiresAt: grant.expiresAt.toISOString() },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      sessionId: req.user.sessionId,
+    });
+
+    return { token: grant.token, expiresAt: grant.expiresAt.toISOString() };
   });
 }

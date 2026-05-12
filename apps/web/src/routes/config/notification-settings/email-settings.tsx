@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import useSWR from 'swr';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, api } from '@/lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
@@ -45,6 +47,8 @@ const SMTP_PRESETS: Record<string, Partial<EmailConfig>> = {
 };
 
 // ─── SMS Types & Constants ────────────────────────────────────────────
+// P3 (2026-05-02): AWS SNS dropped — see CHANGELOG. Operators wanting AWS or
+// any other provider use the HTTP Gateway with that provider's REST endpoint.
 interface SmsConfig {
   provider: string;
   enabled: boolean;
@@ -53,9 +57,6 @@ interface SmsConfig {
   twilioAccountSid: string;
   twilioAuthToken: string;
   twilioFromNumber: string;
-  awsAccessKeyId: string;
-  awsSecretAccessKey: string;
-  awsRegion: string;
   vonageApiKey: string;
   vonageApiSecret: string;
   vonageFromNumber: string;
@@ -66,10 +67,9 @@ interface SmsConfig {
 }
 
 const SMS_PROVIDERS = [
+  { value: 'http-gateway', label: 'HTTP Gateway', description: 'Generic POST adapter — covers MSG91, Plivo, AfricasTalking, Kaleyra, custom backends' },
   { value: 'twilio', label: 'Twilio', description: 'Popular cloud communication platform' },
-  { value: 'aws-sns', label: 'AWS SNS', description: 'Amazon Simple Notification Service' },
   { value: 'vonage', label: 'Vonage (Nexmo)', description: 'Communication APIs' },
-  { value: 'http-gateway', label: 'HTTP Gateway', description: 'Custom HTTP-based SMS gateway' },
 ];
 
 // ─── Main Page ────────────────────────────────────────────────────────
@@ -192,17 +192,28 @@ function EmailTab() {
     }
   };
 
-  const onSubmit = async (formData: EmailConfig) => {
+  // Audit 2026-05-04 fix #5 (web-routes review H5): outbound-comms credential
+  // edits go through reauth. UPDATE_EMAIL_CONFIG action declared this branch
+  // (commit 7e5839a) + backend already enforces — FE wrap completes the gate.
+  const reauth = useReauth();
+  const onSubmit = (formData: EmailConfig) => {
     setError('');
     setSuccess('');
-    try {
-      await apiClient.put('/api/notification-settings/email', formData);
-      setSuccess('Email settings saved successfully');
-      mutate();
-      reset(formData);
-    } catch (err: any) {
-      setError(err.message || 'Failed to save');
-    }
+    reauth.execute(
+      'UPDATE_EMAIL_CONFIG',
+      async (password?: string) => {
+        if (password) await api.putWithReauth('/api/notification-settings/email', formData, password);
+        else await apiClient.put('/api/notification-settings/email', formData);
+      },
+      {
+        onSuccess: () => {
+          setSuccess('Email settings saved successfully');
+          mutate();
+          reset(formData);
+        },
+        onError: (err: any) => setError(err.message || 'Failed to save'),
+      },
+    );
   };
 
   const onTest = async () => {
@@ -635,6 +646,17 @@ function EmailTab() {
           </div>
         </div>
       )}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Update Email Settings"
+      />
     </div>
   );
 }
@@ -650,9 +672,8 @@ function SmsTab() {
   const { data, mutate } = useSWR('/api/notification-settings/sms', { revalidateOnMount: true, dedupingInterval: 0 });
 
   const defaultValues: SmsConfig = {
-    provider: 'twilio', enabled: false, defaultCountryCode: '+91', senderId: 'DigiLog',
+    provider: 'http-gateway', enabled: false, defaultCountryCode: '+91', senderId: 'DigiLog',
     twilioAccountSid: '', twilioAuthToken: '', twilioFromNumber: '',
-    awsAccessKeyId: '', awsSecretAccessKey: '', awsRegion: 'ap-south-1',
     vonageApiKey: '', vonageApiSecret: '', vonageFromNumber: '',
     httpGatewayUrl: '', httpGatewayMethod: 'POST', httpGatewayHeaders: {}, httpGatewayBodyTemplate: '',
   };
@@ -664,17 +685,25 @@ function SmsTab() {
   const provider = watch('provider');
   const enabled = watch('enabled');
 
-  const onSubmit = async (formData: SmsConfig) => {
+  const reauth = useReauth();
+  const onSubmit = (formData: SmsConfig) => {
     setError('');
     setSuccess('');
-    try {
-      await apiClient.put('/api/notification-settings/sms', formData);
-      setSuccess('SMS settings saved successfully');
-      mutate();
-      reset(formData);
-    } catch (err: any) {
-      setError(err.message || 'Failed to save');
-    }
+    reauth.execute(
+      'UPDATE_SMS_CONFIG',
+      async (password?: string) => {
+        if (password) await api.putWithReauth('/api/notification-settings/sms', formData, password);
+        else await apiClient.put('/api/notification-settings/sms', formData);
+      },
+      {
+        onSuccess: () => {
+          setSuccess('SMS settings saved successfully');
+          mutate();
+          reset(formData);
+        },
+        onError: (err: any) => setError(err.message || 'Failed to save'),
+      },
+    );
   };
 
   const onTest = async () => {
@@ -768,25 +797,8 @@ function SmsTab() {
           </div>
         )}
 
-        {provider === 'aws-sns' && (
-          <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
-            <h3 className="font-semibold text-slate-800">AWS SNS Settings</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Access Key ID</label>
-                <Input {...register('awsAccessKeyId')} placeholder="AKIA..." />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Secret Access Key</label>
-                <Input {...register('awsSecretAccessKey')} type="password" placeholder="Secret key" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Region</label>
-                <Input {...register('awsRegion')} placeholder="ap-south-1" />
-              </div>
-            </div>
-          </div>
-        )}
+        {/* P3 (2026-05-02): AWS SNS provider block removed. Operators wanting
+            AWS SNS use the HTTP Gateway pointed at the SNS REST endpoint. */}
 
         {provider === 'vonage' && (
           <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
@@ -866,6 +878,17 @@ function SmsTab() {
           </div>
         )}
       </div>
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Update SMS Settings"
+      />
     </div>
   );
 }

@@ -5,231 +5,51 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
-import { createHash } from 'node:crypto';
-import { sanitizeStrings } from '../../lib/sanitize.js';
-import { orgScope } from '../../lib/org-scope.js';
-import { findExistingByClientOpId } from '../../lib/idempotency.js';
+import {
+  getFilter,
+  getFilterHomeBlock,
+  validateBlockChange,
+  getProfilePipeline,
+  getCleaningReasons,
+} from './filter-resolver.js';
+import { terminateCycleImpl } from './cycle-write/terminate-cycle.js';
+import { bypassImpl } from './cycle-write/bypass.js';
+import { submitChecklistImpl } from './cycle-write/submit-checklist.js';
+import { advanceImpl } from './cycle-write/advance.js';
+import { startCycleImpl } from './cycle-write/start-cycle.js';
+import { getCurrentStateImpl, getBatchStatesImpl } from './current-state.js';
 
-function computeChecksum(data: Record<string, unknown>): string {
-  const canonical = JSON.stringify(data, Object.keys(data).sort());
-  return createHash('sha256').update(canonical).digest('hex');
-}
-
-/**
- * Walk the pipeline from a given stage and collect CHECKLIST nodes
- * that sit between it and the next STAGE/END node.
- */
-function collectChecklistsAfterStage(
-  stage: any,
-  allStages: any[],
-  connections: any[],
-): any[] {
-  const checklists: any[] = [];
-  const visited = new Set<string>();
-
-  function walk(nodeId: string) {
-    if (visited.has(nodeId)) return;
-    visited.add(nodeId);
-    const outConns = connections.filter((c: any) => c.fromStageId === nodeId);
-    for (const conn of outConns) {
-      const next = allStages.find((s: any) => s.id === conn.toStageId);
-      if (!next) continue;
-      if (next.nodeType === 'CHECKLIST') {
-        checklists.push(next);
-        walk(next.id);
-      }
-    }
-  }
-
-  walk(stage.id);
-  return checklists;
-}
-
-/**
- * Resolve checklist questions for CHECKLIST pipeline nodes.
- */
-async function resolveChecklistQuestions(checklistNodes: any[]): Promise<any[]> {
-  // Batch: collect all profile IDs, query once
-  const profileIds = [...new Set(
-    checklistNodes.map(n => (n.configuration as any)?.checklistProfileId).filter(Boolean),
-  )];
-  if (profileIds.length === 0) return [];
-
-  const profiles = await prisma.checklistProfile.findMany({
-    where: { id: { in: profileIds }, isActive: true },
-    include: { questions: { orderBy: { sortOrder: 'asc' } } },
-  });
-  const profileMap = new Map(profiles.map(p => [p.id, p]));
-
-  const result: any[] = [];
-  for (const node of checklistNodes) {
-    const checklistProfileId = (node.configuration as any)?.checklistProfileId;
-    const profile = checklistProfileId ? profileMap.get(checklistProfileId) : undefined;
-    if (!profile) continue;
-
-    result.push({
-      pipelineNodeId: node.id,
-      checklistProfileId: profile.id,
-      checklistProfileName: profile.name,
-      questions: profile.questions.map((q: any) => ({
-        id: q.id,
-        question: q.question,
-        questionType: q.questionType,
-        required: q.required,
-        section: q.section,
-        description: q.description,
-        options: q.options,
-        validation: q.validation,
-        sortOrder: q.sortOrder,
-      })),
-    });
-  }
-  return result;
-}
-
-function orgWhere(ctx: RequestContext) { return orgScope(ctx); }
+// Note: the legacy local `assertTapeVersionFresh` was removed in Phase 8.5
+// Commit 4. All four write methods now go through the shared
+// `executor.assertTapeVersionFresh(ctx, submitted)` guard. The legacy local
+// `computeChecksum`, `prettyStageLabel`, `collectChecklistsAfterStage`, and
+// `resolveChecklistQuestions` helpers (plus the small per-cycle helpers
+// `getFilter` / `getNextStageKeys` / `extractBlocks` / `resolveFilterProfile`)
+// were extracted into ./helpers.ts and ./filter-resolver.ts. The 4 write
+// methods + getCurrentState + getBatchStates were extracted into
+// ./cycle-write/*.ts and ./current-state.ts. This file is now the
+// orchestrator class — public surface preserved for routes + tests.
 
 export class FilterOperationsService {
-  private async getFilter(filterId: string, ctx: RequestContext) {
-    const filter = await prisma.assetInstance.findFirst({
-      where: { id: filterId, ...orgWhere(ctx) },
-      select: { id: true, name: true, filterProfileId: true, currentLifecycleState: true, currentCycleId: true, filterSet: true, organizationId: true },
-    });
-    if (!filter) throw new AppError(404, 'NOT_FOUND', 'Filter not found');
-    return filter as { id: string; name: string | null; filterProfileId: string | null; currentLifecycleState: string | null; currentCycleId: string | null; filterSet: string | null; organizationId: string | null };
-  }
-
-  async getFilterHomeBlock(filterId: string): Promise<{ blockId: string; blockName: string } | null> {
-    let currentId: string | null = filterId;
-    const visited = new Set<string>();
-    while (currentId) {
-      if (visited.has(currentId)) break;
-      visited.add(currentId);
-      const inst: { id: string; name: string; parentId: string | null; template: { name: string } | null } | null = await prisma.assetInstance.findUnique({
-        where: { id: currentId },
-        select: { id: true, name: true, parentId: true, template: { select: { name: true } } },
-      });
-      if (!inst) break;
-      if (inst.template?.name === 'Block') {
-        return { blockId: inst.id, blockName: inst.name };
-      }
-      currentId = inst.parentId;
-    }
-    return null;
+  // Public surface preserved: routes call service.getFilterHomeBlock(),
+  // service.validateBlockChange(), service.getCleaningReasons(). The
+  // implementations live in ./filter-resolver.ts; class methods are thin
+  // forwards.
+  async getFilterHomeBlock(filterId: string) {
+    return getFilterHomeBlock(filterId);
   }
 
   async validateBlockChange(filterId: string, cleaningAreaId: string | undefined, ctx: RequestContext) {
-    if (!cleaningAreaId) return;
-    const homeBlock = await this.getFilterHomeBlock(filterId);
-    if (!homeBlock) return;
-    if (homeBlock.blockId === cleaningAreaId) return;
-
-    const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
-    const hasApproval = await blockChangeService.hasApproval(filterId, cleaningAreaId);
-    if (!hasApproval) {
-      const targetBlock = await prisma.assetInstance.findUnique({
-        where: { id: cleaningAreaId },
-        select: { name: true },
-      });
-      throw new AppError(409, 'BLOCK_CHANGE_REQUIRED',
-        `Filter belongs to ${homeBlock.blockName}. Request approval to clean in ${targetBlock?.name ?? 'another block'}.`,
-        {
-          filterId,
-          homeBlockId: homeBlock.blockId,
-          homeBlockName: homeBlock.blockName,
-          requestedBlockId: cleaningAreaId,
-          requestedBlockName: targetBlock?.name ?? '',
-        }
-      );
-    }
-    await blockChangeService.consumeApproval(filterId, cleaningAreaId);
+    return validateBlockChange(filterId, cleaningAreaId, ctx);
   }
 
-  private getNextStageKeys(fromNodeId: string, stages: any[], connections: any[]): string[] {
-    const outConns = connections.filter((c: any) => c.fromStageId === fromNodeId);
-    const nextStageIds = outConns.map((c: any) => c.toStageId);
-    const nextStages = stages.filter((s: any) => nextStageIds.includes(s.id));
-    return nextStages.filter((s: any) => s.nodeType === 'STAGE').map((s: any) => s.stateKey!).filter(Boolean);
-  }
-
-  private extractBlocks(stages: any[]): { nodeType: string; configuration: any }[] {
-    return stages.filter((s: any) => !['STAGE', 'END', 'START', 'CHECKLIST'].includes(s.nodeType))
-      .map((s: any) => ({ nodeType: s.nodeType, configuration: s.configuration }));
-  }
-
-  private async resolveFilterProfile(filter: { id: string; filterProfileId: string | null; filterSet: string | null; name: string | null }): Promise<string | null> {
-    // 1. Direct assignment takes priority
-    if (filter.filterProfileId) return filter.filterProfileId;
-
-    // 2. Check config-based assignment
-    const configRow = await prisma.systemConfig.findUnique({ where: { configKey: 'cleaning-profile-assignment' } });
-    const config = configRow?.configValue as { mode: string; rules: Array<{ matchValue: string; profileId: string }> } | null;
-    if (!config || !config.rules || config.rules.length === 0) return null;
-
-    // 3. Get filter's attributes and ancestors for matching
-    const instance = await prisma.assetInstance.findUnique({
-      where: { id: filter.id },
-      select: { attributes: true, parentId: true },
-    });
-    const attrs = (instance?.attributes as Record<string, any>) ?? {};
-
-    switch (config.mode) {
-      case 'BY_FILTER_SIZE': {
-        const filterSize = attrs.filterSize ?? '';
-        const rule = config.rules.find(r => r.matchValue === filterSize);
-        return rule?.profileId ?? null;
-      }
-      case 'BY_FILTER_SET': {
-        const rule = config.rules.find(r => r.matchValue === filter.filterSet);
-        return rule?.profileId ?? null;
-      }
-      case 'BY_AHU': {
-        // Filter's parent is typically AHU
-        if (instance?.parentId) {
-          const rule = config.rules.find(r => r.matchValue === instance.parentId);
-          return rule?.profileId ?? null;
-        }
-        return null;
-      }
-      case 'BY_BLOCK': {
-        // Walk up: Filter -> AHU -> ... -> Block
-        let currentId = instance?.parentId;
-        const visited = new Set<string>();
-        while (currentId && !visited.has(currentId)) {
-          visited.add(currentId);
-          const rule = config.rules.find(r => r.matchValue === currentId);
-          if (rule) return rule.profileId;
-          const parent = await prisma.assetInstance.findUnique({ where: { id: currentId }, select: { parentId: true } });
-          currentId = parent?.parentId ?? null;
-        }
-        return null;
-      }
-      case 'BY_ENTITY': {
-        const rule = config.rules.find(r => r.matchValue === filter.id);
-        return rule?.profileId ?? null;
-      }
-      default:
-        return null;
-    }
-  }
-
-  private async getProfilePipeline(profileId: string, requireActive: boolean = false) {
-    // Try as FilterProfile first (has cleaningProfileId reference)
-    const fp = await prisma.filterProfile.findUnique({ where: { id: profileId } });
-    const cleaningProfileId = fp ? fp.cleaningProfileId : profileId;
-
-    // Try as CleaningProfile directly (from config-based assignment)
-    const cp = await prisma.filterCleaningProfile.findUnique({
-      where: { id: cleaningProfileId },
-      include: { stages: { orderBy: { sortOrder: 'asc' } }, connections: true },
-    });
-
-    // If profile is disabled (not ACTIVE), block operations that require it
-    if (cp && requireActive && cp.status !== 'ACTIVE') {
-      return null;
-    }
-
-    return cp;
+  // NOTE: kept as a class method (rather than calling the free function from
+  // ./filter-resolver.ts directly) because get-current-state.test.ts monkey-
+  // patches it via `(service as any).getProfilePipeline = vi.fn(...)` to
+  // verify the L2 cycle-pinned-profile invariant. Removing the indirection
+  // would silently bypass the spy.
+  protected async getProfilePipeline(profileId: string, requireActive: boolean = false) {
+    return getProfilePipeline(profileId, requireActive);
   }
 
   /**
@@ -237,1039 +57,44 @@ export class FilterOperationsService {
    * Returns { states: { [filterId]: stateObject } } for offline caching.
    */
   async getBatchStates(ctx: RequestContext, cleaningAreaId?: string) {
-    const orgWhere = ctx.organizationId ? { organizationId: ctx.organizationId } : {};
-    const filters = await prisma.assetInstance.findMany({
-      where: {
-        ...orgWhere,
-        isActive: true,
-        status: { not: 'Retired' },
-        template: { name: 'Filter' },
-      },
-      select: { id: true },
-    });
-
-    const states: Record<string, any> = {};
-    for (const f of filters) {
-      try {
-        states[f.id] = await this.getCurrentState(ctx, f.id, cleaningAreaId);
-      } catch {
-        // Skip filters that error (e.g., no profile assigned)
-      }
-    }
-    return { states, cachedAt: new Date().toISOString() };
+    return getBatchStatesImpl(this, ctx, cleaningAreaId);
   }
 
   async getCurrentState(ctx: RequestContext, filterId: string, cleaningAreaId?: string) {
-    const filter = await this.getFilter(filterId, ctx);
-
-    let currentCycle = null;
-    if (filter.currentCycleId) {
-      currentCycle = await prisma.cleaningCycle.findUnique({ where: { id: filter.currentCycleId } });
-    }
-
-    // Pre-compute block-change state so the mobile UI can show the request
-    // popup BEFORE asking for a wash-in reason, not as a background error
-    // after submission. This is purely informational — validateBlockChange()
-    // remains the authoritative enforcement point inside startCycle.
-    const homeBlockRaw = await this.getFilterHomeBlock(filterId);
-    const homeBlock = homeBlockRaw ? { id: homeBlockRaw.blockId, name: homeBlockRaw.blockName } : null;
-    let blockChangeStatus: 'MATCH' | 'APPROVED' | 'REQUIRED' | null = null;
-    if (!filter.currentCycleId && cleaningAreaId && homeBlock) {
-      if (homeBlock.id === cleaningAreaId) {
-        blockChangeStatus = 'MATCH';
-      } else {
-        const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
-        const approved = await blockChangeService.hasApproval(filterId, cleaningAreaId);
-        blockChangeStatus = approved ? 'APPROVED' : 'REQUIRED';
-      }
-    }
-
-    // PM auto-reason check: if this filter's AHU currently has a PM schedule
-    // entry whose tolerance window contains `now`, the mobile/desktop UI can
-    // skip the wash-in reason dialog and auto-fill "PM" as the cleaning reason.
-    // Pure read — no writes. Only computed for new cycles (skipping when a
-    // cycle is already in progress).
-    let isPmDue = false;
-    let pmReasonKey: string | null = null;
-    if (!filter.currentCycleId) {
-      const filterRow = await prisma.assetInstance.findUnique({
-        where: { id: filterId },
-        select: { parentId: true },
-      });
-      if (filterRow?.parentId) {
-        const now = new Date();
-        const dueEntry = await prisma.pmScheduleEntry.findFirst({
-          where: {
-            schedule: { entityId: filterRow.parentId, status: 'ACTIVE' },
-            windowStart: { lte: now },
-            windowEnd: { gte: now },
-          },
-          orderBy: { plannedDate: 'asc' },
-          select: { id: true },
-        });
-        if (dueEntry) {
-          isPmDue = true;
-          // Look up the configured PM reason — must be active, and match
-          // either key === 'PM' (exact), or name === 'PM', case-insensitive.
-          const reasonsCfg = await prisma.systemConfig.findUnique({ where: { configKey: 'filter-cleaning-reasons' } });
-          const raw = reasonsCfg?.configValue as any;
-          const reasons: any[] = Array.isArray(raw) ? raw : (Array.isArray(raw?.value) ? raw.value : []);
-          const pmReason = reasons.find(r =>
-            r && r.isActive !== false && (
-              (typeof r.key === 'string' && r.key.toUpperCase() === 'PM') ||
-              (typeof r.name === 'string' && r.name.toUpperCase() === 'PM')
-            )
-          );
-          if (pmReason?.key) pmReasonKey = pmReason.key;
-        }
-      }
-    }
-
-    let profile = null;
-    let nextAllowedStages: string[] = [];
-    let nextBlocks: any[] = [];
-    let pendingChecklist: any[] = [];
-
-    const resolvedProfileId = await this.resolveFilterProfile(filter);
-    const cp = resolvedProfileId ? await this.getProfilePipeline(resolvedProfileId, false) : null; // getCurrentState shows pipeline even if disabled
-
-    if (cp) {
-          profile = { name: cp.name, flowMode: cp.flowMode };
-
-          if (currentCycle && filter.currentLifecycleState) {
-            const currentStage = cp.stages.find(s => s.stateKey === filter.currentLifecycleState);
-            if (currentStage) {
-              // Check for CHECKLIST nodes directly after current stage
-              const checklistNodes = collectChecklistsAfterStage(currentStage, cp.stages, cp.connections);
-
-              if (checklistNodes.length > 0) {
-                // Check if checklists have already been answered for this stage in this cycle
-                const answeredEvent = await prisma.filterEvent.findFirst({
-                  where: {
-                    filterId,
-                    cycleId: currentCycle.id,
-                    eventType: 'CHECKLIST_COMPLETED',
-                    attributes: { path: ['afterStage'], equals: filter.currentLifecycleState ?? undefined },
-                  },
-                });
-
-                if (!answeredEvent) {
-                  // Checklists pending — resolve questions (skips inactive profiles)
-                  pendingChecklist = await resolveChecklistQuestions(checklistNodes);
-                  if (pendingChecklist.length > 0) {
-                    // Active checklists pending — block until completed
-                    nextAllowedStages = [];
-                  } else {
-                    // All checklist profiles disabled — skip checklists, show next stages
-                    for (const cl of checklistNodes) {
-                      nextAllowedStages.push(...this.getNextStageKeys(cl.id, cp.stages, cp.connections));
-                    }
-                    nextBlocks = this.extractBlocks(cp.stages.filter(s => nextAllowedStages.some(key => cp.stages.find(st => st.stateKey === key)?.id === s.id)));
-                  }
-                } else {
-                  // Checklists done — walk past checklist nodes to find next STAGE nodes
-                  for (const cl of checklistNodes) {
-                    nextAllowedStages.push(...this.getNextStageKeys(cl.id, cp.stages, cp.connections));
-                  }
-                  const reachableFromChecklists = new Set<string>();
-                  for (const cl of checklistNodes) {
-                    const outConns = cp.connections.filter((c: any) => c.fromStageId === cl.id);
-                    outConns.forEach((c: any) => reachableFromChecklists.add(c.toStageId));
-                  }
-                  const nextStages = cp.stages.filter(s => reachableFromChecklists.has(s.id));
-                  nextBlocks = this.extractBlocks(nextStages);
-                }
-              } else {
-                // No checklist — normal flow
-                nextAllowedStages = this.getNextStageKeys(currentStage.id, cp.stages, cp.connections);
-                const outConns = cp.connections.filter(c => c.fromStageId === currentStage.id);
-                const nextStageIds = outConns.map(c => c.toStageId);
-                const nextStages = cp.stages.filter(s => nextStageIds.includes(s.id));
-                nextBlocks = this.extractBlocks(nextStages);
-              }
-            }
-          } else {
-            const startNode = cp.stages.find(s => s.nodeType === 'START');
-            if (startNode) {
-              nextAllowedStages = this.getNextStageKeys(startNode.id, cp.stages, cp.connections);
-            }
-          }
-    }
-
-    const totalCycles = await prisma.cleaningCycle.count({ where: { filterId } });
-
-    const pipelineStages = cp
-      ? cp.stages.filter(s => s.nodeType === "STAGE").map(s => ({ stateKey: s.stateKey, nodeType: s.nodeType, sortOrder: s.sortOrder, configuration: s.configuration }))
-      : [];
-
-    // Full pipeline graph for offline nextAllowedStages computation
-    const pipelineGraph = cp
-      ? {
-          stages: cp.stages.map(s => ({ id: s.id, stateKey: s.stateKey, nodeType: s.nodeType, sortOrder: s.sortOrder, configuration: s.configuration })),
-          connections: cp.connections.map(c => ({ fromStageId: c.fromStageId, toStageId: c.toStageId })),
-          flowMode: cp.flowMode,
-        }
-      : null;
-
-    // Include equipment group info if cycle has one selected
-    let equipmentGroup = null;
-    if (currentCycle?.equipmentGroupId) {
-      equipmentGroup = await prisma.equipmentGroup.findUnique({
-        where: { id: currentCycle.equipmentGroupId },
-        include: { instruments: { orderBy: { sortOrder: 'asc' } } },
-      });
-    }
-    // Fallback: if cycle has no equipment group but has a cleaning area (block),
-    // return the first active equipment group for that block so the UI can surface
-    // instrument operating ranges (e.g. dryer temperature dropdown).
-    if (!equipmentGroup && currentCycle?.cleaningAreaId) {
-      equipmentGroup = await prisma.equipmentGroup.findFirst({
-        where: { blockId: currentCycle.cleaningAreaId, isActive: true },
-        include: { instruments: { orderBy: { sortOrder: 'asc' } } },
-      });
-    }
-
-    // If no equipment group resolved but block is known, return all active groups
-    // for that block so the frontend can offer a selector (or auto-pick the only one).
-    let blockEquipmentGroups: any[] = [];
-    if (!equipmentGroup && currentCycle?.cleaningAreaId) {
-      blockEquipmentGroups = await prisma.equipmentGroup.findMany({
-        where: { blockId: currentCycle.cleaningAreaId, isActive: true },
-        include: { instruments: { orderBy: { sortOrder: 'asc' } } },
-      });
-    }
-
-    // B.7 — Per-stage lookup table the offline client uses without reconstructing
-    // server logic. For every STAGE node in the pipeline, pre-compute:
-    //   - nextStages: array of stateKey strings reachable next
-    //   - pendingChecklistProfileIds: ids of CHECKLIST nodes that fire after this
-    //     stage (client uses cached checklist-profiles to render questions offline)
-    //   - leadsToEnd: true if no more stages follow
-    // The client just looks this up after each successful offline advance instead
-    // of walking the graph itself (which has historically drifted from server).
-    const stageLookup: Record<string, { nextStages: string[]; pendingChecklistProfileIds: string[]; leadsToEnd: boolean }> = {};
-    if (cp) {
-      for (const s of cp.stages) {
-        if (s.nodeType !== 'STAGE' || !s.stateKey) continue;
-        const checklistNodes = collectChecklistsAfterStage(s, cp.stages, cp.connections);
-        const nextSet = new Set<string>();
-        let leadsToEnd = false;
-        const collectStagesPast = (nodeId: string, visited: Set<string>) => {
-          if (visited.has(nodeId)) return;
-          visited.add(nodeId);
-          const outConns = cp!.connections.filter((c: any) => c.fromStageId === nodeId);
-          for (const conn of outConns) {
-            const next = cp!.stages.find((n: any) => n.id === conn.toStageId);
-            if (!next) continue;
-            if (next.nodeType === 'STAGE' && next.stateKey) nextSet.add(next.stateKey);
-            else if (next.nodeType === 'END') leadsToEnd = true;
-            else if (next.nodeType === 'CHECKLIST') collectStagesPast(next.id, visited);
-          }
-        };
-        collectStagesPast(s.id, new Set());
-        stageLookup[s.stateKey] = {
-          nextStages: [...nextSet],
-          pendingChecklistProfileIds: checklistNodes.map((n: any) => (n.configuration as any)?.checklistProfileId).filter(Boolean),
-          leadsToEnd,
-        };
-      }
-    }
-
-    // Stale-profile detection: if the in-progress cycle is bound to a profile
-    // that no longer matches what the live block-assignment config says,
-    // surface a warning so the operator can terminate-and-restart on the
-    // current profile instead of silently continuing on the wrong pipeline.
-    let profileSyncWarning: { cycleProfileId: string; cycleProfileName: string | null; expectedProfileId: string; expectedProfileName: string | null; recommendation: 'TERMINATE_AND_RESTART' } | null = null;
-    if (currentCycle && resolvedProfileId) {
-      const cycleProfileId: string = currentCycle.profileId;
-      // resolvedProfileId is what the live config + filter assignment resolves to
-      // (FilterProfile id OR CleaningProfile id directly). Normalize both sides.
-      const normalize = async (id: string): Promise<string> => {
-        const fp = await prisma.filterProfile.findUnique({ where: { id }, select: { cleaningProfileId: true } });
-        return fp ? fp.cleaningProfileId : id;
-      };
-      const liveCpId = await normalize(resolvedProfileId);
-      const cycleCpId = await normalize(cycleProfileId);
-      if (liveCpId !== cycleCpId) {
-        const [liveCp, cycleCp] = await Promise.all([
-          prisma.filterCleaningProfile.findUnique({ where: { id: liveCpId }, select: { name: true } }),
-          prisma.filterCleaningProfile.findUnique({ where: { id: cycleCpId }, select: { name: true } }),
-        ]);
-        profileSyncWarning = {
-          cycleProfileId: cycleCpId,
-          cycleProfileName: cycleCp?.name ?? null,
-          expectedProfileId: liveCpId,
-          expectedProfileName: liveCp?.name ?? null,
-          recommendation: 'TERMINATE_AND_RESTART',
-        };
-      }
-    }
-
-    return {
-      filterId: filter.id,
-      filterName: filter.name,
-      currentState: filter.currentLifecycleState,
-      currentCycle,
-      nextAllowedStages,
-      nextBlocks,
-      pendingChecklist,
-      pipelineStages,
-      pipelineGraph,
-      profile,
-      filterSet: filter.filterSet,
-      totalCycles,
-      equipmentGroup,
-      blockEquipmentGroups,
-      homeBlock,
-      blockChangeStatus,
-      isPmDue,
-      pmReasonKey,
-      profileSyncWarning,
-      stageLookup,
-    };
+    return getCurrentStateImpl(this, ctx, filterId, cleaningAreaId);
   }
+
 
   /** @param data - Validated by Fastify JSON schema before reaching this method */
   async submitChecklist(ctx: RequestContext, filterId: string, data: any) {
-    const { answers } = data;
-    const clientOpId: string | null = data.clientOpId ?? null;
-    if (clientOpId && await findExistingByClientOpId(filterId, clientOpId)) {
-      return this.getCurrentState(ctx, filterId);
-    }
-
-    const filter = await this.getFilter(filterId, ctx);
-    if (!filter.currentCycleId) throw new AppError(400, 'NO_CYCLE', 'No active cleaning cycle');
-
-    const cycle = await prisma.cleaningCycle.findFirst({
-      where: { id: filter.currentCycleId, status: 'IN_PROGRESS' },
-    });
-    if (!cycle) throw new AppError(400, 'NO_ACTIVE_CYCLE', 'No active cleaning cycle found');
-
-    // Validate answers against checklist profile questions
-    if (answers && typeof answers === 'object') {
-      // Get the pipeline to find checklist nodes for the current stage
-      const resolvedProfileId = await this.resolveFilterProfile(filter);
-      const cp = resolvedProfileId ? await this.getProfilePipeline(resolvedProfileId) : null;
-      if (cp) {
-        const currentStage = cp.stages.find(s => s.stateKey === filter.currentLifecycleState);
-        if (currentStage) {
-          const checklistNodes = collectChecklistsAfterStage(currentStage, cp.stages, cp.connections);
-          const resolvedChecklists = await resolveChecklistQuestions(checklistNodes);
-          // Collect all valid question IDs and required question IDs
-          const validQuestionIds = new Set<string>();
-          const requiredQuestionIds = new Set<string>();
-          for (const cl of resolvedChecklists) {
-            for (const q of cl.questions) {
-              validQuestionIds.add(q.id);
-              if (q.required) requiredQuestionIds.add(q.id);
-            }
-          }
-          // Check required questions have answers
-          for (const qId of requiredQuestionIds) {
-            if (answers[qId] === undefined || answers[qId] === null || answers[qId] === '') {
-              throw new AppError(400, 'VALIDATION_ERROR', `Required checklist question not answered: ${qId}`);
-            }
-          }
-          // Warn about extra answers for non-existent questions
-          const answerKeys = Object.keys(answers);
-          const extraKeys = answerKeys.filter(k => !validQuestionIds.has(k));
-          if (extraKeys.length > 0) {
-            console.warn(`[submitChecklist] Extra answers for non-existent questions: ${extraKeys.join(', ')}`);
-          }
-        }
-      }
-    }
-
-    // Record CHECKLIST_COMPLETED event inside a transaction with duplicate check
-    const eventData = {
-      filterId,
-      cycleId: cycle.id,
-      eventType: 'CHECKLIST_COMPLETED' as const,
-      performedBy: ctx.userSub,
-      attributes: {
-        afterStage: filter.currentLifecycleState,
-        answers,
-      },
-      remarks: `Checklist completed after ${filter.currentLifecycleState}`,
-    };
-    const checksum = computeChecksum(eventData);
-
-    // Determine whether this checklist is the final node before END so we can
-    // auto-complete the cycle inside the same transaction. Pipelines like
-    // WASH_IN→CHECKLIST→END defer cycle completion from advance() to here.
-    let shouldComplete = false;
-    {
-      const resolvedProfileId = await this.resolveFilterProfile(filter);
-      const cp = resolvedProfileId ? await this.getProfilePipeline(resolvedProfileId) : null;
-      if (cp && filter.currentLifecycleState) {
-        const currentStage = cp.stages.find(s => s.stateKey === filter.currentLifecycleState);
-        if (currentStage) {
-          let leadsToEnd = false;
-          let hasMoreStages = false;
-          const visited = new Set<string>();
-          const walk = (nodeId: string) => {
-            if (visited.has(nodeId)) return;
-            visited.add(nodeId);
-            const outConns = cp.connections.filter(c => c.fromStageId === nodeId);
-            for (const conn of outConns) {
-              const next = cp.stages.find(s => s.id === conn.toStageId);
-              if (!next) continue;
-              if (next.nodeType === 'END') leadsToEnd = true;
-              else if (next.nodeType === 'STAGE') hasMoreStages = true;
-              else if (next.nodeType === 'CHECKLIST') walk(next.id);
-            }
-          };
-          walk(currentStage.id);
-          shouldComplete = leadsToEnd && !hasMoreStages;
-        }
-      }
-    }
-
-    const offlineTime = data.offlinePerformedAt ? new Date(data.offlinePerformedAt) : undefined;
-
-    await prisma.$transaction(async (tx) => {
-      // Check for duplicate submission
-      const existing = await tx.filterEvent.findFirst({
-        where: {
-          filterId,
-          cycleId: cycle.id,
-          eventType: 'CHECKLIST_COMPLETED',
-          attributes: { path: ['afterStage'], equals: filter.currentLifecycleState ?? undefined },
-        },
-      });
-      if (existing) throw new AppError(409, 'ALREADY_SUBMITTED', 'Checklist already submitted for this stage');
-
-      await tx.filterEvent.create({
-        data: {
-          ...eventData,
-          checksum,
-          ipAddress: ctx.ipAddress,
-          telemetrySnapshot: {},
-          ...(offlineTime && { performedAt: offlineTime }),
-        },
-      });
-
-      if (shouldComplete) {
-        await tx.cleaningCycle.update({
-          where: { id: cycle.id },
-          data: { status: 'COMPLETED', completedAt: offlineTime ?? new Date() },
-        });
-        await tx.assetInstance.update({
-          where: { id: filterId },
-          data: { currentCycleId: null, currentLifecycleState: null },
-        });
-        const completeEvent = {
-          filterId, cycleId: cycle.id, eventType: 'CYCLE_COMPLETED' as const,
-          performedBy: ctx.userSub, attributes: { sequenceNumber: cycle.sequenceNumber },
-        };
-        await tx.filterEvent.create({
-          data: {
-            ...completeEvent,
-            checksum: computeChecksum(completeEvent),
-            ipAddress: ctx.ipAddress,
-            telemetrySnapshot: {},
-            ...(offlineTime && { performedAt: offlineTime }),
-          },
-        });
-      }
-    });
-
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole, action: 'CHECKLIST_COMPLETED',
-      targetType: 'filter', targetId: filterId,
-      afterValue: { stage: filter.currentLifecycleState, answerCount: Object.keys(answers ?? {}).length },
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-    });
-
-    return this.getCurrentState(ctx, filterId);
+    return submitChecklistImpl(this, ctx, filterId, data);
   }
 
   /** @param data - Validated by Fastify JSON schema before reaching this method */
   async startCycle(ctx: RequestContext, filterId: string, data: any) {
-    const { cleaningReasonKey, cleaningAreaId, equipmentGroupId } = data;
-    // offlinePerformedAt: original timestamp from when the user performed the action offline
-    const offlineTime = data.offlinePerformedAt ? new Date(data.offlinePerformedAt) : undefined;
-    // Idempotent replay: if this clientOpId was already processed, return current state
-    // instead of creating a duplicate cycle.
-    const clientOpId: string | null = data.clientOpId ?? null;
-    if (clientOpId && await findExistingByClientOpId(filterId, clientOpId)) {
-      return this.getCurrentState(ctx, filterId);
-    }
-    const cleaningJustification = typeof data.cleaningJustification === "string" ? data.cleaningJustification.replace(/</g, "&lt;").replace(/>/g, "&gt;") : data.cleaningJustification;
-
-    const filter = await this.getFilter(filterId, ctx);
-    const resolvedProfileIdForCycle = await this.resolveFilterProfile(filter);
-    if (!resolvedProfileIdForCycle) throw new AppError(400, 'NO_PROFILE', 'Filter has no assigned profile');
-
-    if (filter.currentCycleId) {
-      const activeCycle = await prisma.cleaningCycle.findFirst({
-        where: { id: filter.currentCycleId, status: 'IN_PROGRESS' },
-      });
-      if (activeCycle) throw new AppError(409, 'CYCLE_ACTIVE', 'Filter already has an active cleaning cycle');
-    }
-
-    // Validate block change (must be before cycle creation)
-    await this.validateBlockChange(filterId, cleaningAreaId, ctx);
-
-    const reasons = await this.getCleaningReasons(resolvedProfileIdForCycle);
-    if (!cleaningReasonKey) {
-      throw new AppError(400, 'REASON_REQUIRED', 'Cleaning reason is required');
-    }
-    const reason = reasons.find((r: any) => r.key === cleaningReasonKey);
-    if (!reason) throw new AppError(400, 'INVALID_REASON', `Invalid cleaning reason: ${cleaningReasonKey}`);
-    if (reason.requiresJustification && (!cleaningJustification || cleaningJustification.length < 10)) {
-      throw new AppError(400, 'JUSTIFICATION_REQUIRED', 'Justification required (min 10 characters) for this cleaning reason');
-    }
-
-    const org = filter.organizationId
-      ? await prisma.organization.findUnique({ where: { id: filter.organizationId }, select: { slug: true } })
-      : null;
-    const orgSlug = (org?.slug ?? 'ORG').toUpperCase().slice(0, 10);
-
-    const prevCycleCount = await prisma.cleaningCycle.count({ where: { filterId } });
-    const seq = prevCycleCount + 1;
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const cycleCode = `CC-${orgSlug}-${filter.name?.replace(/\s+/g, '').slice(0, 10) ?? filterId.slice(0, 8)}-${String(seq).padStart(3, '0')}-${dateStr}`;
-
-    // Resolve to cleaning profile — could be a FilterProfile ID or a CleaningProfile ID directly
-    const fp = await prisma.filterProfile.findUnique({ where: { id: resolvedProfileIdForCycle } });
-    const cleaningProfileIdForCycle = fp ? fp.cleaningProfileId : resolvedProfileIdForCycle;
-    const cp = await prisma.filterCleaningProfile.findUnique({ where: { id: cleaningProfileIdForCycle } });
-    if (cp && cp.status !== 'ACTIVE') {
-      throw new AppError(400, 'PROFILE_DISABLED', `Cleaning profile "${cp.name}" is disabled. Contact admin to activate it.`);
-    }
-
-    // Use transaction to prevent race conditions on double-start
-    const cycle = await prisma["$transaction"](async (tx) => {
-      // Re-check inside transaction
-      const recheck = await tx.assetInstance.findUnique({ where: { id: filterId }, select: { currentCycleId: true } });
-      if (recheck?.currentCycleId) {
-        const active = await tx.cleaningCycle.findFirst({ where: { id: recheck.currentCycleId, status: 'IN_PROGRESS' } });
-        if (active) throw new AppError(409, 'CYCLE_ACTIVE', 'Filter already has an active cleaning cycle');
-      }
-
-      // Validate equipment group if provided
-      if (equipmentGroupId) {
-        const eqGroup = await tx.equipmentGroup.findFirst({
-          where: { id: equipmentGroupId, isActive: true },
-        });
-        if (!eqGroup) throw new AppError(400, 'INVALID_EQUIPMENT_GROUP', 'Equipment group not found or inactive');
-      }
-
-      const newCycle = await tx.cleaningCycle.create({
-        data: {
-          cycleCode, filterId, ahuId: null,
-          profileId: resolvedProfileIdForCycle,
-          profileVersion: cp?.version ?? 1,
-          sequenceNumber: seq, cleaningReasonKey,
-          cleaningReasonLabel: reason.name,
-          cleaningJustification: cleaningJustification ?? null,
-          cleaningAreaId: cleaningAreaId ?? null,
-          equipmentGroupId: equipmentGroupId ?? null,
-          ...(offlineTime && { startedAt: offlineTime }),
-        },
-      });
-
-      await tx.filterEvent.create({
-        data: {
-          filterId, cycleId: newCycle.id, eventType: 'CYCLE_STARTED',
-          performedBy: ctx.userSub, cleaningAreaId: cleaningAreaId ?? null,
-          attributes: { cleaningReasonKey, cleaningReasonLabel: reason.name, ...(clientOpId ? { clientOpId } : {}) },
-          remarks: cleaningJustification ?? null,
-          checksum: computeChecksum({ filterId, cycleId: newCycle.id, eventType: 'CYCLE_STARTED', performedBy: ctx.userSub }),
-          ipAddress: ctx.ipAddress, telemetrySnapshot: {},
-          ...(offlineTime && { performedAt: offlineTime }),
-        },
-      });
-
-      await tx.assetInstance.update({
-        where: { id: filterId },
-        data: { currentCycleId: newCycle.id },
-      });
-
-      return newCycle;
-    });
-
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole, action: 'CYCLE_STARTED',
-      targetType: 'cleaning_cycle', targetId: cycle.id,
-      afterValue: { cycleCode, cleaningReasonKey, filterId },
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-    });
-
-    return cycle;
+    return startCycleImpl(this, ctx, filterId, data);
   }
 
   /** @param data - Validated by Fastify JSON schema before reaching this method */
   async advance(ctx: RequestContext, filterId: string, data: any) {
-    const { targetState, parameters, equipmentId, cleaningAreaId, instrumentReadings, equipmentGroupId, dryerAction, dryerDurationMinutes } = data;
-    const offlineTime = data.offlinePerformedAt ? new Date(data.offlinePerformedAt) : undefined;
-    const remarks = typeof data.remarks === "string" ? data.remarks.replace(/</g, "&lt;").replace(/>/g, "&gt;") : data.remarks;
-    // Idempotent replay: same clientOpId == same logical operation. Return current
-    // state instead of double-applying.
-    const clientOpId: string | null = data.clientOpId ?? null;
-    if (clientOpId && await findExistingByClientOpId(filterId, clientOpId)) {
-      return this.getCurrentState(ctx, filterId);
-    }
-
-    const filter = await this.getFilter(filterId, ctx);
-    if (!filter.currentCycleId) throw new AppError(400, 'NO_CYCLE', 'No active cleaning cycle');
-
-    const cycle = await prisma.cleaningCycle.findFirst({
-      where: { id: filter.currentCycleId, status: 'IN_PROGRESS' },
-    });
-    if (!cycle) throw new AppError(400, 'NO_ACTIVE_CYCLE', 'No active cleaning cycle found');
-
-    const resolvedProfileIdForAdvance = await this.resolveFilterProfile(filter);
-    if (!resolvedProfileIdForAdvance) throw new AppError(400, 'NO_PROFILE', 'Filter has no assigned profile');
-    const cp = await this.getProfilePipeline(resolvedProfileIdForAdvance, true);
-    if (!cp) throw new AppError(400, 'PROFILE_DISABLED', 'Cleaning profile is disabled or not found. Contact admin to activate it.');
-
-    // #12: Enforce checklist completion before allowing advance (only for active checklist profiles)
-    const currentState = filter.currentLifecycleState;
-    if (currentState) {
-      const currentStageForCL = cp.stages.find(s => s.stateKey === currentState);
-      if (currentStageForCL) {
-        const pendingCLNodes = collectChecklistsAfterStage(currentStageForCL, cp.stages, cp.connections)
-          .filter(n => n.configuration?.checklistProfileId);
-
-        // Only enforce checklists whose profiles are still active (batch query)
-        const clProfileIds = [...new Set(pendingCLNodes.map(n => (n.configuration as any).checklistProfileId).filter(Boolean))];
-        const activeProfiles = clProfileIds.length > 0
-          ? await prisma.checklistProfile.findMany({ where: { id: { in: clProfileIds }, isActive: true }, select: { id: true } })
-          : [];
-        const activeProfileIds = new Set(activeProfiles.map(p => p.id));
-        const activeCLNodes = pendingCLNodes.filter(n => activeProfileIds.has((n.configuration as any).checklistProfileId));
-
-        if (activeCLNodes.length > 0) {
-          const answered = await prisma.filterEvent.findFirst({
-            where: { filterId, cycleId: cycle.id, eventType: 'CHECKLIST_COMPLETED', attributes: { path: ['afterStage'], equals: currentState } },
-          });
-          if (!answered) {
-            throw new AppError(400, 'CHECKLIST_PENDING', `Please complete the checklist before advancing from ${currentState.replace(/_/g, ' ')}`);
-          }
-        }
-      }
-    }
-
-    let currentStage = currentState
-      ? cp.stages.find(s => s.stateKey === currentState)
-      : cp.stages.find(s => s.nodeType === 'START');
-
-    if (!currentStage) {
-      currentStage = cp.stages.find(s => s.nodeType === 'START');
-    }
-
-    if (currentStage) {
-      // Walk from current stage: skip over CHECKLIST nodes to find reachable STAGE nodes
-      const reachableStages: string[] = [];
-      const visited = new Set<string>();
-      let hasEndNext = false;
-
-      function findReachableStages(nodeId: string) {
-        if (visited.has(nodeId)) return;
-        visited.add(nodeId);
-        const outConns = cp!.connections.filter(c => c.fromStageId === nodeId);
-        for (const conn of outConns) {
-          const next = cp!.stages.find(s => s.id === conn.toStageId);
-          if (!next) continue;
-          if (next.nodeType === 'STAGE' && next.stateKey) {
-            reachableStages.push(next.stateKey);
-          } else if (next.nodeType === 'END') {
-            hasEndNext = true;
-          } else if (next.nodeType === 'CHECKLIST') {
-            findReachableStages(next.id);
-          }
-        }
-      }
-
-      findReachableStages(currentStage.id);
-
-      if (reachableStages.length === 0 && hasEndNext) {
-        throw new AppError(400, 'CYCLE_COMPLETE', 'Cleaning cycle is complete. No more stages.');
-      }
-      // Dryer actions (SET_DURATION, SUBMIT_READINGS) with targetState=DRY_IN stay at DRY_IN
-      const isDryerInPlace = !!dryerAction && targetState === 'DRY_IN' && filter.currentLifecycleState === 'DRY_IN';
-      if (!reachableStages.includes(targetState) && cp.flowMode !== 'BYPASS_ENABLED' && !isDryerInPlace) {
-        throw new AppError(400, 'OUT_OF_SEQUENCE', `Cannot move to ${targetState} from ${currentState ?? 'START'}. Next allowed: ${reachableStages.join(', ')}`);
-      }
-    }
-
-    const targetStage = cp.stages.find(s => s.stateKey === targetState);
-    if (!targetStage) throw new AppError(400, 'INVALID_TARGET', `Invalid target state: ${targetState}`);
-
-    const paramBlocks = cp.stages.filter(s => s.nodeType === 'PARAM_CAPTURE');
-    for (const block of paramBlocks) {
-      const config = block.configuration as any; // Prisma Json type
-      if (config?.parameters) {
-        for (const param of config.parameters) {
-          if (param.required && parameters && !parameters[param.key]) {
-            throw new AppError(400, 'PARAM_REQUIRED', `Required parameter missing: ${param.label}`);
-          }
-          if (parameters?.[param.key]) {
-            const val = parameters[param.key].value;
-            if (param.min !== undefined && val < param.min) {
-              throw new AppError(400, 'PARAM_OUT_OF_RANGE', `${param.label} below minimum (${param.min})`);
-            }
-            if (param.max !== undefined && val > param.max) {
-              throw new AppError(400, 'PARAM_OUT_OF_RANGE', `${param.label} above maximum (${param.max})`);
-            }
-          }
-        }
-      }
-    }
-
-    const fromState = filter.currentLifecycleState;
-
-    // Validate equipment group if provided at WASH_IN and not yet set (write deferred to transaction)
-    if (equipmentGroupId && !cycle.equipmentGroupId) {
-      const eqGroup = await prisma.equipmentGroup.findFirst({
-        where: { id: equipmentGroupId, isActive: true },
-      });
-      if (!eqGroup) throw new AppError(400, 'INVALID_EQUIPMENT_GROUP', 'Equipment group not found or inactive');
-    }
-
-    // Dryer SET_DURATION: must be advancing INTO DRY_IN, no readings expected
-    if (dryerAction === 'SET_DURATION') {
-      if (targetState !== 'DRY_IN') throw new AppError(400, 'INVALID_DRYER_ACTION', 'SET_DURATION only valid for DRY_IN');
-      if (!dryerDurationMinutes || dryerDurationMinutes < 1) throw new AppError(400, 'INVALID_DURATION', 'dryerDurationMinutes required');
-    }
-
-    // Dryer SUBMIT_READINGS: validate half-time elapsed (skip for offline replay — time already validated client-side)
-    if (dryerAction === 'SUBMIT_READINGS') {
-      if (filter.currentLifecycleState !== 'DRY_IN') throw new AppError(400, 'NOT_IN_DRY_IN', 'Filter is not in DRY_IN');
-      if (!cycle.dryerStartedAt || !cycle.dryerDurationMinutes) {
-        throw new AppError(400, 'DRYER_NOT_STARTED', 'Dryer duration not set');
-      }
-      if (!offlineTime) {
-        const halfMs = (cycle.dryerDurationMinutes * 60_000) / 2;
-        const elapsedMs = Date.now() - new Date(cycle.dryerStartedAt).getTime();
-        if (elapsedMs < halfMs) {
-          const remainingMin = Math.ceil((halfMs - elapsedMs) / 60_000);
-          throw new AppError(400, 'DRYER_NOT_READY', `Dryer still running. Wait ${remainingMin} more minute(s).`);
-        }
-      }
-    }
-
-    // Guard: leaving DRY_IN requires the dryer to have run at least half its duration (skip for offline replay)
-    if (filter.currentLifecycleState === 'DRY_IN' && targetState !== 'DRY_IN' && !offlineTime) {
-      if (cycle.dryerStartedAt && cycle.dryerDurationMinutes) {
-        const halfMs = (cycle.dryerDurationMinutes * 60_000) / 2;
-        const elapsedMs = Date.now() - new Date(cycle.dryerStartedAt).getTime();
-        if (elapsedMs < halfMs) {
-          const remainingMin = Math.ceil((halfMs - elapsedMs) / 60_000);
-          throw new AppError(400, 'DRYER_NOT_READY', `Dryer still running. Wait ${remainingMin} more minute(s) before leaving DRY_IN.`);
-        }
-      }
-    }
-
-    // Validate instrument readings if provided
-    let validatedReadings: any = null;
-    if (instrumentReadings && typeof instrumentReadings === 'object' && Object.keys(instrumentReadings).length > 0) {
-      let cycleGroupId = equipmentGroupId ?? cycle.equipmentGroupId;
-      // Auto-resolve: if no group on cycle but block is known, pick the block's active group
-      if (!cycleGroupId && cycle.cleaningAreaId) {
-        const blockGroups = await prisma.equipmentGroup.findMany({
-          where: { blockId: cycle.cleaningAreaId, isActive: true },
-          select: { id: true },
-        });
-        if (blockGroups.length === 1) {
-          cycleGroupId = blockGroups[0].id;
-          // Persist on cycle so future requests don't need to re-resolve
-          await prisma.cleaningCycle.update({ where: { id: cycle.id }, data: { equipmentGroupId: cycleGroupId } });
-        } else if (blockGroups.length > 1) {
-          throw new AppError(400, 'MULTIPLE_EQUIPMENT_GROUPS', 'Multiple equipment groups found for this block. Please select one.');
-        }
-      }
-      if (!cycleGroupId) throw new AppError(400, 'NO_EQUIPMENT_GROUP', 'Equipment group must be selected before submitting readings');
-
-      const eqGroup = await prisma.equipmentGroup.findUnique({
-        where: { id: cycleGroupId },
-        include: { instruments: { orderBy: { sortOrder: 'asc' } } },
-      });
-      if (!eqGroup) throw new AppError(400, 'INVALID_EQUIPMENT_GROUP', 'Equipment group not found');
-
-      // Filter instruments for the target stage (or DRY_IN when submitting dryer readings)
-      const readingsStageKey = dryerAction === 'SUBMIT_READINGS' ? 'DRY_IN' : targetState;
-      const stageInstruments = eqGroup.instruments.filter(i => i.stageKey === readingsStageKey);
-
-      validatedReadings = [];
-      for (const inst of stageInstruments) {
-        const reading = instrumentReadings[inst.id];
-        if (reading === undefined || reading === null) {
-          throw new AppError(400, 'READING_REQUIRED', `Reading required for ${inst.description} (${inst.instrumentId})`);
-        }
-        const val = Number(reading);
-        if (isNaN(val)) {
-          throw new AppError(400, 'INVALID_READING', `Invalid reading value for ${inst.description}`);
-        }
-        if (val < inst.operatingMin || val > inst.operatingMax) {
-          throw new AppError(400, 'READING_OUT_OF_RANGE', `${inst.description} reading ${val} is outside operating range (${inst.operatingMin}–${inst.operatingMax})`);
-        }
-        validatedReadings.push({
-          instrumentId: inst.id,
-          instrumentCode: inst.instrumentId,
-          description: inst.description,
-          value: val,
-          uom: inst.uom,
-          leastCount: inst.leastCount,
-        });
-      }
-    }
-
-    const eventAttributes = {
-      ...(parameters ?? {}),
-      ...(validatedReadings ? { instrumentReadings: validatedReadings } : {}),
-    };
-
-    const eventData = {
-      filterId, cycleId: cycle.id, eventType: 'STATE_TRANSITION' as const,
-      fromState, toState: targetState,
-      performedBy: ctx.userSub,
-      cleaningAreaId: cleaningAreaId ?? null,
-      equipmentId: equipmentId ?? null,
-      attributes: eventAttributes,
-      remarks: remarks ?? null,
-    };
-    const checksum = computeChecksum(eventData);
-
-    // Check if target stage leads to END (walking through any CHECKLIST nodes)
-    let leadsToEnd = false;
-    let hasMoreStages = false;
-    const checkedIds = new Set<string>();
-
-    function checkEnd(stageId: string) {
-      if (checkedIds.has(stageId)) return;
-      checkedIds.add(stageId);
-      const outConns = cp!.connections.filter(c => c.fromStageId === stageId);
-      for (const conn of outConns) {
-        const next = cp!.stages.find(s => s.id === conn.toStageId);
-        if (!next) continue;
-        if (next.nodeType === 'END') leadsToEnd = true;
-        else if (next.nodeType === 'STAGE') hasMoreStages = true;
-        else if (next.nodeType === 'CHECKLIST') checkEnd(next.id);
-      }
-    }
-    checkEnd(targetStage.id);
-
-    // Defer auto-complete if there is an active CHECKLIST node between the
-    // target stage and END. Without this, pipelines like WASH_IN→CHECKLIST→END
-    // would complete the cycle the instant we arrive at WASH_IN, never giving
-    // the operator a chance to answer the post-stage checklist.
-    // Auto-completion in that case is performed by submitChecklist() below.
-    let hasPendingChecklistAfterTarget = false;
-    if (leadsToEnd && !hasMoreStages) {
-      const postNodes = collectChecklistsAfterStage(targetStage, cp.stages, cp.connections)
-        .filter(n => (n.configuration as any)?.checklistProfileId);
-      const postProfileIds = [...new Set(postNodes.map(n => (n.configuration as any).checklistProfileId).filter(Boolean))] as string[];
-      if (postProfileIds.length > 0) {
-        const active = await prisma.checklistProfile.findMany({
-          where: { id: { in: postProfileIds }, isActive: true },
-          select: { id: true },
-        });
-        hasPendingChecklistAfterTarget = active.length > 0;
-      }
-    }
-
-    // Wrap all writes in a single transaction
-    await prisma.$transaction(async (tx) => {
-      // Re-validate state inside transaction to prevent race conditions
-      const lockedFilter = await tx.assetInstance.findFirst({
-        where: { id: filterId },
-        select: { currentLifecycleState: true, currentCycleId: true },
-      });
-      if (lockedFilter?.currentLifecycleState !== currentState) {
-        throw new AppError(409, 'STATE_CHANGED', 'Filter state was modified by another user. Please refresh and try again.');
-      }
-      if (lockedFilter?.currentCycleId !== cycle.id) {
-        throw new AppError(409, 'CYCLE_CHANGED', 'Cleaning cycle changed. Please refresh and try again.');
-      }
-
-      // Update equipment group if provided and not yet set
-      if (equipmentGroupId && !cycle.equipmentGroupId) {
-        await tx.cleaningCycle.update({
-          where: { id: cycle.id },
-          data: { equipmentGroupId },
-        });
-      }
-
-      // Dryer SET_DURATION: persist duration + start time, emit DRYER_STARTED event
-      if (dryerAction === 'SET_DURATION') {
-        const startedAt = new Date();
-        await tx.cleaningCycle.update({
-          where: { id: cycle.id },
-          data: { dryerDurationMinutes, dryerStartedAt: startedAt },
-        });
-        const dryerEvent = {
-          filterId, cycleId: cycle.id, eventType: 'STATE_TRANSITION' as const,
-          fromState: filter.currentLifecycleState, toState: targetState,
-          performedBy: ctx.userSub,
-          attributes: { dryerDurationMinutes, dryerStartedAt: startedAt.toISOString(), action: 'DRYER_STARTED' },
-          remarks: `Dryer started for ${dryerDurationMinutes} minute(s)`,
-        };
-        await tx.filterEvent.create({
-          data: {
-            ...dryerEvent,
-            checksum: computeChecksum(dryerEvent),
-            ipAddress: ctx.ipAddress,
-            telemetrySnapshot: {},
-          },
-        });
-      }
-
-      await tx.filterEvent.create({
-        data: {
-          ...eventData,
-          checksum,
-          ipAddress: ctx.ipAddress,
-          telemetrySnapshot: {},
-          ...(offlineTime && { performedAt: offlineTime }),
-        },
-      });
-
-      // Mark dryer readings as submitted (DRY_IN stays, user advances to DRY_OUT later)
-      if (dryerAction === 'SUBMIT_READINGS') {
-        await tx.cleaningCycle.update({
-          where: { id: cycle.id },
-          data: { dryerReadingsSubmitted: true },
-        });
-      }
-
-      await tx.assetInstance.update({
-        where: { id: filterId },
-        data: { currentLifecycleState: targetState },
-      });
-
-      if (leadsToEnd && !hasMoreStages && !hasPendingChecklistAfterTarget) {
-        await tx.cleaningCycle.update({
-          where: { id: cycle.id },
-          data: { status: 'COMPLETED', completedAt: offlineTime ?? new Date() },
-        });
-        await tx.assetInstance.update({
-          where: { id: filterId },
-          data: { currentCycleId: null, currentLifecycleState: null },
-        });
-
-        const completeEvent = {
-          filterId, cycleId: cycle.id, eventType: 'CYCLE_COMPLETED' as const,
-          performedBy: ctx.userSub, attributes: { sequenceNumber: cycle.sequenceNumber },
-        };
-        await tx.filterEvent.create({
-          data: {
-            ...completeEvent,
-            checksum: computeChecksum(completeEvent),
-            ipAddress: ctx.ipAddress,
-            telemetrySnapshot: {},
-          },
-        });
-      }
-    });
-
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole, action: 'STATE_TRANSITION',
-      targetType: 'filter', targetId: filterId,
-      beforeValue: { state: fromState },
-      afterValue: { state: targetState },
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-    });
-
-    return this.getCurrentState(ctx, filterId);
+    return advanceImpl(this, ctx, filterId, data);
   }
 
   /** @param data - Validated by Fastify JSON schema before reaching this method */
   async bypass(ctx: RequestContext, filterId: string, data: any) {
-    const { targetState, parameters } = data;
-    const justification = typeof data.justification === "string" ? data.justification.replace(/</g, "&lt;").replace(/>/g, "&gt;") : data.justification;
-    const clientOpId: string | null = data.clientOpId ?? null;
-    if (clientOpId && await findExistingByClientOpId(filterId, clientOpId)) {
-      return this.getCurrentState(ctx, filterId);
-    }
-
-    const filter = await this.getFilter(filterId, ctx);
-    if (!filter.currentCycleId) throw new AppError(400, 'NO_CYCLE', 'No active cleaning cycle — start a cycle before bypassing');
-
-    const resolvedProfileIdForBypass = await this.resolveFilterProfile(filter);
-    const cp = resolvedProfileIdForBypass ? await this.getProfilePipeline(resolvedProfileIdForBypass, true) : null;
-    if (!cp) {
-      throw new AppError(400, 'PROFILE_DISABLED', 'Cleaning profile is disabled or not found.');
-    }
-    if (cp.flowMode !== 'BYPASS_ENABLED') {
-      throw new AppError(403, 'BYPASS_FORBIDDEN', 'Profile flow mode is STRICT — bypass not allowed');
-    }
-
-    // Validate target state exists in pipeline
-    const validStates = cp.stages.filter(s => s.nodeType === 'STAGE' && s.stateKey).map(s => s.stateKey);
-    if (!validStates.includes(targetState)) {
-      throw new AppError(400, 'INVALID_TARGET', `Invalid target state: ${targetState}. Valid: ${validStates.join(', ')}`);
-    }
-
-    if (!justification || justification.length < 10) {
-      throw new AppError(400, 'JUSTIFICATION_REQUIRED', 'Bypass justification required (min 10 characters)');
-    }
-
-    const fromState = filter.currentLifecycleState;
-
-    const eventData = {
-      filterId, cycleId: filter.currentCycleId ?? undefined,
-      eventType: 'BYPASS_DEVIATION' as const,
-      fromState, toState: targetState,
-      performedBy: ctx.userSub,
-      attributes: parameters ?? {},
-      deviationDetails: { type: 'BYPASS', fromState, toState: targetState, justification },
-      remarks: justification,
-    };
-    const checksum = computeChecksum(eventData);
-
-    await prisma.$transaction(async (tx) => {
-      // Re-validate state inside transaction to prevent race conditions
-      const lockedFilter = await tx.assetInstance.findFirst({
-        where: { id: filterId },
-        select: { currentLifecycleState: true, currentCycleId: true },
-      });
-      if (lockedFilter?.currentLifecycleState !== filter.currentLifecycleState) {
-        throw new AppError(409, 'STATE_CHANGED', 'Filter state was modified by another user. Please refresh and try again.');
-      }
-
-      await tx.filterEvent.create({
-        data: {
-          ...eventData,
-          checksum,
-          ipAddress: ctx.ipAddress,
-          telemetrySnapshot: {},
-        },
-      });
-
-      await tx.assetInstance.update({
-        where: { id: filterId },
-        data: { currentLifecycleState: targetState },
-      });
-    });
-
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole, action: 'BYPASS_DEVIATION',
-      targetType: 'filter', targetId: filterId,
-      beforeValue: { state: fromState },
-      afterValue: { state: targetState, justification },
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-    });
-
-    return this.getCurrentState(ctx, filterId);
+    return bypassImpl(this, ctx, filterId, data);
   }
 
   /** @param query - Validated by Fastify JSON schema before reaching this method */
   async getEvents(ctx: RequestContext, query: any) {
     // Verify filterId belongs to user's org if provided
     if (query.filterId) {
-      await this.getFilter(query.filterId, ctx);
+      await getFilter(query.filterId, ctx);
     }
 
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
     const where: any = {};
-    // Org-scope when no filterId was specified (otherwise getFilter already enforced it)
-    if (!query.filterId && ctx.organizationId && ctx.userRole !== 'SUPER_ADMIN' && ctx.userRole !== 'ADMIN') {
-      where.filter = { organizationId: ctx.organizationId };
-    }
     if (query.filterId) where.filterId = query.filterId;
     if (query.cycleId) where.cycleId = query.cycleId;
     if (query.eventType) where.eventType = query.eventType;
@@ -1290,13 +115,16 @@ export class FilterOperationsService {
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async getDashboardStats(ctx: RequestContext) {
-    const orgWhere = ctx.organizationId ? { filter: { organizationId: ctx.organizationId } } : {};
-
-    // 1. Filters by current lifecycle stage
-    const stageCountsRaw = await prisma.assetInstance.groupBy({
+  async getDashboardStats(_ctx: RequestContext) {
+    // 1. Filters by current lifecycle stage (FilterDetails — Step 6).
+    // Joining through assetInstance lets us preserve the isActive filter on
+    // the asset row even though state lives on the sidecar.
+    const stageCountsRaw = await prisma.filterDetails.groupBy({
       by: ['currentLifecycleState'],
-      where: { isActive: true, currentLifecycleState: { not: null }, ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}) },
+      where: {
+        currentLifecycleState: { not: null },
+        assetInstance: { isActive: true },
+      },
       _count: true,
     });
     const stageCounts: Record<string, number> = {};
@@ -1304,19 +132,9 @@ export class FilterOperationsService {
       if (row.currentLifecycleState) stageCounts[row.currentLifecycleState] = row._count;
     }
 
-    // Org-scoped filter IDs for cycle queries (prevents cross-tenant data leak)
-    const orgFilterIds = ctx.organizationId
-      ? (await prisma.assetInstance.findMany({
-          where: { organizationId: ctx.organizationId, template: { name: 'Filter' } },
-          select: { id: true },
-        })).map(f => f.id)
-      : null;
-    const cycleOrgWhere = orgFilterIds ? { filterId: { in: orgFilterIds } } : {};
-
     // 2. Cycle status breakdown
     const statusCountsRaw = await prisma.cleaningCycle.groupBy({
       by: ['status'],
-      where: cycleOrgWhere,
       _count: true,
     });
     const statusCounts: Record<string, number> = {};
@@ -1324,45 +142,31 @@ export class FilterOperationsService {
 
     // 3. Daily cycle counts (last 30 days)
     const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const dailyRaw: any[] = orgFilterIds
-      ? await prisma.$queryRawUnsafe(`
-          SELECT DATE(started_at) as day, COUNT(*)::int as count
-          FROM cleaning_cycles
-          WHERE started_at >= $1 AND filter_id = ANY($2::uuid[])
-          GROUP BY DATE(started_at) ORDER BY day
-        `, thirtyDaysAgo, orgFilterIds)
-      : await prisma.$queryRawUnsafe(`
-          SELECT DATE(started_at) as day, COUNT(*)::int as count
-          FROM cleaning_cycles
-          WHERE started_at >= $1
-          GROUP BY DATE(started_at) ORDER BY day
-        `, thirtyDaysAgo);
+    const dailyRaw: any[] = await prisma.$queryRawUnsafe(`
+      SELECT DATE(started_at) as day, COUNT(*)::int as count
+      FROM cleaning_cycles
+      WHERE started_at >= $1
+      GROUP BY DATE(started_at) ORDER BY day
+    `, thirtyDaysAgo);
     const dailyCycles = dailyRaw.map(r => ({ day: r.day, count: r.count }));
 
     // 4. Monthly cycle counts (last 12 months)
     const twelveMonthsAgo = new Date(); twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
-    const monthlyRaw: any[] = orgFilterIds
-      ? await prisma.$queryRawUnsafe(`
-          SELECT TO_CHAR(started_at, 'YYYY-MM') as month, COUNT(*)::int as count
-          FROM cleaning_cycles
-          WHERE started_at >= $1 AND filter_id = ANY($2::uuid[])
-          GROUP BY TO_CHAR(started_at, 'YYYY-MM') ORDER BY month
-        `, twelveMonthsAgo, orgFilterIds)
-      : await prisma.$queryRawUnsafe(`
-          SELECT TO_CHAR(started_at, 'YYYY-MM') as month, COUNT(*)::int as count
-          FROM cleaning_cycles
-          WHERE started_at >= $1
-          GROUP BY TO_CHAR(started_at, 'YYYY-MM') ORDER BY month
-        `, twelveMonthsAgo);
+    const monthlyRaw: any[] = await prisma.$queryRawUnsafe(`
+      SELECT TO_CHAR(started_at, 'YYYY-MM') as month, COUNT(*)::int as count
+      FROM cleaning_cycles
+      WHERE started_at >= $1
+      GROUP BY TO_CHAR(started_at, 'YYYY-MM') ORDER BY month
+    `, twelveMonthsAgo);
     const monthlyCycles = monthlyRaw.map(r => ({ month: r.month, count: r.count }));
 
     // 5. Total filters + active cycles
     const totalFilters = await prisma.assetInstance.count({
-      where: { isActive: true, ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}), template: { name: 'Filter' } },
+      where: { isActive: true, template: { templateKind: 'FILTER' } },
     });
-    const activeCycles = await prisma.cleaningCycle.count({ where: { status: 'IN_PROGRESS', ...cycleOrgWhere } });
+    const activeCycles = await prisma.cleaningCycle.count({ where: { status: 'IN_PROGRESS' } });
     const completedToday = await prisma.cleaningCycle.count({
-      where: { status: 'COMPLETED', completedAt: { gte: new Date(new Date().toISOString().slice(0, 10)) }, ...cycleOrgWhere },
+      where: { status: 'COMPLETED', completedAt: { gte: new Date(new Date().toISOString().slice(0, 10)) } },
     });
 
     return { stageCounts, statusCounts, dailyCycles, monthlyCycles, totalFilters, activeCycles, completedToday };
@@ -1372,16 +176,12 @@ export class FilterOperationsService {
   async getCycles(ctx: RequestContext, query: any) {
     // Verify filterId belongs to user's org if provided
     if (query.filterId) {
-      await this.getFilter(query.filterId, ctx);
+      await getFilter(query.filterId, ctx);
     }
 
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
     const where: any = {};
-    // Org-scope when no filterId was specified (otherwise getFilter already enforced it)
-    if (!query.filterId && ctx.organizationId && ctx.userRole !== 'SUPER_ADMIN' && ctx.userRole !== 'ADMIN') {
-      where.filter = { organizationId: ctx.organizationId };
-    }
     if (query.filterId) where.filterId = query.filterId;
     if (query.ahuId) where.ahuId = query.ahuId;
     if (query.status) where.status = query.status;
@@ -1408,10 +208,12 @@ export class FilterOperationsService {
       ...data.map((c: any) => c.cleaningAreaId).filter(Boolean) as string[],
     ])];
 
-    const allAssets = allAssetIds.length > 0 ? await prisma.assetInstance.findMany({
+    // filterSet moved to FilterDetails (Step 6) — include + flatten via the helper.
+    const allAssetsRaw = allAssetIds.length > 0 ? await prisma.assetInstance.findMany({
       where: { id: { in: allAssetIds } },
-      select: { id: true, name: true, filterSet: true },
+      select: { id: true, name: true, filterDetails: { select: { filterSet: true } } },
     }) : [];
+    const allAssets = allAssetsRaw.map(a => ({ id: a.id, name: a.name, filterSet: a.filterDetails?.filterSet ?? null }));
     const assetMap = new Map(allAssets.map(a => [a.id, a]));
 
     // Resolve performedBy UUIDs to user display names
@@ -1449,14 +251,15 @@ export class FilterOperationsService {
 
     // Verify the cycle's filter belongs to user's org
     if (cycle.filterId) {
-      await this.getFilter(cycle.filterId, ctx);
+      await getFilter(cycle.filterId, ctx);
     }
 
-    // Enrich with filter name and AHU (parent) name
-    const filter = await prisma.assetInstance.findUnique({
+    // Enrich with filter name and AHU (parent) name (filterSet on FilterDetails — Step 6).
+    const filterRaw = await prisma.assetInstance.findUnique({
       where: { id: cycle.filterId },
-      select: { id: true, name: true, filterSet: true, parentId: true },
+      select: { id: true, name: true, parentId: true, filterDetails: { select: { filterSet: true } } },
     });
+    const filter = filterRaw ? { id: filterRaw.id, name: filterRaw.name, parentId: filterRaw.parentId, filterSet: filterRaw.filterDetails?.filterSet ?? null } : null;
     const ahu = filter?.parentId ? await prisma.assetInstance.findUnique({
       where: { id: filter.parentId },
       select: { name: true },
@@ -1470,16 +273,55 @@ export class FilterOperationsService {
     }) : [];
     const userMap = Object.fromEntries(users.map(u => [u.id, u.fullName || u.username]));
 
-    // Resolve checklist question IDs to question text
-    const allQuestionIds = cycle.events
+    // Resolve checklist question IDs to question text.
+    // Phase A.1: prefer the per-event questionsSnapshot (frozen at submit time)
+    // when present; fall back to ChecklistProfileVersion lookup via the cycle's
+    // pinned versions; last resort fall back to live ChecklistQuestion (for
+    // legacy events written before snapshots existed).
+    const questionMap = new Map<string, string>();
+    const cyclePins = (cycle.checklistVersionPins ?? null) as Record<string, number> | null;
+
+    // First pass: harvest text from per-event snapshots.
+    for (const e of cycle.events) {
+      if (e.eventType !== 'CHECKLIST_COMPLETED') continue;
+      const attrs = (e.attributes as any) ?? {};
+      const checklists = Array.isArray(attrs.checklists) ? attrs.checklists : null;
+      if (checklists) {
+        for (const cl of checklists) {
+          for (const q of (cl.questionsSnapshot ?? [])) {
+            if (q?.id && q?.question) questionMap.set(q.id, q.question);
+          }
+        }
+      }
+    }
+
+    // Second pass: anything still unresolved, try the ChecklistProfileVersion
+    // table via the cycle's pinned versions.
+    const allAnswerKeys = cycle.events
       .filter(e => e.eventType === 'CHECKLIST_COMPLETED' && (e.attributes as any)?.answers)
       .flatMap(e => Object.keys((e.attributes as any).answers));
-    const uniqueQuestionIds = [...new Set(allQuestionIds)];
-    const questions = uniqueQuestionIds.length > 0 ? await prisma.checklistQuestion.findMany({
-      where: { id: { in: uniqueQuestionIds } },
-      select: { id: true, question: true },
-    }) : [];
-    const questionMap = new Map(questions.map(q => [q.id, q.question]));
+    const unresolvedQuestionIds = [...new Set(allAnswerKeys)].filter(qId => !questionMap.has(qId));
+    if (unresolvedQuestionIds.length > 0 && cyclePins && Object.keys(cyclePins).length > 0) {
+      const versionRows = await prisma.checklistProfileVersion.findMany({
+        where: { OR: Object.entries(cyclePins).map(([profileId, versionNumber]) => ({ profileId, versionNumber })) },
+      });
+      for (const v of versionRows) {
+        const snap = (v.snapshot as any) ?? {};
+        for (const q of (snap.questions ?? [])) {
+          if (q?.id && q?.question) questionMap.set(q.id, q.question);
+        }
+      }
+    }
+
+    // Third pass: live fallback for fully-legacy cycles.
+    const stillUnresolved = [...new Set(allAnswerKeys)].filter(qId => !questionMap.has(qId));
+    if (stillUnresolved.length > 0) {
+      const liveQs = await prisma.checklistQuestion.findMany({
+        where: { id: { in: stillUnresolved } },
+        select: { id: true, question: true },
+      });
+      for (const q of liveQs) questionMap.set(q.id, q.question);
+    }
 
     const enrichedEvents = cycle.events.map(e => {
       const enriched: any = { ...e, performedByName: e.performedBy ? userMap[e.performedBy] ?? null : null };
@@ -1510,53 +352,15 @@ export class FilterOperationsService {
     };
   }
 
-  async terminateCycle(ctx: RequestContext, filterId: string, data: { justification: string; clientOpId?: string }) {
-    const clientOpId: string | null = data.clientOpId ?? null;
-    if (clientOpId && await findExistingByClientOpId(filterId, clientOpId)) {
-      return this.getCurrentState(ctx, filterId);
-    }
-    const filter = await this.getFilter(filterId, ctx);
-    if (!filter.currentCycleId) throw new AppError(400, 'NO_CYCLE', 'No active cleaning cycle');
-
-    const justification = typeof data.justification === 'string' ? data.justification.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
-    if (!justification || justification.length < 10) {
-      throw new AppError(400, 'JUSTIFICATION_REQUIRED', 'Justification required (min 10 characters)');
-    }
-
-    await prisma.$transaction(async (tx) => {
-      await tx.cleaningCycle.update({
-        where: { id: filter.currentCycleId! },
-        data: { status: 'TERMINATED', completedAt: new Date() },
-      });
-      await tx.assetInstance.update({
-        where: { id: filterId },
-        data: { currentCycleId: null, currentLifecycleState: null },
-      });
-      const eventData = {
-        filterId, cycleId: filter.currentCycleId!, eventType: 'CYCLE_TERMINATED' as const,
-        performedBy: ctx.userSub, attributes: { justification },
-        remarks: justification,
-      };
-      await tx.filterEvent.create({
-        data: { ...eventData, checksum: computeChecksum(eventData), ipAddress: ctx.ipAddress, telemetrySnapshot: {} },
-      });
-    });
-
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole, action: 'CYCLE_TERMINATED',
-      targetType: 'filter', targetId: filterId,
-      afterValue: { cycleId: filter.currentCycleId, justification },
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-    });
-
-    return this.getCurrentState(ctx, filterId);
+  async terminateCycle(ctx: RequestContext, filterId: string, data: { justification: string; clientOpId?: string; tapeVersion?: number }) {
+    return terminateCycleImpl(this, ctx, filterId, data);
   }
 
   /**
    * Retire a filter — sets status to Retired, terminates active cycle, creates audit log.
    */
   async retire(ctx: RequestContext, filterId: string, remarks: string) {
-    const filter = await this.getFilter(filterId, ctx);
+    const filter = await getFilter(filterId, ctx);
 
     // Already retired?
     if (filter.currentLifecycleState === 'RETIRED') {
@@ -1573,18 +377,22 @@ export class FilterOperationsService {
         });
       }
 
-      // Save original parentId in customAttributes so unretire can restore it
+      // Save original parentId in customAttributes so unretire can restore it.
+      // currentLifecycleState + currentCycleId moved to FilterDetails (Step 6).
       const existingCustom = (filter as any).customAttributes ?? {};
       await tx.assetInstance.update({
         where: { id: filterId },
         data: {
           status: 'Retired',
-          currentLifecycleState: 'RETIRED',
-          currentCycleId: null,
           isActive: false,
           parentId: null,
           customAttributes: { ...existingCustom, _preRetireParentId: filter.parentId },
         },
+      });
+      await tx.filterDetails.upsert({
+        where: { assetInstanceId: filterId },
+        update: { currentLifecycleState: 'RETIRED', currentCycleId: null },
+        create: { assetInstanceId: filterId, currentLifecycleState: 'RETIRED', currentCycleId: null },
       });
 
       // Remove all relationships (CONTAINS/CONTAINED_IN) so retired filter disappears from tree
@@ -1624,10 +432,18 @@ export class FilterOperationsService {
       newName = oldName + '-01';
     }
 
+    // Snapshot the old filter's FilterDetails BEFORE retire() clears them.
+    // We need filterSet + filterProfileId to copy onto the replacement.
+    const oldDetails = await prisma.filterDetails.findUnique({
+      where: { assetInstanceId: filterId },
+      select: { filterSet: true, filterProfileId: true },
+    });
+
     // Retire old filter first
     await this.retire(ctx, filterId, remarks);
 
-    // Create replacement filter + relationships in a transaction (rollback on failure)
+    // Create replacement filter + relationships in a transaction (rollback on failure).
+    // FilterDetails (filterSet, filterProfileId) live in the sidecar (Step 6).
     let newFilter: any;
     try {
       newFilter = await prisma.$transaction(async (tx) => {
@@ -1637,13 +453,19 @@ export class FilterOperationsService {
             templateId: instance.templateId,
             templateVersion: instance.templateVersion,
             parentId: instance.parentId,
-            filterSet: instance.filterSet,
-            filterProfileId: instance.filterProfileId,
             attributes: instance.attributes ?? {},
-            organizationId: instance.organizationId,
             status: 'Active',
             isActive: true,
             createdBy: ctx.userId ?? ctx.userSub,
+          },
+        });
+
+        // Eager FilterDetails for the new filter, copying old filterSet + filterProfileId.
+        await tx.filterDetails.create({
+          data: {
+            assetInstanceId: created.id,
+            filterSet: oldDetails?.filterSet ?? null,
+            filterProfileId: oldDetails?.filterProfileId ?? null,
           },
         });
 
@@ -1671,9 +493,14 @@ export class FilterOperationsService {
       });
     } catch (err) {
       // Re-activate the retired filter if replacement creation fails
+      // (currentLifecycleState moved to FilterDetails — Step 6).
       await prisma.assetInstance.update({
         where: { id: filterId },
-        data: { status: 'Active', currentLifecycleState: null, isActive: true },
+        data: { status: 'Active', isActive: true },
+      });
+      await prisma.filterDetails.update({
+        where: { assetInstanceId: filterId },
+        data: { currentLifecycleState: null },
       });
       throw err;
     }
@@ -1703,15 +530,21 @@ export class FilterOperationsService {
   /**
    * Get all retired filters.
    */
-  async getRetirements(ctx: RequestContext) {
-    const retirements = await prisma.assetInstance.findMany({
-      where: { status: 'Retired', isActive: false, ...orgWhere(ctx) },
+  async getRetirements(_ctx: RequestContext) {
+    // filterSet moved to FilterDetails (Step 6) — include + flatten.
+    const retirementsRaw = await prisma.assetInstance.findMany({
+      where: { status: 'Retired', isActive: false },
       select: {
         id: true, name: true, updatedAt: true, attributes: true,
-        filterSet: true, parentId: true, customAttributes: true,
+        parentId: true, customAttributes: true,
+        filterDetails: { select: { filterSet: true } },
       },
       orderBy: { updatedAt: 'desc' },
     });
+    const retirements = retirementsRaw.map((r: any) => ({
+      ...r,
+      filterSet: r.filterDetails?.filterSet ?? null,
+    }));
 
     // Resolve original parent names for display
     const parentIds = retirements
@@ -1736,7 +569,7 @@ export class FilterOperationsService {
   /**
    * Get replacement history from audit trail.
    */
-  async getReplacements(ctx: RequestContext) {
+  async getReplacements(_ctx: RequestContext) {
     const records = await prisma.auditTrail.findMany({
       where: { action: 'FILTER_REPLACED' },
       select: { id: true, userId: true, userName: true, timestamp: true, afterValue: true },
@@ -1757,31 +590,10 @@ export class FilterOperationsService {
       };
     });
 
-    // Org-scope: only return replacements where the filter belongs to user's org
-    const orgFilter = orgWhere(ctx);
-    if (orgFilter.organizationId) {
-      const filterIds = [...new Set(mapped.map(r => r.oldFilterId).filter(Boolean) as string[])];
-      const orgFilters = filterIds.length > 0 ? await prisma.assetInstance.findMany({
-        where: { id: { in: filterIds }, organizationId: orgFilter.organizationId },
-        select: { id: true },
-      }) : [];
-      const orgFilterIdSet = new Set(orgFilters.map(f => f.id));
-      return mapped.filter(r => !r.oldFilterId || orgFilterIdSet.has(r.oldFilterId));
-    }
-
     return mapped;
   }
 
   async getCleaningReasons(profileId?: string) {
-    if (profileId) {
-      // Try as FilterProfile first, then as CleaningProfile directly
-      const fp = await prisma.filterProfile.findUnique({ where: { id: profileId } });
-      const cpId = fp ? fp.cleaningProfileId : profileId;
-      const cp = await prisma.filterCleaningProfile.findUnique({ where: { id: cpId } });
-      if (cp?.cleaningReasons) return cp.cleaningReasons as any[];
-    }
-    const cfg = await prisma.systemConfig.findUnique({ where: { configKey: 'filter-cleaning-reasons' } });
-    const val = cfg?.configValue as any;
-    return Array.isArray(val) ? val : (val?.value ?? []);
+    return getCleaningReasons(profileId);
   }
 }

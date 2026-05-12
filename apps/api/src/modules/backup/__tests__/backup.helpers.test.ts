@@ -5,29 +5,15 @@ import {
   escapeCsvValue,
   generateSqlInserts,
   generateCsv,
-  DB_TABLES,
-  PRISMA_TO_DB,
 } from '../backup.helpers.js';
 
+// Note: DB_TABLES and PRISMA_TO_DB were removed when the backup module
+// switched to dynamic table discovery via pg_tables (see
+// backup.repository.ts → getAllTables, and the dynamic-backup project
+// note in memory). Coverage for the dynamic discovery lives in
+// backup.repository.test.ts.
+
 describe('backup.helpers', () => {
-  describe('DB_TABLES', () => {
-    it('contains expected table names', () => {
-      expect(DB_TABLES).toContain('roles');
-      expect(DB_TABLES).toContain('users');
-      expect(DB_TABLES).toContain('audit_trail');
-      expect(DB_TABLES).toContain('sessions');
-      expect(DB_TABLES.length).toBeGreaterThanOrEqual(10);
-    });
-  });
-
-  describe('PRISMA_TO_DB', () => {
-    it('maps Prisma model names to DB table names', () => {
-      expect(PRISMA_TO_DB.roles).toBe('roles');
-      expect(PRISMA_TO_DB.users).toBe('users');
-      expect(PRISMA_TO_DB.auditTrail).toBe('audit_trail');
-    });
-  });
-
   describe('computeBackupChecksum', () => {
     it('returns a hex SHA-256 hash', () => {
       const result = computeBackupChecksum({ users: [{ id: '1' }] });

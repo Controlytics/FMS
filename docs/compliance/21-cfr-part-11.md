@@ -20,7 +20,7 @@ DigiLog implements the following 21 CFR Part 11 requirements across both core Io
 | (k) Documentation | API docs (Swagger at /docs), architecture docs, test documentation |
 
 ### 11.30 Controls for Open Systems
-- HTTPS support via Nginx (self-signed or CA certificates)
+- HTTPS support — Fastify TLS via mkcert (or any CA-issued cert) on port 3000; reverse proxy in front (Nginx / IIS) is optional / customer-choice after Phase 4 of the windows-friendly-rewrite
 - JWT token authentication with 30-minute refresh
 - Session idle timeout with configurable warning
 - Single-tab enforcement per user

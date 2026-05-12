@@ -9,6 +9,13 @@ export const REAUTH_ACTIONS = {
   UNLOCK_USER: { label: 'Unlock User', category: 'User Management' },
   RESET_PASSWORD: { label: 'Reset Password', category: 'User Management' },
   PROCESS_RESET_REQUEST: { label: 'Process Reset Request', category: 'User Management' },
+  UPDATE_PROFILE: { label: 'Update Own Profile', category: 'User Management' },
+  // M1 (audit 2026-05-04): admin-request approve/reject was reusing CREATE_USER.
+  // That conflated audit trails for password-reset / unlock / modify-user
+  // approvals (none of which are user-creation). Distinct action keeps the
+  // audit trail truthful: "submitter created the user" vs "approver executed
+  // the request".
+  APPROVE_ADMIN_REQUEST: { label: 'Approve / Reject Admin Request', category: 'User Management' },
 
   // Config Changes
   UPDATE_PASSWORD_POLICY: { label: 'Update Password Policy', category: 'Configuration' },
@@ -18,6 +25,19 @@ export const REAUTH_ACTIONS = {
   UPDATE_USERID_CONFIG: { label: 'Update User ID Config', category: 'Configuration' },
   UPDATE_BRANDING: { label: 'Update Branding', category: 'Configuration' },
   UPDATE_ROLE_CONFIG: { label: 'Update Role Config', category: 'Configuration' },
+  // C6 (review 2026-05-04): the action-reauth save itself was a privilege
+  // escalation — anyone with CONFIG_UPDATE could PUT /api/config/action-reauth
+  // without challenge, including disabling reauth on DELETE_USER then deleting
+  // users. Dedicated key (rather than reusing UPDATE_ROLE_CONFIG) keeps the
+  // audit trail unambiguous: "operator changed who-needs-reauth-for-what".
+  UPDATE_REAUTH_CONFIG: { label: 'Update Re-auth Config', category: 'Configuration' },
+  // C3 (review 2026-05-04): notification-delivery routes called
+  // enforceReauth('UPDATE_EMAIL_CONFIG'/'UPDATE_SMS_CONFIG') against actions
+  // that did not exist in this map — isReauthRequired() would always return
+  // false, silently disabling the gate. Added so the operator-facing reauth
+  // policy page can require step-up auth on outbound-comms credential edits.
+  UPDATE_EMAIL_CONFIG: { label: 'Update Email Config', category: 'Configuration' },
+  UPDATE_SMS_CONFIG: { label: 'Update SMS Config', category: 'Configuration' },
 
   // Role Management
   CREATE_ROLE: { label: 'Create Role', category: 'Role Management' },
@@ -58,6 +78,35 @@ export const REAUTH_ACTIONS = {
   DELETE_HELP_ARTICLE: { label: 'Delete Help Article', category: 'Help' },
   UPDATE_RETENTION_POLICY: { label: 'Update Retention Policy', category: 'Retention' },
   EXECUTE_RETENTION: { label: 'Execute Retention', category: 'Retention' },
+  // Audit deletion (audit 2026-05-04 fix #5 — web-routes review H4):
+  // 21 CFR Part 11 § 11.10(e) requires audit-trail records be "secure".
+  // Deletion is allowed (the route exists) but must be challengeable;
+  // each delete is a deliberate, signed act. Distinct keys for single
+  // vs bulk so the audit trail records the operator's intent.
+  DELETE_AUDIT_RECORD: { label: 'Delete Audit Record', category: 'Configuration' },
+  BULK_DELETE_AUDIT_RECORDS: { label: 'Bulk Delete Audit Records', category: 'Configuration' },
+  // LDAP config (audit 2026-05-04 fix #5 — web-routes review H2):
+  // bind credentials and base-DN edits can redirect every login to an
+  // attacker-controlled directory. Distinct from UPDATE_LOGIN_SECURITY
+  // so the audit trail makes the source-of-trust change explicit.
+  UPDATE_LDAP_CONFIG: { label: 'Update LDAP Config', category: 'Configuration' },
+  // Template-kinds CRUD (audit 2026-05-04 fix #5 — web-routes review H3):
+  // controlled-vocabulary edits cascade across every entity using the kind.
+  // Distinct from CREATE/UPDATE/DELETE_ASSET_TEMPLATE so cleanroom audits
+  // can distinguish "template" edits (per-entity) from "kind" edits
+  // (vocabulary).
+  CREATE_TEMPLATE_KIND: { label: 'Create Template Kind', category: 'Entity Management' },
+  UPDATE_TEMPLATE_KIND: { label: 'Update Template Kind', category: 'Entity Management' },
+  DELETE_TEMPLATE_KIND: { label: 'Delete Template Kind', category: 'Entity Management' },
+  // Audit 2026-05-04 fix #5 (web-routes review H — lower-blast config
+  // surfaces). Distinct keys would force operators to maintain a check
+  // matrix per page; this single umbrella reauth action covers the
+  // remaining smaller-blast config writes (dashboard-cards visibility,
+  // cleaning-profile-assignment rules, filter-cleaning-reasons
+  // dropdown, ahu-filter-set-config mode toggle). The audit row's
+  // targetType + targetId distinguishes the surface; the action is
+  // shared so operators can opt in / out via one reauth-policy entry.
+  UPDATE_CONFIG_PAGE: { label: 'Update Configuration Page', category: 'Configuration' },
 
   // Phase 2: Filter Management
   START_CLEANING_CYCLE: { label: 'Start Cleaning Cycle', category: 'Filter Management' },
@@ -66,6 +115,14 @@ export const REAUTH_ACTIONS = {
   CREATE_FILTER: { label: 'Create Filter', category: 'Filter Management' },
   EDIT_FILTER: { label: 'Edit Filter', category: 'Filter Management' },
   DELETE_FILTER: { label: 'Delete Filter', category: 'Filter Management' },
+  RETIRE_FILTER: { label: 'Retire Filter', category: 'Filter Management' },
+  REPLACE_FILTER: { label: 'Replace Filter', category: 'Filter Management' },
+  BULK_UPLOAD_FILTERS: { label: 'Bulk Upload Filters', category: 'Filter Management' },
+  // M2 (audit 2026-05-04): manual filter lifecycle PATCH (INSTALLED / WASH_IN /
+  // ... / IN_USE) was reusing the generic UPDATE_ASSET action, hiding cleanroom
+  // lifecycle moves under the same audit key as ordinary asset edits. Dedicated
+  // action makes inspector audits unambiguous.
+  UPDATE_FILTER_LIFECYCLE: { label: 'Update Filter Lifecycle State', category: 'Filter Management' },
   EDIT_HIERARCHY_NODE: { label: 'Edit Hierarchy Node', category: 'Filter Management' },
   DELETE_HIERARCHY_NODE: { label: 'Delete Hierarchy Node', category: 'Filter Management' },
   CREATE_CLEANING_PROFILE: { label: 'Create Cleaning Profile', category: 'Cleaning Profiles' },
@@ -81,6 +138,15 @@ export const REAUTH_ACTIONS = {
   EDIT_PM_SCHEDULE: { label: 'Edit PM Entry', category: 'PM Schedules' },
   APPROVE_PM_SCHEDULE: { label: 'Approve PM Schedule', category: 'PM Schedules' },
   REJECT_PM_SCHEDULE: { label: 'Reject PM Schedule', category: 'PM Schedules' },
+  // Audit 2026-05-09 fix: bulk PM upload + execution-start + entry resubmit
+  // were missing reauth gates. SUPER_ADMIN bulk uploads auto-approve every
+  // row (pm-import.ts:133), so the upload was a high-trust mutation with no
+  // password challenge. PM execution start creates an immutable PmExecution
+  // row comparable to start-cycle (which IS reauth-gated). Resubmit flips
+  // REJECTED → PENDING — minor but inconsistent with approve/reject.
+  UPLOAD_PM_SCHEDULES: { label: 'Bulk Upload PM Schedules', category: 'PM Schedules' },
+  START_PM_TASK: { label: 'Start PM Task', category: 'PM Schedules' },
+  RESUBMIT_PM_ENTRY: { label: 'Resubmit PM Entry', category: 'PM Schedules' },
   CREATE_EQUIPMENT_GROUP: { label: 'Create Equipment Group', category: 'Equipment Groups' },
   UPDATE_EQUIPMENT_GROUP: { label: 'Update Equipment Group', category: 'Equipment Groups' },
   DELETE_EQUIPMENT_GROUP: { label: 'Delete Equipment Group', category: 'Equipment Groups' },

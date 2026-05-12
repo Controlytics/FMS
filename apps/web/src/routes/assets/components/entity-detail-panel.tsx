@@ -33,6 +33,7 @@ import {
   AlarmsTab,
   ChecklistHistoryTab,
   QrCodeTab,
+  AssignmentsTab,
 } from './tabs';
 import { ImagesTab } from './tabs/images-tab';
 
@@ -159,6 +160,7 @@ export function AssetDetailPanel({
     { key: 'checklist-history', label: 'Checklists' },
     { key: 'qr-code', label: 'QR Code' },
     { key: 'images', label: 'Images' },
+    { key: 'assignments', label: 'Assignments' },
     { key: 'audit', label: 'Audit History' },
   ];
 
@@ -797,11 +799,16 @@ export function AssetDetailPanel({
         <QrCodeTab entityId={asset.id} entityName={asset.name} />
       )}
 
-      {/* Audit History Tab */}
       {activeTab === 'images' && (
         <ImagesTab entityId={asset.id} />
       )}
 
+      {/* Assignments Tab */}
+      {activeTab === 'assignments' && (
+        <AssignmentsTab entityId={asset.id} />
+      )}
+
+      {/* Audit History Tab */}
       {activeTab === 'audit' && (
         <div>
           {auditRecords.length === 0 ? (

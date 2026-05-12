@@ -208,8 +208,12 @@ describe('paginationConfigSchema', () => {
     expect(paginationConfigSchema.safeParse({ options: [10, 50, 200] }).success).toBe(false);
   });
 
-  it('requires exactly 3 options', () => {
-    expect(paginationConfigSchema.safeParse({ options: [10, 50] }).success).toBe(false);
-    expect(paginationConfigSchema.safeParse({ options: [10, 25, 50, 100] }).success).toBe(false);
+  it('requires between 2 and 10 options', () => {
+    // Schema is .min(2).max(10) (was previously .length(3)). Test now
+    // documents the relaxed bounds rather than the old fixed length.
+    expect(paginationConfigSchema.safeParse({ options: [10] }).success).toBe(false);
+    expect(paginationConfigSchema.safeParse({ options: Array(11).fill(10) }).success).toBe(false);
+    expect(paginationConfigSchema.safeParse({ options: [10, 50] }).success).toBe(true);
+    expect(paginationConfigSchema.safeParse({ options: [10, 25, 50, 100] }).success).toBe(true);
   });
 });

@@ -16,7 +16,7 @@ export const authRepository = {
       select: {
         id: true, username: true, fullName: true, email: true, department: true,
         photoUrl: true, role: true, status: true, forcePasswordChange: true,
-        isTemporaryPassword: true, lastLogin: true, createdAt: true, organizationId: true,
+        isTemporaryPassword: true, lastLogin: true, createdAt: true,
       },
     });
   },
@@ -145,15 +145,15 @@ export const authRepository = {
     ]);
   },
 
-  async findPendingResetRequest(username: string) {
+  async findPendingResetRequest(userId: string) {
     return prisma.passwordResetRequest.findFirst({
-      where: { userId: username, status: 'PENDING' },
+      where: { userId, status: 'PENDING' },
     });
   },
 
-  async createResetRequest(username: string) {
+  async createResetRequest(userId: string) {
     return prisma.passwordResetRequest.create({
-      data: { userId: username, status: 'PENDING' },
+      data: { userId, status: 'PENDING' },
     });
   },
 

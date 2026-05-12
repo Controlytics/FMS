@@ -83,9 +83,9 @@ registerNode({
     try {
       const relationType = (config.relationType as string) ?? 'CONTAINS';
       const direction = (config.direction as string) ?? 'source';
-      const where = direction === 'source'
-        ? { sourceAssetId: ctx.entityId, relationshipType: relationType }
-        : { targetAssetId: ctx.entityId, relationshipType: relationType };
+      const where = (direction === 'source'
+        ? { sourceAssetId: ctx.entityId, relationshipType: relationType as any }
+        : { targetAssetId: ctx.entityId, relationshipType: relationType as any });
       const rels = await prisma.assetRelationship.findMany({
         where,
         select: direction === 'source'
@@ -284,9 +284,9 @@ registerNode({
       const direction = (config.direction as string) ?? 'source';
       const attrKeys = parseCommaSeparated(config.attributeKeys);
       const tsKeys = parseCommaSeparated(config.telemetryKeys);
-      const where = direction === 'source'
-        ? { sourceAssetId: ctx.entityId, relationshipType: relationType }
-        : { targetAssetId: ctx.entityId, relationshipType: relationType };
+      const where = (direction === 'source'
+        ? { sourceAssetId: ctx.entityId, relationshipType: relationType as any }
+        : { targetAssetId: ctx.entityId, relationshipType: relationType as any });
       const rels = await prisma.assetRelationship.findMany({
         where,
         select: direction === 'source'

@@ -23,7 +23,6 @@ export interface JwtPayload {
   username: string;
   role: string;
   sessionId: string;
-  organizationId?: string;
   scope?: string; // GLOBAL | ORGANIZATION
 }
 

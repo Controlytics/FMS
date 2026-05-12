@@ -1,0 +1,21 @@
+# packages/queue/crontab.txt — Maintenance cron schedules for graphile-worker
+# Loaded by the Runner in apps/api/src/app.ts when USE_PG_QUEUE=true.
+# Cron format: minute hour day-of-month month day-of-week  task_name  ?key=…
+#
+# Audit 2026-05-04 fix (queue review H2): added `?id=…&fill=…&max=…` to the
+# per-minute crons so a slow handler doesn't accumulate runs.
+#   - id=…   — opaque key for graphile-worker's "skip if same id already
+#              queued" semantics. Prevents two in-flight jobs of the same
+#              kind from overlapping (a slow dlq_check no longer fires a
+#              second job until the first commits or fails).
+#   - max=1  — Hard ceiling on queued instances. Belt-and-suspenders with
+#              the dedup id.
+#   - fill=… — Don't backfill missed runs after a process restart. For
+#              health-style probes, replaying missed minutes adds load
+#              without value.
+#
+# retention_cleanup (daily at 02:00) doesn't need overlap protection — it
+# runs once per day and graphile-worker won't double-fire it.
+* * * * * dlq_check ?id=dlq_check&max=1&fill=0s
+* * * * * connectivity_check ?id=connectivity_check&max=1&fill=0s
+0 2 * * * retention_cleanup

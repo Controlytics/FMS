@@ -2,6 +2,8 @@ import { useState, useRef } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useBranding } from '@/hooks/use-branding';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,6 +34,7 @@ export function ProfilePage() {
   const { user, mutate } = useAuth();
   const { branding } = useBranding();
   const { formatDateTime, formatDate } = useDatetimeFormat();
+  const reauth = useReauth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
@@ -56,15 +59,30 @@ export function ProfilePage() {
     setError('');
     setIsSubmitting(true);
 
-    try {
-      await apiClient.put('/api/auth/profile', formData);
-      await mutate();
-      setShowSuccess(true);
-    } catch (err: any) {
-      setError(err.message || 'Failed to update profile');
-    } finally {
-      setIsSubmitting(false);
-    }
+    // H1 fix: PUT /api/auth/profile is now reauth-gated server-side. Wrap the
+    // call in reauth.execute() so the password challenge dialog appears when
+    // UPDATE_PROFILE is configured for the current role.
+    reauth.execute(
+      'UPDATE_PROFILE',
+      async (password?: string) => {
+        if (password) {
+          await apiClient.putWithReauth('/api/auth/profile', formData, password);
+        } else {
+          await apiClient.put('/api/auth/profile', formData);
+        }
+      },
+      {
+        onSuccess: async () => {
+          await mutate();
+          setShowSuccess(true);
+          setIsSubmitting(false);
+        },
+        onError: (err: any) => {
+          setError(err?.message || 'Failed to update profile');
+          setIsSubmitting(false);
+        },
+      },
+    );
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -335,6 +353,18 @@ export function ProfilePage() {
           </CardFooter>
         </form>
       </Card>
+
+      {/* Re-auth dialog for UPDATE_PROFILE — challenges for password when configured */}
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setIsSubmitting(false); }}
+        actionLabel="Update Profile"
+      />
 
       {/* Success Dialog */}
       <Dialog open={showSuccess} onClose={() => setShowSuccess(false)}>

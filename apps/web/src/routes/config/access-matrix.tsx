@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, api } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 
 type Matrix = Record<string, string[]>;
 
@@ -19,6 +21,7 @@ interface Module {
 
 export function AccessMatrixPage() {
   const { toast } = useToast();
+  const reauth = useReauth();
   const { data: matrixData, mutate } = useSWR<Matrix>('/api/config/access-matrix');
   const { data: rolesData } = useSWR<Role[]>('/api/roles/active');
   const { data: manifest } = useSWR<any[]>('/api/config/registry/manifest');
@@ -85,17 +88,32 @@ export function AccessMatrixPage() {
     });
   };
 
-  const save = async () => {
+  // Audit 2026-05-04 fix #5 (web-routes review H1): the access matrix is the
+  // role↔config-module source of truth. Saving it without reauth meant any
+  // user with CONFIG_UPDATE could rebind every config tab to every role.
+  // Wrap in UPDATE_ROLE_CONFIG (existing — same audit category as the
+  // role-edit page so config-access edits and role-edits share an audit
+  // bucket the operator already monitors).
+  const save = () => {
     setSaving(true);
-    try {
-      await apiClient.put('/api/config/access-matrix', draft);
-      await mutate(draft, false);
-      toast.success('Saved', 'Configuration access matrix updated.');
-    } catch (err: any) {
-      toast.error('Save failed', err?.message ?? 'Could not save access matrix');
-    } finally {
-      setSaving(false);
-    }
+    reauth.execute(
+      'UPDATE_ROLE_CONFIG',
+      async (password?: string) => {
+        if (password) await api.putWithReauth('/api/config/access-matrix', draft, password);
+        else await apiClient.put('/api/config/access-matrix', draft);
+      },
+      {
+        onSuccess: async () => {
+          await mutate(draft, false);
+          toast.success('Saved', 'Configuration access matrix updated.');
+          setSaving(false);
+        },
+        onError: (err: any) => {
+          toast.error('Save failed', err?.message ?? 'Could not save access matrix');
+          setSaving(false);
+        },
+      },
+    );
   };
 
   const reset = () => {
@@ -210,6 +228,17 @@ export function AccessMatrixPage() {
           </div>
         </div>
       )}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setSaving(false); }}
+        actionLabel="Save Configuration Access"
+      />
     </div>
   );
 }

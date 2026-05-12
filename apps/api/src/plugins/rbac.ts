@@ -11,6 +11,48 @@ declare module 'fastify' {
   }
 }
 
+/**
+ * Audit 2026-05-04 fix (api-supporting M11): role-permission cache.
+ *
+ * Before: every requirePermission call hit Postgres for the role row.
+ * Combined with the auth plugin's session/user/role-scope reads, every
+ * authenticated request did 4 sequential queries before the handler ran.
+ *
+ * Now: 5-second TTL cache keyed by role name. Short enough that role-config
+ * edits propagate within 5s; long enough to absorb the typical
+ * burst-of-requests pattern (sidebar load = 5+ parallel calls all needing
+ * the same role data). Cache miss does the same Prisma read as before.
+ *
+ * Invalidation: explicitly cleared from role.service.ts when permissions
+ * change (see invalidateRolePermsCache export). The 5s TTL is the safety
+ * net for paths that don't invalidate (e.g., direct DB edits).
+ */
+const ROLE_PERMS_CACHE = new Map<string, { perms: string[]; cachedAt: number }>();
+const ROLE_PERMS_CACHE_TTL_MS = 5_000;
+
+async function getRolePerms(roleName: string): Promise<string[]> {
+  const cached = ROLE_PERMS_CACHE.get(roleName);
+  const now = Date.now();
+  if (cached && (now - cached.cachedAt) < ROLE_PERMS_CACHE_TTL_MS) {
+    return cached.perms;
+  }
+  const role = await prisma.role.findFirst({
+    where: { name: roleName },
+    select: { permissions: true },
+  });
+  const perms = (role?.permissions as string[]) ?? [];
+  ROLE_PERMS_CACHE.set(roleName, { perms, cachedAt: now });
+  return perms;
+}
+
+/** Clear the role-perms cache. Call from role.service.ts after a role
+ *  permissions change so the next request picks up the new value
+ *  immediately (rather than waiting up to 5s for the TTL to lapse). */
+export function invalidateRolePermsCache(roleName?: string): void {
+  if (roleName) ROLE_PERMS_CACHE.delete(roleName);
+  else ROLE_PERMS_CACHE.clear();
+}
+
 async function rbacPlugin(app: FastifyInstance) {
   app.decorate('requirePermission', (permission: string) => {
     return async (req: FastifyRequest, reply: FastifyReply) => {
@@ -22,13 +64,7 @@ async function rbacPlugin(app: FastifyInstance) {
       // SUPER_ADMIN bypasses all permission checks
       if (userRole === 'SUPER_ADMIN') return;
 
-      // Fetch role permissions from database
-      const role = await prisma.role.findFirst({
-        where: { name: userRole },
-        select: { permissions: true },
-      });
-
-      const perms = (role?.permissions as string[]) || [];
+      const perms = await getRolePerms(userRole);
 
       // Check direct permission match first
       let hasPermission = perms.includes(permission);
@@ -78,11 +114,7 @@ async function rbacPlugin(app: FastifyInstance) {
       }
       if (userRole === 'SUPER_ADMIN') return;
 
-      const role = await prisma.role.findFirst({
-        where: { name: userRole },
-        select: { permissions: true },
-      });
-      const perms = (role?.permissions as string[]) || [];
+      const perms = await getRolePerms(userRole);
 
       const hasAny = permissions.some(permission => {
         if (perms.includes(permission)) return true;

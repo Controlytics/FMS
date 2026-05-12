@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
-import { apiClient } from '../../lib/api-client';
+import { apiClient, api } from '../../lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -13,14 +15,25 @@ export function PmScheduleDetailPage() {
   const { data: schedule, isLoading } = useSWR(entityId ? `/api/pm-schedules/${entityId}?year=${year}` : null);
   const [starting, setStarting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const reauth = useReauth();
 
-  const startPm = async (entryId: string) => {
+  // Audit 2026-05-09 fix: starting a PM creates the immutable PmExecution
+  // row — comparable to start-cycle which IS reauth-gated. Backend mirror
+  // in execution-routes.ts.
+  const startPm = (entryId: string) => {
     setStarting(entryId);
-    try {
-      await apiClient.post('/api/pm-executions', { scheduleEntryId: entryId, entityId });
-      mutate(`/api/pm-schedules/${entityId}?year=${year}`);
-    } catch (e: any) { setError(e.message || 'Failed to start PM'); console.error(e); }
-    setStarting(null);
+    const body = { scheduleEntryId: entryId, entityId };
+    reauth.execute(
+      'START_PM_TASK',
+      async (password?: string) => {
+        if (password) await api.postWithReauth('/api/pm-executions', body, password);
+        else await apiClient.post('/api/pm-executions', body);
+      },
+      {
+        onSuccess: () => { mutate(`/api/pm-schedules/${entityId}?year=${year}`); setStarting(null); },
+        onError: (e: any) => { setError(e.message || 'Failed to start PM'); setStarting(null); },
+      },
+    );
   };
 
   if (isLoading) return <div className="flex justify-center py-24"><div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" /></div>;
@@ -46,7 +59,16 @@ export function PmScheduleDetailPage() {
       {!schedule ? (
         <div className="bg-white border border-slate-200 rounded-xl p-8 text-center">
           <p className="text-slate-500">No PM schedule exists for {year}.</p>
-          <button disabled className="mt-4 px-4 py-2 bg-cyan-600 text-white rounded-lg opacity-50 cursor-not-allowed" title="Coming soon">Create Schedule</button>
+          <p className="text-xs text-slate-400 mt-2">Schedules are created by uploading a CSV/XLSX from the PM Schedules list (entries are routed to QA for approval).</p>
+          <Link
+            to="/pm-schedules"
+            className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-500 transition-colors"
+          >
+            Go to PM Schedules
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+            </svg>
+          </Link>
         </div>
       ) : (
         <>
@@ -99,6 +121,17 @@ export function PmScheduleDetailPage() {
           </div>
         </>
       )}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setStarting(null); }}
+        actionLabel="Start PM Task"
+      />
     </div>
   );
 }

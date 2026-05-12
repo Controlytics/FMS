@@ -114,6 +114,30 @@ function topologicalSort(tables: string[], deps: Record<string, string[]>): stri
 // Fetch all data (raw SQL, snake_case table + column names)
 // ---------------------------------------------------------------------------
 
+/**
+ * Walk a row object and stringify any BigInt values in place.
+ *
+ * Audit 2026-05-04 fix C3 added a BIGSERIAL chain_position column on
+ * audit_trail; the pg driver returns BIGSERIAL as native BigInt which
+ * JSON.stringify (used by every export format + by Fastify's serializer
+ * + by computeBackupChecksum) cannot serialize. Stringifying at the
+ * source keeps every downstream consumer JSON-clean without scattering
+ * replacers across each call site.
+ *
+ * Stringify is the safest representation: numbers > 2^53 lose precision
+ * if cast to Number; strings preserve full bigint width and Postgres
+ * accepts the textual form on insert (cast back to bigint by the column).
+ */
+function stringifyBigInts(rows: Record<string, any>[]): Record<string, any>[] {
+  for (const row of rows) {
+    for (const k of Object.keys(row)) {
+      const v = row[k];
+      if (typeof v === 'bigint') row[k] = v.toString();
+    }
+  }
+  return rows;
+}
+
 export async function fetchAllTablesRaw(): Promise<Record<string, Record<string, any>[]>> {
   const tables = await getAllTables();
   const result: Record<string, Record<string, any>[]> = {};
@@ -122,7 +146,7 @@ export async function fetchAllTablesRaw(): Promise<Record<string, Record<string,
     const rows = await prisma.$queryRawUnsafe(
       `SELECT * FROM "${table}"${orderClause}`,
     ) as Record<string, any>[];
-    result[table] = rows;
+    result[table] = stringifyBigInts(rows);
   }
   return result;
 }
@@ -132,12 +156,78 @@ export async function fetchAllTablesRaw(): Promise<Record<string, Record<string,
 // order, with a second pass for nullable self-referencing columns.
 // ---------------------------------------------------------------------------
 
-export async function restoreFromBackup(backup: BackupData): Promise<void> {
+/**
+ * Audit 2026-05-04 fix #7 (api-supporting H5 — restore silently rewrites
+ * audit trail). Verify the chain integrity of audit_trail rows in the
+ * backup BEFORE installing them. Tampered or partial backups are refused;
+ * operator can pass `force: true` to override (intentional, audited).
+ *
+ * Returns the count of chained / pre-chain rows it inspected. Throws with
+ * a structured error on anomaly so the caller surfaces a clean 400.
+ */
+async function verifyBackupAuditChain(rows: Array<Record<string, any>>): Promise<{
+  preChainRows: number;
+  chainedRows: number;
+}> {
+  const { verifyAuditChecksum } = await import('../../lib/hash-chain.js');
+  let preChainRows = 0;
+  let chainedRows = 0;
+  // Sort by chain_position (NULLs first — pre-chain era) for deterministic walk.
+  const sorted = [...rows].sort((a, b) => {
+    const ap = a.chain_position == null ? -1 : Number(a.chain_position);
+    const bp = b.chain_position == null ? -1 : Number(b.chain_position);
+    return ap - bp;
+  });
+  let priorChecksum: string | null = null;
+  for (let i = 0; i < sorted.length; i++) {
+    const row = sorted[i];
+    const perRowOk = verifyAuditChecksum({
+      timestamp: row.timestamp,
+      userId: row.user_id ?? null,
+      action: row.action,
+      targetType: row.target_type ?? null,
+      targetId: row.target_id ?? null,
+      afterValue: row.after_value ?? undefined,
+      checksum: row.checksum,
+      previousChecksum: row.previous_checksum ?? null,
+    });
+    if (!perRowOk) {
+      throw {
+        statusCode: 400,
+        message: `BACKUP_AUDIT_CHAIN_INVALID: row ${i} (id=${row.id}) per-row checksum mismatch — backup is tampered or corrupt. Pass force:true to override.`,
+      };
+    }
+    if (row.previous_checksum != null) {
+      chainedRows++;
+      if (priorChecksum != null && row.previous_checksum !== priorChecksum) {
+        throw {
+          statusCode: 400,
+          message: `BACKUP_AUDIT_CHAIN_INVALID: row ${i} (id=${row.id}) chain link mismatch — backup has insertion or deletion. Pass force:true to override.`,
+        };
+      }
+    } else {
+      preChainRows++;
+    }
+    priorChecksum = row.checksum;
+  }
+  return { preChainRows, chainedRows };
+}
+
+export async function restoreFromBackup(backup: BackupData, opts: { force?: boolean } = {}): Promise<void> {
   // Normalize older camelCase-keyed backups to snake_case
   const data = normalizeBackupKeys(backup.data);
   const dbTables = await getAllTables();
   const dbTableSet = new Set(dbTables);
   const selfRefs = await getSelfRefColumns(dbTables);
+
+  // Audit 2026-05-04 fix #7: verify chain integrity of any audit_trail rows
+  // in the backup BEFORE installing them. Without this, a tampered backup
+  // file silently overwrites the live audit trail with forged history —
+  // and because restore disables the audit_trail immutability triggers
+  // (see below), there's no DB-level safeguard.
+  if (Array.isArray(data.audit_trail) && data.audit_trail.length > 0 && !opts.force) {
+    await verifyBackupAuditChain(data.audit_trail);
+  }
 
   // Only restore tables that exist in both the backup and the current DB
   const restoreTables = dbTables.filter(t => Array.isArray(data[t]));

@@ -6,6 +6,7 @@ import { getActionReauthConfig, invalidateReauthCache, isReauthRequired } from '
 import { getDefaultTemplates, FEATURE_TO_PERMISSION_MAP, FEATURE_PRIVILEGES, ALL_ALARM_COLUMN_IDS } from '@digilog/shared';
 import { validateUserId } from '../../lib/user-id-validator.js';
 import { prisma } from '../../lib/prisma.js';
+import { invalidateRolePermsCache } from '../../plugins/rbac.js';
 
 /**
  * Reverse-map a role's permission constants to feature privilege booleans.
@@ -118,6 +119,10 @@ export const configService = {
         where: { name: role },
         data: { permissions: permissionsArray },
       });
+      // Audit 2026-05-04 fix (api-supporting M11): rbac plugin caches role
+      // permissions for 5s; invalidate so the new feature-toggle config
+      // takes effect on the very next request rather than waiting up to 5s.
+      invalidateRolePermsCache(role);
     }
 
     await auditLog({

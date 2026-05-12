@@ -9,7 +9,13 @@ export interface RequestContext {
   ipAddress: string;   // req.ip
   userAgent?: string;  // req.headers['user-agent']
   sessionId: string;   // req.user.sessionId
-  organizationId?: string; // req.user.organizationId
   scope?: string;      // GLOBAL | ORGANIZATION
+  // True when the request carries the x-offline-replay header. Cycle-write
+  // implementations consult this to decide whether to honor the operator-
+  // supplied offlinePerformedAt or fall through to the server clock — see
+  // apps/api/src/lib/offline-time-window.ts (audit 2026-05-04 fix C2).
+  // Optional so test fixtures (~14 files) that synthesize RequestContext
+  // literals without this field default to "online" semantics naturally.
+  isOfflineReplay?: boolean;
 }
 

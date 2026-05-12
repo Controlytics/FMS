@@ -41,11 +41,11 @@ RETENTION_MANAGE, SYSTEM_CONFIG_MANAGE
 | PM_UPDATE | Update PM schedules |
 | PM_EXECUTE | Execute PM tasks |
 
-## Permission Constants (95 total)
+## Permission Constants (109 total — verified 2026-04-29)
 
-The system defines 95 permission string constants in `packages/shared/src/types/permissions.ts`. These are grouped into categories (User Management, Configuration, Assets, Audit, Data, Alarms, Filters, PM, Checklists, etc.) and referenced by the RBAC plugin to gate every API endpoint.
+The system defines 109 permission string constants in `packages/shared/src/types/permissions.ts` (verify with `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts`). These are grouped into categories (User Management, Configuration, Assets, Audit, Data, Alarms, Filters, PM, Checklists, Reports, etc.) and referenced by the RBAC plugin to gate every API endpoint.
 
-## Feature Privileges (82 total)
+## Feature Privileges (91 total — verified 2026-04-29)
 
 Feature privileges are defined in `packages/shared/src/types/feature-privileges.ts`. Each privilege maps a UI toggle (e.g. `filters.operate`) to the permission constant(s) it requires. The `FEATURE_TO_PERMISSION_MAP` object provides this mapping so the frontend can show/hide controls based on the user's role.
 

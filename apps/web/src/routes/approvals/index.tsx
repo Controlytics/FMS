@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import useSWR, { mutate } from 'swr';
-import { apiClient } from '../../lib/api-client';
+import useSWR from 'swr';
 import { useAuth } from '../../hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
+import { useBlockChangeApproval } from '@/hooks/use-block-change-approval';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; dot: string }> = {
@@ -15,6 +16,9 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; d
 export function ApprovalsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  // Audit 2026-05-04 follow-up: approve/reject flow extracted to a shared
+  // hook so this page and mobile-wrapper.tsx don't drift again.
+  const { process: processBlockChange, reauth } = useBlockChangeApproval();
   const { formatDate, formatTime } = useDatetimeFormat();
   const [filter, setFilter] = useState('PENDING');
   const [page, setPage] = useState(1);
@@ -31,18 +35,22 @@ export function ApprovalsPage() {
   const { data, isLoading } = useSWR(swrKey);
   const { data: pendingData } = useSWR(isApprover ? '/api/block-change-requests/pending-count' : null);
 
-  const handleProcess = async (id: string, action: 'approve' | 'reject') => {
+  const handleProcess = (id: string, action: 'approve' | 'reject') => {
     setProcessingId(id);
-    try {
-      await apiClient.post(`/api/block-change-requests/${id}/${action}`, { comment: processComment || undefined });
-      mutate(swrKey);
-      if (isApprover) mutate('/api/block-change-requests/pending-count');
-      setProcessComment('');
-      toast.success(`Request ${action === 'approve' ? 'approved' : 'rejected'}`);
-    } catch (e: any) {
-      toast.error('Error', e.message || `Failed to ${action}`);
-    }
-    setProcessingId(null);
+    processBlockChange(id, action, processComment, {
+      mutateKeys: isApprover
+        ? [swrKey, '/api/block-change-requests/pending-count']
+        : [swrKey],
+      onSuccess: () => {
+        setProcessComment('');
+        setProcessingId(null);
+        toast.success(`Request ${action === 'approve' ? 'approved' : 'rejected'}`);
+      },
+      onError: (e: any) => {
+        toast.error('Error', e.message || `Failed to ${action}`);
+        setProcessingId(null);
+      },
+    });
   };
 
   const requests = data?.data ?? [];
@@ -223,6 +231,17 @@ export function ApprovalsPage() {
           </button>
         </div>
       )}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setProcessingId(null); }}
+        actionLabel="Process Block Change"
+      />
     </div>
   );
 }

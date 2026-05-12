@@ -4,6 +4,8 @@ import { verifyAuditChecksum } from '../../lib/hash-chain.js';
 import { auditLog } from '../../lib/audit.js';
 import { auditQuerySchema } from '@digilog/shared';
 import { errorResponses } from '../../lib/error-schemas.js';
+import { verifyAuditChain } from '../../lib/audit-verify.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 
 export default async function auditRoutes(app: FastifyInstance) {
   // GET /api/audit — query audit trail (requires AUDIT_READ permission)
@@ -223,6 +225,12 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    // Audit 2026-05-04 fix #5 (web-routes review H4): per § 11.10(e),
+    // audit-record deletion must be challengeable. Distinct action key
+    // (DELETE_AUDIT_RECORD vs BULK_DELETE_AUDIT_RECORDS) so the operator
+    // intent is recorded in the surviving audit trail.
+    const { ok } = await enforceReauth('DELETE_AUDIT_RECORD', req, reply);
+    if (!ok) return;
     const { id } = req.params as { id: string };
 
     const record = await prisma.auditTrail.findUnique({ where: { id } });
@@ -272,7 +280,12 @@ export default async function auditRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    // Audit 2026-05-04 fix #5 (web-routes review H4): bulk delete needs its
+    // own action key — collapsing it into DELETE_AUDIT_RECORD would let an
+    // operator wipe many rows under a single password challenge.
+    const { ok } = await enforceReauth('BULK_DELETE_AUDIT_RECORDS', req, reply);
+    if (!ok) return;
     const { ids } = req.body as { ids: string[] };
 
     const records = await prisma.auditTrail.findMany({
@@ -300,5 +313,67 @@ export default async function auditRoutes(app: FastifyInstance) {
     });
 
     return { success: true, count: result.count };
+  });
+
+  // GET /api/audit/verify-chain — audit 2026-05-04 fix C3.
+  //
+  // Walks the audit chain in chain_position order and reports any per-row
+  // checksum mismatch, chain-link mismatch, or chain_position gap. SUPER_ADMIN
+  // only — exposes the full integrity surface and should not be operator-
+  // accessible by default.
+  //
+  // The chain itself is built into the audit_trail schema; this endpoint is
+  // the auditor-facing read view. See apps/api/src/lib/audit-verify.ts for
+  // detection semantics.
+  app.get('/verify-chain', {
+    preHandler: [app.requireSuperAdmin()],
+    schema: {
+      tags: ['Audit'],
+      summary: 'Verify audit chain integrity',
+      description: 'Walk the audit_trail hash chain and report any tampering. SUPER_ADMIN only. Optional fromPosition/toPosition narrow the scope; default is the full table.',
+      querystring: {
+        type: 'object',
+        properties: {
+          fromPosition: { type: 'integer', minimum: 0 },
+          toPosition: { type: 'integer', minimum: 0 },
+          maxAnomalies: { type: 'integer', minimum: 1, maximum: 10000, default: 100 },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            intact: { type: 'boolean' },
+            totalRowsChecked: { type: 'integer' },
+            preChainRows: { type: 'integer' },
+            chainedRows: { type: 'integer' },
+            highestPosition: { type: 'integer', nullable: true },
+            anomalies: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  position: { type: 'integer' },
+                  id: { type: 'string' },
+                  kind: { type: 'string' },
+                  message: { type: 'string' },
+                  expected: { type: 'string', nullable: true },
+                  actual: { type: 'string', nullable: true },
+                },
+              },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const q = req.query as { fromPosition?: number; toPosition?: number; maxAnomalies?: number };
+    const result = await verifyAuditChain({
+      fromPosition: q.fromPosition,
+      toPosition: q.toPosition,
+      maxAnomalies: q.maxAnomalies,
+    });
+    return result;
   });
 }

@@ -13,9 +13,9 @@ apps/api/         — Fastify backend (TypeScript, port 3000)
 apps/web/         — React SPA (Vite, port 5175 dev)
 apps/android/     — Capacitor Android wrapper (DigiLog-FilterOps.apk)
 rfid_scan_app/    — Native Kotlin RFID scanner (KC-series UHF readers)
-packages/shared/  — Permissions (109), privileges (91), reauth (81), sidebar items (26), zod schemas
+packages/shared/  — Permissions (107), privileges (90), reauth (96), sidebar items (26), zod schemas
 packages/db/      — Prisma client + TimescaleDB pool + telemetry batcher
-packages/queue/   — BullMQ queues (5) + Redis connection
+packages/queue/   — graphile-worker job queue (Postgres-backed)
 docs/             — Project docs (current)
 old/              — Archived superseded docs and tasks
 future/           — Forward-looking design notes
@@ -24,9 +24,17 @@ future/           — Forward-looking design notes
 ## Local Dev Environment (Windows)
 The app runs ONLY on local Windows for development. There is no live EC2 / Linux production environment to push to.
 
-- Node.js 20+, PostgreSQL 18 + TimescaleDB, Memurai (Redis ≥5), EMQX 5.x
-- Memurai required (old Redis 3 crashes BullMQ); start: `C:\Users\hello\redis5\redis-server.exe`
-- EMQX optional unless testing MQTT ingest: `C:\Users\hello\emqx\bin\emqx.cmd`
+- Node.js 20+, PostgreSQL 18 + TimescaleDB, Mosquitto 2.0
+- **No Redis dependency.** Phase 2 of windows-friendly-rewrite moved the job
+  queue to graphile-worker on Postgres. Phase 4 (2026-05-01) retired Redis
+  for pub/sub too — WebSocket events, RPC correlation, pipeline tracing, and
+  debug recorder all run through an in-process EventEmitter bus
+  (`apps/api/src/lib/internal-bus.ts`) and a Map-based TTL cache
+  (`apps/api/src/lib/rpc-cache.ts`). `ioredis` is no longer in package.json.
+- Mosquitto optional unless testing MQTT ingest. Install via `scripts/install-mosquitto.ps1`
+  from an elevated PowerShell — registers a Windows service and rewrites the deployed
+  conf with absolute paths + file logging (the SCM-managed broker has CWD=System32 and
+  no stdout, so the dev-mode source conf would silently exit).
 - Convenience: `start-digilog.bat` / `stop-digilog.bat`
 - API runs via `tsx watch` in dev (no PM2 locally), Vite serves frontend
 - See `LOCAL_SETUP_WINDOWS.md` and `DEPLOY-WINDOWS.md` for full details
@@ -60,7 +68,7 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 - App: http://localhost:5175 (Vite dev)
 - API: https://localhost:3000 — `API_HTTPS=true` in `apps/api/.env` (mkcert certs at `certs/server.{key,crt}` rooted by `certs/rootCA.pem`)
 - Swagger: https://localhost:3000/docs
-- EMQX dashboard: http://localhost:18083
+- Mosquitto: tcp://localhost:1883 (no web dashboard; dynsec configured via `POST /api/internal/mqtt/refresh-acl`)
 
 ### TLS notes
 - **APK requires HTTPS** — `apps/web/.env.production` pins `VITE_API_URL=https://192.168.1.22:3000`; plain HTTP causes Capacitor TLS parse error on login. Tablet must trust `rootCA.pem` (Settings → Security → Install certificate).
@@ -68,15 +76,16 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 - **Verify TLS up** — `curl -sk -o /dev/null -w "%{http_code}" https://localhost:3000/health` should return a code (even 401 means TLS is up).
 - **Don't use HTTPS with self-signed in Capacitor *dev* mode** — WebView's `fetch()` rejects self-signed certs (Capacitor's `BridgeActivity` overrides the WebViewClient after `onCreate`). Keep dev cleartext if testing in-WebView, or install root CA on the device.
 
-## System Stats (current — 2026-04-29, verified against live code)
-- **Backend:** 37 API modules under `apps/api/src/modules/`, 200+ endpoints
-- **Database:** **64 Prisma models, 22 enums**; TimescaleDB with 7 hypertables
-- **Permissions:** **109** constants, **91** feature privileges, **81** reauth actions, **26** sidebar items
+## System Stats (current — 2026-05-04, verified post P0 compliance branch)
+- **Backend:** **37** API modules under `apps/api/src/modules/`, 200+ endpoints
+- **Database:** **69 Prisma models, 23 enums**; TimescaleDB with **6** hypertables. TemplateKind is a lookup table (admin-editable since Step 1); not an enum. Phase A.3 added `FilterProfileVersion` sidecar; Phase A.4 added `EquipmentGroupVersion` sidecar; Step 4 (2026-05-02) replaced `FilterProfile.applicableTemplates` JSONB array with the `FilterProfileApplicableTemplate` join table (cascade FKs to AssetTemplate). Audit C3 (2026-05-04) added `audit_trail.previous_checksum` + `chain_position BIGSERIAL` for tamper-evident hash chain.
+- **Permissions:** **107** constants, **90** feature privileges, **96** reauth actions, **26** sidebar items. Recent additions: `ADMIN_REQUEST_REVIEW` (priv-escalation fix, replaces USER_CREATE for /admin-requests); 9 new reauth actions on the `fix/p0-compliance-2026-05-04` branch — `UPDATE_REAUTH_CONFIG` (meta-policy), `UPDATE_EMAIL_CONFIG` + `UPDATE_SMS_CONFIG` (notification-delivery), `UPDATE_LDAP_CONFIG`, `DELETE_AUDIT_RECORD` + `BULK_DELETE_AUDIT_RECORDS`, `CREATE/UPDATE/DELETE_TEMPLATE_KIND`. Plus the audit-fix actions from `tasks/AUDIT-2026-05-04-linkage-review.md` (`UPDATE_PROFILE`, `RETIRE_FILTER`/`REPLACE_FILTER`/`BULK_UPLOAD_FILTERS`, `APPROVE_ADMIN_REQUEST`, `UPDATE_FILTER_LIFECYCLE`).
 - **Rule chain:** 77 node types across 8 categories
-- **Config:** **30 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **26** corresponding pages
+- **Config:** **30 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **27** corresponding pages (template-kinds added in Step 1)
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
-- **Frontend:** 23 route folders/files, ~85 pages, **14** custom hooks, **15** lib modules
-- **BullMQ queues:** 5 (ingestion, notification, export, reports, maintenance)
+- **Frontend:** 22 route folders/files, ~83 pages, **14** custom hooks, **15** lib modules
+- **Queue backend:** graphile-worker (Postgres-backed); 3 queues (ingestion, notification, maintenance)
+- **Tenancy:** **single-tenant, single-site, single-company.** Multi-tenancy was removed 2026-04-30 (`Organization` model + `organizationId` columns + `org-admin`/`tenant-admin` modules dropped). JWT `scope` always stamps `GLOBAL`. The `RoleScope` enum and `AssigneeType` enum are retained but trimmed to one/two values respectively.
 
 ## Important Notes
 - TimescaleDB is `digilog_tsdb`, NOT `digilog_db` (PG models live in `digilog_db`)
@@ -98,10 +107,14 @@ Cleaning profiles, filter operations (cycle start/advance/bypass/checklist), PM 
 RFID Scanner Android app (Reader_Usb.jar SDK), web RFID keyboard guard, offline IndexedDB queue + sync engine, cached identifier→filter map, "Data Synced" indicator, responsive collapsible sidebar.
 
 ### Phase 4 — Permissions, Themes, Reports
-18 granular feature toggles introduced (Filters / Checklists / Cleaning Profiles / Equipment / PM) — total privileges grew to 91 over Phases 4 + 5; 10 color themes; configurable report header/footer/layout; dynamic bulk upload from template attributeSchema; reauth actions grew to 81 across 16 categories.
+18 granular feature toggles introduced (Filters / Checklists / Cleaning Profiles / Equipment / PM) — total privileges grew to 91 over Phases 4 + 5 (later trimmed to 89 in MT removal 2026-04-30, then 90 after VERSION_HISTORY 2026-05-02); 10 color themes; configurable report header/footer/layout; dynamic bulk upload from template attributeSchema; reauth actions grew to 81 across 16 categories.
 
 ### Phase 5 — Reports, Offline Hardening, RFID SDK, Filter Data Console (Apr 15–29, 2026)
-Reports module A–F complete (visual template designer + Puppeteer/chartjs/Handlebars PDF engine + digital signatures), offline overhaul (TTL cache, idempotency keys, tombstones, LRU, JWT refresh, server-side `stageLookup`, Capacitor Network plugin + SW hook), RFID SDK plugin in DigiLog APK (`Reader_Usb.jar` via `RfidPlugin.java`), Filter Data Management console mirroring 10 user-facing pages, DRY_IN two-step flow with persisted countdown panel, dynamic backup/restore covering all 64 tables, bloat audit 12/14 resolved, EC2/PM2 production assets removed (local-Windows-only), decision-tape proposal for future client/server pipeline drift elimination. Full architectural detail in `PHASE_5_RECENT_WORK.md`.
+Reports module A–F complete (visual template designer + puppeteer-core/Edge / @napi-rs/canvas / Handlebars PDF engine + digital signatures — Phase 3 of windows-friendly-rewrite swapped from `puppeteer` + `chartjs-node-canvas` to eliminate the bundled Chromium download and the node-gyp/MSVC dependency), offline overhaul (TTL cache, idempotency keys, tombstones, LRU, JWT refresh, server-side `stageLookup`, Capacitor Network plugin + SW hook), RFID SDK plugin in DigiLog APK (`Reader_Usb.jar` via `RfidPlugin.java`), Filter Data Management console mirroring 10 user-facing pages, DRY_IN two-step flow with persisted countdown panel, dynamic backup/restore covering all 64 tables, bloat audit 12/14 resolved, EC2/PM2 production assets removed (local-Windows-only), decision-tape proposal for future client/server pipeline drift elimination. Full architectural detail in `PHASE_5_RECENT_WORK.md`.
+
+**Phase 5 verification harness** (Apr 29–30, 2026) — closes the verification gap left by Phases 1–4:
+- **5.1** — `tests/integration/windows-server-stack.test.ts` (gated by `INTEGRATION_TEST=1`): in-process aedes MQTT broker + Fastify boot + 100 telemetry publishes → `ts_telemetry`, graphile-worker enqueue → handler fires, puppeteer-core PDF render → `%PDF-` magic bytes (commits `a51628d` + reviewer-fix `24620c0`).
+- **5.2** — `scripts/verify-windows-deployment.ps1`: operator-facing 4-check smoke (health endpoint, Mosquitto :1883, graphile-worker schema via psql, real PDF render via login → reports/generate). PS 5.1 + 7+ compatible (commits `b4ad539` + reviewer-fix `ad07280`).
 
 ## Key API Endpoints (filter operations)
 ```
@@ -111,9 +124,15 @@ POST /api/filters/:id/submit-checklist  — Submit checklist answers
 POST /api/filters/:id/bypass            — Bypass stage (deviation)
 POST /api/filters/:id/terminate         — Terminate cycle (with reason)
 GET  /api/filters/:id/current-state     — Filter state + next actions (full server snapshot)
-GET  /api/filter/cycles                 — List cleaning cycles
-GET  /api/filter/events                 — List filter events
-GET  /api/cleaning-profiles             — List cleaning profiles
+GET  /api/filters/cycles                — List cleaning cycles (mounted by filter-operations/events-routes.ts under the /api/filters prefix)
+GET  /api/filters/events                — List filter events
+GET  /api/filter-cleaning-profiles                       — List cleaning profiles (latest version per lineage)
+GET  /api/filter-cleaning-profiles/:id/versions          — Phase A.2: list lineage version history
+GET  /api/filter-cleaning-profiles/:id/versions/:n       — Phase A.2: frozen snapshot at version n
+GET  /api/filter-profiles/:id/versions                   — Phase A.3: list archived FilterProfile versions
+GET  /api/filter-profiles/:id/versions/:n                — Phase A.3: frozen FilterProfile snapshot at version n
+GET  /api/equipment-groups/:id/versions                  — Phase A.4: list archived EquipmentGroup versions (group + 3 instruments composite)
+GET  /api/equipment-groups/:id/versions/:n               — Phase A.4: frozen EquipmentGroup composite snapshot at version n
 GET  /api/checklist-profiles?expand=questions — Used for offline cache
 GET  /api/config/report-settings/current — Report layout config
 GET  /api/config/password-policy/current — Password policy (public endpoint)

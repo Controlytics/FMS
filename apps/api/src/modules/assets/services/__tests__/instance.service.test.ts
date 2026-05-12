@@ -20,14 +20,52 @@ const {
   mockHasCycle: vi.fn(),
   mockCollectDescendants: vi.fn(),
   mockAuditLog: vi.fn(),
-  mockPrisma: {
-    deviceCredential: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
-    connectivityStatus: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
-    unsMapping: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
-    qrCode: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
-    latestTelemetry: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
-    dataStream: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
-  },
+  // Top-level prisma surface used by instance.service.ts. The service runs
+  // create / update / delete inside `prisma.$transaction(async tx => ...)`,
+  // so we route the $transaction callback to the same tx-shaped object.
+  // Both `prisma.x.method(...)` and `tx.x.method(...)` therefore record on
+  // the same vi.fn() instance.
+  mockPrisma: (() => {
+    const tx = {
+      assetInstance: {
+        create: vi.fn().mockImplementation(async (args: { data: Record<string, unknown> }) => ({
+          id: 'inst-1',
+          ...args.data,
+        })),
+        update: vi.fn().mockImplementation(async (args: { where: { id: string }; data: Record<string, unknown> }) => ({
+          id: args.where.id,
+          ...args.data,
+        })),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        findFirst: vi.fn().mockResolvedValue(null),
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
+      assetRelationship: {
+        create: vi.fn().mockImplementation(async (args: { data: Record<string, unknown> }) => ({
+          id: 'rel-1',
+          ...args.data,
+        })),
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      assetIdentifier: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      deviceCredential: {
+        create: vi.fn().mockResolvedValue({ id: 'cred-1' }),
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      connectivityStatus: {
+        create: vi.fn().mockResolvedValue({}),
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      unsMapping: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      qrCode: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      latestTelemetry: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      dataStream: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    };
+    return {
+      ...tx,
+      $transaction: vi.fn().mockImplementation(async (cb: (tx: typeof tx) => unknown) => cb(tx)),
+    };
+  })(),
 }));
 
 vi.mock('../../repositories/instance.repository.js', () => ({ instanceRepository: mockInstanceRepo }));
@@ -89,17 +127,30 @@ describe('instanceService', () => {
       expect(result.name).toBe('P1');
     });
 
-    it('creates instance with parent and CONTAINS relationship', async () => {
+    it('creates instance with parent and CONTAINS + CONTAINED_IN relationships in one transaction', async () => {
       mockTemplateRepo.findById.mockResolvedValue({ id: 't1', version: 1, attributeSchema: [], maxParentConnections: 1, maxConnections: 10 });
       mockInstanceRepo.findByIdSimple.mockResolvedValue({ id: 'parent', templateId: 't1' });
       mockRelRepo.countBySourceAsset.mockResolvedValue(2);
-      mockInstanceRepo.create.mockResolvedValue({ id: 'child', name: 'Child' });
-      mockRelRepo.createPairWithParent.mockResolvedValue([{ id: 'r1' }, { id: 'r2' }]);
       mockInstanceRepo.findByIdWithName.mockResolvedValue({ name: 'Parent' });
+      mockHasCycle.mockResolvedValue(false);
+
+      // Make assetInstance.create return the deterministic 'child' id our
+      // assertions check for. Cast through unknown because vi.fn typed via
+      // mockImplementation in hoisted block keeps a generic Mock signature.
+      (mockPrisma.assetInstance.create as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        id: 'child',
+        name: 'Child',
+      });
 
       const result = await instanceService.create({ name: 'Child', templateId: 't1', parentId: 'parent' }, ctx);
       expect(result.name).toBe('Child');
-      expect(mockRelRepo.createPairWithParent).toHaveBeenCalled();
+
+      // Service inlines the relationship pair inside prisma.$transaction
+      // using tx.assetRelationship.create. We aliased `tx` to `mockPrisma`,
+      // so the spy records both calls.
+      expect(mockPrisma.assetRelationship.create).toHaveBeenCalledTimes(2);
+      const calls = (mockPrisma.assetRelationship.create as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0].data.relationshipType);
+      expect(calls).toEqual(expect.arrayContaining(['CONTAINS', 'CONTAINED_IN']));
     });
 
     it('rejects invalid attributes', async () => {
@@ -133,16 +184,32 @@ describe('instanceService', () => {
   });
 
   describe('delete', () => {
-    it('cascade soft-deletes with descendants', async () => {
+    it('cascade soft-deletes with descendants in a single transaction', async () => {
       mockInstanceRepo.findByIdSimple.mockResolvedValue({ id: 'i1', name: 'P1', status: 'ACTIVE', isActive: true });
       mockCollectDescendants.mockResolvedValue(['child-1', 'child-2']);
-      mockInstanceRepo.softDeleteMany.mockResolvedValue({ count: 3 });
-      mockRelRepo.deleteByAssetIds.mockResolvedValue({ count: 4 });
-      mockIdentRepo.deleteByAssetIds.mockResolvedValue({ count: 1 });
 
       const count = await instanceService.delete('i1', ctx);
       expect(count).toBe(3); // i1 + 2 descendants
-      expect(mockInstanceRepo.softDeleteMany).toHaveBeenCalledWith(['i1', 'child-1', 'child-2'], 'admin');
+
+      // Service runs everything via prisma.$transaction(tx) using direct tx
+      // table calls (not the repository). Verify the assetInstance soft-delete
+      // updateMany covers all three IDs and clears unsPath.
+      expect(mockPrisma.assetInstance.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['i1', 'child-1', 'child-2'] } },
+        data: { isActive: false, unsPath: null, updatedBy: 'admin' },
+      });
+      // ...and the FK-dependent rows are deleted with the same id set.
+      expect(mockPrisma.assetRelationship.deleteMany).toHaveBeenCalledWith({
+        where: {
+          OR: [
+            { sourceAssetId: { in: ['i1', 'child-1', 'child-2'] } },
+            { targetAssetId: { in: ['i1', 'child-1', 'child-2'] } },
+          ],
+        },
+      });
+      expect(mockPrisma.assetIdentifier.deleteMany).toHaveBeenCalledWith({
+        where: { assetId: { in: ['i1', 'child-1', 'child-2'] } },
+      });
     });
   });
 

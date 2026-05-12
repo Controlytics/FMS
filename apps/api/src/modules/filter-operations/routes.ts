@@ -30,9 +30,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
             filterName: { type: 'string', nullable: true },
             currentState: { type: 'string', nullable: true },
             currentCycle: { type: 'object', nullable: true, additionalProperties: true },
-            nextAllowedStages: { type: 'array', items: { type: 'string' } },
             nextBlocks: { type: 'array', items: { type: 'object', additionalProperties: true } },
-            pendingChecklist: { type: 'array', items: { type: 'object', additionalProperties: true } },
             pipelineStages: { type: 'array', items: { type: 'object', additionalProperties: true } },
             pipelineGraph: { type: 'object', nullable: true, additionalProperties: true },
             profile: { type: 'object', nullable: true, additionalProperties: true },
@@ -60,6 +58,20 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
                 recommendation: { type: 'string' },
               },
             },
+            // L3 (2026-05-02): advisory warning when admin has edited the
+            // cycle's pinned EquipmentGroup. Readings still validate against
+            // the pinned snapshot.
+            equipmentGroupSyncWarning: {
+              type: 'object',
+              nullable: true,
+              additionalProperties: true,
+              properties: {
+                groupId: { type: 'string' },
+                pinnedVersion: { type: 'integer' },
+                liveVersion: { type: 'integer' },
+                recommendation: { type: 'string' },
+              },
+            },
             stageLookup: {
               type: 'object',
               additionalProperties: {
@@ -71,6 +83,21 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
                 },
               },
               description: 'Per-stage lookup for offline use: from a given stateKey, what comes next + which checklists fire',
+            },
+            // Phase 8.7 cutover (decision-tape architecture): the action tape
+            // is now the authoritative server-emitted contract. The FE consumes
+            // `actions[]` + `tapeVersion` directly; the old `nextAllowedStages`
+            // and `pendingChecklist` fields have been removed. additionalProperties:true
+            // on each action lets the per-type discriminated union shapes
+            // (validations, params subtypes) flow through unchanged.
+            actions: {
+              type: 'array',
+              items: { type: 'object', additionalProperties: true, properties: { type: { type: 'string' }, label: { type: 'string' } } },
+              description: 'Decision-tape: ordered list of permitted next actions for the current cycle state',
+            },
+            tapeVersion: {
+              type: 'integer',
+              description: 'Monotonic per-cycle version derived from profileVersion + recent events; clients send this back with writes for staleness checks',
             },
           },
         },
@@ -155,7 +182,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
       params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
       body: {
         type: 'object',
-        required: ['targetState'],
+        required: ['targetState', 'tapeVersion'],
         properties: {
           targetState: { type: 'string' },
           parameters: { type: 'object' },
@@ -169,6 +196,12 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           dryerDurationMinutes: { type: 'integer', minimum: 1, maximum: 1440 },
           offlinePerformedAt: { type: 'string', format: 'date-time' },
           clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay' },
+          // Phase 8.7 cutover (decision-tape architecture): required staleness
+          // guard. Server compares to the live tapeVersion derived from
+          // (profileVersion, filterEventCount) and rejects with 409 STALE_TAPE
+          // if mismatched. FE always reads tapeVersion from getCurrentState or
+          // a prior write response and sends it back.
+          tapeVersion: { type: 'integer', description: 'Required staleness guard; rejected with 409 STALE_TAPE on mismatch' },
         },
       },
       response: {
@@ -179,14 +212,23 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
             filterName: { type: 'string', nullable: true },
             currentState: { type: 'string', nullable: true },
             currentCycle: { type: 'object', nullable: true, additionalProperties: true },
-            nextAllowedStages: { type: 'array', items: { type: 'string' } },
             nextBlocks: { type: 'array', items: { type: 'object', additionalProperties: true } },
-            pendingChecklist: { type: 'array', items: { type: 'object', additionalProperties: true } },
             pipelineStages: { type: 'array', items: { type: 'object', additionalProperties: true } },
             profile: { type: 'object', nullable: true, additionalProperties: true },
             filterSet: { type: 'string', nullable: true },
             totalCycles: { type: 'integer' },
             equipmentGroup: { type: 'object', nullable: true, additionalProperties: true },
+            // Phase 8.7 cutover: post-write tape so FE can consume next-action
+            // state without a follow-up getCurrentState round-trip.
+            actions: {
+              type: 'array',
+              items: { type: 'object', additionalProperties: true, properties: { type: { type: 'string' }, label: { type: 'string' } } },
+              description: 'Decision-tape: ordered list of permitted next actions after this write',
+            },
+            tapeVersion: {
+              type: 'integer',
+              description: 'Monotonic per-cycle version after this write; send back as the staleness guard on the next write',
+            },
           },
         },
         ...errorResponses,
@@ -206,7 +248,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
       params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
       body: {
         type: 'object',
-        required: ['answers'],
+        required: ['answers', 'tapeVersion'],
         properties: {
           answers: {
             type: 'object',
@@ -215,6 +257,14 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           },
           offlinePerformedAt: { type: 'string', format: 'date-time' },
           clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay' },
+          expectedProfileVersions: {
+            type: 'object',
+            additionalProperties: { type: 'integer' },
+            description: 'Phase A.1: client-cached version per checklistProfileId. Server returns 409 SCHEMA_DRIFT if any version mismatches the cycle pin.',
+          },
+          // Phase 8.7 cutover (decision-tape architecture): required staleness
+          // guard. See /advance route comment.
+          tapeVersion: { type: 'integer', description: 'Required staleness guard; rejected with 409 STALE_TAPE on mismatch' },
         },
       },
       response: {
@@ -225,14 +275,22 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
             filterName: { type: 'string', nullable: true },
             currentState: { type: 'string', nullable: true },
             currentCycle: { type: 'object', nullable: true, additionalProperties: true },
-            nextAllowedStages: { type: 'array', items: { type: 'string' } },
             nextBlocks: { type: 'array', items: { type: 'object', additionalProperties: true } },
-            pendingChecklist: { type: 'array', items: { type: 'object', additionalProperties: true } },
             pipelineStages: { type: 'array', items: { type: 'object', additionalProperties: true } },
             profile: { type: 'object', nullable: true, additionalProperties: true },
             filterSet: { type: 'string', nullable: true },
             totalCycles: { type: 'integer' },
             equipmentGroup: { type: 'object', nullable: true, additionalProperties: true },
+            // Phase 8.7 cutover: post-write tape.
+            actions: {
+              type: 'array',
+              items: { type: 'object', additionalProperties: true, properties: { type: { type: 'string' }, label: { type: 'string' } } },
+              description: 'Decision-tape: ordered list of permitted next actions after this write',
+            },
+            tapeVersion: {
+              type: 'integer',
+              description: 'Monotonic per-cycle version after this write; send back as the staleness guard on the next write',
+            },
           },
         },
         ...errorResponses,
@@ -254,13 +312,15 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
       params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
       body: {
         type: 'object',
-        required: ['targetState', 'justification'],
+        required: ['targetState', 'justification', 'tapeVersion'],
         properties: {
           targetState: { type: 'string' },
           justification: { type: 'string', minLength: 10 },
           parameters: { type: 'object' },
           offlinePerformedAt: { type: 'string', format: 'date-time' },
           clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay' },
+          // Phase 8.7 cutover (decision-tape architecture): required staleness guard.
+          tapeVersion: { type: 'integer', description: 'Required staleness guard; rejected with 409 STALE_TAPE on mismatch' },
         },
       },
       response: {
@@ -271,14 +331,22 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
             filterName: { type: 'string', nullable: true },
             currentState: { type: 'string', nullable: true },
             currentCycle: { type: 'object', nullable: true, additionalProperties: true },
-            nextAllowedStages: { type: 'array', items: { type: 'string' } },
             nextBlocks: { type: 'array', items: { type: 'object', additionalProperties: true } },
-            pendingChecklist: { type: 'array', items: { type: 'object', additionalProperties: true } },
             pipelineStages: { type: 'array', items: { type: 'object', additionalProperties: true } },
             profile: { type: 'object', nullable: true, additionalProperties: true },
             filterSet: { type: 'string', nullable: true },
             totalCycles: { type: 'integer' },
             equipmentGroup: { type: 'object', nullable: true, additionalProperties: true },
+            // Phase 8.7 cutover: post-write tape.
+            actions: {
+              type: 'array',
+              items: { type: 'object', additionalProperties: true, properties: { type: { type: 'string' }, label: { type: 'string' } } },
+              description: 'Decision-tape: ordered list of permitted next actions after this write',
+            },
+            tapeVersion: {
+              type: 'integer',
+              description: 'Monotonic per-cycle version after this write; send back as the staleness guard on the next write',
+            },
           },
         },
         ...errorResponses,
@@ -312,7 +380,9 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('RETIRE_FILTER', req, reply);
+    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     const { remarks } = req.body as { remarks: string };
@@ -344,7 +414,9 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('REPLACE_FILTER', req, reply);
+    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     const { remarks } = req.body as { remarks: string };
@@ -391,11 +463,13 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
       params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
       body: {
         type: 'object',
-        required: ['justification'],
+        required: ['justification', 'tapeVersion'],
         properties: {
           justification: { type: 'string', minLength: 10 },
           offlinePerformedAt: { type: 'string', format: 'date-time' },
           clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay' },
+          // Phase 8.7 cutover (decision-tape architecture): required staleness guard.
+          tapeVersion: { type: 'integer', description: 'Required staleness guard; rejected with 409 STALE_TAPE on mismatch' },
         },
       },
       response: {
@@ -406,14 +480,22 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
             filterName: { type: 'string', nullable: true },
             currentState: { type: 'string', nullable: true },
             currentCycle: { type: 'object', nullable: true, additionalProperties: true },
-            nextAllowedStages: { type: 'array', items: { type: 'string' } },
             nextBlocks: { type: 'array', items: { type: 'object', additionalProperties: true } },
-            pendingChecklist: { type: 'array', items: { type: 'object', additionalProperties: true } },
             pipelineStages: { type: 'array', items: { type: 'object', additionalProperties: true } },
             profile: { type: 'object', nullable: true, additionalProperties: true },
             filterSet: { type: 'string', nullable: true },
             totalCycles: { type: 'integer' },
             equipmentGroup: { type: 'object', nullable: true, additionalProperties: true },
+            // Phase 8.7 cutover: post-write tape.
+            actions: {
+              type: 'array',
+              items: { type: 'object', additionalProperties: true, properties: { type: { type: 'string' }, label: { type: 'string' } } },
+              description: 'Decision-tape: ordered list of permitted next actions after this write',
+            },
+            tapeVersion: {
+              type: 'integer',
+              description: 'Monotonic per-cycle version after this write; send back as the staleness guard on the next write',
+            },
           },
         },
         ...errorResponses,
@@ -424,6 +506,6 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
     if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
-    return service.terminateCycle(ctx, id, req.body as { justification: string });
+    return service.terminateCycle(ctx, id, req.body as { justification: string; clientOpId?: string; tapeVersion?: number });
   });
 }

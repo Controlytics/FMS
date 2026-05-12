@@ -11,7 +11,7 @@ export default async function filterProfileRoutes(app: FastifyInstance) {
   const service = new FilterProfileService();
 
   app.get('/', {
-    preHandler: [app.requirePermission('FP_READ')],
+    preHandler: [app.requireAnyPermission('FP_READ', 'VERSION_HISTORY_VIEW')],
     schema: {
       tags: ['Filter Profiles'],
       summary: 'List filter profiles',
@@ -33,7 +33,7 @@ export default async function filterProfileRoutes(app: FastifyInstance) {
   });
 
   app.get('/:id', {
-    preHandler: [app.requirePermission('FP_READ')],
+    preHandler: [app.requireAnyPermission('FP_READ', 'VERSION_HISTORY_VIEW')],
     schema: {
       tags: ['Filter Profiles'],
       summary: 'Get filter profile detail',
@@ -44,6 +44,43 @@ export default async function filterProfileRoutes(app: FastifyInstance) {
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     return service.getById(ctx, id);
+  });
+
+  // Phase A.3: list archived versions for audit replay / admin history.
+  app.get('/:id/versions', {
+    preHandler: [app.requireAnyPermission('FP_READ', 'VERSION_HISTORY_VIEW')],
+    schema: {
+      tags: ['Filter Profiles'],
+      summary: 'List archived versions of a filter profile (Phase A.3)',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const { id } = req.params as { id: string };
+    return service.getVersions(ctx, id);
+  });
+
+  // Phase A.3: read a frozen historical version of a filter profile.
+  app.get('/:id/versions/:versionNumber', {
+    preHandler: [app.requireAnyPermission('FP_READ', 'VERSION_HISTORY_VIEW')],
+    schema: {
+      tags: ['Filter Profiles'],
+      summary: 'Get frozen snapshot of filter profile at a specific version (Phase A.3)',
+      params: {
+        type: 'object',
+        required: ['id', 'versionNumber'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          versionNumber: { type: 'integer', minimum: 1 },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const { id, versionNumber } = req.params as { id: string; versionNumber: number };
+    return service.getVersion(ctx, id, Number(versionNumber));
   });
 
   app.post('/', {

@@ -18,7 +18,7 @@ Export telemetry, alarms, audit data, attributes, and checklists to CSV, JSON, o
 
 ## Processing
 - Small exports (<1000 rows): returned inline
-- Large exports: run as background jobs via BullMQ, returns job ID for polling
+- Large exports: run as background jobs via graphile-worker on Postgres (Phase 2 of windows-friendly-rewrite swapped from BullMQ); returns job ID for polling
 - Configurable limits via SystemConfig (max rows, max date range, max concurrent exports)
 
 ---

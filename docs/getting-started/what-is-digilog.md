@@ -19,7 +19,7 @@ DigiLog is a **21 CFR Part 11 compliant** IoT data logging platform designed for
 - **Tamper-evident audit trail** with SHA-256 hash-chain integrity
 - **Electronic signatures** with re-authentication (21 CFR Part 11 compliant)
 - **3-step checklist approval workflow** (Performed -> Checked -> Verified)
-- **Role-based access control** with 6 hierarchical roles and 52+ permissions
+- **Role-based access control** with 6 hierarchical roles and 109 permission constants (verified 2026-04-29)
 
 ### Organization
 - **Entity hierarchy** following ISA-95 standard (Enterprise -> Site -> Area -> Line -> Equipment -> Sensor)
@@ -29,13 +29,14 @@ DigiLog is a **21 CFR Part 11 compliant** IoT data logging platform designed for
 
 ## Architecture
 
-DigiLog uses a modern tech stack:
-- **Backend:** Fastify (Node.js/TypeScript) with 34 API modules
-- **Frontend:** React + Vite SPA with Tailwind CSS
-- **Database:** PostgreSQL 18 + Prisma ORM + TimescaleDB (time-series), 57 Prisma models, 17 enums
-- **MQTT:** EMQX broker
-- **Queue:** Redis 5 + BullMQ
-- **Config:** 23 config definitions with auto-discovery at startup
+DigiLog uses a modern tech stack (verified 2026-04-29):
+- **Backend:** Fastify 5 (Node.js / TypeScript) with **37 API modules**
+- **Frontend:** React 19 + Vite 6 SPA with Tailwind CSS 4
+- **Database:** PostgreSQL 18 + Prisma 6 + TimescaleDB (time-series), **69 Prisma models, 23 enums**
+- **MQTT:** Mosquitto 2.0 (Phase 1 of windows-friendly-rewrite swapped from EMQX)
+- **Queue:** graphile-worker on PostgreSQL (Phase 2 swapped from BullMQ + Redis/Memurai). **No Redis dependency** — Phase 4 (2026-05-01) retired it; pub/sub moved to an in-process EventEmitter bus.
+- **PDF / charts:** `puppeteer-core` + Microsoft Edge + `@napi-rs/canvas` (Phase 3 swapped from `puppeteer` + `chartjs-node-canvas`)
+- **Config:** **30 config definitions** with auto-discovery at startup, **26** corresponding pages
 
 ## Digital Filter Management System (Phase 2)
 

@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES } from '@digilog/shared';
 import type { ReauthAction, ReauthActionCategory } from '@digilog/shared';
 import type { RoleData } from '@digilog/shared';
@@ -130,6 +132,7 @@ export function ActionReauthPage() {
   const { data: config, isLoading: configLoading } = useSWR<ActionReauthConfig>('/api/config/action-reauth', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: rolesData, isLoading: rolesLoading } = useSWR<RoleData[]>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
 
+  const reauth = useReauth();
   const [localConfig, setLocalConfig] = useState<ActionReauthConfig | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -248,20 +251,37 @@ export function ActionReauthPage() {
     });
   }, []);
 
-  const handleSave = async () => {
+  // Audit 2026-05-04 fix (web-routes review C6): the action-reauth save
+  // itself was unprotected — privilege escalation. Now goes through the
+  // dedicated UPDATE_REAUTH_CONFIG action so the meta-policy edit is itself
+  // password-challenged. Backend gate also enforces this independently
+  // (apps/api/src/modules/config/static-routes/action-reauth.routes.ts).
+  const handleSave = () => {
     setSaving(true);
     setSaveMessage(null);
-    try {
-      await api.put('/api/config/action-reauth', currentConfig);
-      mutate('/api/config/action-reauth');
-      mutate('/api/config/action-reauth/my-actions');
-      setLocalConfig(null);
-      setSaveMessage({ type: 'success', text: 'Action re-authentication settings saved successfully.' });
-    } catch (err: any) {
-      setSaveMessage({ type: 'error', text: err.message ?? 'Failed to save settings.' });
-    } finally {
-      setSaving(false);
-    }
+    reauth.execute(
+      'UPDATE_REAUTH_CONFIG',
+      async (password?: string) => {
+        if (password) {
+          await api.putWithReauth('/api/config/action-reauth', currentConfig, password);
+        } else {
+          await api.put('/api/config/action-reauth', currentConfig);
+        }
+      },
+      {
+        onSuccess: () => {
+          mutate('/api/config/action-reauth');
+          mutate('/api/config/action-reauth/my-actions');
+          setLocalConfig(null);
+          setSaveMessage({ type: 'success', text: 'Action re-authentication settings saved successfully.' });
+          setSaving(false);
+        },
+        onError: (err: any) => {
+          setSaveMessage({ type: 'error', text: err.message ?? 'Failed to save settings.' });
+          setSaving(false);
+        },
+      },
+    );
   };
 
   const handleReset = () => {
@@ -579,6 +599,17 @@ export function ActionReauthPage() {
           </div>
         </div>
       </div>
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setSaving(false); }}
+        actionLabel="Update Re-auth Policy"
+      />
     </div>
   );
 }

@@ -13,57 +13,48 @@ Authoritative inventory of features and dependencies in the codebase that are **
 
 ## 🔴 Hard blockers
 
-### 1. Puppeteer (Chromium for PDF generation)
+### 1. Puppeteer (Chromium for PDF generation) — ✅ RESOLVED
 
-**Files:** `apps/api/src/modules/reports/renderers/pdf-renderer.ts`, `apps/api/src/modules/reports/service.ts`
-**Used by:** the entire Reports module (Phases A–F). Every PDF report generation goes through here.
-**Dependency:** `puppeteer` ^24.40.0 in `apps/api/package.json`
+**Resolved by:** `abdc9dd feat(reports): switch pdf-renderer from puppeteer to puppeteer-core + Edge` and `79937b7 feat(reports): edge-detector helper for puppeteer-core executablePath` (2026-04-29, on `feature/phase3-reports-edge`).
 
-**Why hard:**
-- Bundles ~150 MB Chromium binary at install time; corporate proxies and Windows Defender often kill the download mid-stream
-- On Windows Server **Core** edition: won't run at all — Chromium needs `dwm.exe` and a window subsystem even in headless mode
-- On Windows Server **with Desktop Experience**: works but eats ~300 MB resident per concurrent PDF; sandbox model conflicts with Server hardening
-- Service-account constraint: Puppeteer needs `--no-sandbox` flag when running as `LocalSystem` or `NT SERVICE\*`, which is a security regression
-- Antivirus often flags `chrome.exe` spawning from a Node.js process
+**Files now:** `apps/api/src/modules/reports/renderers/pdf-renderer.ts`, `apps/api/src/modules/reports/renderers/edge-detector.ts`
+**Dependency now:** `puppeteer-core` ^24.42.0 (no bundled Chromium download).
 
-**Mitigation:**
-- Require Server with Desktop Experience installed (not Core)
-- Whitelist Chromium in AV
-- Or move PDF generation to a Linux container behind an internal queue
-- Set `PUPPETEER_EXECUTABLE_PATH` to a manually-installed Edge / Chrome to skip the bundled-Chromium download
+`detectEdgePath()` resolves the browser executable in this order:
+1. `PUPPETEER_EXECUTABLE_PATH` env override
+2. `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`
+3. `C:\Program Files\Microsoft\Edge\Application\msedge.exe`
+4. `…\Google\Chrome\Application\chrome.exe` (either Program Files variant)
+5. Linux: `/usr/bin/chromium`, `chromium-browser`, `google-chrome`, `google-chrome-stable`
+6. macOS: Edge, Chrome, Chromium `.app` bundles
 
-### 2. `chartjs-node-canvas` + `canvas` (native Skia/Cairo bindings)
+Original pain points all neutralised:
+- ~150 MB Chromium download — gone (puppeteer-core bundles nothing)
+- Server Core incompatibility — Edge headless does not require `dwm.exe` in modern releases
+- AV scanning `chrome.exe` — Edge is a Microsoft-signed binary preinstalled on Win10+/Server 2019+
 
-**Files:** `apps/api/src/modules/reports/renderers/chart-renderer.ts`
-**Dependency:** `chartjs-node-canvas` ^5.0.0; transitively `canvas` ^x.y.z which compiles native bindings
+Cold-start render also dropped from ~34 s (bundled puppeteer first launch) to ~1.9 s on the same hardware. Smoke test at `apps/api/src/modules/reports/renderers/__tests__/pdf-renderer.test.ts` exercises the real Edge headless and asserts `%PDF-` magic bytes for both A4 portrait and landscape.
 
-**Why hard:**
-- The `canvas` npm package compiles native bindings against Cairo, Pango, libpng, libjpeg, GIF, FreeType
-- On Windows you need:
-  - **Visual Studio Build Tools 2022** (~5 GB)
-  - Python in PATH for `node-gyp`
-- Prebuilt binaries are version-locked to specific Node major versions; one mismatch and `npm install` silently falls back to source build → fails on bare Windows Server
-- GTK 2 runtime DLLs sometimes need to be on PATH for the loaded shared library
+### 2. `chartjs-node-canvas` + `canvas` (native Skia/Cairo bindings) — ✅ RESOLVED
 
-**Mitigation:**
-- Pin Node version exactly to one with prebuilts (Node 22 LTS recommended)
-- Pre-stage `node_modules` from a build machine with Build Tools installed; ship that bundle to the server
+**Resolved by:** `d72d44c feat(reports): replace chartjs-node-canvas with @napi-rs/canvas` (2026-04-29).
 
-### 3. EMQX MQTT broker
+**Files now:** `apps/api/src/modules/reports/renderers/chart-renderer.ts`
+**Dependency now:** `@napi-rs/canvas` ^0.1.100 (replaces `chartjs-node-canvas`); `chart.js` 4.x stays; `chartjs-adapter-date-fns` added for time-axis charts.
 
-**Files referenced:** `apps/api/src/transport/mqtt-client.ts`, `mqtt-handler.ts`, `mqtt-auth-routes.ts`; consumed via `MQTT_BROKER_HOST` / `MQTT_BROKER_PORT` env vars
-**`docker-compose.yml`:** ships an EMQX container for dev
+`@napi-rs/canvas` ships prebuilt N-API binaries for Windows / macOS / Linux on x64 + arm64, so `npm ci` on a clean Windows Server box no longer needs Visual Studio Build Tools, Python, node-gyp, Cairo, or GTK runtime DLLs. The renderer calls `chart.js` directly against an `@napi-rs/canvas` 2D context (one structural-cast required because chart.js's DOM types and @napi-rs/canvas's types aren't nominally identical) and explicitly fills the canvas white before drawing because chart.js leaves it transparent by default and PDF embedders expect opaque.
 
-**Why hard:**
-- EMQX is Erlang/OTP-based; Windows builds exist but lag Linux releases by 1–2 weeks
-- No `Install-Service` script in the Windows installer — you register manually with NSSM or `sc create`
-- EMQX **clustering and EMQX Operator are Linux-only**
-- Enterprise license validation calls home over HTTPS; corporate proxies break this
-- Telegraf/Prometheus exporters that come with EMQX dashboard require Linux
+`renderChart` public signature is unchanged (input config + resolved-series Map → base64 PNG data URL). 4-test smoke covers line / bar / pie + a PNG-signature byte assertion. Suite went from 464 ms (chartjs-node-canvas) to 151 ms.
 
-**Mitigation:**
-- Swap for **Mosquitto** (Windows-native MQTT broker, simpler, no enterprise feature parity but adequate for filter-management ingestion)
-- Or run only EMQX in a Linux container while keeping the API on Windows
+### 3. EMQX MQTT broker — ✅ RESOLVED
+
+**Resolved by:** `feature/phase1-mosquitto-rewrite` (commits `510f903..7d33dbf`, merged into `windows_dep` via the integration branch). Plus follow-up: `0ecc151 fix(mosquitto): make install script produce a service-bootable conf` (2026-04-29).
+
+**Files now:** `apps/api/src/transport/mqtt-client.ts` selects creds based on `USE_MOSQUITTO`; `mosquitto-acl-generator.ts` + `mosquitto-refresh-routes.ts` produce/regenerate dynsec; `scripts/install-mosquitto.ps1` performs the silent install.
+
+The install script's path-rewrite step is the load-bearing fix discovered during the live Windows Server e2e on 2026-04-29: the SCM-managed Mosquitto service runs with `CWD = System32` and no stdout, so the source `mosquitto.windows.conf` (which uses `./data/`, `./dynamic-security.json`, `log_dest stdout` for dev-foreground use) silently exited the broker on every launch. The install script now rewrites the deployed copy at `C:\Program Files\mosquitto\mosquitto.conf` to use absolute install-dir paths and `log_dest file <InstallDir>/mosquitto.log`. Source conf keeps the relative + stdout values so the dev-mode `mosquitto -c mosquitto.windows.conf` still works from the repo's `mosquitto/` directory.
+
+End-to-end verified live: device `mosquitto_pub` → Mosquitto service → API admin subscriber → graphile-worker `ingestion` task → `ts_pipeline_traces` row in `digilog_tsdb`. No EMQX dependency anywhere; `docker-compose.yml` swap to `eclipse-mosquitto:2.0` shipped in Phase 1.
 
 ### 4. Bash shell scripts
 
@@ -106,21 +97,25 @@ Authoritative inventory of features and dependencies in the codebase that are **
   ```
 - Verify with `Get-ChildItem Cert:\LocalMachine\Root` before starting the service
 
-### 7. Memurai (Redis substitute for BullMQ)
+### 7. Memurai (Redis substitute for BullMQ) — ✅ RESOLVED
 
-**Files:** `packages/queue/src/connection.ts`, `apps/api/.env` (`REDIS_HOST`, `REDIS_PORT`)
+**Resolved by:** `feature/phase2-pg-queue` cut-over commits ending at `7832af1 chore(queue): drop BullMQ + Redis; graphile-worker is sole backend` (2026-04-29).
 
-**Why caveats:**
-- **Free Memurai** is fine for single-instance dev; **production-grade requires paid Memurai Enterprise** (~$30/year/server)
-- BullMQ assumes Redis-protocol semantics; Memurai is mostly compatible but lacks Redis Cluster mode and Streams clustering
-- Service runs as `Memurai` Windows service; failure modes hit Windows Event Log, not stderr
-- `connection.ts` exposes `getQueueConnection()` (singleton, producers) vs `getWorkerConnection()` (per-call, workers) — verify Memurai handles `LPOP` / `BLPOP` correctly under load
+**Files now:** `packages/queue/src/index.ts` exports `getProducer()` + `getRunner()` against [`graphile-worker`](https://github.com/graphile/worker), backed by PostgreSQL. `apps/api/.env` no longer needs `REDIS_HOST` / `REDIS_PORT`; queue jobs ride the same Postgres connection as the rest of the app.
 
-**Mitigation:** budget for Memurai Enterprise; document explicitly that Linux-Redis is not the production target
+Why this kills the issue entirely:
+- No separate Redis-protocol service. Memurai (paid for prod) and standalone Redis both gone.
+- graphile-worker uses **PG `LISTEN/NOTIFY`** for instant dispatch (no polling), `SELECT … FOR UPDATE SKIP LOCKED` (PG 9.5+) for concurrent worker pickup, `pg_advisory_lock` for cron leader election, and JSONB columns for payloads — all native PG18 features, no extensions.
+- `addJob()` runs in the caller's PG transaction, so jobs don't fire if the business txn rolls back (a feature BullMQ never offered).
+- Single Postgres backup covers the queue too; no separate Memurai persistence story.
+
+Live-verified: graphile-worker schema auto-bootstraps on first connect, cron task `dlq_check` and `connectivity_check` fire every minute, `ingestion` task processes the live MQTT round-trip (see §3 above).
+
+**Phase 4 (2026-05-01) update — RESOLUTION COMPLETE:** non-queue pub/sub (WebSocket events, RPC correlation, pipeline tracer, debug recorder) moved in-process via `apps/api/src/lib/internal-bus.ts` (EventEmitter wrapper) and `apps/api/src/lib/rpc-cache.ts` (Map TTL cache). `ioredis` dependency removed from `apps/api/package.json`. **No Redis-protocol service of any kind is needed.** Memurai install instructions struck from this doc + setup docs. Why in-process beats PG `LISTEN/NOTIFY` here: single-Node-process deployment + 10ns vs 5-20ms latency + zero new infra. Same `bus.emit / bus.on` interface can be backed by a PG LISTEN/NOTIFY adapter the day multi-process scale-out becomes a real requirement; until then, the simpler implementation is correct.
 
 ### 8. PostgreSQL 18 + TimescaleDB extension
 
-**Files:** `apps/api/prisma/schema.prisma` (64 models, 22 enums), `init-tsdb.sql`, `tsdb-migration/init-hypertables.sql`, `apps/api/prisma/sql/extensions.sql`
+**Files:** `apps/api/prisma/schema.prisma` (69 models, 23 enums), `init-tsdb.sql`, `tsdb-migration/init-hypertables.sql`, `apps/api/prisma/sql/extensions.sql`
 
 **Why caveats:**
 - TimescaleDB on Windows tracks **specific PG patch versions**; when PG 18.x patches, TimescaleDB Windows builds lag 1–2 weeks
@@ -213,6 +208,8 @@ icacls apps\api\uploads /grant 'NT SERVICE\digilog-api:(OI)(CI)M'
 - Use **IIS with URL Rewrite + ARR** for reverse-proxying `/api` to Fastify, OR
 - **Skip the proxy entirely** — Fastify on `:3000` direct + Capacitor APK pointed at it. This is the simpler default for local-Windows deployments.
 
+> **Phase 4 status (2026-04-29):** the bundled Nginx config and PM2 startup helper were both retired from `scripts/install-on-target.ps1` (commits `127f25d`..`60d3c90` on `feature/phase4-tooling`). The customer-facing path is now Fastify-direct on `:3000`. NSSM-as-stopgap is documented in `DEPLOY-WINDOWS.md` § 7 until Phase 5 ships a managed-service launcher (`verify-windows-deployment.ps1`).
+
 ### 15. `.gradle/`, `.kotlin/`, `node_modules/` cleanup
 
 **Files:** stray `RFID/` directory at repo root (~1.2 MB Gradle cache, separate from `rfid_scan_app/`)
@@ -257,16 +254,16 @@ New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' `
 
 ## 🟢 Things that work fine on Windows Server
 
-- Fastify, Prisma client, ioredis, BullMQ (assuming Memurai), all pure-JS code
+- Fastify, Prisma client, graphile-worker on Postgres, all pure-JS code (BullMQ + ioredis was retired in Phase 2 of windows-friendly-rewrite, commit `7832af1`)
 - React 19 + Vite 6 build (frontend) — pure JS
 - ESLint, Vitest, TypeScript — pure JS
 - `jose` (JWT), `ldapts` (LDAP), `nodemailer` — pure JS
-- PostgreSQL 18 itself
-- `mqtt` npm package (the **client**, talking to whatever broker)
+- PostgreSQL 18 itself (now also hosts the graphile-worker queue schema)
+- `mqtt` npm package (the **client**, talking to whatever broker — Mosquitto 2.0 in the current shipping install)
 - HTTPS via mkcert (after the cert-import step in §6)
-- Windows Service registration via NSSM
-- Memurai (Redis substitute, paid)
-- The 30 config defs + 26 config pages + 109 permissions — all pure JS
+- Windows Service registration via NSSM (stopgap until Phase 5 ships a managed-service launcher)
+- ~~Memurai (Redis substitute, paid)~~ — RETIRED in Phase 4 (2026-05-01); pub/sub now in-process
+- The 30 config defs + 27 config pages + 106 permissions — all pure JS
 
 ---
 
@@ -278,10 +275,10 @@ For a **Windows Server production deployment**, the realistic stance is:
 |---|---|---|
 | Fastify API | ✅ keep | Compiled JS via NSSM service |
 | React SPA | ✅ keep | Built artifact, served by Fastify static or IIS |
-| PostgreSQL 18 + TimescaleDB | ✅ keep | Pin patch version exactly |
-| Memurai | ✅ keep (paid) | Production target, not Redis-on-Linux |
-| MQTT broker | ⚠️ swap or container | Mosquitto Windows-native, or EMQX in a Linux container |
-| Reports module (Puppeteer + canvas) | ⚠️ Linux container | Biggest pain point — worth carving out |
+| PostgreSQL 18 + TimescaleDB | ✅ keep | Pin patch version exactly. Also hosts the graphile-worker job queue. |
+| ~~Memurai~~ | ✅ fully removed | Phase 2: queue → graphile-worker on Postgres. Phase 4 (2026-05-01): pub/sub → in-process EventEmitter bus. `ioredis` dependency dropped. **No Redis service required at all.** |
+| MQTT broker | ✅ Mosquitto (Windows-native) | Phase 1: Mosquitto 2.0 silent install via `scripts/install-mosquitto.ps1`. EMQX gone. |
+| Reports module (PDF + charts) | ✅ Edge + @napi-rs/canvas | Phase 3: puppeteer-core drives preinstalled Edge; @napi-rs/canvas ships prebuilt N-API. No bundled Chromium, no MSVC, no node-gyp. |
 | APK builds | ❌ off-server | Build on dev machine, copy artifact |
 | Native RFID hardware | ❌ off-server | Tablet + USB reader on operator floor |
 | CI builds | ✅ ubuntu-latest | Leave Windows out of CI loop |
@@ -293,7 +290,16 @@ For a **Windows Server production deployment**, the realistic stance is:
 1. **Before deployment:** read this top-to-bottom, audit each 🔴 item against your target environment
 2. **During `install-on-target.ps1` development:** every 🟡 mitigation should be enforced or documented in the script
 3. **When adding a new dependency to `apps/api/package.json` or `apps/web/package.json`:** check whether it has native bindings or external runtime requirements; add an entry to this document if Windows-hostile
-4. **When upgrading PG / Node / EMQX:** verify the Windows builds are still in lockstep before upgrading dev environments
+4. **When upgrading PG / Node / Mosquitto:** verify the Windows builds are still in lockstep before upgrading dev environments
+
+## Phase 5 status footnote (2026-04-29)
+
+Phase 5 of the windows-friendly-rewrite did **not** close any of the 18 issue entries directly — Phase 1 (EMQX), Phase 2 (Memurai), Phase 3 (Puppeteer + chartjs-node-canvas), and Phase 4 (Nginx + PM2) had already resolved the four 🔴 hard blockers and reduced the 🟡 surface for §14. What Phase 5 delivers is the **verification gap** that prior phases left open:
+
+- `tests/integration/windows-server-stack.test.ts` (`INTEGRATION_TEST=1`-gated) exercises the post-Phase-1+2+3 stack end-to-end — Mosquitto round-trip → graphile-worker pickup → TimescaleDB hypertable insert → reports/generate → PDF magic bytes — so future regressions surface in CI rather than during a live customer install.
+- `scripts/verify-windows-deployment.ps1` (Phase 5.2) gives an operator a one-shot smoke-check that hits the same path on a deployed box, so the receipts in this doc can be re-validated after every install or upgrade.
+
+The two remaining open items — a managed Windows-service launcher (replaces the NSSM stopgap in `DEPLOY-WINDOWS.md` § 7) and end-to-end install-script proof on a fresh box — remain Phase 5+ work.
 
 ## Cross-references
 

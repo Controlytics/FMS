@@ -11,46 +11,54 @@
 │  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘  └──────┬───────┘  │
 └────────┼───────────────┼───────────────┼───────────────┼─────────┘
          │               │               │               │
-         │  HTTPS :443   │  HTTPS :443   │  HTTPS :443   │ MQTT :1883
+         │  HTTPS :3000  │  HTTPS :3000  │  HTTPS :3000  │ MQTT :1883
          ▼               ▼               ▼               ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │                      SERVER (Windows)                            │
 │                                                                  │
-│  ┌────────────────────────────────────────┐                      │
-│  │          Nginx (:80 / :443)            │                      │
-│  │  ┌──────────────────┐ ┌─────────────┐ │                      │
-│  │  │  Static SPA      │ │  /api/*     │ │                      │
-│  │  │  React build     │ │  proxy →    │ │                      │
-│  │  │  (apps/web/dist) │ │  :3000      │ │                      │
-│  │  └──────────────────┘ └──────┬──────┘ │                      │
-│  └──────────────────────────────┼────────┘                      │
-│                                 │                                │
-│  ┌──────────────────────────────▼────────┐                      │
-│  │       Fastify API (:3000)             │                      │
-│  │  ┌──────────┐ ┌──────────┐ ┌────────┐│                      │
-│  │  │ 34 Route │ │  Auth    │ │ RBAC   ││                      │
-│  │  │ Modules  │ │  Plugin  │ │ Plugin ││                      │
-│  │  └────┬─────┘ └──────────┘ └────────┘│                      │
-│  │       │  ┌──────────┐ ┌────────────┐ │                      │
-│  │       │  │ Workers  │ │ WebSocket  │ │                      │
-│  │       │  │ Ingestion│ │ Handler    │ │                      │
-│  │       │  │ Maint.   │ │ (real-time)│ │                      │
-│  │       │  └──────────┘ └────────────┘ │                      │
-│  └───────┼──────────────────────────────┘                      │
-│          │                                                      │
-│  ┌───────┼──────────────────────────────────────────────┐       │
-│  │       ▼          DATA LAYER                          │       │
-│  │  ┌──────────┐ ┌──────────┐ ┌────────┐ ┌──────────┐  │       │
-│  │  │PostgreSQL│ │TimescaleDB│ │ Redis  │ │  EMQX    │  │       │
-│  │  │  :5432   │ │  :5432   │ │ :6379  │ │  :1883   │  │       │
-│  │  │ 64 models│ │ 7 hyper- │ │BullMQ  │ │  MQTT    │  │       │
-│  │  │ Prisma   │ │ tables   │ │Pub/Sub │ │  Broker  │  │       │
-│  │  │digilog_db│ │digilog_  │ │Memurai │ │  IoT     │  │       │
-│  │  │          │ │tsdb      │ │        │ │  devices │  │       │
-│  │  └──────────┘ └──────────┘ └────────┘ └──────────┘  │       │
-│  └──────────────────────────────────────────────────────┘       │
+│  ┌──────────────────────────────────────────────────────┐        │
+│  │       Fastify API (:3000)                             │        │
+│  │  Serves the static SPA (apps/web/dist) AND /api/*     │        │
+│  │  routes directly over HTTPS (mkcert). A reverse       │        │
+│  │  proxy (Nginx / IIS) is optional / customer-choice;   │        │
+│  │  not bundled after Phase 4 of the                     │        │
+│  │  windows-friendly-rewrite.                            │        │
+│  │  ┌──────────┐ ┌──────────┐ ┌────────┐                 │        │
+│  │  │ 37 Route │ │  Auth    │ │ RBAC   │                 │        │
+│  │  │ Modules  │ │  Plugin  │ │ Plugin │                 │        │
+│  │  └────┬─────┘ └──────────┘ └────────┘                 │        │
+│  │       │  ┌──────────┐ ┌────────────┐                  │        │
+│  │       │  │ Workers  │ │ WebSocket  │                  │        │
+│  │       │  │ Ingestion│ │ Handler    │                  │        │
+│  │       │  │ Maint.   │ │ (real-time)│                  │        │
+│  │       │  └──────────┘ └────────────┘                  │        │
+│  └───────┼──────────────────────────────────────────────┘        │
+│          │                                                       │
+│  ┌───────┼──────────────────────────────────────────────┐        │
+│  │       ▼          DATA LAYER                          │        │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐               │        │
+│  │  │PostgreSQL│ │TimescaleDB│ │Mosquitto │               │        │
+│  │  │  :5432   │ │  :5432   │ │  :1883   │               │        │
+│  │  │ 69 models│ │ 7 hyper- │ │  MQTT    │               │        │
+│  │  │ Prisma   │ │ tables   │ │  Broker  │               │        │
+│  │  │digilog_db│ │digilog_  │ │  IoT     │               │        │
+│  │  │ +queue   │ │tsdb      │ │  devices │               │        │
+│  │  │(graphile)│ │          │ │          │               │        │
+│  │  └──────────┘ └──────────┘ └──────────┘               │        │
+│  │  Phase 4 (2026-05-01): Redis retired — pub/sub now    │        │
+│  │  in-process via EventEmitter bus + RPC TTL Map.       │        │
+│  └──────────────────────────────────────────────────────┘        │
 └──────────────────────────────────────────────────────────────────┘
 ```
+
+> **Tech-stack swap (windows-friendly-rewrite Phases 1+2+3+4):**
+> EMQX → Mosquitto 2.0 (Phase 1); BullMQ on Redis/Memurai → graphile-worker
+> on PostgreSQL (Phase 2); Puppeteer (bundled Chromium) + chartjs-node-canvas
+> → puppeteer-core + Edge + @napi-rs/canvas (Phase 3). **Phase 4 (2026-05-01):
+> Redis fully retired** — non-queue pub/sub (WebSocket events, RPC correlation,
+> pipeline tracer, debug recorder) moved to in-process EventEmitter bus
+> (`apps/api/src/lib/internal-bus.ts`) + Map-based TTL cache for RPC
+> (`apps/api/src/lib/rpc-cache.ts`). `ioredis` dependency removed.
 
 ## Monorepo Package Architecture
 
@@ -67,7 +75,7 @@
 │   │   ├── lib/                   Shared utilities (audit, jwt, sanitize, prisma, etc.)
 │   │   └── types/                 TypeScript type definitions
 │   └── prisma/
-│       ├── schema.prisma          64 models, 22 enums
+│       ├── schema.prisma          64 models, 23 enums
 │       └── seed.ts                Default roles, superadmin, configs
 │
 ├── apps/web/                      (React SPA)
@@ -98,8 +106,8 @@
 │
 └── packages/queue/                (Job queue)
     └── src/
-        ├── connection.ts          getQueueConnection() singleton + getWorkerConnection() per-call (BullMQ best practice; bloat audit P2.2 done)
-        ├── queues.ts              5 BullMQ queue definitions
+        ├── index.ts               getProducer() + getRunner() over graphile-worker on Postgres (Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis; commit `7832af1`)
+        ├── crontab.txt            graphile-worker cron file (dlq_check, connectivity_check, retention_cleanup)
         ├── schemas.ts             Zod schemas for job payloads
         └── priorities.ts          Job priority levels (1-8)
 ```
@@ -130,7 +138,7 @@
 
 | Path | Purpose |
 |---|---|
-| `apps/api/prisma/schema.prisma` | 64 models, 22 enums |
+| `apps/api/prisma/schema.prisma` | 64 models, 23 enums |
 | `apps/api/prisma/seed.ts` | Default roles, super-admin user, system configs, default rule chain |
 | `apps/api/prisma/migrations/` | Versioned Prisma migrations (8+ migrations: phase_a_data_ingestion, sync_schema, audit_fixes, equipment_groups, admin_requests, sync_drift_phase3, block_change_nullable_org, …) plus `migration_lock.toml` |
 | `apps/api/prisma/sql/extensions.sql` | Hand-written SQL — installs PostgreSQL extensions (e.g. `pg_trgm`, `uuid-ossp`) used by Prisma |
@@ -163,7 +171,7 @@
 │
 ├── scripts/                       (Windows deployment automation)
 │   ├── package-for-production.ps1  Builds API + Web + shared, zips into digilog-production.zip
-│   ├── install-on-target.ps1       Run-once on target Windows: installs deps, runs migrations, registers NSSM Windows service
+│   ├── install-on-target.ps1       Run-once on target Windows: installs deps, runs migrations, invokes install-mosquitto.ps1, opens firewall, enables LongPathsEnabled, checks for msedge.exe; prints smoke-test launch instructions. Does NOT register a managed service — see DEPLOY-WINDOWS.md § 7 for the NSSM stopgap.
 │   └── reset-cwh-cycles.sql        Emergency SQL to terminate IN_PROGRESS cycles bound to obsolete profile (used 04-25 for 7 stuck CWH cycles)
 │
 ├── rfid_scan_app/                 (Standalone Kotlin app — predates RFID SDK plugin in DigiLog APK)
@@ -200,9 +208,7 @@ Items present in the working tree that are NOT canonical — these should be `.g
 ### Request Flow
 
 ```
-HTTP Request
-  → Nginx (SSL termination, static files)
-    → Fastify (:3000)
+HTTPS Request → Fastify (:3000, mkcert TLS, serves SPA + /api/*)
       → Helmet (security headers)
       → CORS (origin validation)
       → Rate Limiter (500 req/min)
@@ -212,14 +218,16 @@ HTTP Request
         → Service Layer (data processing)
           → Prisma (PostgreSQL)
           → TimescaleDB Pool (time-series)
-          → BullMQ (async jobs)
+          → graphile-worker (async jobs on Postgres)
         → Audit Logger (SHA-256 hash chain)
       → Response (JSON)
 ```
 
+> Reverse proxy (Nginx / IIS) is optional and customer-choice, not bundled after Phase 4 of the windows-friendly-rewrite. Direct Fastify-on-3000 is the default install path.
+
 ### Module Structure
 
-Each of the 37 modules follows this pattern:
+Each of the 36 modules follows this pattern:
 
 ```
 modules/
@@ -230,13 +238,15 @@ modules/
     └── __tests__/             Vitest unit tests
 ```
 
-### 37 API Modules
+### 36 API Modules
+
+> **MT removal 2026-04-30:** `org-admin` and `tenant-admin` modules deleted; DigiLog is single-tenant.
 
 | Category | Modules |
 |---|---|
 | **Auth & Users** | auth, users, roles, user-groups |
-| **Organization** | org-admin, tenant-admin, super-admin |
-| **Assets** | assets (templates/instances/relationships/identifiers) |
+| **Admin** | super-admin (org CRUD endpoints removed in MT removal) |
+| **Assets** | assets (templates/instances/relationships/identifiers), **template-kinds** (admin-editable lookup; Step 1 of architectural refactor) |
 | **Filter Operations** | filter-operations, filter-profiles, cleaning-profiles, checklist-profiles |
 | **Scheduling** | pm-schedules, equipment-groups, entity-assignments |
 | **Approvals** | block-change-requests, admin-requests |
@@ -255,7 +265,8 @@ Login Flow:
   POST /api/auth/login → validate credentials → create Session → return JWT (8h)
 
 JWT Payload:
-  { sub: userId, username, role, sessionId, scope, organizationId }
+  { sub: userId, username, role, sessionId, scope }
+  (scope is always 'GLOBAL' post-MT-removal 2026-04-30)
 
 Token Refresh:
   POST /api/auth/refresh → extend JWT (every 30 min)
@@ -274,10 +285,10 @@ Session Management:
 
 ```
 IoT Device
-  → MQTT (EMQX :1883) or HTTP (POST /api/data/telemetry)
-    → EMQX Auth Webhook (/api/internal/mqtt/auth)
+  → MQTT (Mosquitto :1883) or HTTP (POST /api/data/telemetry)
+    → Mosquitto dynsec lookup (configured via /api/internal/mqtt/refresh-acl)
     → Message Normalization
-    → BullMQ Ingestion Queue (Redis)
+    → graphile-worker `ingestion` task (Postgres-backed; LISTEN/NOTIFY + SKIP LOCKED)
       → Ingestion Worker (10 concurrent)
         → Entity Resolution (device token → asset instance)
         → UNS Path Mapping
@@ -288,15 +299,17 @@ IoT Device
         → Dead Letter Queue (failed messages)
 ```
 
-### Job Queue Architecture (BullMQ)
+### Job Queue Architecture (graphile-worker on Postgres)
 
-| Queue | Purpose | Priority | Concurrency | Retry |
-|---|---|---|---|---|
-| `ingestion` | Telemetry, attributes, events | 1-8 | 10 | 3x exponential |
-| `notification` | Email, SMS, in-app delivery | — | 5 | 3x exponential |
-| `export` | CSV/Excel/PDF data export | — | 2 | 2x |
-| `reports` | Report PDF generation | — | 2 | 2x |
-| `maintenance` | DLQ check, connectivity, cleanup | — | 1 | 1x |
+Phase 2 of the windows-friendly-rewrite swapped from BullMQ + Redis/Memurai to graphile-worker against `digilog_db` (uses `LISTEN/NOTIFY` for instant dispatch, `SELECT … FOR UPDATE SKIP LOCKED` for concurrency, `pg_advisory_lock` for cron leader election). No separate queue service.
+
+| Task | Purpose | Trigger | Concurrency |
+|---|---|---|---|
+| `ingestion` | Telemetry, attributes, events | enqueued by HTTP/MQTT handler | 10 (`addJob` + worker pool) |
+| `notification` | Email, SMS, in-app delivery | enqueued by alarm/event hooks | shared pool |
+| `dlq_check` | Dead letter queue scan | cron 60 s (`packages/queue/crontab.txt`) | 1 leader |
+| `connectivity_check` | Device online/offline staleness | cron 60 s | 1 leader |
+| `retention_cleanup` | TimescaleDB retention policy | cron 24 h | 1 leader |
 
 ## Frontend Architecture (apps/web/)
 
@@ -361,7 +374,7 @@ Heavy pages are lazy-loaded for performance:
 
 ## Database Architecture
 
-### PostgreSQL (digilog_db) — 63 Models
+### PostgreSQL (digilog_db) — 64 Models
 
 ```
 Core:
@@ -373,14 +386,16 @@ Assets:
   TemplateAssignment, EntityAssignment
 
 Filter Operations:
-  FilterCleaningProfile → FilterPipelineStage → FilterPipelineConnection
-  FilterProfile → AssetInstance (assignment)
-  CleaningCycle → FilterEvent (immutable, checksummed)
+  FilterCleaningProfile (lineageId-grouped versions; Phase A.2) → FilterPipelineStage → FilterPipelineConnection
+  FilterProfile (snapshot-then-bump versioning; Phase A.3) → FilterDetails → AssetInstance
+  FilterProfileVersion (Phase A.3 — immutable snapshot sidecar)
+  CleaningCycle (frozen profileId + checklistVersionPins JSONB) → FilterEvent (immutable, checksummed)
 
 Scheduling:
   PmSchedule → PmScheduleEntry → PmExecution
   EquipmentGroup → EquipmentGroupInstrument
   ChecklistProfile → ChecklistQuestion
+  ChecklistProfileVersion (Phase A.1 — immutable snapshot table)
   ChecklistReview → ElectronicSignature
 
 Reports:
@@ -414,15 +429,20 @@ System:
 | ts_events | General system events | Time (daily) |
 | ts_exports | Export request tracking | Time (daily) |
 
-### Redis (Memurai) — Usage
+### Redis — RETIRED (Phase 4, 2026-05-01)
 
-| Feature | Redis Data Structure |
+Phase 4 of the windows-friendly-rewrite removed Redis from the codebase entirely. `ioredis` is no longer in `package.json`. No Redis-protocol service is required to run DigiLog.
+
+| Former Redis use | Replacement |
 |---|---|
-| BullMQ job queues | Sorted sets, lists, hashes |
-| Pub/sub (WebSocket events) | Channels (ws:events) |
-| Re-auth token cache | Key-value with 10s TTL |
-| Rule chain graph cache | Key-value with hash |
-| Session validation cache | Key-value |
+| Pub/sub (WebSocket events `ws:events`) | In-process EventEmitter bus (`apps/api/src/lib/internal-bus.ts`) |
+| RPC correlation (device commands) | In-process Map TTL cache (`apps/api/src/lib/rpc-cache.ts`) |
+| Pipeline tracer / debug recorder | Same EventEmitter bus, different channels |
+| Re-auth token cache (10s TTL) | In-memory `Map` in `apps/api/src/lib/reauth-check.ts` |
+| Rule chain graph cache | In-memory cache in rule-chain compiler |
+| Session validation cache | Now hits Postgres directly (negligible overhead — reauth-check is the hot path) |
+
+> Job queues moved off Redis to graphile-worker on Postgres in Phase 2 (commit `7832af1`). Phase 4 (commit `cd03de3`) finished the retirement by moving non-queue pub/sub in-process. Why in-process beats PG `LISTEN/NOTIFY` for DigiLog: single-Node-process deployment model + 10ns vs 5-20ms latency + zero new infra. If multi-process scale-out ever becomes a real requirement, swap the EventEmitter implementation behind the same `bus.emit / bus.on` interface for a PG LISTEN/NOTIFY adapter — zero call-site changes.
 
 ## Security Architecture
 
@@ -431,15 +451,15 @@ System:
 │                 SECURITY LAYERS                      │
 │                                                     │
 │  Layer 1: HTTPS (TLS)                               │
-│    └── All traffic encrypted (Nginx SSL termination) │
+│    └── All traffic encrypted (Fastify TLS via mkcert; reverse proxy optional) │
 │                                                     │
 │  Layer 2: Authentication                            │
 │    └── JWT (8h expiry, 30-min refresh)              │
 │    └── Device tokens (64-char hex, per entity)      │
-│    └── EMQX webhook auth (for MQTT devices)         │
+│    └── Mosquitto dynsec auth (DeviceCredential → dynamic-security.json via /refresh-acl)         │
 │                                                     │
 │  Layer 3: Authorization                             │
-│    └── RBAC (109 permissions, role-based)            │
+│    └── RBAC (106 permissions, role-based)            │
 │    └── Organization scoping (multi-tenant isolation) │
 │    └── Re-authentication (81 sensitive actions)      │
 │                                                     │
@@ -460,10 +480,9 @@ System:
 
 | Protocol | Port | Purpose | Authentication |
 |---|---|---|---|
-| HTTPS | 443 | Web UI + API (via Nginx) | JWT token |
-| HTTPS | 3000 | Direct API access | JWT token |
-| MQTT | 1883 | IoT device telemetry | Device access token |
-| WSS | 443 | Real-time updates (via Nginx /ws) | JWT token |
-| PostgreSQL | 5432 | Database connections | Username/password |
-| Redis | 6379 | Cache + job queue | No auth (local only) |
-| EMQX Dashboard | 18083 | MQTT broker management | Admin credentials |
+| HTTPS | 3000 | Web UI + API (Fastify direct; reverse proxy optional) | JWT token |
+| WSS | 3000 | Real-time updates on `/ws` | JWT token |
+| MQTT | 1883 | IoT device telemetry (Mosquitto 2.0) | Device access token (Mosquitto dynsec) |
+| PostgreSQL | 5432 | Database connections (also hosts the graphile-worker queue schema) | Username/password |
+| ~~Redis~~ | ~~6379~~ | RETIRED in Phase 4 (2026-05-01) — pub/sub moved in-process, RPC TTL moved in-process | n/a |
+| Mosquitto control | n/a | Dynsec is configured via the API's `POST /api/internal/mqtt/refresh-acl`, not a standalone dashboard | `MOSQUITTO_REFRESH_TOKEN` (timing-safe compare) |

@@ -336,7 +336,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
   }, async () => {
     const config = await prisma.systemConfig.findUnique({ where: { configKey: 'notification-sms' } });
     const value = (config?.configValue ?? {}) as Record<string, unknown>;
-    const sensitiveKeys = ['twilioAuthToken', 'awsSecretAccessKey', 'vonageApiSecret'];
+    const sensitiveKeys = ['twilioAuthToken', 'vonageApiSecret'];
     for (const key of sensitiveKeys) { if (value[key]) value[key] = MASK; }
     return value;
   });
@@ -346,20 +346,17 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Notification Settings'],
       summary: 'Update SMS configuration',
-      description: 'Configure SMS provider settings (Twilio, AWS SNS, Vonage, or HTTP Gateway).',
+      description: 'Configure SMS provider settings (Twilio, Vonage, or HTTP Gateway). HTTP Gateway covers MSG91 / Plivo / AfricasTalking / Kaleyra / custom backends via a configurable URL + body template.',
       body: {
         type: 'object',
         properties: {
-          provider: { type: 'string', enum: ['twilio', 'aws-sns', 'vonage', 'http-gateway'] },
+          provider: { type: 'string', enum: ['twilio', 'vonage', 'http-gateway'] },
           enabled: { type: 'boolean' },
           defaultCountryCode: { type: 'string' },
           senderId: { type: 'string' },
           twilioAccountSid: { type: 'string' },
           twilioAuthToken: { type: 'string' },
           twilioFromNumber: { type: 'string' },
-          awsAccessKeyId: { type: 'string' },
-          awsSecretAccessKey: { type: 'string' },
-          awsRegion: { type: 'string' },
           vonageApiKey: { type: 'string' },
           vonageApiSecret: { type: 'string' },
           vonageFromNumber: { type: 'string' },
@@ -381,7 +378,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     const body = req.body as Record<string, unknown>;
     const ctx = buildContext(req);
 
-    const sensitiveKeys = ['twilioAuthToken', 'awsSecretAccessKey', 'vonageApiSecret'];
+    const sensitiveKeys = ['twilioAuthToken', 'vonageApiSecret'];
     const existing = await prisma.systemConfig.findUnique({ where: { configKey: 'notification-sms' } });
     const existingValue = (existing?.configValue ?? {}) as Record<string, unknown>;
     for (const key of sensitiveKeys) { if (body[key] === MASK) body[key] = existingValue[key]; }
@@ -393,7 +390,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     });
 
     invalidateNotificationConfigCache();
-    await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'UPDATE_SMS_CONFIG', targetType: 'system_config', targetId: 'notification-sms', afterValue: { ...body, twilioAuthToken: '***', awsSecretAccessKey: '***', vonageApiSecret: '***' } });
+    await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'UPDATE_SMS_CONFIG', targetType: 'system_config', targetId: 'notification-sms', afterValue: { ...body, twilioAuthToken: '***', vonageApiSecret: '***' } });
     return { success: true };
   });
 

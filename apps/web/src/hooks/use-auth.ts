@@ -17,7 +17,6 @@ interface User {
   lastLogin: string | null;
   createdAt?: string;
   permissions?: string[];
-  organizationId?: string | null;
   scope?: string | null;
 }
 
@@ -78,6 +77,27 @@ export function useAuth() {
     sessionStorage.setItem('access_token', res.token);
     localStorage.setItem('access_token_backup', res.token);
 
+    // Audit 2026-05-04 fix C1: fetch an offline-replay grant token using the
+    // password the user just supplied (still in scope) so the sync engine can
+    // replay queued offline ops after the bare `x-offline-replay: true`
+    // header bypass was removed. Best-effort — if it fails, the user simply
+    // can't replay until they reauth manually (clear failure mode, not silent
+    // bypass).
+    if (!res.user.forcePasswordChange) {
+      try {
+        const grant = await apiClient.post<{ token: string; expiresAt: string }>(
+          '/api/auth/offline-grant',
+          { _currentPassword: password },
+        );
+        sessionStorage.setItem('offline_replay_token', grant.token);
+        sessionStorage.setItem('offline_replay_expires', grant.expiresAt);
+        localStorage.setItem('offline_replay_token_backup', grant.token);
+        localStorage.setItem('offline_replay_expires_backup', grant.expiresAt);
+      } catch (e) {
+        console.warn('[auth] Failed to fetch offline-replay grant on login:', e);
+      }
+    }
+
     if (res.user.forcePasswordChange) {
       navigate('/change-password', { replace: true });
     } else {
@@ -103,6 +123,13 @@ export function useAuth() {
     sessionStorage.removeItem('access_token');
     localStorage.removeItem('access_token_backup');
     localStorage.removeItem('digilog_cached_user');
+    // Audit 2026-05-04 fix C1: drop the offline-replay grant on logout so a
+    // subsequent user (shared workstation) does not inherit the prior user's
+    // offline-mode authorization.
+    sessionStorage.removeItem('offline_replay_token');
+    sessionStorage.removeItem('offline_replay_expires');
+    localStorage.removeItem('offline_replay_token_backup');
+    localStorage.removeItem('offline_replay_expires_backup');
     // Clean up single-tab localStorage keys
     const myTabId = sessionStorage.getItem('digilog_tab_id');
     if (myTabId && localStorage.getItem('digilog_active_tab_id') === myTabId) {
@@ -139,41 +166,25 @@ export function useAuth() {
     };
   }, [user]);
 
-  // Periodically refresh JWT token to prevent expiry (every 30 minutes)
+  // Periodically refresh JWT token to prevent expiry (every 30 minutes).
+  //
+  // Audit 2026-05-04 fix #4 (web-plumbing review H — JWT refresh fragmentation):
+  // routes through `apiClient.refreshToken()` instead of raw `fetch()` so the
+  // request actually reaches the API on Capacitor APK builds (raw fetch with a
+  // relative URL hits the WebView origin, which isn't the API host — the
+  // refresh was silently no-op on tablet). The shared in-flight Promise guard
+  // in apiClient.refreshToken() also coalesces with sync-engine's pre-replay
+  // refresh and any future on-401 retry path so we don't double-fire.
+  //
+  // The 10-second cross-tab lock is dropped here — apiClient's per-process
+  // in-flight Promise guards a single tab; cross-tab races only matter if
+  // both tabs are actively talking to the API, in which case both refreshes
+  // succeed and the second-applied wins (idempotent).
   useEffect(() => {
     const REFRESH_INTERVAL = 30 * 60 * 1000; // 30 minutes
-    const refreshToken = async () => {
-      const token = sessionStorage.getItem('access_token');
-      if (!token) return;
-
-      // Prevent multiple tabs from refreshing simultaneously
-      const lockKey = 'digilog_token_refresh_lock';
-      const lockValue = localStorage.getItem(lockKey);
-      if (lockValue && Date.now() - parseInt(lockValue) < 10000) return; // Another tab is refreshing
-      localStorage.setItem(lockKey, String(Date.now()));
-
-      try {
-        const res = await fetch('/api/auth/refresh', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.token) {
-            sessionStorage.setItem('access_token', data.token);
-            localStorage.setItem('access_token_backup', data.token);
-          }
-        }
-      } catch {
-        // Silent fail — next request will trigger 401 logout if token truly expired
-      } finally {
-        localStorage.removeItem(lockKey);
-      }
-    };
-
-    const interval = setInterval(refreshToken, REFRESH_INTERVAL);
-    // Also refresh once shortly after mount to extend token on page load
-    const initialRefresh = setTimeout(refreshToken, 5000);
+    const interval = setInterval(() => { void apiClient.refreshToken(); }, REFRESH_INTERVAL);
+    // Also refresh once shortly after mount to extend token on page load.
+    const initialRefresh = setTimeout(() => { void apiClient.refreshToken(); }, 5000);
     return () => { clearInterval(interval); clearTimeout(initialRefresh); };
   }, [user]);
 
@@ -183,7 +194,10 @@ export function useAuth() {
     // Network errors should NOT log the user out — only real 401s should.
     // When offline, SWR sets `error` to a TypeError("Failed to fetch"), but
     // we still have a cached user + token, so the user stays authenticated.
-    isAuthenticated: !!user && (!error || isNetworkError(error)),
+    // Token presence is required so a stale cached user (after a 401 cleared
+    // the token) cannot keep the app authenticated and bounce between
+    // /login → / → /login.
+    isAuthenticated: !!user && !!getToken() && (!error || isNetworkError(error)),
     login,
     logout,
     mutate,

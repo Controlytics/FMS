@@ -9,7 +9,13 @@ export const filterCleaningReasonsDef: ModuleConfigDefinition = {
   sortOrder: 50,
   permissions: { read: 'CONFIG_READ', write: 'CONFIG_UPDATE' },
   requiredRole: 'SUPER_ADMIN',
-  requiresReauth: false,
+  // Audit 2026-05-04 fix #5 (web-routes review H — lower-blast config
+  // surfaces). Cleaning-reason vocabulary edits cascade across every
+  // CleaningCycle that picks one — challenge it. Routed through the
+  // shared UPDATE_CONFIG_PAGE umbrella action; dynamic-routes.ts PUT
+  // handler reads `reauthAction` to gate.
+  requiresReauth: true,
+  reauthAction: 'UPDATE_CONFIG_PAGE',
   hasCustomPage: false,
   customPagePath: '/config/filter-cleaning-reasons',
   settings: [],

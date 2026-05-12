@@ -1,6 +1,8 @@
 # Method B: Docker Compose on Windows
 
-**Status: Good alternative if client knows Docker**
+**Status: Good alternative if client knows Docker — HISTORICAL EVALUATION DOC**
+
+> **2026-04-29 update:** the bundled `docker-compose.yml` was updated to `eclipse-mosquitto:2.0` (replacing the EMQX image) in Phase 1 of the windows-friendly-rewrite. BullMQ + Memurai are no longer required — the queue runs inside Postgres via graphile-worker. Reports use Edge headless via `puppeteer-core` (Phase 3). For the current shipping install runbook see root `DEPLOY-WINDOWS.md`; this page is the original evaluation.
 
 All services run as Docker containers. One `docker-compose up -d` starts everything.
 

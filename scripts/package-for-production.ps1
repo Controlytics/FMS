@@ -4,6 +4,10 @@
 # a self-contained `digilog-production/` folder and `digilog-production.zip`
 # that can be handed to a customer for Windows deployment.
 #
+# Output zip is ~150 MB smaller than the pre-rewrite version (no bundled
+# Chromium, no Redis/Memurai bundle, no EMQX). Stack: Mosquitto 2.0 (MQTT),
+# graphile-worker on Postgres (job queue), puppeteer-core + Edge (PDF).
+#
 # Usage (from repo root):
 #   powershell -ExecutionPolicy Bypass -File scripts/package-for-production.ps1
 #
@@ -119,15 +123,29 @@ if (Test-Path $ApkSrc) {
 # Copy the install scripts and deploy guide
 $ScriptsOut = Join-Path $OutDir 'scripts'
 New-Item -ItemType Directory -Path $ScriptsOut | Out-Null
-foreach ($s in @('install-on-target.ps1', 'start-digilog.ps1', 'stop-digilog.ps1')) {
+# install-on-target.ps1 invokes install-mosquitto.ps1 via $PSScriptRoot, so
+# both scripts must ride along — no silent skip on missing.
+foreach ($s in @('install-on-target.ps1', 'install-mosquitto.ps1')) {
     $src = Join-Path $RepoRoot "scripts\$s"
-    if (Test-Path $src) {
-        Copy-Item -Force $src (Join-Path $ScriptsOut $s)
-    }
+    if (-not (Test-Path $src)) { throw "Required script not found: $src" }
+    Copy-Item -Force $src (Join-Path $ScriptsOut $s)
 }
 Copy-Item -Force (Join-Path $RepoRoot 'DEPLOY-WINDOWS.md') (Join-Path $OutDir 'DEPLOY-WINDOWS.md')
 
+# Mosquitto config dir — install-mosquitto.ps1 reads mosquitto.conf and the
+# dynsec template from here, so it must travel with the package.
+$MosquittoSrc = Join-Path $RepoRoot 'mosquitto'
+if (Test-Path $MosquittoSrc) {
+    Copy-Item -Recurse -Force $MosquittoSrc (Join-Path $OutDir 'mosquitto')
+    Write-Host "       copied mosquitto/ config" -ForegroundColor DarkGray
+} else {
+    throw "mosquitto/ config dir not found at $MosquittoSrc - required for the customer install."
+}
+
 # .env.example template
+# MQTT / queue / PDF blocks below mirror apps/api/.env.example (the windows-friendly-
+# rewrite migration-flag file). The other blocks (PostgreSQL, JWT, CORS, etc.) have
+# no upstream source-of-truth file and are maintained inline in this script.
 $EnvExample = @"
 # ─── PostgreSQL ────────────────────────────────────────
 DATABASE_URL=postgresql://digilog:CHANGE_ME_STRONG_PASSWORD@localhost:5432/digilog_db?schema=public
@@ -140,20 +158,25 @@ TSDB_USER=digilog
 TSDB_PASSWORD=CHANGE_ME_STRONG_PASSWORD
 TSDB_POOL_MAX=10
 
-# ─── MQTT (EMQX) ───────────────────────────────────────
-MQTT_ENABLED=true
-MQTT_BROKER_HOST=localhost
-MQTT_BROKER_PORT=1883
-MQTT_BROKER_TLS_PORT=8883
-MQTT_BROKER_WS_PORT=8083
-MQTT_BROKER_WSS_PORT=8084
-MQTT_AUTH_CALLBACK_URL=http://localhost:3000/api/internal/mqtt
-EMQX_ADMIN_PASSWORD=CHANGE_ME_EMQX_PASSWORD
+# ─── MQTT (Mosquitto 2.0) ──────────────────────────────
+# Phase 1 of windows-friendly-rewrite swapped from EMQX. Install via
+# scripts/install-mosquitto.ps1 (elevated). After every POST
+# /api/internal/mqtt/refresh-acl, copy the regenerated dynsec into
+# C:\Program Files\mosquitto\ and Restart-Service mosquitto.
+USE_MOSQUITTO=true
+MOSQUITTO_ADMIN_PASSWORD=CHANGE_ME_RANDOM_12_PLUS_CHAR_STRING
+MOSQUITTO_REFRESH_TOKEN=CHANGE_ME_RANDOM_BEARER_SECRET
+MOSQUITTO_DYNSEC_PATH=./mosquitto/dynamic-security.json
 
-# ─── Redis (BullMQ + Pub/Sub) ──────────────────────────
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_PASSWORD=
+# ─── Job queue ─────────────────────────────────────────
+# Queue runs on Postgres via graphile-worker — no Redis required.
+# (If pub/sub Redis is added later, set REDIS_HOST/PORT/PASSWORD here. Redis >=5.)
+
+# ─── PDF rendering ─────────────────────────────────────
+# Phase 3 of windows-friendly-rewrite — puppeteer-core + Edge (no bundled
+# Chromium). detectEdgePath() probes Edge -> Chrome on Windows automatically.
+# Set this only to override the auto-detected browser executable.
+# PUPPETEER_EXECUTABLE_PATH=C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
 
 # ─── UNS ───────────────────────────────────────────────
 UNS_ROOT_PREFIX=digilog/v1
@@ -189,7 +212,7 @@ Write-Host ""
 Write-Host "[8/8] Creating $OutZip..." -ForegroundColor Yellow
 Compress-Archive -Path $OutDir -DestinationPath $OutZip -Force
 $ZipSize = (Get-Item $OutZip).Length / 1MB
-Write-Host "[8/8] Created $OutZip ({0:N1} MB)" -f $ZipSize -ForegroundColor Green
+Write-Host ("[8/8] Created $OutZip ({0:N1} MB)" -f $ZipSize) -ForegroundColor Green
 
 Write-Host ""
 Write-Host "================================================" -ForegroundColor Cyan
@@ -199,6 +222,8 @@ Write-Host ""
 Write-Host "  Folder: $OutDir"
 Write-Host "  Zip:    $OutZip"
 Write-Host ""
-Write-Host "  Next: Copy the ZIP to the target machine and follow" -ForegroundColor White
-Write-Host "        DEPLOY-WINDOWS.md starting at section 5." -ForegroundColor White
+Write-Host "  Next: Copy the ZIP to the target machine, extract, then" -ForegroundColor White
+Write-Host "        run scripts\install-on-target.ps1 from an elevated" -ForegroundColor White
+Write-Host "        PowerShell. Follow DEPLOY-WINDOWS.md for the full" -ForegroundColor White
+Write-Host "        flow (no Nginx / no PM2 required)." -ForegroundColor White
 Write-Host ""

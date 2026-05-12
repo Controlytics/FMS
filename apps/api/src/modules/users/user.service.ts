@@ -11,9 +11,8 @@ import { createNotification } from '../notifications/notification.service.js';
 import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
 
 export const userService = {
-  async list(query: { page: number; limit?: number; role?: string; status?: string; search?: string; organizationId?: string; callerRole?: string }) {
+  async list(query: { page: number; limit?: number; role?: string; status?: string; search?: string; callerRole?: string }) {
     const where: Record<string, unknown> = {};
-    if (query.organizationId) where.organizationId = query.organizationId;
     if (query.role) where.role = query.role;
     if (query.status) where.status = query.status;
     if (query.search) {
@@ -34,9 +33,8 @@ export const userService = {
     return { data: users, total, page: query.page, limit: query.limit ?? total, totalPages: query.limit ? Math.ceil(total / query.limit) : 1 };
   },
 
-  async getStats(callerRole: string, organizationId?: string) {
+  async getStats(callerRole: string) {
     const roleFilter: Record<string, unknown> = callerRole === 'ADMIN' ? { role: { not: 'SUPER_ADMIN' as any } } : {};
-    if (organizationId) roleFilter.organizationId = organizationId;
     return userRepository.countByStatus(roleFilter);
   },
 
@@ -47,7 +45,7 @@ export const userService = {
   },
 
   async create(data: {
-    username: string; fullName: string; email: string; department?: string; organizationId?: string;
+    username: string; fullName: string; email: string; department?: string;
     role: string; password: string; status?: string;
   }, ctx: RequestContext) {
     // Sanitize text inputs to prevent XSS
@@ -91,8 +89,6 @@ export const userService = {
       isTemporaryPassword: true,
       passwordExpiresAt,
       createdBy: ctx.userId,
-      
-      organizationId: data.organizationId || ctx.organizationId || undefined,
     });
 
     await userRepository.addPasswordHistory(user.id, passwordHash);
@@ -142,11 +138,6 @@ export const userService = {
 
     const existing = await userRepository.findByIdFull(id);
     if (!existing) throw new NotFoundError('User not found');
-
-    // Privilege escalation guard: only SUPER_ADMIN can change organizationId
-    if (data.organizationId !== undefined && ctx.userRole !== 'SUPER_ADMIN') {
-      delete data.organizationId;
-    }
 
     // Cannot change own role (prevent self-escalation)
     if (existing.id === ctx.userSub && data.role && data.role !== existing.role) {

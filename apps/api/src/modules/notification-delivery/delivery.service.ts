@@ -78,7 +78,14 @@ export async function sendNotification(payload: NotificationPayload): Promise<De
     });
 
     // Fire-and-forget retry (don't block the caller)
-    scheduleRetry(log.id, resolvedPayload, 1).catch(() => {});
+    // Fire-and-forget retry (don't block the caller) — but log failures so
+    // a broken retry path doesn't silently drop notifications.
+    scheduleRetry(log.id, resolvedPayload, 1).catch((schedErr) => {
+      console.error(
+        `[notification-delivery] scheduleRetry failed for log ${log.id} (attempt 1):`,
+        schedErr,
+      );
+    });
   }
 
   return result;
@@ -86,7 +93,8 @@ export async function sendNotification(payload: NotificationPayload): Promise<De
 
 /**
  * Retry a failed notification delivery.
- * TODO: Replace setTimeout retries with BullMQ delayed jobs for durability across restarts
+ * TODO: Replace setTimeout retries with graphile-worker delayed jobs (`runAt`)
+ * for durability across restarts.
  */
 async function scheduleRetry(logId: string, payload: NotificationPayload, attempt: number): Promise<void> {
   if (attempt >= MAX_RETRIES) {
@@ -139,7 +147,12 @@ async function scheduleRetry(logId: string, payload: NotificationPayload, attemp
           nextRetryAt,
         },
       });
-      scheduleRetry(logId, payload, nextAttempt).catch(() => {});
+      scheduleRetry(logId, payload, nextAttempt).catch((schedErr) => {
+        console.error(
+          `[notification-delivery] scheduleRetry failed for log ${logId} (attempt ${nextAttempt}):`,
+          schedErr,
+        );
+      });
     }
   }
 }

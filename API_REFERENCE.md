@@ -1,6 +1,6 @@
 # DigiLog — API Reference
 
-**Base URL:** `https://<server-ip>:3000/api` (direct) or `https://<server-ip>/api` (via Nginx)
+**Base URL:** `https://<server-ip>:3000/api` (Fastify direct; reverse proxy is optional / customer-choice after Phase 4 of the windows-friendly-rewrite)
 **Authentication:** JWT Bearer token (header: `Authorization: Bearer <token>`)
 **Content-Type:** `application/json`
 
@@ -41,7 +41,7 @@ Verification token valid for 5 minutes, used in `x-reauth-password` header.
 ```
 GET /api/auth/me
 Auth: Bearer token
-Response: { id, username, fullName, email, role, permissions[], organizationId, scope }
+Response: { id, username, fullName, email, role, permissions[], scope }
 ```
 
 ### Change Password
@@ -75,7 +75,7 @@ Response: { data: User[], total, page, limit, totalPages }
 POST /api/users
 Permission: USER_CREATE
 Reauth: CREATE_USER
-Body: { username, fullName, email, password, role, department?, organizationId? }
+Body: { username, fullName, email, password, role, department? }
 ```
 
 ### Update User
@@ -173,6 +173,15 @@ PUT    /api/assets/templates/:id       Permission: ASSET_TEMPLATE_UPDATE, Reauth
 DELETE /api/assets/templates/:id       Permission: ASSET_TEMPLATE_DELETE, Reauth
 ```
 
+### Template Kinds (admin-editable lookup, Step 1 of architectural refactor)
+```
+GET    /api/template-kinds             Permission: ASSET_VIEW
+POST   /api/template-kinds             Permission: CONFIG_UPDATE
+PUT    /api/template-kinds/:code       Permission: CONFIG_UPDATE  (code is immutable; updates label/description/sortOrder/isActive)
+DELETE /api/template-kinds/:code       Permission: CONFIG_UPDATE  (rejected with 409 SYSTEM_KIND for system kinds; rejected with 409 IN_USE if any AssetTemplate references this kind)
+```
+System kinds seeded by `prisma/seed.ts`: BLOCK · AREA · AHU · FILTER · EQUIPMENT · OTHER. Their `code` is the stable identifier the Filter Management / Cleaning Operations / Mobile pages compare against; admins can rename `label` but not `code`.
+
 ### Instances
 ```
 GET    /api/assets/instances           Permission: ASSET_VIEW
@@ -218,15 +227,24 @@ POST /api/filters/:id/bypass           Permission: FILTER_OPERATE
 Body: { reason, remarks }
 
 POST /api/filters/:id/submit-checklist Permission: FILTER_OPERATE, Reauth: SUBMIT_CHECKLIST
-Body: { answers: [{ questionId, answer }] }
+Body: { answers: { [questionId]: answer },
+        offlinePerformedAt?: ISO timestamp,         // Phase 5b.1: regulatory time
+        clientOpId?: UUID,                          // idempotent replay
+        expectedProfileVersions?: { [profileId]: int } }  // Phase A.1: drift detection
+
+Response 409 SCHEMA_DRIFT (Phase A.1) — body.details.drift = [{ profileId, expected, current }]
+when client's expectedProfileVersions don't match the cycle's pinned versions.
+
+GET  /api/checklist-profiles/:id/versions          List archived versions
+GET  /api/checklist-profiles/:id/versions/:n       Fetch immutable snapshot at version n
 ```
 
 ### Cycle & Event History
 ```
-GET /api/filter/cycles                 Permission: ASSET_READ
-GET /api/filter/cycles/:cycleId        Permission: ASSET_READ
-GET /api/filter/events                 Permission: ASSET_READ
-GET /api/filter/events/:eventId        Permission: ASSET_READ
+GET /api/filters/cycles                Permission: ASSET_READ
+GET /api/filters/cycles/:cycleId       Permission: ASSET_READ
+GET /api/filters/events                Permission: ASSET_READ
+GET /api/filters/events/:eventId       Permission: ASSET_READ
 ```
 
 ---
@@ -234,13 +252,64 @@ GET /api/filter/events/:eventId        Permission: ASSET_READ
 ## Cleaning Profiles
 
 ```
-GET    /api/filter-cleaning-profiles           Permission: ASSET_READ
-GET    /api/filter-cleaning-profiles/:id       Permission: ASSET_READ
-POST   /api/filter-cleaning-profiles           Permission: FILTER_MANAGE, Reauth
-PUT    /api/filter-cleaning-profiles/:id       Permission: FILTER_MANAGE, Reauth
-DELETE /api/filter-cleaning-profiles/:id       Permission: FILTER_MANAGE, Reauth
-POST   /api/filter-cleaning-profiles/:id/validate Permission: FILTER_MANAGE
+GET    /api/filter-cleaning-profiles                     Permission: FCP_READ | CP_TOGGLE
+GET    /api/filter-cleaning-profiles/:id                 Permission: FCP_READ | CP_TOGGLE
+GET    /api/filter-cleaning-profiles/:id/versions        Permission: FCP_READ | CP_TOGGLE     # Phase A.2
+GET    /api/filter-cleaning-profiles/:id/versions/:n     Permission: FCP_READ | CP_TOGGLE     # Phase A.2 (frozen snapshot)
+POST   /api/filter-cleaning-profiles                     Permission: FCP_CREATE | CP_PAGE_CREATE, Reauth
+PUT    /api/filter-cleaning-profiles/:id                 Permission: FCP_UPDATE | CP_PAGE_EDIT, Reauth
+DELETE /api/filter-cleaning-profiles/:id                 Permission: FCP_DELETE | CP_PAGE_DELETE, Reauth   # soft archive
+PATCH  /api/filter-cleaning-profiles/:id/toggle-status   Permission: FCP_UPDATE | CP_PAGE_EDIT
+POST   /api/filter-cleaning-profiles/:id/validate        Permission: FCP_READ | CP_TOGGLE
+GET    /api/filter-cleaning-profiles/:id/assigned-assets Permission: FCP_READ | CP_TOGGLE
+POST   /api/filter-cleaning-profiles/:id/assign-assets   Permission: FCP_UPDATE | CP_PAGE_EDIT
 ```
+
+---
+
+## Filter Profiles
+
+`FilterProfile` binds a filter to a `FilterCleaningProfile` (plus block-restriction policy and applicable templates). Phase A.3 (2026-05-01) added a snapshot-then-bump version sidecar — every `update()` archives the OUTGOING state into `filter_profile_versions` and bumps `FilterProfile.version`. First version is created lazily (the live row IS v1 until first edit).
+
+```
+GET    /api/filter-profiles                              Permission: FP_READ
+GET    /api/filter-profiles/:id                          Permission: FP_READ
+GET    /api/filter-profiles/:id/versions                 Permission: FP_READ                     # Phase A.3
+GET    /api/filter-profiles/:id/versions/:n              Permission: FP_READ                     # Phase A.3 (frozen snapshot)
+POST   /api/filter-profiles                              Permission: FP_CREATE, Reauth
+PUT    /api/filter-profiles/:id                          Permission: FP_UPDATE, Reauth          # snapshot-then-bump
+DELETE /api/filter-profiles/:id                          Permission: FP_DELETE, Reauth          # hard delete; rejects if filters still assigned
+POST   /api/filter-profiles/:id/assign                   Permission: FP_ASSIGN, Reauth
+```
+
+**Versioning notes:**
+- `GET /:id/versions` returns `{ profileId, currentVersion, versions[] }` newest-first; `versions[]` carries metadata only (id, versionNumber, changeNotes, createdAt, createdBy).
+- `GET /:id/versions/:n` returns the frozen snapshot fields (`name`, `description`, `cleaningProfileId`, `applicableTemplates`, `defaultPmScheduleId`, `blockRestriction`, `allowedBlocks`, `maxCleaningCycles`, `isActive`) plus `versionNumber`, `createdAt`, `createdBy`, `changeNotes`.
+- 404 with `"Version N of filter profile … not found"` when the version number is out of range.
+- No cycle-side pin map is needed — cycles already pin `cleaning_cycles.profileId` to a `FilterCleaningProfile` row at start, so FilterProfile drift cannot reach an in-flight cycle.
+
+---
+
+## Equipment Groups
+
+`EquipmentGroup` is a per-block group with exactly 3 instruments (Compressed Air Pressure / RO Water Pressure / Dryer Temperature). Phase A.4 (2026-05-02) added a composite-snapshot version sidecar — every `update()` archives the OUTGOING composite (group + 3 instruments together) into `equipment_group_versions` and bumps `EquipmentGroup.version`. First version is created lazily (the live composite IS v1 until first edit). Cycles do NOT pin a group version; submitted reading drift is already covered by `FilterEvent.attributes.instrumentReadings` (immutable).
+
+```
+GET    /api/equipment-groups                            Permission: ASSET_READ | EG_VIEW
+GET    /api/equipment-groups/:id                        Permission: ASSET_READ | EG_VIEW
+GET    /api/equipment-groups/by-block/:blockId          Permission: ASSET_READ | EG_VIEW
+GET    /api/equipment-groups/:id/versions               Permission: ASSET_READ | EG_VIEW                  # Phase A.4
+GET    /api/equipment-groups/:id/versions/:n            Permission: ASSET_READ | EG_VIEW                  # Phase A.4 (frozen composite)
+POST   /api/equipment-groups                            Permission: ASSET_CREATE | EG_CREATE, Reauth
+PUT    /api/equipment-groups/:id                        Permission: ASSET_UPDATE | EG_EDIT, Reauth        # snapshot-then-bump composite
+DELETE /api/equipment-groups/:id                        Permission: ASSET_DELETE | EG_DELETE, Reauth      # soft-delete (isActive=false); rejects if active cycles reference
+```
+
+**Versioning notes:**
+- `GET /:id/versions` returns `{ groupId, currentVersion, versions[] }` newest-first; `versions[]` carries metadata only.
+- `GET /:id/versions/:n` returns the frozen composite snapshot: `{ groupId, versionNumber, name, blockId, isActive, instruments[] (ordered by sortOrder, full instrument shape), createdAt, createdBy, changeNotes }`.
+- 404 with `"Version N of equipment group … not found"` when out of range.
+- Cleaning reasons (config def `filter-cleaning-reasons`) are NOT versioned — `CleaningCycle.cleaningReasonKey` + `cleaningReasonLabel` columns written at cycle start act as the per-cycle pin (see `CHANGELOG.md` Phase A.4 entry for rationale).
 
 ---
 
@@ -373,13 +442,18 @@ GET    /api/connectivity/:entityId/history     Permission: ASSET_VIEW
 
 ---
 
-## Internal Endpoints (EMQX callbacks)
+## Internal Endpoints (Mosquitto dynamic-security)
+
+Phase 1 of the windows-friendly-rewrite swapped the MQTT broker from EMQX to Mosquitto 2.0. Device auth + topic ACLs are now expressed as a `dynamic-security.json` regenerated by the API on demand and reloaded by the broker, instead of HTTP webhook callbacks.
 
 ```
-POST /api/internal/mqtt/auth       EMQX device authentication webhook
-POST /api/internal/mqtt/acl        EMQX topic ACL webhook
-POST /api/internal/mqtt/superuser  Always denies (no superuser)
+POST /api/internal/mqtt/refresh-acl   Regenerate dynamic-security.json from active DeviceCredential rows.
+                                       Bearer-auth via MOSQUITTO_REFRESH_TOKEN (timing-safe compare).
+                                       After call, copy <repo>/mosquitto/dynamic-security.json to
+                                       C:\Program Files\mosquitto\ and Restart-Service mosquitto.
 ```
+
+> Legacy EMQX webhook endpoints (`/api/internal/mqtt/auth`, `/acl`, `/superuser`) remain conditionally registered when `USE_MOSQUITTO=false` to support EMQX fallback; full removal deferred to a future cleanup phase once no env still has `USE_MOSQUITTO=false` in production.
 
 ---
 
@@ -413,7 +487,7 @@ Common error codes:
 
 ---
 
-## Permission Reference (95 total)
+## Permission Reference (109 total — verified by `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts`; the list below is illustrative grouping, not exhaustive)
 
 ### User Management
 `USER_CREATE`, `USER_READ`, `USER_UPDATE`, `USER_DELETE`, `USER_ENABLE_DISABLE`, `USER_UNLOCK`, `USER_RESET_PASSWORD`
@@ -440,4 +514,6 @@ Common error codes:
 `REPORT_TEMPLATE_READ`, `REPORT_TEMPLATE_CREATE`, `REPORT_TEMPLATE_UPDATE`, `REPORT_TEMPLATE_DELETE`, `REPORT_GENERATE`, `REPORT_VIEW`, `REPORT_SIGN`, `REPORT_DELETE`, `REPORT_EXPORT`
 
 ### Other
-`AUDIT_READ`, `AUDIT_EXPORT`, `EVENT_READ`, `CYCLE_READ`, `ALARM_VIEW`, `ALARM_ACKNOWLEDGE`, `ALARM_CLEAR`, `NOTIFICATION_VIEW`, `NOTIFICATION_CREATE`, `NOTIFICATION_UPDATE`, `NOTIFICATION_DELETE`, `NOTIFICATION_MANAGE`, `RULE_CHAIN_VIEW`, `RULE_CHAIN_CREATE`, `RULE_CHAIN_UPDATE`, `RULE_CHAIN_DELETE`, `DASHBOARD_CREATE`, `DASHBOARD_MANAGE`, `DASHBOARD_VIEW`, `DASHBOARD_ASSIGN`, `UNS_VIEW`, `UNS_MANAGE`, `READ_DEBUG_TRACE`, `MANAGE_DEBUG_TRACE`, `BLOCK_CHANGE_REQUEST`, `BLOCK_CHANGE_APPROVE`, `BACKUP_MANAGE`, `ORG_MANAGE`, `ORG_VIEW`, `ORG_CREATE`, `ORG_DELETE`, `EG_VIEW`, `EG_CREATE`, `EG_EDIT`, `EG_DELETE`, `FP_READ`, `FP_CREATE`, `FP_UPDATE`, `FP_DELETE`, `FP_ASSIGN`
+`AUDIT_READ`, `AUDIT_EXPORT`, `EVENT_READ`, `CYCLE_READ`, `ALARM_VIEW`, `ALARM_ACKNOWLEDGE`, `ALARM_CLEAR`, `NOTIFICATION_VIEW`, `NOTIFICATION_CREATE`, `NOTIFICATION_UPDATE`, `NOTIFICATION_DELETE`, `NOTIFICATION_MANAGE`, `RULE_CHAIN_VIEW`, `RULE_CHAIN_CREATE`, `RULE_CHAIN_UPDATE`, `RULE_CHAIN_DELETE`, `DASHBOARD_CREATE`, `DASHBOARD_MANAGE`, `DASHBOARD_VIEW`, `DASHBOARD_ASSIGN`, `UNS_VIEW`, `UNS_MANAGE`, `READ_DEBUG_TRACE`, `MANAGE_DEBUG_TRACE`, `BLOCK_CHANGE_REQUEST`, `BLOCK_CHANGE_APPROVE`, `BACKUP_MANAGE`, `EG_VIEW`, `EG_CREATE`, `EG_EDIT`, `EG_DELETE`, `FP_READ`, `FP_CREATE`, `FP_UPDATE`, `FP_DELETE`, `FP_ASSIGN`
+
+> **Note (MT removal 2026-04-30):** `ORG_MANAGE`, `ORG_VIEW`, `ORG_CREATE`, `ORG_DELETE` permissions and the `/api/organizations` + `/api/org-admin` + `/api/tenant-admin` route prefixes were deleted. DigiLog is now single-tenant.

@@ -61,9 +61,9 @@ registerNode({
     try {
       const relationType = (config.relationType as string) ?? 'CONTAINS';
       const direction = (config.direction as string) ?? 'source';
-      const where = direction === 'source'
-        ? { sourceAssetId: ctx.entityId, relationshipType: relationType }
-        : { targetAssetId: ctx.entityId, relationshipType: relationType };
+      const where = (direction === 'source'
+        ? { sourceAssetId: ctx.entityId, relationshipType: relationType as any }
+        : { targetAssetId: ctx.entityId, relationshipType: relationType as any });
       const count = await prisma.assetRelationship.count({ where });
       return { output: count > 0 ? 'True' : 'False', message };
     } catch (err) {

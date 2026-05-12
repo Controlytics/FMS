@@ -1,7 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
-import { orgScope } from '../../lib/org-scope.js';
 import type { RequestContext } from '../../types/context.js';
 
 export const blockChangeService = {
@@ -16,23 +15,11 @@ export const blockChangeService = {
     });
     if (existing) throw new AppError(409, 'DUPLICATE_REQUEST', 'A pending request already exists for this filter and block');
 
-    // The request semantically belongs to the filter's organization — not
-    // the requester's. This matters because SUPER_ADMIN (GLOBAL scope) has
-    // no org of their own, which previously made this endpoint crash with
-    // "invalid input syntax for type uuid: ''". We prefer the filter's org,
-    // then fall back to the requester's org.
-    const filterRow = await prisma.assetInstance.findUnique({
-      where: { id: data.filterId },
-      select: { organizationId: true },
-    });
-    const orgForRequest = filterRow?.organizationId ?? ctx.organizationId ?? null;
-
     const request = await prisma.blockChangeRequest.create({
       data: {
         ...data,
         requestedBy: ctx.userSub,
         requestedByName: ctx.userId,
-        organizationId: orgForRequest,
       },
     });
 
@@ -49,7 +36,7 @@ export const blockChangeService = {
   async list(ctx: RequestContext, query: { status?: string; page?: number; limit?: number; mine?: boolean }) {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
-    const where: any = { ...orgScope(ctx) };
+    const where: any = {};
 
     if (query.status && query.status !== 'ALL') where.status = query.status;
     if (query.mine) where.requestedBy = ctx.userSub;
@@ -65,8 +52,8 @@ export const blockChangeService = {
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   },
 
-  async pendingCount(ctx: RequestContext) {
-    const where: any = { status: 'PENDING', ...orgScope(ctx) };
+  async pendingCount(_ctx: RequestContext) {
+    const where: any = { status: 'PENDING' };
     return prisma.blockChangeRequest.count({ where });
   },
 
@@ -108,6 +95,32 @@ export const blockChangeService = {
 
   async consumeApproval(filterId: string, toBlockId: string): Promise<void> {
     await prisma.blockChangeRequest.updateMany({
+      where: { filterId, toBlockId, status: 'APPROVED' },
+      data: { status: 'EXPIRED' },
+    });
+  },
+
+  /**
+   * Audit 2026-05-05 fix #7: tx-aware variants. The pre-fix flow ran
+   * validateBlockChange OUTSIDE the start-cycle transaction (called at
+   * start-cycle.ts:63 before the FOR UPDATE lock at :124). A concurrent
+   * second start-cycle could consume the same approval between the
+   * outer-tx hasApproval read and the FOR UPDATE — both starts then
+   * proceed as if approved.
+   *
+   * These variants take a TransactionClient so the find + update happen
+   * under the same row lock as the cycle insert. start-cycle.ts now calls
+   * the tx-aware path inside its $transaction.
+   */
+  async hasApprovalTx(tx: any, filterId: string, toBlockId: string): Promise<boolean> {
+    const approved = await tx.blockChangeRequest.findFirst({
+      where: { filterId, toBlockId, status: 'APPROVED' },
+    });
+    return !!approved;
+  },
+
+  async consumeApprovalTx(tx: any, filterId: string, toBlockId: string): Promise<void> {
+    await tx.blockChangeRequest.updateMany({
       where: { filterId, toBlockId, status: 'APPROVED' },
       data: { status: 'EXPIRED' },
     });

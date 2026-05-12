@@ -9,7 +9,6 @@ export const createUserSchema = z.object({
   password: z.string().min(8, 'Minimum 8 characters'),
   confirmPassword: z.string(),
   status: z.enum(["ENABLED", "DISABLED"]).default("ENABLED"),
-  organizationId: z.string().uuid().optional(),
 }).refine((d) => d.password === d.confirmPassword, {
   message: 'Passwords must match',
   path: ['confirmPassword'],
@@ -21,7 +20,6 @@ export const updateUserSchema = z.object({
   department: z.string().max(50).optional(),
   role: z.string().min(1).optional(),
   status: z.enum(["ENABLED", "DISABLED"]).optional(),
-  organizationId: z.string().uuid().optional(),
 });
 
 export const resetPasswordSchema = z.object({
@@ -33,7 +31,8 @@ export const userQuerySchema = z.object({
   status: z.enum(['ENABLED', 'DISABLED', 'LOCKED', 'EXPIRED']).optional(),
   search: z.string().optional(),
   page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).optional(),
+  // Cap upper bound so a missing limit doesn't pull thousands of rows.
+  limit: z.coerce.number().min(1).max(100).default(20),
 });
 
 export const bulkDeleteUsersSchema = z.object({

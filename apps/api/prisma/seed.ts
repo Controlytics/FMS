@@ -1,7 +1,41 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const prisma = new PrismaClient();
+
+/**
+ * Apply DDL invariants Prisma cannot express (Phase 5b.5).
+ * Idempotent — every statement uses IF NOT EXISTS / OR REPLACE.
+ */
+async function applyInvariants() {
+  const sqlPath = join(process.cwd(), 'prisma', 'sql', 'invariants.sql');
+  let sql: string;
+  try {
+    sql = readFileSync(sqlPath, 'utf8');
+  } catch {
+    console.log('  (no invariants.sql found — skipping)');
+    return;
+  }
+  // Strip psql meta-commands (\echo etc.) — only valid via psql CLI.
+  const cleaned = sql.split('\n').filter(l => !l.trim().startsWith('\\')).join('\n');
+  // Split on semicolons but keep PL/pgSQL function bodies intact via $$ delimiters.
+  const statements: string[] = [];
+  let buf = '';
+  let inDollar = false;
+  for (const line of cleaned.split('\n')) {
+    if (line.includes('$$')) inDollar = !inDollar;
+    buf += line + '\n';
+    if (!inDollar && /;\s*$/.test(line)) { statements.push(buf.trim()); buf = ''; }
+  }
+  if (buf.trim()) statements.push(buf.trim());
+  for (const stmt of statements) {
+    if (!stmt || stmt.startsWith('--')) continue;
+    await prisma.$executeRawUnsafe(stmt);
+  }
+  console.log('  Applied DB invariants (Phase 5b.5)');
+}
 
 async function main() {
   console.log('Seeding database...');
@@ -16,9 +50,9 @@ async function main() {
       scope: 'GLOBAL',
       permissions: [
         'USER_CREATE', 'USER_READ', 'USER_UPDATE', 'USER_DELETE', 'USER_ENABLE_DISABLE', 'USER_UNLOCK', 'USER_RESET_PASSWORD',
+        'ADMIN_REQUEST_REVIEW',
         'CONFIG_READ', 'CONFIG_UPDATE', 'FIELD_ID_UPDATE',
         'AUDIT_READ', 'AUDIT_EXPORT', 'ROLE_MANAGE',
-        'ORG_MANAGE', 'ORG_VIEW', 'ORG_CREATE', 'ORG_DELETE',
         'ASSET_TEMPLATE_CREATE', 'ASSET_TEMPLATE_UPDATE', 'ASSET_TEMPLATE_DELETE', 'ASSET_CREATE', 'ASSET_UPDATE', 'ASSET_DELETE',
         'ASSET_RELATIONSHIP_CREATE', 'ASSET_RELATIONSHIP_DELETE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_IDENTIFIER_DELETE', 'ASSET_VIEW', 'ASSET_READ',
         'ENTITY_ASSIGN',
@@ -40,6 +74,9 @@ async function main() {
         // Reports
         'REPORT_TEMPLATE_READ', 'REPORT_TEMPLATE_CREATE', 'REPORT_TEMPLATE_UPDATE', 'REPORT_TEMPLATE_DELETE',
         'REPORT_GENERATE', 'REPORT_VIEW', 'REPORT_SIGN', 'REPORT_DELETE', 'REPORT_EXPORT',
+        // Audit / Versions (2026-05-02): SUPER_ADMIN gets cross-entity history viewer.
+        // Other system roles do NOT — operators must be explicitly granted via Role Privileges.
+        'VERSION_HISTORY_VIEW',
       ],
       color: 'bg-gradient-to-r from-red-500 to-pink-500',
       isSystem: true,
@@ -51,9 +88,9 @@ async function main() {
       hierarchyLevel: 5,
       permissions: [
         'USER_CREATE', 'USER_READ', 'USER_UPDATE', 'USER_DELETE', 'USER_ENABLE_DISABLE', 'USER_UNLOCK', 'USER_RESET_PASSWORD',
+        'ADMIN_REQUEST_REVIEW',
         'CONFIG_READ', 'CONFIG_UPDATE', 'FIELD_ID_UPDATE', 'ROLE_MANAGE',
         'AUDIT_READ', 'AUDIT_EXPORT',
-        'ORG_MANAGE', 'ORG_VIEW', 'ORG_CREATE', 'ORG_DELETE',
         'ASSET_TEMPLATE_CREATE', 'ASSET_TEMPLATE_UPDATE', 'ASSET_TEMPLATE_DELETE', 'ASSET_CREATE', 'ASSET_UPDATE', 'ASSET_DELETE',
         'ASSET_RELATIONSHIP_CREATE', 'ASSET_RELATIONSHIP_DELETE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_IDENTIFIER_DELETE', 'ASSET_VIEW', 'ASSET_READ',
         'ENTITY_ASSIGN',
@@ -277,88 +314,18 @@ async function main() {
     },
     {
       configKey: 'action-reauth',
-      configValue: {
-        actions: [
-          // User management
-          { action: 'CREATE_USER', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_USER', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_USER', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'BULK_DELETE_USERS', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'ENABLE_USER', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DISABLE_USER', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UNLOCK_USER', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'RESET_PASSWORD', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'PROCESS_RESET_REQUEST', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // Asset/Entity management
-          { action: 'CREATE_ASSET', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_ASSET', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_ASSET', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'CREATE_ASSET_TEMPLATE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_ASSET_TEMPLATE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_ASSET_TEMPLATE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'CREATE_ASSET_IDENTIFIER', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_ASSET_IDENTIFIER', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'CREATE_ASSET_RELATIONSHIP', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_ASSET_RELATIONSHIP', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // Filter operations
-          { action: 'START_CLEANING_CYCLE', roles: ['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'MAINTENANCE', 'OPERATOR'] },
-          { action: 'FILTER_BYPASS', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'TERMINATE_CLEANING_CYCLE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // Rule chains
-          { action: 'CREATE_RULE_CHAIN', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_RULE_CHAIN', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_RULE_CHAIN', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // Alarms
-          { action: 'ACKNOWLEDGE_ALARM', roles: ['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'MAINTENANCE'] },
-          { action: 'CLEAR_ALARM', roles: ['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR'] },
-          // Roles & Config
-          { action: 'CREATE_ROLE', roles: ['SUPER_ADMIN'] },
-          { action: 'UPDATE_ROLE', roles: ['SUPER_ADMIN'] },
-          { action: 'DELETE_ROLE', roles: ['SUPER_ADMIN'] },
-          { action: 'UPDATE_USERID_CONFIG', roles: ['SUPER_ADMIN'] },
-          { action: 'UPDATE_BRANDING', roles: ['SUPER_ADMIN'] },
-          { action: 'UPDATE_ROLE_CONFIG', roles: ['SUPER_ADMIN'] },
-          // Help articles
-          { action: 'CREATE_HELP_ARTICLE', roles: ['SUPER_ADMIN'] },
-          { action: 'UPDATE_HELP_ARTICLE', roles: ['SUPER_ADMIN'] },
-          { action: 'DELETE_HELP_ARTICLE', roles: ['SUPER_ADMIN'] },
-          // UNS
-          { action: 'OVERRIDE_UNS_PATH', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_UNS_MAPPING', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_UNS_CONFIG', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // Backup
-          { action: 'EXPORT_BACKUP', roles: ['SUPER_ADMIN'] },
-          { action: 'RESTORE_BACKUP', roles: ['SUPER_ADMIN'] },
-          // Block change approval
-          { action: 'APPROVE_BLOCK_CHANGE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'REJECT_BLOCK_CHANGE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // PM schedule approval
-          { action: 'APPROVE_PM_SCHEDULE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'REJECT_PM_SCHEDULE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'EDIT_PM_SCHEDULE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // Equipment groups
-          { action: 'CREATE_EQUIPMENT_GROUP', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_EQUIPMENT_GROUP', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_EQUIPMENT_GROUP', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // Filter profiles
-          { action: 'CREATE_FILTER_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_FILTER_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_FILTER_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'ASSIGN_FILTER_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // Cleaning profiles
-          { action: 'CREATE_CLEANING_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_CLEANING_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_CLEANING_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // Checklist profiles
-          { action: 'CREATE_CHECKLIST_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_CHECKLIST_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_CHECKLIST_PROFILE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          // PM schedule CRUD
-          { action: 'CREATE_PM_SCHEDULE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'UPDATE_PM_SCHEDULE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-          { action: 'DELETE_PM_SCHEDULE', roles: ['SUPER_ADMIN', 'ADMIN'] },
-        ],
-      },
+      // Flat record shape: { actionKey: roleNames[] }. Every reader (frontend
+      // page, isReauthRequired, getMyActions, actionReauthConfigSchema) uses
+      // this shape. The previous nested `{ actions: [{action, roles}, ...] }`
+      // shape silently disabled every reauth lookup (config[action] was always
+      // undefined) and made the PUT validator reject any save.
+      //
+      // Seeded empty so the system ships with reauth OFF by default.
+      // Operators opt actions in via the action-reauth admin page. Defaulting
+      // the policy on at install would surprise both existing tests (170+
+      // assertions written against the de-facto OFF state) and existing
+      // deployments that rely on no reauth being required.
+      configValue: {},
       configType: 'security',
       requiresReauth: false,
     },
@@ -639,6 +606,28 @@ async function main() {
     });
   }
   console.log('  Created default help articles (40 articles)');
+
+  // 6. Seed system template kinds (BLOCK / AREA / AHU / FILTER / EQUIPMENT / OTHER).
+  //    These are protected (isSystem=true) — admins can edit label/description/sortOrder
+  //    but cannot rename code or delete them. Frontend pages route by code.
+  const systemKinds = [
+    { code: 'BLOCK',     label: 'Block',     description: 'Building wing or pharmacy module', sortOrder: 10 },
+    { code: 'AREA',      label: 'Area',      description: 'Cleanroom / corridor / gowning room', sortOrder: 20 },
+    { code: 'AHU',       label: 'AHU',       description: 'Air Handling Unit (HVAC)', sortOrder: 30 },
+    { code: 'FILTER',    label: 'Filter',    description: 'Replaceable filter cartridge (HEPA / ULPA / pre-filter)', sortOrder: 40 },
+    { code: 'EQUIPMENT', label: 'Equipment', description: 'Cleaning machine / dryer / instrument', sortOrder: 50 },
+    { code: 'OTHER',     label: 'Other',     description: 'Generic / non-canonical template', sortOrder: 999 },
+  ];
+  for (const k of systemKinds) {
+    await prisma.templateKind.upsert({
+      where: { code: k.code },
+      update: { label: k.label, description: k.description, sortOrder: k.sortOrder, isSystem: true },
+      create: { code: k.code, label: k.label, description: k.description, sortOrder: k.sortOrder, isSystem: true, isActive: true },
+    });
+  }
+  console.log(`  Seeded ${systemKinds.length} system template kinds`);
+
+  await applyInvariants();
 
   console.log('Seed completed successfully!');
 }

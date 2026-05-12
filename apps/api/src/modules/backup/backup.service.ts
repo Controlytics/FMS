@@ -50,7 +50,14 @@ function parseCsvContent(csvString: string): Record<string, any>[] {
       let val: any = values[j] ?? '';
       // Try to parse JSON objects/arrays
       if ((val.startsWith('{') && val.endsWith('}')) || (val.startsWith('[') && val.endsWith(']'))) {
-        try { val = JSON.parse(val); } catch {}
+        try {
+          val = JSON.parse(val);
+        } catch {
+          // Cell looks JSON-shaped but isn't valid JSON — treat as a plain
+          // string. This is intentional, not an error: CSV exports of JSON
+          // columns sometimes contain manually-edited cells that lose strict
+          // JSON validity.
+        }
       }
       // Convert "true"/"false" to boolean
       else if (val === 'true') val = true;
@@ -208,7 +215,12 @@ function parseCsvZipBackup(rawBuffer: Buffer): BackupData {
       const meta = JSON.parse(metaEntry.getData().toString('utf-8'));
       generatedBy = meta.generatedBy ?? 'unknown';
       timestamp = meta.timestamp ?? timestamp;
-    } catch {}
+    } catch (err) {
+      // Corrupted _metadata.json. Restore can still proceed with default
+      // metadata, but a malformed metadata file is a real signal that the
+      // backup may be partially corrupt — log so QA can investigate.
+      console.warn('[backup] _metadata.json could not be parsed; using defaults:', err);
+    }
   }
 
   const data: Record<string, any[]> = {};
@@ -347,7 +359,14 @@ export async function exportBak(
     data,
   };
 
-  const jsonStr = JSON.stringify(backup);
+  // BigInt replacer — audit 2026-05-04 fix C3 added a BIGSERIAL chain_position
+  // column to audit_trail. The pg driver returns BIGSERIAL as native BigInt,
+  // and JSON.stringify throws on BigInt without a replacer. Stringify them
+  // here so the backup is JSON-clean. Restore parses them back as strings;
+  // operators reading the backup file see the value verbatim.
+  const jsonStr = JSON.stringify(backup, (_k, v) =>
+    typeof v === 'bigint' ? v.toString() : v,
+  );
   const compressed = gzipSync(Buffer.from(jsonStr, 'utf-8'), { level: 9 });
 
   await auditLog({
@@ -498,6 +517,7 @@ export async function exportCsv(
 export async function restore(
   fileBuffer: Buffer,
   ctx: RequestContext,
+  opts: { force?: boolean } = {},
 ): Promise<{
   success: boolean;
   message: string;
@@ -528,7 +548,11 @@ export async function restore(
     }
   }
 
-  await restoreFromBackup(backup);
+  // Audit 2026-05-04 fix #7: pass force-flag through to restoreFromBackup so
+  // a tampered audit_trail chain is refused unless the operator explicitly
+  // overrides. Force is itself audited in the BACKUP_RESTORED row below
+  // (afterValue.forced=true).
+  await restoreFromBackup(backup, { force: opts.force });
 
   // Audit log the restore
   await auditLog({
@@ -542,8 +566,11 @@ export async function restore(
       backupVersion: backup.metadata.version,
       backupChecksum: backup.metadata.checksum,
       generatedBy: backup.metadata.generatedBy,
+      forced: opts.force === true,
     },
-    signatureMeaning: 'Database restored from backup by administrator',
+    signatureMeaning: opts.force
+      ? 'Database restored from backup by administrator (audit-chain verification BYPASSED)'
+      : 'Database restored from backup by administrator',
     ipAddress: ctx.ipAddress,
     userAgent: ctx.userAgent,
     sessionId: ctx.sessionId,

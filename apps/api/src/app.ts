@@ -15,8 +15,6 @@ import auditLoggerPlugin from './plugins/audit-logger.js';
 import rbacPlugin from './plugins/rbac.js';
 import superAdminRoutes from "./modules/super-admin/routes.js";
 import ldapRoutes from "./modules/ldap/routes.js";
-import tenantAdminRoutes from "./modules/tenant-admin/routes.js";
-import orgDetailRoutes from "./modules/tenant-admin/org-detail-routes.js";
 import entityAssignmentRoutes from "./modules/entity-assignments/routes.js";
 import dashboardRoutes from "./modules/dashboards/routes.js";
 import authRoutes from './modules/auth/routes.js';
@@ -30,7 +28,10 @@ import notificationRoutes from './modules/notifications/routes.js';
 import roleRoutes from './modules/roles/routes.js';
 import backupRoutes from './modules/backup/routes.js';
 import assetRoutes from './modules/assets/index.js';
+import templateKindRoutes from './modules/template-kinds/routes.js';
 import mqttAuthRoutes from './transport/mqtt-auth-routes.js';
+import mosquittoRefreshRoutes from './transport/mosquitto-refresh-routes.js';
+import { isFeatureEnabled, FEATURE_FLAGS } from './lib/feature-flags.js';
 import dataIngestionRoutes from './modules/data-ingestion/routes.js';
 import ruleChainRoutes from './modules/rule-chain/routes.js';
 import unsRoutes from './modules/uns/routes.js';
@@ -51,14 +52,21 @@ import { initializeNodes } from './modules/rule-chain/nodes/index.js';
 import notificationDeliveryRoutes from './modules/notification-delivery/routes.js';
 import userGroupRoutes from './modules/user-groups/routes.js';
 import notificationRulesRoutes from './modules/notification-rules/routes.js';
-import { startIngestionWorker, stopIngestionWorker } from './workers/ingestion.worker.js';
-import { startMaintenanceWorker, stopMaintenanceWorker } from './workers/maintenance.worker.js';
+import { ingestionTask } from './workers/ingestion.worker.js';
+import {
+  dlqCheckTask,
+  connectivityCheckTask,
+  retentionCleanupTask,
+} from './workers/maintenance.worker.js';
+import { startJobRunner, stopJobRunner } from '@digilog/queue';
 import { getTsdbPool, initTelemetryBatcher, closeTelemetryBatcher } from '@digilog/db';
 import { AppError } from './lib/errors.js';
+import { OfflineTimeError } from './lib/offline-time-window.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
 import cleaningProfileRoutes from './modules/cleaning-profiles/routes.js';import checklistProfileRoutes from './modules/checklist-profiles/routes.js';import filterProfileRoutes from './modules/filter-profiles/routes.js';
 import pmScheduleRoutes from './modules/pm-schedules/routes.js';import pmExecutionRoutes from './modules/pm-schedules/execution-routes.js';import filterOperationsRoutes from './modules/filter-operations/routes.js';import filterEventsRoutes from './modules/filter-operations/events-routes.js';
 import equipmentGroupRoutes from './modules/equipment-groups/routes.js';
+import syncRoutes from './modules/sync/routes.js';
 import deploymentCheckRoutes from './modules/deployment-check/routes.js';
 import adminRequestRoutes from './modules/admin-requests/routes.js';
 import blockChangeRoutes from './modules/block-change-requests/routes.js';
@@ -145,6 +153,16 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
       ...(err.details ? { details: err.details } : {}),
     });
   }
+  // Audit 2026-05-04 fix C2: bounded offlinePerformedAt validator. Map the
+  // dedicated error class to a clean 400 with a stable error code so the
+  // client knows whether to retry, re-perform the action, or contact admin.
+  if (err instanceof OfflineTimeError) {
+    return reply.code(400).send({
+      error: err.code,
+      message: err.message,
+      ...(err.details ? { details: err.details } : {}),
+    });
+  }
   // Rate limit errors from @fastify/rate-limit
   if (err.statusCode === 429) {
     return reply.code(429).send({ error: 'TOO_MANY_REQUESTS', message: err.message });
@@ -182,7 +200,15 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
         url: _req.url ?? 'N/A',
         timestamp: new Date().toISOString(),
       },
-    }).catch(() => {}); // Silently ignore dispatch errors to avoid infinite loops
+    }).catch((dispatchErr) => {
+      // Log but do not rethrow — rethrowing would re-enter the error handler
+      // and cause an infinite loop (the SYSTEM_ERROR notification itself
+      // failing would generate another SYSTEM_ERROR notification).
+      app.log.warn(
+        { dispatchErr, originalErr: err.message, url: _req.url },
+        'Failed to dispatch SYSTEM_ERROR notification — original error is still returned to the caller.',
+      );
+    });
   }
   return reply.code(err.statusCode ?? 500).send({
     error: 'INTERNAL_ERROR',
@@ -239,9 +265,19 @@ await app.register(notificationRoutes, { prefix: '/api/notifications' });
 await app.register(roleRoutes, { prefix: '/api/roles' });
 await app.register(backupRoutes, { prefix: '/api/backup' });
 await app.register(assetRoutes, { prefix: '/api/assets' });
+await app.register(templateKindRoutes, { prefix: '/api/template-kinds' });
 
 // Data Ingestion & Transport routes
-await app.register(mqttAuthRoutes, { prefix: '/api/internal/mqtt' });
+// Phase 1 cut-over: when USE_MOSQUITTO=true, expose Mosquitto's
+// dynamic-security refresh endpoint instead of the EMQX auth-webhook
+// routes. See docs/plans/2026-04-29-windows-friendly-rewrite.md.
+if (isFeatureEnabled(FEATURE_FLAGS.USE_MOSQUITTO)) {
+  app.log.info('MQTT broker mode: Mosquitto (USE_MOSQUITTO=true)');
+  await app.register(mosquittoRefreshRoutes, { prefix: '/api/internal/mqtt' });
+} else {
+  app.log.info('MQTT broker mode: EMQX (legacy, USE_MOSQUITTO=false)');
+  await app.register(mqttAuthRoutes, { prefix: '/api/internal/mqtt' });
+}
 await app.register(dataIngestionRoutes, { prefix: '/api/data' });
 await app.register(ruleChainRoutes, { prefix: '/api/rule-chains' });
 await app.register(unsRoutes, { prefix: '/api/uns' });
@@ -255,16 +291,15 @@ await app.register(notificationDeliveryRoutes, { prefix: '/api/notification-sett
 await app.register(userGroupRoutes, { prefix: '/api/user-groups' });
 await app.register(notificationRulesRoutes, { prefix: '/api/notification-rules' });
 
-// Multi-tenant management routes
+// Admin + assignment routes
 await app.register(superAdminRoutes, { prefix: "/api/super-admin" });
 await app.register(ldapRoutes, { prefix: "/api/ldap" });
-await app.register(tenantAdminRoutes, { prefix: "/api/organizations" });
-await app.register(orgDetailRoutes, { prefix: "/api/organizations" });
 await app.register(entityAssignmentRoutes, { prefix: "/api/entity-assignments" });
 await app.register(dashboardRoutes, { prefix: "/api/dashboards" });
 await app.register(cleaningProfileRoutes, { prefix: '/api/filter-cleaning-profiles' });await app.register(checklistProfileRoutes, { prefix: '/api/checklist-profiles' });await app.register(filterProfileRoutes, { prefix: '/api/filter-profiles' });
 await app.register(pmScheduleRoutes, { prefix: '/api/pm-schedules' });await app.register(pmExecutionRoutes, { prefix: '/api/pm-executions' });await app.register(filterOperationsRoutes, { prefix: '/api/filters' });await app.register(filterEventsRoutes, { prefix: '/api/filters' });
 await app.register(equipmentGroupRoutes, { prefix: '/api/equipment-groups' });
+await app.register(syncRoutes, { prefix: '/api/sync' });
 await app.register(deploymentCheckRoutes, { prefix: '/api/deployment-check' });
 await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
 await app.register(blockChangeRoutes, { prefix: '/api/block-change-requests' });
@@ -302,22 +337,33 @@ try {
     app.log.warn(batchErr);
   }
 
-  // Start ingestion pipeline worker (Phase C)
+  // Phase 2 — single graphile-worker Runner registers ALL task identifiers
+  // and the maintenance crontab (Task 2.8). The legacy BullMQ path was
+  // dropped in Task 2.10; graphile-worker is the only queue backend now.
   try {
-    await startIngestionWorker();
-    app.log.info('Ingestion worker started');
-  } catch (workerErr) {
-    app.log.warn('Ingestion worker failed to start — server continuing without worker');
-    app.log.warn(workerErr);
-  }
-
-  // Start maintenance worker (Phase C)
-  try {
-    await startMaintenanceWorker();
-    app.log.info('Maintenance worker started');
-  } catch (maintErr) {
-    app.log.warn('Maintenance worker failed to start — server continuing');
-    app.log.warn(maintErr);
+    // crontab.txt lives at <repo>/packages/queue/crontab.txt; src/app.ts is
+    // at <repo>/apps/api/src/app.ts so the relative hop is 3 dot-dots.
+    // Override via MAINTENANCE_CRONTAB_PATH for non-default monorepo layouts.
+    const crontabPath =
+      process.env.MAINTENANCE_CRONTAB_PATH ??
+      path.resolve(__dirname, '../../../packages/queue/crontab.txt');
+    await startJobRunner({
+      taskList: {
+        ingestion: ingestionTask,
+        // NOTE: no `notification` task is registered here yet — there is no
+        // consumer for it in the current codebase, so notification jobs
+        // accumulate in graphile_worker.jobs until a real handler is wired
+        // in a follow-up phase.
+        dlq_check: dlqCheckTask,
+        connectivity_check: connectivityCheckTask,
+        retention_cleanup: retentionCleanupTask,
+      },
+      crontabPath,
+    });
+    app.log.info('graphile-worker job runner started');
+  } catch (runnerErr) {
+    app.log.warn('graphile-worker job runner failed to start — server continuing');
+    app.log.warn(runnerErr);
   }
 } catch (err) {
   app.log.error(err);
@@ -334,8 +380,7 @@ const shutdown = async (signal: string) => {
   shutdownTimeout.unref();
 
   try {
-    await stopIngestionWorker();
-    await stopMaintenanceWorker();
+    await stopJobRunner();
     await closeTelemetryBatcher();
     await closeMqttClient();
     await closeWsRedis();
@@ -344,8 +389,21 @@ const shutdown = async (signal: string) => {
     await closeTracerRedis();
     await closeDebugRedis();
     await app.close();
-    try { const { closeTsdbPool } = await import('@digilog/db'); await closeTsdbPool(); } catch {}
-    try { const { closeRedisConnection } = await import('@digilog/queue'); await closeRedisConnection(); } catch {}
+    // Close queue + tsdb in their own try blocks so one failure doesn't
+    // prevent the next teardown step. Each failure is logged so partial-
+    // shutdown state is debuggable (CLAUDE.md "Never swallow exceptions").
+    try {
+      const { closeProducer } = await import('@digilog/queue');
+      await closeProducer();
+    } catch (qErr) {
+      app.log.error({ err: qErr }, 'Shutdown: closeProducer (graphile-worker) failed');
+    }
+    try {
+      const { closeTsdbPool } = await import('@digilog/db');
+      await closeTsdbPool();
+    } catch (tErr) {
+      app.log.error({ err: tErr }, 'Shutdown: closeTsdbPool (TimescaleDB) failed');
+    }
   } catch (err) {
     app.log.error(err as Error, 'Error during shutdown');
   }

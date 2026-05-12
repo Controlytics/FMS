@@ -9,9 +9,9 @@ import { prisma } from '../lib/prisma.js';
  * Tests POST /api/data/checklist with all 14 question types,
  * validation, RBAC, and DB verification.
  *
- * NOTE: The submission route enqueues to BullMQ. In the test environment,
- * we test the route + validation layer. Persistence is tested via
- * ingestion.repository unit tests.
+ * NOTE: The submission route enqueues to graphile-worker. In the test
+ * environment, we test the route + validation layer. Persistence is tested
+ * via ingestion.repository unit tests.
  */
 
 const SUFFIX = Date.now().toString(36);

@@ -31,10 +31,6 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'audit.view', label: 'View Audit Trail', category: 'System', icon: 'clipboard' },
   { id: 'audit.export', label: 'Export Audit Trail', category: 'System', icon: 'clipboard' },
 
-  // Organization Management
-  { id: 'org.view', label: 'View Organizations', category: 'System', icon: 'building' },
-  { id: 'org.manage', label: 'Manage Organizations', category: 'System', icon: 'building' },
-
   // Entity Management
   { id: 'assets.view', label: 'View Entities', category: 'Entity Management', icon: 'eye' },
   { id: 'assets.create', label: 'Create Entities', category: 'Entity Management', icon: 'plus' },
@@ -146,6 +142,9 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'reports.sign', label: 'Sign Reports', category: 'Reports', icon: 'pen-tool' },
   { id: 'reports.delete', label: 'Delete Reports', category: 'Reports', icon: 'trash' },
   { id: 'reports.export', label: 'Export Report PDFs', category: 'Reports', icon: 'download' },
+
+  // Audit / Versions (2026-05-02)
+  { id: 'version_history.view', label: 'View Version History', category: 'Audit / Versions', icon: 'history' },
 ];
 
 /**
@@ -182,10 +181,6 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'notifications.delete': ['NOTIFICATION_DELETE'],
   'audit.view': ['AUDIT_READ'],
   'audit.export': ['AUDIT_EXPORT', 'AUDIT_READ'],
-
-  // Organization Management
-  'org.view': ['ORG_VIEW'],
-  'org.manage': ['ORG_MANAGE', 'ORG_CREATE', 'ORG_DELETE', 'ORG_VIEW'],
 
   // Entity Management
   'assets.view': ['ASSET_VIEW', 'ASSET_READ'],
@@ -280,8 +275,8 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'uns.view': ['UNS_VIEW'],
   'uns.manage': ['UNS_MANAGE'],
 
-  // Admin Requests
-  'admin_requests.view': ['USER_CREATE'],
+  // Admin Requests (2026-05-04 — fix C4 privilege escalation)
+  'admin_requests.view': ['ADMIN_REQUEST_REVIEW'],
 
   // Debug Traces
   'debug.view': ['READ_DEBUG_TRACE'],
@@ -299,4 +294,7 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'reports.sign': ['REPORT_SIGN', 'REPORT_VIEW'],
   'reports.delete': ['REPORT_DELETE', 'REPORT_VIEW'],
   'reports.export': ['REPORT_EXPORT', 'REPORT_VIEW'],
+
+  // Audit / Versions (2026-05-02): cross-entity history viewer.
+  'version_history.view': ['VERSION_HISTORY_VIEW'],
 };

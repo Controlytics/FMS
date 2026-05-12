@@ -2,7 +2,7 @@
 
 ## Overview
 
-React 19 SPA built with Vite 6, styled with Tailwind CSS 4, served by Nginx in production. No component library — all UI built with Tailwind utility classes.
+React 19 SPA built with Vite 6, styled with Tailwind CSS 4. The built `apps/web/dist/` bundle is served directly by the Fastify API on port 3000 in the standard local-Windows install (Phase 4 of the windows-friendly-rewrite retired the bundled Nginx config; a reverse proxy is now optional / customer-choice). The same bundle is also packaged into the Capacitor APK for tablets. No component library — all UI built with Tailwind utility classes.
 
 **Entry point:** `apps/web/src/main.tsx`
 **Dev server:** `npx vite --host` (port 5175)
@@ -129,12 +129,13 @@ React 19 SPA built with Vite 6, styled with Tailwind CSS 4, served by Nginx in p
 
 ### Organization Management
 
-| Path | Page | Permission |
-|---|---|---|
-| `/organizations` | OrganizationsPage (lazy) | ORG_VIEW |
-| `/organizations/:id` | OrgDetailPage (lazy) | ORG_VIEW |
+> **Removed 2026-04-30 (MT removal):** `/organizations` and `/organizations/:id` routes were deleted along with the `Organization` model, `ORG_VIEW` / `ORG_MANAGE` permissions, and the `routes/tenant/` page folder. DigiLog is single-tenant.
 
-### Configuration (26 pages — verified by `ls apps/web/src/routes/config/*.tsx`)
+### Catch-all 404 redirect
+
+`apps/web/src/main.tsx` ends with `<Route path="*" element={<Navigate to="/" replace />} />`. Any URL that doesn't match a registered route (e.g. an old `/organizations` bookmark, a typo, a deep link to a deleted page) redirects to the dashboard instead of rendering blank. Added 2026-04-30 in the post-MT-removal hardening pass.
+
+### Configuration (27 pages — verified by `ls apps/web/src/routes/config/*.tsx`; +1 from Step 1 of architectural refactor)
 
 | Path | Page | Permission / Notes |
 |---|---|---|
@@ -164,6 +165,7 @@ React 19 SPA built with Vite 6, styled with Tailwind CSS 4, served by Nginx in p
 | `/config/retention` | RetentionPage | RETENTION_VIEW |
 | `/config/role-access` | RoleAccessPage | ROLE_MANAGE |
 | `/config/tablet-access` | TabletAccessConfigPage | SUPER_ADMIN — role × feature matrix; controls `/m` access |
+| `/config/template-kinds` | TemplateKindsConfigPage | CONFIG_UPDATE — admin-editable Template Kinds lookup (BLOCK/AREA/AHU/FILTER/EQUIPMENT/OTHER seeded as system; admins can add PUMP/VALVE/etc.). System rows show 🔒 badge and Delete is hidden. Step 1 of architectural refactor. |
 | `/config/uns` | UnsConfigPage | UNS_VIEW |
 | `/config/user-id` | UserIdConfigPage | SUPER_ADMIN — username format rules |
 
@@ -347,7 +349,7 @@ Cached Data (IndexedDB):
 2. **apiClient for all writes** — post/put/delete with token attachment
 3. **Lazy loading** — heavy pages code-split via `React.lazy()`
 4. **Permission gating** — `<RequireRole>` wrapper + `isSuperAdmin` bypass
-5. **Re-authentication** — `useReauth()` + `ReauthDialog` for 69 sensitive actions
+5. **Re-authentication** — `useReauth()` + `ReauthDialog` for 81 sensitive actions
 6. **Toast notifications** — success/error feedback (never `alert()`)
 7. **Light theme only** — bg-white cards, bg-slate-50 sections, no dark mode
 8. **Responsive** — sidebar collapses to hamburger on mobile, reduced padding

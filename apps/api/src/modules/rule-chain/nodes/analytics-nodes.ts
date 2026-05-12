@@ -31,9 +31,9 @@ registerNode({
       const aggregation = (config.aggregation as string) ?? 'AVG';
       const outputKey = (config.outputKey as string) || `_agg_${telemetryKey}`;
       if (!telemetryKey) return { output: 'Failure', message, log: 'No telemetry key specified' };
-      const where = direction === 'source'
-        ? { sourceAssetId: ctx.entityId, relationshipType: relationType }
-        : { targetAssetId: ctx.entityId, relationshipType: relationType };
+      const where = (direction === 'source'
+        ? { sourceAssetId: ctx.entityId, relationshipType: relationType as any }
+        : { targetAssetId: ctx.entityId, relationshipType: relationType as any });
       const rels = await prisma.assetRelationship.findMany({
         where,
         select: direction === 'source' ? { targetAssetId: true } : { sourceAssetId: true },

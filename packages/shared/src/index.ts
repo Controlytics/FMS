@@ -29,6 +29,31 @@ export type { AuditTemplateDefinition, AuditTemplateCategory } from './types/aud
 export { ALARM_COLUMN_DEFINITIONS, ALL_ALARM_COLUMN_IDS } from './types/alarm-columns.js';
 export type { AlarmColumnDefinition } from './types/alarm-columns.js';
 
+export type {
+  TapeQuestion,
+  TapeStage,
+  TapeConnection,
+  TapeInstrument,
+  TapeCycle,
+  TapePinnedProfile,
+  TapePinnedEquipmentGroup,
+  TapeChecklistProfile,
+  TapeChecklistEvent,
+  TapeInput,
+  ActionKind,
+  OperatingRangeMap,
+  AdvanceToStageAction,
+  SubmitChecklistAction,
+  SubmitDryerReadingsAction,
+  SetDryerDurationAction,
+  BypassStageAction,
+  TerminateCycleAction,
+  CompleteCycleAction,
+  Action,
+  ActionTape,
+  StaleTapeError,
+} from './types/action-tape.js';
+
 // Schemas
 export { loginSchema, passwordChangeSchema, reAuthSchema } from './schemas/auth.js';
 export type { LoginInput, PasswordChangeInput, ReAuthInput } from './schemas/auth.js';
@@ -52,10 +77,17 @@ export {
   createAssetInstanceSchema, updateAssetInstanceSchema,
   createAssetRelationshipSchema, createAssetIdentifierSchema,
   assetQuerySchema, templateQuerySchema,
+  SYSTEM_TEMPLATE_KIND_CODES,
+  createTemplateKindSchema, updateTemplateKindSchema,
 } from './schemas/assets.js';
 export type {
   CreateAssetTemplateInput, UpdateAssetTemplateInput,
   CreateAssetInstanceInput, UpdateAssetInstanceInput,
   CreateAssetRelationshipInput, CreateAssetIdentifierInput,
   AssetQueryInput, TemplateQueryInput,
+  SystemTemplateKindCode,
+  CreateTemplateKindInput, UpdateTemplateKindInput,
 } from './schemas/assets.js';
+
+// Pipeline executor (Phase 8.4c scaffold; 8.5 fills in guard bodies).
+export * from './pipeline-executor/index.js';

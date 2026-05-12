@@ -4,12 +4,12 @@ For the full root-level setup (Windows dev box), the authoritative guide is **`L
 
 ## Prerequisites
 
-- Node 22 + npm 11 (root `package.json` pins `"packageManager": "npm@11.6.2"`)
-- PostgreSQL 18 with two databases: `digilog_db` (app) and `digilog_tsdb` (telemetry, TimescaleDB extension)
-- Redis ≥5 (Windows: Memurai ≥5 — do **not** use Redis 3 or earlier, BullMQ will crash)
-- EMQX ≥5 (MQTT broker on 1883, admin dashboard on 18083)
-- JDK 21 + Android SDK (only if you also build the APK) — installed at `C:\Users\hello\` on the reference dev box
-- Puppeteer will download Chromium automatically on first install (PDF reports)
+- Node 20+ / 22 + npm 11 (root `package.json` pins `"packageManager": "npm@11.6.2"`)
+- PostgreSQL 18 with two databases: `digilog_db` (app + graphile-worker schema) and `digilog_tsdb` (telemetry, TimescaleDB extension)
+- Mosquitto 2.0 — optional unless testing MQTT ingest. Install via `scripts/install-mosquitto.ps1` from elevated PowerShell. (Phase 1 of windows-friendly-rewrite swapped from EMQX.)
+- Redis / Memurai ≥5 — **optional**. Phase 2 of windows-friendly-rewrite moved the job queue onto Postgres via graphile-worker. Redis is still used for non-queue pub/sub (WebSocket events, RPC routing, pipeline tracer, debug recorder); if you skip it those features degrade silently. Don't use Redis 3 or earlier; BullMQ-era code paths will crash.
+- Microsoft Edge — preinstalled on Win10+/Server 2019+. `puppeteer-core` drives it for PDF reports via `detectEdgePath()`. Set `PUPPETEER_EXECUTABLE_PATH` to override (e.g. on Server Core install Chrome and point at it).
+- JDK 21 + Android SDK (only if you also build the APK) — installed at `C:\Users\hello\` on the reference dev box.
 
 ## First-time setup
 
@@ -59,7 +59,7 @@ powershell -ExecutionPolicy Bypass -File scripts/package-for-production.ps1
 powershell -ExecutionPolicy Bypass -File scripts/install-on-target.ps1
 ```
 
-The optional Nginx reverse proxy fronts the API at port 80/443; the SPA is served from `apps/web/dist/`. Without Nginx, point clients directly at `https://localhost:3000` (with `API_HTTPS=true`).
+After Phase 4 of the windows-friendly-rewrite the Fastify API serves both the SPA (from `apps/web/dist/`) and `/api/*` directly on port 3000 over HTTPS (`API_HTTPS=true` + mkcert certs). A reverse proxy (Nginx / IIS) is optional / customer-choice; nothing in the standard install path depends on it.
 
 ## Swagger
 
@@ -72,9 +72,9 @@ The optional Nginx reverse proxy fronts the API at port 80/443; the SPA is serve
 - Restores rewrite the `roles` table — reseed (or `UPDATE`) after a restore to recover lost permissions.
 - Dynamic backup goes through `pg_tables` + `jsonb_populate_recordset` and handles all 64 tables without needing superuser.
 
-## Connecting locally with Memurai on Windows
+## Connecting locally with Memurai on Windows (optional)
 
-Memurai appears as the "Memurai" service in Windows services. Make sure it's running before `npm run dev`, otherwise the BullMQ producer/consumer will fail silently during worker startup.
+Memurai appears as the "Memurai" service in Windows services. After Phase 2 of the windows-friendly-rewrite the **job queue lives on Postgres via graphile-worker**, so Memurai is no longer required for queue work. If you do install it, make sure the service is running before `npm run dev` so the non-queue pub/sub features (WebSocket events, RPC routing, pipeline tracer, debug recorder) wire up correctly.
 
 ## Android build (optional)
 

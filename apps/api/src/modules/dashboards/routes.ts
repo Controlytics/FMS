@@ -6,6 +6,17 @@ import { getTsdbPool } from '@digilog/db';
 /**
  * Dashboard routes — widget-based dashboards with assignment
  * Prefix: /api/dashboards
+ *
+ * STATUS: Future-development scope (parked 2026-04-30).
+ * Backend is feature-complete (CRUD, widgets, layout, role/user/org assignment,
+ * widget data fetcher) and tied to the Dashboard / DashboardWidget /
+ * DashboardAssignment Prisma models. No frontend page consumes it today —
+ * the live "Dashboard" route at `/` uses standalone endpoints
+ * (/api/users/stats, /api/audit?limit=1, /api/filters/dashboard-stats, etc).
+ *
+ * To activate: build the `/dashboards` page (drag-drop widget canvas + the
+ * widget-types catalog) and replace the hardcoded landing page. Tracked in
+ * future/feature-dashboards.md.
  */
 export default async function dashboardRoutes(app: FastifyInstance) {
 
@@ -26,7 +37,6 @@ export default async function dashboardRoutes(app: FastifyInstance) {
         dashboardId,
         OR: [
           { assigneeType: 'USER', userId: req.user.sub },
-          { assigneeType: 'ORGANIZATION', organizationId: req.user.organizationId },
           { assigneeType: 'ROLE', roleValue: role },
         ],
       },
@@ -61,7 +71,6 @@ export default async function dashboardRoutes(app: FastifyInstance) {
         where: {
           OR: [
             { assigneeType: 'USER', userId: req.user.sub },
-            { assigneeType: 'ORGANIZATION', organizationId: req.user.organizationId },
             { assigneeType: 'ROLE', roleValue: role },
           ],
         },
@@ -357,9 +366,8 @@ export default async function dashboardRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['assigneeType'],
         properties: {
-          assigneeType: { type: 'string', enum: ['USER', 'ORGANIZATION', 'ROLE'] },
+          assigneeType: { type: 'string', enum: ['USER', 'ROLE'] },
           userId: { type: 'string', format: 'uuid' },
-          organizationId: { type: 'string', format: 'uuid' },
           roleValue: { type: 'string' },
         },
       },
@@ -374,7 +382,6 @@ export default async function dashboardRoutes(app: FastifyInstance) {
         dashboardId: id,
         assigneeType: body.assigneeType,
         userId: body.userId || null,
-        organizationId: body.organizationId || null,
         roleValue: body.roleValue || null,
       },
     });

@@ -131,11 +131,32 @@ export const TEMPLATE_CATEGORIES = [
   'Vehicle', 'Utility', 'Process', 'Storage', 'Laboratory',
 ] as const;
 
+// Canonical template-kind codes seeded as system kinds (isSystem=true) by
+// prisma/seed.ts. SUPER_ADMIN can add additional kinds at runtime via the
+// Configuration UI (Configuration → Template Kinds). The Filter Management /
+// Cleaning Operations / Mobile pages route by code; system kinds preserve
+// their codes to keep page-routing stable.
+export const SYSTEM_TEMPLATE_KIND_CODES = [
+  'BLOCK', 'AREA', 'AHU', 'FILTER', 'EQUIPMENT', 'OTHER',
+] as const;
+export type SystemTemplateKindCode = (typeof SYSTEM_TEMPLATE_KIND_CODES)[number];
+
+// Validation only constrains the code shape (uppercase letters, digits,
+// underscores). The list of valid codes is dynamic — fetched from
+// /api/template-kinds at runtime. Server-side, the FK on AssetTemplate
+// enforces the value exists in the lookup table.
+const templateKindCodeSchema = z
+  .string()
+  .min(1)
+  .max(50)
+  .regex(/^[A-Z][A-Z0-9_]*$/, 'Template-kind code must be UPPER_SNAKE_CASE');
+
 export const createAssetTemplateSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
   category: z.enum(TEMPLATE_CATEGORIES).default('General'),
   icon: z.string().max(50).default('box'),
+  templateKind: templateKindCodeSchema.default('OTHER'),
   attributeSchema: z.array(attributeDefinitionSchema).default([]),
   telemetrySchema: z.array(telemetryDefinitionSchema).default([]),
   expectedIdentifiers: z.array(expectedIdentifierSchema).default([]),
@@ -192,6 +213,15 @@ export const createAssetInstanceSchema = z.object({
   telemetryConfig: z.record(z.unknown()).default({}),
   customAttributes: z.record(z.unknown()).default({}),
   parentId: z.string().uuid().nullable().optional(),
+  // Audit 2026-05-05 fix #1: optional FilterDetails fields the create dialog
+  // sends for filter-kind templates. Schema accepts them so the route doesn't
+  // strip them before reaching instance.service.ts:111-128 which now persists
+  // them onto the FilterDetails sidecar.
+  // Server validates: filterSet must be 'A' or 'B' if supplied; filterProfileId
+  // FK constraint catches a bad UUID. Both are silently ignored for non-FILTER
+  // templates (the FilterDetails create branch never runs).
+  filterSet: z.enum(['A', 'B']).nullable().optional(),
+  filterProfileId: z.string().uuid().nullable().optional(),
 });
 
 export const updateAssetInstanceSchema = z.object({
@@ -246,16 +276,46 @@ export const assetQuerySchema = z.object({
   parentId: z.string().uuid().nullable().optional(),
   isActive: z.string().optional(),
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).optional(),
+  // Cap upper bound; missing limit defaults to a sane page size.
+  // Cap raised to 1000 so the SPA's bulk fetches (Filter Operations, Equipment
+  // Groups, Filter Management list) stop tripping a 500 — still bounded enough
+  // that an authenticated request can't OOM the API.
+  limit: z.coerce.number().int().min(1).max(1000).default(50),
 });
 
 export const templateQuerySchema = z.object({
   search: z.string().optional(),
   isActive: z.string().optional(),
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(1000).default(50),
 });
 
 export type AssetQueryInput = z.infer<typeof assetQuerySchema>;
 export type TemplateQueryInput = z.infer<typeof templateQuerySchema>;
+
+
+
+// =============================================
+// Template Kind CRUD
+// =============================================
+
+export const createTemplateKindSchema = z.object({
+  code: templateKindCodeSchema,
+  label: z.string().min(1).max(100),
+  description: z.string().max(500).optional(),
+  sortOrder: z.number().int().min(0).default(0),
+  isActive: z.boolean().default(true),
+});
+
+// Updates cannot rename code; system kinds also lock label/description in the
+// service layer (the Zod schema accepts; the service rejects).
+export const updateTemplateKindSchema = z.object({
+  label: z.string().min(1).max(100).optional(),
+  description: z.string().max(500).optional(),
+  sortOrder: z.number().int().min(0).optional(),
+  isActive: z.boolean().optional(),
+});
+
+export type CreateTemplateKindInput = z.infer<typeof createTemplateKindSchema>;
+export type UpdateTemplateKindInput = z.infer<typeof updateTemplateKindSchema>;
 

@@ -6,13 +6,14 @@
  *   2. Must send AUTH { type: "AUTH", token: "JWT" } within 5 seconds
  *   3. Server validates JWT → AUTH_OK or close 4001
  *   4. SUBSCRIBE { type: "SUBSCRIBE", entityId, keys } / UNSUBSCRIBE { type: "UNSUBSCRIBE", entityId }
- *   5. Server subscribes to Redis pub/sub channel `ws:events` for broadcasting
+ *   5. Server subscribes to internal-bus channel `ws:events` for broadcasting
+ *      (Phase 4 — was Redis pub/sub)
  *   6. Track connections per user, max from SystemConfig (default 5)
  */
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type WebSocket from 'ws';
-import IORedis from 'ioredis';
+import { bus, type BusUnsubscribe } from '../lib/internal-bus.js';
 import { verifyToken } from '../lib/jwt.js';
 import { prisma } from '../lib/prisma.js';
 
@@ -32,7 +33,7 @@ const allClients = new Set<WsClient>();
 // Default max connections per user
 const DEFAULT_MAX_CONNECTIONS = 5;
 
-let redisSub: IORedis | null = null;
+let busUnsubscribe: BusUnsubscribe | null = null;
 
 async function getMaxConnectionsPerUser(): Promise<number> {
   try {
@@ -51,59 +52,35 @@ async function getMaxConnectionsPerUser(): Promise<number> {
   return DEFAULT_MAX_CONNECTIONS;
 }
 
-function initRedisSubscriber(): IORedis {
-  if (!redisSub) {
-    redisSub = new IORedis({
-      host: process.env.REDIS_HOST ?? 'localhost',
-      port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
-      password: process.env.REDIS_PASSWORD || undefined,
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
-    });
-
-    redisSub.subscribe('ws:events', (err) => {
-      if (err) {
-        console.error('[WS] Failed to subscribe to ws:events:', err.message);
-      } else {
-        console.info('[WS] Subscribed to Redis channel ws:events');
-      }
-    });
-
-    redisSub.on('message', (_channel: string, message: string) => {
+/**
+ * Phase 4: subscribe to internal-bus 'ws:events' channel. Replaces the prior
+ * Redis pub/sub subscription. Same payload shape, same broadcast semantics.
+ */
+function initBusSubscriber(): void {
+  if (busUnsubscribe) return;
+  busUnsubscribe = bus.on<{ entityId: string; type: string; data: Record<string, unknown> }>('ws:events', (event) => {
+    if (!event || typeof event !== 'object' || typeof event.entityId !== 'string') return;
+    const deadClients: WsClient[] = [];
+    for (const client of allClients) {
+      if (!client.authenticated) continue;
+      if (!client.subscriptions.has(event.entityId)) continue;
       try {
-        const event = JSON.parse(message) as {
-          entityId: string;
-          type: string;
-          data: Record<string, unknown>;
-        };
-
-        // Broadcast to all clients subscribed to this entityId
-        const deadClients: WsClient[] = [];
-        for (const client of allClients) {
-          if (!client.authenticated) continue;
-          if (!client.subscriptions.has(event.entityId)) continue;
-
-          try {
-            client.ws.send(JSON.stringify({
-              type: 'DATA',
-              entityId: event.entityId,
-              dataType: event.type,
-              data: event.data,
-              timestamp: new Date().toISOString(),
-            }));
-          } catch {
-            deadClients.push(client);
-          }
-        }
-        for (const dead of deadClients) {
-          removeConnection(dead);
-        }
+        client.ws.send(JSON.stringify({
+          type: 'DATA',
+          entityId: event.entityId,
+          dataType: event.type,
+          data: event.data,
+          timestamp: new Date().toISOString(),
+        }));
       } catch {
-        // Invalid JSON — ignore
+        deadClients.push(client);
       }
-    });
-  }
-  return redisSub;
+    }
+    for (const dead of deadClients) {
+      removeConnection(dead);
+    }
+  });
+  console.info('[WS] Subscribed to internal-bus channel ws:events');
 }
 
 function addConnection(client: WsClient): boolean {
@@ -127,7 +104,7 @@ function removeConnection(client: WsClient): void {
 
 export default async function wsHandler(app: FastifyInstance) {
   // Initialize Redis subscriber for broadcasting
-  initRedisSubscriber();
+  initBusSubscriber();
 
   app.get('/api/ws', {
     websocket: true,
@@ -285,11 +262,13 @@ export default async function wsHandler(app: FastifyInstance) {
 }
 
 /**
- * Close the Redis subscriber on shutdown.
+ * Phase 4: unsubscribe from internal-bus on shutdown. Retained as
+ * `closeWsRedis` for backward compatibility with existing app shutdown
+ * handlers — the name is historical.
  */
 export async function closeWsRedis(): Promise<void> {
-  if (redisSub) {
-    await redisSub.quit();
-    redisSub = null;
+  if (busUnsubscribe) {
+    busUnsubscribe();
+    busUnsubscribe = null;
   }
 }

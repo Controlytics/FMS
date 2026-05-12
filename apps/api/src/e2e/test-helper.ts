@@ -147,6 +147,28 @@ export async function loginAs(
 }
 
 /**
+ * Obtain an offline-replay grant token. Used by suites that need to replay
+ * via the new HMAC-token mechanism (audit 2026-05-04 fix C1) — replaces the
+ * previous bare `x-offline-replay: true` header bypass.
+ */
+export async function obtainOfflineGrant(
+  app: FastifyInstance,
+  token: string,
+  password = ADMIN_PASSWORD,
+): Promise<string> {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/auth/offline-grant',
+    headers: { authorization: `Bearer ${token}` },
+    payload: { _currentPassword: password },
+  });
+  if (res.statusCode !== 200) {
+    throw new Error(`Failed to obtain offline-replay grant: ${res.statusCode} ${res.body}`);
+  }
+  return JSON.parse(res.body).token;
+}
+
+/**
  * Make an authenticated GET request.
  */
 export async function authGet(app: FastifyInstance, url: string, token: string) {

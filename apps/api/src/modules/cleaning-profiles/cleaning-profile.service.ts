@@ -1,48 +1,46 @@
 /**
  * Cleaning Profile Service — CRUD, validation, versioning for filter cleaning profiles.
  */
+import { randomUUID } from 'node:crypto';
 import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
-import { orgScope } from '../../lib/org-scope.js';
-
-function orgFilter(ctx: RequestContext) { return orgScope(ctx); }
 
 export class CleaningProfileService {
-  async list(ctx: RequestContext, query: { page?: number; limit?: number; status?: string }) {
+  async list(_ctx: RequestContext, query: { page?: number; limit?: number; status?: string }) {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
-    const where: any = { ...orgFilter(ctx) };
+    const where: any = {};
 
     if (query.status === 'ACTIVE') {
-      // Show only profiles with ACTIVE status (latest version per name)
+      // Show only profiles with ACTIVE status (latest version per lineage)
       where.status = 'ACTIVE';
     } else if (query.status === 'INACTIVE') {
-      // Show only profiles that have NO active version at all
-      // (i.e. the profile was explicitly disabled, not just an old version)
-      const activeNames = await prisma.filterCleaningProfile.findMany({
-        where: { ...orgFilter(ctx), status: 'ACTIVE' },
-        select: { name: true },
-        distinct: ['name'],
+      // Show only lineages whose latest version is NOT ACTIVE
+      // (i.e. the profile family was explicitly disabled, not just an old version)
+      const activeLineages = await prisma.filterCleaningProfile.findMany({
+        where: { status: 'ACTIVE' },
+        select: { lineageId: true },
+        distinct: ['lineageId'],
       });
-      const activeNameSet = activeNames.map(n => n.name);
+      const activeLineageSet = activeLineages.map(l => l.lineageId);
       where.status = { in: ['ARCHIVED', 'DRAFT'] };
-      if (activeNameSet.length > 0) {
-        where.name = { notIn: activeNameSet };
+      if (activeLineageSet.length > 0) {
+        where.lineageId = { notIn: activeLineageSet };
       }
     }
 
-    // Get latest version per profile name
-    const latestPerName = await prisma.filterCleaningProfile.findMany({
+    // Get latest version per lineage
+    const latestPerLineage = await prisma.filterCleaningProfile.findMany({
       where,
-      distinct: ['name'],
-      orderBy: [{ name: 'asc' }, { version: 'desc' }],
+      distinct: ['lineageId'],
+      orderBy: [{ lineageId: 'asc' }, { version: 'desc' }],
       select: { id: true },
     });
 
-    const total = latestPerName.length;
-    const pagedIds = latestPerName.slice((page - 1) * limit, page * limit).map(p => p.id);
+    const total = latestPerLineage.length;
+    const pagedIds = latestPerLineage.slice((page - 1) * limit, page * limit).map(p => p.id);
 
     const paged = pagedIds.length > 0
       ? await prisma.filterCleaningProfile.findMany({
@@ -71,9 +69,9 @@ export class CleaningProfileService {
     };
   }
 
-  async getById(ctx: RequestContext, id: string) {
+  async getById(_ctx: RequestContext, id: string) {
     const profile = await prisma.filterCleaningProfile.findFirst({
-      where: { id, ...orgFilter(ctx) },
+      where: { id },
       include: {
         stages: { orderBy: { sortOrder: 'asc' } },
         connections: true,
@@ -91,9 +89,9 @@ export class CleaningProfileService {
 
     const profile = await prisma.filterCleaningProfile.create({
       data: {
+        lineageId: randomUUID(),
         name,
         description,
-        organizationId: (() => { if (!ctx.organizationId) throw new AppError(400, 'VALIDATION_ERROR', 'Organization context required'); return ctx.organizationId; })(),
         flowMode: flowMode ?? 'STRICT',
         alarmOnForwardSkip: alarmOnForwardSkip ?? true,
         alarmOnBackwardJump: alarmOnBackwardJump ?? true,
@@ -162,12 +160,12 @@ export class CleaningProfileService {
       data: { status: 'ARCHIVED' },
     });
 
-    // Create new version with ACTIVE status
+    // Create new version with ACTIVE status — inherits lineageId from parent
     const newProfile = await tx.filterCleaningProfile.create({
       data: {
+        lineageId: existing.lineageId,
         name: data.name ?? existing.name,
         description: data.description ?? existing.description,
-        organizationId: existing.organizationId,
         flowMode: data.flowMode ?? existing.flowMode,
         alarmOnForwardSkip: data.alarmOnForwardSkip ?? existing.alarmOnForwardSkip,
         alarmOnBackwardJump: data.alarmOnBackwardJump ?? existing.alarmOnBackwardJump,
@@ -322,84 +320,109 @@ export class CleaningProfileService {
     return { success: true };
   }
 
-  async getAssignedAssets(ctx: RequestContext, id: string) {
-    // Find all filter profiles that reference this cleaning profile
-    const filterProfiles = await prisma.filterProfile.findMany({
-      where: { cleaningProfileId: id, ...orgFilter(ctx) },
-      select: { id: true },
+  /**
+   * List all versions in the same lineage as `id`. Latest version first.
+   * Phase A.2 (2026-05-01): exposes the immutable-rowful version history.
+   */
+  async getVersions(_ctx: RequestContext, id: string) {
+    const anchor = await prisma.filterCleaningProfile.findUnique({
+      where: { id },
+      select: { lineageId: true },
     });
-    const fpIds = filterProfiles.map(fp => fp.id);
+    if (!anchor) throw new AppError(404, 'NOT_FOUND', 'Cleaning profile not found');
 
-    if (fpIds.length === 0) return [];
-
-    // Find all assets assigned to these filter profiles
-    const assets = await prisma.assetInstance.findMany({
-      where: { filterProfileId: { in: fpIds } },
-      select: { id: true, name: true, filterSet: true, currentLifecycleState: true, filterProfileId: true },
-      orderBy: { name: 'asc' },
+    const versions = await prisma.filterCleaningProfile.findMany({
+      where: { lineageId: anchor.lineageId },
+      orderBy: { version: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        version: true,
+        status: true,
+        flowMode: true,
+        createdBy: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
-    return assets;
+    return { lineageId: anchor.lineageId, versions };
   }
 
-  async assignAssets(ctx: RequestContext, id: string, assetIds: string[]) {
-    const profile = await this.getById(ctx, id);
-
-    // Find or create a filter profile for this cleaning profile
-    let filterProfile = await prisma.filterProfile.findFirst({
-      where: { cleaningProfileId: id, organizationId: profile.organizationId },
+  /**
+   * Fetch a specific historical version (frozen snapshot including stages + connections).
+   * Phase A.2 (2026-05-01).
+   */
+  async getVersion(_ctx: RequestContext, id: string, versionNumber: number) {
+    const anchor = await prisma.filterCleaningProfile.findUnique({
+      where: { id },
+      select: { lineageId: true },
     });
+    if (!anchor) throw new AppError(404, 'NOT_FOUND', 'Cleaning profile not found');
 
-    if (!filterProfile) {
-      filterProfile = await prisma.filterProfile.create({
-        data: {
-          name: profile.name,
-          cleaningProfileId: id,
-          organizationId: profile.organizationId,
-          blockRestriction: 'OWN_BLOCK_ONLY',
-        },
-      });
-    } else {
-      // Update the filter profile name to match
-      await prisma.filterProfile.update({
-        where: { id: filterProfile.id },
-        data: { name: profile.name, cleaningProfileId: id },
-      });
+    const profile = await prisma.filterCleaningProfile.findUnique({
+      where: { lineageId_version: { lineageId: anchor.lineageId, version: versionNumber } },
+      include: {
+        stages: { orderBy: { sortOrder: 'asc' } },
+        connections: true,
+      },
+    });
+    if (!profile) {
+      throw new AppError(
+        404,
+        'NOT_FOUND',
+        `Version ${versionNumber} not found in lineage ${anchor.lineageId}`,
+      );
+    }
+    return profile;
+  }
+
+  /**
+   * Delete a cleaning profile row entirely. Blocks if any cycle references it
+   * (cycles freeze profileId at start; deleting an in-flight or archived row that
+   * a cycle still points to would corrupt audit replay).
+   * Phase A.2 (2026-05-01).
+   */
+  async deleteProfile(ctx: RequestContext, id: string) {
+    const existing = await this.getById(ctx, id);
+
+    const cycleCount = await prisma.cleaningCycle.count({ where: { profileId: id } });
+    if (cycleCount > 0) {
+      throw new AppError(
+        409,
+        'CONFLICT',
+        `Cannot delete: ${cycleCount} cleaning cycle(s) reference this version. Archive it instead.`,
+      );
     }
 
-    // Unassign all current assets from this filter profile
-    await prisma.assetInstance.updateMany({
-      where: { filterProfileId: filterProfile.id },
-      data: { filterProfileId: null },
-    });
-
-    // Assign selected assets
-    if (assetIds.length > 0) {
-      await prisma.assetInstance.updateMany({
-        where: { id: { in: assetIds } },
-        data: { filterProfileId: filterProfile.id },
-      });
+    const filterProfileCount = await prisma.filterProfile.count({ where: { cleaningProfileId: id } });
+    if (filterProfileCount > 0) {
+      throw new AppError(
+        409,
+        'CONFLICT',
+        `Cannot delete: ${filterProfileCount} filter profile assignment(s) reference this version.`,
+      );
     }
+
+    await prisma.filterCleaningProfile.delete({ where: { id } });
 
     await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole, action: 'ASSIGNED',
+      userId: ctx.userId, userRole: ctx.userRole, action: 'DELETED',
       targetType: 'cleaning_profile', targetId: id,
-      afterValue: { assignedAssets: assetIds.length },
+      beforeValue: { name: existing.name, version: existing.version, lineageId: existing.lineageId },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
     });
 
-    return { success: true, assignedCount: assetIds.length };
+    return { success: true };
   }
 
-  async validate(_ctx: RequestContext, data: any) {
-    const errors: string[] = [];
-    try {
-      this.validatePipeline(data.stages ?? [], data.connections ?? []);
-    } catch (err: any) {
-      errors.push(err.message);
-    }
-    return { valid: errors.length === 0, errors };
-  }
+  // Audit 2026-05-09 cleanup: removed three unused public methods —
+  // getAssignedAssets(), assignAssets(), and validate() — along with their
+  // routes (POST /:id/validate, GET /:id/assigned-assets, POST /:id/assign-assets).
+  // Zero callers in the codebase. Asset → filter-profile binding is done
+  // at FilterProfile create time via cleaningProfileId; no separate
+  // bulk-assign UI was ever built. validatePipeline() (the internal helper
+  // called by create + update) is preserved.
 
   private validatePipeline(stages: any[], connections: any[]) {
     if (!stages || stages.length < 2) {

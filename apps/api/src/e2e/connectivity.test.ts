@@ -126,10 +126,13 @@ describe('Connectivity endpoints', () => {
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.snippets).toBeDefined();
+    // Server returns snippets for python / nodejs / curl / c. The Arduino
+    // snippet was retired - the C snippet (compiled with gcc + libcurl /
+    // mosquitto) covers the same low-level use case for embedded clients.
     expect(typeof body.snippets.python).toBe('string');
     expect(typeof body.snippets.nodejs).toBe('string');
     expect(typeof body.snippets.curl).toBe('string');
-    expect(typeof body.snippets.arduino).toBe('string');
+    expect(typeof body.snippets.c).toBe('string');
     // Snippets should mention the entity name
     expect(body.snippets.python).toContain(`Conn Device ${SUFFIX}`);
     expect(body.snippets.curl).toContain(`Conn Device ${SUFFIX}`);

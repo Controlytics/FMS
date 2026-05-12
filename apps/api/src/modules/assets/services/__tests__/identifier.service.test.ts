@@ -51,6 +51,10 @@ describe('identifierService', () => {
   describe('create', () => {
     it('creates identifier', async () => {
       mockInstanceRepo.findByIdSimple.mockResolvedValue({ id: 'a1' });
+      // The service enforces "one identifier per entity" via findMany before
+      // findByIdentifierValue. Both must return empty for the create to
+      // proceed.
+      mockIdentRepo.findMany.mockResolvedValue([]);
       mockIdentRepo.findByIdentifierValue.mockResolvedValue(null);
       mockIdentRepo.create.mockResolvedValue({ id: 'i1', assetId: 'a1', identifierType: 'QR', identifierValue: 'QR-001' });
 
@@ -65,8 +69,10 @@ describe('identifierService', () => {
         .rejects.toThrow('not found');
     });
 
-    it('rejects duplicate identifier value', async () => {
+    it('rejects duplicate identifier value (collision against another entity)', async () => {
       mockInstanceRepo.findByIdSimple.mockResolvedValue({ id: 'a1' });
+      // Pass the "one-per-entity" check; trip on the cross-entity dup check.
+      mockIdentRepo.findMany.mockResolvedValue([]);
       mockIdentRepo.findByIdentifierValue.mockResolvedValue({ id: 'existing' });
 
       await expect(identifierService.create({ assetId: 'a1', identifierType: 'QR', identifierValue: 'DUP' }, ctx))

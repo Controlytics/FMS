@@ -234,6 +234,46 @@ export function CleaningCycleTimelinePage() {
                 {cycle.cleaningJustification}
               </div>
             )}
+
+            {/* CHVH (2026-05-02): pinned versions linkage. Each chip deep-links
+                to the Version History page focused on the entity + version this
+                cycle was pinned to at start, so an auditor can see the exact
+                rules in effect when the cycle ran. */}
+            {(cycle.profileVersion !== undefined || cycle.equipmentGroupVersionPin || (cycle.checklistVersionPins && Object.keys(cycle.checklistVersionPins ?? {}).length > 0)) && (
+              <div className="mt-3 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg">
+                <div className="text-[10px] text-indigo-700 uppercase tracking-wider mb-1.5 font-semibold">Pinned Versions (audit replay)</div>
+                <div className="flex flex-wrap gap-2 items-center">
+                  {cycle.profileVersion !== undefined && (
+                    <button
+                      onClick={() => navigate(`/version-history?entity=cleaning-profile&id=${cycle.profileId}&v=${cycle.profileVersion}`)}
+                      className="text-xs px-2 py-1 bg-white border border-indigo-300 hover:border-indigo-500 hover:bg-indigo-50 rounded-md font-medium text-indigo-800 transition-colors"
+                      title="Cleaning pipeline pinned at cycle start"
+                    >
+                      Pipeline v{cycle.profileVersion}
+                    </button>
+                  )}
+                  {cycle.equipmentGroupVersionPin !== undefined && cycle.equipmentGroupVersionPin !== null && cycle.equipmentGroupId && (
+                    <button
+                      onClick={() => navigate(`/version-history?entity=equipment-group&id=${cycle.equipmentGroupId}&v=${cycle.equipmentGroupVersionPin}`)}
+                      className="text-xs px-2 py-1 bg-white border border-indigo-300 hover:border-indigo-500 hover:bg-indigo-50 rounded-md font-medium text-indigo-800 transition-colors"
+                      title="Equipment group ranges pinned at cycle start (P1)"
+                    >
+                      Equipment v{cycle.equipmentGroupVersionPin}
+                    </button>
+                  )}
+                  {cycle.checklistVersionPins && Object.entries(cycle.checklistVersionPins).map(([profileId, version]) => (
+                    <button
+                      key={profileId}
+                      onClick={() => navigate(`/version-history?entity=checklist-profile&id=${profileId}&v=${version}`)}
+                      className="text-xs px-2 py-1 bg-white border border-indigo-300 hover:border-indigo-500 hover:bg-indigo-50 rounded-md font-medium text-indigo-800 transition-colors"
+                      title={`Checklist profile ${(profileId as string).slice(0, 8)}… pinned at cycle start`}
+                    >
+                      Checklist v{String(version)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Stage Progress Bar */}

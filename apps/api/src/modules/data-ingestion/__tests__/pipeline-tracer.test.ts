@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────
+// Phase 4 (2026-05-01): Redis publish replaced by internal-bus.bus.emit. Tests
+// now spy on the bus's emit method via vi.mock instead of mocking ioredis.
 
-const { mockGetConfigOrDefault, mockQuery, mockPublish, mockQuit } = vi.hoisted(() => ({
+const { mockGetConfigOrDefault, mockQuery, mockEmit } = vi.hoisted(() => ({
   mockGetConfigOrDefault: vi.fn(),
   mockQuery: vi.fn(),
-  mockPublish: vi.fn(),
-  mockQuit: vi.fn(),
+  mockEmit: vi.fn(),
 }));
 
 vi.mock('../ingestion-config.service.js', () => ({
@@ -17,12 +18,17 @@ vi.mock('@digilog/db', () => ({
   getTsdbPool: () => ({ query: mockQuery }),
 }));
 
-vi.mock('ioredis', () => ({
-  default: class MockRedis {
-    publish = mockPublish;
-    quit = mockQuit;
+vi.mock('../../../lib/internal-bus.js', () => ({
+  bus: {
+    emit: mockEmit,
+    on: vi.fn(() => () => {}),
+    off: vi.fn(),
+    listenerCount: vi.fn(() => 0),
   },
 }));
+
+// Legacy alias kept so existing test assertions still read clearly.
+const mockPublish = mockEmit;
 
 // ── Import SUT (after mocks) ──────────────────────────────────────────
 
@@ -444,12 +450,13 @@ describe('pipeline-tracer', () => {
       await finalizeTrace(trace);
 
       expect(mockPublish).toHaveBeenCalledTimes(1);
+      // Phase 4: bus.emit takes the payload as a JS object, not a JSON string.
       expect(mockPublish).toHaveBeenCalledWith(
         'ws:trace:ent-pub',
-        expect.any(String),
+        expect.any(Object),
       );
 
-      const published = JSON.parse(mockPublish.mock.calls[0][1]);
+      const published = mockPublish.mock.calls[0][1] as any;
       expect(published.entityId).toBe('ent-pub');
       expect(published.finalStatus).toBe('SUCCESS');
     });
@@ -502,15 +509,14 @@ describe('pipeline-tracer', () => {
       mockQuery.mockResolvedValue({});
       mockPublish.mockResolvedValue(1);
 
-      // Force Redis publisher initialization by finalizing a trace with entityId
+      // Phase 4: closeTracerRedis is now a no-op (bus is in-process). Just
+      // confirm it doesn't throw — the legacy name is retained for shutdown
+      // handler compatibility.
       const trace = makeTrace({ entityId: 'ent-close' });
       recordStage(trace, makeStageResult({ stage: 1, status: 'SUCCESS' }));
       await finalizeTrace(trace);
 
-      mockQuit.mockResolvedValue('OK');
-      await closeTracerRedis();
-
-      expect(mockQuit).toHaveBeenCalledTimes(1);
+      await expect(closeTracerRedis()).resolves.not.toThrow();
     });
   });
 });

@@ -6,7 +6,8 @@ import os from 'node:os';
 import { prisma } from '../../lib/prisma.js';
 import { getTsdbPool } from '@digilog/db';
 import { getMqttClient } from '../../transport/mqtt-client.js';
-import IORedis from 'ioredis';
+// Phase 4 (2026-05-01): Redis fully retired from this codebase. The internal
+// pub/sub bus + RPC TTL cache moved in-process. ioredis dependency dropped.
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -193,46 +194,10 @@ async function checkTimescaledb(): Promise<SubCheck[]> {
   return checks;
 }
 
-// ── Check 3: Redis ────────────────────────────────────────────────────
-async function checkRedis(): Promise<SubCheck[]> {
-  const checks: SubCheck[] = [];
-  const redis = new IORedis({
-    host: process.env.REDIS_HOST ?? 'localhost',
-    port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
-    password: process.env.REDIS_PASSWORD || undefined,
-    connectTimeout: 5000,
-    lazyConnect: true,
-  });
-
-  try {
-    await redis.connect();
-    const pong = await redis.ping();
-    checks.push(
-      pong === 'PONG'
-        ? { name: 'connection', status: 'PASS', message: 'PONG' }
-        : { name: 'connection', status: 'FAIL', found: pong },
-    );
-
-    // Version
-    const info = await redis.info('server');
-    const versionMatch = info.match(/redis_version:(\S+)/);
-    if (versionMatch) {
-      const ver = versionMatch[1];
-      const major = parseInt(ver.split('.')[0]);
-      checks.push(
-        major >= 6
-          ? { name: 'version', status: 'PASS', found: ver }
-          : { name: 'version', status: 'WARN', expected: '>=6.0', found: ver, message: 'Recommended: Redis 6.2+' },
-      );
-    }
-  } catch (e: any) {
-    checks.push({ name: 'connection', status: 'FAIL', message: e.message });
-  } finally {
-    try { redis.disconnect(); } catch {}
-  }
-
-  return checks;
-}
+// Phase 4 (2026-05-01): Redis check removed — Redis is no longer a service
+// dependency. Pub/sub moved to in-process EventEmitter; RPC correlation
+// moved to in-process Map. The deployment-check page no longer surfaces a
+// Redis row.
 
 // ── Check 4: MQTT ─────────────────────────────────────────────────────
 async function checkMqtt(): Promise<SubCheck[]> {
@@ -432,11 +397,10 @@ function checkEnvironment(): SubCheck[] {
     checks.push({ name: 'JWT_SECRET', status: 'PASS' });
   }
 
-  // Required env vars
+  // Required env vars (Phase 4: REDIS_HOST removed — Redis retired)
   const required: Array<{ key: string; warn?: boolean }> = [
     { key: 'DATABASE_URL' },
     { key: 'TSDB_HOST' },
-    { key: 'REDIS_HOST' },
     { key: 'API_PORT', warn: true },
   ];
 
@@ -468,7 +432,10 @@ function checkEnvironment(): SubCheck[] {
 // ── Check 11: Role Permissions ────────────────────────────────────────
 async function checkRolePermissions(): Promise<SubCheck[]> {
   const checks: SubCheck[] = [];
-  const roles = await prisma.role.findMany({ select: { name: true, privileges: true } });
+  // Role.permissions is a JSON array of permission-string entries (schema.prisma
+  // model Role line 166 — `permissions Json @default("[]")`). The deployment
+  // check verifies each role has at least the minimum number expected.
+  const roles = await prisma.role.findMany({ select: { name: true, permissions: true } });
 
   const minimums: Record<string, number> = {
     SUPER_ADMIN: 50,
@@ -485,7 +452,7 @@ async function checkRolePermissions(): Promise<SubCheck[]> {
       checks.push({ name: roleName, status: 'FAIL', message: 'Role not found. Run: npx prisma db seed' });
       continue;
     }
-    const privCount = (role.privileges as string[])?.length ?? 0;
+    const privCount = (role.permissions as string[])?.length ?? 0;
     checks.push(
       privCount >= minCount
         ? { name: roleName, status: 'PASS', expected: `>=${minCount}`, found: String(privCount) }
@@ -534,7 +501,7 @@ const deploymentCheckRoutes: FastifyPluginAsync = async (app) => {
       const results = await Promise.allSettled([
         runCheck('database', 'PostgreSQL', checkPostgresql),
         runCheck('database', 'TimescaleDB', checkTimescaledb),
-        runCheck('service', 'Redis', checkRedis),
+        // Phase 4 (2026-05-01): Redis row removed — fully retired.
         runCheck('service', 'MQTT/EMQX', checkMqtt),
         runCheck('database', 'Prisma Models', checkPrismaModels),
         Promise.resolve(runCheck('api', 'API Routes', async () => checkApiRoutes(app))),

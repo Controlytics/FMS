@@ -1,184 +1,11 @@
 import { type FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
-import { auditLog } from '../../lib/audit.js';
 
 /**
  * Super Admin routes — SUPER_ADMIN only, platform management
  * Prefix: /api/super-admin
  */
 export default async function superAdminRoutes(app: FastifyInstance) {
-
-  // ─── LIST ORGANIZATIONS ────────────────────────────────
-  app.get('/organizations', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
-    schema: {
-      tags: ['Super Admin'],
-      summary: 'List all organizations',
-      querystring: {
-        type: 'object',
-        properties: {
-          page: { type: 'integer', default: 1 },
-          limit: { type: 'integer', default: 10 },
-          search: { type: 'string' },
-          isActive: { type: 'boolean' },
-        },
-      },
-    },
-  }, async (req) => {
-    const { page = 1, limit = 10, search, isActive } = req.query as any;
-    const where: any = {};
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { slug: { contains: search, mode: 'insensitive' } },
-      ];
-    }
-    if (isActive !== undefined) where.isActive = isActive;
-
-    const [data, total] = await Promise.all([
-      prisma.organization.findMany({
-        where,
-        skip: (page - 1) * limit,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-      }),
-      prisma.organization.count({ where }),
-    ]);
-
-    // Enrich with counts
-    const enriched = await Promise.all(data.map(async (org) => {
-      const userCount = await prisma.user.count({ where: { organizationId: org.id } });
-      const entityCount = await prisma.assetInstance.count({ where: { organizationId: org.id, isActive: true } });
-      return { ...org, userCount, entityCount };
-    }));
-
-    return { data: enriched, total, page, limit, totalPages: Math.ceil(total / limit) };
-  });
-
-  // ─── GET ORGANIZATION ──────────────────────────────────
-  app.get('/organizations/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
-    schema: {
-      tags: ['Super Admin'],
-      summary: 'Get organization details',
-      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
-    },
-  }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const org = await prisma.organization.findUnique({
-      where: { id },
-    });
-    if (!org) return reply.code(404).send({ error: 'Organization not found' });
-
-    const userCount = await prisma.user.count({ where: { organizationId: id } });
-    const entityCount = await prisma.assetInstance.count({ where: { organizationId: id, isActive: true } });
-    return { ...org, userCount, entityCount };
-  });
-
-  // ─── CREATE ORGANIZATION ───────────────────────────────
-  app.post('/organizations', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
-    schema: {
-      tags: ['Super Admin'],
-      summary: 'Create a new organization',
-      body: {
-        type: 'object',
-        required: ['name', 'slug'],
-        properties: {
-          name: { type: 'string', minLength: 2, maxLength: 200 },
-          slug: { type: 'string', minLength: 2, maxLength: 100, pattern: '^[a-z0-9][a-z0-9-]*[a-z0-9]$' },
-          description: { type: 'string', maxLength: 500 },
-          parentOrgId: { type: 'string', format: 'uuid' },
-          isActive: { type: 'boolean' },
-          metadata: { type: 'object' },
-        },
-      },
-    },
-  }, async (req, reply) => {
-    const body = req.body as any;
-
-    // Check slug uniqueness
-    const existing = await prisma.organization.findFirst({ where: { slug: body.slug } });
-    if (existing) return reply.code(409).send({ error: 'CONFLICT', message: 'Organization slug already exists' });
-
-    const { name, slug, description, parentOrgId, metadata } = body;
-    const org = await prisma.organization.create({ data: { name, slug, description, parentOrgId, metadata, createdBy: req.user.username } });
-
-    await auditLog({
-      userId: req.user.username, userRole: req.user.role,
-      action: 'ORGANIZATION_CREATED', targetType: 'organization', targetId: org.id,
-      afterValue: { name: org.name, slug: org.slug },
-      ipAddress: req.ip, userAgent: req.headers['user-agent'],
-      sessionId: req.user.sessionId,
-    });
-
-    return reply.code(201).send(org);
-  });
-
-  // ─── UPDATE ORGANIZATION ───────────────────────────────
-  app.put('/organizations/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
-    schema: {
-      tags: ['Super Admin'],
-      summary: 'Update an organization',
-      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
-      body: {
-        type: 'object',
-        properties: {
-          name: { type: 'string', minLength: 2, maxLength: 200 },
-          description: { type: 'string', maxLength: 500 },
-          isActive: { type: 'boolean' },
-          metadata: { type: 'object' },
-        },
-      },
-    },
-  }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const body = req.body as any;
-
-    const existing = await prisma.organization.findUnique({ where: { id } });
-    if (!existing) return reply.code(404).send({ error: 'Organization not found' });
-
-    const { name, description, isActive, metadata } = body;
-    const org = await prisma.organization.update({ where: { id }, data: { name, description, isActive, metadata } });
-
-    await auditLog({
-      userId: req.user.username, userRole: req.user.role,
-      action: 'ORGANIZATION_UPDATED', targetType: 'organization', targetId: org.id,
-      beforeValue: { name: existing.name, isActive: existing.isActive },
-      afterValue: { name: org.name, isActive: org.isActive },
-      ipAddress: req.ip, userAgent: req.headers['user-agent'],
-      sessionId: req.user.sessionId,
-    });
-
-    return org;
-  });
-
-  // ─── DELETE ORGANIZATION ───────────────────────────────
-  app.delete('/organizations/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
-    schema: {
-      tags: ['Super Admin'],
-      summary: 'Deactivate an organization (soft delete)',
-      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
-    },
-  }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const existing = await prisma.organization.findUnique({ where: { id } });
-    if (!existing) return reply.code(404).send({ error: 'Organization not found' });
-
-    await prisma.organization.update({ where: { id }, data: { isActive: false } });
-
-    await auditLog({
-      userId: req.user.username, userRole: req.user.role,
-      action: 'ORGANIZATION_DEACTIVATED', targetType: 'organization', targetId: id,
-      afterValue: { name: existing.name, slug: existing.slug },
-      ipAddress: req.ip, userAgent: req.headers['user-agent'],
-      sessionId: req.user.sessionId,
-    });
-
-    return { success: true, message: 'Organization deactivated' };
-  });
 
   // ─── PLATFORM STATS ────────────────────────────────────
   app.get('/stats', {
@@ -188,13 +15,12 @@ export default async function superAdminRoutes(app: FastifyInstance) {
       summary: 'Platform-wide statistics',
     },
   }, async () => {
-    const [userCount, deviceCount, entityCount, orgCount] = await Promise.all([
+    const [userCount, deviceCount, entityCount] = await Promise.all([
       prisma.user.count(),
       prisma.deviceCredential.count(),
       prisma.assetInstance.count({ where: { isActive: true } }),
-      prisma.organization.count({ where: { isActive: true } }),
     ]);
-    return { users: userCount, devices: deviceCount, entities: entityCount, organizations: orgCount };
+    return { users: userCount, devices: deviceCount, entities: entityCount };
   });
 
   // ═══════════════════════════════════════════════════════════
@@ -229,10 +55,19 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     const data: any = {};
     if (body.name !== undefined) data.name = body.name;
     if (body.attributes !== undefined) data.attributes = body.attributes;
-    if (body.filterSet !== undefined) data.filterSet = body.filterSet || null;
     if (body.updatedAt !== undefined) data.updatedAt = new Date(body.updatedAt);
 
-    const updated = await prisma.assetInstance.update({ where: { id }, data });
+    // filterSet now lives on FilterDetails (Step 6) — route to the sidecar.
+    if (body.filterSet !== undefined) {
+      await prisma.filterDetails.upsert({
+        where: { assetInstanceId: id },
+        update: { filterSet: body.filterSet || null },
+        create: { assetInstanceId: id, filterSet: body.filterSet || null },
+      });
+    }
+    const updated = Object.keys(data).length > 0
+      ? await prisma.assetInstance.update({ where: { id }, data })
+      : await prisma.assetInstance.findUnique({ where: { id } });
     return updated;
   });
 
@@ -309,11 +144,16 @@ export default async function superAdminRoutes(app: FastifyInstance) {
       where: { id },
       data: {
         status: 'Active',
-        currentLifecycleState: null,
         isActive: true,
         parentId: restoreParentId,
         customAttributes: cleanedCustom,
       },
+    });
+    // currentLifecycleState moved to FilterDetails (Step 6).
+    await prisma.filterDetails.upsert({
+      where: { assetInstanceId: id },
+      update: { currentLifecycleState: null },
+      create: { assetInstanceId: id, currentLifecycleState: null },
     });
 
     // Restore parent relationship
@@ -345,8 +185,8 @@ export default async function superAdminRoutes(app: FastifyInstance) {
         // Terminate and delete any cleaning cycles on the replacement filter
         await prisma.filterEvent.deleteMany({ where: { filterId: newFilterId } });
         await prisma.cleaningCycle.deleteMany({ where: { filterId: newFilterId } });
-        // Clear currentCycleId if set
-        await prisma.assetInstance.updateMany({ where: { id: newFilterId }, data: { currentCycleId: null } });
+        // Clear currentCycleId if set (FilterDetails — Step 6).
+        await prisma.filterDetails.updateMany({ where: { assetInstanceId: newFilterId }, data: { currentCycleId: null } });
         // Delete the replacement filter itself
         await prisma.assetInstance.delete({ where: { id: newFilterId } }).catch(() => null);
       }
@@ -470,7 +310,8 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     const existing = await prisma.cleaningCycle.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND' });
     await prisma.filterEvent.deleteMany({ where: { cycleId: id } });
-    await prisma.assetInstance.updateMany({ where: { currentCycleId: id }, data: { currentCycleId: null, currentLifecycleState: null } });
+    // Clear currentCycleId/currentLifecycleState on FilterDetails (Step 6).
+    await prisma.filterDetails.updateMany({ where: { currentCycleId: id }, data: { currentCycleId: null, currentLifecycleState: null } });
     await prisma.cleaningCycle.delete({ where: { id } });
     return { success: true };
   });

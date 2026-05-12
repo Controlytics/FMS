@@ -89,6 +89,15 @@ export function PmScheduleListPage() {
   const canEditEntry = isSuperAdmin || perms.includes('PM_EDIT_ENTRY');
   const canResubmit = isSuperAdmin || perms.includes('PM_RESUBMIT');
   const isApprover = isSuperAdmin || perms.includes('PM_APPROVE');
+  // Audit 2026-05-09 fix: PM schedule DELETE was an orphan endpoint
+  // (BE supports it with reauth, no FE caller). Surface a delete button
+  // per AHU group; backend pm-schedule-crud.ts:138 returns 409 if any
+  // execution is IN_PROGRESS, which surfaces as a clean toast.
+  const canDeleteSchedule = isSuperAdmin || perms.includes('PM_DELETE');
+  // Audit 2026-05-09 fix: BE supports POST /api/pm-schedules with reauth
+  // (CREATE_PM_SCHEDULE) but the only path was bulk CSV upload — operators
+  // wanting one-off schedules had to hand-build a CSV.
+  const canCreateSchedule = isSuperAdmin || perms.includes('PM_CREATE');
 
   // Table state
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -102,6 +111,19 @@ export function PmScheduleListPage() {
   const [rejectDialog, setRejectDialog] = useState<string[] | null>(null);
   const [rejectRemarks, setRejectRemarks] = useState('');
   const [processing, setProcessing] = useState(false);
+  const [deleteScheduleConfirm, setDeleteScheduleConfirm] = useState<{ scheduleId: string; ahuName: string } | null>(null);
+  const [deletingSchedule, setDeletingSchedule] = useState(false);
+  // Audit 2026-05-09 fix: single-PM-schedule create form. Streamlined —
+  // operator picks AHU + year + a per-month-day + tolerance, FE builds 12
+  // entries (one per month at the chosen day) and posts in one shot.
+  const [createDialog, setCreateDialog] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    ahuId: '',
+    year: new Date().getFullYear(),
+    dayOfMonth: 15,
+    toleranceDays: 7,
+  });
+  const [creatingSchedule, setCreatingSchedule] = useState(false);
 
   // Pagination
   const paginationOptions = usePaginationConfig();
@@ -139,17 +161,8 @@ export function PmScheduleListPage() {
     globalMutate('/api/pm-schedules/entries/pending-counts');
   };
 
-  // PM disabled check
-  if (pmConfig && !(pmConfig as any)?.enabled && !((pmConfig as any)?.value?.enabled)) {
-    return (
-      <div className="p-6">
-        <div className="bg-white border border-slate-200 rounded-2xl p-16 text-center shadow-sm">
-          <h2 className="text-xl font-semibold text-slate-700 mb-2">PM Module Disabled</h2>
-          <p className="text-slate-500">Enable Preventive Maintenance scheduling in Configuration settings.</p>
-        </div>
-      </div>
-    );
-  }
+  // PM disabled check moved below all hooks (was here before; the early return
+  // skipped the useSWR + useMemo hooks defined further down → React error #300).
 
   const handleDownloadTemplate = async () => {
     try {
@@ -165,20 +178,54 @@ export function PmScheduleListPage() {
     } catch (e: any) { setUploadError(`Failed to download template: ${e.message ?? 'unknown error'}`); }
   };
 
-  const uploadFile = async (file: File) => {
+  // Audit 2026-05-09 fix: bulk upload was a high-trust mutation with no
+  // password challenge. SUPER_ADMIN uploads auto-approve every row
+  // (pm-import.ts:133). Reauth gate matches the BE-side enforceReauth
+  // added on the same commit.
+  const uploadFile = (file: File) => {
     setUploading(true); setUploadError(''); setResult(null);
-    try {
-      const form = new FormData(); form.append('file', file);
-      const res = await fetch('/api/pm-schedules/upload', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${sessionStorage.getItem('access_token') ?? localStorage.getItem('access_token_backup') ?? ''}` },
-        body: form,
-      });
-      const body = await res.json().catch(() => null);
-      if (!res.ok) setUploadError(body?.message ?? `Upload failed (HTTP ${res.status})`);
-      else { setResult(body as UploadResult); refreshAll(); }
-    } catch (e: any) { setUploadError(e.message ?? 'Upload failed'); }
-    setUploading(false);
+    reauth.execute(
+      'UPLOAD_PM_SCHEDULES',
+      async (password?: string) => {
+        const form = new FormData(); form.append('file', file);
+        const token = sessionStorage.getItem('access_token') ?? localStorage.getItem('access_token_backup') ?? '';
+        const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+        if (password) headers['x-reauth-password'] = password;
+        const res = await fetch('/api/pm-schedules/upload', { method: 'POST', headers, body: form });
+        const body = await res.json().catch(() => null);
+        if (!res.ok) {
+          // Throw with the server's structured error so reauth.execute can
+          // re-prompt on REAUTH_REQUIRED / REAUTH_FAILED, otherwise treat as
+          // a real upload failure.
+          const err: any = new Error(body?.message ?? `Upload failed (HTTP ${res.status})`);
+          err.code = body?.error;
+          throw err;
+        }
+
+        // Auto-widen the date range + force statusFilter=ALL so the freshly
+        // uploaded entries are actually visible in the table below. Without
+        // this, operators see "Uploaded (Pending QA): N" but the table is
+        // empty because (a) the page defaults to the CURRENT MONTH only,
+        // (b) the year filter derives from dateFrom (so a 2027 upload is
+        // invisible from a 2026 view), and (c) non-superadmin uploads are
+        // PENDING but the operator may have an APPROVED tab selected.
+        const uploaded = (body as UploadResult)?.details?.imported ?? [];
+        if (uploaded.length > 0) {
+          const dates = uploaded.map(r => r.plannedDate).sort();
+          const uploadedMin = dates[0];
+          const uploadedMax = dates[dates.length - 1];
+          if (uploadedMin < dateFrom) setDateFrom(uploadedMin);
+          if (uploadedMax > dateTo) setDateTo(uploadedMax);
+          if (statusFilter !== 'ALL') setStatusFilter('ALL');
+        }
+
+        setResult(body as UploadResult);
+      },
+      {
+        onSuccess: () => { refreshAll(); setUploading(false); },
+        onError: (e: any) => { setUploadError(e?.message ?? 'Upload failed'); setUploading(false); },
+      },
+    );
   };
 
   const handleFile = async (file: File) => {
@@ -209,6 +256,11 @@ export function PmScheduleListPage() {
     });
   };
 
+  // Fetch all instances early — used by the create-schedule dialog (AHU
+  // dropdown) and by the per-AHU filter-name lookup further down.
+  const { data: instancesData } = useSWR('/api/assets/instances?limit=500');
+  const instances = (instancesData?.data ?? []) as any[];
+
   const handleReject = (ids: string[]) => { setRejectDialog(ids); setRejectRemarks(''); };
 
   const submitReject = () => {
@@ -224,18 +276,113 @@ export function PmScheduleListPage() {
     });
   };
 
-  const handleResubmit = async (id: string) => {
+  // Audit 2026-05-09 fix: single-PM-schedule create. Builds 12 monthly
+  // entries from a per-month-day + tolerance pair, posts in one shot.
+  // Backend POST already reauth-gated (CREATE_PM_SCHEDULE).
+  const submitCreateSchedule = () => {
+    if (!createForm.ahuId || !createForm.year || !createForm.dayOfMonth) return;
+    setCreatingSchedule(true);
+    const body = {
+      entityId: createForm.ahuId,
+      year: createForm.year,
+      entries: Array.from({ length: 12 }, (_, monthIdx) => {
+        // Clamp dayOfMonth to the last valid day of each month so Feb 30
+        // → Feb 28/29, Apr 31 → Apr 30, etc.
+        const daysInMonth = new Date(createForm.year, monthIdx + 1, 0).getDate();
+        const day = Math.min(createForm.dayOfMonth, daysInMonth);
+        const mm = String(monthIdx + 1).padStart(2, '0');
+        const dd = String(day).padStart(2, '0');
+        return {
+          month: monthIdx + 1,
+          plannedDate: `${createForm.year}-${mm}-${dd}`,
+          toleranceDays: createForm.toleranceDays,
+        };
+      }),
+    };
+    reauth.execute(
+      'CREATE_PM_SCHEDULE',
+      async (password?: string) => {
+        if (password) await apiClient.postWithReauth('/api/pm-schedules', body, password);
+        else await apiClient.post('/api/pm-schedules', body);
+      },
+      {
+        onSuccess: () => {
+          toast.success('Created', `PM schedule created for ${createForm.year}`);
+          setCreateDialog(false);
+          setCreatingSchedule(false);
+          setCreateForm({ ahuId: '', year: new Date().getFullYear(), dayOfMonth: 15, toleranceDays: 7 });
+          refreshAll();
+        },
+        onError: (e: any) => {
+          toast.error('Error', e?.message ?? 'Failed to create schedule');
+          setCreatingSchedule(false);
+        },
+      },
+    );
+  };
+
+  // Filter AHU instances for the create dialog dropdown.
+  const ahuInstances = useMemo(() => {
+    return instances.filter((i: any) =>
+      i?.template?.templateKind === 'AHU' || /AHU/i.test(i?.template?.name ?? ''),
+    );
+  }, [instances]);
+
+  // Audit 2026-05-09 fix: PM schedule DELETE was an orphan endpoint —
+  // BE supports it with reauth (DELETE_PM_SCHEDULE), no FE caller. The
+  // service blocks delete with 409 if any execution is IN_PROGRESS
+  // (pm-schedule-crud.ts:138, deliberate soft-lock); operators see a
+  // clean toast in that case.
+  const submitDeleteSchedule = () => {
+    if (!deleteScheduleConfirm) return;
+    const { scheduleId, ahuName } = deleteScheduleConfirm;
+    setDeletingSchedule(true);
+    reauth.execute(
+      'DELETE_PM_SCHEDULE',
+      async (password?: string) => {
+        if (password) await apiClient.deleteWithReauth(`/api/pm-schedules/${scheduleId}`, password);
+        else await apiClient.delete(`/api/pm-schedules/${scheduleId}`);
+      },
+      {
+        onSuccess: () => {
+          toast.success('Deleted', `Schedule for "${ahuName}" deleted`);
+          setDeleteScheduleConfirm(null); setDeletingSchedule(false); refreshAll();
+        },
+        onError: (e: any) => {
+          const msg = e?.code === 'IN_PROGRESS' || /in progress/i.test(e?.message ?? '')
+            ? `Cannot delete — "${ahuName}" has a PM execution in progress. Wait for it to complete.`
+            : (e?.message ?? 'Failed to delete schedule');
+          toast.error('Error', msg);
+          setDeletingSchedule(false);
+        },
+      },
+    );
+  };
+
+  // Audit 2026-05-09 fix: resubmit flips REJECTED → PENDING. Approve and
+  // reject already reauth — gate this for parity so all three lifecycle
+  // transitions on a PM entry are challengeable.
+  const handleResubmit = (id: string) => {
     if (!editDate) return;
     setProcessing(true);
-    try {
-      await apiClient.post(`/api/pm-schedules/entries/${id}/resubmit`, {
-        plannedDate: editDate,
-        ...(editTolerance ? { toleranceDays: Number(editTolerance) } : {}),
-      });
-      toast.success('Re-submitted', 'Entry sent for QA approval');
-      setEditingId(null); refreshAll();
-    } catch (e: any) { toast.error('Error', e?.message ?? 'Failed'); }
-    setProcessing(false);
+    const body = {
+      plannedDate: editDate,
+      ...(editTolerance ? { toleranceDays: Number(editTolerance) } : {}),
+    };
+    reauth.execute(
+      'RESUBMIT_PM_ENTRY',
+      async (password?: string) => {
+        if (password) await apiClient.postWithReauth(`/api/pm-schedules/entries/${id}/resubmit`, body, password);
+        else await apiClient.post(`/api/pm-schedules/entries/${id}/resubmit`, body);
+      },
+      {
+        onSuccess: () => {
+          toast.success('Re-submitted', 'Entry sent for QA approval');
+          setEditingId(null); refreshAll(); setProcessing(false);
+        },
+        onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setProcessing(false); },
+      },
+    );
   };
 
   const handleEdit = async (id: string) => {
@@ -261,9 +408,8 @@ export function PmScheduleListPage() {
     else setSelected(new Set(pendingEntries.map(e => e.id)));
   };
 
-  // Fetch all instances to resolve filter names per AHU
-  const { data: instancesData } = useSWR('/api/assets/instances?limit=500');
-  const instances = (instancesData?.data ?? []) as any[];
+  // (instancesData fetched earlier — used by both the AHU-dropdown create
+  // dialog and the filter-name lookup below.)
 
   // Paginate entries first, then group by AHU
   const totalEntries = entries.length;
@@ -272,6 +418,20 @@ export function PmScheduleListPage() {
     const start = (page - 1) * perPage;
     return entries.slice(start, start + perPage);
   }, [entries, page, perPage]);
+
+  // PM disabled check — must run AFTER all hooks above to avoid React error #300
+  // ("rendered fewer hooks than expected") when the config arrives async and
+  // the page short-circuits on the second render.
+  if (pmConfig && !(pmConfig as any)?.enabled && !((pmConfig as any)?.value?.enabled)) {
+    return (
+      <div className="p-6">
+        <div className="bg-white border border-slate-200 rounded-2xl p-16 text-center shadow-sm">
+          <h2 className="text-xl font-semibold text-slate-700 mb-2">PM Module Disabled</h2>
+          <p className="text-slate-500">Enable Preventive Maintenance scheduling in Configuration settings.</p>
+        </div>
+      </div>
+    );
+  }
 
   // Group paginated entries by AHU for display
   const groupedEntries: Array<{ ahuName: string; ahuId: string; entries: ScheduleEntry[]; filterNames: string[] }> = [];
@@ -313,6 +473,13 @@ export function PmScheduleListPage() {
             <button onClick={handleDownloadTemplate} className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50 hover:border-slate-300 transition-all">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
               Template
+            </button>
+          )}
+          {canCreateSchedule && (
+            <button onClick={() => setCreateDialog(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+              New Schedule
             </button>
           )}
           {canUpload && (
@@ -466,6 +633,24 @@ export function PmScheduleListPage() {
                                 <button onClick={e => { e.stopPropagation(); toggleAhuExpand(group.ahuId); }}
                                   className="text-[10px] px-1.5 py-0.5 rounded border transition-colors font-medium" style={{ color: 'var(--theme-primary)', backgroundColor: 'var(--theme-primary-light)', borderColor: 'var(--theme-primary)' }}>
                                   {group.filterNames.length} filters {isExpanded ? '▾' : '▸'}
+                                </button>
+                              )}
+                              {/* Audit 2026-05-09 fix: surface DELETE schedule button on the
+                                  FIRST entry of each AHU group so operators can retire
+                                  schedules without DB intervention. */}
+                              {canDeleteSchedule && entryIdx === 0 && entry.scheduleId && (
+                                <button
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    setDeleteScheduleConfirm({ scheduleId: entry.scheduleId, ahuName: group.ahuName });
+                                  }}
+                                  aria-label={`Delete schedule for ${group.ahuName}`}
+                                  title="Delete this AHU's schedule"
+                                  className="ml-auto text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors w-6 h-6 rounded flex items-center justify-center"
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a2 2 0 012-2h2a2 2 0 012 2v3" />
+                                  </svg>
                                 </button>
                               )}
                             </div>
@@ -763,7 +948,113 @@ export function PmScheduleListPage() {
       )}
 
       <ReauthDialog open={reauth.isOpen} password={reauth.password} error={reauth.error} isVerifying={reauth.isVerifying}
-        onPasswordChange={reauth.setPassword} onConfirm={reauth.confirm} onCancel={reauth.cancel} actionLabel="PM Schedule Action" />
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setDeletingSchedule(false); setUploading(false); setProcessing(false); setCreatingSchedule(false); }}
+        actionLabel="PM Schedule Action" />
+
+      {/* Audit 2026-05-09 fix: single-PM-schedule create dialog */}
+      {createDialog && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+             onClick={() => !creatingSchedule && setCreateDialog(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
+               onClick={e => e.stopPropagation()}>
+            <div className="h-1.5" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }} />
+            <div className="px-6 py-5 space-y-4">
+              <h2 className="text-base font-bold text-slate-800">New PM Schedule</h2>
+              <p className="text-sm text-slate-500 -mt-2">
+                Creates 12 monthly entries for the selected AHU at the chosen day-of-month.
+                Days are clamped to month length (e.g. Feb 30 → Feb 28).
+              </p>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">AHU</label>
+                <select value={createForm.ahuId}
+                        onChange={e => setCreateForm(f => ({ ...f, ahuId: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-100 bg-white">
+                  <option value="">Select an AHU…</option>
+                  {ahuInstances.map((a: any) => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                </select>
+                {ahuInstances.length === 0 && (
+                  <p className="text-xs text-amber-700 mt-1">No AHU instances found. Create an AHU under a Block first.</p>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Year</label>
+                  <input type="number" min={new Date().getFullYear()} max={new Date().getFullYear() + 5}
+                         value={createForm.year}
+                         onChange={e => setCreateForm(f => ({ ...f, year: Number(e.target.value) }))}
+                         className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-100" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Day of month</label>
+                  <input type="number" min={1} max={31}
+                         value={createForm.dayOfMonth}
+                         onChange={e => setCreateForm(f => ({ ...f, dayOfMonth: Number(e.target.value) }))}
+                         className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-100" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Tolerance days</label>
+                <input type="number" min={0} max={365}
+                       value={createForm.toleranceDays}
+                       onChange={e => setCreateForm(f => ({ ...f, toleranceDays: Number(e.target.value) }))}
+                       className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-100" />
+                <p className="text-xs text-slate-400 mt-1">Window: planned date ± tolerance days.</p>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
+              <button type="button" onClick={() => setCreateDialog(false)} disabled={creatingSchedule}
+                      className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors disabled:opacity-50">
+                Cancel
+              </button>
+              <button type="button" onClick={submitCreateSchedule}
+                      disabled={creatingSchedule || !createForm.ahuId || !createForm.year || !createForm.dayOfMonth}
+                      className="flex-1 py-2.5 rounded-xl text-sm font-semibold shadow-lg disabled:opacity-50"
+                      style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))', color: '#fff' }}>
+                {creatingSchedule ? 'Creating…' : 'Create schedule'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteScheduleConfirm && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+             onClick={() => !deletingSchedule && setDeleteScheduleConfirm(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
+               onClick={e => e.stopPropagation()}>
+            <div className="h-1.5 bg-gradient-to-r from-red-400 to-rose-500" />
+            <div className="px-6 py-5 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center text-red-600 shrink-0">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-800">Delete PM schedule</h2>
+                  <p className="text-sm text-slate-600 mt-1">
+                    Delete the PM schedule for "{deleteScheduleConfirm.ahuName}"? All future planned entries for this AHU will be removed. If a PM execution is currently in progress, the server will reject the delete.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
+              <button type="button" onClick={() => setDeleteScheduleConfirm(null)} disabled={deletingSchedule}
+                      className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors disabled:opacity-50">
+                Cancel
+              </button>
+              <button type="button" onClick={submitDeleteSchedule} disabled={deletingSchedule}
+                      className="flex-1 py-2.5 bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-xl text-sm font-semibold hover:from-red-400 hover:to-rose-400 shadow-lg shadow-red-500/25 disabled:opacity-50">
+                {deletingSchedule ? 'Deleting...' : 'Delete schedule'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

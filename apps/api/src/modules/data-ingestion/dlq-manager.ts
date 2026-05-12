@@ -7,22 +7,10 @@
 
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
-import { Queue } from 'bullmq';
-import { getRedisConnection, QUEUES, JOB_PRIORITY } from '@digilog/queue';
+import { JOB_PRIORITY } from '@digilog/queue';
 import type { IngestionMessage } from './message-normalizer.js';
 import { getConfigOrDefault } from './ingestion-config.service.js';
-
-let ingestionQueue: Queue | null = null;
-
-function getIngestionQueue(): Queue {
-  if (!ingestionQueue) {
-    ingestionQueue = new Queue(QUEUES.INGESTION.name, {
-      connection: getRedisConnection(),
-      defaultJobOptions: QUEUES.INGESTION.defaultJobOptions,
-    });
-  }
-  return ingestionQueue;
-}
+import { enqueueIngestionJob } from './ingestion.service.js';
 
 /** Add a failed message to the DLQ. */
 export async function addToDLQ(
@@ -74,9 +62,8 @@ export async function processDLQ(): Promise<{ requeued: number; dead: number }> 
 
     // Re-enqueue to ingestion queue
     try {
-      const queue = getIngestionQueue();
       const payload = entry.payload as unknown as IngestionMessage;
-      await queue.add(payload.messageType, payload, {
+      await enqueueIngestionJob(payload, {
         priority: JOB_PRIORITY.TELEMETRY,
         jobId: `dlq-retry-${entry.id}-${entry.retryCount + 1}`,
       });

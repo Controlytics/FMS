@@ -1,5 +1,12 @@
 /**
- * SMS Channel — Sends SMS via multiple providers (Twilio, AWS SNS, Vonage, HTTP Gateway).
+ * SMS Channel — Sends SMS via multiple providers (Twilio, Vonage, generic HTTP Gateway).
+ *
+ * P3 (2026-05-02): AWS SNS dropped. Previous implementation shelled out to the
+ * `aws` CLI which made the runtime depend on the AWS CLI being installed on
+ * the Windows host — incompatible with the local-Windows-only deployment goal.
+ * Operators who want AWS SNS can configure the http-gateway provider against
+ * the SNS REST endpoint, or pick MSG91 / Plivo / AfricasTalking / Kaleyra etc.
+ * which all expose simple POST APIs.
  */
 
 import type { SmsConfig, NotificationPayload, DeliveryResult, NotificationChannel as IChannel } from '../types.js';
@@ -54,52 +61,6 @@ async function sendViaTwilio(config: SmsConfig, to: string, message: string): Pr
   }
 
   return { success: true, messageId: String(data.sid ?? '') };
-}
-
-async function sendViaAwsSns(config: SmsConfig, to: string, message: string): Promise<DeliveryResult> {
-  const { awsAccessKeyId, awsSecretAccessKey, awsRegion } = config;
-  if (!awsAccessKeyId || !awsSecretAccessKey || !awsRegion) {
-    return { success: false, error: 'AWS SNS credentials not configured' };
-  }
-
-  // Use child_process.spawn (non-blocking) instead of execSync
-  const { spawn } = await import('child_process');
-  
-  return new Promise<DeliveryResult>((resolve) => {
-    const env = {
-      ...process.env,
-      AWS_ACCESS_KEY_ID: awsAccessKeyId,
-      AWS_SECRET_ACCESS_KEY: awsSecretAccessKey,
-    };
-
-    const child = spawn('aws', [
-      'sns', 'publish',
-      '--region', awsRegion,
-      '--phone-number', to,
-      '--message', message,
-      '--output', 'json',
-    ], { env, timeout: 15000 });
-
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
-    child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
-    child.on('close', (code: number | null) => {
-      if (code === 0) {
-        try {
-          const parsed = JSON.parse(stdout);
-          resolve({ success: true, messageId: parsed.MessageId ?? 'aws-' + Date.now() });
-        } catch {
-          resolve({ success: true, messageId: 'aws-' + Date.now() });
-        }
-      } else {
-        resolve({ success: false, error: ('AWS SNS error: ' + stderr).substring(0, 300) });
-      }
-    });
-    child.on('error', (err: Error) => {
-      resolve({ success: false, error: ('AWS SNS error: ' + err.message).substring(0, 300) });
-    });
-  });
 }
 
 async function sendViaVonage(config: SmsConfig, to: string, message: string): Promise<DeliveryResult> {
@@ -184,8 +145,6 @@ export const smsChannel: IChannel = {
     switch (config.provider) {
       case 'twilio':
         return sendViaTwilio(config, phone, message);
-      case 'aws-sns':
-        return sendViaAwsSns(config, phone, message);
       case 'vonage':
         return sendViaVonage(config, phone, message);
       case 'http-gateway':
@@ -205,10 +164,6 @@ export const smsChannel: IChannel = {
       case 'twilio':
         if (!config.twilioAccountSid || !config.twilioAuthToken)
           return { success: false, error: 'Twilio credentials missing' };
-        break;
-      case 'aws-sns':
-        if (!config.awsAccessKeyId || !config.awsSecretAccessKey)
-          return { success: false, error: 'AWS credentials missing' };
         break;
       case 'vonage':
         if (!config.vonageApiKey || !config.vonageApiSecret)

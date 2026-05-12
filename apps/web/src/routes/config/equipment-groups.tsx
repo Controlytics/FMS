@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
-import { apiClient } from '../../lib/api-client';
+import { apiClient, api } from '../../lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
 
 interface Instrument {
@@ -51,13 +53,14 @@ const STAGE_CONFIG: Record<string, { bg: string; text: string; border: string; i
 export function EquipmentGroupsConfigPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const reauth = useReauth();
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const perms = user?.permissions ?? [];
   const canCreate = isSuperAdmin || perms.includes('EG_CREATE');
   const canEdit = isSuperAdmin || perms.includes('EG_EDIT');
   const canDelete = isSuperAdmin || perms.includes('EG_DELETE');
   const { data: instancesData } = useSWR('/api/assets/instances?limit=200');
-  const { data: templatesData } = useSWR('/api/assets/templates?limit=100');
+  const { data: templatesData } = useSWR('/api/assets/templates?limit=1000');
   const [selectedBlockId, setSelectedBlockId] = useState<string>('');
   const { data: groupsData } = useSWR(selectedBlockId ? `/api/equipment-groups?blockId=${selectedBlockId}` : null);
 
@@ -67,9 +70,23 @@ export function EquipmentGroupsConfigPage() {
   const [savedToast, setSavedToast] = useState('');
   const [deleteError, setDeleteError] = useState('');
   const [previewInst, setPreviewInst] = useState<number | null>(null);
+  // M8 (2026-05-04): soft-lock dialog when admin edits a group that is in use
+  // by active cycles. Backend snapshot-then-bump (Phase A.4) protects validation
+  // — pinned cycles continue to validate against EquipmentGroupVersion at the
+  // pin. The dialog is a heads-up, not a block.
+  const [editConflict, setEditConflict] = useState<{ group: EquipmentGroup; activeCount: number } | null>(null);
 
-  const blockTemplateId = (templatesData?.data ?? []).find((t: any) => t.name === 'Block')?.id;
-  const blocks = (instancesData?.data ?? []).filter((e: any) => e.templateId === blockTemplateId);
+  // Bug fix 2026-05-10: this was matching `t.name === 'Block'` (case-sensitive,
+  // editable string), so the dropdown went empty whenever the admin renamed the
+  // template or created multiple block variants. Match by `templateKind === 'BLOCK'`
+  // — the protected stable code on the TemplateKind lookup table — same pattern
+  // PM-import already uses for AHU lookups (pm-import.ts:30).
+  const blockTemplateIds = new Set(
+    (templatesData?.data ?? [])
+      .filter((t: any) => t.templateKind === 'BLOCK')
+      .map((t: any) => t.id),
+  );
+  const blocks = (instancesData?.data ?? []).filter((e: any) => blockTemplateIds.has(e.templateId));
 
   useEffect(() => {
     if (blocks.length > 0 && !selectedBlockId) setSelectedBlockId(blocks[0].id);
@@ -82,18 +99,50 @@ export function EquipmentGroupsConfigPage() {
     setError('');
   };
 
-  const handleEdit = (g: EquipmentGroup) => {
+  const openEditor = (g: EquipmentGroup) => {
     setEditing({ group: { ...g, instruments: g.instruments.map(i => ({ ...i })) }, isNew: false });
     setError('');
   };
 
-  const handleDelete = async (g: EquipmentGroup) => {
+  const handleEdit = async (g: EquipmentGroup) => {
+    // M8 (2026-05-04): inline-derived active-cycle check. The cycles list
+    // returns equipmentGroupId on each row (CleaningCycle column, not stripped
+    // by the response schema), so we filter client-side. Fail-open on fetch
+    // error — the soft-lock is informational; a transient network blip must
+    // never wedge admin work.
+    try {
+      const res = await apiClient.get<{ data: any[] }>('/api/filters/cycles?status=IN_PROGRESS&limit=100');
+      const activeCount = (res.data ?? []).filter((c: any) => c.equipmentGroupId === g.id).length;
+      if (activeCount > 0) {
+        setEditConflict({ group: g, activeCount });
+        return;
+      }
+    } catch {
+      // swallow — proceed straight to the editor
+    }
+    openEditor(g);
+  };
+
+  // Audit 2026-05-04 fix (web-routes review C4): equipment-group CRUD
+  // bypassed reauth despite CREATE/UPDATE/DELETE_EQUIPMENT_GROUP actions
+  // existing in packages/shared/src/types/reauth-actions.ts:99-101.
+  const handleDelete = (g: EquipmentGroup) => {
     if (!confirm(`Delete equipment group "${g.name}"?`)) return;
     setDeleteError('');
-    try {
-      await apiClient.delete(`/api/equipment-groups/${g.id}`);
-      mutate(`/api/equipment-groups?blockId=${selectedBlockId}`);
-    } catch (e: any) { setDeleteError(e.message || 'Failed to delete'); }
+    reauth.execute(
+      'DELETE_EQUIPMENT_GROUP',
+      async (password?: string) => {
+        if (password) {
+          await api.deleteWithReauth(`/api/equipment-groups/${g.id}`, password);
+        } else {
+          await apiClient.delete(`/api/equipment-groups/${g.id}`);
+        }
+      },
+      {
+        onSuccess: () => mutate(`/api/equipment-groups?blockId=${selectedBlockId}`),
+        onError: (e: any) => setDeleteError(e.message || 'Failed to delete'),
+      },
+    );
   };
 
   const updateInstrument = (idx: number, field: string, value: any) => {
@@ -118,25 +167,41 @@ export function EquipmentGroupsConfigPage() {
       if (inst.operatingMin >= inst.operatingMax) { setError(`Operating Min must be less than Operating Max for ${inst.description}`); return; }
     }
     setSaving(true); setError('');
-    try {
-      const payload = {
-        name: group.name!.trim(),
-        blockId: group.blockId,
-        instruments: group.instruments!.map(i => ({
-          serialNumber: i.serialNumber, instrumentId: i.instrumentId, uom: i.uom,
-          instrumentMin: Number(i.instrumentMin), instrumentMax: Number(i.instrumentMax),
-          operatingMin: Number(i.operatingMin), operatingMax: Number(i.operatingMax),
-          leastCount: Number(i.leastCount),
-        })),
-      };
-      if (isNew) await apiClient.post('/api/equipment-groups', payload);
-      else await apiClient.put(`/api/equipment-groups/${group.id}`, payload);
-      mutate(`/api/equipment-groups?blockId=${selectedBlockId}`);
-      setEditing(null);
-      setSavedToast(isNew ? 'Equipment group created' : 'Equipment group saved');
-      setTimeout(() => setSavedToast(''), 3000);
-    } catch (e: any) { setError(e.message || 'Failed to save'); }
-    setSaving(false);
+    const payload = {
+      name: group.name!.trim(),
+      blockId: group.blockId,
+      instruments: group.instruments!.map(i => ({
+        serialNumber: i.serialNumber, instrumentId: i.instrumentId, uom: i.uom,
+        instrumentMin: Number(i.instrumentMin), instrumentMax: Number(i.instrumentMax),
+        operatingMin: Number(i.operatingMin), operatingMax: Number(i.operatingMax),
+        leastCount: Number(i.leastCount),
+      })),
+    };
+    reauth.execute(
+      isNew ? 'CREATE_EQUIPMENT_GROUP' : 'UPDATE_EQUIPMENT_GROUP',
+      async (password?: string) => {
+        if (isNew) {
+          if (password) await api.postWithReauth('/api/equipment-groups', payload, password);
+          else await apiClient.post('/api/equipment-groups', payload);
+        } else {
+          if (password) await api.putWithReauth(`/api/equipment-groups/${group.id}`, payload, password);
+          else await apiClient.put(`/api/equipment-groups/${group.id}`, payload);
+        }
+      },
+      {
+        onSuccess: () => {
+          mutate(`/api/equipment-groups?blockId=${selectedBlockId}`);
+          setEditing(null);
+          setSavedToast(isNew ? 'Equipment group created' : 'Equipment group saved');
+          setTimeout(() => setSavedToast(''), 3000);
+          setSaving(false);
+        },
+        onError: (e: any) => {
+          setError(e.message || 'Failed to save');
+          setSaving(false);
+        },
+      },
+    );
   };
 
   const getStageConfig = (key: string) => STAGE_CONFIG[key] ?? { bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', icon: '' };
@@ -421,6 +486,52 @@ export function EquipmentGroupsConfigPage() {
           </div>
         </div>
       )}
+
+      {/* M8 (2026-05-04): soft-lock advisory when admin attempts to edit a
+          group that is in use by active cycles. Backend snapshot-then-bump
+          (Phase A.4) protects validation integrity — pinned cycles continue
+          to validate against the EquipmentGroupVersion at the pin. The dialog
+          is a heads-up; admin can proceed. */}
+      {editConflict && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setEditConflict(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="h-1.5 bg-gradient-to-r from-amber-400 to-orange-500" />
+            <div className="px-6 py-5 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600 shrink-0">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-800">Group is in use</h2>
+                  <p className="text-sm text-slate-600 mt-1">
+                    This group is in use by {editConflict.activeCount} active cycle{editConflict.activeCount === 1 ? '' : 's'}. Edits will only affect future cycles; existing cycles use the pinned version.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
+              <button onClick={() => setEditConflict(null)}
+                className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">Cancel</button>
+              <button
+                onClick={() => { const g = editConflict.group; setEditConflict(null); openEditor(g); }}
+                className="flex-1 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl text-sm font-semibold hover:from-amber-400 hover:to-orange-400 shadow-lg shadow-amber-500/25">
+                Proceed with edit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setSaving(false); }}
+        actionLabel="Equipment Group"
+      />
     </div>
   );
 }

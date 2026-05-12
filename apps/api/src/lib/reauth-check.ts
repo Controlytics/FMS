@@ -13,9 +13,61 @@ export async function getActionReauthConfig(): Promise<ActionReauthConfig> {
     return configCache.data;
   }
   const row = await prisma.systemConfig.findUnique({ where: { configKey: 'action-reauth' } });
-  const config = (row?.configValue as ActionReauthConfig) ?? {};
+  const raw = (row?.configValue as unknown) ?? {};
+  const config = normalizeActionReauthConfig(raw);
   configCache = { data: config, fetchedAt: now };
   return config;
+}
+
+/**
+ * Defensive shape normalization. Historical seeds stored this config as
+ *   { actions: [{ action: 'DELETE_USER', roles: ['ADMIN'] }, ...] }
+ * but every reader (frontend page, isReauthRequired, getMyActions, the Zod
+ * schema in @digilog/shared) expects the flat record shape
+ *   { DELETE_USER: ['ADMIN'], ... }
+ *
+ * Two consequences of the legacy shape:
+ *   (a) Reauth was silently OFF for every action — `config[action]` was
+ *       always undefined under the nested data, so no caller could resolve
+ *       a roles list. Production effectively ran with no reauth policy.
+ *   (b) PUT /api/config/action-reauth was un-saveable: GET returned the
+ *       nested data verbatim, the frontend (and this test) spread it into
+ *       the body of the next save, and the Zod schema rejected
+ *       `actions: [{...}, ...]` with "Expected string, received object".
+ *
+ * Fix: when we detect the legacy shape, return `{}` (the de-facto state).
+ * That preserves the historical reauth-OFF behavior, lets the PUT endpoint
+ * work for the first time, and signals to operators that the on-disk
+ * policy needs to be re-saved via the action-reauth page to take effect.
+ * Already-flat data is returned as-is (with non-string-array values dropped
+ * defensively).
+ */
+function normalizeActionReauthConfig(raw: unknown): ActionReauthConfig {
+  if (!raw || typeof raw !== 'object') return {};
+  const obj = raw as Record<string, unknown>;
+  // Detect the legacy nested shape: a single `actions` key whose value is an
+  // array of { action, roles } objects.
+  const legacyActions = obj.actions;
+  const looksLegacy = Array.isArray(legacyActions)
+    && legacyActions.length > 0
+    && typeof legacyActions[0] === 'object'
+    && legacyActions[0] !== null
+    && 'action' in (legacyActions[0] as object)
+    && 'roles' in (legacyActions[0] as object);
+  if (looksLegacy) {
+    // Legacy data was non-functional — return empty so behavior matches the
+    // de-facto reauth-OFF state. Operators must re-save via the UI to
+    // (re)establish a policy.
+    return {};
+  }
+  // Already in flat shape (or empty). Drop any non-array values defensively.
+  const flat: ActionReauthConfig = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (Array.isArray(value) && value.every((v) => typeof v === 'string')) {
+      flat[key] = value as string[];
+    }
+  }
+  return flat;
 }
 
 export function invalidateReauthCache(): void {
@@ -44,9 +96,15 @@ export async function enforceReauth(
   req: FastifyRequest,
   reply: FastifyReply,
 ): Promise<{ ok: boolean }> {
-  // Offline-replayed operations: the user was already authenticated when they
-  // performed the action on the tablet. Skip reauth for these requests.
-  if (req.headers['x-offline-replay'] === 'true') return { ok: true };
+  // Audit 2026-05-04 fix C1 — offline-replay bypass.
+  //
+  // The previous implementation returned ok==true on a bare boolean header
+  // (`x-offline-replay: true`) — anyone with a valid JWT could set the header
+  // and bypass every reauth gate. Now the auth plugin (plugins/auth.ts)
+  // verifies an HMAC-signed grant token at onRequest time and decorates
+  // `req.offlineReplayVerified` only when the token is valid + bound to the
+  // current user+session. Bare boolean header is rejected upstream.
+  if (req.offlineReplayVerified === true) return { ok: true };
 
   const role = req.user.role;
   const actions = Array.isArray(action) ? action : [action];

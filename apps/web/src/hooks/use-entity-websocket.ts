@@ -50,7 +50,12 @@ export function useEntityWebSocket(entityId: string | null) {
             { revalidate: true },
           );
         }
-      } catch { /* ignore parse errors */ }
+      } catch (parseErr) {
+        // WebSocket message wasn't valid JSON or had an unexpected shape.
+        // We can't recover, but log so silently-dropped events are visible
+        // when debugging stale UI (CLAUDE.md "Never swallow exceptions").
+        console.warn('[ws] failed to handle entity event:', parseErr);
+      }
     };
 
     ws.onclose = () => {

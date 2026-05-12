@@ -1,78 +1,54 @@
 /**
- * In-Process BullMQ Worker — Processes ingestion queue messages.
- * Runs in the same process as the API server (Phase 1 architecture).
- * Concurrency and rate limits read from IngestionSystemConfig at startup.
+ * Ingestion task — graphile-worker entry point.
+ *
+ * Phase 2 of the windows-friendly rewrite (see docs/plans/2026-04-29-windows-friendly-rewrite.md
+ * § Task 2.3) migrated the ingestion queue from BullMQ to graphile-worker.
+ * Task 2.10 dropped the legacy BullMQ Worker; this file is now the only
+ * ingestion task implementation. The wiring into the single Runner lives in
+ * `app.ts` boot (see Task 2.8 / job-runner.ts).
  */
 
-import { Worker, type Job } from 'bullmq';
-import { getWorkerConnection, QUEUES } from '@digilog/queue';
+import type { Task } from 'graphile-worker';
 import type { IngestionMessage } from '../modules/data-ingestion/message-normalizer.js';
 import { processIngestionMessage } from '../modules/data-ingestion/ingestion.service.js';
-import { getConfigOrDefault } from '../modules/data-ingestion/ingestion-config.service.js';
-
-let worker: Worker | null = null;
 
 /**
- * Start the ingestion worker.
- * Reads concurrency from SystemConfig 'ingestion.worker_concurrency' (default 5).
+ * Payload shape produced by `enqueueIngestionJob` in ingestion.service.ts.
+ * `messageType` is intentionally NOT a top-level field — it lives on `msg`
+ * itself, so wrapping it again would just duplicate state that can drift.
  */
-export async function startIngestionWorker(): Promise<void> {
-  if (worker) return;
+export interface IngestionTaskPayload {
+  msg: IngestionMessage;
+}
 
-  const concurrency = await getConfigOrDefault<number>('ingestion.worker_concurrency', 5);
-
-  worker = new Worker(
-    QUEUES.INGESTION.name,
-    async (job: Job) => {
-      const msg = job.data as IngestionMessage;
-
-      const result = await processIngestionMessage(msg);
-
-      if (!result.success) {
-        // The message was routed to DLQ by the pipeline service
-        // Don't throw — DLQ handles retries
-        console.warn(`[IngestionWorker] Message ${msg.messageId} failed, routed to DLQ`);
-      }
-
-      return result;
-    },
-    {
-      connection: getWorkerConnection(),
-      concurrency,
-      limiter: {
-        max: 1000,
-        duration: 1000, // 1000 jobs per second max
-      },
-      removeOnComplete: { count: 100 },
-      removeOnFail: { count: 1000 },
-    },
+/** Discriminate `unknown` payload as an IngestionTaskPayload. */
+function isIngestionTaskPayload(p: unknown): p is IngestionTaskPayload {
+  return (
+    typeof p === 'object' &&
+    p !== null &&
+    'msg' in p &&
+    typeof (p as { msg: unknown }).msg === 'object' &&
+    (p as { msg: unknown }).msg !== null
   );
-
-  worker.on('completed', (job) => {
-    // Job completed — logged at debug level only
-    if (process.env.NODE_ENV !== 'production') {
-      console.info(`[IngestionWorker] Job ${job.id} completed`);
-    }
-  });
-
-  worker.on('failed', (job, err) => {
-    console.error(`[IngestionWorker] Job ${job?.id} failed:`, err.message);
-  });
-
-  worker.on('error', (err) => {
-    console.error('[IngestionWorker] Worker error:', err.message);
-  });
-
-  console.info(`[IngestionWorker] Started with concurrency=${concurrency}`);
 }
 
-/**
- * Stop the ingestion worker gracefully.
- */
-export async function stopIngestionWorker(): Promise<void> {
-  if (worker) {
-    await worker.close();
-    worker = null;
-    console.info('[IngestionWorker] Stopped');
+export const ingestionTask: Task = async (payload, helpers) => {
+  // graphile-worker types `payload` as unknown — a malformed PG queue row
+  // would otherwise NPE deep in processIngestionMessage. Throwing here lets
+  // graphile-worker retry per maxAttempts, then dead-letter the row.
+  if (!isIngestionTaskPayload(payload)) {
+    helpers.logger.error('Malformed ingestion payload — discarding', {
+      payload: payload as Record<string, unknown>,
+    });
+    throw new Error('INVALID_INGESTION_PAYLOAD');
   }
-}
+
+  const { msg } = payload;
+
+  const result = await processIngestionMessage(msg);
+
+  if (!result.success) {
+    // The pipeline service routes the failure to the DLQ; log only.
+    helpers.logger.warn(`Message ${msg.messageId} failed, routed to DLQ`);
+  }
+};
