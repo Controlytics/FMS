@@ -1085,18 +1085,42 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     if (!reasonDialog || !selectedReason) return;
     setLoading(true); setError('');
     try {
-      const cyclePayload = { cleaningReasonKey: selectedReason, cleaningJustification: justification || undefined, cleaningAreaId: selectedBlock?.id };
-      const advancePayload = { targetState: reasonDialog.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${reasonDialog.stage.replace(/_/g, ' ')} - ${reasonDialog.filterName}` };
+      // Fall back to the filter's home block if no block was explicitly selected.
+      // Without this the equipment-group lookup below silently returns nothing
+      // (selectedBlock?.id is undefined), the WASH_IN flow skips readings, the
+      // cycle starts with no readings, and the operator jumps straight to the
+      // post-stage checklist — which is the bug the operator just hit.
+      let blockId: string | undefined = selectedBlock?.id;
+      let blockName: string | undefined = selectedBlock?.name;
+      if (!blockId && online) {
+        try {
+          const cs = await apiClient.get<any>(`/api/filters/${reasonDialog.filterId}/current-state`);
+          if (cs?.homeBlock?.id) {
+            blockId = cs.homeBlock.id;
+            blockName = cs.homeBlock.name;
+          }
+        } catch { /* leave blockId undefined */ }
+      }
+      if (!blockId && !online) {
+        const cs = await getCache<any>(`filter-state-${reasonDialog.filterId}`);
+        if (cs?.homeBlock?.id) {
+          blockId = cs.homeBlock.id;
+          blockName = cs.homeBlock.name;
+        }
+      }
+
+      const cyclePayload = { cleaningReasonKey: selectedReason, cleaningJustification: justification || undefined, cleaningAreaId: blockId };
+      const advancePayload = { targetState: reasonDialog.stage, cleaningAreaId: blockId, remarks: remarks || `${reasonDialog.stage.replace(/_/g, ' ')} - ${reasonDialog.filterName}` };
 
       // Check for equipment groups BEFORE executing — works for both online and offline
-      if (reasonDialog.stage === 'WASH_IN' && selectedBlock?.id) {
+      if (reasonDialog.stage === 'WASH_IN' && blockId) {
         let groups: any[] = [];
         if (online) {
-          try { groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${selectedBlock.id}`) ?? []; } catch {}
+          try { groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${blockId}`) ?? []; } catch {}
         } else {
           // Offline: use cached equipment groups
           const cachedGroups = await getCache<any[]>('equipment-groups') ?? [];
-          groups = cachedGroups.filter((g: any) => g.blockId === selectedBlock.id);
+          groups = cachedGroups.filter((g: any) => g.blockId === blockId);
         }
         if (groups.length > 0) {
           // Save the cycle payload — equipment dialog will use it for the compound operation
@@ -1107,6 +1131,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           setLoading(false); return;
         }
       }
+      void blockName; // reserved for future toast messages
 
       // No equipment groups needed — queue compound operation directly
       const { executed: cycleExecuted, result } = await executeOrQueue(
@@ -1231,16 +1256,28 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       const equipDialogSnapshot = equipDialog;
       setScanValue(''); setRemarks(''); setEquipDialog(null); setSelectedEquipGroup(null); setReadings({});
       if (executed) mutate('/api/assets/instances?limit=500');
-      if (result?.pendingChecklist?.length > 0) {
-        setChecklistDialog({ filterId: equipDialogSnapshot.filterId, filterName: equipDialogSnapshot.filterName, checklists: result.pendingChecklist });
-        setChecklistAnswers({});
-      } else if (queued) {
-        // Offline parity: pop checklist dialog using locally-computed pending checklist
+
+      // Resolve pendingChecklist via two sources of truth so the dialog always
+      // pops automatically after readings, regardless of how the advance
+      // response is shaped (or whether it was queued offline).
+      let pending: any[] = Array.isArray(result?.pendingChecklist) ? result.pendingChecklist : [];
+      if (pending.length === 0 && executed) {
+        try {
+          const refreshed = await apiClient.get<any>(`/api/filters/${equipDialogSnapshot.filterId}/current-state`);
+          if (Array.isArray(refreshed?.pendingChecklist) && refreshed.pendingChecklist.length > 0) {
+            pending = refreshed.pendingChecklist;
+          }
+        } catch { /* fall through to offline cache */ }
+      }
+      if (pending.length === 0) {
         const cs = await getCache<any>(`filter-state-${equipDialogSnapshot.filterId}`) ?? {};
-        if (cs.pendingChecklist?.length > 0) {
-          setChecklistDialog({ filterId: equipDialogSnapshot.filterId, filterName: equipDialogSnapshot.filterName, checklists: cs.pendingChecklist });
-          setChecklistAnswers({});
+        if (Array.isArray(cs?.pendingChecklist) && cs.pendingChecklist.length > 0) {
+          pending = cs.pendingChecklist;
         }
+      }
+      if (pending.length > 0) {
+        setChecklistDialog({ filterId: equipDialogSnapshot.filterId, filterName: equipDialogSnapshot.filterName, checklists: pending });
+        setChecklistAnswers({});
       }
     } catch (e: any) { setError(e.message ?? 'Failed'); }
     setLoading(false);

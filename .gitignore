@@ -41,3 +41,6 @@ CREDENTIALS.md
 
 # Claude Code permission allowlist backups (timestamped on cleanup)
 .claude/settings.local.json.backup-*
+
+# CodeGraph local index (per-machine SQLite + cache)
+.codegraph/

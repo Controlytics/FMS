@@ -727,10 +727,15 @@ export function FilterOperationsPage() {
           return;
         }
 
-        // No PM — show reason dialog
+        // No PM — show reason dialog. Fall back to the filter's home block when
+        // no block is explicitly selected so the equipment-group lookup downstream
+        // can find readings configured for the filter's actual location (otherwise
+        // the WASH_IN flow silently skips equipment readings and jumps to checklist).
         const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
         setPendingBatch(batch);
-        const blockForReason = selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined;
+        const blockForReason = selectedBlock
+          ? { id: selectedBlock.id, name: selectedBlock.name }
+          : (state.homeBlock ? { id: state.homeBlock.id, name: state.homeBlock.name } : undefined);
         clearScanState();
         setReasonDialog({ filterId: first.filterId, filterName: `${batch.length} filter(s)`, stage: activeStage, block: blockForReason });
         setReasonError('');
@@ -1270,11 +1275,24 @@ export function FilterOperationsPage() {
 
       setRecentSubmissions(prev => [{ stage: equipmentDialog.stage.label + (executed ? '' : ' (queued)'), filter: equipmentDialog.filterName, block: equipmentDialog.block?.name, time: formatTime(new Date()) }, ...prev].slice(0, 10));
       refreshFilters();
+      const eqSnapshot = equipmentDialog;
       setEquipmentDialog(null);
-      setToast({ type: 'success', message: `${equipmentDialog.filterName} \u2192 ${equipmentDialog.stage.label}${executed ? '' : ' (queued)'}` });
+      setToast({ type: 'success', message: `${eqSnapshot.filterName} \u2192 ${eqSnapshot.stage.label}${executed ? '' : ' (queued)'}` });
 
-      if (executed && advanceResult?.pendingChecklist?.length > 0) {
-        setChecklistDialog({ filterId: equipmentDialog.filterId, filterName: equipmentDialog.filterName, checklists: advanceResult.pendingChecklist });
+      // Resolve pendingChecklist via two sources of truth so the dialog always
+      // pops automatically after readings, regardless of how the advance
+      // response is shaped or whether the response was stripped by the schema.
+      let pending: any[] = Array.isArray(advanceResult?.pendingChecklist) ? advanceResult.pendingChecklist : [];
+      if (pending.length === 0 && executed) {
+        try {
+          const refreshed = await apiClient.get<any>(`/api/filters/${eqSnapshot.filterId}/current-state`);
+          if (Array.isArray(refreshed?.pendingChecklist) && refreshed.pendingChecklist.length > 0) {
+            pending = refreshed.pendingChecklist;
+          }
+        } catch { /* ignore */ }
+      }
+      if (pending.length > 0) {
+        setChecklistDialog({ filterId: eqSnapshot.filterId, filterName: eqSnapshot.filterName, checklists: pending });
         setChecklistError('');
       }
     } catch (e: any) { setEquipmentError(e.message ?? 'Failed to advance'); setPopupError(e.message ?? 'Failed to advance'); }

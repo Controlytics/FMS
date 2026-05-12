@@ -175,10 +175,9 @@ and explain — don't silently comply with a rule that's misfiring.
 -while testing front end check for unlined Ui elements and consle logs that return unexpceted responses
 
 ## Correctness
+- before editing the code fnd and list all the touch point this code change will effect, after code change, test all touch points, if you find a bug, fix it even if it not in your scope, only then consider the task done.
 - Find root causes. No temporary fixes, no swallowing symptoms.
-- Before claiming a task is done: run tests if they exist, otherwise at 
-  minimum execute the changed code. If you couldn't verify it, say so 
-  explicitly — don't say "this should work."
+-be brutally honest
 
 ## Multi-session work
 - For tasks spanning multiple sessions or 5+ steps, maintain `tasks/todo.md` 

@@ -594,6 +594,39 @@ export class FilterOperationsService {
     };
     const checksum = computeChecksum(eventData);
 
+    // Determine whether this checklist is the final node before END so we can
+    // auto-complete the cycle inside the same transaction. Pipelines like
+    // WASH_IN→CHECKLIST→END defer cycle completion from advance() to here.
+    let shouldComplete = false;
+    {
+      const resolvedProfileId = await this.resolveFilterProfile(filter);
+      const cp = resolvedProfileId ? await this.getProfilePipeline(resolvedProfileId) : null;
+      if (cp && filter.currentLifecycleState) {
+        const currentStage = cp.stages.find(s => s.stateKey === filter.currentLifecycleState);
+        if (currentStage) {
+          let leadsToEnd = false;
+          let hasMoreStages = false;
+          const visited = new Set<string>();
+          const walk = (nodeId: string) => {
+            if (visited.has(nodeId)) return;
+            visited.add(nodeId);
+            const outConns = cp.connections.filter(c => c.fromStageId === nodeId);
+            for (const conn of outConns) {
+              const next = cp.stages.find(s => s.id === conn.toStageId);
+              if (!next) continue;
+              if (next.nodeType === 'END') leadsToEnd = true;
+              else if (next.nodeType === 'STAGE') hasMoreStages = true;
+              else if (next.nodeType === 'CHECKLIST') walk(next.id);
+            }
+          };
+          walk(currentStage.id);
+          shouldComplete = leadsToEnd && !hasMoreStages;
+        }
+      }
+    }
+
+    const offlineTime = data.offlinePerformedAt ? new Date(data.offlinePerformedAt) : undefined;
+
     await prisma.$transaction(async (tx) => {
       // Check for duplicate submission
       const existing = await tx.filterEvent.findFirst({
@@ -612,8 +645,33 @@ export class FilterOperationsService {
           checksum,
           ipAddress: ctx.ipAddress,
           telemetrySnapshot: {},
+          ...(offlineTime && { performedAt: offlineTime }),
         },
       });
+
+      if (shouldComplete) {
+        await tx.cleaningCycle.update({
+          where: { id: cycle.id },
+          data: { status: 'COMPLETED', completedAt: offlineTime ?? new Date() },
+        });
+        await tx.assetInstance.update({
+          where: { id: filterId },
+          data: { currentCycleId: null, currentLifecycleState: null },
+        });
+        const completeEvent = {
+          filterId, cycleId: cycle.id, eventType: 'CYCLE_COMPLETED' as const,
+          performedBy: ctx.userSub, attributes: { sequenceNumber: cycle.sequenceNumber },
+        };
+        await tx.filterEvent.create({
+          data: {
+            ...completeEvent,
+            checksum: computeChecksum(completeEvent),
+            ipAddress: ctx.ipAddress,
+            telemetrySnapshot: {},
+            ...(offlineTime && { performedAt: offlineTime }),
+          },
+        });
+      }
     });
 
     await auditLog({
@@ -994,6 +1052,25 @@ export class FilterOperationsService {
     }
     checkEnd(targetStage.id);
 
+    // Defer auto-complete if there is an active CHECKLIST node between the
+    // target stage and END. Without this, pipelines like WASH_IN→CHECKLIST→END
+    // would complete the cycle the instant we arrive at WASH_IN, never giving
+    // the operator a chance to answer the post-stage checklist.
+    // Auto-completion in that case is performed by submitChecklist() below.
+    let hasPendingChecklistAfterTarget = false;
+    if (leadsToEnd && !hasMoreStages) {
+      const postNodes = collectChecklistsAfterStage(targetStage, cp.stages, cp.connections)
+        .filter(n => (n.configuration as any)?.checklistProfileId);
+      const postProfileIds = [...new Set(postNodes.map(n => (n.configuration as any).checklistProfileId).filter(Boolean))] as string[];
+      if (postProfileIds.length > 0) {
+        const active = await prisma.checklistProfile.findMany({
+          where: { id: { in: postProfileIds }, isActive: true },
+          select: { id: true },
+        });
+        hasPendingChecklistAfterTarget = active.length > 0;
+      }
+    }
+
     // Wrap all writes in a single transaction
     await prisma.$transaction(async (tx) => {
       // Re-validate state inside transaction to prevent race conditions
@@ -1063,7 +1140,7 @@ export class FilterOperationsService {
         data: { currentLifecycleState: targetState },
       });
 
-      if (leadsToEnd && !hasMoreStages) {
+      if (leadsToEnd && !hasMoreStages && !hasPendingChecklistAfterTarget) {
         await tx.cleaningCycle.update({
           where: { id: cycle.id },
           data: { status: 'COMPLETED', completedAt: offlineTime ?? new Date() },
