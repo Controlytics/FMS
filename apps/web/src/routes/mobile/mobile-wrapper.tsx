@@ -11,6 +11,7 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { onSyncEvent } from '../../lib/sync-engine';
 import { useOfflineConfig } from '../../hooks/use-offline-config';
 import { HardCutoffBlocker } from '../../components/hard-cutoff-blocker';
+import { ConnectivityRibbon } from '../../components/mobile/connectivity-ribbon';
 import { syncAllDataForOffline, type SyncProgress } from '../../lib/offline-sync-service';
 import { triggerSync, startSyncPolling } from '../../lib/sync-since';
 import { MobileOperationsPage } from './mobile-operations';
@@ -337,6 +338,10 @@ export function MobileWrapperPage() {
 
   return (
     <div className="h-[100dvh] flex flex-col bg-gradient-to-b from-slate-50 to-slate-100 select-none overflow-hidden">
+      {/* W6: connectivity ribbon — sticky at top of mobile shell. Renders
+          green/red/orange based on online + sync state, with sync stage
+          messages from the W5 engine events. */}
+      <ConnectivityRibbon online={online} pendingCount={pendingCount} syncing={syncing} />
       {/* --- HEADER --- */}
       <div className="bg-white/80 backdrop-blur-lg border-b border-slate-200/60 px-4 py-3 flex items-center justify-between shrink-0 z-10">
         <div className="flex items-center gap-3">
