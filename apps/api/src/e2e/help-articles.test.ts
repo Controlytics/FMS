@@ -3,7 +3,6 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import authPlugin from '../plugins/auth.js';
-import auditLoggerPlugin from '../plugins/audit-logger.js';
 import rbacPlugin from '../plugins/rbac.js';
 import authRoutes from '../modules/auth/routes.js';
 import helpRoutes from '../modules/help/routes.js';
@@ -24,7 +23,6 @@ async function buildHelpApp(): Promise<FastifyInstance> {
   await app.register(multipart, { limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
 
   // Plugins
-  await app.register(auditLoggerPlugin);
   await app.register(authPlugin);
   await app.register(rbacPlugin);
 

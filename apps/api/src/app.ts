@@ -11,7 +11,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registerSwagger } from './lib/swagger.js';
 import authPlugin from './plugins/auth.js';
-import auditLoggerPlugin from './plugins/audit-logger.js';
 import rbacPlugin from './plugins/rbac.js';
 import superAdminRoutes from "./modules/super-admin/routes.js";
 import ldapRoutes from "./modules/ldap/routes.js";
@@ -137,7 +136,6 @@ await app.register(fastifyStatic, {
 });
 
 // Plugins
-await app.register(auditLoggerPlugin);
 await app.register(authPlugin);
 await app.register(rbacPlugin);
 

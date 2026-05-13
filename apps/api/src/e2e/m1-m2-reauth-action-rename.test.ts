@@ -35,7 +35,6 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import authPlugin from '../plugins/auth.js';
-import auditLoggerPlugin from '../plugins/audit-logger.js';
 import rbacPlugin from '../plugins/rbac.js';
 import authRoutes from '../modules/auth/routes.js';
 import assetRoutes from '../modules/assets/index.js';
@@ -59,7 +58,6 @@ async function buildM1M2App(): Promise<FastifyInstance> {
   });
 
   await app.register(cors, { origin: true, credentials: true });
-  await app.register(auditLoggerPlugin);
   await app.register(authPlugin);
   await app.register(rbacPlugin);
 

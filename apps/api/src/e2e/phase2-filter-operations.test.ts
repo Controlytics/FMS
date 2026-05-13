@@ -3,7 +3,6 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import { loginAs, obtainOfflineGrant } from './test-helper.js';
 import authPlugin from '../plugins/auth.js';
-import auditLoggerPlugin from '../plugins/audit-logger.js';
 import rbacPlugin from '../plugins/rbac.js';
 import authRoutes from '../modules/auth/routes.js';
 import { AppError } from '../lib/errors.js';
@@ -175,7 +174,6 @@ describe('Phase 2 — Filter Operations route-level e2e', () => {
     });
 
     await app.register(cors, { origin: true, credentials: true });
-    await app.register(auditLoggerPlugin);
     await app.register(authPlugin);
     await app.register(rbacPlugin);
 

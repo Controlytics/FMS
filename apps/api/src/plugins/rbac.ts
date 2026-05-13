@@ -185,4 +185,4 @@ async function rbacPlugin(app: FastifyInstance) {
 
 }
 
-export default fp(rbacPlugin, { name: 'rbac', dependencies: ['auth', 'audit-logger'] });
+export default fp(rbacPlugin, { name: 'rbac', dependencies: ['auth'] });
