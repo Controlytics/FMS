@@ -235,24 +235,14 @@ export async function advanceImpl(
   };
   const checksum = computeChecksum(eventData);
 
-  // Check if target stage leads to END (walking through any CHECKLIST nodes)
-  let leadsToEnd = false;
-  let hasMoreStages = false;
-  const checkedIds = new Set<string>();
-
-  function checkEnd(stageId: string) {
-    if (checkedIds.has(stageId)) return;
-    checkedIds.add(stageId);
-    const outConns = cp!.connections.filter(c => c.fromStageId === stageId);
-    for (const conn of outConns) {
-      const next = cp!.stages.find(s => s.id === conn.toStageId);
-      if (!next) continue;
-      if (next.nodeType === 'END') leadsToEnd = true;
-      else if (next.nodeType === 'STAGE') hasMoreStages = true;
-      else if (next.nodeType === 'CHECKLIST') checkEnd(next.id);
-    }
-  }
-  checkEnd(targetStage.id);
+  // Check if target stage leads to END (walking through any CHECKLIST nodes).
+  // Cross-cutting cleanup: was an inline recursive `checkEnd` walker; replaced
+  // with the canonical `executor.findReachable` (packages/shared/src/
+  // pipeline-executor/transitions.ts:279) — same semantics, single source of
+  // truth shared with submit-checklist.ts and current-state.ts.
+  const reachFromTarget = executor.findReachable(targetStage.id, localCtx.profile.nodes, localCtx.profile.edges);
+  const leadsToEnd = reachFromTarget.hasEndNext;
+  const hasMoreStages = reachFromTarget.reachableStages.length > 0;
 
   // Defer auto-complete when an active CHECKLIST node sits between the
   // target stage and END. Without this, pipelines like WASH_IN→CHECKLIST→END

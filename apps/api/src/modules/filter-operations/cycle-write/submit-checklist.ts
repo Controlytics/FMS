@@ -159,23 +159,15 @@ export async function submitChecklistImpl(
   if (cp && currentState) {
     const currentStage = cp.stages.find(s => s.stateKey === currentState);
     if (currentStage) {
-      let leadsToEnd = false;
-      let hasMoreStages = false;
-      const visited = new Set<string>();
-      const walk = (nodeId: string) => {
-        if (visited.has(nodeId)) return;
-        visited.add(nodeId);
-        const outConns = cp.connections.filter(c => c.fromStageId === nodeId);
-        for (const conn of outConns) {
-          const next = cp.stages.find(s => s.id === conn.toStageId);
-          if (!next) continue;
-          if (next.nodeType === 'END') leadsToEnd = true;
-          else if (next.nodeType === 'STAGE') hasMoreStages = true;
-          else if (next.nodeType === 'CHECKLIST') walk(next.id);
-        }
-      };
-      walk(currentStage.id);
-      shouldComplete = leadsToEnd && !hasMoreStages;
+      // Cross-cutting cleanup: replaced inline recursive walker with the
+      // canonical `executor.findReachable` (packages/shared/src/
+      // pipeline-executor/transitions.ts:279). Same semantics — `leadsToEnd`
+      // is `hasEndNext`; `!hasMoreStages` is `reachableStages.length === 0`.
+      // Uses `localCtx.profile` (the projected shared-typed view) rather
+      // than `cp.stages` (Prisma row shape) because the helper takes
+      // TapeStage[]; `currentStage.id` is consistent between the two.
+      const reach = executor.findReachable(currentStage.id, localCtx.profile.nodes, localCtx.profile.edges);
+      shouldComplete = reach.hasEndNext && reach.reachableStages.length === 0;
     }
   }
 

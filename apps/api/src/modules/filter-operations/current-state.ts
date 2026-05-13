@@ -371,6 +371,15 @@ export async function getCurrentStateImpl(
     for (const s of cp.stages) {
       if (s.nodeType !== 'STAGE' || !s.stateKey) continue;
       const checklistNodes = collectChecklistsAfterStage(s, cp.stages, cp.connections);
+      // NOTE: The canonical `executor.findReachable` helper would replace
+      // this inline walker — but the helper takes shared TapeStage[]
+      // / TapeConnection[] types, and `cp` here is the Prisma-shape
+      // pipeline (loaded via `service.getProfilePipeline`), not the
+      // projected `localCtx.profile` available in cycle-write impls. To
+      // share the helper we'd need either an `as any` cast (anti-pattern,
+      // defeats the cleanup) or a structural projection layer — both bigger
+      // than this commit's scope. The duplicate-walker dedup landed in
+      // advance.ts + submit-checklist.ts (both have `localCtx` in scope).
       const nextSet = new Set<string>();
       let leadsToEnd = false;
       const collectStagesPast = (nodeId: string, visited: Set<string>) => {
