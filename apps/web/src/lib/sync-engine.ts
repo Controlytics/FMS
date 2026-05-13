@@ -34,15 +34,47 @@ import { onConnectivityChange } from './connectivity';
 /**
  * Audit 2026-05-04 fix C1: read the offline-replay grant token from session
  * (or backup in localStorage if the tab was reloaded) and shape it as a
- * header object spread by every replay call. Returns {} if no token, in
- * which case the backend will reject the call with REAUTH_REQUIRED — the
- * operator must re-login to mint a fresh grant. This is the desired failure
- * mode (loud, not silent).
+ * header object spread by every replay call. Returns {} if no token (or
+ * the token is expired), in which case the backend rejects with
+ * REAUTH_REQUIRED — operator must re-login to mint a fresh grant.
+ *
+ * Deep-review fix (2026-05-13): the grant's `expiresAt` was being persisted
+ * by use-auth.ts:92,94 but never read here. Sending an expired token
+ * produced a noisy `OFFLINE_REPLAY_TOKEN_EXPIRED` server-side 401 with no
+ * client-side cleanup — every subsequent request would keep re-sending the
+ * dead token and getting rejected. Now we validate the expiry before
+ * sending: if missing/in-the-past (with a 60s safety buffer for in-flight
+ * races), we clear the stale storage entries AND return {} so the server
+ * routes through the REAUTH_REQUIRED path. Same loud failure mode as
+ * "never had a grant," but now WITHOUT spamming dead tokens on every retry.
  */
+const REPLAY_GRANT_EXPIRY_BUFFER_MS = 60_000;
+
 function getOfflineReplayHeader(): Record<string, string> {
   const token = sessionStorage.getItem('offline_replay_token')
     || localStorage.getItem('offline_replay_token_backup');
-  return token ? { 'x-offline-replay-token': token } : {};
+  if (!token) return {};
+
+  const expiresAt = sessionStorage.getItem('offline_replay_expires')
+    || localStorage.getItem('offline_replay_expires_backup');
+  if (expiresAt) {
+    const expiresAtMs = Date.parse(expiresAt);
+    if (Number.isFinite(expiresAtMs) && expiresAtMs - REPLAY_GRANT_EXPIRY_BUFFER_MS <= Date.now()) {
+      // eslint-disable-next-line no-console -- intentional structured log
+      console.warn(
+        '[sync-engine] offline-replay grant expired at',
+        expiresAt,
+        '— clearing storage; operator must re-login to mint a fresh grant',
+      );
+      sessionStorage.removeItem('offline_replay_token');
+      sessionStorage.removeItem('offline_replay_expires');
+      localStorage.removeItem('offline_replay_token_backup');
+      localStorage.removeItem('offline_replay_expires_backup');
+      return {};
+    }
+  }
+
+  return { 'x-offline-replay-token': token };
 }
 
 type SyncListener = (event: { type: 'start' | 'progress' | 'complete' | 'error' | 'interrupted'; synced?: number; total?: number; error?: string }) => void;
