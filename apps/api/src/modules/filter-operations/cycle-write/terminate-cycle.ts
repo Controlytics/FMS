@@ -8,7 +8,7 @@
 import type { RequestContext } from '../../../types/context.js';
 import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
-import { findExistingByClientOpId } from '../../../lib/idempotency.js';
+import { findExistingByClientOpId, withClientOpId } from '../../../lib/idempotency.js';
 import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
@@ -74,7 +74,7 @@ export async function terminateCycleImpl(
     });
     const eventData = {
       filterId, cycleId: filterCurrentCycleId!, eventType: 'CYCLE_TERMINATED' as const,
-      performedBy: ctx.userSub, attributes: { justification },
+      performedBy: ctx.userSub, attributes: withClientOpId({ justification }, clientOpId),
       remarks: justification,
     };
     await tx.filterEvent.create({

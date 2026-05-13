@@ -187,13 +187,20 @@ export async function getCurrentStateImpl(
             const checklistNodes = collectChecklistsAfterStage(currentStage, cp.stages, cp.connections);
 
             if (checklistNodes.length > 0) {
-              // Check if checklists have already been answered for this stage in this cycle
+              // Check if checklists have already been answered for this stage in this cycle.
+              //
+              // Audit 2026-05-04 fix C3 parity (same shape that submit-checklist.ts:179
+              // already mitigates): `equals: undefined` collapses to "no JSON filter at
+              // all" in Prisma, which would match every CHECKLIST_COMPLETED for the
+              // cycle — including ones for other stages — and falsely mark the gate as
+              // satisfied. Use Prisma's explicit JSON-null match (`equals: null`) so a
+              // stage-null event row is matched correctly and stage-other rows are not.
               const answeredEvent = await prisma.filterEvent.findFirst({
                 where: {
                   filterId,
                   cycleId: currentCycle.id,
                   eventType: 'CHECKLIST_COMPLETED',
-                  attributes: { path: ['afterStage'], equals: filter.currentLifecycleState ?? undefined },
+                  attributes: { path: ['afterStage'], equals: filter.currentLifecycleState ?? (null as any) },
                 },
               });
 

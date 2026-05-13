@@ -34,7 +34,14 @@ const { mockPrisma, mockAuditLog, mockFindExistingByClientOpId } = vi.hoisted(()
 
 vi.mock('../../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 vi.mock('../../../lib/audit.js', () => ({ auditLog: mockAuditLog }));
-vi.mock('../../../lib/idempotency.js', () => ({ findExistingByClientOpId: mockFindExistingByClientOpId }));
+// `withClientOpId` is a pure pass-through helper (no I/O); preserve the real
+// implementation via importOriginal so cycle-write writers can thread the
+// clientOpId into event attributes. Only the I/O-bound `findExistingByClientOpId`
+// probe is mocked.
+vi.mock('../../../lib/idempotency.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../lib/idempotency.js')>();
+  return { ...actual, findExistingByClientOpId: mockFindExistingByClientOpId };
+});
 
 import { FilterOperationsService } from '../filter-operations.service.js';
 

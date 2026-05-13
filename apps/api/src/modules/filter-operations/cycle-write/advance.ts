@@ -10,7 +10,7 @@ import type { RequestContext } from '../../../types/context.js';
 import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
 import { AppError } from '../../../lib/errors.js';
-import { findExistingByClientOpId } from '../../../lib/idempotency.js';
+import { findExistingByClientOpId, withClientOpId } from '../../../lib/idempotency.js';
 import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
@@ -213,10 +213,10 @@ export async function advanceImpl(
     }
   }
 
-  const eventAttributes = {
+  const eventAttributes = withClientOpId({
     ...(parameters ?? {}),
     ...(validatedReadings ? { instrumentReadings: validatedReadings } : {}),
-  };
+  }, clientOpId);
 
   const eventData = {
     filterId, cycleId: cycle.id, eventType: 'STATE_TRANSITION' as const,
@@ -294,7 +294,7 @@ export async function advanceImpl(
         filterId, cycleId: cycle.id, eventType: 'STATE_TRANSITION' as const,
         fromState: currentState, toState: targetState,
         performedBy: ctx.userSub,
-        attributes: { dryerDurationMinutes, dryerStartedAt: startedAt.toISOString(), action: 'DRYER_STARTED' },
+        attributes: withClientOpId({ dryerDurationMinutes, dryerStartedAt: startedAt.toISOString(), action: 'DRYER_STARTED' }, clientOpId),
         remarks: `Dryer started for ${dryerDurationMinutes} minute(s)`,
       };
       await tx.filterEvent.create({
@@ -344,7 +344,7 @@ export async function advanceImpl(
 
       const completeEvent = {
         filterId, cycleId: cycle.id, eventType: 'CYCLE_COMPLETED' as const,
-        performedBy: ctx.userSub, attributes: { sequenceNumber: cycle.sequenceNumber },
+        performedBy: ctx.userSub, attributes: withClientOpId({ sequenceNumber: cycle.sequenceNumber }, clientOpId),
       };
       await tx.filterEvent.create({
         data: {

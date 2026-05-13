@@ -453,9 +453,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const cleaningReasons = online ? ((reasonsData as any)?.reasons ?? reasonsData ?? []) : offlineReasons;
   const templates = (online ? (templatesData?.data ?? []) : offlineTemplates) as any[];
   const instances = online ? ((instancesData?.data ?? []) as any[]) : offlineFilters;
-  const filterTemplateId = templates.find((t: any) => t.templateKind === 'FILTER')?.id;
+  // Match against every FILTER-kind template, not just one (history.tsx bug
+  // fix from 2026-05-12 fanned out — single .find()?.id silently dropped
+  // filters belonging to a second/third FILTER-kind template).
+  const filterTemplateIds = new Set(
+    templates.filter((t: any) => t.templateKind === 'FILTER').map((t: any) => t.id),
+  );
   const blockTemplateId = templates.find((t: any) => t.templateKind === 'BLOCK')?.id;
-  const allFilters = instances.filter((f: any) => f.templateId === filterTemplateId && f.isActive !== false && f.status !== 'Retired');
+  const allFilters = instances.filter((f: any) => filterTemplateIds.has(f.templateId) && f.isActive !== false && f.status !== 'Retired');
   const blocks = instances.filter((i: any) => i.templateId === blockTemplateId);
 
   const stageCounts: Record<string, number> = {};

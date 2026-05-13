@@ -137,9 +137,18 @@ export function FilterListPage() {
   // Resolve canonical templates by kind, NOT by name. This decouples the
   // page from human-editable template names — admins can rename "Block" to
   // "Building" without breaking page logic.
+  //
+  // `filterTemplateIds` (Set) is used for "is this instance a filter"
+  // membership checks — handles multiple FILTER-kind templates.
+  // `filterTemplateId` (single) is kept for the create-new-filter path,
+  // which still pins to one template per session. Multi-template create
+  // remains a UX-picker problem (tracked separately).
   const blockTemplateId = templates.find((t: any) => t.templateKind === 'BLOCK')?.id;
   const filterTemplateId = templates.find((t: any) => t.templateKind === 'FILTER')?.id;
   const ahuTemplateId = templates.find((t: any) => t.templateKind === 'AHU')?.id;
+  const filterTemplateIds = new Set(
+    templates.filter((t: any) => t.templateKind === 'FILTER').map((t: any) => t.id),
+  );
 
   const blocks = useMemo(() =>
     instances.filter((i: any) => i.templateId === blockTemplateId),
@@ -155,8 +164,8 @@ export function FilterListPage() {
   const blockIds = useMemo(() => new Set(blocks.map((b: any) => b.id)), [blocks]);
 
   const allFilters = useMemo(() =>
-    instances.filter((i: any) => i.templateId === filterTemplateId && i.isActive !== false && i.status !== 'Retired'),
-    [instances, filterTemplateId]
+    instances.filter((i: any) => filterTemplateIds.has(i.templateId) && i.isActive !== false && i.status !== 'Retired'),
+    [instances, filterTemplateIds]
   );
 
   // Map of assetId -> identifiers (for RFID tag display)
@@ -186,7 +195,7 @@ export function FilterListPage() {
           ...area, type: 'area' as const,
           ahus: ahus.map((ahu: any) => ({
             ...ahu, type: 'ahu' as const,
-            filters: instances.filter((f: any) => f.parentId === ahu.id && f.templateId === filterTemplateId && f.isActive !== false && f.status !== 'Retired'),
+            filters: instances.filter((f: any) => f.parentId === ahu.id && filterTemplateIds.has(f.templateId) && f.isActive !== false && f.status !== 'Retired'),
           })),
         };
       });
@@ -194,12 +203,12 @@ export function FilterListPage() {
       // AHUs directly under block (no area level)
       const directAhuNodes = directAhus.map((ahu: any) => ({
         ...ahu, type: 'ahu' as const,
-        filters: instances.filter((f: any) => f.parentId === ahu.id && f.templateId === filterTemplateId && f.isActive !== false && f.status !== 'Retired'),
+        filters: instances.filter((f: any) => f.parentId === ahu.id && filterTemplateIds.has(f.templateId) && f.isActive !== false && f.status !== 'Retired'),
       }));
 
       return { ...block, type: 'block' as const, areas: areaNodes, directAhus: directAhuNodes };
     });
-  }, [blocks, instances, areaTemplateId, ahuTemplateId, filterTemplateId]);
+  }, [blocks, instances, areaTemplateId, ahuTemplateId, filterTemplateIds]);
 
   const getTemplateIdForType = (type: string) => {
     if (type === 'block') return blockTemplateId;

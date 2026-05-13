@@ -9,7 +9,7 @@ import type { RequestContext } from '../../../types/context.js';
 import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
 import { AppError } from '../../../lib/errors.js';
-import { findExistingByClientOpId } from '../../../lib/idempotency.js';
+import { findExistingByClientOpId, withClientOpId } from '../../../lib/idempotency.js';
 import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
@@ -67,7 +67,7 @@ export async function bypassImpl(
     eventType: 'BYPASS_DEVIATION' as const,
     fromState, toState: targetState,
     performedBy: ctx.userSub,
-    attributes: parameters ?? {},
+    attributes: withClientOpId(parameters ?? {}, clientOpId),
     deviationDetails: { type: 'BYPASS', fromState, toState: targetState, justification },
     remarks: justification,
   };

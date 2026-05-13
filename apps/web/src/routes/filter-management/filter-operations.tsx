@@ -74,9 +74,16 @@ export function FilterOperationsPage() {
   // Runs on page load and whenever instances data refreshes
   useEffect(() => {
     if (!online || !instancesData?.data) return;
+    // Build the set inline since this effect runs before the main render-scope
+    // `filterTemplateIds` is computed. Cheap — list size is small.
+    const cacheFilterTemplateIds = new Set(
+      ((templatesData?.data ?? []) as any[])
+        .filter((t: any) => t.templateKind === 'FILTER')
+        .map((t: any) => t.id),
+    );
     const filters = instancesData.data.filter((f: any) => {
-      const isFilter = f.template?.name === 'Filter' || (filterTemplateId && f.templateId === filterTemplateId);
-      return isFilter && f.isActive !== false && f.status !== 'Retired';
+      if (!cacheFilterTemplateIds.has(f.templateId)) return false;
+      return f.isActive !== false && f.status !== 'Retired';
     });
     const cacheFilterStates = async () => {
       for (const f of filters) {
@@ -234,13 +241,20 @@ export function FilterOperationsPage() {
   const instances = (instancesData?.data ?? offlineInstances) as any[];
   const templates = (templatesData?.data ?? offlineTemplates) as any[];
 
-  // Find the Filter template ID — works with both online (template.name) and offline (templateId) data
-  const filterTemplateId = templates.find((t: any) => t.templateKind === 'FILTER')?.id;
+  // Match instances against every FILTER-kind template, not just one.
+  // The previous `templates.find(...)?.id` pattern picked an arbitrary single
+  // template and silently dropped filters belonging to any second or third
+  // FILTER-kind template (same shape as the history.tsx bug fixed 2026-05-12).
+  // Using a Set of all FILTER-kind template ids is the systematic fix.
+  const filterTemplateIds = new Set(
+    (templates ?? [])
+      .filter((t: any) => t.templateKind === 'FILTER')
+      .map((t: any) => t.id),
+  );
 
   const allFilters = instances.filter((f: any) => {
-    // Match by template object (online) OR by templateId (offline cached data)
-    const isFilter = f.template?.name === 'Filter' || (filterTemplateId && f.templateId === filterTemplateId);
-    if (!isFilter || f.isActive === false || f.status === 'Retired') return false;
+    if (!filterTemplateIds.has(f.templateId)) return false;
+    if (f.isActive === false || f.status === 'Retired') return false;
     if (ahuIdFilter && f.parentId !== ahuIdFilter) return false;
     return true;
   });

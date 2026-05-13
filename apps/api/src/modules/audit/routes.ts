@@ -192,7 +192,17 @@ export default async function auditRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const record = await prisma.auditTrail.findUnique({ where: { id } });
+    // SUPER_ADMIN actions are excluded from the audit list by design (see line 73).
+    // The detail endpoint must apply the same filter, otherwise any user with
+    // AUDIT_READ who knows a UUID could fetch a SUPER_ADMIN row directly —
+    // contradicting the list-level policy and leaking the very rows the policy
+    // hides. Use findFirst with the same shape as the list query.
+    const record = await prisma.auditTrail.findFirst({
+      where: {
+        id,
+        OR: [{ userRole: { not: 'SUPER_ADMIN' } }, { userRole: null }],
+      },
+    });
     if (!record) return reply.code(404).send({ error: 'Audit record not found' });
     return {
       ...record,
