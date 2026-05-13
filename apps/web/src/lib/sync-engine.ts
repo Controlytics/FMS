@@ -281,7 +281,12 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
   }
   if (pending.length === 0) return { synced: 0, failed: 0 };
 
-  // Quick connectivity test: use apiClient (supports CapacitorHttp for self-signed certs)
+  // Quick connectivity test before draining the queue. On the APK, every
+  // fetch() (here and inside apiClient) is routed through CapacitorHttp
+  // automatically because `capacitor.config.ts` has `CapacitorHttp.enabled:
+  // true` — that patches global fetch at WebView startup. So apiClient has
+  // no special TLS handling; it inherits CapacitorHttp the same way a raw
+  // fetch in connectivity.ts does.
   try {
     await apiClient.get('/api/health');
   } catch {
