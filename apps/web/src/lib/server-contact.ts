@@ -38,12 +38,42 @@ function emit(timestampMs: number) {
 }
 
 /**
- * Mark that we just received an HTTP response from the server. Call this from
- * api-client.ts after every `await fetch(...)` that returned (regardless of
- * status code) and from connectivity.ts probeServer on any non-thrown result.
+ * Mark that we just received an HTTP response from the server. Prefer
+ * `markServerContactFromResponse(res)` which applies the correct rule for
+ * proxy-aware contact detection; this lower-level entrypoint is exported
+ * for the rare caller that wants unconditional marking (e.g. tests).
  */
 export function markServerContact(): void {
   emit(Date.now());
+}
+
+/**
+ * Mark contact based on a fetch Response, applying the < 500 rule.
+ *
+ * Why the rule: in dev (and in any deployment with a reverse proxy in
+ * front of the API), a dead upstream produces a 5xx response from the
+ * proxy — NOT a thrown fetch error. Vite's dev proxy specifically
+ * returns 500 on connect-refused. If we treat those as "contact made,"
+ * the W4 hard-cutoff timer resets on every failing call and the
+ * read-only lockout never trips.
+ *
+ * 2xx / 3xx / 4xx all count as contact:
+ *   - 2xx, 3xx — the obvious success / redirect cases
+ *   - 401 / 403 — server is up, just rejecting auth or perms. The
+ *     existing 401 handler in api-client will redirect to login; not
+ *     marking contact wouldn't change that outcome but would falsely
+ *     escalate to read-only mode on transient session expiries.
+ *   - 404 / 422 / 429 — the server is responding with a structured
+ *     reply. Counts as contact.
+ *
+ * 5xx is treated as "no contact": ambiguous between a backend bug and a
+ * proxy-error, and the safer posture for 21 CFR Part 11 is to assume
+ * the server isn't healthy. Sustained 5xx → eventual hard-cutoff →
+ * operator sees read-only mode. If the API is fine and a single 5xx is
+ * a transient blip, the next 2xx response will mark contact and reset.
+ */
+export function markServerContactFromResponse(res: { status: number }): void {
+  if (res.status < 500) emit(Date.now());
 }
 
 /**

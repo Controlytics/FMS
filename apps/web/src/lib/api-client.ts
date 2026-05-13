@@ -1,5 +1,5 @@
 // NOTE: Prefer importing as `apiClient` using @/ alias across all files
-import { markServerContact } from './server-contact';
+import { markServerContactFromResponse } from './server-contact';
 import { isHardCutoffExceeded } from './hard-cutoff';
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? '';
@@ -52,12 +52,14 @@ class ApiClient {
       },
     });
 
-    // The fetch returned — server is reachable (any HTTP status, including
-    // 401/4xx/5xx, proves contact). Only a thrown error means no contact.
-    // The W4 hard-cutoff lockout consumes this timestamp to decide read-only
-    // mode. Updating BEFORE status-code branching is intentional: even a 401
-    // is evidence the server is up.
-    markServerContact();
+    // The fetch returned — apply the < 500 rule so that Vite dev-proxy
+    // errors (and any reverse-proxy "upstream unreachable" responses) do
+    // NOT spuriously reset the W4 hard-cutoff timer. 2xx/3xx/4xx count as
+    // contact (401 is evidence the server is up, just rejecting auth);
+    // 5xx is treated as no-contact since it's ambiguous between a backend
+    // bug and a proxy error, and the safer 21 CFR Part 11 posture is to
+    // err toward read-only mode on sustained 5xx.
+    markServerContactFromResponse(res);
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'PARSE_ERROR', message: 'Failed to parse server response' }));
