@@ -14,6 +14,11 @@
  * Callers subscribe via onConnectivityChange(cb) and read isOnline() for sync state.
  */
 
+import {
+  CONNECTIVITY_PROBE_TIMEOUT_MS,
+  CONNECTIVITY_POLL_INTERVAL_MS,
+} from './timing-constants';
+
 let cachedOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
 const listeners = new Set<(online: boolean) => void>();
 
@@ -45,7 +50,7 @@ export function onConnectivityChange(cb: (online: boolean) => void): () => void 
 async function probeServer(): Promise<boolean> {
   const baseUrl = (import.meta as any).env?.VITE_API_URL ?? '';
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5000);
+  const timer = setTimeout(() => controller.abort(), CONNECTIVITY_PROBE_TIMEOUT_MS);
   try {
     const r = await fetch(`${baseUrl}/api/health`, { method: 'GET', signal: controller.signal });
     // Apply the < 500 rule via the helper so a Vite dev-proxy 500 (or any
@@ -106,7 +111,7 @@ export async function startConnectivityEngine(): Promise<void> {
     notify(reachable);
   };
   await tick();
-  pollTimer = setInterval(tick, 15_000);
+  pollTimer = setInterval(tick, CONNECTIVITY_POLL_INTERVAL_MS);
 
   // 4. Re-probe immediately when the tab/app becomes visible again — covers
   // the common "operator unlocks the tablet" case where Capacitor's network

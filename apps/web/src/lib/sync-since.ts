@@ -24,6 +24,7 @@ import { isOnline, onConnectivityChange } from './connectivity';
 // module instance. No circular-dep risk since sync-engine doesn't import
 // sync-since.
 import { emitSyncStage } from './sync-engine';
+import { SYNC_SINCE_POLL_INTERVAL_MS } from './timing-constants';
 import {
   cacheEntities,
   getVersionState,
@@ -244,10 +245,10 @@ export function startSyncPolling(): () => void {
   if (pollInterval || visibilityHandler || connectivityUnsub) {
     return () => stopSyncPolling();
   }
-  // 60s online poll. Skip when offline — no point hitting a dead network.
+  // Online poll. Skip when offline — no point hitting a dead network.
   pollInterval = setInterval(() => {
     if (isOnline()) triggerSync('60s-poll');
-  }, 60_000);
+  }, SYNC_SINCE_POLL_INTERVAL_MS);
   // Foreground sync. visibilitychange fires when the tab/app comes back into
   // view — covers tablet wake-up, browser tab switch, OS app switch.
   visibilityHandler = () => {

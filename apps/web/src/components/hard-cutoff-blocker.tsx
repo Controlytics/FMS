@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getHardCutoffMs, isHardCutoffExceeded, subscribeToHardCutoff } from '@/lib/hard-cutoff';
 import { getLastServerContact } from '@/lib/server-contact';
+import { HARD_CUTOFF_REEVAL_INTERVAL_MS } from '@/lib/timing-constants';
 
 /**
  * W4: read-only blocker overlay.
@@ -29,9 +30,9 @@ export function HardCutoffBlocker() {
 
   useEffect(() => {
     const unsub = subscribeToHardCutoff(setExceeded);
-    // 30s fallback poll for the "no contact at all" case where neither the
+    // Fallback poll for the "no contact at all" case where neither the
     // probe nor an apiClient call ever fires. Cheap — just a comparison.
-    const t = setInterval(() => setExceeded(isHardCutoffExceeded()), 30_000);
+    const t = setInterval(() => setExceeded(isHardCutoffExceeded()), HARD_CUTOFF_REEVAL_INTERVAL_MS);
     return () => {
       unsub();
       clearInterval(t);

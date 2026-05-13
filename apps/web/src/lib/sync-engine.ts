@@ -30,6 +30,12 @@ import {
   evictLruCache,
 } from './offline-store';
 import { onConnectivityChange } from './connectivity';
+import {
+  SYNC_AUTO_INTERVAL_MS,
+  SYNC_AFTER_ONLINE_DELAY_MS,
+  SYNC_AFTER_VISIBILITY_DELAY_MS,
+  SYNC_INITIAL_DELAY_MS,
+} from './timing-constants';
 
 /**
  * Audit 2026-05-04 fix C1: read the offline-replay grant token from session
@@ -477,7 +483,7 @@ export function startAutoSync(): void {
   if (cleanup) return;
 
   const onlineCleanup = onConnectivityChange((online) => {
-    if (online) scheduleSync(2000);
+    if (online) scheduleSync(SYNC_AFTER_ONLINE_DELAY_MS);
   });
 
   retryInterval = setInterval(async () => {
@@ -496,10 +502,10 @@ export function startAutoSync(): void {
         err instanceof Error ? err.message : String(err),
       );
     }
-  }, 30_000);
+  }, SYNC_AUTO_INTERVAL_MS);
 
   const handleVisibility = () => {
-    if (document.visibilityState === 'visible') scheduleSync(1000);
+    if (document.visibilityState === 'visible') scheduleSync(SYNC_AFTER_VISIBILITY_DELAY_MS);
   };
   document.addEventListener('visibilitychange', handleVisibility);
 
@@ -511,7 +517,7 @@ export function startAutoSync(): void {
     pendingTimers.clear();
   };
 
-  scheduleSync(3000);
+  scheduleSync(SYNC_INITIAL_DELAY_MS);
 }
 
 export function stopAutoSync(): void {
