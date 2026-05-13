@@ -31,14 +31,7 @@ import {
 } from '@/lib/filter-ops';
 import type { PendingChecklistBatchItem } from '@/lib/filter-ops';
 
-const STAGES = [
-  { key: 'WASH_IN', label: 'Wash In', icon: '🚿', gradient: 'from-sky-500 to-sky-600', bg: 'bg-sky-50', border: 'border-sky-200', text: 'text-sky-700', needsBlock: true },
-  { key: 'WASH_OUT', label: 'Wash Out', icon: '💧', gradient: 'from-sky-400 to-sky-500', bg: 'bg-sky-50', border: 'border-sky-200', text: 'text-sky-600', needsBlock: false },
-  { key: 'DRY_IN', label: 'Dry In', icon: '🌡️', gradient: 'from-amber-500 to-orange-500', bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', needsBlock: true },
-  { key: 'DRY_OUT', label: 'Dry Out', icon: '☀️', gradient: 'from-amber-400 to-amber-500', bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-600', needsBlock: false },
-  { key: 'STORAGE_IN', label: 'Storage In', icon: '📥', gradient: 'from-slate-500 to-slate-600', bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-600', needsBlock: false },
-  { key: 'STORAGE_OUT', label: 'Storage Out', icon: '📤', gradient: 'from-slate-400 to-slate-500', bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-500', needsBlock: false },
-];
+import { CLEANING_STAGES_MOBILE as STAGES } from '@/lib/filter-constants';
 
 type View = 'home' | 'status' | 'stage' | 'my-tasks' | 'approvals';
 
