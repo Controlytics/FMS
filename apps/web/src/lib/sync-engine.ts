@@ -392,7 +392,18 @@ export function startAutoSync(): void {
     try {
       const pending = await getPendingOperations();
       if (pending.length > 0) syncPendingOperations();
-    } catch {}
+    } catch (err) {
+      // The 30-second retry tick polls IndexedDB for queued ops. Silent
+      // catch here hid stuck offline-mode failures (the queue stops
+      // draining if IDB throws and nobody reports why). The retry itself
+      // is fire-and-forget, but operators looking at the console need a
+      // diagnostic — surface the cause; the next tick will try again.
+      // eslint-disable-next-line no-console -- intentional structured log
+      console.warn(
+        '[sync-engine] retry tick: getPendingOperations failed —',
+        err instanceof Error ? err.message : String(err),
+      );
+    }
   }, 30_000);
 
   const handleVisibility = () => {

@@ -101,8 +101,18 @@ export async function processDLQ(): Promise<{ requeued: number; dead: number }> 
           triggerDetails: { dlqDepth, threshold: dlqThreshold } as Prisma.InputJsonValue,
         },
       });
-    } catch {
-      // Alarm creation failure is non-critical
+    } catch (err) {
+      // The DLQ-overflow alarm write CAN fail — `entityId: '00...000'` is a
+      // sentinel that violates the AssetInstance FK if it's enforced. The
+      // outer DLQ processing path is non-critical (the overflow is already
+      // logged via the dlqDepth comparison above) but the silent catch made
+      // it impossible to diagnose "why aren't operators receiving DLQ-
+      // overflow alerts" in the field. Surface the cause; the alarm is
+      // best-effort, but the operator should see why it didn't land.
+      console.warn(
+        '[DLQ] DLQ_OVERFLOW alarm creation failed (sentinel entity may not exist):',
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 

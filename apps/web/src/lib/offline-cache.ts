@@ -282,8 +282,20 @@ export async function recomputeAndCacheFilterState(
     if (cycleComplete) {
       await clearOfflineCycleId(filterId);
     }
-  } catch {
-    /* swallow — same behaviour as the deleted local helpers */
+  } catch (err) {
+    // CFR-11 relevant — this recompute writes `pendingChecklist` + `actions`
+    // into the cache, which `local-context.ts` later reads to decide whether
+    // a checklist gate is open. Silent failure here can leave the gate
+    // mis-wired offline (operator could advance past a required checklist
+    // because the cache says none is pending). Surfacing via console.warn
+    // is the minimum — a follow-up should propagate to a sync-event the UI
+    // can render as a stuck-state warning. Tracked in the deep-review notes.
+    // eslint-disable-next-line no-console -- intentional structured log
+    console.warn(
+      '[offline-cache] recomputeAndCacheFilterState failed for',
+      filterId,
+      err instanceof Error ? err.message : String(err),
+    );
   }
 }
 
