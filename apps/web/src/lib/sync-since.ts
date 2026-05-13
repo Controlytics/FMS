@@ -15,6 +15,15 @@ import { apiClient } from './api-client';
 // Audit 2026-05-04 fix #3 (web-plumbing review C2/C3): Capacitor-aware
 // connectivity check — navigator.onLine lies on Android WebViews.
 import { isOnline, onConnectivityChange } from './connectivity';
+// W5 follow-up: emit ribbon stage events via a static import. Earlier
+// versions used dynamic `import('./sync-engine')`, but in Vite that resolves
+// to a DIFFERENT module instance than other consumers using
+// `@/lib/sync-engine` — events emitted via the dynamic-imported instance
+// never reach listeners attached via the alias-imported instance, so the
+// ribbon never saw fetching-snapshot. Static import keeps everyone on one
+// module instance. No circular-dep risk since sync-engine doesn't import
+// sync-since.
+import { emitSyncStage } from './sync-engine';
 import {
   cacheEntities,
   getVersionState,
@@ -113,19 +122,17 @@ export async function syncSince(): Promise<SyncResult> {
 
 async function doSync(): Promise<SyncResult> {
   // W5: emit a stage event so the W6 ribbon can show "Refreshing data…" while
-  // the versioned snapshot pull is in flight. Best-effort emit — the import
-  // is dynamic so this module doesn't take a hard dep on sync-engine for the
-  // emitter (sync-since itself can run independently in tests).
-  void import('./sync-engine').then(m => m.emitSyncStage('fetching-snapshot')).catch(() => {});
+  // the versioned snapshot pull is in flight.
+  emitSyncStage('fetching-snapshot');
   try {
     const state = await getVersionState();
     const qs = buildQuery(state);
     const resp = await apiClient.get<SyncSinceResponse>(`/api/sync/since?${qs}`);
     const result = await persistSnapshot(state, resp);
-    void import('./sync-engine').then(m => m.emitSyncStage('idle')).catch(() => {});
+    emitSyncStage('idle');
     return result;
   } catch (e) {
-    void import('./sync-engine').then(m => m.emitSyncStage('idle')).catch(() => {});
+    emitSyncStage('idle');
     throw e;
   }
 }
