@@ -230,9 +230,15 @@ export function useOffline() {
     return getCachedFilters();
   }, []);
 
-  // Generic cache. Default TTL is 30 min for short-lived UI caches; caller can pass
-  // a longer TTL (e.g. 24h) for data that must survive long offline shifts.
-  const cache = useCallback(async (key: string, data: any, ttlMs: number = 30 * 60 * 1000) => {
+  // Generic cache. When the caller doesn't pass a TTL, the runtime value
+  // from offline-store (SUPER_ADMIN-tuned via /api/config/offline-cache;
+  // default 24h) applies. Callers that specifically want a short window
+  // (e.g. SHORT_TTL_MS for non-critical UI caches) pass it explicitly.
+  // W2 (offline-safety series): previously hardcoded 30min — that drift
+  // between the templates/equipment-groups caches (30min) and the
+  // filter-state cache (24h) caused offline templates to expire on long
+  // shifts. Single source of truth now.
+  const cache = useCallback(async (key: string, data: any, ttlMs?: number) => {
     await cacheData(key, data, ttlMs);
   }, []);
 

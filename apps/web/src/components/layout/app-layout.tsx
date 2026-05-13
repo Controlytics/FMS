@@ -5,6 +5,7 @@ import { useSession } from '@/hooks/use-session';
 import { useSingleTab } from '@/hooks/use-single-tab';
 import { useBranding } from '@/hooks/use-branding';
 import { useRfidGuard } from '@/hooks/use-rfid-guard';
+import { useOfflineConfig } from '@/hooks/use-offline-config';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
@@ -14,6 +15,10 @@ import { triggerSync, startSyncPolling } from '@/lib/sync-since';
 
 export function AppLayout() {
   useRfidGuard(); // Block RFID UKB input from going into random fields
+  // W2: read the SUPER_ADMIN-tuned offline-cache config and push the staleness
+  // value into offline-store. Also exposes cacheHardCutoffHours for W4's
+  // read-only blocker (consumed by a child component to be added in W4).
+  useOfflineConfig();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const location = useLocation();

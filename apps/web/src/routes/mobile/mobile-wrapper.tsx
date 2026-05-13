@@ -9,6 +9,7 @@ import { useReauth } from '@/hooks/use-reauth';
 import { useBlockChangeApproval } from '@/hooks/use-block-change-approval';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { onSyncEvent } from '../../lib/sync-engine';
+import { useOfflineConfig } from '../../hooks/use-offline-config';
 import { syncAllDataForOffline, type SyncProgress } from '../../lib/offline-sync-service';
 import { triggerSync, startSyncPolling } from '../../lib/sync-since';
 import { MobileOperationsPage } from './mobile-operations';
@@ -42,6 +43,10 @@ function buildIdentifierMap(identifiers: any[]): Record<string, { filterId: stri
 export function MobileWrapperPage() {
   const { user, isLoading: authLoading, logout: authLogout } = useAuth();
   const { formatTime } = useDatetimeFormat();
+  // W2: mobile entry point bypasses AppLayout, so wire the offline-cache
+  // config bootstrap here too. The hook is a no-op when the user isn't
+  // authenticated yet (SWR doesn't fire on null key inside it).
+  useOfflineConfig();
   const { online, pendingCount, syncing, lastSyncMessage, manualSync, clearQueue, getQueueDetails, cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
   const reauth = useReauth();
   // Audit 2026-05-04 follow-up: shared block-change approval flow with web

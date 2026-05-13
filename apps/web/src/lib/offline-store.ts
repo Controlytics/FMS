@@ -38,10 +38,30 @@ const DB_VERSION = 5;
 // connectivity check — navigator.onLine lies on Android WebViews.
 import { isOnline as connIsOnline } from './connectivity';
 
-export const OFFLINE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+export const OFFLINE_TTL_MS = 24 * 60 * 60 * 1000; // 24h — legacy default (kept for static callers)
 export const SHORT_TTL_MS = 30 * 60 * 1000;        // 30 min — for non-critical UI caches
 export const SYNCED_OP_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 export const CACHE_LRU_CAP = 1000; // max entries in `cache` store before LRU eviction
+
+// W2 (offline-safety series): runtime-mutable cache TTL driven by the
+// SUPER_ADMIN `cacheStalenessHours` config (see offline-cache.def.ts +
+// /api/config/offline-cache/current). Starts at 24h so a freshly loaded app
+// with no config response yet still behaves correctly; `use-offline-config`
+// re-seeds this on app boot once the config arrives.
+//
+// `getRuntimeOfflineTtlMs()` is the live value all cache reads and writes
+// consult. `getCachedData()` recomputes expiry as min(storedExpiresAt,
+// cachedAt + runtimeTtl) so config changes apply to entries already on disk
+// — the operator doesn't have to wait for the old expiresAt to drain.
+let _runtimeOfflineTtlMs = 24 * 60 * 60 * 1000;
+export function setRuntimeOfflineTtlMs(ms: number): void {
+  if (Number.isFinite(ms) && ms > 0) {
+    _runtimeOfflineTtlMs = ms;
+  }
+}
+export function getRuntimeOfflineTtlMs(): number {
+  return _runtimeOfflineTtlMs;
+}
 
 interface OfflineOperation {
   id: string;
@@ -247,16 +267,21 @@ export async function clearFilterStateCaches(): Promise<void> {
   });
 }
 
-export async function cacheData(key: string, data: any, ttlMs: number = SHORT_TTL_MS): Promise<void> {
+export async function cacheData(key: string, data: any, ttlMs?: number): Promise<void> {
   const db = await openDB();
   const tx = db.transaction('cache', 'readwrite');
   const now = new Date();
+  // W2: default TTL is the runtime configurable value (SUPER_ADMIN-tunable
+  // via the offline-cache config). Callers that pass an explicit ttlMs
+  // (e.g. SHORT_TTL_MS for non-critical UI caches that genuinely want a
+  // tighter window) still get their override honored.
+  const effectiveTtl = ttlMs ?? getRuntimeOfflineTtlMs();
   tx.objectStore('cache').put({
     key,
     data,
     cachedAt: now.toISOString(),
     lastAccessedAt: now.toISOString(),
-    expiresAt: new Date(now.getTime() + ttlMs).toISOString(),
+    expiresAt: new Date(now.getTime() + effectiveTtl).toISOString(),
   });
   return new Promise((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); });
 }
@@ -276,7 +301,19 @@ export async function getCachedData<T>(key: string): Promise<T | null> {
       // aware connectivity engine, not raw navigator.onLine. On Android
       // WebViews navigator.onLine lies; this gate would silently drop fresh
       // cache rows for tablets that THINK they're online but aren't.
-      if (connIsOnline() && new Date(result.expiresAt) < new Date()) { resolve(null); return; }
+      if (connIsOnline()) {
+        const now = Date.now();
+        const cachedAtMs = new Date(result.cachedAt).getTime();
+        const storedExpiresAtMs = new Date(result.expiresAt).getTime();
+        // W2: also enforce the live runtime TTL, not just the expiresAt
+        // captured at write time. If SUPER_ADMIN tightens cacheStalenessHours
+        // from 24h to 1h, an entry written 2h ago should be considered stale
+        // even though its stored expiresAt is still 22h in the future. The
+        // effective expiry is min(storedExpiresAt, cachedAt + runtimeTtl).
+        const runtimeExpiresAtMs = cachedAtMs + getRuntimeOfflineTtlMs();
+        const effectiveExpiresAtMs = Math.min(storedExpiresAtMs, runtimeExpiresAtMs);
+        if (effectiveExpiresAtMs < now) { resolve(null); return; }
+      }
       // Touch lastAccessedAt for LRU
       result.lastAccessedAt = new Date().toISOString();
       store.put(result);
