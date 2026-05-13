@@ -10,6 +10,7 @@ import { useBlockChangeApproval } from '@/hooks/use-block-change-approval';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { onSyncEvent } from '../../lib/sync-engine';
 import { useOfflineConfig } from '../../hooks/use-offline-config';
+import { HardCutoffBlocker } from '../../components/hard-cutoff-blocker';
 import { syncAllDataForOffline, type SyncProgress } from '../../lib/offline-sync-service';
 import { triggerSync, startSyncPolling } from '../../lib/sync-since';
 import { MobileOperationsPage } from './mobile-operations';
@@ -977,6 +978,8 @@ export function MobileWrapperPage() {
         onCancel={() => { blockChangeApproval.reauth.cancel(); setProcessingApproval(null); }}
         actionLabel="Process Block Change"
       />
+      {/* W4: read-only blocker overlay when hard-cutoff window elapsed */}
+      <HardCutoffBlocker />
     </div>
   );
 }

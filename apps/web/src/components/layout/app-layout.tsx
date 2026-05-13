@@ -6,6 +6,7 @@ import { useSingleTab } from '@/hooks/use-single-tab';
 import { useBranding } from '@/hooks/use-branding';
 import { useRfidGuard } from '@/hooks/use-rfid-guard';
 import { useOfflineConfig } from '@/hooks/use-offline-config';
+import { HardCutoffBlocker } from '@/components/hard-cutoff-blocker';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
@@ -176,6 +177,11 @@ export function AppLayout() {
           <Outlet />
         </main>
       </div>
+
+      {/* W4: read-only blocker overlay when hard-cutoff window has elapsed
+          since the last successful server contact. Renders nothing under
+          normal conditions. */}
+      <HardCutoffBlocker />
 
       {/* Session Timeout Warning Dialog */}
       <Dialog open={showWarning} onClose={continueSession}>

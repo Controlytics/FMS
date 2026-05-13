@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import useSWR from 'swr';
 import { setRuntimeOfflineTtlMs } from '../lib/offline-store';
+import { setHardCutoffMs } from '../lib/hard-cutoff';
 
 interface OfflineCacheConfigResponse {
   cacheStalenessHours: number;
@@ -45,6 +46,12 @@ export function useOfflineConfig(): OfflineCacheConfigResponse {
     // entries already on disk also respect a tighter window.
     setRuntimeOfflineTtlMs(cacheStalenessHours * 60 * 60 * 1000);
   }, [cacheStalenessHours]);
+
+  useEffect(() => {
+    // W4: push the hard-cutoff window into the lockout module so apiClient
+    // and the blocker overlay see the live value.
+    setHardCutoffMs(cacheHardCutoffHours * 60 * 60 * 1000);
+  }, [cacheHardCutoffHours]);
 
   return { cacheStalenessHours, cacheHardCutoffHours };
 }
