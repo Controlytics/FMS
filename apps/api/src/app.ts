@@ -52,6 +52,7 @@ import notificationDeliveryRoutes from './modules/notification-delivery/routes.j
 import userGroupRoutes from './modules/user-groups/routes.js';
 import notificationRulesRoutes from './modules/notification-rules/routes.js';
 import { ingestionTask } from './workers/ingestion.worker.js';
+import { notificationTask } from './workers/notification.worker.js';
 import {
   dlqCheckTask,
   connectivityCheckTask,
@@ -348,10 +349,13 @@ try {
     await startJobRunner({
       taskList: {
         ingestion: ingestionTask,
-        // NOTE: no `notification` task is registered here yet — there is no
-        // consumer for it in the current codebase, so notification jobs
-        // accumulate in graphile_worker.jobs until a real handler is wired
-        // in a follow-up phase.
+        // `notification` task handler — closes the producer/consumer gap
+        // flagged in the 2026-05-12 deep review. Before this commit
+        // `enqueueNotificationJob` posted to a task name with no handler
+        // and jobs leaked into graphile_worker.jobs forever. See
+        // apps/api/src/workers/notification.worker.ts for the mapping
+        // from queue payload to `dispatchNotification` event types.
+        notification: notificationTask,
         dlq_check: dlqCheckTask,
         connectivity_check: connectivityCheckTask,
         retention_cleanup: retentionCleanupTask,

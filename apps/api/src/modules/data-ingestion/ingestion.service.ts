@@ -396,8 +396,14 @@ export async function processIngestionMessage(msg: IngestionMessage): Promise<Pi
           }, {
             priority: JOB_PRIORITY.ALARM_PROCESSING,
           });
-        } catch {
-          warnings.push('WARN_NOTIFICATION_ENQUEUE_FAILED');
+        } catch (err) {
+          // Log the enqueue failure with cause — silently swallowing made it
+          // impossible to diagnose stuck rule chains in the field. The
+          // warning is preserved so the trace surfaces the partial failure;
+          // the structured log gives operators the actual error.
+          const errMessage = err instanceof Error ? err.message : String(err);
+          warnings.push(`WARN_NOTIFICATION_ENQUEUE_FAILED:${errMessage}`);
+          console.warn('[Ingestion] rule-chain notification enqueue failed:', errMessage);
         }
       }
 
@@ -850,8 +856,14 @@ async function executeStage11(msg: IngestionMessage, warnings: string[]): Promis
       }, {
         priority: JOB_PRIORITY.ALARM_PROCESSING,
       });
-    } catch {
-      warnings.push('WARN_EMIT_NOTIFICATION_FAILED');
+    } catch (err) {
+      // Log the alarm-notification enqueue failure with cause — silent
+      // swallowing made stuck alarm pipelines invisible to operators. The
+      // warning is preserved for trace propagation; the structured log
+      // gives a real error string.
+      const errMessage = err instanceof Error ? err.message : String(err);
+      warnings.push(`WARN_EMIT_NOTIFICATION_FAILED:${errMessage}`);
+      console.warn('[Ingestion] alarm-notification enqueue failed:', errMessage);
     }
   }
 }
