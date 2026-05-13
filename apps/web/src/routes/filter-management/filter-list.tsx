@@ -164,7 +164,14 @@ export function FilterListPage() {
   const blockIds = useMemo(() => new Set(blocks.map((b: any) => b.id)), [blocks]);
 
   const allFilters = useMemo(() =>
-    instances.filter((i: any) => filterTemplateIds.has(i.templateId) && i.isActive !== false && i.status !== 'Retired'),
+    // Templates-loaded path: Set membership. First-paint fallback: the
+    // instance carries its eager-loaded `template.templateKind` per
+    // assets/instance.repository.ts:16,37,112 — so we can classify
+    // instances before templates SWR resolves on initial load.
+    instances.filter((i: any) =>
+      (filterTemplateIds.has(i.templateId) || i.template?.templateKind === 'FILTER') &&
+      i.isActive !== false && i.status !== 'Retired',
+    ),
     [instances, filterTemplateIds]
   );
 
@@ -195,7 +202,7 @@ export function FilterListPage() {
           ...area, type: 'area' as const,
           ahus: ahus.map((ahu: any) => ({
             ...ahu, type: 'ahu' as const,
-            filters: instances.filter((f: any) => f.parentId === ahu.id && filterTemplateIds.has(f.templateId) && f.isActive !== false && f.status !== 'Retired'),
+            filters: instances.filter((f: any) => f.parentId === ahu.id && (filterTemplateIds.has(f.templateId) || f.template?.templateKind === 'FILTER') && f.isActive !== false && f.status !== 'Retired'),
           })),
         };
       });
@@ -203,7 +210,7 @@ export function FilterListPage() {
       // AHUs directly under block (no area level)
       const directAhuNodes = directAhus.map((ahu: any) => ({
         ...ahu, type: 'ahu' as const,
-        filters: instances.filter((f: any) => f.parentId === ahu.id && filterTemplateIds.has(f.templateId) && f.isActive !== false && f.status !== 'Retired'),
+        filters: instances.filter((f: any) => f.parentId === ahu.id && (filterTemplateIds.has(f.templateId) || f.template?.templateKind === 'FILTER') && f.isActive !== false && f.status !== 'Retired'),
       }));
 
       return { ...block, type: 'block' as const, areas: areaNodes, directAhus: directAhuNodes };

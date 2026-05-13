@@ -460,7 +460,13 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     templates.filter((t: any) => t.templateKind === 'FILTER').map((t: any) => t.id),
   );
   const blockTemplateId = templates.find((t: any) => t.templateKind === 'BLOCK')?.id;
-  const allFilters = instances.filter((f: any) => filterTemplateIds.has(f.templateId) && f.isActive !== false && f.status !== 'Retired');
+  // Templates-loaded path: Set membership. First-paint fallback: the
+  // instance carries its eager-loaded `template.templateKind` per
+  // assets/instance.repository.ts. Same rename-stable filter as desktop.
+  const allFilters = instances.filter((f: any) =>
+    (filterTemplateIds.has(f.templateId) || f.template?.templateKind === 'FILTER') &&
+    f.isActive !== false && f.status !== 'Retired'
+  );
   const blocks = instances.filter((i: any) => i.templateId === blockTemplateId);
 
   const stageCounts: Record<string, number> = {};

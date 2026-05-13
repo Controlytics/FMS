@@ -832,7 +832,7 @@ async function executeStage10(msg: IngestionMessage): Promise<void> {
 
 // ─── Stage 11: Event Emission ───────────────────────────
 
-async function executeStage11(msg: IngestionMessage, warnings: string[]): Promise<void> {
+async function executeStage11(msg: IngestionMessage, _warnings: string[]): Promise<void> {
   // 1. Publish to internal-bus for WebSocket broadcast (Phase 4 — was Redis)
   bus.emit('ws:events', {
     entityId: msg.entityId,
@@ -841,31 +841,21 @@ async function executeStage11(msg: IngestionMessage, warnings: string[]): Promis
     timestamp: msg.timestamp,
   });
 
-  // 2. Enqueue notification if alarm created
-  if (msg.messageType === 'ALARM') {
-    try {
-      await enqueueNotificationJob('alarm_notification', {
-        type: 'ALARM',
-        entityId: msg.entityId,
-        title: `Alarm: ${msg.data.alarmType ?? 'Unknown'}`,
-        message: `${msg.data.severity ?? 'WARNING'} alarm on entity ${msg.entityName}`,
-        metadata: {
-          alarmType: msg.data.alarmType,
-          severity: msg.data.severity,
-        },
-      }, {
-        priority: JOB_PRIORITY.ALARM_PROCESSING,
-      });
-    } catch (err) {
-      // Log the alarm-notification enqueue failure with cause — silent
-      // swallowing made stuck alarm pipelines invisible to operators. The
-      // warning is preserved for trace propagation; the structured log
-      // gives a real error string.
-      const errMessage = err instanceof Error ? err.message : String(err);
-      warnings.push(`WARN_EMIT_NOTIFICATION_FAILED:${errMessage}`);
-      console.warn('[Ingestion] alarm-notification enqueue failed:', errMessage);
-    }
-  }
+  // 2. NOTE: A previous version of this stage enqueued an `alarm_notification`
+  //    job for every messageType === 'ALARM' message. That was redundant with
+  //    Stage 9 (`executeStage9`) which calls `createAlarm()` for the same
+  //    messageType — and `createAlarm` in ingestion.repository.ts:235-252
+  //    already dispatches the `ALARM_CREATED` notification immediately, with
+  //    full template context (alarmId, triggerDetails, etc.) that the queued
+  //    payload lacked.
+  //
+  //    The duplication was invisible historically because no `notification`
+  //    task handler was registered — jobs accumulated in graphile_worker.jobs
+  //    forever. Wiring the consumer (apps/api/src/workers/notification.worker.ts)
+  //    to close that leak made the duplicate dispatch real. Removed the
+  //    enqueue rather than add producer-side dedup, since the createAlarm
+  //    path is the canonical one (richer payload, runs in the persistence
+  //    stage where the row genuinely was just written).
 }
 
 

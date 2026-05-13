@@ -82,7 +82,12 @@ export function FilterOperationsPage() {
         .map((t: any) => t.id),
     );
     const filters = instancesData.data.filter((f: any) => {
-      if (!cacheFilterTemplateIds.has(f.templateId)) return false;
+      // Templates-loaded path: Set membership. First-paint fallback: the
+      // instance carries its eager-loaded `template.templateKind` per
+      // assets/instance.repository.ts — so we can still classify an instance
+      // before the templates SWR settles. Both branches are stable under
+      // admin renames (templateKind is the schema-stable signal, not name).
+      if (!cacheFilterTemplateIds.has(f.templateId) && f.template?.templateKind !== 'FILTER') return false;
       return f.isActive !== false && f.status !== 'Retired';
     });
     const cacheFilterStates = async () => {
@@ -253,7 +258,12 @@ export function FilterOperationsPage() {
   );
 
   const allFilters = instances.filter((f: any) => {
-    if (!filterTemplateIds.has(f.templateId)) return false;
+    // Templates-loaded path: Set membership. First-paint fallback: the
+    // instance carries its eager-loaded `template.templateKind` (see
+    // assets/instance.repository.ts:16,37,112). Both branches are
+    // rename-stable — admins can rename "Filter" templates without breaking
+    // operator pages.
+    if (!filterTemplateIds.has(f.templateId) && f.template?.templateKind !== 'FILTER') return false;
     if (f.isActive === false || f.status === 'Retired') return false;
     if (ahuIdFilter && f.parentId !== ahuIdFilter) return false;
     return true;
