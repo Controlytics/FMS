@@ -57,15 +57,18 @@ export default async function blockChangeRoutes(app: FastifyInstance) {
   });
 
   app.get('/', {
-    preHandler: [async (req, reply) => {
-      // Allow both requesters and approvers to list block change requests
-      const userRole = req.user?.role;
-      if (userRole === 'SUPER_ADMIN') return;
-      const role = await (await import('../../lib/prisma.js')).prisma.role.findFirst({ where: { name: userRole }, select: { permissions: true } });
-      const perms = (role?.permissions as string[]) || [];
-      if (perms.includes('BLOCK_CHANGE_REQUEST') || perms.includes('BLOCK_CHANGE_APPROVE')) return;
-      return reply.code(403).send({ error: 'FORBIDDEN', message: 'Permission denied' });
-    }],
+    // Allow both requesters and approvers to list block change requests.
+    //
+    // Pre-fix this handler hand-rolled the permission check inline with a
+    // dynamic prisma import, a fresh DB query per request, and no
+    // SUPER_ADMIN/`_MANAGE`/`_VIEW` fallback logic. The canonical
+    // `app.requireAnyPermission` decorator (rbac.ts:109) already handles:
+    //   - SUPER_ADMIN short-circuit
+    //   - `_VIEW` → `_READ` and `*_MANAGE` parent-permission fallback
+    //   - The cached `getRolePerms()` lookup (5s TTL, no per-request query)
+    // Switching to the decorator matches the rest of the codebase and drops
+    // the duplicate logic.
+    preHandler: [app.requireAnyPermission('BLOCK_CHANGE_REQUEST', 'BLOCK_CHANGE_APPROVE')],
     schema: {
       tags: ['Block Change Requests'],
       summary: 'List block change requests',

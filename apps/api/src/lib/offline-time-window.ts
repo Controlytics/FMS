@@ -125,18 +125,13 @@ export function validateOfflinePerformedAt(
   return t;
 }
 
-/**
- * Convenience: caller has FastifyRequest headers — derive isReplay from the
- * `x-offline-replay` header and call validateOfflinePerformedAt. Currently
- * the legacy header bypass is still in place (audit C1 — pending fix); when
- * that is replaced with HMAC-signed tokens this helper is the single
- * touchpoint that needs to flip from header check to grant verification.
- */
-export function validateOfflinePerformedAtFromHeaders(
-  raw: string | undefined | null,
-  headers: Record<string, unknown>,
-  cycleStartedAt?: Date | null,
-): Date | undefined {
-  const isReplay = headers['x-offline-replay'] === 'true';
-  return validateOfflinePerformedAt(raw, { isReplay, cycleStartedAt });
-}
+// `validateOfflinePerformedAtFromHeaders` was deleted 2026-05-13. It read
+// `headers['x-offline-replay'] === 'true'` directly — exactly the bypass
+// shape that audit fix C1 replaced with HMAC-signed grants verified at the
+// auth-plugin layer (`req.offlineReplayVerified`). Zero callers at delete
+// time. Leaving the function in the codebase as a footgun: the next
+// contributor to reach for "validate-from-headers" would silently
+// re-introduce the bypass that C1 closed. Callers should derive `isReplay`
+// from `req.offlineReplayVerified` (set by the auth plugin only when the
+// HMAC grant validates) and pass it into `validateOfflinePerformedAt`
+// directly — the cycle-write impls already do this.
