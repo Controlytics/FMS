@@ -493,7 +493,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
 
     // Online: try identifier lookup API
     if (online) {
-      try { const l = await apiClient.get<any>(`/api/assets/identifiers/lookup/${encodeURIComponent(sv)}`); if (l?.asset?.id) { filterId = l.asset.id; filterName = l.asset.name; } } catch {}
+      // Lookup is the FIRST of three fallback strategies. A 404 (unknown
+      // identifier) or any network/server error here is non-fatal — code
+      // continues to the cached map and then to name match. Silent ignore
+      // is intentional; do not surface as an error.
+      try { const l = await apiClient.get<any>(`/api/assets/identifiers/lookup/${encodeURIComponent(sv)}`); if (l?.asset?.id) { filterId = l.asset.id; filterName = l.asset.name; } } catch { /* fall through to cached map */ }
     }
 
     // Try cached identifier map (works both online and offline)
@@ -504,7 +508,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           const match = map[sv] || map[sv.toUpperCase()] || map[sv.toLowerCase()] || map[scanValue.trim()];
           if (match) { filterId = match.filterId; filterName = match.filterName; }
         }
-      } catch {}
+      } catch { /* IDB read failed — fall through to name match below */ }
     }
 
     // Fallback: match by filter name in cached instances
@@ -885,7 +889,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             if (activeStage.key === 'WASH_IN' && selectedBlock?.id) {
               let groups: any[] = [];
               if (online) {
-                try { groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${selectedBlock.id}`) ?? []; } catch {}
+                try { groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${selectedBlock.id}`) ?? []; } catch { /* fall through with empty groups → no equipment dialog */ }
               } else {
                 const cachedGroups = await getCache<any[]>('equipment-groups') ?? [];
                 groups = cachedGroups.filter((g: any) => g.blockId === selectedBlock.id);
@@ -1001,7 +1005,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       if (reasonDialog.stage === 'WASH_IN' && selectedBlock?.id) {
         let groups: any[] = [];
         if (online) {
-          try { groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${selectedBlock.id}`) ?? []; } catch {}
+          try { groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${selectedBlock.id}`) ?? []; } catch { /* fall through with empty groups → no equipment dialog */ }
         } else {
           // Offline: use cached equipment groups
           const cachedGroups = await getCache<any[]>('equipment-groups') ?? [];
@@ -2255,7 +2259,16 @@ function DryingFilterCard({
   useEffect(() => {
     getCache<number>(`dryer-temp-${filterId}`).then(saved => {
       if (saved !== null && saved !== undefined) setTemp(saved);
-    }).catch(() => {});
+    }).catch(err => {
+      // IDB read failure means the operator's saved temp won't restore on
+      // navigation back to the dryer card — recoverable (re-select), but
+      // worth surfacing so IDB quota/lock issues are visible.
+      // eslint-disable-next-line no-console -- intentional structured log
+      console.warn(
+        '[mobile-operations] dryer-temp restore failed —',
+        err instanceof Error ? err.message : String(err),
+      );
+    });
   }, [filterId]);
 
   // Load dryer data from API (online) or cache (offline)
@@ -2342,7 +2355,18 @@ function DryingFilterCard({
         const { cacheData } = await import('@/lib/offline-store');
         cacheData(`filter-state-${filterId}`, { ...freshState, currentCycle: { ...(freshState.currentCycle ?? {}), dryerReadingsSubmitted: true } });
         cacheData(`dryer-temp-${filterId}`, null, 0);
-      } catch {}
+      } catch (err) {
+        // Cache update failure can cause the optimistic UI (set below via
+        // setCycleData) to diverge from what /current-state will return
+        // next time — operator may see "Complete" but the next page load
+        // re-shows Dry In waiting. Surface so the failure is debuggable
+        // instead of silently corrupting the offline cache view.
+        // eslint-disable-next-line no-console -- intentional structured log
+        console.warn(
+          '[mobile-operations] dryer-reading cache update failed —',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
       // Update local component state so UI shows "Complete" immediately
       setCycleData((prev: any) => ({ ...(prev ?? {}), dryerReadingsSubmitted: true }));
       setTemp('');
@@ -2388,9 +2412,17 @@ function DryingFilterCard({
               const val = e.target.value ? Number(e.target.value) : '';
               setTemp(val);
               if (val !== '') {
+                // Persist dryer temp so it survives navigation. Surface IDB
+                // failures so "temp got lost" isn't a silent mystery.
                 import('@/lib/offline-store').then(({ cacheData }) => {
                   cacheData(`dryer-temp-${filterId}`, val, 24 * 60 * 60 * 1000);
-                }).catch(() => {});
+                }).catch(err => {
+                  // eslint-disable-next-line no-console -- intentional structured log
+                  console.warn(
+                    '[mobile-operations] dryer-temp persist failed —',
+                    err instanceof Error ? err.message : String(err),
+                  );
+                });
               }
             }}
             disabled={submitting}

@@ -302,7 +302,18 @@ async function syncTombstones(): Promise<void> {
       await updateTombstoneStatus(t.id, t.retryCount >= MAX_RETRIES - 1 ? 'failed' : 'pending', errMsg);
     }
   }
-  await clearSyncedTombstones().catch(() => {});
+  // IDB cleanup runs AFTER tombstones have been replayed to the server.
+  // Failure here is benign for immediate correctness (rows stay marked
+  // 'synced' and the next drain will skip them anyway) but indicates
+  // IndexedDB trouble — quota exhaustion, locked db, etc. Surface so
+  // operators can diagnose silent storage failures.
+  await clearSyncedTombstones().catch(err => {
+    // eslint-disable-next-line no-console -- intentional structured log
+    console.warn(
+      '[sync-engine] clearSyncedTombstones failed —',
+      err instanceof Error ? err.message : String(err),
+    );
+  });
 }
 
 /**
@@ -451,10 +462,22 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
     }
   }
 
-  await clearSyncedOperations().catch(() => {});
+  // IDB cleanup after queue drain. Same rationale as clearSyncedTombstones
+  // above — silent failure masks IndexedDB quota / lock issues. Operators
+  // need to see these to diagnose stuck offline-mode storage.
+  await clearSyncedOperations().catch(err => {
+    // eslint-disable-next-line no-console -- intentional structured log
+    console.warn('[sync-engine] clearSyncedOperations failed —', err instanceof Error ? err.message : String(err));
+  });
   // Periodic compaction + LRU eviction — keeps IndexedDB from growing unbounded
-  await compactSyncedOperations().catch(() => {});
-  await evictLruCache().catch(() => {});
+  await compactSyncedOperations().catch(err => {
+    // eslint-disable-next-line no-console -- intentional structured log
+    console.warn('[sync-engine] compactSyncedOperations failed —', err instanceof Error ? err.message : String(err));
+  });
+  await evictLruCache().catch(err => {
+    // eslint-disable-next-line no-console -- intentional structured log
+    console.warn('[sync-engine] evictLruCache failed —', err instanceof Error ? err.message : String(err));
+  });
   // Note: don't wipe filter-state caches here. Next /current-state fetch from the
   // UI will overwrite the cache with fresh server data; blanket clearing breaks
   // users who go offline again before that fetch happens.

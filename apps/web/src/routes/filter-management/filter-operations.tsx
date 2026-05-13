@@ -1167,7 +1167,7 @@ export function FilterOperationsPage() {
           const allGroups = await getCache<any[]>('equipment-groups') ?? [];
           const blockGroups = allGroups.filter((g: any) => g.blockId === blockId);
           if (blockGroups.length === 1) batchEqGroup = blockGroups[0];
-        } catch {}
+        } catch { /* IDB read failed — batchEqGroup stays null and each item resolves its own */ }
       }
       for (const item of batch) {
         try {
@@ -1894,7 +1894,7 @@ function DryingFilterRow({
       getCachedData<any[]>('equipment-groups').then(groups => {
         if (groups) setOfflineEquipGroups(groups);
       });
-    }).catch(() => {});
+    }).catch(() => { /* IDB read failed — SWR data path stays primary, row renders without offline fallback */ });
   }, [filterId]);
 
   // Use SWR data when available, fall back to offline cache
@@ -1961,13 +1961,24 @@ function DryingFilterRow({
         remarks: `Dryer temperature ${temp}${tempUom} - ${filterName}`,
       }, 'DRY_IN');
       setToast({ type: 'success', message: `${filterName} → Dry In complete (${temp}${tempUom})${executed ? '' : ' (queued)'}` });
-      // Mark readings submitted in cache + clear persisted temp
+      // Mark readings submitted in cache + clear persisted temp.
+      // The optimistic cache update mirrors the server's view of the cycle so
+      // the next /current-state fetch matches. Surface IDB failures — silent
+      // failure here causes the desktop UI to show "Complete" while the
+      // cached state still says Dry-In-waiting (same divergence concern as
+      // the mobile-operations.tsx dryer cache update).
       import('@/lib/offline-store').then(({ cacheData, getCachedData }) => {
         cacheData(`dryer-temp-${filterId}`, null, 0);
         getCachedData<any>(`filter-state-${filterId}`).then(cs => {
           if (cs) cacheData(`filter-state-${filterId}`, { ...cs, currentCycle: { ...(cs.currentCycle ?? {}), dryerReadingsSubmitted: true } });
         });
-      }).catch(() => {});
+      }).catch(err => {
+        // eslint-disable-next-line no-console -- intentional structured log
+        console.warn(
+          '[filter-operations] dryer-reading cache update failed —',
+          err instanceof Error ? err.message : String(err),
+        );
+      });
       refreshFilters();
       if (executed) refreshState();
     } catch (e: any) {
@@ -2018,9 +2029,20 @@ function DryingFilterRow({
                 const val = e.target.value ? Number(e.target.value) : '';
                 setTemp(val);
                 if (val !== '') {
+                  // Persist the selected dryer temp so it survives a page
+                  // refresh mid-cycle. Failure here is recoverable — the
+                  // operator can re-select on reload — but worth a warn so
+                  // operators see IDB issues instead of mysterious "temp got
+                  // lost" behavior.
                   import('@/lib/offline-store').then(({ cacheData }) => {
                     cacheData(`dryer-temp-${filterId}`, val, 24 * 60 * 60 * 1000);
-                  }).catch(() => {});
+                  }).catch(err => {
+                    // eslint-disable-next-line no-console -- intentional structured log
+                    console.warn(
+                      '[filter-operations] dryer-temp persist failed —',
+                      err instanceof Error ? err.message : String(err),
+                    );
+                  });
                 }
               }}
               disabled={!halfElapsed || submitting}
