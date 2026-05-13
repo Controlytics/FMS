@@ -13,6 +13,7 @@ import { ChecklistDialog } from './components/checklist-dialog';
 import { BlockChangeRequestDialog } from './components/block-change-request-dialog';
 import { DryingFiltersPanel } from './components/drying-filters-panel';
 import { useFilterOperationsOfflineCache } from './hooks/use-filter-operations-offline-cache';
+import { useRecentSubmissions } from './hooks/use-recent-submissions';
 import { CLEANING_STAGES_OPS } from '../../lib/filter-constants';
 import { ErrorPopup } from '../../components/ui/error-popup';
 import { useOffline } from '../../hooks/use-offline';
@@ -93,7 +94,7 @@ export function FilterOperationsPage() {
     liveVersion: number;
     recommendation: 'CONTINUE_OR_TERMINATE_AND_RESTART';
   } | null>(null);
-  const [recentSubmissions, setRecentSubmissions] = useState<Array<{stage: string; filter: string; block?: string; time: string}>>([]);
+  const { recentSubmissions, record: recordSubmission } = useRecentSubmissions();
   const [submitting, setSubmitting] = useState(false); // double-submit guard
 
   // Scan queue (batch mode)
@@ -373,7 +374,7 @@ export function FilterOperationsPage() {
         }
       }
     }
-    setRecentSubmissions(prev => [...newSubmissions, ...prev].slice(0, 10));
+    recordSubmission(newSubmissions);
     refreshFilters();
     // Gap 20: Refresh offline cached data after queued operations
     if (newSubmissions.some(s => s.stage.includes('queued'))) {
@@ -897,7 +898,7 @@ export function FilterOperationsPage() {
             failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
           }
         }
-        setRecentSubmissions(prev => [...newSubs, ...prev].slice(0, 10));
+        recordSubmission(newSubs);
         refreshFilters();
         setReasonDialog(null);
         setPendingBatch(null);
@@ -959,7 +960,7 @@ export function FilterOperationsPage() {
           const advanceResult = password
             ? await apiClient.postWithReauth<any>(`/api/filters/${dialogCapture.filterId}/advance`, advBodyWithTape, password)
             : await apiClient.post<any>(`/api/filters/${dialogCapture.filterId}/advance`, advBodyWithTape);
-          setRecentSubmissions(prev => [{ stage: dialogCapture.stage.label, filter: dialogCapture.filterName, block: reasonBlock?.name, time: formatTime(new Date()) }, ...prev].slice(0, 10));
+          recordSubmission({ stage: dialogCapture.stage.label, filter: dialogCapture.filterName, block: reasonBlock?.name, time: formatTime(new Date()) });
           refreshFilters();
           setReasonDialog(null);
           setToast({ type: 'success', message: `${dialogCapture.filterName} \u2192 ${dialogCapture.stage.label}` });
@@ -1020,7 +1021,7 @@ export function FilterOperationsPage() {
         }
 
         const { executed, result } = await executeOrQueue('start-and-advance', dialogCapture.filterId, dialogCapture.filterName, { cyclePayload: cycleBody, advancePayload: advBody } as any, dialogCapture.stage.key);
-        setRecentSubmissions(prev => [{ stage: dialogCapture.stage.label + (executed ? '' : ' (queued)'), filter: dialogCapture.filterName, block: reasonBlock?.name, time: formatTime(new Date()) }, ...prev].slice(0, 10));
+        recordSubmission({ stage: dialogCapture.stage.label + (executed ? '' : ' (queued)'), filter: dialogCapture.filterName, block: reasonBlock?.name, time: formatTime(new Date()) });
         refreshFilters();
         setReasonDialog(null);
         setToast({ type: 'success', message: `${dialogCapture.filterName} \u2192 ${dialogCapture.stage.label}${executed ? '' : ' (queued)'}` });
@@ -1082,7 +1083,7 @@ export function FilterOperationsPage() {
           failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
         }
       }
-      setRecentSubmissions(prev => [...newSubs, ...prev].slice(0, 10));
+      recordSubmission(newSubs);
       refreshFilters();
       // Cache dryer timing + equipmentGroup for each filter (offline + navigation persistence)
       const dryerStartedAt = new Date().toISOString();
@@ -1132,7 +1133,7 @@ export function FilterOperationsPage() {
         dryerDurationMinutes: minutes,
         remarks: remarks || `Dryer started (${minutes} min) - ${dryerDialog.filterName}`,
       }, 'DRY_IN');
-      setRecentSubmissions(prev => [{ stage: 'Dryer Started' + (executed ? '' : ' (queued)'), filter: dryerDialog.filterName, block: blockName, time: formatTime(new Date()) }, ...prev].slice(0, 10));
+      recordSubmission({ stage: 'Dryer Started' + (executed ? '' : ' (queued)'), filter: dryerDialog.filterName, block: blockName, time: formatTime(new Date()) });
       refreshFilters();
       // Cache dryer timing + equipmentGroup (offline + navigation persistence)
       try {
@@ -1240,7 +1241,7 @@ export function FilterOperationsPage() {
           }
         }
       }
-      setRecentSubmissions(prev => [...newSubs, ...prev].slice(0, 10));
+      recordSubmission(newSubs);
       refreshFilters();
       refreshOfflineInstances(); // refresh cached data after queued ops
       setEquipmentDialog(null);
@@ -1281,7 +1282,7 @@ export function FilterOperationsPage() {
         advanceResult = res.result;
       }
 
-      setRecentSubmissions(prev => [{ stage: equipmentDialog.stage.label + (executed ? '' : ' (queued)'), filter: equipmentDialog.filterName, block: equipmentDialog.block?.name, time: formatTime(new Date()) }, ...prev].slice(0, 10));
+      recordSubmission({ stage: equipmentDialog.stage.label + (executed ? '' : ' (queued)'), filter: equipmentDialog.filterName, block: equipmentDialog.block?.name, time: formatTime(new Date()) });
       refreshFilters();
       setEquipmentDialog(null);
       setToast({ type: 'success', message: `${equipmentDialog.filterName} \u2192 ${equipmentDialog.stage.label}${executed ? '' : ' (queued)'}` });
