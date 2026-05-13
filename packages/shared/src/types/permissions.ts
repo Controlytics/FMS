@@ -182,3 +182,75 @@ export const PERMISSIONS = {
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
+
+/**
+ * Suffixes that `*_MANAGE` permissions implicitly grant.
+ *
+ * Authoritative list consulted by the API's RBAC plugin (`requirePermission`
+ * + `requireAnyPermission` in `apps/api/src/plugins/rbac.ts`). If a route
+ * requires e.g. `NOTIFICATION_UPDATE` and the user's role doesn't have it
+ * directly, the gate falls back to checking whether the user has
+ * `NOTIFICATION_MANAGE` (built by stripping the suffix and replacing with
+ * `_MANAGE`).
+ *
+ * Why this list lives here and not inline in rbac.ts:
+ * - The 2026-05-04 code review (tasks/CODE-REVIEW-2026-05-04-api-supporting.md)
+ *   flagged the previous hand-rolled inline array as brittle and inconsistent.
+ *   E.g. `BACKUP_MANAGE` was implicitly granting `BACKUP_EXPORT` but NOT
+ *   `BACKUP_RESTORE` because `_RESTORE` wasn't in the suffix list.
+ * - Co-locating with `PERMISSIONS` makes the implication policy auditable
+ *   alongside the permission constants themselves.
+ * - Changes here automatically apply to both `requirePermission` and
+ *   `requireAnyPermission` — no chance of the two getting out of sync.
+ *
+ * Adding a new suffix to this list grants `*_MANAGE` holders the new
+ * sub-permission across every domain (USER_, BACKUP_, NOTIFICATION_, etc.).
+ * Removing a suffix tightens the gate everywhere. Both are security-relevant
+ * decisions — make them deliberately.
+ *
+ * `_RESTORE` is INTENTIONALLY omitted: backup restore is destructive and
+ * narrowly scoped enough that granting it by virtue of `BACKUP_MANAGE` is
+ * not the desired posture. Roles that should be able to restore must be
+ * granted `BACKUP_RESTORE` explicitly (perm doesn't exist today; would be
+ * added at the point a restore endpoint is gated).
+ */
+export const MANAGE_PERMISSION_SUFFIXES = [
+  '_CREATE',
+  '_UPDATE',
+  '_DELETE',
+  '_VIEW',
+  '_READ',
+  '_EXPORT',
+] as const;
+
+/**
+ * Returns true if `perms` effectively grants `permission`, applying the
+ * documented fallback rules:
+ *
+ *   1. Direct match: `perms` contains `permission` literally.
+ *   2. `*_VIEW` <- `*_READ` fallback: a route gated on `ASSET_VIEW` is
+ *      satisfied by a role with `ASSET_READ` (read-only access).
+ *   3. `*_<suffix> <- *_MANAGE` fallback: for each suffix in
+ *      `MANAGE_PERMISSION_SUFFIXES`, if the requested permission ends with
+ *      that suffix and the user has the corresponding `*_MANAGE`, grant.
+ *
+ * Pure helper — no DB / async I/O. Importable from anywhere; used by the
+ * API's RBAC plugin and available to tests + tooling.
+ */
+export function hasEffectivePermission(perms: readonly string[], permission: string): boolean {
+  if (perms.includes(permission)) return true;
+
+  if (permission.endsWith('_VIEW')) {
+    const readVariant = permission.slice(0, -'_VIEW'.length) + '_READ';
+    if (perms.includes(readVariant)) return true;
+  }
+
+  for (const suffix of MANAGE_PERMISSION_SUFFIXES) {
+    if (permission.endsWith(suffix)) {
+      const managePermission = permission.slice(0, -suffix.length) + '_MANAGE';
+      if (perms.includes(managePermission)) return true;
+    }
+  }
+
+  return false;
+}

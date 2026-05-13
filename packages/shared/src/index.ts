@@ -5,7 +5,7 @@ export type { Role, UserStatus, RoleData } from './types/roles.js';
 export { AUDIT_ACTIONS } from './types/audit-actions.js';
 export type { AuditAction } from './types/audit-actions.js';
 
-export { PERMISSIONS } from './types/permissions.js';
+export { PERMISSIONS, MANAGE_PERMISSION_SUFFIXES, hasEffectivePermission } from './types/permissions.js';
 export type { Permission } from './types/permissions.js';
 
 export { PERMISSION_CATEGORIES } from './types/permission-categories.js';

@@ -1,6 +1,7 @@
 import fp from 'fastify-plugin';
 import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { prisma } from '../lib/prisma.js';
+import { hasEffectivePermission } from '@digilog/shared';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -66,28 +67,11 @@ async function rbacPlugin(app: FastifyInstance) {
 
       const perms = await getRolePerms(userRole);
 
-      // Check direct permission match first
-      let hasPermission = perms.includes(permission);
-
-      // Fallback: ASSET_VIEW can be satisfied by ASSET_READ (read-only access)
-      if (!hasPermission && permission.endsWith('_VIEW')) {
-        const readVariant = permission.slice(0, -'_VIEW'.length) + '_READ';
-        if (perms.includes(readVariant)) hasPermission = true;
-      }
-
-      // Fallback: check if user has the *_MANAGE parent permission
-      if (!hasPermission) {
-        const manageVariants = ['_CREATE', '_UPDATE', '_DELETE', '_VIEW', '_READ', '_EXPORT'];
-        for (const suffix of manageVariants) {
-          if (permission.endsWith(suffix)) {
-            const managePermission = permission.slice(0, -suffix.length) + '_MANAGE';
-            if (perms.includes(managePermission)) {
-              hasPermission = true;
-              break;
-            }
-          }
-        }
-      }
+      // Direct match + `*_VIEW <- *_READ` + `*_<suffix> <- *_MANAGE` fallbacks.
+      // All three rules + the suffix list live in @digilog/shared so the
+      // implication policy is auditable alongside the PERMISSIONS constants,
+      // and so requirePermission + requireAnyPermission can't drift.
+      const hasPermission = hasEffectivePermission(perms, permission);
 
       if (!hasPermission) {
         if (process.env.NODE_ENV === 'production') {
@@ -116,22 +100,9 @@ async function rbacPlugin(app: FastifyInstance) {
 
       const perms = await getRolePerms(userRole);
 
-      const hasAny = permissions.some(permission => {
-        if (perms.includes(permission)) return true;
-        // Apply the same fallbacks as requirePermission
-        if (permission.endsWith('_VIEW')) {
-          const readVariant = permission.slice(0, -'_VIEW'.length) + '_READ';
-          if (perms.includes(readVariant)) return true;
-        }
-        const manageVariants = ['_CREATE', '_UPDATE', '_DELETE', '_VIEW', '_READ', '_EXPORT'];
-        for (const suffix of manageVariants) {
-          if (permission.endsWith(suffix)) {
-            const managePermission = permission.slice(0, -suffix.length) + '_MANAGE';
-            if (perms.includes(managePermission)) return true;
-          }
-        }
-        return false;
-      });
+      // Single shared helper for all fallbacks — same rules requirePermission
+      // applies, so the two decorators can't disagree on what's allowed.
+      const hasAny = permissions.some(permission => hasEffectivePermission(perms, permission));
 
       if (!hasAny) {
         if (process.env.NODE_ENV === 'production') {
