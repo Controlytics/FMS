@@ -48,6 +48,12 @@ async function probeServer(): Promise<boolean> {
   const timer = setTimeout(() => controller.abort(), 5000);
   try {
     const r = await fetch(`${baseUrl}/api/health`, { method: 'GET', signal: controller.signal });
+    // Server responded (any status) — mark contact for the hard-cutoff
+    // lockout. Probe is intentionally lightweight and runs every 15s, so it
+    // also keeps the contact timestamp fresh during periods when no actual
+    // API calls are happening (e.g. operator idle on the home screen).
+    const { markServerContact } = await import('./server-contact');
+    markServerContact();
     return r.ok;
   } catch {
     return false;

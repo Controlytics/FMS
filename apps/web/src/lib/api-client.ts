@@ -1,4 +1,6 @@
 // NOTE: Prefer importing as `apiClient` using @/ alias across all files
+import { markServerContact } from './server-contact';
+
 const BASE_URL = import.meta.env.VITE_API_URL ?? '';
 
 class ApiClient {
@@ -22,6 +24,13 @@ class ApiClient {
         ...options.headers,
       },
     });
+
+    // The fetch returned — server is reachable (any HTTP status, including
+    // 401/4xx/5xx, proves contact). Only a thrown error means no contact.
+    // The W4 hard-cutoff lockout consumes this timestamp to decide read-only
+    // mode. Updating BEFORE status-code branching is intentional: even a 401
+    // is evidence the server is up.
+    markServerContact();
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'PARSE_ERROR', message: 'Failed to parse server response' }));

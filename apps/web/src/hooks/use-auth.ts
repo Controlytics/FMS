@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import useSWR from 'swr';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../lib/api-client';
+import { clearServerContact } from '../lib/server-contact';
 
 interface User {
   id: string;
@@ -129,6 +130,12 @@ export function useAuth() {
     sessionStorage.removeItem('offline_replay_expires');
     localStorage.removeItem('offline_replay_token_backup');
     localStorage.removeItem('offline_replay_expires_backup');
+    // W3: clear the last-server-contact timestamp on logout. Otherwise a
+    // shared workstation could inherit a stale timestamp from the previous
+    // user, making the W4 hard-cutoff blocker disagree with reality on the
+    // next login. The new session starts with no recorded contact and the
+    // first apiClient call (e.g. POST /api/auth/login) reseeds it.
+    clearServerContact();
     // Clean up single-tab localStorage keys
     const myTabId = sessionStorage.getItem('digilog_tab_id');
     if (myTabId && localStorage.getItem('digilog_active_tab_id') === myTabId) {
