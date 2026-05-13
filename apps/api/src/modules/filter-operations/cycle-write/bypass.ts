@@ -8,6 +8,7 @@
 import type { RequestContext } from '../../../types/context.js';
 import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
+import { stripHtml } from '../../../lib/sanitize.js';
 import { AppError } from '../../../lib/errors.js';
 import { findExistingByClientOpId, withClientOpId } from '../../../lib/idempotency.js';
 import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
@@ -25,9 +26,12 @@ export async function bypassImpl(
   data: any,
 ) {
   const { targetState, parameters } = data;
-  // Server-only: HTML escape (input sanitization) before guards.
+  // Server-only: full HTML sanitization (sanitize-html via stripHtml) before
+  // guards. Hand-rolled `<` / `>` escapes missed entity-encoded payloads,
+  // javascript: URIs, and event handlers — replaced with the canonical
+  // helper that the rest of the codebase uses.
   const justification = typeof data.justification === "string"
-    ? data.justification.replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    ? stripHtml(data.justification)
     : data.justification;
   // Server-only: idempotent replay short-circuits before touching shared guards.
   const clientOpId: string | null = data.clientOpId ?? null;

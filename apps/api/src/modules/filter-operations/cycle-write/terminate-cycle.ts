@@ -8,6 +8,7 @@
 import type { RequestContext } from '../../../types/context.js';
 import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
+import { stripHtml } from '../../../lib/sanitize.js';
 import { findExistingByClientOpId, withClientOpId } from '../../../lib/idempotency.js';
 import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
@@ -28,9 +29,11 @@ export async function terminateCycleImpl(
     return service.getCurrentState(ctx, filterId);
   }
 
-  // Server-only: HTML escape (input sanitization) before guards.
+  // Server-only: full HTML sanitization (sanitize-html via stripHtml) before
+  // guards. See advance.ts:29 rationale — canonical contract used by the
+  // rest of the codebase.
   const justification = typeof data.justification === 'string'
-    ? data.justification.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    ? stripHtml(data.justification)
     : '';
 
   // Phase 8.5 Commit 3: drop pure guards through the shared executor.

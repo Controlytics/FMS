@@ -9,6 +9,7 @@
 import type { RequestContext } from '../../../types/context.js';
 import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
+import { stripHtml } from '../../../lib/sanitize.js';
 import { AppError } from '../../../lib/errors.js';
 import { findExistingByClientOpId, withClientOpId } from '../../../lib/idempotency.js';
 import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
@@ -26,7 +27,12 @@ export async function advanceImpl(
   data: any,
 ) {
   const { targetState, parameters, equipmentId, cleaningAreaId, instrumentReadings, equipmentGroupId, dryerAction, dryerDurationMinutes } = data;
-  const remarks = typeof data.remarks === "string" ? data.remarks.replace(/</g, "&lt;").replace(/>/g, "&gt;") : data.remarks;
+  // Use the canonical `stripHtml` (sanitize-html under the hood) instead of
+  // hand-rolled `<` / `>` escapes. The hand-rolled version missed entity-
+  // encoded payloads, `javascript:` URIs, and event handlers. Other modules
+  // (admin-requests, auth, assets) already use this helper — bringing
+  // cycle-write into the same input-sanitization contract.
+  const remarks = typeof data.remarks === "string" ? stripHtml(data.remarks) : data.remarks;
   // Idempotent replay: same clientOpId == same logical operation. Return current
   // state instead of double-applying.
   const clientOpId: string | null = data.clientOpId ?? null;

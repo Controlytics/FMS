@@ -11,6 +11,7 @@
 import type { RequestContext } from '../../../types/context.js';
 import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
+import { stripHtml } from '../../../lib/sanitize.js';
 import { AppError } from '../../../lib/errors.js';
 import { findExistingByClientOpId } from '../../../lib/idempotency.js';
 import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
@@ -47,7 +48,10 @@ export async function startCycleImpl(
   if (clientOpId && await findExistingByClientOpId(filterId, clientOpId)) {
     return service.getCurrentState(ctx, filterId);
   }
-  const cleaningJustification = typeof data.cleaningJustification === "string" ? data.cleaningJustification.replace(/</g, "&lt;").replace(/>/g, "&gt;") : data.cleaningJustification;
+  // Use canonical `stripHtml` instead of hand-rolled `<` / `>` escape — see
+  // advance.ts:29 rationale. Same input-sanitization contract as the rest
+  // of the codebase.
+  const cleaningJustification = typeof data.cleaningJustification === "string" ? stripHtml(data.cleaningJustification) : data.cleaningJustification;
 
   const filter = await getFilter(filterId, ctx);
   const resolvedProfileIdForCycle = await resolveFilterProfile(filter);
