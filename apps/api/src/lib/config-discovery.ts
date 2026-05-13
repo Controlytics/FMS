@@ -38,6 +38,7 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/ahu-filter-set-config.def.js'),
     import('../modules/config/defs/report-settings.def.js'),
     import('../modules/config/defs/access-matrix.def.js'),
+    import('../modules/config/defs/offline-cache.def.js'),
     // ─── Add new module configs below this line ───
   ]);
 

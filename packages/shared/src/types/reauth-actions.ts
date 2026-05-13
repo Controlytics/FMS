@@ -38,6 +38,10 @@ export const REAUTH_ACTIONS = {
   // policy page can require step-up auth on outbound-comms credential edits.
   UPDATE_EMAIL_CONFIG: { label: 'Update Email Config', category: 'Configuration' },
   UPDATE_SMS_CONFIG: { label: 'Update SMS Config', category: 'Configuration' },
+  // Offline-cache settings are SUPER_ADMIN-only; require step-up auth on
+  // changes because operators rely on the configured staleness + hard-cutoff
+  // values for 21 CFR Part 11 read-only-lockout enforcement.
+  UPDATE_OFFLINE_CACHE_CONFIG: { label: 'Update Offline Cache Config', category: 'Configuration' },
 
   // Role Management
   CREATE_ROLE: { label: 'Create Role', category: 'Role Management' },

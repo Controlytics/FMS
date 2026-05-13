@@ -324,6 +324,19 @@ const superAdminCards = [
     gradient: 'from-orange-500 to-red-600',
     shadowColor: 'shadow-orange-500/25',
   },
+  {
+    title: 'Offline Cache & Lockout',
+    description: 'Cache staleness window + hard-cutoff read-only lockout after losing server contact',
+    href: '/config/offline-cache',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+        <line x1="3" y1="3" x2="21" y2="21" strokeLinecap="round" strokeWidth={1.5} stroke="currentColor" />
+      </svg>
+    ),
+    gradient: 'from-slate-700 to-slate-900',
+    shadowColor: 'shadow-slate-500/25',
+  },
 ];
 
 export function ConfigIndexPage() {

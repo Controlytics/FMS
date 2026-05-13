@@ -120,6 +120,26 @@ export const paginationConfigSchema = z.object({
   message: 'All option values must be less than or equal to the limit',
   path: ['options'],
 });
+
+// Offline Cache Configuration Schema (SUPER_ADMIN-only).
+//
+// `cacheStalenessHours` — TTL applied to client-side snapshot caches
+// (filter state, templates, cleaning reasons, equipment groups, etc.). After
+// this many hours since the entry was written, the client treats the entry as
+// stale and forces a refetch on next read. Mobile previously hardcoded 24h;
+// desktop had no TTL. The configured value now applies to both.
+//
+// `cacheHardCutoffHours` — defense-in-depth read-only-lockout threshold. If
+// the client has had NO successful server contact for this many hours, the
+// UI enters a read-only mode (banner + blocker; mutations refused). Designed
+// for the 21 CFR Part 11 posture where an operator on a tablet must not
+// continue producing records against a server they can no longer verify
+// against.
+export const offlineCacheConfigSchema = z.object({
+  cacheStalenessHours: z.number().min(0.01).max(168).default(24),
+  cacheHardCutoffHours: z.number().min(0.01).max(168).default(24),
+});
+
 export type BrandingConfig = z.infer<typeof brandingConfigSchema>;
 export type PasswordPolicyConfig = z.infer<typeof passwordPolicySchema>;
 export type LoginSecurityConfig = z.infer<typeof loginSecuritySchema>;
@@ -128,3 +148,4 @@ export type DatetimeConfig = z.infer<typeof datetimeConfigSchema>;
 export type UserIdConfig = z.infer<typeof userIdConfigSchema>;
 export type AuditTemplatesConfig = z.infer<typeof auditTemplatesSchema>;
 export type PaginationConfig = z.infer<typeof paginationConfigSchema>;
+export type OfflineCacheConfig = z.infer<typeof offlineCacheConfigSchema>;
