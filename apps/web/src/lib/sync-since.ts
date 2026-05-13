@@ -112,9 +112,25 @@ export async function syncSince(): Promise<SyncResult> {
 }
 
 async function doSync(): Promise<SyncResult> {
-  const state = await getVersionState();
-  const qs = buildQuery(state);
-  const resp = await apiClient.get<SyncSinceResponse>(`/api/sync/since?${qs}`);
+  // W5: emit a stage event so the W6 ribbon can show "Refreshing data…" while
+  // the versioned snapshot pull is in flight. Best-effort emit — the import
+  // is dynamic so this module doesn't take a hard dep on sync-engine for the
+  // emitter (sync-since itself can run independently in tests).
+  void import('./sync-engine').then(m => m.emitSyncStage('fetching-snapshot')).catch(() => {});
+  try {
+    const state = await getVersionState();
+    const qs = buildQuery(state);
+    const resp = await apiClient.get<SyncSinceResponse>(`/api/sync/since?${qs}`);
+    const result = await persistSnapshot(state, resp);
+    void import('./sync-engine').then(m => m.emitSyncStage('idle')).catch(() => {});
+    return result;
+  } catch (e) {
+    void import('./sync-engine').then(m => m.emitSyncStage('idle')).catch(() => {});
+    throw e;
+  }
+}
+
+async function persistSnapshot(state: VersionState, resp: SyncSinceResponse): Promise<SyncResult> {
 
   // Defensive: server should always return all 6 arrays + flags, but treat
   // anything missing as empty so a malformed response doesn't crash.

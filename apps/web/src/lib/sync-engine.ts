@@ -77,7 +77,39 @@ function getOfflineReplayHeader(): Record<string, string> {
   return { 'x-offline-replay-token': token };
 }
 
-type SyncListener = (event: { type: 'start' | 'progress' | 'complete' | 'error' | 'interrupted'; synced?: number; total?: number; error?: string }) => void;
+/**
+ * Sync stage taxonomy (W5 — offline-safety series). The ribbon (W6) consumes
+ * these to show what the engine is currently doing. Stages are emitted as
+ * `{ type: 'stage', stage: <name>, message?, current?, total? }` events so a
+ * subscriber listening for legacy types (start/progress/complete) ignores
+ * them naturally.
+ *
+ *   token-refresh    JWT refresh before the drain. Brief.
+ *   tombstone-drain  Sending queued deletions (block-change cancels, cycle
+ *                    terminates) ahead of regular ops.
+ *   sending-ops      Replaying queued cycle writes one by one. Includes
+ *                    `current` (1-indexed) and `total`.
+ *   fetching-snapshot Post-drain refresh of canonical server state via the
+ *                    sync-since polling layer; emitted by sync-since.ts after
+ *                    each successful versioned fetch.
+ *   idle             Default state when no sync is in flight.
+ */
+export type SyncStage =
+  | 'token-refresh'
+  | 'tombstone-drain'
+  | 'sending-ops'
+  | 'fetching-snapshot'
+  | 'idle';
+
+export type SyncEvent =
+  | { type: 'start'; total?: number; synced?: number; error?: string }
+  | { type: 'progress'; synced?: number; total?: number; error?: string }
+  | { type: 'complete'; synced?: number; total?: number; error?: string }
+  | { type: 'error'; synced?: number; total?: number; error?: string }
+  | { type: 'interrupted'; synced?: number; total?: number; error?: string }
+  | { type: 'stage'; stage: SyncStage; message?: string; current?: number; total?: number };
+
+type SyncListener = (event: SyncEvent) => void;
 
 const MAX_RETRIES = 5;
 
@@ -89,8 +121,25 @@ export function onSyncEvent(listener: SyncListener): () => void {
   return () => listeners.delete(listener);
 }
 
-function notify(event: Parameters<SyncListener>[0]) {
+function notify(event: SyncEvent) {
   listeners.forEach(l => l(event));
+}
+
+/**
+ * Emit a stage event. Thin helper so call sites don't have to repeat the
+ * `{ type: 'stage', stage }` boilerplate.
+ */
+function notifyStage(stage: SyncStage, extras?: { message?: string; current?: number; total?: number }) {
+  notify({ type: 'stage', stage, ...extras });
+}
+
+/**
+ * Exported wrapper of `notifyStage` so the versioned-cache sync layer
+ * (sync-since.ts) can emit `fetching-snapshot` ribbon events without having
+ * its own listener set. Single ribbon listens to one stream.
+ */
+export function emitSyncStage(stage: SyncStage, extras?: { message?: string; current?: number; total?: number }) {
+  notifyStage(stage, extras);
 }
 
 /**
@@ -296,16 +345,20 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
 
   // Refresh JWT before draining — long offline sessions can outlive the 8h token.
   // If refresh fails with anything other than network error, surface and bail.
+  notifyStage('token-refresh');
   const refresh = await refreshTokenBeforeSync();
   if (!refresh.ok) {
+    notifyStage('idle');
     notify({ type: 'error', error: `Token refresh failed: ${refresh.error}. Re-login required to sync.` });
     return { synced: 0, failed: 0 };
   }
 
   // Drain tombstones first so deletes apply before any mutation that follows
+  notifyStage('tombstone-drain');
   await syncTombstones();
 
   syncing = true;
+  notifyStage('sending-ops', { current: 0, total: pending.length });
   notify({ type: 'start', total: pending.length });
 
   let synced = 0;
@@ -337,6 +390,7 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
     }
     try {
       await updateOperationStatus(op.id, 'syncing');
+      notifyStage('sending-ops', { current: synced + 1, total: pending.length, message: op.filterName });
       await executeOperation(op);
       await updateOperationStatus(op.id, 'synced');
       synced++;
@@ -400,6 +454,7 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
   // users who go offline again before that fetch happens.
 
   syncing = false;
+  notifyStage('idle');
   notify({ type: 'complete', synced, total: pending.length });
 
   return { synced, failed };
