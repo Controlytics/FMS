@@ -332,8 +332,16 @@ export async function processIngestionMessage(msg: IngestionMessage): Promise<Pi
     try {
       for (const alarm of ruleChainAlarms) {
         if (alarm.clear) {
-          // Clear existing alarm, storing the telemetry values at clear time
-          await prisma.alarm.updateMany({
+          // Clear existing alarm, storing the telemetry values at clear time.
+          //
+          // Idempotent dispatch: gate the ALARM_CLEARED notification on the
+          // updateMany row-count. Without this, a Stage-9 failure causing a
+          // graphile-worker retry would re-enter this branch with the alarm
+          // already in CLEARED state (updateMany updates 0 rows), and the
+          // dispatch would fire again — emitting duplicate ALARM_CLEARED
+          // notifications for the same state transition. Operators on email/
+          // SMS would receive the clear notification once per retry.
+          const result = await prisma.alarm.updateMany({
             where: { entityId: alarm.entityId, alarmType: alarm.alarmType, status: 'ACTIVE' },
             data: {
               status: 'CLEARED',
@@ -342,18 +350,20 @@ export async function processIngestionMessage(msg: IngestionMessage): Promise<Pi
             },
           });
 
-          // Dispatch ALARM_CLEARED notification
-          const clearEntity = await prisma.assetInstance.findUnique({ where: { id: alarm.entityId }, select: { name: true } });
-          dispatchNotification({
-            eventType: 'ALARM_CLEARED',
-            context: { severity: alarm.severity, alarmType: alarm.alarmType },
-            variables: {
-              alarmType: alarm.alarmType, severity: alarm.severity ?? 'INFO',
-              entityName: clearEntity?.name ?? alarm.entityId, entityId: alarm.entityId,
-              clearedBy: 'Rule Chain (Auto)', remarks: 'Automatically cleared by rule chain',
-              timestamp: new Date().toISOString(),
-            },
-          }).catch(err => console.error('[AlarmAutoClear] Notification dispatch failed:', err.message));
+          if (result.count > 0) {
+            // Dispatch ALARM_CLEARED only when we genuinely transitioned a row
+            const clearEntity = await prisma.assetInstance.findUnique({ where: { id: alarm.entityId }, select: { name: true } });
+            dispatchNotification({
+              eventType: 'ALARM_CLEARED',
+              context: { severity: alarm.severity, alarmType: alarm.alarmType },
+              variables: {
+                alarmType: alarm.alarmType, severity: alarm.severity ?? 'INFO',
+                entityName: clearEntity?.name ?? alarm.entityId, entityId: alarm.entityId,
+                clearedBy: 'Rule Chain (Auto)', remarks: 'Automatically cleared by rule chain',
+                timestamp: new Date().toISOString(),
+              },
+            }).catch(err => console.error('[AlarmAutoClear] Notification dispatch failed:', err.message));
+          }
         } else {
           // Deduplicate: only create if no ACTIVE alarm of same type exists
           // Alarm dedup check
@@ -518,14 +528,32 @@ export async function processIngestionMessage(msg: IngestionMessage): Promise<Pi
       await finalizeTrace(trace);
     }
 
-    // Add to DLQ
+    // Add to DLQ.
+    //
+    // addToDLQ writes a `dead_letter_queue` row via Prisma. If the DLQ write
+    // itself fails — most likely cause: the same Postgres dependency that
+    // just failed Stage 9 is still down — we must NOT silently swallow the
+    // failure and return `{ success: false }`. That would drop the message
+    // from BOTH the live pipeline AND the DLQ. Re-throw the original
+    // pipeline error so graphile-worker retries the entire job; on the next
+    // attempt either Stage 9 succeeds (best case) or the DLQ write succeeds
+    // (acceptable fallback).
     const failedStage = trace?.failedStage ?? 'unknown';
-    await addToDLQ(msg, errorMessage, failedStage);
+    try {
+      await addToDLQ(msg, errorMessage, failedStage);
+    } catch (dlqErr) {
+      console.error(
+        '[Ingestion] DLQ write failed; re-throwing original pipeline error for graphile-worker retry:',
+        dlqErr instanceof Error ? dlqErr.message : String(dlqErr),
+      );
+      throw err;
+    }
 
     // NOTE: Returning { success: false } instead of re-throwing so the queue
     // worker marks the job as completed (DLQ handles retries). Re-throwing
     // would cause graphile-worker to retry until maxAttempts for permanently
-    // invalid messages.
+    // invalid messages. The exception path above only triggers when DLQ
+    // itself fails — see the try/catch directly above.
     return {
       success: false,
       messageId: msg.messageId,
@@ -915,7 +943,12 @@ async function evaluateTemplateAlarmRules(
 
       if (activeAlarm) {
         console.info(`[TemplateAlarm] ${rule.name}: ${rule.sourceField}=${value} back to normal → CLEARED`);
-        await prisma.alarm.updateMany({
+        // Idempotent dispatch: gate the ALARM_CLEARED notification on the
+        // updateMany row-count. See the rule-chain auto-clear branch in
+        // ingestion.service.ts:333+ for full rationale — same retry-safety
+        // pattern: don't emit notifications for state transitions that
+        // didn't actually happen.
+        const result = await prisma.alarm.updateMany({
           where: { entityId: msg.entityId, alarmType, status: 'ACTIVE' },
           data: {
             status: 'CLEARED',
@@ -930,18 +963,20 @@ async function evaluateTemplateAlarmRules(
           },
         });
 
-        // Dispatch ALARM_CLEARED notification
-        const entity = await prisma.assetInstance.findUnique({ where: { id: msg.entityId }, select: { name: true } });
-        dispatchNotification({
-          eventType: 'ALARM_CLEARED',
-          context: { severity: rule.severity, alarmType },
-          variables: {
-            alarmType, severity: rule.severity || 'WARNING',
-            entityName: entity?.name ?? msg.entityId, entityId: msg.entityId,
-            clearedBy: 'System (Auto)', remarks: `Value ${rule.sourceField}=${value} returned to normal`,
-            timestamp: new Date().toISOString(),
-          },
-        }).catch(err => console.error('[TemplateAlarmClear] Notification dispatch failed:', err.message));
+        if (result.count > 0) {
+          // Dispatch ALARM_CLEARED notification only when row truly transitioned
+          const entity = await prisma.assetInstance.findUnique({ where: { id: msg.entityId }, select: { name: true } });
+          dispatchNotification({
+            eventType: 'ALARM_CLEARED',
+            context: { severity: rule.severity, alarmType },
+            variables: {
+              alarmType, severity: rule.severity || 'WARNING',
+              entityName: entity?.name ?? msg.entityId, entityId: msg.entityId,
+              clearedBy: 'System (Auto)', remarks: `Value ${rule.sourceField}=${value} returned to normal`,
+              timestamp: new Date().toISOString(),
+            },
+          }).catch(err => console.error('[TemplateAlarmClear] Notification dispatch failed:', err.message));
+        }
       }
     }
   }
