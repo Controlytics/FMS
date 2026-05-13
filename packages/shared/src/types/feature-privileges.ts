@@ -160,6 +160,35 @@ export const FEATURE_PRIVILEGE_CATEGORIES = FEATURE_PRIVILEGES.reduce((acc, feat
  * Maps feature privilege IDs to permission constants used by the API.
  * When a feature privilege is enabled/disabled in the Role Privileges page,
  * these permission constants are synced to the role's permissions array.
+ *
+ * **Two kinds of permission constants appear in this map — both are legitimate:**
+ *
+ * 1. **Backend-enforced perms** (e.g. `FCP_CREATE`, `ASSET_CREATE`, `PM_READ`):
+ *    Used by `requirePermission(...)` on a real route. These are the "real
+ *    gates" — the route returns 403 without them.
+ *
+ * 2. **FE-only display flags** (e.g. `CHECKLIST_CREATE`, `CP_PAGE_CREATE`,
+ *    `EG_VIEW`, `ALARM_VIEW`, `AUDIT_EXPORT`, `NOTIFICATION_VIEW`):
+ *    Used only on the React side via `perms.includes(...)` to gate UI
+ *    visibility (show/hide a button or page). They do NOT appear in any
+ *    `requirePermission(...)` call on the backend. The backend gate for the
+ *    same action is the companion backend perm granted alongside it in this
+ *    map (e.g. `checklists.create` grants BOTH `CHECKLIST_CREATE` for the
+ *    FE button AND `FCP_CREATE` for the API route).
+ *
+ * **Do not "fix" a FE-only flag by adding it to `requirePermission(...)`
+ * unilaterally** — that breaks the two-layer design and forces a seed.ts
+ * change for any role that should keep the toggle enabled. If a FE flag's
+ * companion backend perm is missing or wrong (e.g. the toggle grants `X` but
+ * the route requires `Y`), fix the mismatch in this map and/or the route,
+ * not by promoting the FE flag.
+ *
+ * **Not seeded ≠ broken.** A FE-only flag never needs to appear in
+ * `apps/api/prisma/seed.ts` because it gets attached to a role at runtime
+ * when an admin toggles the corresponding feature on the Role Privileges
+ * page. The 16 currently-unseeded perms (CHECKLIST_*, CP_PAGE_*, CP_TOGGLE,
+ * EG_*, PM_DOWNLOAD_TEMPLATE/UPLOAD/EDIT_ENTRY/RESUBMIT) all fall in this
+ * category — they're correctly designed FE-only flags.
  */
 export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   // User Management

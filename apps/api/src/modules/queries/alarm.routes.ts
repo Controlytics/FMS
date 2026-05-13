@@ -11,7 +11,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
 
   // 1. GET / — List alarms (paginated, filterable)
   app.get('/', {
-    preHandler: [app.requirePermission('ASSET_VIEW')],
+    preHandler: [app.requirePermission('ALARM_VIEW')],
     schema: {
       tags: ['Alarms'],
       summary: 'List alarms',
@@ -131,7 +131,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
 
   // 1b. GET /summary — Alarm summary counts
   app.get('/summary', {
-    preHandler: [app.requirePermission('ASSET_VIEW')],
+    preHandler: [app.requirePermission('ALARM_VIEW')],
     schema: {
       tags: ['Alarms'],
       summary: 'Get alarm summary counts',
@@ -162,7 +162,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
 
   // 2. GET /:entityId — Entity alarms
   app.get('/:entityId', {
-    preHandler: [app.requirePermission('ASSET_VIEW')],
+    preHandler: [app.requirePermission('ALARM_VIEW')],
     schema: {
       tags: ['Alarms'],
       summary: 'Get alarms for an entity',

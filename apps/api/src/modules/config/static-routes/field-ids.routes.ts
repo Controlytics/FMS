@@ -32,11 +32,11 @@ export async function fieldIdsRoutes(app: FastifyInstance) {
   });
 
   app.put('/field-ids/:fieldId', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    preHandler: [app.requirePermission('FIELD_ID_UPDATE')],
     schema: {
       tags: ['Config'],
       summary: 'Update field ID display name',
-      description: 'Update the display name for a specific field ID. Requires CONFIG_UPDATE permission.',
+      description: 'Update the display name for a specific field ID. Requires FIELD_ID_UPDATE permission (granted by the `config.field_ids` feature toggle on the Role Privileges page).',
       params: {
         type: 'object',
         required: ['fieldId'],
