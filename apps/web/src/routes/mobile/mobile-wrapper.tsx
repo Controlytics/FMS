@@ -173,8 +173,18 @@ export function MobileWrapperPage() {
 
   const templates = (online ? (templatesData?.data ?? []) : offlineTemplates) as any[];
   const instances = online ? ((instancesData?.data ?? []) as any[]) : offlineFilters;
-  const filterTemplateId = templates.find((t: any) => t.templateKind === 'FILTER')?.id;
-  const allFilters = instances.filter((f: any) => f.templateId === filterTemplateId && f.isActive !== false && f.status !== 'Retired');
+  // Multi-template support: a tenant can have several FILTER-kind templates
+  // (e.g. HEPA vs ULPA with different attributeSchemas). Membership check via
+  // Set; matches the pattern used in filter-list.tsx:149. The single-id
+  // lookup that was here before would drop filters belonging to any FILTER
+  // template after the first one returned by `.find()`.
+  const filterTemplateIds = new Set(
+    templates.filter((t: any) => t.templateKind === 'FILTER').map((t: any) => t.id),
+  );
+  const allFilters = instances.filter((f: any) =>
+    (filterTemplateIds.has(f.templateId) || f.template?.templateKind === 'FILTER') &&
+    f.isActive !== false && f.status !== 'Retired',
+  );
 
   const stageCounts: Record<string, number> = {};
   allFilters.forEach((f: any) => { if (f.currentLifecycleState) stageCounts[f.currentLifecycleState] = (stageCounts[f.currentLifecycleState] ?? 0) + 1; });
