@@ -43,6 +43,38 @@ describe('Node Registry', () => {
     expect(node).toBeUndefined();
   });
 
+  // Backward-compat aliases for pre-rename rule_node rows. Snake_case types
+  // were used by editor code before 2026-05-12 — chains authored then still
+  // exist in some databases. The registry resolves them to the current
+  // kebab-case node definitions so rule-engine.ts doesn't emit
+  // ERR_NODE_TYPE_UNKNOWN for those rows. See LEGACY_TYPE_ALIASES in
+  // node-registry.ts for the full list + rationale.
+  it('getNode("log_action") aliases to the current "log" node', () => {
+    const aliased = getNode('log_action');
+    const canonical = getNode('log');
+    expect(aliased).toBeDefined();
+    expect(canonical).toBeDefined();
+    expect(aliased).toBe(canonical);
+    expect(aliased!.type).toBe('log');
+  });
+
+  it('getNode("msg_type_filter") aliases to the current "msg-type-filter" node', () => {
+    const aliased = getNode('msg_type_filter');
+    const canonical = getNode('msg-type-filter');
+    expect(aliased).toBeDefined();
+    expect(canonical).toBeDefined();
+    expect(aliased).toBe(canonical);
+    expect(aliased!.type).toBe('msg-type-filter');
+  });
+
+  it('legacy alias does not shadow direct registration (precedence test)', () => {
+    // Direct lookup wins over alias lookup — proves we check the registry
+    // first and only fall back to LEGACY_TYPE_ALIASES on miss.
+    const direct = getNode('log');
+    expect(direct).toBeDefined();
+    expect(direct!.type).toBe('log');
+  });
+
   // Counts mirror src/modules/rule-chain/nodes/*-nodes.ts. Update both
   // when adding or removing nodes in a category.
   it('getNodesByCategory("FILTER") returns 12 filter nodes', () => {
