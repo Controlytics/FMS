@@ -12,6 +12,7 @@ import { DryerDurationDialog } from './components/dryer-duration-dialog';
 import { ChecklistDialog } from './components/checklist-dialog';
 import { BlockChangeRequestDialog } from './components/block-change-request-dialog';
 import { DryingFiltersPanel } from './components/drying-filters-panel';
+import { useFilterOperationsOfflineCache } from './hooks/use-filter-operations-offline-cache';
 import { CLEANING_STAGES_OPS } from '../../lib/filter-constants';
 import { ErrorPopup } from '../../components/ui/error-popup';
 import { useOffline } from '../../hooks/use-offline';
@@ -47,7 +48,7 @@ export function FilterOperationsPage() {
   const ahuIdFilter = searchParams.get('ahuId');
   const { formatDateTime, formatDate, formatTime } = useDatetimeFormat();
   const reauth = useReauth();
-  const { online, pendingCount, syncing, executeOrQueue, manualSync, clearQueue, cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
+  const { online, pendingCount, syncing, executeOrQueue, manualSync, clearQueue, cache, getCache } = useOffline();
   const { data: instancesData, error: instancesError } = useSWR<PaginatedResponse<FilterInstance>>('/api/assets/instances?limit=500', { refreshInterval: online ? 30000 : 0 });
   const { data: templatesData, error: templatesError } = useSWR<PaginatedResponse<{ id: string; name: string }>>('/api/assets/templates?limit=1000');
   const { data: identifiersData } = useSWR<any[]>(online ? '/api/assets/identifiers?limit=1000' : null);
@@ -55,93 +56,22 @@ export function FilterOperationsPage() {
   const { data: equipGroupsData } = useSWR<any>(online ? '/api/equipment-groups' : null);
   const isMobile = typeof window !== 'undefined' && !!(window as any).Capacitor?.isNativePlatform?.();
 
-  // Offline fallback data
-  const [offlineInstances, setOfflineInstances] = useState<any[]>([]);
-  const [offlineTemplates, setOfflineTemplates] = useState<any[]>([]);
-  const [offlineDataLoaded, setOfflineDataLoaded] = useState(false);
-
-  // Cache filter data for offline use
-  useEffect(() => { if (instancesData?.data) cacheFilterData(instancesData.data); }, [instancesData]);
-  useEffect(() => { if (templatesData?.data) cache('templates', templatesData.data); }, [templatesData]);
-  // Cache cleaning reasons for offline cycle start
-  useEffect(() => { const r = (reasonsData as any)?.reasons ?? reasonsData; if (r) cache('cleaning-reasons', r); }, [reasonsData]);
-  // Cache equipment groups for offline equipment/limits selection
-  useEffect(() => { if (equipGroupsData) cache('equipment-groups', Array.isArray(equipGroupsData) ? equipGroupsData : equipGroupsData?.data ?? []); }, [equipGroupsData]);
-  // Pre-cache current-state for all filters while online (so offline has full state)
-  // Runs on page load and whenever instances data refreshes
-  useEffect(() => {
-    if (!online || !instancesData?.data) return;
-    // Build the set inline since this effect runs before the main render-scope
-    // `filterTemplateIds` is computed. Cheap — list size is small.
-    const cacheFilterTemplateIds = new Set(
-      ((templatesData?.data ?? []) as any[])
-        .filter((t: any) => t.templateKind === 'FILTER')
-        .map((t: any) => t.id),
-    );
-    const filters = instancesData.data.filter((f: any) => {
-      // Templates-loaded path: Set membership. First-paint fallback: the
-      // instance carries its eager-loaded `template.templateKind` per
-      // assets/instance.repository.ts — so we can still classify an instance
-      // before the templates SWR settles. Both branches are stable under
-      // admin renames (templateKind is the schema-stable signal, not name).
-      if (!cacheFilterTemplateIds.has(f.templateId) && f.template?.templateKind !== 'FILTER') return false;
-      return f.isActive !== false && f.status !== 'Retired';
-    });
-    const cacheFilterStates = async () => {
-      for (const f of filters) {
-        try {
-          const st = await apiClient.get<any>(`/api/filters/${f.id}/current-state`);
-          // Phase 8.7: route the cache write through the helper so the legacy
-          // mirror field names live only in offline-cache.ts.
-          await cacheServerStateResponse(f.id, st);
-        } catch { break; } // stop on first failure
-      }
-    };
-    const timer = setTimeout(cacheFilterStates, 2000);
-    return () => clearTimeout(timer);
-  }, [online, instancesData]);
-  // Cache identifier map for offline RFID/tag lookup
-  useEffect(() => {
-    if (identifiersData) {
-      const list = Array.isArray(identifiersData) ? identifiersData : [];
-      const map: Record<string, { filterId: string; filterName: string }> = {};
-      for (const ident of list) {
-        if (ident.identifierValue && ident.assetId) {
-          const entry = { filterId: ident.assetId, filterName: ident.asset?.name || ident.assetId };
-          map[ident.identifierValue] = entry;
-          map[ident.identifierValue.toUpperCase()] = entry;
-          map[ident.identifierValue.toLowerCase()] = entry;
-        }
-      }
-      if (Object.keys(map).length > 0) cache('identifier-map', map);
-    }
-  }, [identifiersData]);
-
-  // Load cached data on mount + when going offline
-  useEffect(() => {
-    Promise.all([
-      getOfflineFilters().then(setOfflineInstances),
-      getCache<any[]>('templates').then(t => setOfflineTemplates(t ?? [])),
-    ]).finally(() => setOfflineDataLoaded(true));
-  }, []);
-  useEffect(() => {
-    if (!online) {
-      Promise.all([
-        getOfflineFilters().then(setOfflineInstances),
-        getCache<any[]>('templates').then(t => setOfflineTemplates(t ?? [])),
-      ]).finally(() => setOfflineDataLoaded(true));
-    }
-  }, [online]);
-
-  // Refresh data after sync completes
-  useEffect(() => {
-    const cleanup = onSyncEvent((event) => {
-      if (event.type === 'complete' && event.synced && event.synced > 0) {
-        mutate('/api/assets/instances?limit=500');
-      }
-    });
-    return cleanup;
-  }, []);
+  // Phase 2 of the offline-tier extraction: offline cache state + 9 priming
+  // effects live in the hook so this file isn't fighting offline-cache
+  // bookkeeping in the middle of cycle-write logic.
+  const {
+    offlineInstances,
+    offlineTemplates,
+    offlineDataLoaded,
+    refreshOfflineInstances,
+  } = useFilterOperationsOfflineCache({
+    online,
+    instancesData,
+    templatesData,
+    reasonsData,
+    equipGroupsData,
+    identifiersData,
+  });
 
   const [mode, setMode] = useState<'operations' | 'status'>('operations');
   const [activeStage, setActiveStage] = useState<typeof CLEANING_STAGES[0] | null>(null);
@@ -447,7 +377,7 @@ export function FilterOperationsPage() {
     refreshFilters();
     // Gap 20: Refresh offline cached data after queued operations
     if (newSubmissions.some(s => s.stage.includes('queued'))) {
-      getOfflineFilters().then(setOfflineInstances);
+      refreshOfflineInstances();
     }
     // Offline parity: if pipeline prescribes a checklist after this stage,
     // pop the dialog so the operator can complete it (matches mobile behavior,
@@ -1312,7 +1242,7 @@ export function FilterOperationsPage() {
       }
       setRecentSubmissions(prev => [...newSubs, ...prev].slice(0, 10));
       refreshFilters();
-      getOfflineFilters().then(setOfflineInstances); // refresh cached data
+      refreshOfflineInstances(); // refresh cached data after queued ops
       setEquipmentDialog(null);
       setPendingBatch(null);
       setPendingCyclePayload(null);
