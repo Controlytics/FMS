@@ -568,10 +568,20 @@ export class FilterOperationsService {
 
   /**
    * Get replacement history from audit trail.
+   *
+   * SUPER_ADMIN-row exclusion matches the policy enforced on `/api/audit`
+   * (list at audit/routes.ts:73 + detail at :200). This endpoint is a
+   * derived view over the same `audit_trail` table and is gated by
+   * `ASSET_READ` (per filter-operations/routes.ts:444) — without the
+   * filter, every replacement performed by a SUPER_ADMIN would leak the
+   * SUPER_ADMIN row through this view, contradicting the policy.
    */
   async getReplacements(_ctx: RequestContext) {
     const records = await prisma.auditTrail.findMany({
-      where: { action: 'FILTER_REPLACED' },
+      where: {
+        action: 'FILTER_REPLACED',
+        OR: [{ userRole: { not: 'SUPER_ADMIN' } }, { userRole: null }],
+      },
       select: { id: true, userId: true, userName: true, timestamp: true, afterValue: true },
       orderBy: { timestamp: 'desc' },
     });

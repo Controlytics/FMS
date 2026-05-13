@@ -12,7 +12,7 @@ import type { RequestContext } from '../../../types/context.js';
 import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
 import { AppError } from '../../../lib/errors.js';
-import { findExistingByClientOpId } from '../../../lib/idempotency.js';
+import { findExistingByClientOpId, withClientOpId } from '../../../lib/idempotency.js';
 import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
@@ -232,7 +232,7 @@ export async function submitChecklistImpl(
       });
       const completeEvent = {
         filterId, cycleId: cycle.id, eventType: 'CYCLE_COMPLETED' as const,
-        performedBy: ctx.userSub, attributes: { sequenceNumber: cycle.sequenceNumber },
+        performedBy: ctx.userSub, attributes: withClientOpId({ sequenceNumber: cycle.sequenceNumber }, clientOpId),
       };
       await tx.filterEvent.create({
         data: {

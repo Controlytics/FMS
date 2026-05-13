@@ -490,10 +490,15 @@ export async function processIngestionMessage(msg: IngestionMessage): Promise<Pi
     try {
       await executeStage11(msg, stage11Warnings);
       warnings.push(...stage11Warnings);
-    } catch {
-      // Emit failures are WARNINGS, NOT failures
-      stage11Warnings.push('WARN_EMIT_FAILED');
-      warnings.push('WARN_EMIT_FAILED');
+    } catch (err) {
+      // Emit failures are WARNINGS, NOT failures — but they MUST carry the
+      // cause so operators can diagnose ws-bus errors. Silent catch made
+      // stuck event-emission invisible (same anti-pattern that was fixed
+      // in the two enqueue catches in commit 79149f0).
+      const errMessage = err instanceof Error ? err.message : String(err);
+      stage11Warnings.push(`WARN_EMIT_FAILED:${errMessage}`);
+      warnings.push(`WARN_EMIT_FAILED:${errMessage}`);
+      console.warn('[Ingestion] Stage 11 event emission failed:', errMessage);
     }
     if (trace) {
       recordStage(trace, {
