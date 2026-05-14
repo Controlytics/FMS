@@ -5,6 +5,8 @@ import { apiClient } from '../../lib/api-client';
 import { useAuth } from '../../hooks/use-auth';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { useOffline } from '../../hooks/use-offline';
+import { useReauth } from '../../hooks/use-reauth';
+import { ReauthDialog } from '../../components/reauth-dialog';
 import { onSyncEvent } from '../../lib/sync-engine';
 import { DryerDurationDialog } from '../filter-management/components/dryer-duration-dialog';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
@@ -55,6 +57,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const { user, isLoading: authLoading, logout: authLogout } = useAuth();
   const { formatTime } = useDatetimeFormat();
   const { online, pendingCount, syncing, lastSyncMessage, executeOrQueue, manualSync, clearQueue, getQueueDetails, cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
+  const reauth = useReauth();
   const mobileNav = useNavigate();
 
   if (!authLoading && !user) return <Navigate to="/m/login" replace />;
@@ -867,21 +870,27 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         // dialog and start the cycle with PM as the reason. Falls through
         // to the normal equipment-group / advance flow below.
         if (state.isPmDue && state.pmReasonKey) {
-          try {
-            const fName = filterName || state.filterName;
-            const cyclePayload = { cleaningReasonKey: state.pmReasonKey, cleaningAreaId: selectedBlock?.id };
-            const advancePayload = { targetState: activeStage.key, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${activeStage.label} - ${fName} (PM auto)` };
+          const fName = filterName || state.filterName;
+          const cyclePayload = { cleaningReasonKey: state.pmReasonKey, cleaningAreaId: selectedBlock?.id };
+          const advancePayload = { targetState: activeStage.key, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${activeStage.label} - ${fName} (PM auto)` };
 
+          // START_CLEANING_CYCLE is reauth-gated for ADMIN role (see
+          // system_config['action-reauth']). Wrap the compound op so the
+          // password dialog appears when policy demands it. Pre-fix mobile
+          // bypassed reauth entirely on cycle ops — an ADMIN on mobile
+          // could start cycles without re-entering their password.
+          await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
             const { executed: cycleStarted, result } = await executeOrQueue(
               'start-and-advance', filterId, fName,
-              { cyclePayload, advancePayload } as any, activeStage.key
+              { cyclePayload, advancePayload } as any, activeStage.key, password,
             );
 
             if (!cycleStarted) {
               await updateOfflineState(filterId, activeStage.key, true, selectedBlock?.id);
               setSuccess(`${fName} → ${activeStage.label} (PM auto, queued)`);
               setRecentOps(prev => [{ stage: activeStage.key, filter: fName, time: formatTime(new Date()), queued: true }, ...prev].slice(0, 20));
-              setScanValue(''); setRemarks(''); setLoading(false); return;
+              setScanValue(''); setRemarks('');
+              return;
             }
 
             // If WASH_IN and a block is selected, the equipment-group dialog
@@ -897,7 +906,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               if (groups.length > 0) {
                 setEquipDialog({ filterId, filterName: fName, stage: activeStage.key, groups });
                 setSelectedEquipGroup(null); setReadings({});
-                setLoading(false); return;
+                return;
               }
             }
             setSuccess(`${fName} → ${activeStage.label} (PM auto)`);
@@ -916,15 +925,17 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 setChecklistAnswers({});
               }
             }
-            setLoading(false); return;
-          } catch (e: any) {
-            if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
-              setBlockChangeDialog({ filterId: e.connectionInfo.filterId, filterName: filterName || state.filterName, homeBlockId: e.connectionInfo.homeBlockId, homeBlockName: e.connectionInfo.homeBlockName, requestedBlockId: e.connectionInfo.requestedBlockId, requestedBlockName: e.connectionInfo.requestedBlockName });
-              setBlockChangeReason(''); setLoading(false); return;
-            }
-            setError(e.message ?? 'Failed to auto-start PM cycle');
-            setLoading(false); return;
-          }
+          }, {
+            onError: (e: any) => {
+              if (e?.code === 'BLOCK_CHANGE_REQUIRED' && e?.connectionInfo) {
+                setBlockChangeDialog({ filterId: e.connectionInfo.filterId, filterName: filterName || state.filterName, homeBlockId: e.connectionInfo.homeBlockId, homeBlockName: e.connectionInfo.homeBlockName, requestedBlockId: e.connectionInfo.requestedBlockId, requestedBlockName: e.connectionInfo.requestedBlockName });
+                setBlockChangeReason('');
+                return;
+              }
+              setError(e?.message ?? 'Failed to auto-start PM cycle');
+            },
+          });
+          setLoading(false); return;
         }
 
         // No PM match — ask for a wash-in reason as before
@@ -997,34 +1008,37 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const handleReasonSubmit = async () => {
     if (!reasonDialog || !selectedReason) return;
     setLoading(true); setError('');
-    try {
-      const cyclePayload = { cleaningReasonKey: selectedReason, cleaningJustification: justification || undefined, cleaningAreaId: selectedBlock?.id };
-      const advancePayload = { targetState: reasonDialog.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${reasonDialog.stage.replace(/_/g, ' ')} - ${reasonDialog.filterName}` };
+    const cyclePayload = { cleaningReasonKey: selectedReason, cleaningJustification: justification || undefined, cleaningAreaId: selectedBlock?.id };
+    const advancePayload = { targetState: reasonDialog.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${reasonDialog.stage.replace(/_/g, ' ')} - ${reasonDialog.filterName}` };
 
-      // Check for equipment groups BEFORE executing — works for both online and offline
-      if (reasonDialog.stage === 'WASH_IN' && selectedBlock?.id) {
-        let groups: any[] = [];
-        if (online) {
-          try { groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${selectedBlock.id}`) ?? []; } catch { /* fall through with empty groups → no equipment dialog */ }
-        } else {
-          // Offline: use cached equipment groups
-          const cachedGroups = await getCache<any[]>('equipment-groups') ?? [];
-          groups = cachedGroups.filter((g: any) => g.blockId === selectedBlock.id);
-        }
-        if (groups.length > 0) {
-          // Save the cycle payload — equipment dialog will use it for the compound operation
-          setPendingCyclePayload(cyclePayload);
-          setReasonDialog(null);
-          setEquipDialog({ filterId: reasonDialog.filterId, filterName: reasonDialog.filterName, stage: reasonDialog.stage, groups });
-          setSelectedEquipGroup(null); setReadings({});
-          setLoading(false); return;
-        }
+    // Check for equipment groups BEFORE executing — works for both online and offline.
+    // No API mutation yet, no reauth needed here.
+    if (reasonDialog.stage === 'WASH_IN' && selectedBlock?.id) {
+      let groups: any[] = [];
+      if (online) {
+        try { groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${selectedBlock.id}`) ?? []; } catch { /* fall through with empty groups → no equipment dialog */ }
+      } else {
+        // Offline: use cached equipment groups
+        const cachedGroups = await getCache<any[]>('equipment-groups') ?? [];
+        groups = cachedGroups.filter((g: any) => g.blockId === selectedBlock.id);
       }
+      if (groups.length > 0) {
+        // Save the cycle payload — equipment dialog will use it for the compound operation
+        // (handleEquipSubmit's `if (pendingCyclePayload)` branch reauth-wraps the actual mutation)
+        setPendingCyclePayload(cyclePayload);
+        setReasonDialog(null);
+        setEquipDialog({ filterId: reasonDialog.filterId, filterName: reasonDialog.filterName, stage: reasonDialog.stage, groups });
+        setSelectedEquipGroup(null); setReadings({});
+        setLoading(false); return;
+      }
+    }
 
-      // No equipment groups needed — queue compound operation directly
+    // No equipment groups — fire the compound op. START_CLEANING_CYCLE is
+    // reauth-gated for ADMIN role; wrap so the password dialog appears.
+    await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
       const { executed: cycleExecuted, result } = await executeOrQueue(
         'start-and-advance', reasonDialog.filterId, reasonDialog.filterName,
-        { cyclePayload, advancePayload } as any, reasonDialog.stage
+        { cyclePayload, advancePayload } as any, reasonDialog.stage, password,
       );
 
       if (!cycleExecuted) {
@@ -1043,7 +1057,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             setChecklistAnswers({});
           }
         }
-        setLoading(false); return;
+        return;
       }
       setSuccess(`${reasonDialog.filterName} → ${reasonDialog.stage.replace(/_/g, ' ')}`);
       setRecentOps(prev => [{ stage: reasonDialog.stage, filter: reasonDialog.filterName, time: formatTime(new Date()) }, ...prev].slice(0, 20));
@@ -1059,13 +1073,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           setChecklistAnswers({});
         }
       }
-    } catch (e: any) {
-      if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
-        setBlockChangeDialog({ filterId: e.connectionInfo.filterId, filterName: reasonDialog?.filterName ?? '', homeBlockId: e.connectionInfo.homeBlockId, homeBlockName: e.connectionInfo.homeBlockName, requestedBlockId: e.connectionInfo.requestedBlockId, requestedBlockName: e.connectionInfo.requestedBlockName });
-        setBlockChangeReason(''); setReasonDialog(null); setLoading(false); return;
-      }
-      setError(e.message ?? 'Failed');
-    }
+    }, {
+      onError: (e: any) => {
+        if (e?.code === 'BLOCK_CHANGE_REQUIRED' && e?.connectionInfo) {
+          setBlockChangeDialog({ filterId: e.connectionInfo.filterId, filterName: reasonDialog?.filterName ?? '', homeBlockId: e.connectionInfo.homeBlockId, homeBlockName: e.connectionInfo.homeBlockName, requestedBlockId: e.connectionInfo.requestedBlockId, requestedBlockName: e.connectionInfo.requestedBlockName });
+          setBlockChangeReason(''); setReasonDialog(null);
+          return;
+        }
+        setError(e?.message ?? 'Failed');
+      },
+    });
     setLoading(false);
   };
 
@@ -1133,17 +1150,27 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       const isDryerReadings = equipDialog.stage === 'DRY_IN';
       const advancePayload = { targetState: isDryerReadings ? 'DRY_IN' : equipDialog.stage, cleaningAreaId: selectedBlock?.id, equipmentGroupId: selectedEquipGroup.id, instrumentReadings: readings, ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}), remarks: remarks || `${equipDialog.stage.replace(/_/g, ' ')} - ${equipDialog.filterName}` };
 
-      // If we have a pending cycle payload (from reason dialog), use compound operation
+      // If we have a pending cycle payload (from reason dialog), use compound operation.
+      // The start-cycle half is reauth-gated (START_CLEANING_CYCLE for ADMIN role) — wrap.
+      // The plain-advance branch is NOT reauth-gated (POST /advance has no enforceReauth).
       let executed: boolean;
       let result: any;
       if (pendingCyclePayload) {
-        const res = await executeOrQueue(
-          'start-and-advance', equipDialog.filterId, equipDialog.filterName,
-          { cyclePayload: pendingCyclePayload, advancePayload } as any, equipDialog.stage
-        );
-        executed = res.executed;
-        result = res.result;
+        await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
+          const res = await executeOrQueue(
+            'start-and-advance', equipDialog.filterId, equipDialog.filterName,
+            { cyclePayload: pendingCyclePayload, advancePayload } as any, equipDialog.stage, password,
+          );
+          executed = res.executed;
+          result = res.result;
+        });
         setPendingCyclePayload(null);
+        // If reauth dialog was cancelled or failed, `executed` stays undefined —
+        // bail out without proceeding into the post-advance state mgmt below.
+        if (typeof executed! !== 'boolean') {
+          setLoading(false);
+          return;
+        }
       } else {
         const res = await executeOrQueue('advance', equipDialog.filterId, equipDialog.filterName, advancePayload, equipDialog.stage);
         executed = res.executed;
@@ -1202,16 +1229,19 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     if (!checklistDialog) return;
     for (const cl of checklistDialog.checklists) { for (const q of cl.questions) { if (q.required && (checklistAnswers[q.id] === undefined || checklistAnswers[q.id] === '')) { setError(`Answer required: "${q.question}"`); return; } } }
     setLoading(true); setError('');
-    try {
-      // Phase A.1: send the version each profile was rendered against — server
-      // returns 409 SCHEMA_DRIFT if the cycle pin doesn't match.
-      const expectedProfileVersions: Record<string, number> = {};
-      for (const cl of checklistDialog.checklists) {
-        if (typeof (cl as any).profileVersion === 'number') {
-          expectedProfileVersions[cl.checklistProfileId] = (cl as any).profileVersion;
-        }
+    // Phase A.1: send the version each profile was rendered against — server
+    // returns 409 SCHEMA_DRIFT if the cycle pin doesn't match.
+    const expectedProfileVersions: Record<string, number> = {};
+    for (const cl of checklistDialog.checklists) {
+      if (typeof (cl as any).profileVersion === 'number') {
+        expectedProfileVersions[cl.checklistProfileId] = (cl as any).profileVersion;
       }
-      const { executed } = await executeOrQueue('submit-checklist', checklistDialog.filterId, checklistDialog.filterName, { answers: checklistAnswers, expectedProfileVersions });
+    }
+    // SUBMIT_CHECKLIST_WITH_SIGNATURE is reauth-gated for ADMIN role
+    // (per system_config['action-reauth']). Wrap so the password dialog
+    // appears when policy demands it.
+    await reauth.execute('SUBMIT_CHECKLIST_WITH_SIGNATURE', async (password?) => {
+      const { executed } = await executeOrQueue('submit-checklist', checklistDialog.filterId, checklistDialog.filterName, { answers: checklistAnswers, expectedProfileVersions }, undefined, password);
       setSuccess(`Checklist submitted${executed ? '' : ' (queued)'}`);
       // After checklist answered offline: force-clear pendingChecklist on
       // the cache. The empty pending + has-CHECKLIST-after + current-stage
@@ -1263,7 +1293,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       setChecklistAnswers({});
       setPendingChecklistBatch(nextRemaining);
       if (executed) mutate('/api/assets/instances?limit=500');
-    } catch (e: any) { setError(e.message ?? 'Failed'); }
+    }, {
+      onError: (e: any) => setError(e?.message ?? 'Failed'),
+    });
     setLoading(false);
   };
 
@@ -2233,6 +2265,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           </div>
         </div>
       )}
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Filter Operation"
+      />
     </div>
   );
 }
