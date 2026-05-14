@@ -819,6 +819,17 @@ export function FilterOperationsPage() {
             await executeOrQueue('start-cycle', item.filterId, item.filterName, startBody, undefined, password);
             started++;
           } catch (e: any) {
+            // REAUTH errors must NOT be swallowed into the per-filter
+            // failure list — the reauth dialog needs to stay open with
+            // the inline "Incorrect password" message and let the
+            // operator retry, instead of closing on a generic popup.
+            // The two shapes (`.error` from REAUTH_REQUIRED / REAUTH_FAILED
+            // re-thrown raw in api-client.ts:67, `.code` from the
+            // constructed-Error branch at line 104) cover both paths.
+            const errCode = e?.error ?? e?.code;
+            if (errCode === 'REAUTH_FAILED' || errCode === 'REAUTH_REQUIRED') {
+              throw e;
+            }
             if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
               setBlockChangeDialog({
                 filterId: e.connectionInfo.filterId ?? item.filterId,
