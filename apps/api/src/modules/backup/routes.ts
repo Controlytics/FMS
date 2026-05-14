@@ -6,9 +6,15 @@ import * as backupService from './backup.service.js';
 
 export default async function backupRoutes(app: FastifyInstance) {
 
-  // GET /api/backup/export — Generate and download backup
+  // GET /api/backup/export — Generate and download backup.
+  // Permission gate (2026-05-14): BACKUP_EXPORT is implicitly granted to
+  // any role that holds BACKUP_MANAGE via the suffix-expansion map in
+  // packages/shared/src/types/permissions.ts (`_EXPORT` ∈ MANAGE_PERMISSION_SUFFIXES).
+  // SUPER_ADMIN and ADMIN have BACKUP_MANAGE seeded, so behavior is
+  // unchanged for them. Pre-fix this checked CONFIG_UPDATE — a role with
+  // generic config edit but no backup-specific scope still passed the gate.
   app.get('/export', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    preHandler: [app.requirePermission('BACKUP_EXPORT')],
     schema: {
       tags: ['Backup'],
       summary: 'Export database backup',
@@ -55,9 +61,15 @@ export default async function backupRoutes(app: FastifyInstance) {
     return reply.send(JSON.stringify(backup, null, 2));
   });
 
-  // POST /api/backup/restore — Restore from backup file
+  // POST /api/backup/restore — Restore from backup file.
+  // Permission gate (2026-05-14): BACKUP_RESTORE is an EXPLICIT permission —
+  // it is INTENTIONALLY NOT implied by BACKUP_MANAGE (`_RESTORE` is not in
+  // MANAGE_PERMISSION_SUFFIXES). Restoring overwrites history and is a
+  // higher-risk grant than export; roles must be granted it directly.
+  // SUPER_ADMIN and ADMIN have it seeded. Pre-fix this checked CONFIG_UPDATE
+  // and a generic config-edit role could overwrite the database.
   app.post('/restore', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    preHandler: [app.requirePermission('BACKUP_RESTORE')],
     schema: {
       tags: ['Backup'],
       summary: 'Restore database from backup',

@@ -146,7 +146,15 @@ export const PERMISSIONS = {
   CYCLE_READ: 'CYCLE_READ',
 
   // Backup
+  // BACKUP_MANAGE implicitly grants BACKUP_EXPORT via the suffix-expansion
+  // map below (`_EXPORT` ∈ MANAGE_PERMISSION_SUFFIXES). BACKUP_RESTORE is
+  // INTENTIONALLY NOT in that suffix map — restoring a database overwrites
+  // history and is treated as a higher-risk grant than export. Roles that
+  // need restore must be granted BACKUP_RESTORE explicitly (SUPER_ADMIN +
+  // ADMIN today). Wired up 2026-05-14 — before that, both /export and
+  // /restore checked CONFIG_UPDATE and BACKUP_MANAGE was dead scaffolding.
   BACKUP_MANAGE: 'BACKUP_MANAGE',
+  BACKUP_RESTORE: 'BACKUP_RESTORE',
 
   // Block Change Requests
   BLOCK_CHANGE_REQUEST: 'BLOCK_CHANGE_REQUEST',
@@ -211,8 +219,9 @@ export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
  * `_RESTORE` is INTENTIONALLY omitted: backup restore is destructive and
  * narrowly scoped enough that granting it by virtue of `BACKUP_MANAGE` is
  * not the desired posture. Roles that should be able to restore must be
- * granted `BACKUP_RESTORE` explicitly (perm doesn't exist today; would be
- * added at the point a restore endpoint is gated).
+ * granted `BACKUP_RESTORE` explicitly (added 2026-05-14 — see the BACKUP
+ * permissions block above and the seed assignments for SUPER_ADMIN +
+ * ADMIN).
  */
 export const MANAGE_PERMISSION_SUFFIXES = [
   '_CREATE',

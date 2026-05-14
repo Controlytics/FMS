@@ -46,6 +46,7 @@ const PERMISSION_META: Record<string, { label: string; category: string }> = {
   [PERMISSIONS.FIELD_ID_UPDATE]: { label: 'Update Field Labels', category: 'Configuration' },
   [PERMISSIONS.ROLE_MANAGE]: { label: 'Manage Roles', category: 'Configuration' },
   [PERMISSIONS.BACKUP_MANAGE]: { label: 'Manage Backups', category: 'Configuration' },
+  [PERMISSIONS.BACKUP_RESTORE]: { label: 'Restore Backups', category: 'Configuration' },
   // Audit
   [PERMISSIONS.AUDIT_READ]: { label: 'View Audit Trail', category: 'Audit' },
   [PERMISSIONS.AUDIT_EXPORT]: { label: 'Export Audit Trail', category: 'Audit' },
