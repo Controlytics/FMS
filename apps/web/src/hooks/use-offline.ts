@@ -96,6 +96,13 @@ export function useOffline() {
     filterName: string,
     payload: Record<string, any>,
     optimisticState?: string, // Update local state immediately
+    // Reauth password forwarded only on the online path. NEVER persisted to
+    // the queued IDB row — offline replay relies on the C1 HMAC grant in
+    // sync-engine.ts (search `x-offline-replay-token`), not on a stored
+    // plaintext password. If callers pass a password and we still fall
+    // through to the queue (network error), the password is discarded by
+    // queueOperation below — the queued op has no `password` field.
+    password?: string,
   ): Promise<{ executed: boolean; result?: any }> => {
     // Phase 8.7: pull the current tapeVersion from the cached filter-state row
     // for cycle-bound writes only. The cache row is written by `cacheServerStateResponse`
@@ -119,20 +126,30 @@ export function useOffline() {
       ? { ...payload, tapeVersion }
       : payload;
 
+    // Online post helper — routes to postWithReauth when caller forwarded a
+    // password (reauth-gated action). Keeps every case branch single-line.
+    const onlinePost = <T = any>(url: string, body: any): Promise<T> =>
+      password
+        ? apiClient.postWithReauth<T>(url, body, password)
+        : apiClient.post<T>(url, body);
+
     // Try executing online first
     try {
       let result: any;
       switch (type) {
         case 'advance':
-          result = await apiClient.post(`/api/filters/${filterId}/advance`, onlinePayload);
+          result = await onlinePost(`/api/filters/${filterId}/advance`, onlinePayload);
           break;
         case 'start-cycle':
-          result = await apiClient.post(`/api/filters/${filterId}/start-cycle`, payload);
+          result = await onlinePost(`/api/filters/${filterId}/start-cycle`, payload);
           break;
         case 'start-and-advance': {
           const { cyclePayload, advancePayload } = payload as any;
           try {
-            await apiClient.post(`/api/filters/${filterId}/start-cycle`, cyclePayload);
+            // start-cycle is the reauth-gated half of this pair (advance has
+            // no reauth check on the server). Forward the password here so
+            // ADMIN-role operators don't get a REAUTH_REQUIRED on start.
+            await onlinePost(`/api/filters/${filterId}/start-cycle`, cyclePayload);
           } catch (startErr: any) {
             const code = startErr?.code || startErr?.error || '';
             if (code !== 'CYCLE_ACTIVE') throw startErr;
@@ -150,17 +167,18 @@ export function useOffline() {
           const advanceBody = saTapeVersion !== undefined
             ? { ...advancePayload, tapeVersion: saTapeVersion }
             : advancePayload;
+          // /advance is NOT in the reauth config — plain post is correct.
           result = await apiClient.post(`/api/filters/${filterId}/advance`, advanceBody);
           break;
         }
         case 'submit-checklist':
-          result = await apiClient.post(`/api/filters/${filterId}/submit-checklist`, onlinePayload);
+          result = await onlinePost(`/api/filters/${filterId}/submit-checklist`, onlinePayload);
           break;
         case 'bypass':
-          result = await apiClient.post(`/api/filters/${filterId}/bypass`, onlinePayload);
+          result = await onlinePost(`/api/filters/${filterId}/bypass`, onlinePayload);
           break;
         case 'terminate':
-          result = await apiClient.post(`/api/filters/${filterId}/terminate-cycle`, onlinePayload);
+          result = await onlinePost(`/api/filters/${filterId}/terminate-cycle`, onlinePayload);
           break;
       }
       return { executed: true, result };

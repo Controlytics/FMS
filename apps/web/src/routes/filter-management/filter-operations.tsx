@@ -808,11 +808,15 @@ export function FilterOperationsPage() {
       await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
         const startBody = { cleaningReasonKey: reasonKey, cleaningJustification: justification || undefined, cleaningAreaId: blockId };
 
-        // 1) Start cycle for every filter in the batch
+        // 1) Start cycle for every filter in the batch.
+        //    `password` is forwarded so executeOrQueue's online path uses
+        //    postWithReauth — closes the gap that previously dropped the
+        //    operator's typed password and surfaced as "Password is required"
+        //    on every batch start by an ADMIN-role user.
         let started = 0; const startFailed: string[] = [];
         for (const item of batch) {
           try {
-            await executeOrQueue('start-cycle', item.filterId, item.filterName, startBody);
+            await executeOrQueue('start-cycle', item.filterId, item.filterName, startBody, undefined, password);
             started++;
           } catch (e: any) {
             if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
