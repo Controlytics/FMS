@@ -243,7 +243,7 @@ export default async function connectivityRoutes(app: FastifyInstance) {
     const rawToken = credential?.accessToken;
     const token = rawToken ?? '<YOUR_DEVICE_TOKEN>';
     const unsPath = getEntityUnsPath(entity);
-    const apiUrl = process.env.CORS_ORIGIN || process.env.ALLOWED_ORIGINS?.split(',')[0] || 'http://localhost:3000';
+    const apiUrl = process.env.ALLOWED_ORIGINS?.split(',')[0] || 'http://localhost:3000';
 
     const transportType = entity.template?.transportType ?? 'HTTP';
     const isMqtt = transportType === 'MQTT';

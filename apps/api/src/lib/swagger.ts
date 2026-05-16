@@ -38,7 +38,7 @@ export async function registerSwagger(app: FastifyInstance) {
       },
       servers: [
         {
-          url: process.env.CORS_ORIGIN || 'http://localhost:3000',
+          url: process.env.ALLOWED_ORIGINS?.split(',')[0] || 'http://localhost:3000',
           description: 'Server',
         },
         {

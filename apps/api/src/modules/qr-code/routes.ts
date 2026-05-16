@@ -68,7 +68,7 @@ export default async function qrCodeRoutes(app: FastifyInstance) {
     }
 
     // Build the QR data URL
-    const appUrl = process.env.CORS_ORIGIN || 'http://localhost:5173';
+    const appUrl = process.env.ALLOWED_ORIGINS?.split(',')[0] || 'http://localhost:5173';
     const qrData = `${appUrl}/m/${entityId}?action=${action}`;
 
     // Generate SVG
