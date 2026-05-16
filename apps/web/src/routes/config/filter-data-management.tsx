@@ -1013,7 +1013,7 @@ export function FilterDataManagementPage() {
             <table className="w-full">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-slate-50 border-b border-slate-200">
-                  {['Severity', 'Alarm Type', 'Entity', 'High Limit', 'Low Limit', 'Generated Value', 'Cleared Value', 'Status', 'Generated At', 'Cleared At', 'Actions'].map((h, i) => (
+                  {['Severity', 'Alarm Type', 'Filter', 'High Limit', 'Low Limit', 'Generated Value', 'Cleared Value', 'Status', 'Generated At', 'Cleared At', 'Actions'].map((h, i) => (
                     <th key={i} className="text-left px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
                   ))}
                 </tr>

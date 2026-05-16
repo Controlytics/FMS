@@ -42,24 +42,6 @@ export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
     ],
   },
   {
-    sidebarId: "assets",
-    label: "Entities",
-    icon: "\u{1F3ED}",
-    description: "Entity management and explorer",
-    privilegeIds: [
-      "assets.view", "assets.create", "assets.edit", "assets.delete",
-      "assets.relationships.create", "assets.relationships.delete",
-      "assets.identifiers.create", "assets.identifiers.delete",
-    ],
-  },
-  {
-    sidebarId: "asset-templates",
-    label: "Entity Templates",
-    icon: "\u{1F4CB}",
-    description: "Entity template blueprints",
-    privilegeIds: ["assets.templates.create", "assets.templates.edit", "assets.templates.delete"],
-  },
-  {
     sidebarId: "configuration",
     label: "Configuration",
     icon: "\u2699\uFE0F",
@@ -148,7 +130,7 @@ export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
     label: "Checklists",
     icon: "\u{1F4CB}",
     description: "Checklist profile management",
-    privilegeIds: ["cleaning_profiles.view", "cleaning_profiles.create", "cleaning_profiles.edit", "cleaning_profiles.delete"],
+    privilegeIds: ["checklists.create", "checklists.edit", "checklists.delete", "checklists.toggle", "checklists.submit"],
   },
   {
     sidebarId: "cleaning-profiles",
@@ -162,7 +144,7 @@ export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
     label: "Equipment Groups",
     icon: "\u2699\uFE0F",
     description: "Equipment group configuration",
-    privilegeIds: ["assets.view", "assets.create", "assets.edit", "assets.delete"],
+    privilegeIds: ["equipment_groups.view", "equipment_groups.create", "equipment_groups.edit", "equipment_groups.delete"],
   },
   {
     sidebarId: "pm-schedules",

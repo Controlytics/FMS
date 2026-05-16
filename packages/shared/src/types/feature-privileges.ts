@@ -31,23 +31,17 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'audit.view', label: 'View Audit Trail', category: 'System', icon: 'clipboard' },
   { id: 'audit.export', label: 'Export Audit Trail', category: 'System', icon: 'clipboard' },
 
-  // Entity Management
-  { id: 'assets.view', label: 'View Entities', category: 'Entity Management', icon: 'eye' },
-  { id: 'assets.create', label: 'Create Entities', category: 'Entity Management', icon: 'plus' },
-  { id: 'assets.edit', label: 'Edit Entities', category: 'Entity Management', icon: 'edit' },
-  { id: 'assets.delete', label: 'Delete Entities', category: 'Entity Management', icon: 'trash' },
-  { id: 'assets.assign', label: 'Assign Entities', category: 'Entity Management', icon: 'link' },
+  // Asset Management
+  { id: 'assets.view', label: 'View Assets', category: 'Asset Management', icon: 'eye' },
+  { id: 'assets.create', label: 'Create Assets', category: 'Asset Management', icon: 'plus' },
+  { id: 'assets.edit', label: 'Edit Assets', category: 'Asset Management', icon: 'edit' },
+  { id: 'assets.delete', label: 'Delete Assets', category: 'Asset Management', icon: 'trash' },
 
-  // Entity Templates
-  { id: 'assets.templates.create', label: 'Create Templates', category: 'Entity Templates', icon: 'template' },
-  { id: 'assets.templates.edit', label: 'Edit Templates', category: 'Entity Templates', icon: 'template' },
-  { id: 'assets.templates.delete', label: 'Delete Templates', category: 'Entity Templates', icon: 'template' },
+  // Asset Relationships
+  { id: 'assets.relationships.create', label: 'Create Relationships', category: 'Asset Relationships', icon: 'link' },
+  { id: 'assets.relationships.delete', label: 'Delete Relationships', category: 'Asset Relationships', icon: 'link' },
 
-  // Entity Relationships
-  { id: 'assets.relationships.create', label: 'Create Relationships', category: 'Entity Relationships', icon: 'link' },
-  { id: 'assets.relationships.delete', label: 'Delete Relationships', category: 'Entity Relationships', icon: 'link' },
-
-  // Entity Identifiers
+  // Asset Identifiers
   { id: 'assets.identifiers.create', label: 'Assign RFID Tags / Create Identifiers', category: 'RFID & Identifiers', icon: 'wifi' },
   { id: 'assets.identifiers.delete', label: 'Unassign RFID Tags / Delete Identifiers', category: 'RFID & Identifiers', icon: 'wifi' },
 
@@ -211,23 +205,17 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'audit.view': ['AUDIT_READ'],
   'audit.export': ['AUDIT_EXPORT', 'AUDIT_READ'],
 
-  // Entity Management
+  // Asset Management
   'assets.view': ['ASSET_VIEW', 'ASSET_READ'],
   'assets.create': ['ASSET_CREATE', 'ASSET_VIEW', 'ASSET_READ'],
   'assets.edit': ['ASSET_UPDATE', 'ASSET_VIEW', 'ASSET_READ'],
   'assets.delete': ['ASSET_DELETE', 'ASSET_VIEW', 'ASSET_READ'],
-  'assets.assign': ['ENTITY_ASSIGN', 'ASSET_VIEW'],
 
-  // Entity Templates
-  'assets.templates.create': ['ASSET_TEMPLATE_CREATE', 'ASSET_VIEW'],
-  'assets.templates.edit': ['ASSET_TEMPLATE_UPDATE', 'ASSET_VIEW'],
-  'assets.templates.delete': ['ASSET_TEMPLATE_DELETE', 'ASSET_VIEW'],
-
-  // Entity Relationships
+  // Asset Relationships
   'assets.relationships.create': ['ASSET_RELATIONSHIP_CREATE', 'ASSET_VIEW'],
   'assets.relationships.delete': ['ASSET_RELATIONSHIP_DELETE', 'ASSET_VIEW'],
 
-  // Entity Identifiers
+  // Asset Identifiers
   'assets.identifiers.create': ['ASSET_IDENTIFIER_CREATE', 'ASSET_VIEW'],
   'assets.identifiers.delete': ['ASSET_IDENTIFIER_DELETE', 'ASSET_VIEW'],
 

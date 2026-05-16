@@ -30,22 +30,17 @@ export const PERMISSION_CATEGORIES: Record<string, PermissionItem[]> = {
     { key: PERMISSIONS.AUDIT_READ, label: 'View Audit Trail' },
     { key: PERMISSIONS.AUDIT_EXPORT, label: 'Export Audit Trail' },
   ],
-  'Entity Management': [
-    { key: PERMISSIONS.ASSET_VIEW, label: 'View Entities' },
-    { key: PERMISSIONS.ASSET_CREATE, label: 'Create Entities' },
-    { key: PERMISSIONS.ASSET_UPDATE, label: 'Edit Entities' },
-    { key: PERMISSIONS.ASSET_DELETE, label: 'Delete Entities' },
+  'Asset Management': [
+    { key: PERMISSIONS.ASSET_VIEW, label: 'View Assets' },
+    { key: PERMISSIONS.ASSET_CREATE, label: 'Create Assets' },
+    { key: PERMISSIONS.ASSET_UPDATE, label: 'Edit Assets' },
+    { key: PERMISSIONS.ASSET_DELETE, label: 'Delete Assets' },
   ],
-  'Entity Templates': [
-    { key: PERMISSIONS.ASSET_TEMPLATE_CREATE, label: 'Create Templates' },
-    { key: PERMISSIONS.ASSET_TEMPLATE_UPDATE, label: 'Edit Templates' },
-    { key: PERMISSIONS.ASSET_TEMPLATE_DELETE, label: 'Delete Templates' },
-  ],
-  'Entity Relationships': [
+  'Asset Relationships': [
     { key: PERMISSIONS.ASSET_RELATIONSHIP_CREATE, label: 'Create Relationships' },
     { key: PERMISSIONS.ASSET_RELATIONSHIP_DELETE, label: 'Delete Relationships' },
   ],
-  'Entity Identifiers': [
+  'Asset Identifiers': [
     { key: PERMISSIONS.ASSET_IDENTIFIER_CREATE, label: 'Create Identifiers' },
     { key: PERMISSIONS.ASSET_IDENTIFIER_DELETE, label: 'Delete Identifiers' },
   ],

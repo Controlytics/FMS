@@ -349,7 +349,7 @@ export function UnsConfigPage() {
                 <p className="text-xs mt-1">
                   {isSearchMode
                     ? 'Try a different search pattern using + (single level) or # (multi level) wildcards'
-                    : 'Entities will appear here once created'}
+                    : 'Items will appear here once created'}
                 </p>
               </div>
             ) : (

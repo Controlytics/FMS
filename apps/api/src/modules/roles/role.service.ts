@@ -58,20 +58,15 @@ const PERMISSION_META: Record<string, { label: string; category: string }> = {
   [PERMISSIONS.NOTIFICATION_UPDATE]: { label: 'Update Notifications', category: 'Notifications' },
   [PERMISSIONS.NOTIFICATION_DELETE]: { label: 'Delete Notifications', category: 'Notifications' },
   [PERMISSIONS.NOTIFICATION_MANAGE]: { label: 'Manage Notifications', category: 'Notifications' },
-  // Assets & Entities
+  // Assets
   [PERMISSIONS.ASSET_READ]: { label: 'View Assets', category: 'Assets' },
   [PERMISSIONS.ASSET_VIEW]: { label: 'View Asset Details', category: 'Assets' },
   [PERMISSIONS.ASSET_CREATE]: { label: 'Create Assets', category: 'Assets' },
   [PERMISSIONS.ASSET_UPDATE]: { label: 'Update Assets', category: 'Assets' },
   [PERMISSIONS.ASSET_DELETE]: { label: 'Delete Assets', category: 'Assets' },
-  [PERMISSIONS.ENTITY_ASSIGN]: { label: 'Assign Entities', category: 'Assets' },
-  // Asset Templates
-  [PERMISSIONS.ASSET_TEMPLATE_CREATE]: { label: 'Create Templates', category: 'Entity Templates' },
-  [PERMISSIONS.ASSET_TEMPLATE_UPDATE]: { label: 'Edit Templates', category: 'Entity Templates' },
-  [PERMISSIONS.ASSET_TEMPLATE_DELETE]: { label: 'Delete Templates', category: 'Entity Templates' },
   // Asset Relationships
-  [PERMISSIONS.ASSET_RELATIONSHIP_CREATE]: { label: 'Create Relationships', category: 'Entity Relationships' },
-  [PERMISSIONS.ASSET_RELATIONSHIP_DELETE]: { label: 'Delete Relationships', category: 'Entity Relationships' },
+  [PERMISSIONS.ASSET_RELATIONSHIP_CREATE]: { label: 'Create Relationships', category: 'Asset Relationships' },
+  [PERMISSIONS.ASSET_RELATIONSHIP_DELETE]: { label: 'Delete Relationships', category: 'Asset Relationships' },
   // Asset Identifiers
   [PERMISSIONS.ASSET_IDENTIFIER_CREATE]: { label: 'Assign RFID Tags / Create Identifiers', category: 'RFID & Identifiers' },
   [PERMISSIONS.ASSET_IDENTIFIER_DELETE]: { label: 'Unassign RFID Tags / Delete Identifiers', category: 'RFID & Identifiers' },

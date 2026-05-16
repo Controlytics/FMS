@@ -32,7 +32,6 @@ import { BackupRestorePage } from './routes/config/backup';
 import { DynamicConfigPage } from './routes/config/dynamic-config';
 import { ActionReauthPage } from './routes/config/action-reauth';
 import { AuditTemplatesConfigPage } from './routes/config/audit-templates';
-import TemplateKindsConfigPage from './routes/config/template-kinds';
 import { PaginationConfigPage } from './routes/config/pagination';
 import DashboardCardsConfig from './routes/config/dashboard-cards';
 import { AlarmColumnsConfigPage } from './routes/config/alarm-columns';
@@ -43,8 +42,6 @@ import { ToastProvider } from './components/toast-provider';
 import './app.css';
 
 // Lazy-loaded heavy pages (code-split into separate chunks)
-const AssetsPage = lazy(() => import('./routes/assets/index').then(m => ({ default: m.AssetsPage })));
-const AssetTemplatesPage = lazy(() => import('./routes/assets/templates').then(m => ({ default: m.AssetTemplatesPage })));
 const RuleChainsPage = lazy(() => import('./routes/rule-chains/index').then(m => ({ default: m.RuleChainsPage })));
 const RuleChainEditorPage = lazy(() => import('./routes/rule-chains/editor').then(m => ({ default: m.RuleChainEditorPage })));
 const AlarmDashboardPage = lazy(() => import('./routes/alarms/index').then(m => ({ default: m.AlarmDashboardPage })));
@@ -153,7 +150,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/profile" element={<ProfilePage />} />
 
             {/* User management — permission-based */}
-            <Route path="/users" element={<RequireRole permissions={[PERMISSIONS.USER_READ]}><UserListPage /></RequireRole>} />
+            <Route path="/users" element={<RequireRole permissions={[PERMISSIONS.USER_READ, PERMISSIONS.USER_CREATE, PERMISSIONS.USER_UPDATE, PERMISSIONS.USER_DELETE, PERMISSIONS.USER_RESET_PASSWORD, PERMISSIONS.USER_UNLOCK, PERMISSIONS.USER_ENABLE_DISABLE]}><UserListPage /></RequireRole>} />
             <Route path="/users/create" element={<RequireRole permissions={[PERMISSIONS.USER_CREATE]}><CreateUserPage /></RequireRole>} />
             <Route path="/users/reset-requests" element={<RequireRole permissions={[PERMISSIONS.USER_RESET_PASSWORD]}><ResetRequestsPage /></RequireRole>} />
             <Route path="/users/:id" element={<RequireRole permissions={[PERMISSIONS.USER_READ]}><EditUserPage /></RequireRole>} />
@@ -175,7 +172,6 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/offline-cache" element={<RequireRole roles={['SUPER_ADMIN']}><OfflineCacheConfigPage /></RequireRole>} />
             <Route path="/config/action-reauth" element={<RequireRole roles={['SUPER_ADMIN']}><ActionReauthPage /></RequireRole>} />
             <Route path="/config/audit-templates" element={<RequireRole roles={['SUPER_ADMIN']}><AuditTemplatesConfigPage /></RequireRole>} />
-            <Route path="/config/template-kinds" element={<RequireRole permissions={[PERMISSIONS.CONFIG_UPDATE]}><TemplateKindsConfigPage /></RequireRole>} />
             <Route path="/config/pagination" element={<RequireRole roles={['SUPER_ADMIN']}><PaginationConfigPage /></RequireRole>} />
             <Route path="/config/dashboard-cards" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><DashboardCardsConfig /></RequireRole>} />
             <Route path="/config/alarm-columns" element={<RequireRole roles={['SUPER_ADMIN']}><AlarmColumnsConfigPage /></RequireRole>} />
@@ -184,10 +180,6 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/notification-rules" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><NotificationRulesPage /></Suspense></RequireRole>} />
                 <Route path="/config/notification-logs" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><NotificationLogsPage /></Suspense></RequireRole>} />
             <Route path="/config/dynamic/:moduleKey" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><DynamicConfigPage /></RequireRole>} />
-
-            {/* Entity Management (lazy-loaded) — permission-based */}
-            <Route path="/assets" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW, PERMISSIONS.ASSET_READ]}><Suspense fallback={<LazyFallback />}><AssetsPage /></Suspense></RequireRole>} />
-            <Route path="/assets/templates" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW, PERMISSIONS.ASSET_READ]}><Suspense fallback={<LazyFallback />}><AssetTemplatesPage /></Suspense></RequireRole>} />
 
             {/* Rule Chains — Admin only (lazy-loaded) */}
             <Route path="/rule-chains" element={<RequireRole permissions={[PERMISSIONS.RULE_CHAIN_VIEW]}><Suspense fallback={<LazyFallback />}><RuleChainsPage /></Suspense></RequireRole>} />
@@ -218,29 +210,29 @@ createRoot(document.getElementById('root')!).render(
             {/* Audit trail */}
 
             {/* Phase 2: Digital Filter Management System */}
-            <Route path="/filter-list" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><FilterListPage /></Suspense></RequireRole>} />
-            <Route path="/filter-retirements" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><RetirementListPage /></Suspense></RequireRole>} />
-            <Route path="/filter-replacements" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><ReplacementListPage /></Suspense></RequireRole>} />
-            <Route path="/config/filter-data-management" element={<RequireRole permissions={[PERMISSIONS.CONFIG_UPDATE]}><Suspense fallback={<LazyFallback />}><FilterDataManagementPage /></Suspense></RequireRole>} />
-            <Route path="/config/tablet-access" element={<RequireRole permissions={[PERMISSIONS.CONFIG_UPDATE]}><Suspense fallback={<LazyFallback />}><TabletAccessConfigPage /></Suspense></RequireRole>} />
+            <Route path="/filter-list" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW, PERMISSIONS.FILTER_HIERARCHY_CREATE, PERMISSIONS.FILTER_HIERARCHY_EDIT, PERMISSIONS.FILTER_HIERARCHY_DELETE, PERMISSIONS.FILTER_CREATE, PERMISSIONS.FILTER_EDIT, PERMISSIONS.FILTER_DELETE, PERMISSIONS.FILTER_RETIRE, PERMISSIONS.FILTER_REPLACE, PERMISSIONS.FILTER_BULK_UPLOAD, PERMISSIONS.FILTER_RFID_MANAGE, PERMISSIONS.FILTER_STATUS_UPDATE]}><Suspense fallback={<LazyFallback />}><FilterListPage /></Suspense></RequireRole>} />
+            <Route path="/filter-retirements" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW, PERMISSIONS.FILTER_RETIRE]}><Suspense fallback={<LazyFallback />}><RetirementListPage /></Suspense></RequireRole>} />
+            <Route path="/filter-replacements" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW, PERMISSIONS.FILTER_REPLACE]}><Suspense fallback={<LazyFallback />}><ReplacementListPage /></Suspense></RequireRole>} />
+            <Route path="/config/filter-data-management" element={<RequireRole permissions={[PERMISSIONS.CONFIG_UPDATE, PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><FilterDataManagementPage /></Suspense></RequireRole>} />
+            <Route path="/config/tablet-access" element={<RequireRole permissions={[PERMISSIONS.CONFIG_UPDATE, PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><TabletAccessConfigPage /></Suspense></RequireRole>} />
             <Route path="/filters" element={<RequireRole permissions={[PERMISSIONS.FILTER_OPERATE, PERMISSIONS.ASSET_READ]}><FilterOperationsPage /></RequireRole>} />
             <Route path="/filters/stage/:stageKey" element={<RequireRole permissions={[PERMISSIONS.FILTER_OPERATE, PERMISSIONS.ASSET_READ]}><FilterOperationsPage /></RequireRole>} />
-            <Route path="/checklists" element={<RequireRole permissions={[PERMISSIONS.FCP_READ]}><Suspense fallback={<LazyFallback />}><ChecklistProfileListPage /></Suspense></RequireRole>} />
-            <Route path="/checklists/:id" element={<RequireRole permissions={[PERMISSIONS.FCP_READ]}><Suspense fallback={<LazyFallback />}><ChecklistProfileDetailPage /></Suspense></RequireRole>} />
-            <Route path="/filter-cleaning-profiles" element={<RequireRole permissions={[PERMISSIONS.FCP_READ]}><Suspense fallback={<LazyFallback />}><CleaningProfileListPage /></Suspense></RequireRole>} />
-            <Route path="/filter-cleaning-profiles/:id/edit" element={<RequireRole permissions={[PERMISSIONS.FCP_UPDATE]}><Suspense fallback={<LazyFallback />}><CleaningProfileEditorPage2 /></Suspense></RequireRole>} />
+            <Route path="/checklists" element={<RequireRole permissions={[PERMISSIONS.FCP_READ, PERMISSIONS.CHECKLIST_TOGGLE, PERMISSIONS.CHECKLIST_CREATE, PERMISSIONS.CHECKLIST_EDIT, PERMISSIONS.CHECKLIST_DELETE, PERMISSIONS.VERSION_HISTORY_VIEW]}><Suspense fallback={<LazyFallback />}><ChecklistProfileListPage /></Suspense></RequireRole>} />
+            <Route path="/checklists/:id" element={<RequireRole permissions={[PERMISSIONS.FCP_READ, PERMISSIONS.CHECKLIST_TOGGLE, PERMISSIONS.CHECKLIST_CREATE, PERMISSIONS.CHECKLIST_EDIT, PERMISSIONS.CHECKLIST_DELETE, PERMISSIONS.VERSION_HISTORY_VIEW]}><Suspense fallback={<LazyFallback />}><ChecklistProfileDetailPage /></Suspense></RequireRole>} />
+            <Route path="/filter-cleaning-profiles" element={<RequireRole permissions={[PERMISSIONS.FCP_READ, PERMISSIONS.CP_TOGGLE, PERMISSIONS.CP_PAGE_CREATE, PERMISSIONS.CP_PAGE_EDIT, PERMISSIONS.CP_PAGE_DELETE, PERMISSIONS.VERSION_HISTORY_VIEW]}><Suspense fallback={<LazyFallback />}><CleaningProfileListPage /></Suspense></RequireRole>} />
+            <Route path="/filter-cleaning-profiles/:id/edit" element={<RequireRole permissions={[PERMISSIONS.FCP_UPDATE, PERMISSIONS.CP_PAGE_EDIT]}><Suspense fallback={<LazyFallback />}><CleaningProfileEditorPage2 /></Suspense></RequireRole>} />
             {/* Filter Profiles removed — replaced by Config > Cleaning Profile Assignment */}
             <Route path="/filters/:id/operate" element={<RequireRole permissions={[PERMISSIONS.FILTER_OPERATE, PERMISSIONS.ASSET_READ]}><FilterOperationsPage /></RequireRole>} />
-            <Route path="/filters/:id/trace" element={<RequireRole permissions={[PERMISSIONS.EVENT_READ, PERMISSIONS.ASSET_READ]}><Suspense fallback={<LazyFallback />}><FilterTraceabilityPage /></Suspense></RequireRole>} />
-            <Route path="/cleaning-cycles" element={<RequireRole permissions={[PERMISSIONS.CYCLE_READ]}><Suspense fallback={<LazyFallback />}><CleaningCycleHistoryPage /></Suspense></RequireRole>} />
-            <Route path="/cleaning-cycles/:id" element={<RequireRole permissions={[PERMISSIONS.CYCLE_READ]}><Suspense fallback={<LazyFallback />}><CleaningCycleTimelinePage /></Suspense></RequireRole>} />
+            <Route path="/filters/:id/trace" element={<RequireRole permissions={[PERMISSIONS.EVENT_READ, PERMISSIONS.ASSET_READ, PERMISSIONS.CYCLE_READ]}><Suspense fallback={<LazyFallback />}><FilterTraceabilityPage /></Suspense></RequireRole>} />
+            <Route path="/cleaning-cycles" element={<RequireRole permissions={[PERMISSIONS.CYCLE_READ, PERMISSIONS.VERSION_HISTORY_VIEW]}><Suspense fallback={<LazyFallback />}><CleaningCycleHistoryPage /></Suspense></RequireRole>} />
+            <Route path="/cleaning-cycles/:id" element={<RequireRole permissions={[PERMISSIONS.CYCLE_READ, PERMISSIONS.VERSION_HISTORY_VIEW]}><Suspense fallback={<LazyFallback />}><CleaningCycleTimelinePage /></Suspense></RequireRole>} />
             <Route path="/config/filter-cleaning-reasons" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><CleaningReasonsConfigPage /></Suspense></RequireRole>} />
-            <Route path="/config/equipment-groups" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><EquipmentGroupsConfigPage /></Suspense></RequireRole>} />
-            <Route path="/config/cleaning-profile-assignment" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><CleaningProfileAssignmentPage /></Suspense></RequireRole>} />
-            <Route path="/config/ahu-filter-set-config" element={<RequireRole permissions={[PERMISSIONS.PM_READ]}><Suspense fallback={<LazyFallback />}><AhuFilterSetConfigPage /></Suspense></RequireRole>} />
-            <Route path="/pm-schedules" element={<RequireRole permissions={[PERMISSIONS.PM_READ]}><Suspense fallback={<LazyFallback />}><PmScheduleListPage /></Suspense></RequireRole>} />
-            <Route path="/pm-schedules/:entityId" element={<RequireRole permissions={[PERMISSIONS.PM_READ]}><Suspense fallback={<LazyFallback />}><PmScheduleDetailPage /></Suspense></RequireRole>} />
-            <Route path="/my-tasks" element={<RequireRole permissions={[PERMISSIONS.PM_READ]}><Suspense fallback={<LazyFallback />}><MyTasksPage /></Suspense></RequireRole>} />
+            <Route path="/config/equipment-groups" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ, PERMISSIONS.EG_VIEW, PERMISSIONS.ASSET_READ]}><Suspense fallback={<LazyFallback />}><EquipmentGroupsConfigPage /></Suspense></RequireRole>} />
+            <Route path="/config/cleaning-profile-assignment" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ, PERMISSIONS.FP_READ, PERMISSIONS.FP_ASSIGN, PERMISSIONS.VERSION_HISTORY_VIEW]}><Suspense fallback={<LazyFallback />}><CleaningProfileAssignmentPage /></Suspense></RequireRole>} />
+            <Route path="/config/ahu-filter-set-config" element={<RequireRole permissions={[PERMISSIONS.PM_READ, PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AhuFilterSetConfigPage /></Suspense></RequireRole>} />
+            <Route path="/pm-schedules" element={<RequireRole permissions={[PERMISSIONS.PM_READ, PERMISSIONS.PM_CREATE, PERMISSIONS.PM_UPDATE, PERMISSIONS.PM_DELETE, PERMISSIONS.PM_EXECUTE, PERMISSIONS.PM_APPROVE]}><Suspense fallback={<LazyFallback />}><PmScheduleListPage /></Suspense></RequireRole>} />
+            <Route path="/pm-schedules/:entityId" element={<RequireRole permissions={[PERMISSIONS.PM_READ, PERMISSIONS.PM_CREATE, PERMISSIONS.PM_UPDATE, PERMISSIONS.PM_DELETE, PERMISSIONS.PM_EXECUTE, PERMISSIONS.PM_APPROVE]}><Suspense fallback={<LazyFallback />}><PmScheduleDetailPage /></Suspense></RequireRole>} />
+            <Route path="/my-tasks" element={<RequireRole permissions={[PERMISSIONS.PM_READ, PERMISSIONS.PM_EXECUTE, PERMISSIONS.PM_APPROVE]}><Suspense fallback={<LazyFallback />}><MyTasksPage /></Suspense></RequireRole>} />
             <Route path="/ahus/:id" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AhuDashboardPage /></Suspense></RequireRole>} />
             <Route path="/audit" element={<RequireRole permissions={[PERMISSIONS.AUDIT_READ]}><AuditTrailPage /></RequireRole>} />
             <Route path="/admin-requests" element={<RequireRole permissions={[PERMISSIONS.ADMIN_REQUEST_REVIEW]}><Suspense fallback={<LazyFallback />}><AdminRequestsPage /></Suspense></RequireRole>} />

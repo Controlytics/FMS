@@ -52,17 +52,14 @@ export const REAUTH_ACTIONS = {
   EXPORT_BACKUP: { label: 'Export Backup', category: 'Backup' },
   RESTORE_BACKUP: { label: 'Restore Backup', category: 'Backup' },
 
-  // Entity Management
-  CREATE_ASSET_TEMPLATE: { label: 'Create Entity Template', category: 'Entity Management' },
-  UPDATE_ASSET_TEMPLATE: { label: 'Update Entity Template', category: 'Entity Management' },
-  DELETE_ASSET_TEMPLATE: { label: 'Delete Entity Template', category: 'Entity Management' },
-  CREATE_ASSET: { label: 'Create Entity', category: 'Entity Management' },
-  UPDATE_ASSET: { label: 'Update Entity', category: 'Entity Management' },
-  DELETE_ASSET: { label: 'Delete Entity', category: 'Entity Management' },
-  CREATE_ASSET_RELATIONSHIP: { label: 'Create Entity Relationship', category: 'Entity Management' },
-  DELETE_ASSET_RELATIONSHIP: { label: 'Delete Entity Relationship', category: 'Entity Management' },
-  CREATE_ASSET_IDENTIFIER: { label: 'Create Entity Identifier', category: 'Entity Management' },
-  DELETE_ASSET_IDENTIFIER: { label: 'Delete Entity Identifier', category: 'Entity Management' },
+  // Asset Management
+  CREATE_ASSET: { label: 'Create Asset', category: 'Asset Management' },
+  UPDATE_ASSET: { label: 'Update Asset', category: 'Asset Management' },
+  DELETE_ASSET: { label: 'Delete Asset', category: 'Asset Management' },
+  CREATE_ASSET_RELATIONSHIP: { label: 'Create Asset Relationship', category: 'Asset Management' },
+  DELETE_ASSET_RELATIONSHIP: { label: 'Delete Asset Relationship', category: 'Asset Management' },
+  CREATE_ASSET_IDENTIFIER: { label: 'Create Asset Identifier', category: 'Asset Management' },
+  DELETE_ASSET_IDENTIFIER: { label: 'Delete Asset Identifier', category: 'Asset Management' },
 
   // Data Ingestion & Integration (Phase A)
   ACKNOWLEDGE_ALARM: { label: 'Acknowledge Alarm', category: 'Alarms' },
@@ -95,13 +92,12 @@ export const REAUTH_ACTIONS = {
   // so the audit trail makes the source-of-trust change explicit.
   UPDATE_LDAP_CONFIG: { label: 'Update LDAP Config', category: 'Configuration' },
   // Template-kinds CRUD (audit 2026-05-04 fix #5 — web-routes review H3):
-  // controlled-vocabulary edits cascade across every entity using the kind.
-  // Distinct from CREATE/UPDATE/DELETE_ASSET_TEMPLATE so cleanroom audits
-  // can distinguish "template" edits (per-entity) from "kind" edits
-  // (vocabulary).
-  CREATE_TEMPLATE_KIND: { label: 'Create Template Kind', category: 'Entity Management' },
-  UPDATE_TEMPLATE_KIND: { label: 'Update Template Kind', category: 'Entity Management' },
-  DELETE_TEMPLATE_KIND: { label: 'Delete Template Kind', category: 'Entity Management' },
+  // controlled-vocabulary edits cascade across every asset using the kind.
+  // Distinct from per-asset edits so cleanroom audits can distinguish
+  // "asset" edits (per-asset) from "kind" edits (vocabulary).
+  CREATE_TEMPLATE_KIND: { label: 'Create Template Kind', category: 'Asset Management' },
+  UPDATE_TEMPLATE_KIND: { label: 'Update Template Kind', category: 'Asset Management' },
+  DELETE_TEMPLATE_KIND: { label: 'Delete Template Kind', category: 'Asset Management' },
   // Audit 2026-05-04 fix #5 (web-routes review H — lower-blast config
   // surfaces). Distinct keys would force operators to maintain a check
   // matrix per page; this single umbrella reauth action covers the
@@ -176,7 +172,7 @@ export const REAUTH_ACTION_CATEGORIES = [
   'Configuration',
   'Role Management',
   'Backup',
-  'Entity Management',
+  'Asset Management',
   'Alarms',
   'Checklist',
   'Rule Chain',
