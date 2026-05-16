@@ -70,8 +70,6 @@ export default defineConfig({
           swr: ['swr'],
           reactflow: ['reactflow'],
           monaco: ['@monaco-editor/react'],
-          charts: ['recharts'],
-          qrcode: ['qrcode.react'],
         },
       },
     },
