@@ -990,10 +990,11 @@ async function evaluateTemplateAlarmRules(
 }
 
 /**
- * Phase 4 (2026-05-01): bus is in-process — no resources to close. Retained
- * as a no-op + timer cleanup so existing app shutdown handlers still type-check.
+ * Phase 4 (2026-05-01): bus is in-process — no Redis to close. Renamed from
+ * `closePipelineRedis` to accurately reflect what shutdown actually clears
+ * (the rate-limit setInterval timer + map).
  */
-export async function closePipelineRedis(): Promise<void> {
+export async function stopRateLimitCleanup(): Promise<void> {
   clearInterval(rateLimitCleanupTimer);
   rateLimitMap.clear();
 }

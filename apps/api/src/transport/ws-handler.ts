@@ -262,11 +262,10 @@ export default async function wsHandler(app: FastifyInstance) {
 }
 
 /**
- * Phase 4: unsubscribe from internal-bus on shutdown. Retained as
- * `closeWsRedis` for backward compatibility with existing app shutdown
- * handlers — the name is historical.
+ * Phase 4: unsubscribe from internal-bus on shutdown. Renamed from
+ * `closeWsRedis` to match current architecture (post-Phase-4 retired Redis).
  */
-export async function closeWsRedis(): Promise<void> {
+export async function closeWsBus(): Promise<void> {
   if (busUnsubscribe) {
     busUnsubscribe();
     busUnsubscribe = null;

@@ -22,7 +22,7 @@ vi.mock('../../lib/internal-bus.js', () => ({
 vi.mock('../../lib/jwt.js', () => ({ verifyToken: mockVerifyToken }));
 vi.mock('../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 
-import wsHandler, { closeWsRedis } from '../ws-handler.js';
+import wsHandler, { closeWsBus } from '../ws-handler.js';
 
 function createMockSocket() {
   const handlers: Record<string, Function> = {};
@@ -223,11 +223,11 @@ describe('ws-handler', () => {
     expect(lastSent.message).toContain('Unknown message type');
   });
 
-  describe('closeWsRedis', () => {
+  describe('closeWsBus', () => {
     // Phase 4 (2026-05-01): name kept for shutdown handler compatibility;
     // body now unsubscribes from the in-process bus.
     it('unsubscribes from internal-bus', async () => {
-      await closeWsRedis();
+      await closeWsBus();
       expect(mockUnsubscribe).toHaveBeenCalled();
     });
   });

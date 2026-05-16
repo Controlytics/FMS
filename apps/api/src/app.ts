@@ -42,8 +42,8 @@ import systemHealthRoutes, { trackRequest } from './modules/system-health/routes
 import debugTraceRoutes from './modules/data-ingestion/debug-trace.routes.js';
 import wsHandler from './transport/ws-handler.js';
 import { initMqttClient, closeMqttClient } from './transport/mqtt-client.js';
-import { closeWsRedis } from './transport/ws-handler.js';
-import { closePipelineRedis } from './modules/data-ingestion/ingestion.service.js';
+import { closeWsBus } from './transport/ws-handler.js';
+import { stopRateLimitCleanup } from './modules/data-ingestion/ingestion.service.js';
 import { initializeNodes } from './modules/rule-chain/nodes/index.js';
 import notificationDeliveryRoutes from './modules/notification-delivery/routes.js';
 import userGroupRoutes from './modules/user-groups/routes.js';
@@ -382,8 +382,8 @@ const shutdown = async (signal: string) => {
     await stopJobRunner();
     await closeTelemetryBatcher();
     await closeMqttClient();
-    await closeWsRedis();
-    await closePipelineRedis();
+    await closeWsBus();
+    await stopRateLimitCleanup();
     await app.close();
     // Close queue + tsdb in their own try blocks so one failure doesn't
     // prevent the next teardown step. Each failure is logged so partial-
