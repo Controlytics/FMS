@@ -138,6 +138,41 @@ function stringifyBigInts(rows: Record<string, any>[]): Record<string, any>[] {
   return rows;
 }
 
+/**
+ * Sentinel placed in `password_hash` / `password_history_hashes` columns when
+ * a backup is generated through the application-layer export endpoint. The
+ * string is intentionally NOT a valid bcrypt hash, so `bcrypt.compare()`
+ * will fail for any operator login attempt against a restored row — users
+ * must go through password-reset to regain access.
+ *
+ * The restore path checks for this sentinel and (currently) accepts the
+ * row as-is, deferring credential re-issue to the SUPER_ADMIN via the
+ * Reset Requests workflow. A future enhancement could auto-create a
+ * reset-request row per stripped user during restore.
+ */
+const PASSWORD_STRIPPED_SENTINEL = '__BACKUP_STRIPPED__';
+
+/**
+ * Audit §1.11 (2026-05-16). Strip bcrypt password hashes from `users` row
+ * exports before they leave the application boundary. Without this, every
+ * application-layer backup (JSON / BAK / SQL / CSV) carried the full
+ * bcrypt hash of every operator + admin password — an offline cracker
+ * against a leaked backup recovers any credential. § 11.10(d) violation
+ * if reproduced.
+ *
+ * Operators who legitimately need a credential-preserving backup must
+ * use `pg_dump` directly with DB-owner privileges — that path is
+ * out-of-band and audit-trailed at the OS level.
+ */
+function stripSensitiveColumns(table: string, rows: Record<string, any>[]): Record<string, any>[] {
+  if (table !== 'users') return rows;
+  for (const row of rows) {
+    if ('password_hash' in row) row.password_hash = PASSWORD_STRIPPED_SENTINEL;
+    if ('password_history_hashes' in row) row.password_history_hashes = [];
+  }
+  return rows;
+}
+
 export async function fetchAllTablesRaw(): Promise<Record<string, Record<string, any>[]>> {
   const tables = await getAllTables();
   const result: Record<string, Record<string, any>[]> = {};
@@ -146,7 +181,7 @@ export async function fetchAllTablesRaw(): Promise<Record<string, Record<string,
     const rows = await prisma.$queryRawUnsafe(
       `SELECT * FROM "${table}"${orderClause}`,
     ) as Record<string, any>[];
-    result[table] = stringifyBigInts(rows);
+    result[table] = stripSensitiveColumns(table, stringifyBigInts(rows));
   }
   return result;
 }
