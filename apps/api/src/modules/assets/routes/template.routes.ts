@@ -309,39 +309,4 @@ export default async function templateRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
-  // 6. GET /templates/:id/versions — List versions for a template
-  app.get('/templates/:id/versions', {
-    preHandler: [app.requirePermission('ASSET_VIEW')],
-    schema: {
-      tags: ['Entity Templates'],
-      summary: 'List template versions',
-      description: 'Get all version snapshots for an entity template, ordered by version number descending.',
-      params: {
-        type: 'object',
-        required: ['id'],
-        properties: { id: { type: 'string', format: 'uuid' } },
-      },
-      response: {
-        200: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              id: { type: 'string' },
-              templateId: { type: 'string' },
-              versionNumber: { type: 'integer' },
-              snapshot: { type: 'object', additionalProperties: true },
-              changeNotes: { type: 'string' },
-              createdAt: { type: 'string' },
-              createdBy: { type: 'string' },
-            },
-          },
-        },
-        ...errorResponses,
-      },
-    },
-  }, async (req) => {
-    const { id } = req.params as { id: string };
-    return templateService.getVersions(id);
-  });
 }

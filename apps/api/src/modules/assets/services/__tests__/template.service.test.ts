@@ -148,13 +148,4 @@ describe('templateService', () => {
     });
   });
 
-  describe('getVersions', () => {
-    it('returns version history', async () => {
-      mockTemplateRepo.findById.mockResolvedValue({ id: 't1' });
-      mockTemplateRepo.findVersions.mockResolvedValue([{ versionNumber: 2 }, { versionNumber: 1 }]);
-
-      const result = await templateService.getVersions('t1');
-      expect(result).toHaveLength(2);
-    });
-  });
 });

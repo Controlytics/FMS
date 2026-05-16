@@ -259,11 +259,6 @@ export const templateService = {
     });
   },
 
-  async getVersions(id: string) {
-    const template = await templateRepository.findById(id);
-    if (!template) throw new NotFoundError('Template not found');
-    return templateRepository.findVersions(id);
-  },
 };
 
 function buildChangeSummary(existing: any, data: Record<string, any>): string[] {

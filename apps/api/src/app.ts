@@ -14,7 +14,6 @@ import authPlugin from './plugins/auth.js';
 import rbacPlugin from './plugins/rbac.js';
 import superAdminRoutes from "./modules/super-admin/routes.js";
 import ldapRoutes from "./modules/ldap/routes.js";
-import entityAssignmentRoutes from "./modules/entity-assignments/routes.js";
 import dashboardRoutes from "./modules/dashboards/routes.js";
 import authRoutes from './modules/auth/routes.js';
 import userRoutes from './modules/users/routes.js';
@@ -27,7 +26,6 @@ import notificationRoutes from './modules/notifications/routes.js';
 import roleRoutes from './modules/roles/routes.js';
 import backupRoutes from './modules/backup/routes.js';
 import assetRoutes from './modules/assets/index.js';
-import templateKindRoutes from './modules/template-kinds/routes.js';
 import mqttAuthRoutes from './transport/mqtt-auth-routes.js';
 import mosquittoRefreshRoutes from './transport/mosquitto-refresh-routes.js';
 import { isFeatureEnabled, FEATURE_FLAGS } from './lib/feature-flags.js';
@@ -261,7 +259,6 @@ await app.register(notificationRoutes, { prefix: '/api/notifications' });
 await app.register(roleRoutes, { prefix: '/api/roles' });
 await app.register(backupRoutes, { prefix: '/api/backup' });
 await app.register(assetRoutes, { prefix: '/api/assets' });
-await app.register(templateKindRoutes, { prefix: '/api/template-kinds' });
 
 // Data Ingestion & Transport routes
 // Phase 1 cut-over: when USE_MOSQUITTO=true, expose Mosquitto's
@@ -290,7 +287,6 @@ await app.register(notificationRulesRoutes, { prefix: '/api/notification-rules' 
 // Admin + assignment routes
 await app.register(superAdminRoutes, { prefix: "/api/super-admin" });
 await app.register(ldapRoutes, { prefix: "/api/ldap" });
-await app.register(entityAssignmentRoutes, { prefix: "/api/entity-assignments" });
 await app.register(dashboardRoutes, { prefix: "/api/dashboards" });
 await app.register(cleaningProfileRoutes, { prefix: '/api/filter-cleaning-profiles' });await app.register(checklistProfileRoutes, { prefix: '/api/checklist-profiles' });await app.register(filterProfileRoutes, { prefix: '/api/filter-profiles' });
 await app.register(pmScheduleRoutes, { prefix: '/api/pm-schedules' });await app.register(pmExecutionRoutes, { prefix: '/api/pm-executions' });await app.register(filterOperationsRoutes, { prefix: '/api/filters' });await app.register(filterEventsRoutes, { prefix: '/api/filters' });

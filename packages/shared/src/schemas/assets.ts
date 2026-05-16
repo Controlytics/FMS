@@ -301,27 +301,3 @@ export type TemplateQueryInput = z.infer<typeof templateQuerySchema>;
 
 
 
-// =============================================
-// Template Kind CRUD
-// =============================================
-
-export const createTemplateKindSchema = z.object({
-  code: templateKindCodeSchema,
-  label: z.string().min(1).max(100),
-  description: z.string().max(500).optional(),
-  sortOrder: z.number().int().min(0).default(0),
-  isActive: z.boolean().default(true),
-});
-
-// Updates cannot rename code; system kinds also lock label/description in the
-// service layer (the Zod schema accepts; the service rejects).
-export const updateTemplateKindSchema = z.object({
-  label: z.string().min(1).max(100).optional(),
-  description: z.string().max(500).optional(),
-  sortOrder: z.number().int().min(0).optional(),
-  isActive: z.boolean().optional(),
-});
-
-export type CreateTemplateKindInput = z.infer<typeof createTemplateKindSchema>;
-export type UpdateTemplateKindInput = z.infer<typeof updateTemplateKindSchema>;
-

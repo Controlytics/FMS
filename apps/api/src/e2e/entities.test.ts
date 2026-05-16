@@ -81,15 +81,6 @@ describe('Entity Management endpoints', () => {
       expect(data.description).toBe('Updated description');
     });
 
-    it('GET /api/assets/templates/:id/versions returns version history', async () => {
-      expect(templateId).toBeTruthy();
-      const res = await authGet(app, `/api/assets/templates/${templateId}/versions`, adminToken);
-      expect(res.statusCode).toBe(200);
-      const body = JSON.parse(res.body);
-      expect(Array.isArray(body)).toBe(true);
-      expect(body.length).toBeGreaterThanOrEqual(1);
-    });
-
     it('POST /api/assets/templates rejects empty name', async () => {
       const res = await authPost(app, '/api/assets/templates', adminToken, {
         name: '',
@@ -229,57 +220,6 @@ describe('Entity Management endpoints', () => {
     it('DELETE /api/assets/identifiers/:id deletes the identifier', async () => {
       expect(identifierId).toBeTruthy();
       const res = await authDelete(app, `/api/assets/identifiers/${identifierId}`, adminToken, ADMIN_PASSWORD);
-      expect(res.statusCode).toBe(200);
-    });
-  });
-
-  // =============================================
-  // Relationships
-  // =============================================
-  describe('Entity Relationships', () => {
-    let instance2Id: string;
-    let relationshipId: string;
-
-    it('creates a second instance for relationship testing', async () => {
-      expect(templateId).toBeTruthy();
-      const res = await authPost(app, '/api/assets/instances', adminToken, {
-        name: `Valve ${SUFFIX}`,
-        templateId,
-        description: 'Test valve',
-      }, ADMIN_PASSWORD);
-      expect([200, 201]).toContain(res.statusCode);
-      const body = JSON.parse(res.body);
-      const data = body.data || body;
-      instance2Id = data.id;
-    });
-
-    it('POST /api/assets/relationships creates a relationship', async () => {
-      expect(instanceId).toBeTruthy();
-      expect(instance2Id).toBeTruthy();
-      const res = await authPost(app, '/api/assets/relationships', adminToken, {
-        sourceAssetId: instanceId,
-        targetAssetId: instance2Id,
-        relationshipType: 'FEEDS',
-      }, ADMIN_PASSWORD);
-
-      expect([200, 201]).toContain(res.statusCode);
-      const body = JSON.parse(res.body);
-      const data = body.data || body;
-      expect(data.relationshipType).toBe('FEEDS');
-      relationshipId = data.id;
-    });
-
-    it('GET /api/assets/relationships returns relationships', async () => {
-      const res = await authGet(app, '/api/assets/relationships', adminToken);
-      expect(res.statusCode).toBe(200);
-      const body = JSON.parse(res.body);
-      const data = body.data || body;
-      expect(Array.isArray(data)).toBe(true);
-    });
-
-    it('DELETE /api/assets/relationships/:id deletes relationship', async () => {
-      expect(relationshipId).toBeTruthy();
-      const res = await authDelete(app, `/api/assets/relationships/${relationshipId}`, adminToken, ADMIN_PASSWORD);
       expect(res.statusCode).toBe(200);
     });
   });

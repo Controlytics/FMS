@@ -78,7 +78,6 @@ export {
   createAssetRelationshipSchema, createAssetIdentifierSchema,
   assetQuerySchema, templateQuerySchema,
   SYSTEM_TEMPLATE_KIND_CODES,
-  createTemplateKindSchema, updateTemplateKindSchema,
 } from './schemas/assets.js';
 export type {
   CreateAssetTemplateInput, UpdateAssetTemplateInput,
@@ -86,7 +85,6 @@ export type {
   CreateAssetRelationshipInput, CreateAssetIdentifierInput,
   AssetQueryInput, TemplateQueryInput,
   SystemTemplateKindCode,
-  CreateTemplateKindInput, UpdateTemplateKindInput,
 } from './schemas/assets.js';
 
 // Pipeline executor (Phase 8.4c scaffold; 8.5 fills in guard bodies).
