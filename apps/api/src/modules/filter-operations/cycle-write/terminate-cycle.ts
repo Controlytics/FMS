@@ -92,13 +92,14 @@ export async function terminateCycleImpl(
         ...(offlineTime ? { performedAt: offlineTime } : {}),
       },
     });
-  });
 
-  await auditLog({
-    userId: ctx.userId, userRole: ctx.userRole, action: 'CYCLE_TERMINATED',
-    targetType: 'filter', targetId: filterId,
-    afterValue: { cycleId: filterCurrentCycleId, justification },
-    ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    // Audit §1.1 (2026-05-16): audit-write inside business tx.
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'CYCLE_TERMINATED',
+      targetType: 'filter', targetId: filterId,
+      afterValue: { cycleId: filterCurrentCycleId, justification },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    }, tx);
   });
 
   return service.getCurrentState(ctx, filterId);

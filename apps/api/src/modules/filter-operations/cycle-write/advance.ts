@@ -354,14 +354,15 @@ export async function advanceImpl(
         },
       });
     }
-  });
 
-  await auditLog({
-    userId: ctx.userId, userRole: ctx.userRole, action: 'STATE_TRANSITION',
-    targetType: 'filter', targetId: filterId,
-    beforeValue: { state: fromState },
-    afterValue: { state: targetState },
-    ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    // Audit §1.1 (2026-05-16): audit-write inside business tx.
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'STATE_TRANSITION',
+      targetType: 'filter', targetId: filterId,
+      beforeValue: { state: fromState },
+      afterValue: { state: targetState },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    }, tx);
   });
 
   return service.getCurrentState(ctx, filterId);

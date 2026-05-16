@@ -104,14 +104,15 @@ export async function bypassImpl(
       where: { assetInstanceId: filterId },
       data: { currentLifecycleState: targetState },
     });
-  });
 
-  await auditLog({
-    userId: ctx.userId, userRole: ctx.userRole, action: 'BYPASS_DEVIATION',
-    targetType: 'filter', targetId: filterId,
-    beforeValue: { state: fromState },
-    afterValue: { state: targetState, justification },
-    ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    // Audit §1.1 (2026-05-16): audit-write inside business tx.
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'BYPASS_DEVIATION',
+      targetType: 'filter', targetId: filterId,
+      beforeValue: { state: fromState },
+      afterValue: { state: targetState, justification },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    }, tx);
   });
 
   return service.getCurrentState(ctx, filterId);

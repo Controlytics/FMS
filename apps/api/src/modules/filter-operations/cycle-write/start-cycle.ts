@@ -207,14 +207,19 @@ export async function startCycleImpl(
       create: { assetInstanceId: filterId, currentCycleId: newCycle.id },
     });
 
-    return newCycle;
-  });
+    // Audit §1.1 (2026-05-16): audit-write must share the business tx so
+    // a partial failure either rolls back the cycle creation OR is
+    // re-attempted as a unit. Standalone (post-commit) writes left state
+    // changed with no audit record on transient failures — § 11.10(e)
+    // violation.
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'CYCLE_STARTED',
+      targetType: 'cleaning_cycle', targetId: newCycle.id,
+      afterValue: { cycleCode, cleaningReasonKey, filterId },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    }, tx);
 
-  await auditLog({
-    userId: ctx.userId, userRole: ctx.userRole, action: 'CYCLE_STARTED',
-    targetType: 'cleaning_cycle', targetId: cycle.id,
-    afterValue: { cycleCode, cleaningReasonKey, filterId },
-    ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    return newCycle;
   });
 
   return cycle;

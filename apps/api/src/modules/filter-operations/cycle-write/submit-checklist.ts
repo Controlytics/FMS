@@ -236,13 +236,14 @@ export async function submitChecklistImpl(
         },
       });
     }
-  });
 
-  await auditLog({
-    userId: ctx.userId, userRole: ctx.userRole, action: 'CHECKLIST_COMPLETED',
-    targetType: 'filter', targetId: filterId,
-    afterValue: { stage: currentState, answerCount: Object.keys(answers ?? {}).length, profileCount: checklistsSnapshot.length },
-    ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    // Audit §1.1 (2026-05-16): audit-write inside business tx.
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'CHECKLIST_COMPLETED',
+      targetType: 'filter', targetId: filterId,
+      afterValue: { stage: currentState, answerCount: Object.keys(answers ?? {}).length, profileCount: checklistsSnapshot.length },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    }, tx);
   });
 
   return service.getCurrentState(ctx, filterId);
