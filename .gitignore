@@ -65,3 +65,15 @@ CREDENTIALS.md
 # as the bootstrap (the installer copies it on first run).
 mosquitto/dynamic-security.json
 mosquitto/dynamic-security.json.tmp
+
+# Android Gradle build outputs (RFID scanner standalone app).
+# Tracked-by-mistake before 2026-05-16 cleanup; ~558 files untracked then.
+# Each build regenerates these — never commit.
+RFID/app/build/
+RFID/.gradle/
+
+# Compiled Android packages. The intentional archive under old/apks/ is
+# whitelisted below so it stays tracked.
+*.apk
+*.aab
+!old/apks/*.apk
