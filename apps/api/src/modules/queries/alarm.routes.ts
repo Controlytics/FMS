@@ -26,7 +26,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
           entityId: { type: 'string', format: 'uuid', description: 'Filter by entity ID' },
           alarmType: { type: 'string', description: 'Filter by alarm type' },
           page: { type: 'integer', default: 1, minimum: 1 },
-          limit: { type: 'integer', minimum: 1 },
+          limit: { type: 'integer', minimum: 1, maximum: 200, default: 20, description: 'Records per page (capped at 200 to prevent unbounded alarm dump)' },
           sortBy: { type: 'string', enum: ['createdAt', 'severity', 'status'], default: 'createdAt' },
           sortDir: { type: 'string', enum: ['asc', 'desc'], default: 'desc' },
         },
@@ -63,8 +63,9 @@ export default async function alarmRoutes(app: FastifyInstance) {
     };
 
     const page = query.page ?? 1;
-    const limit = query.limit ? Math.max(query.limit, 1) : undefined;
-    const skip = limit ? (page - 1) * limit : 0;
+    // Defensive cap (audit §1.8) — even if Zod is bypassed, max 200 rows / request.
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 200);
+    const skip = (page - 1) * limit;
     const sortBy = query.sortBy ?? 'createdAt';
     const sortDir = (query.sortDir ?? 'desc') as 'asc' | 'desc';
 
@@ -99,7 +100,8 @@ export default async function alarmRoutes(app: FastifyInstance) {
       prisma.alarm.findMany({
         where,
         orderBy,
-        ...(limit ? { skip, take: limit } : {}),
+        skip,
+        take: limit,
       }),
       prisma.alarm.count({ where }),
     ]);
@@ -180,7 +182,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
           status: { type: 'string', enum: ['ACTIVE', 'ACKNOWLEDGED', 'CLEARED', 'MANUALLY_CLEARED'] },
           severity: { type: 'string', enum: ['CRITICAL', 'MAJOR', 'MINOR', 'WARNING', 'INFO'] },
           page: { type: 'integer', default: 1, minimum: 1 },
-          limit: { type: 'integer', minimum: 1 },
+          limit: { type: 'integer', minimum: 1, maximum: 200, default: 20, description: 'Records per page (capped at 200 to prevent unbounded alarm dump)' },
         },
       },
       response: {
@@ -210,8 +212,9 @@ export default async function alarmRoutes(app: FastifyInstance) {
     };
 
     const page = query.page ?? 1;
-    const limit = query.limit ? Math.max(query.limit, 1) : undefined;
-    const skip = limit ? (page - 1) * limit : 0;
+    // Defensive cap (audit §1.8) — even if Zod is bypassed, max 200 rows / request.
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 200);
+    const skip = (page - 1) * limit;
 
     const where: Prisma.AlarmWhereInput = { entityId };
 
@@ -226,7 +229,8 @@ export default async function alarmRoutes(app: FastifyInstance) {
       prisma.alarm.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        ...(limit ? { skip, take: limit } : {}),
+        skip,
+        take: limit,
       }),
       prisma.alarm.count({ where }),
     ]);
@@ -246,8 +250,8 @@ export default async function alarmRoutes(app: FastifyInstance) {
       data,
       total,
       page,
-      limit: limit ?? total,
-      totalPages: limit ? Math.ceil(total / limit) : 1,
+      limit,
+      totalPages: Math.ceil(total / limit),
     };
   });
 

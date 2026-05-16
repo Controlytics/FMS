@@ -126,7 +126,9 @@ export default async function telemetryRoutes(app: FastifyInstance) {
           limit: {
             type: 'integer',
             minimum: 1,
-            description: 'Maximum number of data points to return',
+            maximum: 10000,
+            default: 1000,
+            description: 'Maximum number of data points to return (capped at 10000 to prevent multi-GB responses)',
           },
         },
       },
@@ -172,7 +174,9 @@ export default async function telemetryRoutes(app: FastifyInstance) {
     const interval: Interval = (VALID_INTERVALS as readonly string[]).includes(query.interval ?? '')
       ? (query.interval as Interval)
       : 'auto';
-    const limit = query.limit ? Math.max(query.limit, 1) : undefined;
+    // Defensive cap (audit §1.8) — even if Zod is bypassed, max 10000 raw points / request.
+    // Default 1000 is enough for typical plots; higher caps still need pagination.
+    const limit = Math.min(Math.max(query.limit ?? 1000, 1), 10000);
 
     const pool = getTsdbPool();
     const fromDate = new Date(from);
@@ -195,10 +199,9 @@ export default async function telemetryRoutes(app: FastifyInstance) {
     let data: unknown[];
 
     if (effectiveAggregation === 'none') {
-      // Raw query — return actual values, no manipulation
-      const limitClause = limit ? ` LIMIT $${paramIdx}` : '';
-      const sql = `SELECT time, key, value_num, value_str, value_bool, value_json FROM ts_telemetry WHERE entity_id = $1 AND time >= $2 AND time <= $3${keyFilterClause} ORDER BY time DESC${limitClause}`;
-      const params = limit ? [...baseParams, limit] : [...baseParams];
+      // Raw query — return actual values, no manipulation. Always LIMIT for safety.
+      const sql = `SELECT time, key, value_num, value_str, value_bool, value_json FROM ts_telemetry WHERE entity_id = $1 AND time >= $2 AND time <= $3${keyFilterClause} ORDER BY time DESC LIMIT $${paramIdx}`;
+      const params = [...baseParams, limit];
       const result = await pool.query(sql, params);
       data = result.rows;
     } else {
@@ -379,7 +382,7 @@ export default async function telemetryRoutes(app: FastifyInstance) {
           to: { type: 'string', format: 'date-time', description: 'ISO 8601 end time' },
           key: { type: 'string', description: 'Optional attribute key to filter' },
           page: { type: 'integer', default: 1, minimum: 1 },
-          limit: { type: 'integer', minimum: 1 },
+          limit: { type: 'integer', minimum: 1, maximum: 500, default: 50, description: 'Records per page (capped at 500)' },
         },
       },
       response: {
@@ -421,8 +424,9 @@ export default async function telemetryRoutes(app: FastifyInstance) {
     };
 
     const page = Math.max(query.page ?? 1, 1);
-    const limit = query.limit ? Math.max(query.limit, 1) : undefined;
-    const offset = limit ? (page - 1) * limit : 0;
+    // Defensive cap (audit §1.8) — even if Zod is bypassed, max 500 / request.
+    const limit = Math.min(Math.max(query.limit ?? 50, 1), 500);
+    const offset = (page - 1) * limit;
     const fromDate = new Date(query.from);
     const toDate = new Date(query.to);
 
@@ -442,10 +446,9 @@ export default async function telemetryRoutes(app: FastifyInstance) {
     const countResult = await pool.query(countSql, params);
     const total: number = countResult.rows[0]?.cnt ?? 0;
 
-    // Fetch the page
-    const paginationClause = limit ? ` LIMIT $${paramIdx} OFFSET $${paramIdx + 1}` : '';
-    const dataSql = `SELECT time, key, scope, value_num, value_str, value_bool, value_json, updated_by FROM ts_attributes WHERE entity_id = $1 AND time >= $2 AND time <= $3${keyClause} ORDER BY time DESC${paginationClause}`;
-    const dataParams = limit ? [...params, limit, offset] : [...params];
+    // Fetch the page — always LIMIT for safety
+    const dataSql = `SELECT time, key, scope, value_num, value_str, value_bool, value_json, updated_by FROM ts_attributes WHERE entity_id = $1 AND time >= $2 AND time <= $3${keyClause} ORDER BY time DESC LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`;
+    const dataParams = [...params, limit, offset];
     const dataResult = await pool.query(dataSql, dataParams);
 
     const data = dataResult.rows.map((row: Record<string, unknown>) => ({
@@ -463,7 +466,7 @@ export default async function telemetryRoutes(app: FastifyInstance) {
       data,
       total,
       page,
-      limit: limit ?? total,
+      limit,
     };
   });
 
