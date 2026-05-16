@@ -89,7 +89,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
       try {
         await api.put(`/api/config/roles/${sidebarSelectedRole}`, { sidebarItems: enabledItems });
         setSidebarDirty(false);
-      } catch (error: any) { toast.error('Save Failed', error.message || 'Failed to save sidebar configuration'); console.error('Failed to save:', error); } finally { setSidebarSaving(false); }
+      } catch (error: any) { toast.error('Save Failed', error.message || 'Failed to save sidebar configuration'); } finally { setSidebarSaving(false); }
     }, [sidebarSelectedRole, enabledItems, sidebarRoleConfig, toast]);
 
     const handleSaveSidebarUser = useCallback(async () => {
@@ -98,7 +98,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
       try {
         await api.put(`/api/config/users/${selectedUser.id}`, { sidebarItems: enabledItems });
         setSidebarDirty(false);
-      } catch (error: any) { toast.error('Save Failed', error.message || 'Failed to save user sidebar configuration'); console.error('Failed to save:', error); } finally { setSidebarSaving(false); }
+      } catch (error: any) { toast.error('Save Failed', error.message || 'Failed to save user sidebar configuration'); } finally { setSidebarSaving(false); }
     }, [selectedUser, enabledItems, userConfig, toast]);
 
     const resetUserToRoleDefault = async () => {
@@ -107,7 +107,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
       try {
         await api.put(`/api/config/users/${selectedUser.id}`, { sidebarItems: [] });
         setEnabledItems([]); setSidebarDirty(false);
-      } catch (error: any) { toast.error('Reset Failed', error.message || 'Failed to reset user to role defaults'); console.error('Failed to clear:', error); } finally { setSidebarSaving(false); }
+      } catch (error: any) { toast.error('Reset Failed', error.message || 'Failed to reset user to role defaults'); } finally { setSidebarSaving(false); }
     };
 
     const filteredUsers = usersData?.data?.filter((u: User) =>
