@@ -55,8 +55,8 @@ export type {
 } from './types/action-tape.js';
 
 // Schemas
-export { loginSchema, passwordChangeSchema, reAuthSchema } from './schemas/auth.js';
-export type { LoginInput, PasswordChangeInput, ReAuthInput } from './schemas/auth.js';
+export { loginSchema, passwordChangeSchema } from './schemas/auth.js';
+export type { LoginInput, PasswordChangeInput } from './schemas/auth.js';
 
 export { createUserSchema, updateUserSchema, resetPasswordSchema, userQuerySchema, bulkDeleteUsersSchema } from './schemas/users.js';
 export type { CreateUserInput, UpdateUserInput, ResetPasswordInput, UserQueryInput, BulkDeleteUsersInput } from './schemas/users.js';

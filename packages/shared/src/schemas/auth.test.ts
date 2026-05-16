@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { loginSchema, passwordChangeSchema, reAuthSchema } from './auth.js';
+import { loginSchema, passwordChangeSchema } from './auth.js';
 
 describe('loginSchema', () => {
   it('accepts valid credentials', () => {
@@ -71,19 +71,3 @@ describe('passwordChangeSchema', () => {
   });
 });
 
-describe('reAuthSchema', () => {
-  it('accepts valid password', () => {
-    const result = reAuthSchema.safeParse({ password: 'MyPass@123' });
-    expect(result.success).toBe(true);
-  });
-
-  it('rejects empty password', () => {
-    const result = reAuthSchema.safeParse({ password: '' });
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects missing password', () => {
-    const result = reAuthSchema.safeParse({});
-    expect(result.success).toBe(false);
-  });
-});

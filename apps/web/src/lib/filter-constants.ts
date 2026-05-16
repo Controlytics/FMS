@@ -1,4 +1,4 @@
-/** Shared cleaning stage definitions used across filter-operations, filter-status, and cleaning-profile-editor */
+/** Shared cleaning stage definitions used across filter-operations and cleaning-profile-editor */
 export const CLEANING_STAGES = [
   { key: 'WASH_IN', label: 'Wash In', color: 'blue' },
   { key: 'WASH_OUT', label: 'Wash Out', color: 'cyan' },
@@ -10,22 +10,12 @@ export const CLEANING_STAGES = [
 
 /** UI-enriched stage definitions for the filter operations page */
 export const CLEANING_STAGES_OPS = [
-  { key: 'WASH_IN', label: 'Wash In', icon: '\ud83d\udebf', color: 'from-sky-600 to-sky-700', border: 'border-sky-600', activeBg: 'bg-sky-50', needsBlock: true },
-  { key: 'WASH_OUT', label: 'Wash Out', icon: '\ud83d\udca7', color: 'from-sky-600 to-sky-800', border: 'border-sky-500', activeBg: 'bg-sky-50', needsBlock: false },
-  { key: 'DRY_IN', label: 'Dry In', icon: '\ud83c\udf21\ufe0f', color: 'from-amber-600 to-amber-700', border: 'border-amber-600', activeBg: 'bg-amber-50', needsBlock: true },
-  { key: 'DRY_OUT', label: 'Dry Out', icon: '\u2600\ufe0f', color: 'from-amber-600 to-amber-800', border: 'border-amber-500', activeBg: 'bg-amber-50', needsBlock: false },
-  { key: 'STORAGE_IN', label: 'Storage In', icon: '\ud83d\udce5', color: 'from-slate-500 to-slate-600', border: 'border-slate-400', activeBg: 'bg-slate-50', needsBlock: false },
-  { key: 'STORAGE_OUT', label: 'Storage Out', icon: '\ud83d\udce4', color: 'from-slate-500 to-slate-700', border: 'border-slate-300', activeBg: 'bg-slate-50', needsBlock: false },
-];
-
-/** Stage definitions for filter-status page */
-export const CLEANING_STAGES_STATUS = [
-  { key: 'WASH_IN', label: 'Wash In', icon: '\ud83d\udebf', color: 'from-sky-600 to-sky-700', border: 'border-sky-600', activeBg: 'bg-sky-50' },
-  { key: 'WASH_OUT', label: 'Wash Out', icon: '\ud83d\udca7', color: 'from-sky-600 to-sky-800', border: 'border-sky-500', activeBg: 'bg-sky-50' },
-  { key: 'DRY_IN', label: 'Dry In', icon: '\ud83c\udf21\ufe0f', color: 'from-amber-600 to-amber-700', border: 'border-amber-600', activeBg: 'bg-amber-50' },
-  { key: 'DRY_OUT', label: 'Dry Out', icon: '\u2600\ufe0f', color: 'from-amber-600 to-amber-800', border: 'border-amber-500', activeBg: 'bg-amber-50' },
-  { key: 'STORAGE_IN', label: 'Storage In', icon: '\ud83d\udce5', color: 'from-slate-500 to-slate-600', border: 'border-slate-400', activeBg: 'bg-slate-50' },
-  { key: 'STORAGE_OUT', label: 'Storage Out', icon: '\ud83d\udce4', color: 'from-slate-500 to-slate-700', border: 'border-slate-300', activeBg: 'bg-slate-50' },
+  { key: 'WASH_IN', label: 'Wash In', icon: '🚿', color: 'from-sky-600 to-sky-700', border: 'border-sky-600', activeBg: 'bg-sky-50', needsBlock: true },
+  { key: 'WASH_OUT', label: 'Wash Out', icon: '💧', color: 'from-sky-600 to-sky-800', border: 'border-sky-500', activeBg: 'bg-sky-50', needsBlock: false },
+  { key: 'DRY_IN', label: 'Dry In', icon: '🌡️', color: 'from-amber-600 to-amber-700', border: 'border-amber-600', activeBg: 'bg-amber-50', needsBlock: true },
+  { key: 'DRY_OUT', label: 'Dry Out', icon: '☀️', color: 'from-amber-600 to-amber-800', border: 'border-amber-500', activeBg: 'bg-amber-50', needsBlock: false },
+  { key: 'STORAGE_IN', label: 'Storage In', icon: '📥', color: 'from-slate-500 to-slate-600', border: 'border-slate-400', activeBg: 'bg-slate-50', needsBlock: false },
+  { key: 'STORAGE_OUT', label: 'Storage Out', icon: '📤', color: 'from-slate-500 to-slate-700', border: 'border-slate-300', activeBg: 'bg-slate-50', needsBlock: false },
 ];
 
 /**
