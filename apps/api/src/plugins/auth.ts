@@ -33,6 +33,73 @@ async function getSessionDurationHours(): Promise<number> {
   return hours;
 }
 
+/**
+ * Audit §1.7 (2026-05-16). Caches the per-request user + session reads
+ * so every authenticated request doesn't pay 2 DB round-trips before the
+ * route logic runs. With Prisma's default pool size (`physical_cpus * 2 + 1`,
+ * typically 9 on a 4-core dev box), 50 concurrent users at 1 req/s × 3-4
+ * queries each saturated the pool with auth overhead alone.
+ *
+ * TTL = 30s. Trade-off: a user disabled / locked / role-changed via a
+ * SUPER_ADMIN action has up to 30s of zombie access before the cache
+ * expires. Matches the same posture as `sessionConfigCache` above.
+ *
+ * Invalidation: callers that mutate user.status / user.role / session
+ * lifecycle should call `invalidateUserAuthCache(userId)` /
+ * `invalidateSessionAuthCache(sessionId)` to take effect immediately.
+ * (Wire-up across user.service.ts + auth.service.ts is a follow-up PR.)
+ *
+ * NOT INCLUDED in this PR: debouncing the session.update for lastActiveAt
+ * + expiresAt (the row-lock-serialising write). That requires careful
+ * coordination with the expiresAt enforcement check below — separate PR.
+ */
+type CachedSession = { id: string; createdAt: Date; expiresAt: Date; isActive: boolean };
+type CachedUser = {
+  role: string;
+  username: string;
+  status: string;
+  forcePasswordChange: boolean;
+  passwordExpiresAt: Date | null;
+};
+
+const userAuthCache = new Map<string, { user: CachedUser; cachedAt: number }>();
+const sessionAuthCache = new Map<string, { session: CachedSession; cachedAt: number }>();
+const AUTH_CACHE_TTL_MS = 30_000;
+
+async function getCachedSession(sessionId: string): Promise<CachedSession | null> {
+  const cached = sessionAuthCache.get(sessionId);
+  if (cached && Date.now() - cached.cachedAt < AUTH_CACHE_TTL_MS) return cached.session;
+  const session = await prisma.session.findFirst({
+    where: { id: sessionId, isActive: true },
+    select: { id: true, createdAt: true, expiresAt: true, isActive: true },
+  });
+  if (session) sessionAuthCache.set(sessionId, { session, cachedAt: Date.now() });
+  return session;
+}
+
+async function getCachedUser(userId: string): Promise<CachedUser | null> {
+  const cached = userAuthCache.get(userId);
+  if (cached && Date.now() - cached.cachedAt < AUTH_CACHE_TTL_MS) return cached.user;
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true, username: true, status: true, forcePasswordChange: true, passwordExpiresAt: true },
+  });
+  if (user) userAuthCache.set(userId, { user, cachedAt: Date.now() });
+  return user;
+}
+
+/** Evict a user from the auth cache. Call from user.service.ts mutation paths
+ * (status change, role change, force-password-change toggle, delete). */
+export function invalidateUserAuthCache(userId: string): void {
+  userAuthCache.delete(userId);
+}
+
+/** Evict a session from the auth cache. Call from auth.service.ts logout +
+ * force-logout + session-expiry + password-reset paths. */
+export function invalidateSessionAuthCache(sessionId: string): void {
+  sessionAuthCache.delete(sessionId);
+}
+
 
 const isProduction = process.env.NODE_ENV === 'production';
 const PUBLIC_PATHS = [
@@ -71,15 +138,15 @@ async function authPlugin(app: FastifyInstance) {
       const payload = await verifyToken(header.slice(7));
       req.user = payload;
 
-      const session = await prisma.session.findFirst({
-        where: { id: payload.sessionId, isActive: true },
-      });
+      const session = await getCachedSession(payload.sessionId);
 
       if (!session) {
         return reply.code(401).send({ error: 'SESSION_INVALID', message: 'Session terminated' });
       }
 
       if (session.expiresAt < new Date()) {
+        // Evict cache + persist invalidation in same step.
+        invalidateSessionAuthCache(session.id);
         await prisma.session.update({
           where: { id: session.id },
           data: { isActive: false, terminationReason: 'expired' },
@@ -90,6 +157,7 @@ async function authPlugin(app: FastifyInstance) {
       // Enforce absolute session timeout (max 24h regardless of activity)
       const MAX_ABSOLUTE_SESSION_MS = 24 * 60 * 60 * 1000;
       if (Date.now() - session.createdAt.getTime() > MAX_ABSOLUTE_SESSION_MS) {
+        invalidateSessionAuthCache(session.id);
         await prisma.session.update({
           where: { id: session.id },
           data: { isActive: false, terminationReason: 'absolute_timeout' },
@@ -97,12 +165,11 @@ async function authPlugin(app: FastifyInstance) {
         return reply.code(401).send({ error: 'SESSION_EXPIRED', message: 'Session exceeded maximum duration. Please log in again.' });
       }
 
-      // Check user status and sync role from DB
-      const user = await prisma.user.findUnique({
-        where: { id: payload.sub },
-        select: { role: true, username: true, status: true, forcePasswordChange: true, passwordExpiresAt: true },
-      });
+      // Check user status and sync role from DB (cached)
+      const user = await getCachedUser(payload.sub);
       if (!user || user.status !== 'ENABLED') {
+        // If user was just disabled, evict so next request sees the change.
+        invalidateUserAuthCache(payload.sub);
         return reply.code(401).send({ error: 'ACCOUNT_INACTIVE', message: 'Account is not active' });
       }
 
@@ -127,7 +194,10 @@ async function authPlugin(app: FastifyInstance) {
           where: { id: payload.sub },
           data: { forcePasswordChange: true },
         });
+        // Mutate the cached object in place so this request sees the new state,
+        // and evict so the next request re-reads from DB.
         user.forcePasswordChange = true;
+        invalidateUserAuthCache(payload.sub);
       }
 
       // Enforce forcePasswordChange server-side (§11.10(f))
