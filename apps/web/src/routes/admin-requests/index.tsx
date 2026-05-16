@@ -6,6 +6,7 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api-client';
+import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 
 const TYPE_CFG: Record<string, { label: string; bg: string; text: string; border: string; icon: string }> = {
   CREATE_USER: { label: 'Create User', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', icon: '+' },
@@ -96,7 +97,7 @@ export function AdminRequestsPage() {
   const copyToClipboard = (text: string, key: string) => {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(key);
-      setTimeout(() => setCopied(''), 2000);
+      setTimeout(() => setCopied(''), CLIPBOARD_COPY_RESET_MS);
     });
   };
 

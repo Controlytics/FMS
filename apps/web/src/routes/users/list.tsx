@@ -13,6 +13,7 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import type { PasswordPolicyConfig } from '@digilog/shared';
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
+import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 
 import { UserStatsBar } from './components/user-stats-bar';
 import { UserFilters } from './components/user-filters';
@@ -206,7 +207,7 @@ export function UserListPage() {
     try {
       await navigator.clipboard.writeText(unlockPassword);
       setUnlockCopied(true);
-      setTimeout(() => setUnlockCopied(false), 2000);
+      setTimeout(() => setUnlockCopied(false), CLIPBOARD_COPY_RESET_MS);
     } catch {
       const textArea = document.createElement('textarea');
       textArea.value = unlockPassword;
@@ -215,7 +216,7 @@ export function UserListPage() {
       document.execCommand('copy');
       document.body.removeChild(textArea);
       setUnlockCopied(true);
-      setTimeout(() => setUnlockCopied(false), 2000);
+      setTimeout(() => setUnlockCopied(false), CLIPBOARD_COPY_RESET_MS);
     }
   }, [unlockPassword]);
 

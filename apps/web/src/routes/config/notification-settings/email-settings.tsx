@@ -8,6 +8,7 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
+import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 
 // ─── Email Types & Constants ──────────────────────────────────────────
 interface EmailConfig {
@@ -246,7 +247,7 @@ function EmailTab() {
         document.body.removeChild(textArea);
       }
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setTimeout(() => setCopied(false), CLIPBOARD_COPY_RESET_MS);
     }
   };
 

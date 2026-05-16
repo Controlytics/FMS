@@ -12,6 +12,7 @@ import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui
 import { type PasswordPolicyConfig } from '@digilog/shared';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
+import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 
 interface ResetRequest {
   id: string;
@@ -82,7 +83,7 @@ export function ResetRequestsPage() {
     try {
       await navigator.clipboard.writeText(newPassword);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setTimeout(() => setCopied(false), CLIPBOARD_COPY_RESET_MS);
     } catch {
       const textArea = document.createElement('textarea');
       textArea.value = newPassword;
@@ -91,7 +92,7 @@ export function ResetRequestsPage() {
       document.execCommand('copy');
       document.body.removeChild(textArea);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setTimeout(() => setCopied(false), CLIPBOARD_COPY_RESET_MS);
     }
   };
 

@@ -79,3 +79,13 @@ export const SYNC_SINCE_POLL_INTERVAL_MS = 60_000;
  * blocker would render late by up to a render cycle.
  */
 export const HARD_CUTOFF_REEVAL_INTERVAL_MS = 30_000;
+
+// ─── Clipboard copy UX (admin-requests, users CRUD, email-settings) ─────
+
+/**
+ * How long the "Copied!" visual indicator stays on after a clipboard
+ * write succeeds before reverting to the default state. 2 seconds is
+ * long enough for the operator to see the confirmation, short enough
+ * that they can copy a second time without waiting.
+ */
+export const CLIPBOARD_COPY_RESET_MS = 2_000;

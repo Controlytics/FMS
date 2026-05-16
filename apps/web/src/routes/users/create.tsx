@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import useSWR from 'swr';
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from "../../lib/password-utils";
+import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 
 export function CreateUserPage() {
   const { user } = useAuth();
@@ -60,7 +61,7 @@ export function CreateUserPage() {
     try {
       await navigator.clipboard.writeText(generatedPassword);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setTimeout(() => setCopied(false), CLIPBOARD_COPY_RESET_MS);
     } catch {
       // Fallback for older browsers
       const textArea = document.createElement('textarea');
@@ -70,7 +71,7 @@ export function CreateUserPage() {
       document.execCommand('copy');
       document.body.removeChild(textArea);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setTimeout(() => setCopied(false), CLIPBOARD_COPY_RESET_MS);
     }
   };
 
