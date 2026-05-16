@@ -13,7 +13,7 @@ import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
 import { stripHtml } from '../../../lib/sanitize.js';
 import { AppError } from '../../../lib/errors.js';
-import { findExistingByClientOpId } from '../../../lib/idempotency.js';
+import { findExistingStartByClientOpId } from '../../../lib/idempotency.js';
 import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
 import { computeChecksum } from '../helpers.js';
 import {
@@ -42,10 +42,12 @@ export async function startCycleImpl(
   const offlineTime = validateOfflinePerformedAt(data.offlinePerformedAt, {
     isReplay: ctx.isOfflineReplay === true,
   });
-  // Idempotent replay: if this clientOpId was already processed, return current state
-  // instead of creating a duplicate cycle.
+  // Idempotent replay: if this clientOpId was already used to start a cycle,
+  // return current state instead of creating a duplicate cycle. Scoped to
+  // CYCLE_STARTED events only (audit §1.10) so replays from non-start ops
+  // sharing the same UUID don't accidentally short-circuit a legitimate start.
   const clientOpId: string | null = data.clientOpId ?? null;
-  if (clientOpId && await findExistingByClientOpId(filterId, clientOpId)) {
+  if (clientOpId && await findExistingStartByClientOpId(filterId, clientOpId)) {
     return service.getCurrentState(ctx, filterId);
   }
   // Use canonical `stripHtml` instead of hand-rolled `<` / `>` escape — see

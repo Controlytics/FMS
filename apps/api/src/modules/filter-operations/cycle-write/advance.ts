@@ -33,15 +33,18 @@ export async function advanceImpl(
   // (admin-requests, auth, assets) already use this helper — bringing
   // cycle-write into the same input-sanitization contract.
   const remarks = typeof data.remarks === "string" ? stripHtml(data.remarks) : data.remarks;
-  // Idempotent replay: same clientOpId == same logical operation. Return current
-  // state instead of double-applying.
   const clientOpId: string | null = data.clientOpId ?? null;
-  if (clientOpId && await findExistingByClientOpId(filterId, clientOpId)) {
-    return service.getCurrentState(ctx, filterId);
-  }
 
   // Phase 8.5 Commit 3: drop pure guards through the shared executor.
-  const { ctx: localCtx, cp, rawCycle: cycle } = await loadLocalContext(filterId, ctx);
+  const { ctx: localCtx, cp, rawCycle: cycle, filterCurrentCycleId } = await loadLocalContext(filterId, ctx);
+
+  // Cycle-scoped clientOpId dedup (audit §1.10): a replay with the same opId
+  // for the same cycle is a no-op success; the same opId across different
+  // cycles cannot collide. Run AFTER loadLocalContext so we have the
+  // current cycle id; same pattern as submit-checklist.ts.
+  if (clientOpId && filterCurrentCycleId && await findExistingByClientOpId(filterId, clientOpId, filterCurrentCycleId)) {
+    return service.getCurrentState(ctx, filterId);
+  }
   throwIfFailed(executor.assertCycleActive(localCtx));
 
   // Server-only: cycle must be IN_PROGRESS (live state).

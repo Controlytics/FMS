@@ -28,23 +28,53 @@ export function getClientOpId(req: FastifyRequest, body?: Record<string, any>): 
 }
 
 /**
- * Has this clientOpId already been processed for this filter? Used at the
- * start of every mutation to short-circuit duplicate replays.
+ * Has this clientOpId already been processed for this filter + cycle? Used
+ * at the start of every cycle-scoped mutation (advance / bypass /
+ * submit-checklist / terminate) to short-circuit duplicate replays.
  *
- * Optionally scope by cycleId so a clientOpId reused across a previous
- * (terminated/completed) cycle and a fresh one cannot collide. Pass null
- * for mutations that run before a cycle exists (e.g. startCycle).
+ * `cycleId` is REQUIRED (audit §1.10 / 2026-05-16). Without it, dedup
+ * matched across a filter's entire history — so a clientOpId from a
+ * completed cycle could silently no-op a fresh-cycle mutation when the
+ * tablet's offline queue replayed an old op. IndexedDB persistence is
+ * per-filter, not per-cycle, so reused UUIDs across cycles were possible
+ * under offline-heavy field conditions.
+ *
+ * For mutations that run BEFORE a cycle exists (i.e., start-cycle), use
+ * `findExistingStartByClientOpId` instead — it scopes by event type.
  */
 export async function findExistingByClientOpId(
   filterId: string,
   clientOpId: string,
-  cycleId?: string | null,
+  cycleId: string,
 ): Promise<boolean> {
   const existing = await prisma.filterEvent.findFirst({
     where: {
       filterId,
+      cycleId,
       attributes: { path: ['clientOpId'], equals: clientOpId },
-      ...(cycleId ? { cycleId } : {}),
+    },
+    select: { id: true },
+  });
+  return !!existing;
+}
+
+/**
+ * Has this clientOpId already been used to start a cycle for this filter?
+ * start-cycle has no cycleId yet (it's about to create one) so it can't
+ * use the cycle-scoped helper above. Instead, scope by event type so a
+ * replay of the same start-cycle op detects the prior CYCLE_STARTED row,
+ * but clientOpIds reused for non-start events (advance / bypass / etc)
+ * don't accidentally short-circuit a legitimate fresh start.
+ */
+export async function findExistingStartByClientOpId(
+  filterId: string,
+  clientOpId: string,
+): Promise<boolean> {
+  const existing = await prisma.filterEvent.findFirst({
+    where: {
+      filterId,
+      eventType: 'CYCLE_STARTED',
+      attributes: { path: ['clientOpId'], equals: clientOpId },
     },
     select: { id: true },
   });

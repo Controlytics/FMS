@@ -23,11 +23,7 @@ export async function terminateCycleImpl(
   filterId: string,
   data: { justification: string; clientOpId?: string; tapeVersion?: number; offlinePerformedAt?: string },
 ) {
-  // Server-only: idempotent replay short-circuits before touching shared guards.
   const clientOpId: string | null = data.clientOpId ?? null;
-  if (clientOpId && await findExistingByClientOpId(filterId, clientOpId)) {
-    return service.getCurrentState(ctx, filterId);
-  }
 
   // Server-only: full HTML sanitization (sanitize-html via stripHtml) before
   // guards. See advance.ts:29 rationale — canonical contract used by the
@@ -39,6 +35,13 @@ export async function terminateCycleImpl(
   // Phase 8.5 Commit 3: drop pure guards through the shared executor.
   const { ctx: localCtx, filterCurrentCycleId, rawCycle: cycle } = await loadLocalContext(filterId, ctx);
   throwIfFailed(executor.assertCycleActive(localCtx));
+
+  // Cycle-scoped clientOpId dedup (audit §1.10): a terminate replay on the
+  // same cycle returns current state; the same opId from a prior cycle
+  // cannot collide.
+  if (clientOpId && filterCurrentCycleId && await findExistingByClientOpId(filterId, clientOpId, filterCurrentCycleId)) {
+    return service.getCurrentState(ctx, filterId);
+  }
 
   // Audit 2026-05-04 fix C2 parity: validate offlinePerformedAt with
   // cycle.startedAt floor (terminate inherits the floor from the cycle

@@ -33,14 +33,17 @@ export async function bypassImpl(
   const justification = typeof data.justification === "string"
     ? stripHtml(data.justification)
     : data.justification;
-  // Server-only: idempotent replay short-circuits before touching shared guards.
   const clientOpId: string | null = data.clientOpId ?? null;
-  if (clientOpId && await findExistingByClientOpId(filterId, clientOpId)) {
-    return service.getCurrentState(ctx, filterId);
-  }
 
   // Phase 8.5 Commit 3: drop pure guards through the shared executor.
   const { ctx: localCtx, cp, filterCurrentCycleId, rawCycle: cycle } = await loadLocalContext(filterId, ctx);
+
+  // Cycle-scoped clientOpId dedup (audit §1.10): scope by current cycle so a
+  // clientOpId reused from a prior (completed/terminated) cycle cannot
+  // silently no-op a fresh bypass.
+  if (clientOpId && filterCurrentCycleId && await findExistingByClientOpId(filterId, clientOpId, filterCurrentCycleId)) {
+    return service.getCurrentState(ctx, filterId);
+  }
   throwIfFailed(executor.assertCycleActive(localCtx));
 
   // Audit 2026-05-04 fix C2 parity (start-cycle/advance/submit-checklist
