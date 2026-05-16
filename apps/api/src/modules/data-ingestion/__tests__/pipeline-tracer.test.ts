@@ -39,7 +39,6 @@ import {
   traceStage,
   finalizeTrace,
   markTraceDLQ,
-  closeTracerRedis,
 } from '../pipeline-tracer.js';
 import type { PipelineTrace, StageResult } from '../pipeline-tracer.js';
 
@@ -501,22 +500,4 @@ describe('pipeline-tracer', () => {
     });
   });
 
-  // ── closeTracerRedis ───────────────────────────────────────────────
-
-  describe('closeTracerRedis', () => {
-    // 31. Quits the Redis publisher if it was initialized
-    it('should call quit on the Redis publisher after it has been initialized', async () => {
-      mockQuery.mockResolvedValue({});
-      mockPublish.mockResolvedValue(1);
-
-      // Phase 4: closeTracerRedis is now a no-op (bus is in-process). Just
-      // confirm it doesn't throw — the legacy name is retained for shutdown
-      // handler compatibility.
-      const trace = makeTrace({ entityId: 'ent-close' });
-      recordStage(trace, makeStageResult({ stage: 1, status: 'SUCCESS' }));
-      await finalizeTrace(trace);
-
-      await expect(closeTracerRedis()).resolves.not.toThrow();
-    });
-  });
 });

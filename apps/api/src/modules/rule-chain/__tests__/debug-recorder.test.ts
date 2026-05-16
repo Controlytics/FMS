@@ -35,7 +35,6 @@ import {
   clearDebugBuffer,
   initDebugRecorder,
   isChainDebugEnabled,
-  closeDebugRedis,
 } from '../debug-recorder.js';
 import type { DebugRecord } from '../types.js';
 import { prisma } from '../../../lib/prisma.js';
@@ -315,16 +314,4 @@ describe('Debug Recorder', () => {
     });
   });
 
-  // ═══════════════════════════════════════════════════════
-  // closeDebugRedis
-  // ═══════════════════════════════════════════════════════
-
-  describe('closeDebugRedis', () => {
-    // Phase 4 (2026-05-01): closeDebugRedis is now a no-op (bus is in-process).
-    // Legacy name retained so existing app shutdown handlers still type-check.
-    it('is a no-op that does not throw', async () => {
-      recordDebug('chain-1', makeRecord());
-      await expect(closeDebugRedis()).resolves.not.toThrow();
-    });
-  });
 });

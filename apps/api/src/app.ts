@@ -43,10 +43,7 @@ import debugTraceRoutes from './modules/data-ingestion/debug-trace.routes.js';
 import wsHandler from './transport/ws-handler.js';
 import { initMqttClient, closeMqttClient } from './transport/mqtt-client.js';
 import { closeWsRedis } from './transport/ws-handler.js';
-import { closeRpcRedis } from './modules/data-ingestion/rpc-handler.js';
 import { closePipelineRedis } from './modules/data-ingestion/ingestion.service.js';
-import { closeTracerRedis } from './modules/data-ingestion/pipeline-tracer.js';
-import { closeDebugRedis } from './modules/rule-chain/debug-recorder.js';
 import { initializeNodes } from './modules/rule-chain/nodes/index.js';
 import notificationDeliveryRoutes from './modules/notification-delivery/routes.js';
 import userGroupRoutes from './modules/user-groups/routes.js';
@@ -386,10 +383,7 @@ const shutdown = async (signal: string) => {
     await closeTelemetryBatcher();
     await closeMqttClient();
     await closeWsRedis();
-    await closeRpcRedis();
     await closePipelineRedis();
-    await closeTracerRedis();
-    await closeDebugRedis();
     await app.close();
     // Close queue + tsdb in their own try blocks so one failure doesn't
     // prevent the next teardown step. Each failure is logged so partial-

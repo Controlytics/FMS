@@ -84,11 +84,3 @@ export async function isChainDebugEnabled(chainId: string): Promise<boolean> {
   }
 }
 
-/**
- * Phase 4 (2026-05-01): closeDebugRedis() retained as a no-op for backward
- * compatibility with any caller that imported it. Bus is in-process — nothing
- * to close.
- */
-export async function closeDebugRedis(): Promise<void> {
-  /* no-op — internal-bus has no resources to release */
-}

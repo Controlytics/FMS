@@ -97,11 +97,3 @@ export async function onRpcResponse(requestId: string, responseData: Record<stri
   setResponse(requestId, responseData);
 }
 
-/**
- * Phase 4 (2026-05-01): no-op for backward compatibility. The in-process
- * cache has no resources to release; its sweep timer is .unref()'d so it
- * doesn't keep the process alive.
- */
-export async function closeRpcRedis(): Promise<void> {
-  /* no-op */
-}

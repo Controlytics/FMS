@@ -204,10 +204,3 @@ export function markTraceDLQ(trace: PipelineTrace): void {
   trace.finalStatus = 'DLQ';
 }
 
-/**
- * Phase 4 (2026-05-01): no-op for backward compatibility. Bus is in-process —
- * nothing to close. Retained so existing app shutdown handlers still type-check.
- */
-export async function closeTracerRedis(): Promise<void> {
-  /* no-op */
-}

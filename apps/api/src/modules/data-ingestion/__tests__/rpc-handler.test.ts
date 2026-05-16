@@ -11,7 +11,7 @@ const { mockPrisma, mockGetMqttClient } = vi.hoisted(() => ({
 vi.mock('../../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 vi.mock('../../../transport/mqtt-client.js', () => ({ getMqttClient: mockGetMqttClient }));
 
-import { publishRpcRequest, getRpcResponse, onRpcResponse, closeRpcRedis } from '../rpc-handler.js';
+import { publishRpcRequest, getRpcResponse, onRpcResponse } from '../rpc-handler.js';
 import { _resetForTests } from '../../../lib/rpc-cache.js';
 
 // Phase 4 (2026-05-01): Redis SETEX-based correlation replaced by an in-process
@@ -91,9 +91,4 @@ describe('rpc-handler', () => {
     });
   });
 
-  describe('closeRpcRedis', () => {
-    it('is a no-op (legacy name kept for shutdown handlers)', async () => {
-      await expect(closeRpcRedis()).resolves.not.toThrow();
-    });
-  });
 });
