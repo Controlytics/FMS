@@ -1,3 +1,30 @@
+/**
+ * 21 CFR Part 11 inspector contracts — audit action enum.
+ *
+ * **Deprecation policy:** entries are NEVER deleted, even if no production
+ * code currently emits them. The audit-template editor at
+ * `/config/audit-templates` renders one row per entry so operators can
+ * customise the human-readable description for each action. Inspectors
+ * reference the enum by name as the controlled vocabulary of audit-able
+ * events; removing an entry would orphan any operator-customised template
+ * tied to it and would force a regulatory documentation update.
+ *
+ * **Currently unemitted entries (audit 2026-05-16):** the following 20
+ * entries have zero `audit.log({ action: 'X' })` call-sites in apps/api/src
+ * but are retained per the policy above. If you wire one up, no annotation
+ * change is needed — emitting it just makes the contract truthful again.
+ *
+ *   ROLE_ASSIGNED, APPROVAL_REQUESTED, APPROVAL_GRANTED, APPROVAL_REJECTED,
+ *   DATA_VIEWED, DATA_EXPORTED, ALARM_ESCALATED, CHECKLIST_REVIEWED,
+ *   CHECKLIST_APPROVED, CHECKLIST_REJECTED, CHECKLIST_REOPENED,
+ *   SEPARATION_OF_DUTIES_DISABLED, RULE_CHAIN_SET_ROOT, RULE_CHAIN_IMPORTED,
+ *   DEVICE_CREDENTIAL_REGENERATED, RETENTION_POLICY_UPDATED, DATA_ARCHIVED,
+ *   RETENTION_EXECUTED, SYSTEM_CONFIG_UPDATED, SERVER_RESTART_TRIGGERED
+ *
+ * Future code reviewers: do NOT delete unemitted entries on dead-code
+ * cleanup grounds. See tasks/CLEANUP-ANALYSIS-2026-05-16.md §3.7 + Tier 3
+ * "Deliberate Keep" items.
+ */
 export const AUDIT_ACTIONS = {
   USER_CREATED: 'USER_CREATED',
   USER_UPDATED: 'USER_UPDATED',
