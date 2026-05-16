@@ -338,16 +338,25 @@ export const userService = {
 
   async listResetRequests() {
     const requests = await userRepository.findResetRequests();
+    // PasswordResetRequest.userId is a UUID FK to User.id. Previously this
+    // looked the IDs up via findUsersByUsernames(), which always missed —
+    // so the API returned the UUID in the `userId` field and the operator UI
+    // showed the raw UUID instead of the employee/user ID.
     const userIds = [...new Set(requests.map((r: any) => r.userId))] as string[];
-    const users = userIds.length > 0 ? await userRepository.findUsersByUsernames(userIds) : [];
-    const userMap = new Map(users.map((u: any) => [u.username, u]));
+    const users = userIds.length > 0 ? await userRepository.findUsersByIds(userIds) : [];
+    const userMap = new Map(users.map((u: any) => [u.id, u]));
 
     return {
       data: requests.map((request: any) => {
         const user = userMap.get(request.userId) as any;
         return {
           ...request,
-          userFullName: user?.fullName ?? request.userId,
+          // Surface the username (employee ID) as `userId` for display.
+          // The PasswordResetRequest's own `id` is used to address the
+          // request on the process endpoint, so we don't need to expose the
+          // user UUID to the operator UI.
+          userId: user?.username ?? request.userId,
+          userFullName: user?.fullName ?? user?.username ?? request.userId,
           userEmail: user?.email ?? '',
           userDepartment: user?.department ?? '',
         };
@@ -364,11 +373,23 @@ export const userService = {
     if (!resetRequest) throw new NotFoundError('Reset request not found');
     if (resetRequest.status !== 'PENDING') throw new ValidationError('Reset request has already been processed');
 
+    // PasswordResetRequest.userId is a UUID FK to User.id. The previous code
+    // passed that UUID to findByUsername(), which always missed → approve
+    // always returned 404 ("User not found"). It also wrote that UUID into
+    // notification.targetUserId / forUserId columns (both VarChar(50)
+    // expecting username), which both
+    //   (a) leaked a UUID into the admin-facing notification message, and
+    //   (b) prevented the recipient from ever seeing the notification —
+    //       the in-app visibility filter (notification.service.ts:30)
+    //       requires forUserId === currentUsername, and a UUID never
+    //       matches.
+    // Resolve to the User row by id, then propagate user.username
+    // everywhere downstream.
+    const user = await userRepository.findById(resetRequest.userId);
+    if (!user) throw new NotFoundError('User not found');
+
     if (action === 'approve') {
       if (!newPassword || newPassword.length < 8) throw new ValidationError('New password must be at least 8 characters');
-
-      const user = await userRepository.findByUsername(resetRequest.userId);
-      if (!user) throw new NotFoundError('User not found');
 
       const newHash = await hashPassword(newPassword);
       const passwordExpiresAt = await userRepository.getPasswordExpiresAt();
@@ -378,19 +399,19 @@ export const userService = {
       await auditLog({
         userId: ctx.userId, userRole: ctx.userRole, action: 'PASSWORD_RESET_REQUEST_APPROVED',
         targetType: 'user', targetId: user.id,
-        afterValue: { requestId: id, username: resetRequest.userId },
+        afterValue: { requestId: id, username: user.username },
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       });
 
       await createNotification({
         type: 'PASSWORD_RESET_APPROVED', title: 'Password Reset Approved',
-        message: `Password reset request for ${resetRequest.userId} has been approved.`,
-        targetUserId: resetRequest.userId, forRole: 'ADMIN', createdBy: ctx.userId,
+        message: `Password reset request for ${user.username} has been approved.`,
+        targetUserId: user.username, forRole: 'ADMIN', createdBy: ctx.userId,
       });
       await createNotification({
         type: 'PASSWORD_RESET_APPROVED', title: 'Password Reset Approved',
         message: `Your password reset request has been approved. Please login with your new temporary password.`,
-        targetUserId: resetRequest.userId, forUserId: resetRequest.userId, createdBy: ctx.userId,
+        targetUserId: user.username, forUserId: user.username, createdBy: ctx.userId,
       });
 
       return { message: 'Password reset approved and new password set.' };
@@ -400,14 +421,14 @@ export const userService = {
       await auditLog({
         userId: ctx.userId, userRole: ctx.userRole, action: 'PASSWORD_RESET_REQUEST_REJECTED',
         targetType: 'password_reset_request', targetId: id,
-        afterValue: { username: resetRequest.userId, notes },
+        afterValue: { username: user.username, notes },
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       });
 
       await createNotification({
         type: 'PASSWORD_RESET_REJECTED', title: 'Password Reset Rejected',
         message: `Your password reset request has been rejected. Please contact an administrator.`,
-        targetUserId: resetRequest.userId, forUserId: resetRequest.userId, createdBy: ctx.userId,
+        targetUserId: user.username, forUserId: user.username, createdBy: ctx.userId,
       });
 
       return { message: 'Password reset request rejected.' };

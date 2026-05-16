@@ -183,12 +183,15 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
               type: eventType as any,
               title: rule.name,
               message,
-              forUserId: user.id,
+              // forUserId is VarChar(50) and the visibility filter compares it
+              // against the caller's username — must be the username string,
+              // not the user UUID. See resolveRecipients() for the select.
+              forUserId: user.username,
               metadata: { eventType, severity: mapEventToSeverity(eventType) } as any,
             },
           });
         } catch (err: any) {
-          console.error(`[Dispatcher] In-app notification for ${user.id} failed:`, err.message);
+          console.error(`[Dispatcher] In-app notification for ${user.username} failed:`, err.message);
         }
       }
     }
@@ -200,7 +203,7 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
  */
 async function resolveRecipients(
   recipients: Array<{ recipientType: string; roleValue: string | null; groupId: string | null; userId: string | null }>
-): Promise<Array<{ id: string; email: string; fullName: string }>> {
+): Promise<Array<{ id: string; username: string; email: string; fullName: string }>> {
   // Collect all user IDs first, then do a single batch fetch
   const allUserIds = new Set<string>();
   const roles: string[] = [];
@@ -237,10 +240,15 @@ async function resolveRecipients(
 
   if (allUserIds.size === 0) return [];
 
-  // Single batch fetch for all resolved user IDs
+  // Single batch fetch for all resolved user IDs.
+  // `username` is required because in-app delivery writes
+  // `Notification.forUserId` (VarChar(50)) and the per-user visibility filter
+  // (notification.service.ts) matches against the caller's username.
+  // Routing by `user.id` (UUID) silently drops every rule-driven in-app
+  // notification.
   return prisma.user.findMany({
     where: { id: { in: Array.from(allUserIds) }, status: 'ENABLED' },
-    select: { id: true, email: true, fullName: true },
+    select: { id: true, username: true, email: true, fullName: true },
   });
 }
 

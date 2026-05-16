@@ -72,14 +72,25 @@ export default async function instanceRoutes(app: FastifyInstance) {
     const query = assetQuerySchema.parse(req.query);
 
     // Inject assignment visibility filter
+    //
+    // Single-tenant semantics (post-MT-removal 2026-04-30):
+    //   - SUPER_ADMIN / ADMIN bypass the filter.
+    //   - For other roles the route's ASSET_VIEW permission gate is the
+    //     authoritative check. EntityAssignment / TemplateAssignment are
+    //     opt-in scoping: if rows exist that target this user (USER) or
+    //     their role (ROLE) we honor those rows plus the user's own
+    //     creations. If no rows target this user, scoping is off and they
+    //     see everything ASSET_VIEW already lets them see.
+    //   This replaces the previous default-deny that made SUPERVISOR /
+    //   MAINTENANCE / QA's filters page appear empty whenever the
+    //   assignment tables were unpopulated (zero rows on RFID today).
     const role = req.user?.role;
     const userId = req.user?.sub;
+    const username = req.user?.username;
 
     let visibilityFilter: Record<string, unknown> | undefined;
 
-    if (role === "SUPER_ADMIN" || role === "ADMIN") {
-      // No filter — see all instances
-    } else {
+    if (role !== "SUPER_ADMIN" && role !== "ADMIN") {
       const { prisma } = await import("../../../lib/prisma.js");
 
       const entityAssignments = await prisma.entityAssignment.findMany({
@@ -105,18 +116,22 @@ export default async function instanceRoutes(app: FastifyInstance) {
 
       const assignedEntityIds = entityAssignments.map((a: any) => a.entityId);
       const assignedTemplateIds = templateAssignments.map((a: any) => a.templateId);
+      const hasExplicitAssignments =
+        assignedEntityIds.length > 0 || assignedTemplateIds.length > 0;
 
-      const orConditions: any[] = [];
-      if (assignedEntityIds.length > 0) orConditions.push({ id: { in: assignedEntityIds } });
-      if (assignedTemplateIds.length > 0) orConditions.push({ templateId: { in: assignedTemplateIds } });
-
-      if (orConditions.length > 0) {
+      if (hasExplicitAssignments) {
+        const orConditions: any[] = [];
+        if (assignedEntityIds.length > 0) orConditions.push({ id: { in: assignedEntityIds } });
+        if (assignedTemplateIds.length > 0) orConditions.push({ templateId: { in: assignedTemplateIds } });
+        // Creator-visibility: an operator's own creations stay visible even
+        // when explicit scoping is in play. AssetInstance.createdBy stores
+        // the username (set from ctx.userId = req.user.username via
+        // buildContext + instance.service.create).
+        if (username) orConditions.push({ createdBy: username });
         visibilityFilter = { OR: orConditions };
-      } else {
-        // Default deny — non-admin user with no USER/ROLE/template assignments sees nothing.
-        // Prisma emits WHERE 1=0 for `in: []`, so pagination/totals stay correct.
-        visibilityFilter = { id: { in: [] } };
       }
+      // No explicit assignments → opt-in scoping is off; ASSET_VIEW alone
+      // grants full read. visibilityFilter stays undefined.
     }
     return instanceService.list(query, visibilityFilter);
   });
@@ -151,40 +166,46 @@ export default async function instanceRoutes(app: FastifyInstance) {
       },
     },
   }, async (req) => {
-    // Inject same visibility filter for tree
+    // Visibility filter — same opt-in semantics as GET /instances above.
     const role = req.user?.role;
     const userId = req.user?.sub;
+    const username = req.user?.username;
 
     if (role === "SUPER_ADMIN" || role === "ADMIN") {
       return instanceService.getTree();
-    } else {
-      const { prisma } = await import("../../../lib/prisma.js");
-      const entityAssignments = await prisma.entityAssignment.findMany({
-        where: { OR: [
-          { assigneeType: "USER", userId },
-          { assigneeType: "ROLE", roleValue: role },
-        ]},
-        select: { entityId: true },
-        take: 10000,
-      });
-      const templateAssignments = await prisma.templateAssignment.findMany({
-        where: { OR: [
-          { assigneeType: "USER", userId },
-        ]},
-        select: { templateId: true },
-        take: 10000,
-      });
-      const eIds = entityAssignments.map((a: any) => a.entityId);
-      const tIds = templateAssignments.map((a: any) => a.templateId);
-      const orConditions: any[] = [];
-      if (eIds.length) orConditions.push({ id: { in: eIds } });
-      if (tIds.length) orConditions.push({ templateId: { in: tIds } });
-      if (orConditions.length === 0) {
-        // Default deny — non-admin user with no USER/ROLE/template assignments sees nothing.
-        return [];
-      }
-      return instanceService.getTree({ OR: orConditions });
     }
+
+    const { prisma } = await import("../../../lib/prisma.js");
+    const entityAssignments = await prisma.entityAssignment.findMany({
+      where: { OR: [
+        { assigneeType: "USER", userId },
+        { assigneeType: "ROLE", roleValue: role },
+      ]},
+      select: { entityId: true },
+      take: 10000,
+    });
+    const templateAssignments = await prisma.templateAssignment.findMany({
+      where: { OR: [
+        { assigneeType: "USER", userId },
+      ]},
+      select: { templateId: true },
+      take: 10000,
+    });
+    const eIds = entityAssignments.map((a: any) => a.entityId);
+    const tIds = templateAssignments.map((a: any) => a.templateId);
+    const hasExplicitAssignments = eIds.length > 0 || tIds.length > 0;
+
+    if (!hasExplicitAssignments) {
+      // Opt-in scoping not configured for this user → full tree, same as
+      // GET /instances above. ASSET_VIEW is the authoritative gate.
+      return instanceService.getTree();
+    }
+
+    const orConditions: any[] = [];
+    if (eIds.length) orConditions.push({ id: { in: eIds } });
+    if (tIds.length) orConditions.push({ templateId: { in: tIds } });
+    if (username) orConditions.push({ createdBy: username });
+    return instanceService.getTree({ OR: orConditions });
   });
 
   // 9. GET /instances/:id — Get single instance

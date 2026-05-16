@@ -1355,64 +1355,70 @@ export function FilterOperationsPage() {
     }
     const submitPayload = { answers, expectedProfileVersions };
 
-    // BATCH MODE: submit same answers for every filter in the snapshot
-    if (pendingBatch && pendingBatch.length > 0) {
-      const batch = pendingBatch;
-      let success = 0; const failed: string[] = [];
-      for (const item of batch) {
-        try {
-          const { executed } = await executeOrQueue('submit-checklist', item.filterId, item.filterName, submitPayload);
-          success++;
-          if (!executed) failed.push(`${item.filterName}: queued for sync`);
-        } catch (e: any) {
-          failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
-        }
-      }
-      setChecklistDialog(null);
-      setPendingBatch(null);
-      // BATCH MODE owns its own batch (`pendingBatch`); the post-advance
-      // queue should never be set here, but clear defensively to keep the
-      // two cycling paths from interfering if state ever overlaps.
-      setPostAdvanceChecklistQueue([]);
-      refreshFilters();
-      if (failed.length > 0) setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
-      else setToast({ type: 'success', message: `Checklist submitted for ${success} filter(s)` });
-      setChecklistLoading(false);
-      return;
-    }
-
-    try {
-      const { executed } = await executeOrQueue('submit-checklist', checklistDialog.filterId, checklistDialog.filterName, submitPayload);
-      // Multi-filter post-advance cycling (PHASE_5_RECENT_WORK.md § 11 fix):
-      // walk `postAdvanceChecklistQueue` for the next filter that still has
-      // a pending checklist. If none remain, the dialog closes; otherwise we
-      // re-open it pointing at the next filter. Filters whose checklist was
-      // just submitted resolve to `null` and are skipped automatically. The
-      // pre-advance BATCH MODE path (above) is unaffected — it never sets
-      // `postAdvanceChecklistQueue`.
-      let nextDialog: { filterId: string; filterName: string; checklists: PendingChecklist[] } | null = null;
-      let nextRemaining: PendingChecklistBatchItem[] = [];
-      if (postAdvanceChecklistQueue.length > 0) {
-        try {
-          const next = await findNextPendingChecklist(postAdvanceChecklistQueue, resolvePendingChecklistDialog);
-          if (next) {
-            nextDialog = {
-              filterId: next.item.filterId,
-              filterName: next.item.filterName,
-              checklists: next.checklists,
-            };
-            nextRemaining = next.remaining;
+    // SUBMIT_CHECKLIST_WITH_SIGNATURE is reauth-gated when the admin enables
+    // it in Action-Reauth config. Wrap so the password dialog appears once
+    // for the whole submission (single or batch). Mirrors mobile-operations
+    // handleChecklistSubmit. Without the wrap, the backend's enforceReauth
+    // would 401 silently when policy demands a password.
+    await reauth.execute('SUBMIT_CHECKLIST_WITH_SIGNATURE', async (password?: string) => {
+      // BATCH MODE: submit same answers for every filter in the snapshot
+      if (pendingBatch && pendingBatch.length > 0) {
+        const batch = pendingBatch;
+        let success = 0; const failed: string[] = [];
+        for (const item of batch) {
+          try {
+            const { executed } = await executeOrQueue('submit-checklist', item.filterId, item.filterName, submitPayload, undefined, password);
+            success++;
+            if (!executed) failed.push(`${item.filterName}: queued for sync`);
+          } catch (e: any) {
+            failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
           }
-        } catch { /* ignore — falls through to close dialog */ }
+        }
+        setChecklistDialog(null);
+        setPendingBatch(null);
+        // BATCH MODE owns its own batch (`pendingBatch`); the post-advance
+        // queue should never be set here, but clear defensively to keep the
+        // two cycling paths from interfering if state ever overlaps.
+        setPostAdvanceChecklistQueue([]);
+        refreshFilters();
+        if (failed.length > 0) setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
+        else setToast({ type: 'success', message: `Checklist submitted for ${success} filter(s)` });
+        return;
       }
-      setChecklistDialog(nextDialog);
-      setPostAdvanceChecklistQueue(nextRemaining);
-      setToast({ type: 'success', message: executed ? 'Checklist submitted successfully' : 'Checklist queued for sync' });
-      refreshFilters();
-    } catch (e: any) {
-      setChecklistError(e.message ?? 'Failed to submit checklist');
-      setPopupError(e.message ?? 'Failed to submit checklist');
-    }
+
+      try {
+        const { executed } = await executeOrQueue('submit-checklist', checklistDialog.filterId, checklistDialog.filterName, submitPayload, undefined, password);
+        // Multi-filter post-advance cycling (PHASE_5_RECENT_WORK.md § 11 fix):
+        // walk `postAdvanceChecklistQueue` for the next filter that still has
+        // a pending checklist. If none remain, the dialog closes; otherwise we
+        // re-open it pointing at the next filter. Filters whose checklist was
+        // just submitted resolve to `null` and are skipped automatically. The
+        // pre-advance BATCH MODE path (above) is unaffected — it never sets
+        // `postAdvanceChecklistQueue`.
+        let nextDialog: { filterId: string; filterName: string; checklists: PendingChecklist[] } | null = null;
+        let nextRemaining: PendingChecklistBatchItem[] = [];
+        if (postAdvanceChecklistQueue.length > 0) {
+          try {
+            const next = await findNextPendingChecklist(postAdvanceChecklistQueue, resolvePendingChecklistDialog);
+            if (next) {
+              nextDialog = {
+                filterId: next.item.filterId,
+                filterName: next.item.filterName,
+                checklists: next.checklists,
+              };
+              nextRemaining = next.remaining;
+            }
+          } catch { /* ignore — falls through to close dialog */ }
+        }
+        setChecklistDialog(nextDialog);
+        setPostAdvanceChecklistQueue(nextRemaining);
+        setToast({ type: 'success', message: executed ? 'Checklist submitted successfully' : 'Checklist queued for sync' });
+        refreshFilters();
+      } catch (e: any) {
+        setChecklistError(e.message ?? 'Failed to submit checklist');
+        setPopupError(e.message ?? 'Failed to submit checklist');
+      }
+    });
     setChecklistLoading(false);
   };
 

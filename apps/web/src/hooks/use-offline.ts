@@ -181,6 +181,34 @@ export function useOffline() {
           result = await onlinePost(`/api/filters/${filterId}/terminate-cycle`, onlinePayload);
           break;
       }
+
+      // Refresh the cached filter-state row with the fresh tapeVersion the
+      // server just emitted. Without this, the next cycle-bound write reads
+      // a stale tapeVersion from cache and gets rejected with 409 STALE_TAPE.
+      //
+      // advance / submit-checklist / bypass / terminate all return
+      // service.getCurrentState() (full current-state shape, includes
+      // tapeVersion). For these we can cache `result` directly.
+      //
+      // start-cycle returns just the new cycle row — no tapeVersion. After a
+      // successful start we re-fetch /current-state once so subsequent
+      // operations on the same filter see the correct (profileVersion *
+      // 1_000_000 + 1) starting point. start-and-advance already does its
+      // own /current-state fetch above.
+      try {
+        const { cacheServerStateResponse } = await import('../lib/offline-cache');
+        if (type === 'advance' || type === 'submit-checklist' || type === 'bypass' || type === 'terminate') {
+          if (result && typeof result.tapeVersion === 'number') {
+            await cacheServerStateResponse(filterId, result);
+          }
+        } else if (type === 'start-cycle' || type === 'start-and-advance') {
+          const fresh = await apiClient.get<any>(`/api/filters/${filterId}/current-state`);
+          if (fresh && typeof fresh.tapeVersion === 'number') {
+            await cacheServerStateResponse(filterId, fresh);
+          }
+        }
+      } catch { /* cache-refresh failure must not fail the operation */ }
+
       return { executed: true, result };
     } catch (e: any) {
       // Determine if this is a network error (should queue) or API error (should throw)

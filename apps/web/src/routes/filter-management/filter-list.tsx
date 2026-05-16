@@ -250,26 +250,44 @@ export function FilterListPage() {
     }
 
     setCreating(true);
-    try {
-      const attributes: Record<string, any> = {};
-      for (const field of schema) {
-        const val = createAttrs[field.fieldName] ?? '';
-        if (field.dataType === 'FLOAT' || field.dataType === 'NUMBER') {
-          attributes[field.fieldName] = val ? Number(val) : undefined;
-        } else {
-          attributes[field.fieldName] = val || undefined;
-        }
+    const attributes: Record<string, any> = {};
+    for (const field of schema) {
+      const val = createAttrs[field.fieldName] ?? '';
+      if (field.dataType === 'FLOAT' || field.dataType === 'NUMBER') {
+        attributes[field.fieldName] = val ? Number(val) : undefined;
+      } else {
+        attributes[field.fieldName] = val || undefined;
       }
+    }
 
-      const body: any = { name: createName.trim(), templateId, status: 'Active', attributes };
-      if (createDialog.parentId) body.parentId = createDialog.parentId;
+    const body: any = { name: createName.trim(), templateId, status: 'Active', attributes };
+    if (createDialog.parentId) body.parentId = createDialog.parentId;
 
-      await api.post('/api/assets/instances', body);
-      toast.success('Created', `${createDialog.type.toUpperCase()} "${createName.trim()}" created`);
-      setCreateDialog(null); setCreateName(''); setCreateAttrs({});
-      mutate('/api/assets/instances?limit=500');
-    } catch (e: any) { toast.error('Error', e?.message ?? 'Failed'); }
-    setCreating(false);
+    // Backend enforces reauth on POST /api/assets/instances with action keys
+    // CREATE_ASSET / CREATE_FILTER (instance.routes.ts). Filter creation has
+    // its own handler (handleCreateFilter) that already wraps in
+    // reauth.execute('CREATE_FILTER', …); block/area/AHU were missing the
+    // matching CREATE_ASSET wrap, so the popup never appeared and the server
+    // would 401 with REAUTH_REQUIRED.
+    await reauth.execute(
+      'CREATE_ASSET',
+      async (password?: string) => {
+        if (password) await api.postWithReauth('/api/assets/instances', body, password);
+        else await api.post('/api/assets/instances', body);
+      },
+      {
+        onSuccess: () => {
+          toast.success('Created', `${createDialog.type.toUpperCase()} "${createName.trim()}" created`);
+          setCreateDialog(null); setCreateName(''); setCreateAttrs({});
+          mutate('/api/assets/instances?limit=500');
+          setCreating(false);
+        },
+        onError: (e: any) => {
+          toast.error('Error', e?.message ?? 'Failed');
+          setCreating(false);
+        },
+      },
+    );
   };
 
   const handleDeleteBlock = async () => {

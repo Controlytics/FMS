@@ -222,4 +222,11 @@ export const userRepository = {
       select: { username: true, fullName: true, email: true, department: true },
     });
   },
+
+  async findUsersByIds(ids: string[]) {
+    return prisma.user.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, username: true, fullName: true, email: true, department: true },
+    });
+  },
 };

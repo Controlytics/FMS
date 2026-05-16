@@ -232,6 +232,12 @@ export const updateAssetInstanceSchema = z.object({
   telemetryConfig: z.record(z.unknown()).optional(),
   customAttributes: z.record(z.unknown()).optional(),
   parentId: z.string().uuid().nullable().optional(),
+  // Same FE/DB enum dance as createAssetInstanceSchema — EditFilterDialog
+  // sends 'A'/'B' and instance.service.update() translates to the
+  // Prisma `FilterSetLabel` enum (SET_A/SET_B) before upserting onto
+  // FilterDetails. Both are silently ignored for non-FILTER templates.
+  filterSet: z.enum(['A', 'B']).nullable().optional(),
+  filterProfileId: z.string().uuid().nullable().optional(),
 });
 
 export type CreateAssetInstanceInput = z.infer<typeof createAssetInstanceSchema>;

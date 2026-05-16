@@ -120,10 +120,21 @@ export const instanceService = {
         // Validation: filterSet must be 'A' or 'B' if supplied; bad values
         // return 400 from the schema validator before reaching here. If
         // filterProfileId supplied, FK constraint catches a bad UUID.
+        //
+        // FE/DB enum mismatch: the create dialog (CreateFilterDialog.tsx)
+        // and the Zod schema (`createAssetInstanceSchema`) use 'A'/'B' as
+        // the wire format, but the Prisma `FilterSetLabel` enum values are
+        // `SET_A`/`SET_B`. Bulk upload translates at parse time
+        // (bulk-upload-filter.service.ts:114-115); the single-create path
+        // was passing the raw 'A' through to Prisma, which threw
+        // `PrismaClientValidationError: Invalid value for argument
+        // filterSet. Expected FilterSetLabel.` Translate here.
+        const filterSetEnum: 'SET_A' | 'SET_B' | undefined =
+          data.filterSet === 'A' ? 'SET_A' : data.filterSet === 'B' ? 'SET_B' : undefined;
         await tx.filterDetails.create({
           data: {
             assetInstanceId: inst.id,
-            ...(data.filterSet ? { filterSet: data.filterSet } : {}),
+            ...(filterSetEnum ? { filterSet: filterSetEnum } : {}),
             ...(data.filterProfileId ? { filterProfileId: data.filterProfileId } : {}),
           },
         });
@@ -282,6 +293,29 @@ export const instanceService = {
 
       return { instance: inst, newContains: cRel, newContainedIn: ciRel };
     });
+
+    // FilterDetails write-through for the edit path. Mirrors the create
+    // path's A→SET_A / B→SET_B translation. Without this the EditFilterDialog
+    // (filter-list.tsx EditFilterDialog) would silently drop filterSet on
+    // save — operator picks Set B, hits Save, success toast, reopens dialog
+    // and sees the old value. updateAssetInstanceSchema accepts both fields;
+    // they're applied here for FILTER-kind templates only.
+    if (data.filterSet !== undefined || data.filterProfileId !== undefined) {
+      const template = await templateRepository.findById(existing.templateId);
+      const isFilterKind = (template as any)?.templateKind === 'FILTER';
+      if (isFilterKind) {
+        const patch: Record<string, unknown> = {};
+        if (data.filterSet !== undefined) {
+          patch.filterSet = data.filterSet === 'A' ? 'SET_A' : data.filterSet === 'B' ? 'SET_B' : null;
+        }
+        if (data.filterProfileId !== undefined) {
+          patch.filterProfileId = data.filterProfileId ?? null;
+        }
+        if (Object.keys(patch).length > 0) {
+          await upsertFilterDetails(id, patch as any);
+        }
+      }
+    }
 
     if (parentIdChanging) {
       if (existing.parentId) {
