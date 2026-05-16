@@ -569,18 +569,26 @@ export class FilterOperationsService {
   /**
    * Get replacement history from audit trail.
    *
-   * SUPER_ADMIN-row exclusion matches the policy enforced on `/api/audit`
-   * (list at audit/routes.ts:73 + detail at :200). This endpoint is a
-   * derived view over the same `audit_trail` table and is gated by
-   * `ASSET_READ` (per filter-operations/routes.ts:444) — without the
-   * filter, every replacement performed by a SUPER_ADMIN would leak the
-   * SUPER_ADMIN row through this view, contradicting the policy.
+   * Visibility rule (matches `/api/audit` intent but corrects the
+   * SUPER_ADMIN-hides-from-self bug):
+   *   - SUPER_ADMIN viewer → sees ALL replacements including their own.
+   *     (No row to hide from the highest privilege.)
+   *   - Lower roles → SUPER_ADMIN-performed replacements hidden, mirroring
+   *     the audit-trail leak-prevention policy (audit/routes.ts:73, :200).
+   *
+   * Bug history: until 2026-05-16 this endpoint applied the SUPER_ADMIN
+   * exclusion unconditionally, which made every SUPER_ADMIN replacement
+   * invisible to SUPER_ADMIN viewers themselves — the most common operator
+   * since `superadmin` is the default login.
    */
-  async getReplacements(_ctx: RequestContext) {
+  async getReplacements(ctx: RequestContext) {
+    const isSuperAdmin = ctx.userRole === 'SUPER_ADMIN';
     const records = await prisma.auditTrail.findMany({
       where: {
         action: 'FILTER_REPLACED',
-        OR: [{ userRole: { not: 'SUPER_ADMIN' } }, { userRole: null }],
+        ...(isSuperAdmin
+          ? {}
+          : { OR: [{ userRole: { not: 'SUPER_ADMIN' } }, { userRole: null }] }),
       },
       select: { id: true, userId: true, userName: true, timestamp: true, afterValue: true },
       orderBy: { timestamp: 'desc' },
