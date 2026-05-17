@@ -354,8 +354,9 @@ export function FilterOperationsPage() {
           ...extraBody,
         }, overrideTargetState ?? activeStage.key);
         success++;
-        // Update cached pipeline state after offline advance
-        if (!executed) await updateCachedStateAfterAdvance(item.filterId, overrideTargetState ?? activeStage.key, false);
+        // Update cached pipeline state after offline advance.
+        // Deep-review fix D3: pass blockId so the offline cycle stub records cleaningAreaId.
+        if (!executed) await updateCachedStateAfterAdvance(item.filterId, overrideTargetState ?? activeStage.key, false, blockId ?? null);
         newSubmissions.push({ stage: stageLabel + (executed ? '' : ' (queued)'), filter: item.filterName, block: blockName, time: formatTime(new Date()) });
       } catch (e: any) {
         if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
@@ -426,18 +427,25 @@ export function FilterOperationsPage() {
   // Phase 8.6 part 2: cache rewrite after a queued offline advance. Wraps
   // `recomputeAndCacheFilterState` (the lib that replaces the deleted
   // `findChecklistsAfterStage` / `buildOfflineChecklist` /
-  // `updateCachedStateAfterAdvance` helpers). Same shape as the deleted
-  // helper — every existing call site stays identical.
+  // `updateCachedStateAfterAdvance` helpers).
+  //
+  // Deep-review fix 2026-05-17 (D3): signature now matches mobile's
+  // `updateOfflineState` exactly — both pages MUST pass blockId so the
+  // shared lib stamps it onto the offline cycle stub. Pre-fix desktop
+  // hardcoded `null`, so offline operators on desktop with a selected
+  // block had cleaningAreaId missing from the cache row, leading to
+  // BLOCK_CHANGE_REQUIRED mis-fires on sync.
   const updateCachedStateAfterAdvance = async (
     filterId: string,
     newStageKey: string,
     cycleStarted?: boolean,
+    blockId?: string | null,
   ) => {
     await recomputeAndCacheFilterState(
       filterId,
       newStageKey,
       !!cycleStarted,
-      null,
+      blockId ?? selectedBlock?.id ?? null,
     );
   };
 
@@ -1128,9 +1136,10 @@ export function FilterOperationsPage() {
           }, 24 * 60 * 60 * 1000);
         } catch { /* ignore cache errors */ }
       }
-      // Update offline cache (action tape + reachable-target mirrors) per filter when queued
+      // Update offline cache (action tape + reachable-target mirrors) per filter when queued.
+      // Deep-review fix D3: blockId pulled from selectedBlock via wrapper default.
       for (const item of batch) {
-        await updateCachedStateAfterAdvance(item.filterId, 'DRY_IN', false);
+        await updateCachedStateAfterAdvance(item.filterId, 'DRY_IN', false, selectedBlock?.id ?? null);
       }
       setDryerDialog(null);
       setPendingBatch(null);
@@ -1172,9 +1181,10 @@ export function FilterOperationsPage() {
           },
         }, 24 * 60 * 60 * 1000);
       } catch { /* ignore cache errors */ }
-      // Update offline cache (action tape + reachable-target mirrors) when queued
+      // Update offline cache (action tape + reachable-target mirrors) when queued.
+      // Deep-review fix D3: pass blockId explicitly.
       if (!executed) {
-        await updateCachedStateAfterAdvance(dryerDialog.filterId, 'DRY_IN', false);
+        await updateCachedStateAfterAdvance(dryerDialog.filterId, 'DRY_IN', false, selectedBlock?.id ?? null);
       }
       setDryerDialog(null);
       setToast({ type: 'success', message: `${dryerDialog.filterName} → Dryer running (${minutes} min)${executed ? '' : ' (queued)'}` });
@@ -1228,8 +1238,9 @@ export function FilterOperationsPage() {
             executed = res.executed;
           }
           success++;
-          // Update cached state after offline operation
-          if (!executed) await updateCachedStateAfterAdvance(item.filterId, isDryerReadings ? 'DRY_IN' : stage.key, !!savedCyclePayload);
+          // Update cached state after offline operation.
+          // Deep-review fix D3: pass blockId from the equipment dialog scope.
+          if (!executed) await updateCachedStateAfterAdvance(item.filterId, isDryerReadings ? 'DRY_IN' : stage.key, !!savedCyclePayload, blockId ?? null);
           newSubs.push({ stage: stage.label + (executed ? '' : ' (queued)'), filter: item.filterName, block: blockName, time: formatTime(new Date()) });
         } catch (e: any) {
           // B7.2: equipment-dialog batch loop uses `start-and-advance` when a

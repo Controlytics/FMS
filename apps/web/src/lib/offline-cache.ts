@@ -283,19 +283,22 @@ export async function recomputeAndCacheFilterState(
       await clearOfflineCycleId(filterId);
     }
   } catch (err) {
-    // CFR-11 relevant — this recompute writes `pendingChecklist` + `actions`
-    // into the cache, which `local-context.ts` later reads to decide whether
-    // a checklist gate is open. Silent failure here can leave the gate
+    // 21 CFR-relevant — silent failure here can leave the checklist gate
     // mis-wired offline (operator could advance past a required checklist
-    // because the cache says none is pending). Surfacing via console.warn
-    // is the minimum — a follow-up should propagate to a sync-event the UI
-    // can render as a stuck-state warning. Tracked in the deep-review notes.
+    // because the cache says none is pending). Deep-review fix 2026-05-17:
+    // re-throw so callers can surface the error to the operator instead of
+    // proceeding against a corrupted cache. The error message is structured
+    // so the calling page can render a clear "offline cache recompute failed,
+    // re-scan to refresh" message.
     // eslint-disable-next-line no-console -- intentional structured log
-    console.warn(
+    console.error(
       '[offline-cache] recomputeAndCacheFilterState failed for',
       filterId,
       err instanceof Error ? err.message : String(err),
     );
+    const wrapped = err instanceof Error ? err : new Error(String(err));
+    (wrapped as Error & { code?: string }).code = 'OFFLINE_CACHE_RECOMPUTE_FAILED';
+    throw wrapped;
   }
 }
 

@@ -548,6 +548,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     setLoading(true); setError(''); setSuccess('');
     let successCount = 0;
     const failed: string[] = [];
+    // Deep-review fix D6 (2026-05-17): outer try/finally so the loading flag
+    // always clears even when REAUTH or OFFLINE_CACHE_RECOMPUTE_FAILED bubble
+    // out of the inner loop. Pre-fix a re-thrown REAUTH left loading=true
+    // and the operator's UI was stuck until refresh.
+    try {
     for (const item of scanQueue) {
       try {
         const cachedFilters = await getOfflineFilters();
@@ -598,6 +603,23 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         successCount++;
         setRecentOps(prev => [{ stage: activeStage.key, filter: item.filterName, time: formatTime(new Date()), queued: !executed }, ...prev].slice(0, 20));
       } catch (e: any) {
+        // Deep-review fix D6 (2026-05-17): REAUTH errors must NOT be swallowed
+        // into the per-filter failure list — the reauth dialog needs to stay
+        // open with the inline "Incorrect password" message and let the
+        // operator retry, instead of closing on a generic batch-failure popup.
+        // The two shapes (`.error` from REAUTH_REQUIRED / REAUTH_FAILED raw
+        // re-throws in api-client.ts:67, `.code` from the constructed-Error
+        // branch at line 104) cover both paths. Matches desktop L820-832.
+        const errCode = e?.error ?? e?.code;
+        if (errCode === 'REAUTH_FAILED' || errCode === 'REAUTH_REQUIRED') {
+          throw e;
+        }
+        // Also let offline-cache recompute failures escape so the operator
+        // sees a clear "offline state corrupted" error instead of silently
+        // proceeding against stale cache (see D3b in offline-cache.ts).
+        if (errCode === 'OFFLINE_CACHE_RECOMPUTE_FAILED') {
+          throw e;
+        }
         failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
       }
     }
@@ -633,8 +655,24 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     setScanQueue([]);
     if (successCount > 0) setSuccess(`${successCount} filter(s) → ${activeStage.label}${failed.length > 0 ? ` (${failed.length} failed)` : ''}`);
     if (failed.length > 0) setError(failed.join('\n'));
-    setLoading(false);
     if (online) mutate('/api/assets/instances?limit=500');
+    } catch (e: any) {
+      // REAUTH bubbled out of the inner loop — the reauth dialog stays open
+      // (managed by useReauth at the executeOrQueue site). Surface a clear
+      // error so the operator knows the batch was interrupted; do NOT
+      // pretend successCount items "succeeded" since the queue state is
+      // ambiguous (some items may have been advanced, others not).
+      const errCode = e?.error ?? e?.code;
+      if (errCode === 'REAUTH_REQUIRED' || errCode === 'REAUTH_FAILED') {
+        setError('Re-authentication required — please enter your password and re-submit the batch.');
+      } else if (errCode === 'OFFLINE_CACHE_RECOMPUTE_FAILED') {
+        setError(`Offline state recompute failed: ${e?.message ?? 'unknown'}. Re-scan to refresh the cache before continuing.`);
+      } else {
+        setError(e?.message ?? 'Batch submission failed');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Helper: detect network errors (fetch failures + CapacitorHttp native errors)
