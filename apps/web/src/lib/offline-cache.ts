@@ -72,6 +72,49 @@ interface CachedFilterState {
   blockChangeStatus?: string | null;
   actions?: any[] | null;
   tapeVersion?: number | null;
+  // Day 2 of D1/D2/D4 refactor (2026-05-17): explicit checklist completion log.
+  // Replaces the legacy "pendingChecklist === [] means operator submitted"
+  // implicit signal. handleChecklistSubmit appends here; the local-context
+  // loader's synthesizeEvents prefers this over the legacy pendingChecklist
+  // signal. recomputeAndCacheFilterState preserves the array across advance
+  // recomputes.
+  checklistCompletions?: ChecklistCompletion[];
+}
+
+export interface ChecklistCompletion {
+  checklistProfileId: string;
+  afterStage: string;
+  completedAt: string;
+  cycleId?: string | null;
+}
+
+/**
+ * Day 2 helper — append a completion record to the cache row, preserving
+ * any existing entries. Used by handleChecklistSubmit in both pages
+ * (which today inline the cache mutation; Days 3/4 lift the call into
+ * useFilterOperationsCore). Idempotent on (cycleId, checklistProfileId,
+ * afterStage) so re-firing on retry doesn't double-log.
+ */
+export async function appendChecklistCompletion(
+  filterId: string,
+  completion: ChecklistCompletion,
+): Promise<void> {
+  const existing = (await getCachedData<CachedFilterState>(
+    `filter-state-${filterId}`,
+  )) ?? {};
+  const existingLog = existing.checklistCompletions ?? [];
+  const alreadyLogged = existingLog.some(
+    (c) =>
+      c.checklistProfileId === completion.checklistProfileId &&
+      c.afterStage === completion.afterStage &&
+      (c.cycleId ?? null) === (completion.cycleId ?? null),
+  );
+  if (alreadyLogged) return;
+  await cacheData(
+    `filter-state-${filterId}`,
+    { ...existing, checklistCompletions: [...existingLog, completion] },
+    OFFLINE_TTL_MS,
+  );
 }
 
 /**
@@ -258,6 +301,11 @@ export async function recomputeAndCacheFilterState(
                   cleaningAreaId: blockId ?? null,
                 }
               : null)),
+      // Day 2 (D1/D2/D4 refactor): clear the completion log when a cycle
+      // completes — entries with cycleId === oldCycleId are inert against
+      // the next cycle, and clearing prevents IDB bloat over time.
+      // Otherwise spread above preserves the array across mid-cycle advances.
+      checklistCompletions: cycleComplete ? [] : (cachedState.checklistCompletions ?? []),
     };
     await cacheData(`filter-state-${filterId}`, updatedCacheRow, OFFLINE_TTL_MS);
 

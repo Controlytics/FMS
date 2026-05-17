@@ -104,6 +104,27 @@ interface CachedFilterState {
   // Phase 8.0+ tape fields, when TAPE_PARALLEL=true
   tapeVersion?: number | null;
   actions?: any[];
+  // Day 2 of D1/D2/D4 refactor (2026-05-17): explicit completion log that
+  // replaces the legacy "pendingChecklist === [] means operator submitted"
+  // implicit signal. synthesizeEvents prefers this when present; falls back
+  // to the legacy signal so existing cache rows from before this migration
+  // still work. Day 5 drops the legacy field once pages migrate off it.
+  checklistCompletions?: ChecklistCompletion[];
+}
+
+export interface ChecklistCompletion {
+  /** Which ChecklistProfile was completed. */
+  checklistProfileId: string;
+  /** The stage the cycle was on when the operator submitted the checklist.
+   *  This matches the `afterStage` attribute the synthesized
+   *  CHECKLIST_COMPLETED event carries — the executor's gate checks for any
+   *  CHECKLIST_COMPLETED with `afterStage === currentState`. */
+  afterStage: string;
+  /** ISO timestamp the operator submitted. Surfaces in synthesized events. */
+  completedAt: string;
+  /** Optional — the cycle the completion was recorded against. Used by the
+   *  executor's cycle-isolation invariant. */
+  cycleId?: string | null;
 }
 
 // ── Public entry ──────────────────────────────────────────────────────────
@@ -441,20 +462,33 @@ async function resolveChecklistProfile(
 /**
  * Reconstruct the minimal `events[]` slice the shared executor needs.
  *
- * The FE has no event stream, so we synthesize ONE class of event:
- * `CHECKLIST_COMPLETED` with `attributes.afterStage = currentState` — emitted
- * when the cached `pendingChecklist` is empty AND the profile has CHECKLIST
- * nodes after `currentState`. That combination is the offline "user just
- * submitted, cache was cleared" footprint. Without the synthesis, the
- * executor's gate would fire again after the operator already cleared it.
+ * The FE has no event stream, so we synthesize `CHECKLIST_COMPLETED` events
+ * with `attributes.afterStage = currentState` — what the executor's gate
+ * checks via `assertChecklistGatePassed`.
  *
- * Chained CHECKLIST→CHECKLIST→STAGE: one synthesized event suffices because
- * `assertChecklistGatePassed` checks for the existence of any
- * `CHECKLIST_COMPLETED` matching the current `afterStage`, not the cardinality.
+ * # Synthesis sources (priority order — Day 2 of D1/D2/D4 refactor)
+ *
+ *   1. **Explicit completion log** (`cachedState.checklistCompletions[]`) —
+ *      preferred. Each entry the operator wrote via `handleChecklistSubmit`
+ *      yields one synthesized event. This is the 21 CFR-friendly path:
+ *      "operator did X" is an explicit positive record, not the absence of
+ *      a pending gate.
+ *
+ *   2. **Legacy implicit signal** (`pendingChecklist === []`) — fallback for
+ *      cache rows written before Day 2. Empty pending + profile has
+ *      CHECKLIST nodes after current stage = "operator just submitted, cache
+ *      was cleared" footprint. Synthesizes ONE event matching current stage.
+ *
+ * Chained CHECKLIST→CHECKLIST→STAGE: one synthesized event per afterStage
+ * suffices because the executor's gate checks for existence, not cardinality.
  *
  * Other event types (STATE_TRANSITION, CYCLE_STARTED, etc.) are NOT consumed
- * by guards that the FE invokes today — `filter.currentLifecycleState` is the
- * source of truth instead, and is updated via `updateFilterStateLocally()`.
+ * by guards that the FE invokes today — `filter.currentLifecycleState` is
+ * the source of truth instead, and is updated via `updateFilterStateLocally()`.
+ *
+ * Day 5 drops the legacy fallback once pages no longer write
+ * `pendingChecklist=[]` (i.e. once `mobile-operations.tsx` and
+ * `filter-operations.tsx` consume the `useFilterOperationsCore()` hook).
  */
 function synthesizeEvents(
   cachedState: CachedFilterState | null,
@@ -463,6 +497,32 @@ function synthesizeEvents(
   const currentState = cachedState?.currentState ?? null;
   if (!currentState) return [];
 
+  // Tier 1: explicit completion log (preferred, 21 CFR-friendly).
+  // Emit one synthesized event per logged completion. The executor's gate
+  // checks `attributes.afterStage === currentState`, so we filter by that.
+  const completions = cachedState?.checklistCompletions ?? [];
+  const matchingCompletions = completions.filter(
+    (c) => c.afterStage === currentState,
+  );
+  if (matchingCompletions.length > 0) {
+    return matchingCompletions.map((c, i) => ({
+      id: `synth-checklist-completed-${currentState}-${c.checklistProfileId}-${i}`,
+      cycleId: c.cycleId ?? cachedState?.currentCycle?.id ?? null,
+      eventType: 'CHECKLIST_COMPLETED',
+      fromState: null,
+      toState: null,
+      performedAt: new Date(c.completedAt),
+      attributes: {
+        afterStage: currentState,
+        checklistProfileId: c.checklistProfileId,
+        synthesizedByLoader: true,
+        source: 'completion-log',
+      },
+    }));
+  }
+
+  // Tier 2: legacy implicit signal — kept for cache rows from before Day 2.
+  // Will be removed in Day 5 once `pendingChecklist=[]` writes stop.
   const pending = cachedState?.pendingChecklist ?? [];
   if (pending.length > 0) return [];
 
@@ -490,7 +550,11 @@ function synthesizeEvents(
       fromState: null,
       toState: null,
       performedAt: new Date(0),
-      attributes: { afterStage: currentState, synthesizedByLoader: true },
+      attributes: {
+        afterStage: currentState,
+        synthesizedByLoader: true,
+        source: 'legacy-pending-signal',
+      },
     },
   ];
 }
