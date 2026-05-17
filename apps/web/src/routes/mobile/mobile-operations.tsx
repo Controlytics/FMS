@@ -32,6 +32,13 @@ import {
   projectDryerCountdown,
 } from '@/lib/filter-ops';
 import type { PendingChecklistBatchItem } from '@/lib/filter-ops';
+// Day 3a (D1/D2/D4 refactor, 2026-05-17) — shadow-wire the typed dialog
+// state machine. The hook runs in parallel with the existing useState
+// dialogs; observer useEffects below dispatch every existing setXxxDialog
+// change to the hook's reducer, surfacing illegal transitions as console
+// warnings. ZERO behavior change today — Days 3b–3f progressively move
+// the source of truth from useState onto the hook.
+import { useFilterOperationsCore } from '@/lib/filter-ops/use-core';
 
 import { CLEANING_STAGES_MOBILE as STAGES } from '@/lib/filter-constants';
 
@@ -146,6 +153,93 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       focusScanInput();
     }
   }, [view, reasonDialog, equipDialog, checklistDialog, dryerDialog, blockChangeDialog, success]);
+
+  // ─── Day 3a — typed dialog state machine (SHADOW mode) ───────────────────
+  // Mirror every existing setXxxDialog transition into the hook's reducer.
+  // The reducer rejects illegal transitions (D4 invariant); during shadow
+  // mode we catch + log so the existing imperative code keeps working but
+  // any pre-existing race surfaces in dev logs. Days 3b–3f progressively
+  // delete the imperative setters and the hook becomes authoritative.
+  const filterOpsCore = useFilterOperationsCore();
+  useEffect(() => {
+    // Determine the "intended" dialog from the imperative useState values.
+    // Priority matches the existing dialog z-order: blockChange > checklist >
+    // equipment > dryer > reason. Only one is normally non-null at a time.
+    const safeDispatch = (action: Parameters<typeof filterOpsCore.dispatch>[0]) => {
+      try {
+        filterOpsCore.dispatch(action);
+      } catch (err) {
+        // Illegal transition — pre-existing imperative-state race the
+        // typed reducer catches. Logged for the Day 3b+ migration to
+        // address. DO NOT throw — shadow mode must not change behavior.
+        // eslint-disable-next-line no-console
+        console.warn('[D3a shadow] illegal dialog transition:', (err as Error).message);
+      }
+    };
+
+    if (blockChangeDialog) {
+      if (filterOpsCore.dialogState.kind !== 'awaiting_block_change') {
+        safeDispatch({ type: 'close' });
+        safeDispatch({
+          type: 'open_block_change',
+          filterId: blockChangeDialog.filterId,
+          filterName: blockChangeDialog.filterName,
+          homeBlockId: blockChangeDialog.homeBlockId,
+          homeBlockName: blockChangeDialog.homeBlockName,
+          requestedBlockId: blockChangeDialog.requestedBlockId,
+          requestedBlockName: blockChangeDialog.requestedBlockName,
+        });
+      }
+    } else if (checklistDialog) {
+      if (filterOpsCore.dialogState.kind !== 'awaiting_checklist') {
+        safeDispatch({ type: 'close' });
+        safeDispatch({
+          type: 'open_checklist',
+          filterId: checklistDialog.filterId,
+          filterName: checklistDialog.filterName,
+          checklists: checklistDialog.checklists,
+          remainingBatch: pendingChecklistBatch,
+        });
+      }
+    } else if (equipDialog) {
+      if (filterOpsCore.dialogState.kind !== 'awaiting_equipment') {
+        safeDispatch({ type: 'close' });
+        safeDispatch({
+          type: 'open_equipment',
+          filterId: equipDialog.filterId,
+          filterName: equipDialog.filterName,
+          stage: equipDialog.stage,
+          groups: equipDialog.groups,
+          cycleGroup: equipDialog.cycleGroup,
+        });
+      }
+    } else if (dryerDialog) {
+      if (filterOpsCore.dialogState.kind !== 'awaiting_dryer') {
+        safeDispatch({ type: 'close' });
+        safeDispatch({
+          type: 'open_dryer',
+          filterId: dryerDialog.filterId,
+          filterName: dryerDialog.filterName,
+        });
+      }
+    } else if (reasonDialog) {
+      if (filterOpsCore.dialogState.kind !== 'awaiting_reason') {
+        safeDispatch({ type: 'close' });
+        safeDispatch({
+          type: 'open_reason',
+          filterId: reasonDialog.filterId,
+          filterName: reasonDialog.filterName,
+          stage: reasonDialog.stage,
+        });
+      }
+    } else if (filterOpsCore.dialogState.kind !== 'none') {
+      safeDispatch({ type: 'close' });
+    }
+    // Intentionally not depending on filterOpsCore.dialogState — this
+    // effect is a UNIDIRECTIONAL shadow from useState → hook. The reverse
+    // direction comes in Day 3b+ when handlers dispatch directly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockChangeDialog, checklistDialog, equipDialog, dryerDialog, reasonDialog, pendingChecklistBatch]);
 
   // Native SDK-mode RFID bridge. When the reader is in answer/SDK mode the OS
   // does NOT inject keystrokes — Reader_Usb.jar reads tags directly via USB
