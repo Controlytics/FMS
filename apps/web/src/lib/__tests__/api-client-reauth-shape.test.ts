@@ -20,7 +20,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 const mockFetch = vi.fn();
 const originalFetch = globalThis.fetch;
 
-vi.mock('../themes', () => ({}), { virtual: true });
+vi.mock('../themes', () => ({}));
 
 beforeEach(() => {
   vi.clearAllMocks();
