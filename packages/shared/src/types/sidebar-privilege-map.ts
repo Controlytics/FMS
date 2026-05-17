@@ -63,20 +63,6 @@ export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
     privilegeIds: ["audit.view", "audit.export"],
   },
   {
-    sidebarId: "rule-chains",
-    label: "Rule Chains",
-    icon: "\u{1F517}",
-    description: "Rule chain automation",
-    privilegeIds: ["rulechains.view", "rulechains.create", "rulechains.edit", "rulechains.delete"],
-  },
-  {
-    sidebarId: "alarms",
-    label: "Alarms",
-    icon: "\u{1F6A8}",
-    description: "Alarm management",
-    privilegeIds: ["alarms.view", "alarms.acknowledge", "alarms.clear"],
-  },
-  {
     sidebarId: "system-health",
     label: "System Health",
     icon: "\u{1F4CA}",

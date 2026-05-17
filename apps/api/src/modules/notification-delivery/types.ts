@@ -70,9 +70,7 @@ export interface NotificationPayload {
   message: string;             // plain text or HTML
   templateId?: string;         // optional template reference
   variables?: Record<string, string>;  // template variables
-  triggeredBy?: string;        // rule-chain, alarm, system, manual
-  ruleChainId?: string;
-  alarmId?: string;
+  triggeredBy?: string;        // system, manual, notification-rule
   metadata?: Record<string, unknown>;
 }
 

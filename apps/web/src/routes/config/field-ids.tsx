@@ -21,7 +21,7 @@ interface FieldConfig {
 const MODULE_COLORS: Record<string, { from: string; to: string; text: string; bg: string }> = {
   'User Management': { from: 'from-blue-500', to: 'to-indigo-600', text: 'text-blue-700', bg: 'bg-blue-50' },
   'Audit Trail': { from: 'from-indigo-500', to: 'to-purple-600', text: 'text-indigo-700', bg: 'bg-indigo-50' },
-  'Alarms': { from: 'from-red-500', to: 'to-orange-600', text: 'text-red-700', bg: 'bg-red-50' },
+  // 'Alarms' module removed 2026-05-17 (alarm subsystem retired; FLD_ALARM_001..011 seed rows dropped).
   'Asset Management': { from: 'from-emerald-500', to: 'to-teal-600', text: 'text-emerald-700', bg: 'bg-emerald-50' },
   'Notifications': { from: 'from-amber-500', to: 'to-orange-600', text: 'text-amber-700', bg: 'bg-amber-50' },
   'Telemetry': { from: 'from-cyan-500', to: 'to-blue-600', text: 'text-cyan-700', bg: 'bg-cyan-50' },
@@ -31,7 +31,7 @@ const MODULE_COLORS: Record<string, { from: string; to: string; text: string; bg
 const MODULE_ICONS: Record<string, string> = {
   'User Management': 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z',
   'Audit Trail': 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
-  'Alarms': 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9',
+  // 'Alarms' module icon removed 2026-05-17 (alarm subsystem retired).
   'Asset Management': 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10',
   'Notifications': 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z',
   'Telemetry': 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',

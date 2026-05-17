@@ -46,7 +46,6 @@ export const templateRepository = {
     expectedIdentifiers?: any;
     expectedRelationships?: any;
     statusLifecycle?: any;
-    alarmRules?: any;
     checklistSchema?: any;
     maxParentConnections?: number;
     maxConnections?: number;
@@ -56,7 +55,6 @@ export const templateRepository = {
     inactivityTimeout?: number;
     defaultMaxDataRate?: number;
     autoProvision?: boolean;
-    defaultRuleChainId?: string | null;
     createdBy: string;
   }) {
     return prisma.assetTemplate.create({
@@ -72,7 +70,6 @@ export const templateRepository = {
         expectedIdentifiers: data.expectedIdentifiers as any,
         expectedRelationships: data.expectedRelationships as any,
         statusLifecycle: data.statusLifecycle as any,
-        alarmRules: data.alarmRules as any,
         checklistSchema: data.checklistSchema as any,
         maxParentConnections: data.maxParentConnections ?? 1,
         maxConnections: data.maxConnections ?? 10,
@@ -82,7 +79,6 @@ export const templateRepository = {
         inactivityTimeout: data.inactivityTimeout ?? 60,
         defaultMaxDataRate: data.defaultMaxDataRate ?? 600,
         autoProvision: data.autoProvision ?? true,
-        defaultRuleChainId: data.defaultRuleChainId,
         createdBy: data.createdBy,
       },
     });

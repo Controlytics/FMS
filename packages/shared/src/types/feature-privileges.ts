@@ -51,17 +51,6 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'dashboard.manage', label: 'Manage Dashboards', category: 'Dashboards', icon: 'settings' },
   { id: 'dashboard.assign', label: 'Assign Dashboards', category: 'Dashboards', icon: 'link' },
 
-  // Rule Chains
-  { id: 'rulechains.view', label: 'View Rule Chains', category: 'Rule Chains', icon: 'eye' },
-  { id: 'rulechains.create', label: 'Create Rule Chains', category: 'Rule Chains', icon: 'workflow' },
-  { id: 'rulechains.edit', label: 'Edit Rule Chains', category: 'Rule Chains', icon: 'workflow' },
-  { id: 'rulechains.delete', label: 'Delete Rule Chains', category: 'Rule Chains', icon: 'workflow' },
-
-  // Alarms
-  { id: 'alarms.view', label: 'View Alarms', category: 'Alarms', icon: 'alert-triangle' },
-  { id: 'alarms.acknowledge', label: 'Acknowledge Alarms', category: 'Alarms', icon: 'check-circle' },
-  { id: 'alarms.clear', label: 'Clear Alarms', category: 'Alarms', icon: 'bell-ring' },
-
   // Checklists
   { id: 'checklists.submit', label: 'Submit Checklists', category: 'Checklists', icon: 'clipboard-check' },
   { id: 'checklists.create', label: 'Create Checklist Profiles', category: 'Checklist Page Controls', icon: 'plus' },
@@ -224,17 +213,6 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'dashboard.create': ['DASHBOARD_CREATE', 'DASHBOARD_VIEW'],
   'dashboard.manage': ['DASHBOARD_MANAGE', 'DASHBOARD_VIEW'],
   'dashboard.assign': ['DASHBOARD_ASSIGN', 'DASHBOARD_VIEW'],
-
-  // Rule Chains
-  'rulechains.view': ['RULE_CHAIN_VIEW'],
-  'rulechains.create': ['RULE_CHAIN_CREATE'],
-  'rulechains.edit': ['RULE_CHAIN_UPDATE'],
-  'rulechains.delete': ['RULE_CHAIN_DELETE'],
-
-  // Alarms
-  'alarms.view': ['ALARM_VIEW', 'ASSET_VIEW'],
-  'alarms.acknowledge': ['ALARM_ACKNOWLEDGE'],
-  'alarms.clear': ['ALARM_CLEAR'],
 
   // Checklists
   'checklists.submit': ['CHECKLIST_SUBMIT'],

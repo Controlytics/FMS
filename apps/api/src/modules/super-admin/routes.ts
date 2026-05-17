@@ -370,32 +370,6 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
-  // ─── Alarms ───────────────────────────────────────────
-  app.get('/data/alarms', { preHandler: dataPreHandler, schema: dataSchema('List alarms') }, async (req) => {
-    return paginatedList(prisma.alarm, req.query, { createdAt: 'desc' });
-  });
-
-  app.put('/data/alarms/:id', { preHandler: dataPreHandler, schema: { ...dataSchema('Edit alarm'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', additionalProperties: true } } }, async (req, reply) => {
-    const { id } = req.params as any;
-    const body = req.body as any;
-    const existing = await prisma.alarm.findUnique({ where: { id } });
-    if (!existing) return reply.code(404).send({ error: 'NOT_FOUND' });
-    const data: any = {};
-    for (const f of ['severity', 'status', 'message', 'alarmType', 'entityId', 'acknowledgedBy', 'clearedBy']) {
-      if (body[f] !== undefined) data[f] = body[f];
-    }
-    for (const f of ['createdAt', 'acknowledgedAt', 'clearedAt']) {
-      if (body[f] !== undefined) data[f] = body[f] ? new Date(body[f]) : null;
-    }
-    return prisma.alarm.update({ where: { id }, data });
-  });
-
-  app.delete('/data/alarms/:id', { preHandler: dataPreHandler, schema: { ...dataSchema('Delete alarm'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req) => {
-    const { id } = req.params as any;
-    await prisma.alarm.delete({ where: { id } }).catch(() => null);
-    return { success: true };
-  });
-
   // ─── Notifications ────────────────────────────────────
   app.get('/data/notifications', { preHandler: dataPreHandler, schema: dataSchema('List notifications') }, async (req) => {
     return paginatedList(prisma.notification, req.query, { createdAt: 'desc' });

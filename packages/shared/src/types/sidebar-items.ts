@@ -19,8 +19,6 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'notifications', label: 'Notifications', icon: '\u{1F514}', description: 'Notification center' },
   { id: 'audit', label: 'Audit Trail', icon: '\u{1F4DD}', description: 'Activity logs' },
   { id: 'system-health', label: 'System Health', icon: '\u{1F4CA}', description: 'Server and system metrics' },
-  { id: 'rule-chains', label: 'Rule Chains', icon: '\u{1F517}', description: 'Data processing rule chains' },
-  { id: 'alarms', label: 'Alarms', icon: '\u{1F6A8}', description: 'Alarm monitoring dashboard' },
   { id: 'debug-traces', label: 'Debug Traces', icon: '\u{1F50D}', description: 'Pipeline debug trace viewer' },
   { id: 'filter-list', label: 'Filters', icon: '\u{1F50D}', description: 'Filter inventory by block' },
   { id: 'filter-retirements', label: 'Retirement List', icon: '\u{1F6AB}', description: 'Retired filter inventory' },

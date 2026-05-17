@@ -65,7 +65,7 @@ describe('templateService', () => {
       const template = {
         id: 't1', name: 'Pump', description: 'A pump', version: 1,
         attributeSchema: [], telemetrySchema: [], expectedIdentifiers: [],
-        expectedRelationships: [], statusLifecycle: null, alarmRules: [],
+        expectedRelationships: [], statusLifecycle: null,
         checklistSchema: [], maxParentConnections: 1, maxConnections: 10,
       };
       mockTemplateRepo.create.mockResolvedValue(template);
@@ -88,7 +88,7 @@ describe('templateService', () => {
       const existing = {
         id: 't1', name: 'Pump', version: 2, description: 'Old',
         attributeSchema: [], telemetrySchema: [], expectedIdentifiers: [],
-        expectedRelationships: [], statusLifecycle: null, alarmRules: [],
+        expectedRelationships: [], statusLifecycle: null,
         checklistSchema: [], maxParentConnections: 1, maxConnections: 10,
       };
       mockTemplateRepo.findById.mockResolvedValue(existing);

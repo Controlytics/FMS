@@ -246,97 +246,7 @@ export default async function exportRoutes(app: FastifyInstance) {
     return mergedRows;
   });
 
-  // 3. GET /alarms — Export alarms
-  app.get('/alarms', {
-    preHandler: [app.requirePermission('ASSET_VIEW')],
-    schema: {
-      tags: ['Export'],
-      summary: 'Export alarms',
-      description: 'Export alarms as CSV or JSON with optional filters for status, severity, entityId, and date range.',
-      querystring: {
-        type: 'object',
-        required: ['from', 'to'],
-        properties: {
-          from: { type: 'string', format: 'date-time', description: 'Start date (ISO 8601)' },
-          to: { type: 'string', format: 'date-time', description: 'End date (ISO 8601)' },
-          format: { type: 'string', enum: ['csv', 'json'], default: 'csv', description: 'Export format' },
-          status: { type: 'string', enum: ['ACTIVE', 'ACKNOWLEDGED', 'CLEARED'], description: 'Filter by alarm status' },
-          severity: { type: 'string', enum: ['CRITICAL', 'MAJOR', 'MINOR', 'WARNING', 'INFO'], description: 'Filter by severity' },
-          entityId: { type: 'string', format: 'uuid', description: 'Filter by entity ID' },
-        },
-      },
-      response: {
-        200: {
-          description: 'CSV file stream or JSON array',
-          type: 'array',
-          items: { type: 'object', additionalProperties: true },
-        },
-        ...errorResponses,
-      },
-    },
-  }, async (req, reply) => {
-    const query = req.query as {
-      from: string;
-      to: string;
-      format?: string;
-      status?: string;
-      severity?: string;
-      entityId?: string;
-    };
-
-    const format = query.format ?? 'csv';
-    const maxRangeDays = await getConfigOrDefault<number>('export.max_range_days', 90);
-    const maxRows = Math.min(
-      await getConfigOrDefault<number>('export.max_rows', 100000),
-      100000 // Hard cap regardless of config
-    );
-
-    const rangeCheck = validateDateRange(query.from, query.to, maxRangeDays);
-    if (!rangeCheck.valid) {
-      return reply.code(400).send({ error: 'INVALID_DATE_RANGE', message: rangeCheck.error });
-    }
-
-    const fromDate = new Date(query.from);
-    const toDate = new Date(query.to);
-
-    const where: Record<string, unknown> = {
-      createdAt: { gte: fromDate, lt: toDate },
-    };
-
-    if (query.status) {
-      where.status = query.status;
-    }
-    if (query.severity) {
-      where.severity = query.severity;
-    }
-    if (query.entityId) {
-      where.entityId = query.entityId;
-    }
-
-    const alarms = await prisma.alarm.findMany({
-      where,
-      orderBy: { createdAt: 'asc' },
-      take: maxRows + 1,
-    });
-
-    const truncated = alarms.length > maxRows;
-    const outputRows = truncated ? alarms.slice(0, maxRows) : alarms;
-
-    if (truncated) {
-      reply.header('X-DigiLog-Truncated', 'true');
-    }
-
-    if (format === 'csv') {
-      const csvString = toCsv(outputRows as unknown as Record<string, unknown>[]);
-      reply.header('Content-Type', 'text/csv');
-      reply.header('Content-Disposition', `attachment; filename="alarms-${Date.now()}.csv"`);
-      return reply.send(csvString);
-    }
-
-    return outputRows;
-  });
-
-  // 4. GET /attributes/:entityId — Export attribute history
+  // 3. GET /attributes/:entityId — Export attribute history
   app.get('/attributes/:entityId', {
     preHandler: [app.requirePermission('ASSET_VIEW')],
     schema: {
@@ -426,7 +336,7 @@ export default async function exportRoutes(app: FastifyInstance) {
     return outputRows;
   });
 
-  // 5. GET /status/:jobId — Check async export job status (stub)
+  // 4. GET /status/:jobId — Check async export job status (stub)
   app.get('/status/:jobId', {
     preHandler: [app.requirePermission('ASSET_VIEW')],
     schema: {

@@ -273,7 +273,7 @@ function RulesTab() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Rule Name *</label>
-            <Input value={editing.name ?? ''} onChange={e => setEditing({ ...editing, name: e.target.value })} placeholder="e.g. Critical Alarm Alert" />
+            <Input value={editing.name ?? ''} onChange={e => setEditing({ ...editing, name: e.target.value })} placeholder="e.g. Cycle Completion Alert" />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Event Types *</label>
@@ -695,7 +695,7 @@ function TemplatesTab() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Template Name *</label>
-            <Input value={editing.name ?? ''} onChange={e => setEditing({ ...editing, name: e.target.value })} placeholder="e.g. Critical Alarm Email" />
+            <Input value={editing.name ?? ''} onChange={e => setEditing({ ...editing, name: e.target.value })} placeholder="e.g. Cycle Completion Email" />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Channel *</label>
@@ -709,7 +709,7 @@ function TemplatesTab() {
         {editing.channel === 'EMAIL' && (
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Subject</label>
-            <Input value={editing.subject ?? ''} onChange={e => setEditing({ ...editing, subject: e.target.value })} placeholder="[DigiLog] Alarm: ${alarmType}" />
+            <Input value={editing.subject ?? ''} onChange={e => setEditing({ ...editing, subject: e.target.value })} placeholder="[DigiLog] Cycle ${eventType} on ${entityName}" />
           </div>
         )}
 
@@ -720,7 +720,7 @@ function TemplatesTab() {
             onChange={e => setEditing({ ...editing, bodyTemplate: e.target.value })}
             rows={8}
             className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
-            placeholder={editing.channel === 'EMAIL' ? '<h2>Alarm: ${alarmType}</h2>\n<p>Severity: ${severity}</p>' : 'DigiLog Alert: ${alarmType} on ${entityName}'}
+            placeholder={editing.channel === 'EMAIL' ? '<h2>${eventType}</h2>\n<p>Filter: ${entityName}</p>' : 'DigiLog Alert: ${eventType} on ${entityName}'}
           />
         </div>
 

@@ -42,7 +42,6 @@ describe('ingestion.worker', () => {
         messageType: 'POST_TELEMETRY',
         data: { temperature: 22.5 },
         metadata: {},
-        ruleChainId: 'rc-1',
         traceId: 'trace-1',
       };
     }

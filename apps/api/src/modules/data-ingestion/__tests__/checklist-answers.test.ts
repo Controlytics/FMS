@@ -13,7 +13,6 @@ const { mockPrisma, mockTsdbPool } = vi.hoisted(() => ({
     assetInstance: { findUnique: vi.fn(), update: vi.fn() },
     dataStream: { upsert: vi.fn() },
     checklistReview: { create: vi.fn() },
-    alarm: { create: vi.fn() },
   },
   mockTsdbPool: { query: vi.fn() },
 }));
@@ -43,7 +42,6 @@ const makeChecklistMsg = (data: Record<string, any>, overrides: Record<string, a
   messageType: 'POST_CHECKLIST' as const,
   data,
   metadata: {},
-  ruleChainId: '',
   traceId: 'trace-cl-1',
   ...overrides,
 });

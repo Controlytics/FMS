@@ -173,7 +173,7 @@ export async function handleMqttMessage(topic: string, payload: Buffer): Promise
 
   const entity = await prisma.assetInstance.findUnique({
     where: { id: unsMapping.entityId },
-    include: { template: { select: { id: true, name: true, defaultRuleChainId: true } } },
+    include: { template: { select: { id: true, name: true } } },
   });
 
   if (!entity || !entity.isActive) {
@@ -198,7 +198,6 @@ export async function handleMqttMessage(topic: string, payload: Buffer): Promise
     sourceIp: '',
     messageType,
     rawPayload,
-    ruleChainId: entity.template.defaultRuleChainId,
   });
 
   // Enqueue to graphile-worker ingestion queue
@@ -255,7 +254,7 @@ async function handleLwtMessage(unsPath: string, data: Record<string, unknown>):
   // Enqueue as a connectivity event
   const entity = await prisma.assetInstance.findUnique({
     where: { id: unsMapping.entityId },
-    include: { template: { select: { id: true, name: true, defaultRuleChainId: true } } },
+    include: { template: { select: { id: true, name: true } } },
   });
 
   if (!entity) return;
@@ -277,7 +276,6 @@ async function handleLwtMessage(unsPath: string, data: Record<string, unknown>):
     messageType: 'CONNECTIVITY_EVENT',
     data: { event: 'DISCONNECTED', ...data },
     metadata: {},
-    ruleChainId: entity.template.defaultRuleChainId ?? '',
     traceId: randomUUID(),
   };
 

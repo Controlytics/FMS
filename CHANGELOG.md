@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] — Rule chain + alarm tear-out (2026-05-17)
+
+Branch: `RFID`. Single-bundle commit covering 8 phases. Plan: `tasks/REMOVE-RULECHAIN-ALARM-PLAN.md`. Pre-removal git tag: `pre-rulechain-alarm-drop`. Test counts: api **1080 / 22 / 8** (matches baseline 1233/22/8 minus ~153 deleted rule-chain/alarm test cases — zero new failures). Web build clean (12.78s).
+
+### Scope removed
+- **5 Prisma models**: `RuleChain`, `RuleChainVersion`, `RuleNode`, `RuleNodeConnection`, `Alarm` — dropped via `prisma/migrations/20260517100000_remove_rule_chain_and_alarms/migration.sql`
+- **3 columns on retained tables**: `asset_templates.{default_rule_chain_id, alarm_rules}`, `notification_logs.{rule_chain_id, alarm_id}`
+- **API source**: whole `apps/api/src/modules/rule-chain/` dir (22 files: engine, 77 node types across 8 categories, default-chain-builder, debug-recorder, routes, types, registry, tests); `queries/alarm.routes.ts`; `config/static-routes/alarm-columns.routes.ts`; `config/defs/alarm-columns.def.ts`; `e2e/rule-chains.test.ts`
+- **Web source**: whole `apps/web/src/routes/rule-chains/` (12 files: visual editor, palette, node config, dialogs); `routes/alarms/index.tsx`; `routes/config/alarm-columns.tsx`
+- **Shared package**: 7 permissions (`RULE_CHAIN_*` × 4, `ALARM_*` × 3), 7 feature privileges, 5 reauth actions (`ACKNOWLEDGE_ALARM`, `CLEAR_ALARM`, `CREATE/UPDATE/DELETE_RULE_CHAIN`), 2 sidebar items, both `FEATURE_TO_PERMISSION_MAP` blocks, both REAUTH categories, `types/alarm-columns.ts`, `ALARM_RULE_TYPES`/`ALARM_SEVERITIES` constants, `alarmRules` schema field
+- **Cross-module surgery**: data-ingestion Stages 7 + 8 (rule-chain execution + alarm dispatch) + `evaluateTemplateAlarmRules` + `createAlarm`; DLQ overflow alarm branch; notification-dispatcher event labels/fields/templates for `RULE_CHAIN_TRIGGERED` + `ALARM_*`; `buildAlarmVariables` / `buildRuleChainVariables` in template-engine; `ruleChainId`/`alarmId` from `NotificationPayload`; `defaultRuleChainId` from MQTT handler + asset-template service/repo/routes; `alarms` from queries export + retention + UNS topic suffix; `alarm_table` from dashboard widgets; super-admin alarm CRUD; deployment-check schema-health probe; `notification.worker.ts` collapsed to no-op drain
+- **Seed**: 6 role permission arrays (SUPER_ADMIN through VIEWER), 11 alarm `FLD_ALARM_*` field-IDs, 5 `rule_engine.*` config rows, `pipeline.dlq_alarm_threshold`, 7 help articles
+- **Runtime DB rows** (`scripts/remove-rulechain-alarm-runtime-cleanup.sql`): 3 stale `roles.permissions` JSONB arrays, 1 stale `role_configs.sidebar_items`, 1 orphan `system_config.alarm-columns` row
+- **Queue package**: `JOB_PRIORITY.ALARM_PROCESSING` constant; `notificationJobSchema.alarmId`; `'alarms'` from `exportJobSchema.exportType` enum
+
+### Retained (21 CFR §11 contract)
+- `packages/shared/src/types/audit-actions.ts`: `ALARM_CREATED/ACKNOWLEDGED/CLEARED/ESCALATED`, `RULE_CHAIN_CREATED/UPDATED/DELETED/SET_ROOT/IMPORTED` — marked "no longer emitted as of 2026-05-17", kept for historic-row rendering and inspector reference
+- `packages/shared/src/types/audit-templates.ts`: matching template strings
+- `audit_trail` rows referencing deleted UUIDs (4 historic rows in JSON details) — hash chain unbroken; UUIDs become orphan references per user "hard delete" decision
+- `notification_logs.triggeredBy` historic strings (`'alarm'`, `'rule-chain'`) — column is VARCHAR not enum; no decoder breaks
+
+### Out of scope (filter cleaning-cycle pipeline)
+The cleaning-cycle pipeline (`cleaning-profiles/`, `filter-operations/`) is an independent node-based system (STAGE / CHECKLIST nodes via ReactFlow). Zero refs to RuleChain. Unaffected by this tear-out.
+
 ## [Unreleased] — P0 compliance branch close (2026-05-04)
 
 Branch: `fix/p0-compliance-2026-05-04` — 12 commits closing 8 of 9 P0 audit findings from `tasks/CODE-REVIEW-2026-05-04-summary.md` plus follow-up cleanup. Test counts: api **1277 / 0 failed / 8 skipped** (was 1249), web **104 / 104**.

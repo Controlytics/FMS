@@ -273,7 +273,7 @@ export function UnsConfigPage() {
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               <span className="text-[10px] text-slate-500">Topic suffixes:</span>
-              {['/telemetry', '/attributes', '/rpc', '/events', '/alarms', '/binary'].map(s => (
+              {['/telemetry', '/attributes', '/rpc', '/events', '/binary'].map(s => (
                 <span key={s} className="px-2 py-0.5 text-[10px] font-mono bg-teal-50 text-teal-700 border border-teal-200 rounded-full">{s}</span>
               ))}
             </div>

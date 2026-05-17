@@ -26,31 +26,26 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
 
   // Build eventLabel, summary, and dynamic details HTML based on event type
   const EVENT_LABELS: Record<string, string> = {
-    ALARM_CREATED: 'Alarm Created', ALARM_ACKNOWLEDGED: 'Alarm Acknowledged', ALARM_CLEARED: 'Alarm Cleared',
     DEVICE_ONLINE: 'Device Online', DEVICE_OFFLINE: 'Device Offline', DEVICE_INACTIVITY: 'Device Inactive',
     USER_LOGIN: 'User Login', USER_CREATED: 'User Created', USER_LOCKED: 'User Locked',
-    RULE_CHAIN_TRIGGERED: 'Rule Chain Triggered', CHECKLIST_SUBMITTED: 'Checklist Submitted',
+    CHECKLIST_SUBMITTED: 'Checklist Submitted',
     CHECKLIST_APPROVED: 'Checklist Approved', CHECKLIST_REJECTED: 'Checklist Rejected', SYSTEM_ERROR: 'System Error',
   };
   // Which fields to show per event type (label -> variable key)
   const EVENT_FIELDS: Record<string, [string, string][]> = {
-    ALARM_CREATED: [['Alarm Type','alarmType'],['Severity','severity'],['Entity','entityName'],['UNS Path','unsPath'],['Trigger Condition','triggerCondition'],['Trigger Details','triggerDetails'],['Alarm ID','alarmId'],['Time','timestamp']],
-    ALARM_ACKNOWLEDGED: [['Alarm Type','alarmType'],['Severity','severity'],['Entity','entityName'],['Acknowledged By','acknowledgedBy'],['Remarks','remarks'],['Alarm ID','alarmId'],['Time','timestamp']],
-    ALARM_CLEARED: [['Alarm Type','alarmType'],['Severity','severity'],['Entity','entityName'],['Cleared By','clearedBy'],['Remarks','remarks'],['Alarm ID','alarmId'],['Time','timestamp']],
     DEVICE_ONLINE: [['Device','deviceName'],['UNS Path','unsPath'],['Protocol','protocol'],['Source IP','sourceIp'],['Time','timestamp']],
     DEVICE_OFFLINE: [['Device','deviceName'],['UNS Path','unsPath'],['Time','timestamp']],
     DEVICE_INACTIVITY: [['Device','deviceName'],['UNS Path','unsPath'],['Inactive Since','inactiveSince'],['Timeout (sec)','timeoutSeconds'],['Time','timestamp']],
     USER_LOGIN: [['Username','username'],['Full Name','fullName'],['Role','role'],['IP Address','ipAddress'],['Time','timestamp']],
     USER_CREATED: [['Username','username'],['Full Name','fullName'],['Email','email'],['Role','role'],['Created By','createdBy'],['Time','timestamp']],
     USER_LOCKED: [['Username','username'],['Full Name','fullName'],['Reason','reason'],['Failed Attempts','failedAttempts'],['IP Address','ipAddress'],['Time','timestamp']],
-    RULE_CHAIN_TRIGGERED: [['Rule Chain','ruleChainName'],['Entity','entityName'],['Nodes Executed','nodesExecuted'],['Duration (ms)','durationMs'],['Time','timestamp']],
     CHECKLIST_SUBMITTED: [['Checklist','checklistName'],['Entity','entityName'],['Submitted By','submittedBy'],['Time','timestamp']],
     CHECKLIST_APPROVED: [['Checklist','checklistName'],['Approved By','approvedBy'],['Time','timestamp']],
     CHECKLIST_REJECTED: [['Checklist','checklistName'],['Rejected By','rejectedBy'],['Reason','reason'],['Time','timestamp']],
     SYSTEM_ERROR: [['Error Type','errorType'],['Message','errorMessage'],['URL','url'],['Time','timestamp']],
   };
   variables.eventLabel = EVENT_LABELS[eventType] ?? eventType;
-  variables.summary = variables.message ?? variables.alarmType ?? variables.username ?? variables.deviceName ?? variables.checklistName ?? variables.errorType ?? eventType;
+  variables.summary = variables.message ?? variables.username ?? variables.deviceName ?? variables.checklistName ?? variables.errorType ?? eventType;
 
   // Build details HTML table with actual values for this event type
   const fields = EVENT_FIELDS[eventType] ?? [['Time','timestamp']];
@@ -148,8 +143,7 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
           subject,
           message: body,
           triggeredBy: 'notification-rule',
-          ruleChainId: rule.id,
-          metadata: { ruleName: rule.name, eventType, userId: user.id },
+          metadata: { ruleName: rule.name, eventType, userId: user.id, ruleId: rule.id },
         }).catch(err => console.error(`[Dispatcher] Email to ${user.email} failed:`, err.message));
       }
 
@@ -165,8 +159,7 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
             recipient: phone,
             message: body,
             triggeredBy: 'notification-rule',
-            ruleChainId: rule.id,
-            metadata: { ruleName: rule.name, eventType, userId: user.id },
+            metadata: { ruleName: rule.name, eventType, userId: user.id, ruleId: rule.id },
           }).catch(err => console.error(`[Dispatcher] SMS to ${phone} failed:`, err.message));
         }
       }
@@ -271,53 +264,13 @@ function matchConditions(conditions: Record<string, unknown>, context: Record<st
 }
 
 function mapEventToSeverity(eventType: string): string {
-  if (eventType.includes('ALARM') || eventType.includes('ERROR')) return 'WARNING';
+  if (eventType.includes('ERROR')) return 'WARNING';
   if (eventType.includes('OFFLINE') || eventType.includes('LOCKED')) return 'WARNING';
   return 'INFO';
 }
 
 function getDefaultEmailTemplate(eventType: string): { subject: string; bodyTemplate: string } {
   const templates: Record<string, { subject: string; body: string }> = {
-    ALARM_CREATED: {
-      subject: '[DigiLog] New Alarm: ${alarmType} (${severity})',
-      body: `<h2>New Alarm Created</h2>
-<table style="border-collapse:collapse;width:100%">
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Alarm Type</td><td style="padding:6px 12px;border:1px solid #ddd">\${alarmType}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Severity</td><td style="padding:6px 12px;border:1px solid #ddd">\${severity}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Entity</td><td style="padding:6px 12px;border:1px solid #ddd">\${entityName}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">UNS Path</td><td style="padding:6px 12px;border:1px solid #ddd">\${unsPath}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Trigger Condition</td><td style="padding:6px 12px;border:1px solid #ddd">\${triggerCondition}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Trigger Details</td><td style="padding:6px 12px;border:1px solid #ddd">\${triggerDetails}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Alarm ID</td><td style="padding:6px 12px;border:1px solid #ddd">\${alarmId}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Time</td><td style="padding:6px 12px;border:1px solid #ddd">\${timestamp}</td></tr>
-</table>`,
-    },
-    ALARM_ACKNOWLEDGED: {
-      subject: '[DigiLog] Alarm Acknowledged: ${alarmType}',
-      body: `<h2>Alarm Acknowledged</h2>
-<table style="border-collapse:collapse;width:100%">
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Alarm Type</td><td style="padding:6px 12px;border:1px solid #ddd">\${alarmType}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Severity</td><td style="padding:6px 12px;border:1px solid #ddd">\${severity}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Entity</td><td style="padding:6px 12px;border:1px solid #ddd">\${entityName}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Acknowledged By</td><td style="padding:6px 12px;border:1px solid #ddd">\${acknowledgedBy}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Remarks</td><td style="padding:6px 12px;border:1px solid #ddd">\${remarks}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Alarm ID</td><td style="padding:6px 12px;border:1px solid #ddd">\${alarmId}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Time</td><td style="padding:6px 12px;border:1px solid #ddd">\${timestamp}</td></tr>
-</table>`,
-    },
-    ALARM_CLEARED: {
-      subject: '[DigiLog] Alarm Cleared: ${alarmType}',
-      body: `<h2>Alarm Cleared</h2>
-<table style="border-collapse:collapse;width:100%">
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Alarm Type</td><td style="padding:6px 12px;border:1px solid #ddd">\${alarmType}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Severity</td><td style="padding:6px 12px;border:1px solid #ddd">\${severity}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Entity</td><td style="padding:6px 12px;border:1px solid #ddd">\${entityName}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Cleared By</td><td style="padding:6px 12px;border:1px solid #ddd">\${clearedBy}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Remarks</td><td style="padding:6px 12px;border:1px solid #ddd">\${remarks}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Alarm ID</td><td style="padding:6px 12px;border:1px solid #ddd">\${alarmId}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Time</td><td style="padding:6px 12px;border:1px solid #ddd">\${timestamp}</td></tr>
-</table>`,
-    },
     DEVICE_ONLINE: {
       subject: '[DigiLog] Device Online: ${deviceName}',
       body: `<h2>Device Back Online</h2>
@@ -384,17 +337,6 @@ function getDefaultEmailTemplate(eventType: string): { subject: string; bodyTemp
 <tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Time</td><td style="padding:6px 12px;border:1px solid #ddd">\${timestamp}</td></tr>
 </table>`,
     },
-    RULE_CHAIN_TRIGGERED: {
-      subject: '[DigiLog] Rule Chain Triggered: ${ruleChainName}',
-      body: `<h2>Rule Chain Triggered</h2>
-<table style="border-collapse:collapse;width:100%">
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Rule Chain</td><td style="padding:6px 12px;border:1px solid #ddd">\${ruleChainName}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Entity</td><td style="padding:6px 12px;border:1px solid #ddd">\${entityName}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Nodes Executed</td><td style="padding:6px 12px;border:1px solid #ddd">\${nodesExecuted}</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Duration</td><td style="padding:6px 12px;border:1px solid #ddd">\${durationMs}ms</td></tr>
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Time</td><td style="padding:6px 12px;border:1px solid #ddd">\${timestamp}</td></tr>
-</table>`,
-    },
     CHECKLIST_SUBMITTED: {
       subject: '[DigiLog] Checklist Submitted: ${checklistName}',
       body: `<h2>Checklist Submitted</h2>
@@ -449,16 +391,12 @@ function getDefaultSmsTemplate(eventType: string): { bodyTemplate: string } {
 
 function getDefaultInAppMessage(eventType: string): string {
   const msgs: Record<string, string> = {
-    ALARM_CREATED: 'New alarm: ${alarmType} (${severity}) on ${entityName}',
-    ALARM_ACKNOWLEDGED: 'Alarm ${alarmType} acknowledged by ${acknowledgedBy}',
-    ALARM_CLEARED: 'Alarm ${alarmType} cleared by ${clearedBy}',
     DEVICE_ONLINE: 'Device ${deviceName} is back online',
     DEVICE_OFFLINE: 'Device ${deviceName} went offline',
     DEVICE_INACTIVITY: 'Device ${deviceName} has been inactive since ${inactiveSince}',
     USER_LOGIN: 'User ${username} logged in',
     USER_CREATED: 'New user ${username} created by ${createdBy}',
     USER_LOCKED: 'User ${username} account locked: ${reason}',
-    RULE_CHAIN_TRIGGERED: 'Rule chain ${ruleChainName} was triggered',
     CHECKLIST_SUBMITTED: 'Checklist ${checklistName} submitted by ${submittedBy}',
     CHECKLIST_APPROVED: 'Checklist ${checklistName} approved by ${approvedBy}',
     CHECKLIST_REJECTED: 'Checklist ${checklistName} rejected by ${rejectedBy}',

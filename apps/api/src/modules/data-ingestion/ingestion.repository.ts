@@ -6,10 +6,12 @@
  * - Telemetry: ts_telemetry (batched) + LatestTelemetry (conditional upsert)
  * - Attributes: ts_attributes (immediate) + entity attributes (PG update)
  * - Checklist: ts_checklist_responses (immediate) + ChecklistReview (PG insert)
- * - Alarm: Alarm table (PG insert)
  * - Binary: file + ts_binary_data (immediate)
  * - Device Events: ts_device_events (batched)
  * - Auto-register DataStream for new telemetry keys
+ *
+ * NOTE: Alarm persistence (`createAlarm`) was removed on 2026-05-17 with the
+ * rule-chain + alarm tear-out. Ingestion no longer produces alarms.
  */
 
 import { createHash, randomUUID } from 'node:crypto';
@@ -20,7 +22,6 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { getTsdbPool, addTelemetryRow } from '@digilog/db';
 import type { IngestionMessage } from './message-normalizer.js';
-import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -194,64 +195,6 @@ export async function saveChecklist(msg: IngestionMessage): Promise<{ checklistI
   });
 
   return { checklistId };
-}
-
-// ─── Alarm Persistence ──────────────────────────────────
-
-/** Create an alarm — INSERT into Alarm table in PG. */
-export async function createAlarm(params: {
-  entityId: string;
-  alarmType: string;
-  severity: string;
-  unsPath: string;
-  triggerDetails?: Record<string, unknown>;
-  ruleChainId?: string;
-}): Promise<{ alarmId: string }> {
-  const alarm = await prisma.alarm.create({
-    data: {
-      entityId: params.entityId,
-      alarmType: params.alarmType,
-      severity: params.severity,
-      status: 'ACTIVE',
-      unsPath: params.unsPath,
-      triggerDetails: (params.triggerDetails as Prisma.InputJsonValue) ?? Prisma.JsonNull,
-      createdByRuleChain: params.ruleChainId ?? null,
-    },
-  });
-
-  // Alarm created, dispatching notification
-  // Dispatch notification for ALARM_CREATED event
-  const entity = await prisma.assetInstance.findUnique({ where: { id: params.entityId }, select: { name: true } });
-  const entityName = entity?.name ?? params.unsPath;
-  const triggerJson = params.triggerDetails ?? {};
-  // Build trigger details string for email
-  const triggerEntries = Object.entries(triggerJson)
-    .filter(([k]) => !k.startsWith('_'))
-    .map(([k, v]) => `${k}: ${v}`)
-    .join(', ');
-  const conditionInfo = triggerJson._sourceField
-    ? `${triggerJson._sourceField} ${triggerJson._condition ?? ''} ${triggerJson._threshold ?? ''}`
-    : '';
-  dispatchNotification({
-    eventType: 'ALARM_CREATED',
-    context: { severity: params.severity, alarmType: params.alarmType },
-    variables: {
-      alarmId: alarm.id,
-      alarmType: params.alarmType,
-      severity: params.severity,
-      status: 'ACTIVE',
-      entityName,
-      entityId: params.entityId,
-      unsPath: params.unsPath,
-      triggerDetails: triggerEntries || 'N/A',
-      triggerCondition: conditionInfo || 'N/A',
-      ruleChainId: params.ruleChainId ?? 'N/A',
-      message: `${params.alarmType} alarm on ${entityName}`,
-      timestamp: new Date().toISOString(),
-    },
-  }).catch(err => console.error('[createAlarm] Notification dispatch failed:', err.message));
-
-  return { alarmId: alarm.id };
 }
 
 // ─── Binary Persistence ──────────────────────────────────

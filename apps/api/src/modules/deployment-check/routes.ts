@@ -227,7 +227,6 @@ async function checkPrismaModels(): Promise<SubCheck[]> {
     { name: 'User', fn: () => prisma.user.count() },
     { name: 'Role', fn: () => prisma.role.count() },
     { name: 'AssetTemplate', fn: () => prisma.assetTemplate.count() },
-    { name: 'RuleChain', fn: () => prisma.ruleChain.count() },
     { name: 'SystemConfig', fn: () => prisma.systemConfig.count() },
     { name: 'FilterCleaningProfile', fn: () => prisma.filterCleaningProfile.count() },
     { name: 'ChecklistProfile', fn: () => prisma.checklistProfile.count() },
@@ -254,7 +253,7 @@ function checkApiRoutes(app: any): SubCheck[] {
   const criticalPrefixes = [
     '/api/auth', '/api/users', '/api/config', '/api/roles',
     '/api/audit', '/api/assets', '/api/system-health', '/api/data',
-    '/api/rule-chains', '/api/filters', '/api/help', '/api/notifications',
+    '/api/filters', '/api/help', '/api/notifications',
     '/api/filter-cleaning-profiles', '/api/pm-schedules',
   ];
 

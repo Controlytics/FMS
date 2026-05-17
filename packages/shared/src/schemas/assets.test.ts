@@ -6,8 +6,6 @@ import {
   IDENTIFIER_TYPES,
   ASSET_STATUSES,
   INVERSE_RELATIONSHIP_MAP,
-  ALARM_RULE_TYPES,
-  ALARM_SEVERITIES,
   CHECKLIST_QUESTION_TYPES,
   createAssetTemplateSchema,
   updateAssetTemplateSchema,
@@ -69,16 +67,6 @@ describe('Constants', () => {
     }
   });
 
-  it('has 7 alarm rule types', () => {
-    expect(ALARM_RULE_TYPES).toHaveLength(7);
-    expect(ALARM_RULE_TYPES).toContain('HIGH');
-    expect(ALARM_RULE_TYPES).toContain('RATE_OF_CHANGE');
-  });
-
-  it('has 3 alarm severities', () => {
-    expect(ALARM_SEVERITIES).toHaveLength(3);
-    expect(ALARM_SEVERITIES).toEqual(['WARNING', 'ALARM', 'CRITICAL']);
-  });
 });
 
 // =============================================
@@ -114,9 +102,6 @@ describe('createAssetTemplateSchema', () => {
       ],
       expectedIdentifiers: [
         { identifierType: 'QR', required: true },
-      ],
-      alarmRules: [
-        { name: 'High Temp', type: 'HIGH', severity: 'ALARM', threshold: 100 },
       ],
       maxParentConnections: 1,
       maxConnections: 5,
@@ -186,14 +171,6 @@ describe('createAssetTemplateSchema', () => {
     const result = createAssetTemplateSchema.safeParse({
       name: 'Test',
       expectedIdentifiers: [{ identifierType: 'BLUETOOTH' }],
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects invalid alarm rule type', () => {
-    const result = createAssetTemplateSchema.safeParse({
-      name: 'Test',
-      alarmRules: [{ name: 'Bad', type: 'INVALID' }],
     });
     expect(result.success).toBe(false);
   });

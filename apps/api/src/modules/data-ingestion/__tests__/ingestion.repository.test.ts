@@ -6,7 +6,6 @@ const { mockPrisma, mockAddTelemetryRow, mockTsdbPool } = vi.hoisted(() => ({
     assetInstance: { findUnique: vi.fn(), update: vi.fn() },
     dataStream: { upsert: vi.fn() },
     checklistReview: { create: vi.fn() },
-    alarm: { create: vi.fn() },
   },
   mockAddTelemetryRow: vi.fn(),
   mockTsdbPool: { query: vi.fn() },
@@ -24,7 +23,7 @@ vi.mock('fs/promises', () => ({
   writeFile: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { saveTelemetry, saveAttributes, saveChecklist, createAlarm } from '../ingestion.repository.js';
+import { saveTelemetry, saveAttributes, saveChecklist } from '../ingestion.repository.js';
 
 const makeMsg = (overrides: Record<string, any> = {}) => ({
   messageId: 'msg-1',
@@ -39,7 +38,6 @@ const makeMsg = (overrides: Record<string, any> = {}) => ({
   messageType: 'POST_TELEMETRY' as const,
   data: { temperature: 25, pressure: 1.5 },
   metadata: {},
-  ruleChainId: '',
   traceId: 'trace-1',
   ...overrides,
 });
@@ -145,44 +143,4 @@ describe('ingestion.repository', () => {
     });
   });
 
-  describe('createAlarm', () => {
-    it('creates alarm record and returns alarmId', async () => {
-      mockPrisma.alarm.create.mockResolvedValue({ id: 'alarm-1' });
-
-      const result = await createAlarm({
-        entityId: 'e1',
-        alarmType: 'HIGH_TEMP',
-        severity: 'WARNING',
-        unsPath: 'digilog/v1/ent/pump-1',
-      });
-
-      expect(result.alarmId).toBe('alarm-1');
-      expect(mockPrisma.alarm.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          entityId: 'e1',
-          alarmType: 'HIGH_TEMP',
-          severity: 'WARNING',
-          status: 'ACTIVE',
-        }),
-      });
-    });
-
-    it('includes optional ruleChainId', async () => {
-      mockPrisma.alarm.create.mockResolvedValue({ id: 'alarm-2' });
-
-      await createAlarm({
-        entityId: 'e1',
-        alarmType: 'LOW_PRESSURE',
-        severity: 'CRITICAL',
-        unsPath: 'digilog/v1/ent/pump-1',
-        ruleChainId: 'rc-1',
-      });
-
-      expect(mockPrisma.alarm.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          createdByRuleChain: 'rc-1',
-        }),
-      });
-    });
-  });
 });

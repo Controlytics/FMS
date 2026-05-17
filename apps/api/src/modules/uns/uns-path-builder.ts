@@ -18,7 +18,6 @@ const TOPIC_SUFFIXES = {
   attributes: '/attributes',
   rpc: '/rpc',
   events: '/events',
-  alarms: '/alarms',
   binary: '/binary',
 } as const;
 

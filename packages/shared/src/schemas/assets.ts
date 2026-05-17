@@ -73,16 +73,6 @@ const telemetryDefinitionSchema = z.object({
   description: z.string().max(255).optional(),
 });
 
-// Alarm rule types
-export const ALARM_RULE_TYPES = [
-  'HIGH', 'LOW', 'HIGH_HIGH', 'LOW_LOW',
-  'RATE_OF_CHANGE', 'BOOLEAN_STATE', 'CUSTOM',
-] as const;
-
-export const ALARM_SEVERITIES = [
-  'WARNING', 'ALARM', 'CRITICAL',
-] as const;
-
 // Checklist question types
 export const CHECKLIST_QUESTION_TYPES = [
   'PASS_FAIL', 'YES_NO', 'YES_NO_NA', 'MCQ', 'MULTI_SELECT',
@@ -104,19 +94,6 @@ const checklistItemSchema = z.object({
   calculatedExpression: z.string().max(500).optional(), // for CALCULATED
   conditionalField: z.string().max(100).optional(),   // for CONDITIONAL — depends on which question
   conditionalValue: z.string().max(200).optional(),   // for CONDITIONAL — trigger value
-});
-
-const alarmRuleSchema = z.object({
-  name: z.string().min(1).max(100),
-  type: z.enum(ALARM_RULE_TYPES),
-  severity: z.enum(ALARM_SEVERITIES).default('ALARM'),
-  sourceField: z.string().max(100).optional(),          // telemetry or checklist field name
-  condition: z.string().max(500).optional(),             // e.g., "> 85.0" or "= Off" or custom expression
-  threshold: z.number().optional(),                       // numeric threshold value
-  deadband: z.number().optional(),                        // hysteresis to prevent flapping
-  message: z.string().max(500).optional(),                // alarm message template
-  notifyRoles: z.array(z.string()).default([]),            // roles to notify
-  enabled: z.boolean().default(true),
 });
 
 // =============================================
@@ -162,7 +139,6 @@ export const createAssetTemplateSchema = z.object({
   expectedIdentifiers: z.array(expectedIdentifierSchema).default([]),
   expectedRelationships: z.array(z.record(z.unknown())).default([]),
   statusLifecycle: z.array(z.record(z.unknown())).default([]),
-  alarmRules: z.array(alarmRuleSchema).default([]),
   checklistSchema: z.array(checklistItemSchema).default([]),
   maxParentConnections: z.number().int().min(0).optional().default(1), // 0=no parents, 1+=limit
   maxConnections: z.number().int().min(0).optional().default(10), // 0=unlimited, N=max total connections
@@ -173,7 +149,6 @@ export const createAssetTemplateSchema = z.object({
   inactivityTimeout: z.number().int().min(0).default(60).optional(), // seconds
   defaultMaxDataRate: z.number().int().min(0).default(600).optional(), // max messages per window
   autoProvision: z.boolean().default(true).optional(),
-  defaultRuleChainId: z.string().uuid().nullable().optional(),
 });
 
 // Cross-field validation for transport & credential type compatibility

@@ -55,8 +55,6 @@ async function main() {
         'ASSET_CREATE', 'ASSET_UPDATE', 'ASSET_DELETE',
         'ASSET_RELATIONSHIP_CREATE', 'ASSET_RELATIONSHIP_DELETE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_IDENTIFIER_DELETE', 'ASSET_VIEW', 'ASSET_READ',
         'DASHBOARD_CREATE', 'DASHBOARD_MANAGE', 'DASHBOARD_VIEW', 'DASHBOARD_ASSIGN',
-        'RULE_CHAIN_VIEW', 'RULE_CHAIN_CREATE', 'RULE_CHAIN_UPDATE', 'RULE_CHAIN_DELETE',
-        'ALARM_VIEW', 'ALARM_ACKNOWLEDGE', 'ALARM_CLEAR',
         'NOTIFICATION_VIEW', 'NOTIFICATION_CREATE', 'NOTIFICATION_UPDATE', 'NOTIFICATION_DELETE', 'NOTIFICATION_MANAGE',
         'UNS_VIEW', 'UNS_MANAGE',
         'BACKUP_MANAGE', 'BACKUP_RESTORE',
@@ -92,8 +90,6 @@ async function main() {
         'ASSET_CREATE', 'ASSET_UPDATE', 'ASSET_DELETE',
         'ASSET_RELATIONSHIP_CREATE', 'ASSET_RELATIONSHIP_DELETE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_IDENTIFIER_DELETE', 'ASSET_VIEW', 'ASSET_READ',
         'DASHBOARD_CREATE', 'DASHBOARD_MANAGE', 'DASHBOARD_VIEW', 'DASHBOARD_ASSIGN',
-        'RULE_CHAIN_VIEW', 'RULE_CHAIN_CREATE', 'RULE_CHAIN_UPDATE', 'RULE_CHAIN_DELETE',
-        'ALARM_VIEW', 'ALARM_ACKNOWLEDGE', 'ALARM_CLEAR',
         'NOTIFICATION_VIEW', 'NOTIFICATION_CREATE', 'NOTIFICATION_UPDATE', 'NOTIFICATION_DELETE', 'NOTIFICATION_MANAGE',
         'UNS_VIEW', 'UNS_MANAGE',
         'BACKUP_MANAGE', 'BACKUP_RESTORE',
@@ -121,7 +117,6 @@ async function main() {
       permissions: [
         'AUDIT_READ',
         'ASSET_VIEW', 'ASSET_READ', 'ASSET_CREATE',
-        'ALARM_VIEW', 'ALARM_ACKNOWLEDGE', 'ALARM_CLEAR',
         'DASHBOARD_VIEW',
         // Phase 2: Filter operations + read access
         'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'EVENT_READ',
@@ -142,7 +137,6 @@ async function main() {
       permissions: [
         'AUDIT_READ',
         'ASSET_VIEW', 'ASSET_READ', 'ASSET_CREATE', 'ASSET_UPDATE',
-        'ALARM_VIEW', 'ALARM_ACKNOWLEDGE',
         'DASHBOARD_VIEW',
         // Phase 2: Filter operations + checklist
         'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'EVENT_READ',
@@ -162,7 +156,6 @@ async function main() {
       permissions: [
         'AUDIT_READ',
         'ASSET_VIEW', 'ASSET_READ',
-        'ALARM_VIEW',
         'DASHBOARD_VIEW',
         // Phase 2: Filter operations + checklist
         'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'EVENT_READ',
@@ -182,7 +175,6 @@ async function main() {
       permissions: [
         'AUDIT_READ',
         'ASSET_VIEW', 'ASSET_READ',
-        'ALARM_VIEW',
         'DASHBOARD_VIEW',
       ],
       color: 'bg-gradient-to-r from-slate-400 to-slate-500',
@@ -354,18 +346,6 @@ async function main() {
     { fieldId: 'FLD_AUDIT_003', defaultName: 'Action', displayName: 'Action', module: 'Audit Trail', description: 'Type of action performed' },
     { fieldId: 'FLD_AUDIT_004', defaultName: 'Performed By', displayName: 'Performed By', module: 'Audit Trail', description: 'User who performed the action' },
     { fieldId: 'FLD_AUDIT_005', defaultName: 'Status', displayName: 'Status', module: 'Audit Trail', description: 'Integrity verification status' },
-    // Alarms
-    { fieldId: 'FLD_ALARM_001', defaultName: 'Severity', displayName: 'Severity', module: 'Alarms', description: 'Alarm severity level' },
-    { fieldId: 'FLD_ALARM_002', defaultName: 'Alarm Type', displayName: 'Alarm Type', module: 'Alarms', description: 'Type of alarm triggered' },
-    { fieldId: 'FLD_ALARM_003', defaultName: 'Entity', displayName: 'Entity', module: 'Alarms', description: 'Associated entity name' },
-    { fieldId: 'FLD_ALARM_004', defaultName: 'High Limit', displayName: 'High Limit', module: 'Alarms', description: 'Upper threshold value' },
-    { fieldId: 'FLD_ALARM_005', defaultName: 'Low Limit', displayName: 'Low Limit', module: 'Alarms', description: 'Lower threshold value' },
-    { fieldId: 'FLD_ALARM_006', defaultName: 'Generated Value', displayName: 'Generated Value', module: 'Alarms', description: 'Value when alarm was generated' },
-    { fieldId: 'FLD_ALARM_007', defaultName: 'Cleared Value', displayName: 'Cleared Value', module: 'Alarms', description: 'Value when alarm was cleared' },
-    { fieldId: 'FLD_ALARM_008', defaultName: 'Status', displayName: 'Status', module: 'Alarms', description: 'Current alarm status' },
-    { fieldId: 'FLD_ALARM_009', defaultName: 'Generated At', displayName: 'Generated At', module: 'Alarms', description: 'Alarm generation timestamp' },
-    { fieldId: 'FLD_ALARM_010', defaultName: 'Cleared At', displayName: 'Cleared At', module: 'Alarms', description: 'Alarm cleared timestamp' },
-    { fieldId: 'FLD_ALARM_011', defaultName: 'Actions', displayName: 'Actions', module: 'Alarms', description: 'Acknowledge and clear buttons' },
     // Asset Management
     { fieldId: 'FLD_ASSET_001', defaultName: 'Name', displayName: 'Name', module: 'Asset Management', description: 'Asset instance name' },
     { fieldId: 'FLD_ASSET_002', defaultName: 'Template', displayName: 'Template', module: 'Asset Management', description: 'Associated template' },
@@ -449,15 +429,8 @@ async function main() {
   }
   console.log('  Created default field ID configurations');
 
-  // 5. Ingestion System Configuration (30+ hot-reload settings from Section 20.3)
+  // 5. Ingestion System Configuration (hot-reload settings)
   const ingestionConfigs = [
-    // Rule Engine
-    { key: 'rule_engine.script_timeout_ms', value: '5000', dataType: 'INTEGER', category: 'rule_engine', label: 'Script Execution Timeout', description: 'Maximum time a rule chain script can run', defaultValue: '5000', minValue: '1000', maxValue: '30000', unit: 'ms' },
-    { key: 'rule_engine.script_memory_mb', value: '16', dataType: 'INTEGER', category: 'rule_engine', label: 'Script Memory Limit', description: 'Maximum memory allocated to script sandbox', defaultValue: '16', minValue: '4', maxValue: '64', unit: 'MB' },
-    { key: 'rule_engine.debug_buffer_size', value: '100', dataType: 'INTEGER', category: 'rule_engine', label: 'Debug Events Per Node', description: 'Number of debug events kept in buffer per node', defaultValue: '100', minValue: '10', maxValue: '1000', unit: 'events' },
-    { key: 'rule_engine.debug_ttl_hours', value: '24', dataType: 'INTEGER', category: 'rule_engine', label: 'Debug Event Retention', description: 'How long debug events are retained', defaultValue: '24', minValue: '1', maxValue: '168', unit: 'hours' },
-    { key: 'rule_engine.max_chain_depth', value: '10', dataType: 'INTEGER', category: 'rule_engine', label: 'Max Rule Chain Depth', description: 'Maximum depth for nested rule chain calls', defaultValue: '10', minValue: '3', maxValue: '50', unit: 'chains' },
-
     // Device
     { key: 'device.default_inactivity_timeout_sec', value: '60', dataType: 'INTEGER', category: 'device', label: 'Default Inactivity Timeout', description: 'Seconds of inactivity before device marked offline', defaultValue: '60', minValue: '10', maxValue: '3600', unit: 'seconds' },
     { key: 'device.ip_validation_enabled', value: 'true', dataType: 'BOOLEAN', category: 'device', label: 'IP Allowlist Enforcement', description: 'Enforce IP allowlist on device connections', defaultValue: 'true' },
@@ -466,7 +439,6 @@ async function main() {
 
     // Pipeline
     { key: 'pipeline.timestamp_max_drift_hours', value: '24', dataType: 'INTEGER', category: 'pipeline', label: 'Max Clock Drift Tolerance', description: 'Maximum allowed clock drift between client and server', defaultValue: '24', minValue: '1', maxValue: '168', unit: 'hours' },
-    { key: 'pipeline.dlq_alarm_threshold', value: '100', dataType: 'INTEGER', category: 'pipeline', label: 'DLQ Depth Alert Threshold', description: 'Dead Letter Queue depth that triggers alarm', defaultValue: '100', minValue: '10', maxValue: '10000', unit: 'messages' },
     { key: 'pipeline.telemetry_batch_size', value: '100', dataType: 'INTEGER', category: 'pipeline', label: 'Telemetry Write Batch Size', description: 'Number of rows to batch before writing to TSDB', defaultValue: '100', minValue: '1', maxValue: '1000', unit: 'rows' },
     { key: 'pipeline.telemetry_batch_flush_ms', value: '500', dataType: 'INTEGER', category: 'pipeline', label: 'Telemetry Batch Flush Interval', description: 'Maximum time to hold batch before flushing', defaultValue: '500', minValue: '100', maxValue: '5000', unit: 'ms' },
     { key: 'pipeline.trace_enabled', value: 'false', dataType: 'BOOLEAN', category: 'pipeline', label: 'Global Pipeline Trace', description: 'Trace ALL messages from ALL entities (high overhead)', defaultValue: 'false' },
@@ -535,7 +507,7 @@ async function main() {
       },
     });
   }
-  console.log('  Created ingestion system configuration (33 settings)');
+  console.log('  Created ingestion system configuration (27 settings)');
 
   // 6. Default Help Articles (from Appendix B)
   const helpArticles = [
@@ -544,11 +516,6 @@ async function main() {
     { key: 'entity.tree', title: 'Navigating the Entity Tree', category: 'entity', sortOrder: 3 },
     { key: 'entity.relationships', title: 'Entity Relationships Guide', category: 'entity', sortOrder: 4 },
     { key: 'entity.identifiers', title: 'Entity Identifiers (QR, RFID, NFC)', category: 'entity', sortOrder: 5 },
-    { key: 'rule-chain.overview', title: 'Rule Chain Engine Overview', category: 'rule-chain', sortOrder: 1 },
-    { key: 'rule-chain.nodes', title: 'Rule Node Types Reference', category: 'rule-chain', sortOrder: 2 },
-    { key: 'rule-chain.scripting', title: 'Writing Rule Chain Scripts', category: 'rule-chain', sortOrder: 3 },
-    { key: 'rule-chain.debug', title: 'Debugging Rule Chains', category: 'rule-chain', sortOrder: 4 },
-    { key: 'rule-chain.default', title: 'Understanding the Default Rule Chain', category: 'rule-chain', sortOrder: 5 },
     { key: 'connectivity.overview', title: 'Device Connectivity Guide', category: 'connectivity', sortOrder: 1 },
     { key: 'connectivity.mqtt', title: 'MQTT Protocol Setup', category: 'connectivity', sortOrder: 2 },
     { key: 'connectivity.http', title: 'HTTP API Integration', category: 'connectivity', sortOrder: 3 },
@@ -563,8 +530,6 @@ async function main() {
     { key: 'uns.overview', title: 'Unified Namespace (UNS) Concepts', category: 'uns', sortOrder: 1 },
     { key: 'uns.isa95', title: 'ISA-95 Hierarchy Mapping', category: 'uns', sortOrder: 2 },
     { key: 'uns.wildcards', title: 'UNS Wildcard Patterns', category: 'uns', sortOrder: 3 },
-    { key: 'alarms.overview', title: 'Alarm System Overview', category: 'alarms', sortOrder: 1 },
-    { key: 'alarms.management', title: 'Managing and Acknowledging Alarms', category: 'alarms', sortOrder: 2 },
     { key: 'audit.overview', title: 'Audit Trail & Compliance', category: 'audit', sortOrder: 1 },
     { key: 'users.roles', title: 'User Roles & Permissions', category: 'users', sortOrder: 1 },
     // Phase 2: Filter Management
@@ -600,7 +565,7 @@ async function main() {
       },
     });
   }
-  console.log('  Created default help articles (40 articles)');
+  console.log('  Created default help articles (33 articles)');
 
   // 6. Seed system template kinds (BLOCK / AREA / AHU / FILTER / EQUIPMENT / OTHER).
   //    These are protected (isSystem=true) — admins can edit label/description/sortOrder

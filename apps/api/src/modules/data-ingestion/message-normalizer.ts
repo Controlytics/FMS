@@ -21,7 +21,6 @@ export interface IngestionMessage {
   messageType: string;
   data: Record<string, unknown>;
   metadata: Record<string, string>;
-  ruleChainId: string;
   traceId: string;
 }
 
@@ -33,7 +32,6 @@ export type MessageType =
   | 'DEVICE_EVENT'
   | 'RPC_REQUEST'
   | 'RPC_RESPONSE'
-  | 'ALARM'
   | 'CONNECTIVITY_EVENT';
 
 export interface NormalizeParams {
@@ -46,7 +44,6 @@ export interface NormalizeParams {
   sourceIp: string;
   messageType: MessageType;
   rawPayload: unknown;
-  ruleChainId?: string | null;
   traceId?: string;
   metadata?: Record<string, string>;
 }
@@ -119,7 +116,6 @@ export function normalizeMessage(params: NormalizeParams): IngestionMessage {
     messageType: params.messageType,
     data,
     metadata: params.metadata ?? {},
-    ruleChainId: params.ruleChainId ?? '',
     traceId: params.traceId ?? randomUUID(),
   };
 }
@@ -154,7 +150,6 @@ export function normalizeBatch(params: NormalizeParams): IngestionMessage[] {
       messageType: params.messageType,
       data: values,
       metadata: params.metadata ?? {},
-      ruleChainId: params.ruleChainId ?? '',
       traceId,
     };
   });

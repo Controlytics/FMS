@@ -55,15 +55,15 @@ model EntityAssignment {
 
 // Dashboard — container for widgets
 model Dashboard {
-  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  title       String         @db.VarChar(200)
-  description String?        @db.VarChar(500)
-  layout      Json           @default("{}") @db.JsonB // Grid layout config
-  isDefault   Boolean        @default(false) @map("is_default")
-  isActive    Boolean        @default(true) @map("is_active")
-  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz
-  createdBy   String?        @map("created_by") @db.Uuid
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title       String   @db.VarChar(200)
+  description String?  @db.VarChar(500)
+  layout      Json     @default("{}") @db.JsonB // Grid layout config
+  isDefault   Boolean  @default(false) @map("is_default")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy   String?  @map("created_by") @db.Uuid
 
   widgets     DashboardWidget[]
   assignments DashboardAssignment[]
@@ -109,19 +109,19 @@ model DashboardAssignment {
 
 // Dynamic Role model - allows Super Admin to add/manage roles
 model Role {
-  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name           String    @unique @db.VarChar(50) // e.g., "SUPER_ADMIN", "ADMIN"
-  displayName    String    @map("display_name") @db.VarChar(100) // e.g., "Super Admin", "Admin"
-  description    String?   @db.VarChar(500)
-  hierarchyLevel Int       @map("hierarchy_level") // Higher = more privileges (6 for SUPER_ADMIN)
-  permissions    Json      @default("[]") @db.JsonB // Array of permission strings
-  color          String    @default("#6366f1") @db.VarChar(100) // Badge color for UI (CSS class)
-  isSystem       Boolean   @default(false) @map("is_system") // System roles cannot be deleted
-  isActive       Boolean   @default(true) @map("is_active")
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
-  createdBy      String?   @map("created_by") @db.VarChar(50)
-  updatedBy      String?   @map("updated_by") @db.VarChar(50)
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String   @unique @db.VarChar(50) // e.g., "SUPER_ADMIN", "ADMIN"
+  displayName    String   @map("display_name") @db.VarChar(100) // e.g., "Super Admin", "Admin"
+  description    String?  @db.VarChar(500)
+  hierarchyLevel Int      @map("hierarchy_level") // Higher = more privileges (6 for SUPER_ADMIN)
+  permissions    Json     @default("[]") @db.JsonB // Array of permission strings
+  color          String   @default("#6366f1") @db.VarChar(100) // Badge color for UI (CSS class)
+  isSystem       Boolean  @default(false) @map("is_system") // System roles cannot be deleted
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy      String?  @map("created_by") @db.VarChar(50)
+  updatedBy      String?  @map("updated_by") @db.VarChar(50)
 
   @@index([hierarchyLevel])
   @@index([isActive])
@@ -290,7 +290,7 @@ model AuditTrail {
   // Monotonically-incrementing position assigned at insert time. Sort key
   // for chain verification (timestamp can collide at sub-millisecond on
   // batched writes; chainPosition can't). bigserial-equivalent.
-  chainPosition    BigInt?  @map("chain_position") @default(autoincrement())
+  chainPosition    BigInt?  @default(autoincrement()) @map("chain_position")
   signatureMeaning String?  @map("signature_meaning") @db.VarChar(255)
 
   @@index([timestamp(sort: Desc)])
@@ -416,21 +416,132 @@ model TemplateKind {
   @@map("template_kinds")
 }
 
+// ─── Typed Hierarchy Tables (Wave 1 of asset-removal, 2026-05-17) ──────────
+// These mirror AssetInstance rows by template_kind via a Postgres trigger
+// (`fn_mirror_asset_instance`). Reusing AssetInstance.id (UUID) so existing
+// soft-FK columns like cleaning_cycles.filterId, filter_events.blockId, etc.
+// continue to resolve. Reads can swap to these tables module-by-module behind
+// a feature flag (Wave 5). AssetInstance / AssetTemplate remain authoritative
+// until Wave 6 cutover.
+
+model Block {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String   @db.VarChar(255)
+  description      String?
+  status           String   @default("Active") @db.VarChar(50)
+  attributes       Json     @default("{}") @db.JsonB
+  customAttributes Json     @default("{}") @map("custom_attributes") @db.JsonB
+  unsPath          String?  @map("uns_path") @db.VarChar(500)
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy        String?  @map("created_by") @db.VarChar(50)
+  updatedBy        String?  @map("updated_by") @db.VarChar(50)
+
+  areas Area[]
+
+  @@index([status])
+  @@index([name])
+  @@index([isActive])
+  @@map("blocks")
+}
+
+model Area {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  blockId          String?  @map("block_id") @db.Uuid
+  name             String   @db.VarChar(255)
+  description      String?
+  status           String   @default("Active") @db.VarChar(50)
+  attributes       Json     @default("{}") @db.JsonB
+  customAttributes Json     @default("{}") @map("custom_attributes") @db.JsonB
+  unsPath          String?  @map("uns_path") @db.VarChar(500)
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy        String?  @map("created_by") @db.VarChar(50)
+  updatedBy        String?  @map("updated_by") @db.VarChar(50)
+
+  block Block? @relation(fields: [blockId], references: [id])
+  ahus  Ahu[]
+
+  @@index([blockId])
+  @@index([status])
+  @@index([name])
+  @@index([isActive])
+  @@map("areas")
+}
+
+model Ahu {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  areaId           String?  @map("area_id") @db.Uuid
+  name             String   @db.VarChar(255)
+  description      String?
+  status           String   @default("Active") @db.VarChar(50)
+  attributes       Json     @default("{}") @db.JsonB
+  customAttributes Json     @default("{}") @map("custom_attributes") @db.JsonB
+  unsPath          String?  @map("uns_path") @db.VarChar(500)
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy        String?  @map("created_by") @db.VarChar(50)
+  updatedBy        String?  @map("updated_by") @db.VarChar(50)
+
+  area    Area?    @relation(fields: [areaId], references: [id])
+  filters Filter[]
+
+  @@index([areaId])
+  @@index([status])
+  @@index([name])
+  @@index([isActive])
+  @@map("ahus")
+}
+
+model Filter {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ahuId                 String?  @map("ahu_id") @db.Uuid
+  name                  String   @db.VarChar(255)
+  description           String?
+  status                String   @default("Active") @db.VarChar(50)
+  attributes            Json     @default("{}") @db.JsonB
+  customAttributes      Json     @default("{}") @map("custom_attributes") @db.JsonB
+  unsPath               String?  @map("uns_path") @db.VarChar(500)
+  isActive              Boolean  @default(true) @map("is_active")
+  // Inlined from legacy FilterDetails 1:1 sidecar (Step 6, 2026-05-01):
+  filterProfileId       String?  @map("filter_profile_id") @db.Uuid
+  currentLifecycleState String?  @map("current_lifecycle_state") @db.VarChar(100)
+  currentCycleId        String?  @map("current_cycle_id") @db.Uuid
+  filterSet             String?  @map("filter_set") @db.VarChar(50)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdBy             String?  @map("created_by") @db.VarChar(50)
+  updatedBy             String?  @map("updated_by") @db.VarChar(50)
+
+  ahu Ahu? @relation(fields: [ahuId], references: [id])
+
+  @@index([ahuId])
+  @@index([status])
+  @@index([name])
+  @@index([isActive])
+  @@index([currentLifecycleState])
+  @@index([currentCycleId])
+  @@index([filterProfileId])
+  @@map("filters")
+}
+
 // Asset Template — reusable blueprint for asset types
 model AssetTemplate {
-  id                    String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name                  String       @unique @db.VarChar(100)
-  description           String?      @db.VarChar(500)
-  category              String       @default("General") @db.VarChar(50) // Equipment, Room, Building, etc.
-  icon                  String       @default("box") @db.VarChar(50) // Icon identifier for UI
-  templateKind          String       @default("OTHER") @map("template_kind") @db.VarChar(50) // FK code → TemplateKind.code (admin-editable lookup)
-  version               Int          @default(1) // Current version number
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String   @unique @db.VarChar(100)
+  description           String?  @db.VarChar(500)
+  category              String   @default("General") @db.VarChar(50) // Equipment, Room, Building, etc.
+  icon                  String   @default("box") @db.VarChar(50) // Icon identifier for UI
+  templateKind          String   @default("OTHER") @map("template_kind") @db.VarChar(50) // FK code → TemplateKind.code (admin-editable lookup)
+  version               Int      @default(1) // Current version number
   attributeSchema       Json     @default("[]") @map("attribute_schema") @db.JsonB // Array of attribute definitions
   telemetrySchema       Json     @default("[]") @map("telemetry_schema") @db.JsonB // Array of telemetry point definitions
   expectedIdentifiers   Json     @default("[]") @map("expected_identifiers") @db.JsonB // Array of expected identifier types
   expectedRelationships Json     @default("[]") @map("expected_relationships") @db.JsonB // Array of expected relationship types
   statusLifecycle       Json     @default("[]") @map("status_lifecycle") @db.JsonB // Array of status definitions with transitions
-  alarmRules            Json     @default("[]") @map("alarm_rules") @db.JsonB // Array of alarm rule definitions (threshold + custom logic)
   checklistSchema       Json     @default("[]") @map("checklist_schema") @db.JsonB // Array of checklist question definitions
   maxParentConnections  Int      @default(1) @map("max_parent_connections") // Max CONTAINS parents: 0=none, 1+=limit
   maxConnections        Int      @default(10) @map("max_connections") // Max total connections (all types): 0=unlimited, N=limit
@@ -447,13 +558,11 @@ model AssetTemplate {
   inactivityTimeout    Int     @default(60) @map("inactivity_timeout") // seconds
   defaultMaxDataRate   Int     @default(600) @map("default_max_data_rate") // default rate limit for instances
   autoProvision        Boolean @default(true) @map("auto_provision") // auto-create credentials on instance creation
-  defaultRuleChainId   String? @map("default_rule_chain_id") @db.Uuid
 
-  versions            AssetTemplateVersion[]
-  instances           AssetInstance[]
-  templateAssignments TemplateAssignment[]
-  defaultRuleChain    RuleChain?             @relation(fields: [defaultRuleChainId], references: [id])
-  templateKindRef     TemplateKind           @relation(fields: [templateKind], references: [code])
+  versions              AssetTemplateVersion[]
+  instances             AssetInstance[]
+  templateAssignments   TemplateAssignment[]
+  templateKindRef       TemplateKind                      @relation(fields: [templateKind], references: [code])
   // Step 4 (2026-05-02): FilterProfile applicable-templates moved from JSONB
   // array on FilterProfile to a proper join table with cascade FKs. Deletes
   // are guarded server-side with 409 IN_USE if any FilterProfile binds this
@@ -502,19 +611,19 @@ model AssetInstance {
   createdBy        String?  @map("created_by") @db.VarChar(50)
   updatedBy        String?  @map("updated_by") @db.VarChar(50)
 
-  template              AssetTemplate       @relation(fields: [templateId], references: [id])
-  parent                AssetInstance?      @relation("AssetHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
-  children              AssetInstance[]     @relation("AssetHierarchy")
-  sourceRelations       AssetRelationship[] @relation("SourceAsset")
-  targetRelations       AssetRelationship[] @relation("TargetAsset")
-  identifiers           AssetIdentifier[]
-  entityAssignments     EntityAssignment[]
-  equipmentGroups       EquipmentGroup[]
+  template          AssetTemplate       @relation(fields: [templateId], references: [id])
+  parent            AssetInstance?      @relation("AssetHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children          AssetInstance[]     @relation("AssetHierarchy")
+  sourceRelations   AssetRelationship[] @relation("SourceAsset")
+  targetRelations   AssetRelationship[] @relation("TargetAsset")
+  identifiers       AssetIdentifier[]
+  entityAssignments EntityAssignment[]
+  equipmentGroups   EquipmentGroup[]
 
   // Filter-specific 1:1 split (Step 6 — 2026-05-01). FilterDetails is created
   // eagerly when the instance's template has templateKind='FILTER'. Other
   // template kinds never get a FilterDetails row.
-  filterDetails         FilterDetails?
+  filterDetails FilterDetails?
 
   @@index([templateId])
   @@index([status])
@@ -538,9 +647,9 @@ model FilterDetails {
   createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz
   updatedAt             DateTime        @updatedAt @map("updated_at") @db.Timestamptz
 
-  assetInstance  AssetInstance  @relation(fields: [assetInstanceId], references: [id], onDelete: Cascade)
-  filterProfile  FilterProfile? @relation("FilterProfileFilterDetails", fields: [filterProfileId], references: [id])
-  currentCycle   CleaningCycle? @relation("CurrentCycleFilterDetails", fields: [currentCycleId], references: [id])
+  assetInstance AssetInstance  @relation(fields: [assetInstanceId], references: [id], onDelete: Cascade)
+  filterProfile FilterProfile? @relation("FilterProfileFilterDetails", fields: [filterProfileId], references: [id])
+  currentCycle  CleaningCycle? @relation("CurrentCycleFilterDetails", fields: [currentCycleId], references: [id])
 
   @@index([currentLifecycleState])
   @@index([currentCycleId])
@@ -636,121 +745,6 @@ model DeviceCredential {
 
   @@index([status])
   @@map("device_credentials")
-}
-
-// Rule Chains (SUPER_ADMIN only)
-model RuleChain {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name            String   @db.VarChar(200)
-  description     String?
-  isRoot          Boolean  @default(false) @map("is_root")
-  isSystem        Boolean  @default(false) @map("is_system")
-  firstRuleNodeId String?  @map("first_rule_node_id") @db.Uuid
-  configuration   Json?    @db.JsonB
-  currentVersion  Int      @default(1) @map("current_version")
-  isActive        Boolean  @default(true) @map("is_active")
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
-
-  nodes       RuleNode[]
-  connections RuleNodeConnection[]
-  versions    RuleChainVersion[]
-  templates   AssetTemplate[]
-
-  @@index([isRoot])
-  @@index([isActive])
-  @@map("rule_chains")
-}
-
-// Rule Chain Versions (append-only snapshots)
-model RuleChainVersion {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  ruleChainId String   @map("rule_chain_id") @db.Uuid
-  version     Int
-  snapshot    Json     @db.JsonB
-  status      String   @default("ACTIVE") @db.VarChar(20) // ACTIVE | SUPERSEDED
-  createdBy   String   @map("created_by") @db.VarChar(50)
-  changeNotes String?  @map("change_notes")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  ruleChain RuleChain @relation(fields: [ruleChainId], references: [id], onDelete: Cascade)
-
-  @@unique([ruleChainId, version])
-  @@map("rule_chain_versions")
-}
-
-// Rule Nodes
-model RuleNode {
-  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  ruleChainId   String   @map("rule_chain_id") @db.Uuid
-  type          String   @db.VarChar(100)
-  name          String   @db.VarChar(200)
-  configuration Json     @default("{}") @db.JsonB
-  debugEnabled  Boolean  @default(false) @map("debug_enabled")
-  positionX     Float    @default(0) @map("position_x")
-  positionY     Float    @default(0) @map("position_y")
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz
-
-  ruleChain       RuleChain            @relation(fields: [ruleChainId], references: [id], onDelete: Cascade)
-  fromConnections RuleNodeConnection[] @relation("FromNode")
-  toConnections   RuleNodeConnection[] @relation("ToNode")
-
-  @@index([ruleChainId])
-  @@map("rule_nodes")
-}
-
-// Rule Node Connections
-model RuleNodeConnection {
-  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  ruleChainId String @map("rule_chain_id") @db.Uuid
-  fromNodeId  String @map("from_node_id") @db.Uuid
-  toNodeId    String @map("to_node_id") @db.Uuid
-  label       String @db.VarChar(100)
-
-  ruleChain RuleChain @relation(fields: [ruleChainId], references: [id], onDelete: Cascade)
-  fromNode  RuleNode  @relation("FromNode", fields: [fromNodeId], references: [id], onDelete: Cascade)
-  toNode    RuleNode  @relation("ToNode", fields: [toNodeId], references: [id], onDelete: Cascade)
-
-  @@index([ruleChainId])
-  @@map("rule_node_connections")
-}
-
-// Alarm (single-row lifecycle: ACTIVE -> ACKNOWLEDGED -> CLEARED | MANUALLY_CLEARED)
-model Alarm {
-  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  entityId  String @map("entity_id") @db.Uuid
-  alarmType String @map("alarm_type") @db.VarChar(100)
-  severity  String @db.VarChar(20) // CRITICAL | MAJOR | MINOR | WARNING | INFO
-  status    String @default("ACTIVE") @db.VarChar(20) // ACTIVE | ACKNOWLEDGED | CLEARED | MANUALLY_CLEARED
-  unsPath   String @map("uns_path")
-
-  // Creation
-  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
-  createdByRuleChain String?  @map("created_by_rule_chain") @db.Uuid
-  triggerDetails     Json?    @map("trigger_details") @db.JsonB
-
-  // Acknowledgment
-  acknowledged   Boolean   @default(false)
-  acknowledgedBy String?   @map("acknowledged_by") @db.VarChar(50)
-  acknowledgedAt DateTime? @map("acknowledged_at") @db.Timestamptz
-  ackRemarks     String?   @map("ack_remarks")
-  ackSignatureId String?   @map("ack_signature_id") @db.Uuid
-
-  // Clearance
-  cleared          Boolean   @default(false)
-  clearedAt        DateTime? @map("cleared_at") @db.Timestamptz
-  clearedBy        String?   @map("cleared_by") @db.VarChar(50)
-  clearRemarks     String?   @map("clear_remarks")
-  clearSignatureId String?   @map("clear_signature_id") @db.Uuid
-  clearDetails     Json?     @map("clear_details") @db.JsonB
-
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
-
-  @@index([entityId, status])
-  @@index([severity, status])
-  @@index([createdAt])
-  @@map("alarms")
 }
 
 // Checklist Review (3-step approval workflow)
@@ -997,9 +991,7 @@ model NotificationLog {
   nextRetryAt  DateTime?                  @map("next_retry_at") @db.Timestamptz
   errorMessage String?                    @map("error_message")
   metadata     Json?                      @db.JsonB
-  triggeredBy  String?                    @map("triggered_by") @db.VarChar(100) // rule-chain, alarm, system, manual
-  ruleChainId  String?                    @map("rule_chain_id") @db.Uuid
-  alarmId      String?                    @map("alarm_id") @db.Uuid
+  triggeredBy  String?                    @map("triggered_by") @db.VarChar(100) // system | manual (historic rows may contain 'rule-chain'/'alarm' — inert strings, no decoder)
   createdAt    DateTime                   @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime                   @updatedAt @map("updated_at") @db.Timestamptz
   sentAt       DateTime?                  @map("sent_at") @db.Timestamptz
@@ -1008,8 +1000,6 @@ model NotificationLog {
   @@index([status])
   @@index([recipient])
   @@index([createdAt(sort: Desc)])
-  @@index([ruleChainId])
-  @@index([alarmId])
   @@map("notification_logs")
 }
 
@@ -1383,10 +1373,10 @@ model FilterProfile {
   createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz
 
-  cleaningProfile FilterCleaningProfile? @relation(fields: [cleaningProfileId], references: [id])
-  pmSchedule      PmSchedule?            @relation(fields: [defaultPmScheduleId], references: [id])
-  filterDetails   FilterDetails[]        @relation("FilterProfileFilterDetails")
-  versions        FilterProfileVersion[]
+  cleaningProfile     FilterCleaningProfile?            @relation(fields: [cleaningProfileId], references: [id])
+  pmSchedule          PmSchedule?                       @relation(fields: [defaultPmScheduleId], references: [id])
+  filterDetails       FilterDetails[]                   @relation("FilterProfileFilterDetails")
+  versions            FilterProfileVersion[]
   // Step 4 (2026-05-02): replaces the prior `applicableTemplates Json` array
   // on this row. Reads should `include: { applicableTemplates: { select: {
   // templateId: true } } }` and flatten so the API response shape stays
@@ -1462,7 +1452,7 @@ model CleaningCycle {
   createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz
   updatedAt             DateTime            @updatedAt @map("updated_at") @db.Timestamptz
 
-  equipmentGroupId String? @map("equipment_group_id") @db.Uuid
+  equipmentGroupId         String? @map("equipment_group_id") @db.Uuid
   // P1 (2026-05-02): pins the EquipmentGroup version in effect when this cycle
   // bound the group. Set at start-cycle (or at the first auto-bind, whichever
   // happens first). Reading validation reads operating-range from the pinned
@@ -1472,12 +1462,12 @@ model CleaningCycle {
   // (backwards compatible). Slice B (next APK) will add an
   // `expectedGroupVersion` field on submit-readings + 409 SCHEMA_DRIFT
   // self-heal flow on the tablet — see future/offline-version-sync-contract.md.
-  equipmentGroupVersionPin Int? @map("equipment_group_version_pin")
+  equipmentGroupVersionPin Int?    @map("equipment_group_version_pin")
 
   // Dryer timing — tracks the dryer duration and start time for DRY_IN stage
-  dryerDurationMinutes      Int?      @map("dryer_duration_minutes")
-  dryerStartedAt            DateTime? @map("dryer_started_at") @db.Timestamptz
-  dryerReadingsSubmitted    Boolean   @default(false) @map("dryer_readings_submitted")
+  dryerDurationMinutes   Int?      @map("dryer_duration_minutes")
+  dryerStartedAt         DateTime? @map("dryer_started_at") @db.Timestamptz
+  dryerReadingsSubmitted Boolean   @default(false) @map("dryer_readings_submitted")
 
   // Phase A.1: pinned ChecklistProfile versions at cycle start.
   // Shape: { [checklistProfileId: string]: versionNumber: int }
@@ -1485,12 +1475,12 @@ model CleaningCycle {
   // so admin edits to a profile mid-cycle do NOT change the questions or
   // required-flags the operator sees. Empty {} for legacy cycles started
   // before this column existed (fallback to live profile).
-  checklistVersionPins      Json      @default("{}") @map("checklist_version_pins") @db.JsonB
+  checklistVersionPins Json @default("{}") @map("checklist_version_pins") @db.JsonB
 
-  events                FilterEvent[]
-  equipmentGroup        EquipmentGroup?        @relation(fields: [equipmentGroupId], references: [id])
-  profile               FilterCleaningProfile? @relation(fields: [profileId], references: [id])
-  activeFilterDetails   FilterDetails[]        @relation("CurrentCycleFilterDetails")
+  events              FilterEvent[]
+  equipmentGroup      EquipmentGroup?        @relation(fields: [equipmentGroupId], references: [id])
+  profile             FilterCleaningProfile? @relation(fields: [profileId], references: [id])
+  activeFilterDetails FilterDetails[]        @relation("CurrentCycleFilterDetails")
   // Phase 5b.5 invariant (DB-side, not Prisma-expressible): at most ONE
   // IN_PROGRESS cycle per filter, enforced by partial unique index applied
   // via apps/api/prisma/sql/invariants.sql after every db push.

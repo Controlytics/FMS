@@ -2,7 +2,8 @@
  * Dead Letter Queue Manager — Stores failed pipeline messages and handles retries.
  * DLQ entries are stored in PostgreSQL (dead_letter_queue table).
  * Maintenance job re-enqueues PENDING entries older than 5 minutes.
- * After max retries → status = DEAD, creates CRITICAL alarm if depth > threshold.
+ * After max retries → status = DEAD. Depth threshold is observed but not used
+ * to create an alarm (alarm subsystem was removed 2026-05-17).
  */
 
 import { Prisma } from '@prisma/client';
@@ -82,38 +83,20 @@ export async function processDLQ(): Promise<{ requeued: number; dead: number }> 
     }
   }
 
-  // Check DLQ depth threshold for CRITICAL alarm
+  // DLQ depth observability: previously this branch created a CRITICAL alarm
+  // when the depth exceeded the `pipeline.dlq_alarm_threshold` config.  The
+  // alarm subsystem was removed on 2026-05-17 — operators now monitor DLQ
+  // depth via the dashboards/queries APIs.  The depth + threshold are still
+  // logged when over the line so failures are visible in stdout.
   const dlqThreshold = await getConfigOrDefault<number>('pipeline.dlq_alarm_threshold', 100);
   const dlqDepth = await prisma.deadLetterQueue.count({
     where: { status: { in: ['PENDING', 'RETRYING'] } },
   });
 
   if (dlqDepth > dlqThreshold) {
-    // Create a critical alarm for DLQ overflow
-    try {
-      await prisma.alarm.create({
-        data: {
-          entityId: '00000000-0000-0000-0000-000000000000', // System entity
-          alarmType: 'DLQ_OVERFLOW',
-          severity: 'CRITICAL',
-          status: 'ACTIVE',
-          unsPath: 'system/dlq',
-          triggerDetails: { dlqDepth, threshold: dlqThreshold } as Prisma.InputJsonValue,
-        },
-      });
-    } catch (err) {
-      // The DLQ-overflow alarm write CAN fail — `entityId: '00...000'` is a
-      // sentinel that violates the AssetInstance FK if it's enforced. The
-      // outer DLQ processing path is non-critical (the overflow is already
-      // logged via the dlqDepth comparison above) but the silent catch made
-      // it impossible to diagnose "why aren't operators receiving DLQ-
-      // overflow alerts" in the field. Surface the cause; the alarm is
-      // best-effort, but the operator should see why it didn't land.
-      console.warn(
-        '[DLQ] DLQ_OVERFLOW alarm creation failed (sentinel entity may not exist):',
-        err instanceof Error ? err.message : String(err),
-      );
-    }
+    console.warn(
+      `[DLQ] depth ${dlqDepth} exceeds threshold ${dlqThreshold} (alarm subsystem removed; operator visibility via dashboards only)`,
+    );
   }
 
   return { requeued, dead };

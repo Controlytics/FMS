@@ -272,7 +272,7 @@ export default async function retentionRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['dataType', 'from', 'to', 'confirmed'],
         properties: {
-          dataType: { type: 'string', enum: [...VALID_EXECUTE_DATA_TYPES, 'alarms'] },
+          dataType: { type: 'string', enum: [...VALID_EXECUTE_DATA_TYPES] },
           from: { type: 'string', format: 'date-time' },
           to: { type: 'string', format: 'date-time' },
           entityId: { type: 'string', format: 'uuid' },
@@ -306,17 +306,6 @@ export default async function retentionRoutes(app: FastifyInstance) {
         error: 'CONFIRMATION_REQUIRED',
         message: 'You must set confirmed: true to execute data deletion. This action is irreversible.',
       });
-    }
-
-    // Handle alarms via Prisma (stored in main DB, not TSDB)
-    if (dataType === 'alarms') {
-      const where: any = {
-        createdAt: { gte: new Date(from), lte: new Date(to) },
-      };
-      if (entityId) where.entityId = entityId;
-
-      const result = await prisma.alarm.deleteMany({ where });
-      return { deleted: result.count, dataType, from, to };
     }
 
     // Handle checklists: delete from both TSDB and PG checklist_reviews

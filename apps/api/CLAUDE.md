@@ -17,22 +17,21 @@ node apps/api/dist/app.js
 - Source: `apps/api/src/`
 - Compiled: `apps/api/dist/`
 - Entry: `apps/api/src/app.ts`
-- Prisma schema: `apps/api/prisma/schema.prisma` (69 models, 23 enums) — Step 1 added the `TemplateKind` lookup model; MT removal (2026-04-30) dropped `Organization` + 11 `organizationId` columns + 2 `orgId` columns; **Step 6 (2026-05-01)** split filter-specific cycle state (`filterProfileId`, `currentLifecycleState`, `currentCycleId`, `filterSet`) off `AssetInstance` into a 1:1 `FilterDetails` sidecar; **Phase A.3 (2026-05-01)** added the `FilterProfileVersion` sidecar (snapshot-then-bump); **Phase A.4 (2026-05-02)** added the `EquipmentGroupVersion` sidecar (composite snapshot of group + 3 instruments together); **Step 4 (2026-05-02)** dropped `FilterProfile.applicableTemplates Json` and replaced it with the `FilterProfileApplicableTemplate` join table (cascade FKs both directions; AssetTemplate delete blocked with 409 IN_USE if any FilterProfile binds it).
+- Prisma schema: `apps/api/prisma/schema.prisma` (64 models, 21 enums) — Step 1 added the `TemplateKind` lookup model; MT removal (2026-04-30) dropped `Organization` + 11 `organizationId` columns + 2 `orgId` columns; **Step 6 (2026-05-01)** split filter-specific cycle state (`filterProfileId`, `currentLifecycleState`, `currentCycleId`, `filterSet`) off `AssetInstance` into a 1:1 `FilterDetails` sidecar; **Phase A.3 (2026-05-01)** added the `FilterProfileVersion` sidecar (snapshot-then-bump); **Phase A.4 (2026-05-02)** added the `EquipmentGroupVersion` sidecar (composite snapshot of group + 3 instruments together); **Step 4 (2026-05-02)** dropped `FilterProfile.applicableTemplates Json` and replaced it with the `FilterProfileApplicableTemplate` join table (cascade FKs both directions; AssetTemplate delete blocked with 409 IN_USE if any FilterProfile binds it); **2026-05-17 dropped 5 models** (`RuleChain`, `RuleChainVersion`, `RuleNode`, `RuleNodeConnection`, `Alarm`) plus `asset_templates.{default_rule_chain_id, alarm_rules}` + `notification_logs.{rule_chain_id, alarm_id}` columns — see `tasks/REMOVE-RULECHAIN-ALARM-PLAN.md`.
 - Config definitions: `apps/api/src/modules/config/defs/` (30 files)
-- Route modules: `apps/api/src/modules/` (36 modules — `template-kinds` added in Step 1; `org-admin` and `tenant-admin` deleted in MT removal)
+- Route modules: `apps/api/src/modules/` (34 modules — `template-kinds` added in Step 1; `org-admin` and `tenant-admin` deleted in MT removal; `rule-chain` deleted 2026-05-17)
 - Config routes: monolith split into `apps/api/src/modules/config/static-routes/<surface>.routes.ts` per tab; top-level `routes.ts` is just a registration loop (~170 LOC, was 1003)
 
 ## Architecture
-- 36 route modules registered via `apps/api/src/modules/*/routes.ts`
+- 34 route modules registered via `apps/api/src/modules/*/routes.ts`
 - Config auto-discovery at startup via `lib/config-discovery.ts`
 - Config registry pattern via `lib/config-registry.ts` (self-registering config modules)
-- Rule chain node registry: `modules/rule-chain/nodes/index.ts` (77 node types, 8 categories)
 - Input sanitization: `lib/sanitize.ts` (HTML stripping on all text inputs)
 - JWT auth with 30-min refresh, session management, re-auth for sensitive ops
 - Permission-based RBAC via `requirePermission()` on all protected routes
 
-## 36 API Modules
-admin-requests, assets (templates/instances/relationships/identifiers), audit, auth, backup, checklist-profiles, cleaning-profiles, config (30 auto-discovered definitions), connectivity, dashboards, data-ingestion (11-file pipeline), deployment-check, entity-assignments, equipment-groups, filter-operations, filter-profiles, help, ldap, notification-delivery (email/SMS/Telegram/Slack), notification-rules, notifications, pm-schedules, qr-code, queries (telemetry/alarm/retention/export), report-templates, reports, roles, rule-chain (77 node types), super-admin, system-health, **template-kinds** (lookup-table CRUD added in Step 1 — `/api/template-kinds`), uns, uploads, user-groups, users — plus block-change-requests / admin-requests under their own modules. (`org-admin` and `tenant-admin` removed 2026-04-30 with MT removal.)
+## 34 API Modules
+admin-requests, assets (templates/instances/relationships/identifiers), audit, auth, backup, checklist-profiles, cleaning-profiles, config (27 auto-discovered definitions), connectivity, dashboards, data-ingestion (11-file pipeline), deployment-check, entity-assignments, equipment-groups, filter-operations, filter-profiles, help, ldap, notification-delivery (email/SMS/Telegram/Slack), notification-rules, notifications, pm-schedules, qr-code, queries (telemetry/retention/export), report-templates, reports, roles, super-admin, system-health, **template-kinds** (lookup-table CRUD added in Step 1 — `/api/template-kinds`), uns, uploads, user-groups, users — plus block-change-requests / admin-requests under their own modules. (`org-admin` and `tenant-admin` removed 2026-04-30 with MT removal; `rule-chain` removed 2026-05-17 with alarm tear-out.)
 
 ## Databases
 - **digilog_db** (PostgreSQL 18 via Prisma) — application data (69 models, 23 enums)

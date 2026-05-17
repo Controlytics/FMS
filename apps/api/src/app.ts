@@ -30,7 +30,6 @@ import mqttAuthRoutes from './transport/mqtt-auth-routes.js';
 import mosquittoRefreshRoutes from './transport/mosquitto-refresh-routes.js';
 import { isFeatureEnabled, FEATURE_FLAGS } from './lib/feature-flags.js';
 import dataIngestionRoutes from './modules/data-ingestion/routes.js';
-import ruleChainRoutes from './modules/rule-chain/routes.js';
 import unsRoutes from './modules/uns/routes.js';
 import queriesModule from './modules/queries/index.js';
 import connectivityRoutes from './modules/connectivity/routes.js';
@@ -42,7 +41,6 @@ import wsHandler from './transport/ws-handler.js';
 import { initMqttClient, closeMqttClient } from './transport/mqtt-client.js';
 import { closeWsBus } from './transport/ws-handler.js';
 import { stopRateLimitCleanup } from './modules/data-ingestion/ingestion.service.js';
-import { initializeNodes } from './modules/rule-chain/nodes/index.js';
 import notificationDeliveryRoutes from './modules/notification-delivery/routes.js';
 import userGroupRoutes from './modules/user-groups/routes.js';
 import notificationRulesRoutes from './modules/notification-rules/routes.js';
@@ -66,6 +64,7 @@ import deploymentCheckRoutes from './modules/deployment-check/routes.js';
 import adminRequestRoutes from './modules/admin-requests/routes.js';
 import blockChangeRoutes from './modules/block-change-requests/routes.js';
 import reportTemplateRoutes from './modules/report-templates/routes.js';
+import hierarchyRoutes from './modules/hierarchy/routes.js';
 // reportRoutes imported dynamically below
 
 const __filename = fileURLToPath(import.meta.url);
@@ -272,7 +271,6 @@ if (isFeatureEnabled(FEATURE_FLAGS.USE_MOSQUITTO)) {
   await app.register(mqttAuthRoutes, { prefix: '/api/internal/mqtt' });
 }
 await app.register(dataIngestionRoutes, { prefix: '/api/data' });
-await app.register(ruleChainRoutes, { prefix: '/api/rule-chains' });
 await app.register(unsRoutes, { prefix: '/api/uns' });
 await app.register(queriesModule, { prefix: '/api' });
 await app.register(connectivityRoutes, { prefix: '/api/connectivity' });
@@ -296,11 +294,9 @@ await app.register(deploymentCheckRoutes, { prefix: '/api/deployment-check' });
 await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
 await app.register(blockChangeRoutes, { prefix: '/api/block-change-requests' });
 await app.register(reportTemplateRoutes, { prefix: '/api/report-templates' });
+await app.register(hierarchyRoutes, { prefix: '/api/hierarchy' });
 await app.register((await import('./modules/reports/routes.js')).default, { prefix: '/api/reports' });
 await app.register(wsHandler);
-
-// Initialize rule chain node registry
-initializeNodes();
 
 // Start
 const port = parseInt(process.env.PORT ?? '3000', 10);

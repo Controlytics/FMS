@@ -5,19 +5,15 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const {
   mockDeviceCredentialFindUnique,
   mockAssetTemplateFindUnique,
-  mockAlarmUpdateMany,
-  mockAlarmFindFirst,
   mockAuditTrailCreate,
   mockAuditLog,
   mockAssetInstanceFindUnique,
   mockComputeChecksum,
   mockGetConfigOrDefault,
   mockMarkOnline,
-  mockExecuteRuleChain,
   mockSaveTelemetry,
   mockSaveAttributes,
   mockSaveChecklist,
-  mockCreateAlarm,
   mockSaveBinary,
   mockIsTraceEnabled,
   mockCreateTrace,
@@ -28,17 +24,11 @@ const {
   mockFlushAll,
   mockAddDeviceEventRow,
   mockPublish,
-  mockQuit,
   mockGetProducer,
   mockAddJob,
 } = vi.hoisted(() => ({
   mockDeviceCredentialFindUnique: vi.fn(),
   mockAssetTemplateFindUnique: vi.fn(),
-  mockAlarmUpdateMany: vi.fn(),
-  // Stage 7 (rule chain) does an alarm.findFirst dedup check before
-  // creating a new alarm. Default to null = no existing active alarm so
-  // createAlarm fires.
-  mockAlarmFindFirst: vi.fn().mockResolvedValue(null),
   mockAuditTrailCreate: vi.fn(),
   // C3 (2026-05-04): ingestion.service.ts no longer calls
   // prisma.auditTrail.create directly — it routes through lib/audit.js
@@ -50,11 +40,9 @@ const {
   mockComputeChecksum: vi.fn(),
   mockGetConfigOrDefault: vi.fn(),
   mockMarkOnline: vi.fn(),
-  mockExecuteRuleChain: vi.fn(),
   mockSaveTelemetry: vi.fn(),
   mockSaveAttributes: vi.fn(),
   mockSaveChecklist: vi.fn(),
-  mockCreateAlarm: vi.fn(),
   mockSaveBinary: vi.fn(),
   mockIsTraceEnabled: vi.fn(),
   mockCreateTrace: vi.fn(),
@@ -65,7 +53,6 @@ const {
   mockFlushAll: vi.fn(),
   mockAddDeviceEventRow: vi.fn(),
   mockPublish: vi.fn(),
-  mockQuit: vi.fn(),
   mockGetProducer: vi.fn(),
   mockAddJob: vi.fn(),
 }));
@@ -79,10 +66,6 @@ vi.mock('../../../lib/prisma.js', () => ({
     },
     assetTemplate: {
       findUnique: mockAssetTemplateFindUnique,
-    },
-    alarm: {
-      updateMany: mockAlarmUpdateMany,
-      findFirst: mockAlarmFindFirst,
     },
     auditTrail: {
       create: mockAuditTrailCreate,
@@ -110,15 +93,10 @@ vi.mock('../connectivity-tracker.js', () => ({
   markOnline: mockMarkOnline,
 }));
 
-vi.mock('../../rule-chain/rule-engine.js', () => ({
-  executeRuleChain: mockExecuteRuleChain,
-}));
-
 vi.mock('../ingestion.repository.js', () => ({
   saveTelemetry: mockSaveTelemetry,
   saveAttributes: mockSaveAttributes,
   saveChecklist: mockSaveChecklist,
-  createAlarm: mockCreateAlarm,
   saveBinary: mockSaveBinary,
 }));
 
@@ -162,7 +140,6 @@ vi.mock('@digilog/queue', () => ({
     },
   },
   JOB_PRIORITY: {
-    ALARM_PROCESSING: 2,
     TELEMETRY: 5,
   },
 }));
@@ -187,22 +164,8 @@ function makeMessage(overrides?: Record<string, unknown>) {
     messageType: 'POST_TELEMETRY',
     data: { temperature: 25.5 },
     metadata: {} as Record<string, string>,
-    ruleChainId: '',
     traceId: '',
     ...overrides,
-  };
-}
-
-function defaultRuleEngineResult() {
-  return {
-    success: true,
-    message: {},
-    metadata: {},
-    alarms: [],
-    notifications: [],
-    errors: [],
-    nodesExecuted: 0,
-    durationMs: 0,
   };
 }
 
@@ -214,11 +177,9 @@ beforeEach(() => {
   // Default sensible returns
   mockIsTraceEnabled.mockResolvedValue(false);
   mockGetConfigOrDefault.mockImplementation(async (key: string, defaultValue: unknown) => defaultValue);
-  mockExecuteRuleChain.mockResolvedValue(defaultRuleEngineResult());
   mockSaveTelemetry.mockResolvedValue({ keysWritten: 1 });
   mockSaveAttributes.mockResolvedValue({ keysWritten: 1 });
   mockSaveChecklist.mockResolvedValue({ checklistId: 'chk-001' });
-  mockCreateAlarm.mockResolvedValue({ alarmId: 'alarm-001' });
   mockSaveBinary.mockResolvedValue({ filePath: '/tmp/file' });
   mockFlushAll.mockResolvedValue(undefined);
   mockComputeChecksum.mockReturnValue('test-checksum');
@@ -493,89 +454,9 @@ describe('processIngestionMessage', () => {
     });
   });
 
-  // ── Stage 7: Rule Chain ─────────────────────────────────────────────
-
-  describe('Stage 7 — Rule Chain', () => {
-    it('executes rule chain and collects alarms', async () => {
-      mockExecuteRuleChain.mockResolvedValue({
-        success: true,
-        message: { temperature: 30 },
-        metadata: {},
-        alarms: [
-          {
-            entityId: 'entity-001',
-            alarmType: 'HIGH_TEMP',
-            severity: 'WARNING',
-            details: { threshold: 28 },
-          },
-        ],
-        notifications: [],
-        errors: [],
-        nodesExecuted: 3,
-        durationMs: 12,
-      });
-
-      mockCreateAlarm.mockResolvedValue({ alarmId: 'alarm-from-rule' });
-
-      const msg = makeMessage({
-        credentialId: '',
-        ruleChainId: 'chain-001',
-        data: { temperature: 30 },
-      });
-
-      const result = await processIngestionMessage(msg);
-
-      expect(result.success).toBe(true);
-      expect(mockExecuteRuleChain).toHaveBeenCalledOnce();
-      expect(mockExecuteRuleChain).toHaveBeenCalledWith(
-        expect.objectContaining({ temperature: 30, _messageType: 'POST_TELEMETRY' }),
-        expect.any(Object),
-        'chain-001',
-        expect.objectContaining({ entityId: 'entity-001' }),
-      );
-      // Stage 8 should process the alarm from rule chain
-      expect(mockCreateAlarm).toHaveBeenCalledWith(
-        expect.objectContaining({
-          entityId: 'entity-001',
-          alarmType: 'HIGH_TEMP',
-          severity: 'WARNING',
-        }),
-      );
-    });
-
-    it('adds warning on rule chain error and continues (fail-safe)', async () => {
-      mockExecuteRuleChain.mockRejectedValue(new Error('Rule evaluation failed'));
-
-      const msg = makeMessage({
-        credentialId: '',
-        ruleChainId: 'chain-broken',
-        data: { temperature: 25 },
-      });
-
-      const result = await processIngestionMessage(msg);
-
-      // Pipeline should still succeed — rule chain errors are non-fatal
-      expect(result.success).toBe(true);
-      expect(result.warnings).toEqual(
-        expect.arrayContaining([
-          expect.stringContaining('WARN_RULE_CHAIN_FAILED'),
-        ]),
-      );
-    });
-
-    it('skips rule chain when no ruleChainId', async () => {
-      const msg = makeMessage({
-        credentialId: '',
-        ruleChainId: '',
-        data: { temperature: 25 },
-      });
-
-      const result = await processIngestionMessage(msg);
-
-      expect(result.success).toBe(true);
-      expect(mockExecuteRuleChain).not.toHaveBeenCalled();
-    });
-  });
+  // ── Stage 7 (rule chain) + Stage 8 (rule-chain output) removed
+  //    2026-05-17 with the rule-chain + alarm tear-out. Telemetry now
+  //    flows from validation straight into persistence. ──
 
   // ── Stage 9: Data Persistence ───────────────────────────────────────
 

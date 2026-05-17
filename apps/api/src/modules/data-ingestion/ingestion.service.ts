@@ -1,30 +1,30 @@
 /**
- * Ingestion Service — Pipeline Stages 3, 6, 7, 8, 9, 10, 11.
+ * Ingestion Service — Pipeline Stages 3, 6, 9, 10, 11.
  *
  * Pipeline flow:
  *   Stage 3: Device Validation (IP allowlist, rate limiting)
  *   Stage 6: Message Normalization & Validation (schema, types, ranges, timestamps)
- *   Stage 7: Rule Chain Resolution & Execution
- *   Stage 8: Rule Chain Output (alarms, notifications)
  *   Stage 9: Data Persistence (TSDB + PG)
  *   Stage 10: Audit Trail (compliance-critical only)
- *   Stage 11: Event Emission (Redis pub/sub, MQTT retained, notifications)
+ *   Stage 11: Event Emission (internal-bus pub/sub, MQTT retained, notifications)
+ *
+ * NOTE: Stages 6.5 (Template Alarm Rules), 7 (Rule Chain Resolution), and 8
+ * (Rule Chain Output) were removed on 2026-05-17 when the rule-chain + alarm
+ * subsystems were torn out. Telemetry now flows directly from validation to
+ * persistence; no alarms are created from ingested data.
  */
 
 import { prisma } from '../../lib/prisma.js';
 import { flushAll } from '@digilog/db';
-import { QUEUES, JOB_PRIORITY, getProducer } from '@digilog/queue';
+import { QUEUES, getProducer } from '@digilog/queue';
 import { bus } from '../../lib/internal-bus.js';
 import type { IngestionMessage } from './message-normalizer.js';
 import { getConfigOrDefault } from './ingestion-config.service.js';
 import { markOnline } from './connectivity-tracker.js';
-import { executeRuleChain } from '../rule-chain/rule-engine.js';
-import type { AlarmAction, NotificationAction } from '../rule-chain/types.js';
 import {
   saveTelemetry,
   saveAttributes,
   saveChecklist,
-  createAlarm,
   saveBinary,
 } from './ingestion.repository.js';
 import {
@@ -37,7 +37,6 @@ import {
 } from './pipeline-tracer.js';
 import { addToDLQ } from './dlq-manager.js';
 import { addDeviceEventRow } from '@digilog/db';
-import { dispatchNotification } from "../notification-delivery/notification-dispatcher.js";
 
 // ─── Stage 11 fan-out goes through internal-bus (Phase 4 — was Redis) ──
 
@@ -218,216 +217,8 @@ export async function processIngestionMessage(msg: IngestionMessage): Promise<Pi
       throw err;
     }
 
-    // ── Stage 6.5: Template Alarm Rules Evaluation ──
-    const stage6_5Start = Date.now();
-    try {
-      await evaluateTemplateAlarmRules(msg, warnings);
-      if (trace) {
-        recordStage(trace, {
-          stage: 6,
-          name: 'Template Alarm Rules',
-          status: 'SUCCESS',
-          durationMs: Date.now() - stage6_5Start,
-        });
-      }
-    } catch (err) {
-      warnings.push(`WARN_TEMPLATE_ALARM:${err instanceof Error ? err.message : String(err)}`);
-      if (trace) {
-        recordStage(trace, {
-          stage: 6,
-          name: 'Template Alarm Rules',
-          status: 'FAILED',
-          durationMs: Date.now() - stage6_5Start,
-          errorCode: 'ERR_TEMPLATE_ALARM',
-        });
-      }
-    }
-
-    // ── Stages 7-8: Rule Chain Resolution & Execution ──
-    let ruleChainAlarms: AlarmAction[] = [];
-    let ruleChainNotifications: NotificationAction[] = [];
-
-    const stage7Start = Date.now();
-    try {
-      if (msg.ruleChainId && msg.entityId) {
-        const engineResult = await executeRuleChain(
-          { ...msg.data, _messageType: msg.messageType },
-          msg.metadata,
-          msg.ruleChainId,
-          {
-            entityId: msg.entityId,
-            entityName: msg.entityName,
-            templateId: msg.templateId,
-            unsPath: msg.unsPath,
-          },
-        );
-
-        // Collect alarms and notifications from rule chain
-        ruleChainAlarms = engineResult.alarms;
-        ruleChainNotifications = engineResult.notifications;
-
-        // Merge metadata from rule chain
-        if (engineResult.metadata) {
-          Object.assign(msg.metadata, engineResult.metadata);
-        }
-
-        // Rule chain can modify the message data
-        const { _messageType, _saveAs, _scope, ...cleanData } = engineResult.message;
-        if (Object.keys(cleanData).length > 0) {
-          msg.data = cleanData as Record<string, unknown>;
-        }
-
-        if (engineResult.errors.length > 0) {
-          for (const err of engineResult.errors) {
-            warnings.push(`WARN_RULE_CHAIN:${err}`);
-          }
-        }
-
-        // Dispatch RULE_CHAIN_TRIGGERED notification
-        dispatchNotification({
-          eventType: 'RULE_CHAIN_TRIGGERED',
-          context: {},
-          variables: {
-            ruleChainName: msg.ruleChainId, entityName: msg.entityName ?? msg.entityId ?? 'N/A',
-            nodesExecuted: String(engineResult.nodesExecuted), durationMs: String(engineResult.durationMs),
-            timestamp: new Date().toISOString(),
-          },
-        }).catch(err => console.error('[RuleChainTriggered] Notification dispatch failed:', err.message));
-
-        if (trace) {
-          recordStage(trace, {
-            stage: 7,
-            name: 'Rule Chain Resolution',
-            status: 'SUCCESS',
-            durationMs: Date.now() - stage7Start,
-            details: { chainId: msg.ruleChainId, nodesExecuted: engineResult.nodesExecuted },
-          });
-        }
-      } else {
-        if (trace) {
-          recordStage(trace, {
-            stage: 7,
-            name: 'Rule Chain Resolution',
-            status: 'SKIPPED',
-            durationMs: 0,
-          });
-        }
-      }
-    } catch (err) {
-      // Rule chain errors are warnings, not failures (fail-safe)
-      warnings.push(`WARN_RULE_CHAIN_FAILED:${err instanceof Error ? err.message : String(err)}`);
-      if (trace) {
-        recordStage(trace, {
-          stage: 7,
-          name: 'Rule Chain Resolution',
-          status: 'FAILED',
-          durationMs: Date.now() - stage7Start,
-          errorCode: 'ERR_RULE_CHAIN',
-        });
-      }
-    }
-
-    // Stage 8: Process rule chain outputs (alarms + notifications)
-    const stage8Start = Date.now();
-    try {
-      for (const alarm of ruleChainAlarms) {
-        if (alarm.clear) {
-          // Clear existing alarm, storing the telemetry values at clear time.
-          //
-          // Idempotent dispatch: gate the ALARM_CLEARED notification on the
-          // updateMany row-count. Without this, a Stage-9 failure causing a
-          // graphile-worker retry would re-enter this branch with the alarm
-          // already in CLEARED state (updateMany updates 0 rows), and the
-          // dispatch would fire again — emitting duplicate ALARM_CLEARED
-          // notifications for the same state transition. Operators on email/
-          // SMS would receive the clear notification once per retry.
-          const result = await prisma.alarm.updateMany({
-            where: { entityId: alarm.entityId, alarmType: alarm.alarmType, status: 'ACTIVE' },
-            data: {
-              status: 'CLEARED',
-              clearedAt: new Date(),
-              clearDetails: alarm.details ? (alarm.details as any) : undefined,
-            },
-          });
-
-          if (result.count > 0) {
-            // Dispatch ALARM_CLEARED only when we genuinely transitioned a row
-            const clearEntity = await prisma.assetInstance.findUnique({ where: { id: alarm.entityId }, select: { name: true } });
-            dispatchNotification({
-              eventType: 'ALARM_CLEARED',
-              context: { severity: alarm.severity, alarmType: alarm.alarmType },
-              variables: {
-                alarmType: alarm.alarmType, severity: alarm.severity ?? 'INFO',
-                entityName: clearEntity?.name ?? alarm.entityId, entityId: alarm.entityId,
-                clearedBy: 'Rule Chain (Auto)', remarks: 'Automatically cleared by rule chain',
-                timestamp: new Date().toISOString(),
-              },
-            }).catch(err => console.error('[AlarmAutoClear] Notification dispatch failed:', err.message));
-          }
-        } else {
-          // Deduplicate: only create if no ACTIVE alarm of same type exists
-          // Alarm dedup check
-          const existing = await prisma.alarm.findFirst({
-            where: { entityId: alarm.entityId, alarmType: alarm.alarmType, status: 'ACTIVE' },
-          });
-          if (!existing) {
-            // Creating new alarm
-            await createAlarm({
-              entityId: alarm.entityId,
-              alarmType: alarm.alarmType,
-              severity: alarm.severity,
-              unsPath: msg.unsPath,
-              triggerDetails: alarm.details,
-              ruleChainId: msg.ruleChainId,
-            });
-          }
-        }
-      }
-
-      for (const notification of ruleChainNotifications) {
-        try {
-          await enqueueNotificationJob('rule_chain_notification', {
-            type: notification.type,
-            entityId: msg.entityId,
-            title: notification.title,
-            message: notification.message,
-            targetRole: notification.targetRole,
-            metadata: notification.metadata,
-          }, {
-            priority: JOB_PRIORITY.ALARM_PROCESSING,
-          });
-        } catch (err) {
-          // Log the enqueue failure with cause — silently swallowing made it
-          // impossible to diagnose stuck rule chains in the field. The
-          // warning is preserved so the trace surfaces the partial failure;
-          // the structured log gives operators the actual error.
-          const errMessage = err instanceof Error ? err.message : String(err);
-          warnings.push(`WARN_NOTIFICATION_ENQUEUE_FAILED:${errMessage}`);
-          console.warn('[Ingestion] rule-chain notification enqueue failed:', errMessage);
-        }
-      }
-
-      if (trace) {
-        recordStage(trace, {
-          stage: 8,
-          name: 'Rule Chain Output',
-          status: 'SUCCESS',
-          durationMs: Date.now() - stage8Start,
-          details: { alarms: ruleChainAlarms.length, notifications: ruleChainNotifications.length },
-        });
-      }
-    } catch (err) {
-      warnings.push(`WARN_RULE_OUTPUT:${err instanceof Error ? err.message : String(err)}`);
-      if (trace) {
-        recordStage(trace, {
-          stage: 8,
-          name: 'Rule Chain Output',
-          status: 'FAILED',
-          durationMs: Date.now() - stage8Start,
-          errorCode: 'ERR_RULE_OUTPUT',
-        });
-      }
-    }
+    // ── Stages 6.5, 7, 8 removed 2026-05-17 (rule-chain + alarm tear-out).
+    //    Telemetry now flows from validation directly into persistence. ──
 
     // ── Stage 9: Data Persistence ──
     const stage9Start = Date.now();
@@ -743,16 +534,6 @@ async function executeStage9(msg: IngestionMessage): Promise<void> {
     case 'POST_CHECKLIST':
       await saveChecklist(msg);
       break;
-    case 'ALARM':
-      await createAlarm({
-        entityId: msg.entityId,
-        alarmType: (msg.data.alarmType as string) ?? 'UNKNOWN',
-        severity: (msg.data.severity as string) ?? 'WARNING',
-        unsPath: msg.unsPath,
-        triggerDetails: msg.data,
-        ruleChainId: msg.ruleChainId || undefined,
-      });
-      break;
     case 'POST_BINARY':
       await saveBinary(msg);
       break;
@@ -795,10 +576,6 @@ async function executeStage10(msg: IngestionMessage): Promise<void> {
       action = 'DATA_ATTRIBUTES_UPDATED';
       targetType = 'ENTITY';
       break;
-    case 'ALARM':
-      action = 'ALARM_CREATED';
-      targetType = 'ALARM';
-      break;
     case 'POST_CHECKLIST':
       action = 'DATA_CHECKLIST_SUBMITTED';
       targetType = 'CHECKLIST';
@@ -838,7 +615,7 @@ async function executeStage10(msg: IngestionMessage): Promise<void> {
 // ─── Stage 11: Event Emission ───────────────────────────
 
 async function executeStage11(msg: IngestionMessage, _warnings: string[]): Promise<void> {
-  // 1. Publish to internal-bus for WebSocket broadcast (Phase 4 — was Redis)
+  // Publish to internal-bus for WebSocket broadcast (Phase 4 — was Redis)
   bus.emit('ws:events', {
     entityId: msg.entityId,
     type: msg.messageType,
@@ -846,147 +623,9 @@ async function executeStage11(msg: IngestionMessage, _warnings: string[]): Promi
     timestamp: msg.timestamp,
   });
 
-  // 2. NOTE: A previous version of this stage enqueued an `alarm_notification`
-  //    job for every messageType === 'ALARM' message. That was redundant with
-  //    Stage 9 (`executeStage9`) which calls `createAlarm()` for the same
-  //    messageType — and `createAlarm` in ingestion.repository.ts:235-252
-  //    already dispatches the `ALARM_CREATED` notification immediately, with
-  //    full template context (alarmId, triggerDetails, etc.) that the queued
-  //    payload lacked.
-  //
-  //    The duplication was invisible historically because no `notification`
-  //    task handler was registered — jobs accumulated in graphile_worker.jobs
-  //    forever. Wiring the consumer (apps/api/src/workers/notification.worker.ts)
-  //    to close that leak made the duplicate dispatch real. Removed the
-  //    enqueue rather than add producer-side dedup, since the createAlarm
-  //    path is the canonical one (richer payload, runs in the persistence
-  //    stage where the row genuinely was just written).
-}
-
-
-// ─── Template Alarm Rule Evaluator ──────────────────────
-
-interface TemplateAlarmRule {
-  name: string;
-  type: string;        // HIGH, LOW, etc.
-  enabled: boolean;
-  severity: string;    // CRITICAL, WARNING, etc.
-  sourceField: string; // telemetry key to check
-  condition: string;   // ">", "<", ">=", "<=", "==", "!="
-  threshold: number;
-  notifyRoles?: string[];
-}
-
-function evaluateCondition(value: number, condition: string, threshold: number): boolean {
-  switch (condition) {
-    case '>':  return value > threshold;
-    case '<':  return value < threshold;
-    case '>=': return value >= threshold;
-    case '<=': return value <= threshold;
-    case '==': return value === threshold;
-    case '!=': return value !== threshold;
-    default:   return false;
-  }
-}
-
-/**
- * Evaluate template-level alarm rules against incoming telemetry data.
- * Creates alarms when conditions are met; clears them when resolved.
- */
-async function evaluateTemplateAlarmRules(
-  msg: IngestionMessage,
-  warnings: string[],
-): Promise<void> {
-  // Only evaluate for telemetry messages
-  if (msg.messageType !== 'POST_TELEMETRY' || !msg.templateId) return;
-
-  const template = await prisma.assetTemplate.findUnique({
-    where: { id: msg.templateId },
-    select: { alarmRules: true },
-  });
-
-  if (!template?.alarmRules || !Array.isArray(template.alarmRules)) return;
-
-  const rules = template.alarmRules as unknown as TemplateAlarmRule[];
-  if (rules.length === 0) return;
-
-  for (const rule of rules) {
-    if (!rule.enabled || !rule.sourceField || rule.threshold === undefined) continue;
-
-    const value = msg.data[rule.sourceField];
-    if (value === undefined || value === null || typeof value !== 'number') continue;
-
-    const alarmType = `${rule.type}_${rule.sourceField}`.toUpperCase();
-    const triggered = evaluateCondition(value, rule.condition, rule.threshold);
-
-    if (triggered) {
-      // Check for existing active alarm to avoid duplicates
-      const existing = await prisma.alarm.findFirst({
-        where: { entityId: msg.entityId, alarmType, status: 'ACTIVE' },
-      });
-
-      if (!existing) {
-        console.info(`[TemplateAlarm] ${rule.name}: ${rule.sourceField}=${value} ${rule.condition} ${rule.threshold} → TRIGGERED`);
-        await createAlarm({
-          entityId: msg.entityId,
-          alarmType,
-          severity: rule.severity || 'WARNING',
-          unsPath: msg.unsPath,
-          triggerDetails: {
-            ruleName: rule.name,
-            _sourceField: rule.sourceField,
-            _condition: rule.condition,
-            _threshold: rule.threshold,
-            actualValue: value,
-            templateId: msg.templateId,
-          },
-        });
-      }
-    } else {
-      // Auto-clear: if value is back to normal, clear the alarm
-      const activeAlarm = await prisma.alarm.findFirst({
-        where: { entityId: msg.entityId, alarmType, status: 'ACTIVE' },
-      });
-
-      if (activeAlarm) {
-        console.info(`[TemplateAlarm] ${rule.name}: ${rule.sourceField}=${value} back to normal → CLEARED`);
-        // Idempotent dispatch: gate the ALARM_CLEARED notification on the
-        // updateMany row-count. See the rule-chain auto-clear branch in
-        // ingestion.service.ts:333+ for full rationale — same retry-safety
-        // pattern: don't emit notifications for state transitions that
-        // didn't actually happen.
-        const result = await prisma.alarm.updateMany({
-          where: { entityId: msg.entityId, alarmType, status: 'ACTIVE' },
-          data: {
-            status: 'CLEARED',
-            clearedAt: new Date(),
-            clearDetails: {
-              reason: 'Auto-cleared: value returned to normal range',
-              sourceField: rule.sourceField,
-              clearedValue: value,
-              threshold: rule.threshold,
-              condition: rule.condition,
-            } as any,
-          },
-        });
-
-        if (result.count > 0) {
-          // Dispatch ALARM_CLEARED notification only when row truly transitioned
-          const entity = await prisma.assetInstance.findUnique({ where: { id: msg.entityId }, select: { name: true } });
-          dispatchNotification({
-            eventType: 'ALARM_CLEARED',
-            context: { severity: rule.severity, alarmType },
-            variables: {
-              alarmType, severity: rule.severity || 'WARNING',
-              entityName: entity?.name ?? msg.entityId, entityId: msg.entityId,
-              clearedBy: 'System (Auto)', remarks: `Value ${rule.sourceField}=${value} returned to normal`,
-              timestamp: new Date().toISOString(),
-            },
-          }).catch(err => console.error('[TemplateAlarmClear] Notification dispatch failed:', err.message));
-        }
-      }
-    }
-  }
+  // NOTE: The legacy alarm_notification enqueue and template-alarm-rule
+  // evaluation were removed on 2026-05-17 with the rule-chain + alarm
+  // tear-out. Telemetry no longer triggers alarms in this pipeline.
 }
 
 /**

@@ -31,39 +31,3 @@ export function extractVariables(template: string): string[] {
   return [...new Set(vars)];
 }
 
-/**
- * Build standard alarm variables from alarm data.
- */
-export function buildAlarmVariables(alarm: Record<string, unknown>): Record<string, string> {
-  return {
-    alarmType: String(alarm.alarmType ?? alarm.type ?? ''),
-    alarmSeverity: String(alarm.severity ?? ''),
-    deviceName: String(alarm.entityName ?? alarm.deviceName ?? ''),
-    entityName: String(alarm.entityName ?? ''),
-    entityId: String(alarm.entityId ?? ''),
-    timestamp: String(alarm.timestamp ?? new Date().toISOString()),
-    description: String(alarm.description ?? alarm.details ?? ''),
-    status: String(alarm.status ?? ''),
-  };
-}
-
-/**
- * Build standard rule chain variables from context.
- */
-export function buildRuleChainVariables(
-  message: Record<string, unknown>,
-  ctx: { entityName?: string; entityId?: string; unsPath?: string },
-): Record<string, string> {
-  const vars: Record<string, string> = {
-    entityName: ctx.entityName ?? '',
-    entityId: ctx.entityId ?? '',
-    unsPath: ctx.unsPath ?? '',
-    messageJson: JSON.stringify(message),
-    timestamp: new Date().toISOString(),
-  };
-  // Flatten top-level message keys as msg.key
-  for (const [k, v] of Object.entries(message)) {
-    vars[`msg.${k}`] = String(v ?? '');
-  }
-  return vars;
-}

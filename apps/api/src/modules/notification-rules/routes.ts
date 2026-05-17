@@ -9,16 +9,12 @@ import { auditLog } from '../../lib/audit.js';
 import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
 
 const EVENT_TYPE_META: Record<string, { label: string; module: string; variables: string[] }> = {
-  ALARM_CREATED:        { label: 'Alarm Created',         module: 'alarms',     variables: ['alarmType', 'severity', 'entityName', 'entityId', 'message', 'timestamp'] },
-  ALARM_ACKNOWLEDGED:   { label: 'Alarm Acknowledged',    module: 'alarms',     variables: ['alarmType', 'severity', 'entityName', 'acknowledgedBy', 'timestamp'] },
-  ALARM_CLEARED:        { label: 'Alarm Cleared',         module: 'alarms',     variables: ['alarmType', 'severity', 'entityName', 'clearedBy', 'timestamp'] },
   DEVICE_ONLINE:        { label: 'Device Online',         module: 'devices',    variables: ['deviceName', 'deviceId', 'timestamp'] },
   DEVICE_OFFLINE:       { label: 'Device Offline',        module: 'devices',    variables: ['deviceName', 'deviceId', 'lastSeen', 'timestamp'] },
   DEVICE_INACTIVITY:    { label: 'Device Inactivity',     module: 'devices',    variables: ['deviceName', 'deviceId', 'inactiveSince', 'timestamp'] },
   USER_LOGIN:           { label: 'User Login',            module: 'users',      variables: ['username', 'fullName', 'ipAddress', 'timestamp'] },
   USER_CREATED:         { label: 'User Created',          module: 'users',      variables: ['username', 'fullName', 'role', 'createdBy', 'timestamp'] },
   USER_LOCKED:          { label: 'User Locked',           module: 'users',      variables: ['username', 'fullName', 'reason', 'timestamp'] },
-  RULE_CHAIN_TRIGGERED: { label: 'Rule Chain Triggered',  module: 'rule-chains', variables: ['ruleChainName', 'ruleChainId', 'triggerMessage', 'timestamp'] },
   CHECKLIST_SUBMITTED:  { label: 'Checklist Submitted',   module: 'checklists', variables: ['checklistName', 'submittedBy', 'timestamp'] },
   CHECKLIST_APPROVED:   { label: 'Checklist Approved',    module: 'checklists', variables: ['checklistName', 'approvedBy', 'timestamp'] },
   CHECKLIST_REJECTED:   { label: 'Checklist Rejected',    module: 'checklists', variables: ['checklistName', 'rejectedBy', 'reason', 'timestamp'] },

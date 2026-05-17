@@ -41,7 +41,6 @@ const mockCredential = {
 const mockTemplate = {
   id: 'tmpl-001',
   name: 'Temperature Sensor',
-  defaultRuleChainId: 'rc-001',
 };
 
 const mockEntity = {
@@ -85,7 +84,6 @@ describe('entity-resolver', () => {
     expect(result!.templateId).toBe('tmpl-001');
     expect(result!.templateName).toBe('Temperature Sensor');
     expect(result!.unsPath).toBe('digilog/v1/custom/sensor-a');
-    expect(result!.ruleChainId).toBe('rc-001');
     expect(result!.isActive).toBe(true);
   });
 
@@ -191,7 +189,6 @@ describe('entity-resolver', () => {
       templateId: 'tmpl-001',
       templateName: 'Temperature Sensor',
       unsPath: 'digilog/v1/custom/sensor-a',
-      ruleChainId: 'rc-001',
       isActive: true,
     });
   });

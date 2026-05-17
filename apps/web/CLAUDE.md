@@ -51,7 +51,7 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 - SWR for data fetching with auto-revalidation
 - ReactFlow for rule chain visual editor and cleaning profile pipeline editor
 - Tailwind CSS (no component library) — unified light theme throughout
-- Lazy-loaded heavy pages (assets, rule chains, alarms, UNS, checklists, filter management, etc.)
+- Lazy-loaded heavy pages (assets, UNS, checklists, filter management, etc.)
 - Permission-based route guards via `<RequireRole permissions={[PERMISSIONS.*]}>`
 
 ## Auth Flow
@@ -65,8 +65,7 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 ## Key Features
 - 26 config pages (auto-discovered from registry)
 - Entity tree with drag-and-drop hierarchy
-- Rule chain editor with 77 node types across 8 categories
-- Alarm dashboard with real-time updates and role-based column visibility
+- Cleaning-profile pipeline editor (STAGE / CHECKLIST nodes via ReactFlow)
 - Mobile-optimized checklist at `/checklist/:entityId` (standalone layout, no sidebar)
 - Notification system (email/SMS/Telegram/Slack)
 - Debug trace page for pipeline visibility
@@ -77,7 +76,7 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 - No dark theme anywhere in the application
 
 ## Frontend Pages
-admin-requests, alarms, assets (dialogs/tabs/hooks), audit, auth, checklist, checklists, cleaning-cycles (history/timeline), config (branding/notification-rules/notification-settings/roles), debug, filter-management (operations/profiles/status/scan/traceability/AHU-dashboard/cleaning-profile-editor/retirement/replacement/bulk-upload/equipment), mobile, notifications, pm-schedules, profile, rule-chains, system-health, tenant, users
+admin-requests, assets (dialogs/tabs/hooks), audit, auth, checklist, checklists, cleaning-cycles (history/timeline), config (branding/notification-rules/notification-settings/roles), debug, filter-management (operations/profiles/status/scan/traceability/AHU-dashboard/cleaning-profile-editor/retirement/replacement/bulk-upload/equipment), mobile, notifications, pm-schedules, profile, system-health, tenant, users (alarms + rule-chains route folders removed 2026-05-17)
 
 ## Phase 2 Pages
 - `routes/filter-management/filter-operations.tsx` — Main operations page (8 stages, scan, checklist dialog, reason selection)

@@ -88,7 +88,7 @@ describe('mqtt-handler', () => {
         id: 'e1',
         name: 'Pump-1',
         isActive: true,
-        template: { id: 't1', name: 'Template', defaultRuleChainId: null },
+        template: { id: 't1', name: 'Template' },
       });
       mockPrisma.deviceCredential.findUnique.mockResolvedValue({ id: 'cred-1' });
       mockNormalizeBatch.mockReturnValue([{ messageId: 'm1', data: { temperature: 25 } }]);
@@ -137,7 +137,7 @@ describe('mqtt-handler', () => {
         id: 'e1',
         name: 'Pump-1',
         isActive: true,
-        template: { id: 't1', name: 'Template', defaultRuleChainId: null },
+        template: { id: 't1', name: 'Template' },
       });
       mockPrisma.deviceCredential.findUnique.mockResolvedValue(null);
       mockNormalizeBatch.mockReturnValue([{ messageId: 'm1' }]);
@@ -162,7 +162,7 @@ describe('mqtt-handler', () => {
         id: 'e1',
         name: 'Pump-1',
         isActive: true,
-        template: { id: 't1', name: 'Template', defaultRuleChainId: null },
+        template: { id: 't1', name: 'Template' },
       });
       mockPrisma.deviceCredential.findUnique.mockResolvedValue(null);
       mockNormalizeBatch.mockReturnValue([{ messageId: 'm1' }]);

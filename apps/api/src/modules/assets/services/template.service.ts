@@ -71,7 +71,6 @@ export const templateService = {
       expectedIdentifiers: data.expectedIdentifiers,
       expectedRelationships: data.expectedRelationships,
       statusLifecycle: data.statusLifecycle,
-      alarmRules: data.alarmRules,
       checklistSchema: data.checklistSchema,
       maxParentConnections: data.maxParentConnections,
       maxConnections: data.maxConnections,
@@ -81,7 +80,6 @@ export const templateService = {
       inactivityTimeout: data.inactivityTimeout,
       defaultMaxDataRate: data.defaultMaxDataRate,
       autoProvision: data.autoProvision,
-      defaultRuleChainId: data.defaultRuleChainId,
       createdBy: ctx.userId,
     });
 
@@ -98,7 +96,6 @@ export const templateService = {
         expectedIdentifiers: template.expectedIdentifiers,
         expectedRelationships: template.expectedRelationships,
         statusLifecycle: template.statusLifecycle,
-        alarmRules: template.alarmRules,
         checklistSchema: template.checklistSchema,
         maxParentConnections: template.maxParentConnections,
         maxConnections: template.maxConnections,
@@ -108,7 +105,6 @@ export const templateService = {
         inactivityTimeout: template.inactivityTimeout,
         defaultMaxDataRate: template.defaultMaxDataRate,
         autoProvision: template.autoProvision,
-        defaultRuleChainId: template.defaultRuleChainId,
       },
       changeNotes: 'Initial version',
       createdBy: ctx.userId,
@@ -155,10 +151,10 @@ export const templateService = {
 
     const updateData: Record<string, unknown> = { version: newVersion, updatedBy: ctx.userId };
     for (const key of ['name', 'description', 'category', 'icon', 'templateKind', 'maxParentConnections', 'maxConnections',
-      'dataIngestionEnabled', 'transportType', 'credentialType', 'inactivityTimeout', 'defaultMaxDataRate', 'autoProvision', 'defaultRuleChainId']) {
+      'dataIngestionEnabled', 'transportType', 'credentialType', 'inactivityTimeout', 'defaultMaxDataRate', 'autoProvision']) {
       if (data[key] !== undefined) updateData[key] = data[key];
     }
-    for (const key of ['attributeSchema', 'telemetrySchema', 'expectedIdentifiers', 'expectedRelationships', 'statusLifecycle', 'alarmRules', 'checklistSchema']) {
+    for (const key of ['attributeSchema', 'telemetrySchema', 'expectedIdentifiers', 'expectedRelationships', 'statusLifecycle', 'checklistSchema']) {
       if (data[key] !== undefined) updateData[key] = data[key] as any;
     }
 
@@ -177,7 +173,6 @@ export const templateService = {
         expectedIdentifiers: template.expectedIdentifiers,
         expectedRelationships: template.expectedRelationships,
         statusLifecycle: template.statusLifecycle,
-        alarmRules: template.alarmRules,
         checklistSchema: template.checklistSchema,
         maxParentConnections: template.maxParentConnections,
         maxConnections: template.maxConnections,
@@ -187,7 +182,6 @@ export const templateService = {
         inactivityTimeout: template.inactivityTimeout,
         defaultMaxDataRate: template.defaultMaxDataRate,
         autoProvision: template.autoProvision,
-        defaultRuleChainId: template.defaultRuleChainId,
       },
       changeNotes: `Updated to version ${newVersion}`,
       createdBy: ctx.userId,
@@ -285,10 +279,6 @@ function buildChangeSummary(existing: any, data: Record<string, any>): string[] 
     changes.push(`Expected identifiers: ${oldCount} → ${data.expectedIdentifiers.length}`);
   }
   if (data.statusLifecycle !== undefined) changes.push('Status lifecycle updated');
-  if (data.alarmRules !== undefined) {
-    const oldCount = Array.isArray(existing.alarmRules) ? (existing.alarmRules as any[]).length : 0;
-    changes.push(`Alarm rules: ${oldCount} → ${data.alarmRules.length}`);
-  }
   if (data.checklistSchema !== undefined) {
     const oldCount = Array.isArray(existing.checklistSchema) ? (existing.checklistSchema as any[]).length : 0;
     changes.push(`Checklist items: ${oldCount} → ${data.checklistSchema.length}`);

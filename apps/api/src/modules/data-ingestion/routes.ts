@@ -34,7 +34,6 @@ declare module 'fastify' {
       entityName: string;
       templateId: string;
       unsPath: string;
-      ruleChainId: string | null;
       accessToken: string;
     };
   }
@@ -65,7 +64,6 @@ async function authenticateDeviceToken(req: FastifyRequest, reply: FastifyReply)
     entityName: resolved.entityName,
     templateId: resolved.templateId,
     unsPath: resolved.unsPath,
-    ruleChainId: resolved.ruleChainId,
     accessToken: token,
   };
 }
@@ -90,7 +88,6 @@ async function enqueueMessage(
     sourceIp: req.ip,
     messageType,
     rawPayload,
-    ruleChainId: device.ruleChainId,
   });
 
   const priority = priorityOverride ?? JOB_PRIORITY.TELEMETRY;
@@ -120,7 +117,6 @@ async function enqueueBatch(
     sourceIp: req.ip,
     messageType,
     rawPayload,
-    ruleChainId: device.ruleChainId,
   });
 
   const messageIds: string[] = [];
@@ -287,7 +283,7 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
     // Resolve entity
     const entity = await prisma.assetInstance.findUnique({
       where: { id: body.entityId },
-      include: { template: { select: { id: true, name: true, defaultRuleChainId: true } } },
+      include: { template: { select: { id: true, name: true } } },
     });
 
     if (!entity || !entity.isActive) {
@@ -313,7 +309,6 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
         _userId: req.user.username,
         _userSub: req.user.sub,
       },
-      ruleChainId: entity.template.defaultRuleChainId,
       metadata: {
         userId: req.user.username,
         userRole: req.user.role,

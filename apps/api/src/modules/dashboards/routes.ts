@@ -231,7 +231,7 @@ export default async function dashboardRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['widgetType', 'title'],
         properties: {
-          widgetType: { type: 'string', enum: ['timeseries_chart', 'gauge', 'value_card', 'alarm_table', 'entity_table', 'status_indicator', 'scada_symbol', 'map', 'html_widget', 'image'] },
+          widgetType: { type: 'string', enum: ['timeseries_chart', 'gauge', 'value_card', 'entity_table', 'status_indicator', 'scada_symbol', 'map', 'html_widget', 'image'] },
           title: { type: 'string', maxLength: 200 },
           config: { type: 'object' },
           position: { type: 'object', properties: { x: { type: 'integer' }, y: { type: 'integer' }, w: { type: 'integer' }, h: { type: 'integer' } } },
@@ -471,19 +471,6 @@ export default async function dashboardRoutes(app: FastifyInstance) {
         return { widgetId, widgetType: 'timeseries_chart', data: result.rows };
       }
 
-      case 'alarm_table': {
-        const alarms = await prisma.alarm.findMany({
-          where: {
-            entityId: { in: entityIds },
-            ...(dataSource?.filters?.severity ? { severity: { in: dataSource.filters.severity } } : {}),
-            ...(dataSource?.filters?.status ? { status: { in: dataSource.filters.status } } : { status: 'ACTIVE' }),
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 50,
-        });
-        return { widgetId, widgetType: 'alarm_table', data: alarms };
-      }
-
       case 'entity_table': {
         const entities = await prisma.assetInstance.findMany({
           where: { id: { in: entityIds }, isActive: true },
@@ -508,7 +495,6 @@ export default async function dashboardRoutes(app: FastifyInstance) {
       { type: 'timeseries_chart', label: 'Time Series Chart', icon: 'line-chart', description: 'Line/bar/area chart for telemetry history', category: 'Charts' },
       { type: 'gauge', label: 'Gauge', icon: 'gauge', description: 'Radial gauge for single telemetry value', category: 'Charts' },
       { type: 'value_card', label: 'Value Card', icon: 'hash', description: 'Display latest telemetry value', category: 'Cards' },
-      { type: 'alarm_table', label: 'Alarm Table', icon: 'alert-triangle', description: 'Filtered alarm list', category: 'Tables' },
       { type: 'entity_table', label: 'Entity Table', icon: 'table', description: 'Entity list with attributes', category: 'Tables' },
       { type: 'status_indicator', label: 'Status Indicator', icon: 'circle', description: 'Online/offline LED indicator', category: 'Indicators' },
       { type: 'scada_symbol', label: 'SCADA Symbol', icon: 'cpu', description: 'SVG with telemetry data binding', category: 'SCADA' },

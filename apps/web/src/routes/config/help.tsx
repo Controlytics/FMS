@@ -42,14 +42,13 @@ interface ArticleFormData {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
+// 'rule-chain' + 'alarms' categories removed 2026-05-17 (subsystems retired).
 const CATEGORIES = [
   'entity',
-  'rule-chain',
   'connectivity',
   'data',
   'checklist',
   'uns',
-  'alarms',
   'audit',
   'users',
 ] as const;
@@ -58,24 +57,20 @@ type HelpCategory = (typeof CATEGORIES)[number];
 
 const CATEGORY_COLORS: Record<HelpCategory, string> = {
   entity: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  'rule-chain': 'bg-violet-100 text-violet-700 border-violet-200',
   connectivity: 'bg-sky-100 text-sky-700 border-sky-200',
   data: 'bg-blue-100 text-blue-700 border-blue-200',
   checklist: 'bg-cyan-100 text-cyan-700 border-cyan-200',
   uns: 'bg-slate-100 text-slate-700 border-slate-200',
-  alarms: 'bg-amber-100 text-amber-700 border-amber-200',
   audit: 'bg-orange-100 text-orange-700 border-orange-200',
   users: 'bg-indigo-100 text-indigo-700 border-indigo-200',
 };
 
 const CATEGORY_LABELS: Record<HelpCategory, string> = {
   entity: 'Entity',
-  'rule-chain': 'Rule Chain',
   connectivity: 'Connectivity',
   data: 'Data',
   checklist: 'Checklist',
   uns: 'UNS',
-  alarms: 'Alarms',
   audit: 'Audit',
   users: 'Users',
 };
@@ -895,7 +890,7 @@ function ArticleFormFields({ form, onChange, error, keyReadOnly }: ArticleFormFi
           onChange={(e) => set({ key: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
           readOnly={keyReadOnly}
           disabled={keyReadOnly}
-          placeholder="e.g. entity-overview, alarm-guide"
+          placeholder="e.g. entity-overview, audit-guide"
           className={`w-full h-10 px-3.5 rounded-xl border-2 text-sm font-mono text-slate-700 placeholder-slate-400 focus:outline-none transition-all ${
             keyReadOnly
               ? 'border-slate-200 bg-slate-50 text-slate-500 cursor-not-allowed'

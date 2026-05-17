@@ -8,7 +8,6 @@ const {
   mockUpdate,
   mockUpdateMany,
   mockCount,
-  mockAlarmCreate,
   mockEnqueueIngestionJob,
   mockGetConfigOrDefault,
 } = vi.hoisted(() => ({
@@ -17,7 +16,6 @@ const {
   mockUpdate: vi.fn(),
   mockUpdateMany: vi.fn(),
   mockCount: vi.fn(),
-  mockAlarmCreate: vi.fn(),
   mockEnqueueIngestionJob: vi.fn(),
   mockGetConfigOrDefault: vi.fn(),
 }));
@@ -30,9 +28,6 @@ vi.mock('../../../lib/prisma.js', () => ({
       update: mockUpdate,
       updateMany: mockUpdateMany,
       count: mockCount,
-    },
-    alarm: {
-      create: mockAlarmCreate,
     },
   },
 }));
@@ -81,7 +76,6 @@ function makeMessage(overrides?: Record<string, unknown>) {
     messageType: 'TELEMETRY',
     data: { temperature: 25.5 },
     metadata: {},
-    ruleChainId: 'rc-001',
     traceId: 'trace-001',
     ...overrides,
   };
@@ -258,43 +252,6 @@ describe('dlq-manager', () => {
         (c: any[]) => c[0].data.status === 'RETRYING',
       );
       expect(retryUpdateCalls).toHaveLength(2);
-    });
-
-    it('should create a CRITICAL alarm when DLQ depth exceeds threshold', async () => {
-      mockFindMany.mockResolvedValue([]);
-      mockGetConfigOrDefault.mockResolvedValue(50); // threshold = 50
-      mockCount.mockResolvedValue(51); // depth = 51, exceeds threshold
-      mockAlarmCreate.mockResolvedValue({});
-
-      await processDLQ();
-
-      expect(mockAlarmCreate).toHaveBeenCalledTimes(1);
-      const alarmCall = mockAlarmCreate.mock.calls[0][0];
-      expect(alarmCall.data.alarmType).toBe('DLQ_OVERFLOW');
-      expect(alarmCall.data.severity).toBe('CRITICAL');
-      expect(alarmCall.data.status).toBe('ACTIVE');
-      expect(alarmCall.data.unsPath).toBe('system/dlq');
-      expect(alarmCall.data.entityId).toBe('00000000-0000-0000-0000-000000000000');
-      expect(alarmCall.data.triggerDetails).toEqual({ dlqDepth: 51, threshold: 50 });
-    });
-
-    it('should not create an alarm when DLQ depth is at or below threshold', async () => {
-      mockFindMany.mockResolvedValue([]);
-      mockGetConfigOrDefault.mockResolvedValue(100); // threshold = 100
-      mockCount.mockResolvedValue(100); // depth = 100, exactly at threshold (not exceeding)
-
-      await processDLQ();
-
-      expect(mockAlarmCreate).not.toHaveBeenCalled();
-    });
-
-    it('should not throw when alarm creation fails', async () => {
-      mockFindMany.mockResolvedValue([]);
-      mockGetConfigOrDefault.mockResolvedValue(10); // threshold = 10
-      mockCount.mockResolvedValue(20); // exceeds threshold
-      mockAlarmCreate.mockRejectedValue(new Error('DB connection lost'));
-
-      await expect(processDLQ()).resolves.toEqual({ requeued: 0, dead: 0 });
     });
 
     it('should not throw when enqueueIngestionJob fails for re-enqueue', async () => {

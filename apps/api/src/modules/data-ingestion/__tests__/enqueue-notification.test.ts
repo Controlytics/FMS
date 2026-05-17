@@ -31,7 +31,6 @@ vi.mock('@digilog/queue', () => ({
     },
   },
   JOB_PRIORITY: {
-    ALARM_PROCESSING: 2,
     TELEMETRY: 5,
   },
 }));
@@ -49,7 +48,6 @@ vi.mock('../../../lib/prisma.js', () => ({
   prisma: {
     deviceCredential: { findUnique: vi.fn() },
     assetTemplate: { findUnique: vi.fn() },
-    alarm: { updateMany: vi.fn(), findFirst: vi.fn() },
     auditTrail: { create: vi.fn() },
     assetInstance: { findUnique: vi.fn() },
   },

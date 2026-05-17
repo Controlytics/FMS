@@ -4,15 +4,18 @@ import type { PipelineTrace, StageResult } from './types';
 // Stage name map (fallback for missing names in data)
 // ---------------------------------------------------------------------------
 
+// Stage indices 6 (Rule Chain Eval) + 8 (Alarm Check) removed 2026-05-17
+// (rule-chain + alarm subsystems retired). Remaining stages renumbered
+// when the ingestion pipeline trace was reorganised — debug trace rows
+// emit `stageIndex` directly so missing keys just fall through to the
+// raw index in the timeline rendering.
 export const STAGE_NAMES: Record<number, string> = {
   1: 'Auth & Rate Limit',
   2: 'Schema Validation',
   3: 'Entity Resolution',
   4: 'Payload Normalisation',
   5: 'Attribute Merge',
-  6: 'Rule Chain Eval',
   7: 'UNS Path Build',
-  8: 'Alarm Check',
   9: 'Telemetry Batch',
   10: 'DLQ Fallback',
   11: 'Audit Emit',

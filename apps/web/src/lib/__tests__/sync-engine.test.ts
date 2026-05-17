@@ -273,7 +273,7 @@ describe('sync-engine — Phase 8.3 tape-version handling', () => {
         clientOpId: 'cli-ts-1',
         entityType: 'cycle',
         entityId: 'cyc-1',
-        payload: { filterId: 'filter-T', justification: 'Operator stopped to investigate alarm condition' },
+        payload: { filterId: 'filter-T', justification: 'Operator stopped due to abnormal condition' },
         createdAt: new Date('2026-05-03T08:00:00Z').toISOString(),
         status: 'pending',
         retryCount: 0,
@@ -296,7 +296,7 @@ describe('sync-engine — Phase 8.3 tape-version handling', () => {
     const [url, body] = terminateCall!;
     expect(url).toBe('/api/filters/filter-T/terminate-cycle');
     // The fix: server requires `justification` (minLength 10), not `reason`.
-    expect(body.justification).toBe('Operator stopped to investigate alarm condition');
+    expect(body.justification).toBe('Operator stopped due to abnormal condition');
     expect('reason' in body).toBe(false);
     // The fix: tapeVersion is forwarded on the body for staleness check.
     expect(body.tapeVersion).toBe(1042);

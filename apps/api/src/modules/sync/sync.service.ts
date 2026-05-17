@@ -22,7 +22,7 @@
  *   - AssetTemplate (`version` bumped by template.service.ts on every
  *     update). Hydrated 2026-05-03 (8.4b follow-up). Returned verbatim so
  *     the FE caches the full template definition (attributeSchema,
- *     telemetrySchema, alarmRules, statusLifecycle, etc.) — same shape as
+ *     telemetrySchema, statusLifecycle, etc.) — same shape as
  *     `/api/assets/templates`.
  *   - Filters (AssetInstance + FilterDetails sidecar) — uses `updatedAt`
  *     watermark instead of a monotonic counter (no version column)
@@ -141,7 +141,7 @@ export class SyncService {
       }),
 
       // AssetTemplate: full row passed through verbatim (attributeSchema /
-      // telemetrySchema / alarmRules / statusLifecycle / checklistSchema +
+      // telemetrySchema / statusLifecycle / checklistSchema +
       // ingestion config + versioning metadata). Mirrors the
       // /api/assets/templates list shape the FE already consumes for the
       // legacy `templates` cache. `version` is bumped by template.service.ts

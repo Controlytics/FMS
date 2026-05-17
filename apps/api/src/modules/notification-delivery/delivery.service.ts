@@ -45,8 +45,6 @@ export async function sendNotification(payload: NotificationPayload): Promise<De
       status: 'PENDING',
       maxRetries: MAX_RETRIES,
       triggeredBy: payload.triggeredBy,
-      ruleChainId: payload.ruleChainId,
-      alarmId: payload.alarmId,
       metadata: payload.metadata as any,
     },
   });

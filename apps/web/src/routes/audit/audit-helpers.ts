@@ -62,7 +62,10 @@ export const ACTION_COLORS: Record<string, string> = {
   ASSET_IDENTIFIER_CREATED: 'bg-lime-100 text-lime-700 border-lime-200',
   ASSET_IDENTIFIER_DELETED: 'bg-red-100 text-red-700 border-red-200',
 
-  // Alarm Management
+  // Alarm Management — RETAINED per 21 CFR Part 11. The alarm subsystem
+  // was retired 2026-05-17, but historic audit rows with these actions may
+  // still exist and must continue to render with their original badge.
+  // Do NOT delete these entries on dead-code sweeps.
   ALARM_ACKNOWLEDGED: 'bg-amber-100 text-amber-700 border-amber-200',
   ALARM_CLEARED: 'bg-emerald-100 text-emerald-700 border-emerald-200',
 };

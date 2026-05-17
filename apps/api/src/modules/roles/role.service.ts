@@ -75,15 +75,6 @@ const PERMISSION_META: Record<string, { label: string; category: string }> = {
   [PERMISSIONS.DASHBOARD_MANAGE]: { label: 'Manage Dashboards', category: 'Dashboards' },
   [PERMISSIONS.DASHBOARD_VIEW]: { label: 'View Dashboards', category: 'Dashboards' },
   [PERMISSIONS.DASHBOARD_ASSIGN]: { label: 'Assign Dashboards', category: 'Dashboards' },
-  // Rule Chains
-  [PERMISSIONS.RULE_CHAIN_VIEW]: { label: 'View Rule Chains', category: 'Rule Chains' },
-  [PERMISSIONS.RULE_CHAIN_CREATE]: { label: 'Create Rule Chains', category: 'Rule Chains' },
-  [PERMISSIONS.RULE_CHAIN_UPDATE]: { label: 'Update Rule Chains', category: 'Rule Chains' },
-  [PERMISSIONS.RULE_CHAIN_DELETE]: { label: 'Delete Rule Chains', category: 'Rule Chains' },
-  // Alarms
-  [PERMISSIONS.ALARM_VIEW]: { label: 'View Alarms', category: 'Alarms' },
-  [PERMISSIONS.ALARM_ACKNOWLEDGE]: { label: 'Acknowledge Alarms', category: 'Alarms' },
-  [PERMISSIONS.ALARM_CLEAR]: { label: 'Clear Alarms', category: 'Alarms' },
   // UNS
   [PERMISSIONS.UNS_VIEW]: { label: 'View UNS Config', category: 'UNS' },
   [PERMISSIONS.UNS_MANAGE]: { label: 'Manage UNS Config', category: 'UNS' },

@@ -321,7 +321,6 @@ describe('SyncService.since() — shape + cursor handling', () => {
       expectedIdentifiers: [{ kind: 'RFID' }],
       expectedRelationships: [],
       statusLifecycle: [],
-      alarmRules: [],
       checklistSchema: [],
       maxParentConnections: 1,
       maxConnections: 10,
@@ -336,7 +335,6 @@ describe('SyncService.since() — shape + cursor handling', () => {
       inactivityTimeout: 60,
       defaultMaxDataRate: 600,
       autoProvision: true,
-      defaultRuleChainId: null,
     };
     mockPrisma.assetTemplate.findMany.mockResolvedValueOnce([fakeTemplate]);
     const out = await svc.since(ctx, {});

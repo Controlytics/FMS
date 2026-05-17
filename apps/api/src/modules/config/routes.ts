@@ -16,7 +16,6 @@ import { brandingRoutes } from './static-routes/branding.routes.js';
 import { userIdRoutes } from './static-routes/user-id.routes.js';
 import { fieldIdsRoutes } from './static-routes/field-ids.routes.js';
 import { auditTemplatesRoutes } from './static-routes/audit-templates.routes.js';
-import { alarmColumnsRoutes } from './static-routes/alarm-columns.routes.js';
 import { dashboardCardsRoutes } from './static-routes/dashboard-cards.routes.js';
 import { tabletAccessRoutes } from './static-routes/tablet-access.routes.js';
 import { accessMatrixRoutes } from './static-routes/access-matrix.routes.js';
@@ -40,7 +39,6 @@ export default async function configRoutes(app: FastifyInstance) {
   await userIdRoutes(app);
   await fieldIdsRoutes(app);
   await auditTemplatesRoutes(app);
-  await alarmColumnsRoutes(app);
   await dashboardCardsRoutes(app);
   await tabletAccessRoutes(app);
   await accessMatrixRoutes(app);

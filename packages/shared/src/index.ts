@@ -26,9 +26,6 @@ export type { ReauthAction, ReauthActionCategory } from './types/reauth-actions.
 export { AUDIT_TEMPLATE_DEFAULTS, AUDIT_TEMPLATE_CATEGORIES, getDefaultTemplates } from './types/audit-templates.js';
 export type { AuditTemplateDefinition, AuditTemplateCategory } from './types/audit-templates.js';
 
-export { ALARM_COLUMN_DEFINITIONS, ALL_ALARM_COLUMN_IDS } from './types/alarm-columns.js';
-export type { AlarmColumnDefinition } from './types/alarm-columns.js';
-
 export type {
   TapeQuestion,
   TapeStage,
@@ -72,7 +69,7 @@ export type { ActionReauthConfig } from './schemas/action-reauth.js';
 
 export {
   ATTRIBUTE_DATA_TYPES, TELEMETRY_DATA_TYPES, RELATIONSHIP_TYPES, IDENTIFIER_TYPES, TEMPLATE_CATEGORIES,
-  ASSET_STATUSES, INVERSE_RELATIONSHIP_MAP, ALARM_RULE_TYPES, ALARM_SEVERITIES, CHECKLIST_QUESTION_TYPES,
+  ASSET_STATUSES, INVERSE_RELATIONSHIP_MAP, CHECKLIST_QUESTION_TYPES,
   createAssetTemplateSchema, createAssetTemplateValidated, updateAssetTemplateSchema,
   createAssetInstanceSchema, updateAssetInstanceSchema,
   createAssetRelationshipSchema, createAssetIdentifierSchema,

@@ -50,17 +50,6 @@ export const PERMISSION_CATEGORIES: Record<string, PermissionItem[]> = {
     { key: PERMISSIONS.NOTIFICATION_UPDATE, label: 'Update Notifications' },
     { key: PERMISSIONS.NOTIFICATION_DELETE, label: 'Delete Notifications' },
   ],
-  'Rule Chains': [
-    { key: PERMISSIONS.RULE_CHAIN_VIEW, label: 'View Rule Chains' },
-    { key: PERMISSIONS.RULE_CHAIN_CREATE, label: 'Create Rule Chains' },
-    { key: PERMISSIONS.RULE_CHAIN_UPDATE, label: 'Edit Rule Chains' },
-    { key: PERMISSIONS.RULE_CHAIN_DELETE, label: 'Delete Rule Chains' },
-  ],
-  'Alarms': [
-    { key: PERMISSIONS.ALARM_VIEW, label: 'View Alarms' },
-    { key: PERMISSIONS.ALARM_ACKNOWLEDGE, label: 'Acknowledge Alarms' },
-    { key: PERMISSIONS.ALARM_CLEAR, label: 'Clear Alarms' },
-  ],
   'Checklists': [
     { key: PERMISSIONS.CHECKLIST_SUBMIT, label: 'Submit Checklists' },
   ],

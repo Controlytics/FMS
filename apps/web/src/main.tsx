@@ -34,7 +34,6 @@ import { ActionReauthPage } from './routes/config/action-reauth';
 import { AuditTemplatesConfigPage } from './routes/config/audit-templates';
 import { PaginationConfigPage } from './routes/config/pagination';
 import DashboardCardsConfig from './routes/config/dashboard-cards';
-import { AlarmColumnsConfigPage } from './routes/config/alarm-columns';
 import { AuditTrailPage } from './routes/audit/index';
 import { NotificationsPage } from './routes/notifications/index';
 import { ProfilePage } from './routes/profile/index';
@@ -42,9 +41,6 @@ import { ToastProvider } from './components/toast-provider';
 import './app.css';
 
 // Lazy-loaded heavy pages (code-split into separate chunks)
-const RuleChainsPage = lazy(() => import('./routes/rule-chains/index').then(m => ({ default: m.RuleChainsPage })));
-const RuleChainEditorPage = lazy(() => import('./routes/rule-chains/editor').then(m => ({ default: m.RuleChainEditorPage })));
-const AlarmDashboardPage = lazy(() => import('./routes/alarms/index').then(m => ({ default: m.AlarmDashboardPage })));
 const UnsConfigPage = lazy(() => import('./routes/config/uns').then(m => ({ default: m.UnsConfigPage })));
 const HelpArticlesPage = lazy(() => import('./routes/config/help').then(m => ({ default: m.HelpArticlesPage })));
 const RetentionConfigPage = lazy(() => import('./routes/config/retention').then(m => ({ default: m.RetentionConfigPage })));
@@ -90,6 +86,10 @@ const ReportDetailPage = lazy(() => import("./routes/reports/detail").then(m => 
 const VersionHistoryPage = lazy(() => import("./routes/version-history/index").then(m => ({ default: m.VersionHistoryPage })));
 const FilterDataManagementPage = lazy(() => import("./routes/config/filter-data-management").then(m => ({ default: m.FilterDataManagementPage })));
 const TabletAccessConfigPage = lazy(() => import("./routes/config/tablet-access").then(m => ({ default: m.TabletAccessConfigPage })));
+
+// Wave 3 (asset-removal) — read-only preview of the new typed-table hierarchy
+// endpoints (Wave 2: /api/hierarchy/tree). Dev-only; reach it by URL.
+const HierarchyPreviewPage = lazy(() => import('./routes/hierarchy-preview/index').then(m => ({ default: m.HierarchyPreviewPage })));
 
 // Mobile
 const MobileWrapperPage = lazy(() => import("./routes/mobile/mobile-wrapper").then(m => ({ default: m.MobileWrapperPage })));
@@ -174,19 +174,11 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/audit-templates" element={<RequireRole roles={['SUPER_ADMIN']}><AuditTemplatesConfigPage /></RequireRole>} />
             <Route path="/config/pagination" element={<RequireRole roles={['SUPER_ADMIN']}><PaginationConfigPage /></RequireRole>} />
             <Route path="/config/dashboard-cards" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><DashboardCardsConfig /></RequireRole>} />
-            <Route path="/config/alarm-columns" element={<RequireRole roles={['SUPER_ADMIN']}><AlarmColumnsConfigPage /></RequireRole>} />
             <Route path="/config/email-settings" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><EmailSettingsPage /></Suspense></RequireRole>} />
             <Route path="/config/sms-settings" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><SmsSettingsPage /></Suspense></RequireRole>} />
             <Route path="/config/notification-rules" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><NotificationRulesPage /></Suspense></RequireRole>} />
                 <Route path="/config/notification-logs" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><NotificationLogsPage /></Suspense></RequireRole>} />
             <Route path="/config/dynamic/:moduleKey" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><DynamicConfigPage /></RequireRole>} />
-
-            {/* Rule Chains — Admin only (lazy-loaded) */}
-            <Route path="/rule-chains" element={<RequireRole permissions={[PERMISSIONS.RULE_CHAIN_VIEW]}><Suspense fallback={<LazyFallback />}><RuleChainsPage /></Suspense></RequireRole>} />
-            <Route path="/rule-chains/:id" element={<RequireRole permissions={[PERMISSIONS.RULE_CHAIN_UPDATE]}><Suspense fallback={<LazyFallback />}><RuleChainEditorPage /></Suspense></RequireRole>} />
-
-            {/* Alarms (lazy-loaded) */}
-            <Route path="/alarms" element={<RequireRole permissions={[PERMISSIONS.ALARM_VIEW]}><Suspense fallback={<LazyFallback />}><AlarmDashboardPage /></Suspense></RequireRole>} />
 
             {/* System Health — Admin only (lazy-loaded) */}
             <Route path="/system-health" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><Suspense fallback={<LazyFallback />}><SystemHealthPage /></Suspense></RequireRole>} />
@@ -247,6 +239,9 @@ createRoot(document.getElementById('root')!).render(
 
             {/* Audit / Versions (2026-05-02) — SUPER_ADMIN only by default; assignable via Role Privileges → Audit / Versions. */}
             <Route path="/version-history" element={<RequireRole permissions={[PERMISSIONS.VERSION_HISTORY_VIEW]}><Suspense fallback={<LazyFallback />}><VersionHistoryPage /></Suspense></RequireRole>} />
+
+            {/* Wave 3 (asset-removal) dev preview — typed-table hierarchy. Not in sidebar. */}
+            <Route path="/hierarchy-preview" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ]}><Suspense fallback={<LazyFallback />}><HierarchyPreviewPage /></Suspense></RequireRole>} />
 
           </Route>
 

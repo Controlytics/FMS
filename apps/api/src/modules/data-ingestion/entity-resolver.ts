@@ -12,7 +12,6 @@ export interface ResolvedEntity {
   templateId: string;
   templateName: string;
   unsPath: string;
-  ruleChainId: string | null;
   isActive: boolean;
 }
 
@@ -71,7 +70,6 @@ export async function resolveEntityByToken(accessToken: string): Promise<Resolve
     templateId: entity.template.id,
     templateName: entity.template.name,
     unsPath: unsMapping?.unsPath ?? entity.unsPath ?? '',
-    ruleChainId: entity.template.defaultRuleChainId,
     isActive: entity.isActive,
   };
 
