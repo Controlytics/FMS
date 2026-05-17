@@ -207,6 +207,13 @@ export function MobileWrapperPage() {
     setRfidInput('');
     setRfidError('');
     setRfidSuccess('');
+    // 2026-05-17 stale-stage-counter fix: revalidate `instances` on
+    // home-enter. Matches the same fix in mobile-operations.tsx::goHome —
+    // SWR's 15s refresh interval can leave the dashboard reading the
+    // pre-cycle stage breakdown for up to 15s after a submit, which felt
+    // like a broken cycle during today's offline test. Online-only; offline
+    // mode keeps the prior server snapshot until reconnect.
+    if (online) mutate('/api/assets/instances?limit=500');
   };
 
   // ─── RFID Assign handlers ───

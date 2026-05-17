@@ -22,6 +22,7 @@ import { apiClient } from './api-client';
 import {
   getPendingOperations,
   updateOperationStatus,
+  updateOperationTapeVersion,
   clearSyncedOperations,
   getPendingTombstones,
   updateTombstoneStatus,
@@ -391,7 +392,8 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
   //     mark op failed but suppress the toast.
   const staleTapeFiltersThisDrain = new Set<string>();
 
-  for (const op of pending) {
+  for (let opIdx = 0; opIdx < pending.length; opIdx++) {
+    const op = pending[opIdx];
     // Short-circuit: if a previous op for this filter already STALE_TAPE'd,
     // every further cycle-bound op for the same filter is doomed to the
     // same fate. Mark failed without an HTTP round-trip and without a
@@ -412,6 +414,58 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
       await updateOperationStatus(op.id, 'synced');
       synced++;
       notify({ type: 'progress', synced, total: pending.length });
+
+      // 2026-05-17 chained-offline-ops fix: after each successful op, refresh
+      // the tapeVersion on any subsequent queued ops for the same filter.
+      // The downstream ops captured their tapeVersion at queue time against
+      // the LOCAL placeholder cycle (synthesizeEvents returns [] for a fresh
+      // cycle, so locally `filterEventCount = 0`). The server has more events
+      // recorded (CYCLE_STARTED + STATE_TRANSITION at minimum, plus this op's
+      // event(s)). Sending the stale tapeVersion would 409 STALE_TAPE on the
+      // very next op, and the dedup set above would mark every remaining op
+      // for the same filter failed without trying — surfacing as "only Wash
+      // In synced" on the tablet. The fetch fail-soft: if /current-state
+      // errors, fall through with the stored tape; STALE_TAPE handling below
+      // is the safety net.
+      if (op.filterId) {
+        const hasMoreForFilter = pending
+          .slice(opIdx + 1)
+          .some((p) => p.filterId === op.filterId && CYCLE_BOUND_OPS.has(p.type));
+        if (hasMoreForFilter) {
+          try {
+            const fresh = await apiClient.get<any>(`/api/filters/${op.filterId}/current-state`);
+            if (typeof fresh?.tapeVersion === 'number') {
+              for (let j = opIdx + 1; j < pending.length; j++) {
+                const later = pending[j];
+                if (later.filterId === op.filterId && CYCLE_BOUND_OPS.has(later.type)) {
+                  later.tapeVersion = fresh.tapeVersion;
+                  // Persist to IDB so a mid-drain failure (network drop, app
+                  // background) doesn't leave the next drain replaying the
+                  // stale on-disk tape — that would resurface the original
+                  // "only first op syncs" symptom on the very next attempt.
+                  // updateOperationTapeVersion is best-effort by the same
+                  // logic as the fetch above: if IDB write fails, the
+                  // in-memory rewrite still saves THIS drain.
+                  try {
+                    await updateOperationTapeVersion(later.id, fresh.tapeVersion);
+                  } catch (idbErr) {
+                    // eslint-disable-next-line no-console -- intentional structured log
+                    console.warn(
+                      '[sync-engine] updateOperationTapeVersion failed for',
+                      later.id,
+                      '— in-memory tape rewrite still applies for this drain',
+                      idbErr instanceof Error ? idbErr.message : String(idbErr),
+                    );
+                  }
+                }
+              }
+            }
+          } catch {
+            /* fetch failure here is non-fatal — STALE_TAPE branch below
+               surfaces the underlying staleness if it materialises */
+          }
+        }
+      }
     } catch (e: any) {
       // Extract error message — apiClient throws plain objects for API errors
       const errMsg = e?.message ?? e?.error ?? 'Sync failed';

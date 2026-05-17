@@ -530,6 +530,34 @@ export async function updateOperationStatus(id: string, status: OfflineOperation
   });
 }
 
+/**
+ * 2026-05-17 chained-offline-ops fix: persist a freshly-fetched tapeVersion
+ * onto a queued op row. The sync-engine calls this after a successful drain
+ * step refreshes `/api/filters/:id/current-state`, so any downstream queued op
+ * for the same filter carries the correct tape on its NEXT replay — even if
+ * the current drain breaks mid-way (network drop, app backgrounded). Without
+ * IDB persistence the in-memory rewrite is lost on re-drain and the operator
+ * sees the same "only first op syncs" failure pattern that motivated this fix.
+ */
+export async function updateOperationTapeVersion(id: string, tapeVersion: number): Promise<void> {
+  const db = await openDB();
+  const tx = db.transaction('operations', 'readwrite');
+  const store = tx.objectStore('operations');
+  const req = store.get(id);
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => {
+      const op = req.result;
+      if (op) {
+        op.tapeVersion = tapeVersion;
+        store.put(op);
+      }
+      resolve();
+    };
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => resolve();
+  });
+}
+
 // === Tombstones (for offline deletes/terminations — sync engine processes these first) ===
 
 export async function queueTombstone(t: Omit<Tombstone, 'id' | 'clientOpId' | 'createdAt' | 'status' | 'retryCount'>): Promise<string> {

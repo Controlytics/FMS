@@ -572,7 +572,19 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     setEquipmentGroupSyncWarning(null);
   };
 
-  const goHome = () => { setView('home'); setActiveStage(null); setReasonDialog(null); setEquipDialog(null); setChecklistDialog(null); setPendingChecklistBatch([]); setError(''); setSuccess(''); setScanQueue([]); setEquipmentGroupSyncWarning(null); };
+  // 2026-05-17 stale-stage-counter fix: force-revalidate `instances` when
+  // returning to home. SWR's `refreshInterval: 15000` means the dashboard's
+  // per-stage filter counts can lag the actual cycle state for up to 15s
+  // after a submit if the operator navigates back-and-forth quickly. Forcing
+  // a revalidate on home-enter gives an upper-bound staleness of one fetch
+  // round-trip (~200ms on LAN) instead of waiting for the next poll tick.
+  // Online-only — offline mode keeps the last server snapshot until reconnect,
+  // since per-stage counters can't be derived from local optimistic state
+  // without re-projecting every cached filter (separate follow-up).
+  const goHome = () => {
+    setView('home'); setActiveStage(null); setReasonDialog(null); setEquipDialog(null); setChecklistDialog(null); setPendingChecklistBatch([]); setError(''); setSuccess(''); setScanQueue([]); setEquipmentGroupSyncWarning(null);
+    if (online) mutate('/api/assets/instances?limit=500');
+  };
 
   const resolveFilter = async (): Promise<{ filterId: string; filterName: string } | null> => {
     let filterId = ''; let filterName = '';

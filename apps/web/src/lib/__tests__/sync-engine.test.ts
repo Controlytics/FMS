@@ -42,6 +42,13 @@ const { mockApiClient, mockOfflineStore, mockConnectivity } = vi.hoisted(() => {
           if (status === 'failed' || (status === 'pending' && error)) op.retryCount = (op.retryCount ?? 0) + 1;
         }
       }),
+      // 2026-05-17 chained-offline-ops fix: persists refreshed tape on the
+      // queued row so a mid-drain interruption doesn't leave the next drain
+      // replaying the stale on-disk tape.
+      updateOperationTapeVersion: vi.fn(async (id: string, tapeVersion: number) => {
+        const op = opsRegistry.find(o => o.id === id);
+        if (op) op.tapeVersion = tapeVersion;
+      }),
       clearSyncedOperations: vi.fn(async () => {}),
       getPendingTombstones: vi.fn(async (): Promise<any[]> => []),
       updateTombstoneStatus: vi.fn(async () => {}),
@@ -377,5 +384,145 @@ describe('sync-engine — Phase 8.3 tape-version handling', () => {
     const yToasts = errorsEmitted.filter(e => /Filter Y:.*another operator/.test(e));
     expect(xToasts).toHaveLength(1);
     expect(yToasts).toHaveLength(1);
+  });
+
+  // ── 2026-05-17 offline cycle test regression ──────────────────────────────
+  //
+  // Scenario observed on the tablet during the 22:00–22:23 offline cycle:
+  // operator did Wash In (start-and-advance) + Wash Out (advance) + CWH
+  // checklist + Dry In + dryer-duration + temperature, all offline. When the
+  // tablet came back online, ONLY the Wash In synced — the other 4+ ops
+  // marked as failed in IDB with no DLQ entry and no operator-visible toast
+  // because pendingCount excludes 'failed' rows.
+  //
+  // Root cause: each queued op captures its `tapeVersion` at queue time from
+  // the local cache. The Wash In compound op (`start-and-advance`) is queued
+  // with tapeVersion=null (start-cycle isn't cycle-bound), and the subsequent
+  // ops are queued against the LOCAL placeholder cycle's recomputed tape
+  // (`profileVersion * 1e6 + N_local_events`). After Wash In syncs and
+  // creates the REAL cycle, the server's actual tapeVersion is bigger than
+  // the local one (server has the CYCLE_STARTED + STATE_TRANSITION events
+  // the local executor never synthesizes). The next queued op's stored
+  // tapeVersion lands on the server as 409 STALE_TAPE. The
+  // `staleTapeFiltersThisDrain` dedup then marks every further op for the
+  // same filter as failed without even trying.
+  //
+  // Fix (sync-engine.ts): after each successful cycle-bound op, re-fetch
+  // `/api/filters/:id/current-state` once and rewrite the in-memory
+  // tapeVersion on every subsequent queued op for the same filter. The
+  // tombstone-tape path (already at line 280-290) does the equivalent thing
+  // by reading off the row at replay time; this brings the ops drain to
+  // parity.
+  it('9. chained offline ops on the same filter: each successful op refreshes downstream tapeVersions', async () => {
+    // Op 1: start-and-advance (Wash In) — no tapeVersion, internally
+    // handled by the engine's own /current-state fetch (line 230-234).
+    queueOp({
+      type: 'start-and-advance',
+      filterId: 'filter-A',
+      filterName: 'mups-rdu-01',
+      payload: {
+        cyclePayload: { profileId: 'p-1', cleaningReasonKey: 'filter' },
+        advancePayload: { targetState: 'WASH_IN', cleaningAreaId: 'block-FD' },
+      },
+      tapeVersion: null,
+    });
+    // Op 2: advance to WASH_OUT. tapeVersion captured at queue time against
+    // a LOCAL placeholder cycle — synthesizeEvents returns [] for a freshly
+    // started cycle, so locally `filterEventCount = 0` and the executor
+    // emitted `profileVersion * 1e6 + 0 = 5_000_000`.
+    queueOp({
+      type: 'advance',
+      filterId: 'filter-A',
+      filterName: 'mups-rdu-01',
+      payload: { targetState: 'WASH_OUT' },
+      tapeVersion: 5_000_000,
+    });
+    // Op 3: submit-checklist (CWH). Same stale-tape situation as op 2.
+    queueOp({
+      type: 'submit-checklist',
+      filterId: 'filter-A',
+      filterName: 'mups-rdu-01',
+      payload: { afterStage: 'WASH_OUT', answers: { q1: '25' } },
+      tapeVersion: 5_000_000,
+    });
+
+    // Server bookkeeping: tracks tapeVersion. start-cycle bumps to +1
+    // (CYCLE_STARTED event), each advance/submit-checklist bumps by +1 each.
+    // Real server starts at the post-WASH_IN value (5*1e6 + 2 = 5_000_002)
+    // after the start-and-advance compound op finishes.
+    let serverTapeVersion = 5_000_002;
+    mockApiClient.get.mockImplementation(async (url: string) => {
+      if (url === '/api/health') return {};
+      if (url.endsWith('/current-state')) {
+        return { currentCycle: { id: 'real-cyc-1' }, tapeVersion: serverTapeVersion };
+      }
+      return {};
+    });
+
+    mockApiClient.post.mockImplementation(async (url: string, body: any) => {
+      if (url === '/api/auth/refresh') return { token: 'fresh' };
+      if (url.includes('/start-cycle')) {
+        // start-cycle creates the cycle (CYCLE_STARTED event)
+        serverTapeVersion = 5_000_001;
+        return { id: 'real-cyc-1' };
+      }
+      if (url.includes('/advance')) {
+        // start-and-advance's internal advance leg fetches fresh tapeVersion
+        // (5_000_001 right after start-cycle) and sends that — succeeds.
+        // Subsequent stand-alone advance ops must carry tapeVersion ===
+        // serverTapeVersion to succeed.
+        if (typeof body.tapeVersion !== 'number' || body.tapeVersion !== serverTapeVersion) {
+          const err: any = new Error(`Stale tape: expected ${serverTapeVersion}, got ${body.tapeVersion}`);
+          err.code = 'STALE_TAPE';
+          err.status = 409;
+          err.currentTapeVersion = serverTapeVersion;
+          throw err;
+        }
+        serverTapeVersion++;
+        return { tapeVersion: serverTapeVersion };
+      }
+      if (url.includes('/submit-checklist')) {
+        if (typeof body.tapeVersion !== 'number' || body.tapeVersion !== serverTapeVersion) {
+          const err: any = new Error(`Stale tape: expected ${serverTapeVersion}, got ${body.tapeVersion}`);
+          err.code = 'STALE_TAPE';
+          err.status = 409;
+          throw err;
+        }
+        serverTapeVersion++;
+        return { tapeVersion: serverTapeVersion };
+      }
+      return {};
+    });
+
+    const result = await syncPendingOperations();
+
+    // All three ops should sync. Pre-fix: only op 1 (start-and-advance)
+    // succeeds; ops 2 and 3 fail with STALE_TAPE (op 3 short-circuited by
+    // the dedup set without even hitting the network).
+    expect(result.synced).toBe(3);
+    expect(result.failed).toBe(0);
+
+    // Lock in the MECHANISM, not just the outcome (advisor 2026-05-17): the
+    // pass-condition is the refresh fetch happening between ops. Without it,
+    // a green test could simply mean the mock didn't enforce tapeVersion.
+    const refreshFetches = mockApiClient.get.mock.calls.filter(
+      ([url]: any[]) => typeof url === 'string' && url === '/api/filters/filter-A/current-state',
+    );
+    // start-and-advance's internal /current-state fetch (line 230-234 of
+    // sync-engine.ts) + at least 1 chained-ops refresh fetch between ops.
+    // We don't pin the exact number — the implementation may add a final
+    // post-loop refresh in future — but it must be > 1.
+    expect(refreshFetches.length).toBeGreaterThanOrEqual(2);
+
+    // IDB persistence side of the fix: the refreshed tapeVersion was
+    // written back so a mid-drain failure on a future op doesn't leave
+    // the stale on-disk tape in place. Both ops 2 and 3 should have been
+    // rewritten at least once.
+    const persistedOp2 = mockOfflineStore.updateOperationTapeVersion.mock.calls
+      .filter(([id]: any[]) => id === mockOfflineStore.__ops[1].id);
+    const persistedOp3 = mockOfflineStore.updateOperationTapeVersion.mock.calls
+      .filter(([id]: any[]) => id === mockOfflineStore.__ops[2].id);
+    expect(persistedOp2.length).toBeGreaterThanOrEqual(1);
+    expect(persistedOp3.length).toBeGreaterThanOrEqual(1);
   });
 });
