@@ -35,7 +35,7 @@ import {
 import { resolvePendingChecklistDialog } from './resolve-pending-checklist';
 import { findNextPendingChecklist, type PendingChecklistBatchItem } from './next-pending-checklist';
 import { getCurrentActions } from '@/lib/action-tape';
-import { recomputeAndCacheFilterState } from '@/lib/offline-cache';
+import { recomputeAndCacheFilterState, appendChecklistCompletion } from '@/lib/offline-cache';
 import { cacheData, getCachedData, OFFLINE_TTL_MS } from '@/lib/offline-store';
 
 /**
@@ -343,6 +343,17 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
     async (args: SubmitChecklistArgs): Promise<{ executed: boolean }> => {
       setIsLoading(true);
       setError(null);
+
+      // Snapshot the profiles whose completion we'll log post-submit. Read
+      // from dialogState BEFORE we dispatch close (close wipes the data).
+      // afterStage + cycleId come from the cached filter-state row — the
+      // hook doesn't have them in args, and the page would have to construct
+      // them itself otherwise. Reading from cache keeps the contract minimal.
+      const profilesAwaitingLog =
+        dialogState.kind === 'awaiting_checklist'
+          ? (dialogState.checklists as Array<{ checklistProfileId: string }>)
+          : [];
+
       try {
         const { executed } = await executeOrQueue(
           'submit-checklist',
@@ -356,12 +367,42 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
           args.password,
         );
 
+        // Explicit checklist-completion log — Tier 1 of local-context.ts
+        // synthesizeEvents (Day 2 helper). Populated on EVERY submit (online
+        // or offline). Idempotent on (cycleId, checklistProfileId, afterStage)
+        // so re-firing on retry is safe. Without this the synthesizer falls
+        // through to Tier 2 (the legacy pendingChecklist === [] implicit
+        // signal), which Day 5 wants to retire.
+        try {
+          const cs = await getCachedData<{
+            currentState?: string | null;
+            currentCycle?: { id?: string | null } | null;
+          }>(`filter-state-${args.filterId}`);
+          const afterStage = cs?.currentState ?? null;
+          const cycleId = cs?.currentCycle?.id ?? null;
+          if (afterStage) {
+            const completedAt = new Date().toISOString();
+            for (const p of profilesAwaitingLog) {
+              if (!p.checklistProfileId) continue;
+              await appendChecklistCompletion(args.filterId, {
+                checklistProfileId: p.checklistProfileId,
+                afterStage,
+                completedAt,
+                cycleId,
+              });
+            }
+          }
+        } catch {
+          /* idempotent log is best-effort — Tier 2 fallback remains for
+             legacy cache rows that pre-date this wiring */
+        }
+
         if (!executed) {
-          // Offline-parity cache clear — see jsdoc above. Errors are
-          // logged but not surfaced; the legacy inline implementation
-          // wrapped this in `try { ... } catch { /* ignore */ }` and we
-          // preserve that behavior so a transient IDB failure here
-          // doesn't trip an OFFLINE_CACHE_RECOMPUTE_FAILED on the page.
+          // Offline-parity cache rewrite — clear pendingChecklist and
+          // re-derive nextAllowedStages + actions from the tape. Errors
+          // here are swallowed (legacy behaviour at
+          // mobile-operations.tsx:1397-1415 pre-migration) so a transient
+          // IDB failure doesn't trip OFFLINE_CACHE_RECOMPUTE_FAILED.
           try {
             const cs = await getCachedData<any>(`filter-state-${args.filterId}`) ?? {};
             const clearedRow = { ...cs, pendingChecklist: [] };

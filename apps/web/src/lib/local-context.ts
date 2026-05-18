@@ -466,18 +466,21 @@ async function resolveChecklistProfile(
  * with `attributes.afterStage = currentState` — what the executor's gate
  * checks via `assertChecklistGatePassed`.
  *
- * # Synthesis sources (priority order — Day 2 of D1/D2/D4 refactor)
+ * # Synthesis sources (priority order)
  *
  *   1. **Explicit completion log** (`cachedState.checklistCompletions[]`) —
- *      preferred. Each entry the operator wrote via `handleChecklistSubmit`
- *      yields one synthesized event. This is the 21 CFR-friendly path:
- *      "operator did X" is an explicit positive record, not the absence of
- *      a pending gate.
+ *      preferred, 21 CFR-friendly. Reliably populated post-Day-3/4 refactor
+ *      (commits dc60cca + b9be6f3): `useFilterOperationsCore.submitChecklist`
+ *      calls `appendChecklistCompletion()` for every profile in the dialog
+ *      on every successful submit. Each entry yields one synthesized event.
  *
- *   2. **Legacy implicit signal** (`pendingChecklist === []`) — fallback for
- *      cache rows written before Day 2. Empty pending + profile has
- *      CHECKLIST nodes after current stage = "operator just submitted, cache
- *      was cleared" footprint. Synthesizes ONE event matching current stage.
+ *   2. **Legacy implicit signal** (`pendingChecklist === []`) — RETAINED as
+ *      backwards-compat for cache rows written before the Day 3/4 hook
+ *      wiring shipped. Empty pending + profile has CHECKLIST nodes after
+ *      current stage = "operator submitted offline, cache was cleared"
+ *      footprint. Synthesizes ONE event matching current stage. Will be
+ *      removed once we're confident no operator is running on a stale APK
+ *      whose cache predates the wiring (separate cache-schema-version bump).
  *
  * Chained CHECKLIST→CHECKLIST→STAGE: one synthesized event per afterStage
  * suffices because the executor's gate checks for existence, not cardinality.
@@ -485,10 +488,6 @@ async function resolveChecklistProfile(
  * Other event types (STATE_TRANSITION, CYCLE_STARTED, etc.) are NOT consumed
  * by guards that the FE invokes today — `filter.currentLifecycleState` is
  * the source of truth instead, and is updated via `updateFilterStateLocally()`.
- *
- * Day 5 drops the legacy fallback once pages no longer write
- * `pendingChecklist=[]` (i.e. once `mobile-operations.tsx` and
- * `filter-operations.tsx` consume the `useFilterOperationsCore()` hook).
  */
 function synthesizeEvents(
   cachedState: CachedFilterState | null,
@@ -521,8 +520,10 @@ function synthesizeEvents(
     }));
   }
 
-  // Tier 2: legacy implicit signal — kept for cache rows from before Day 2.
-  // Will be removed in Day 5 once `pendingChecklist=[]` writes stop.
+  // Tier 2: legacy implicit signal — retained for cache rows from before
+  // the Day 3/4 hook wiring shipped. New cache rows always populate Tier 1
+  // above via useFilterOperationsCore.submitChecklist, so this branch only
+  // fires for stale rows. Slated for removal with a cache-schema-version bump.
   const pending = cachedState?.pendingChecklist ?? [];
   if (pending.length > 0) return [];
 

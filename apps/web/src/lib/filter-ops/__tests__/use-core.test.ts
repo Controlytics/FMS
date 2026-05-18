@@ -40,6 +40,7 @@ const {
   mockFindNext,
   mockGetCurrentActions,
   mockRecomputeCache,
+  mockAppendCompletion,
   mockGetCachedData,
   mockCacheData,
 } = vi.hoisted(() => ({
@@ -48,6 +49,7 @@ const {
   mockFindNext: vi.fn(),
   mockGetCurrentActions: vi.fn(),
   mockRecomputeCache: vi.fn(),
+  mockAppendCompletion: vi.fn(),
   mockGetCachedData: vi.fn(),
   mockCacheData: vi.fn(),
 }));
@@ -70,6 +72,7 @@ vi.mock('@/lib/action-tape', () => ({
 
 vi.mock('@/lib/offline-cache', () => ({
   recomputeAndCacheFilterState: mockRecomputeCache,
+  appendChecklistCompletion: mockAppendCompletion,
 }));
 
 vi.mock('@/lib/offline-store', () => ({
@@ -87,6 +90,7 @@ describe('useFilterOperationsCore — Day 1 baseline', () => {
     mockResolvePending.mockResolvedValue(null);
     mockFindNext.mockResolvedValue(null);
     mockRecomputeCache.mockResolvedValue(undefined);
+    mockAppendCompletion.mockResolvedValue(undefined);
     mockGetCachedData.mockResolvedValue({});
     mockCacheData.mockResolvedValue(undefined);
     mockGetCurrentActions.mockResolvedValue([]);
@@ -338,6 +342,7 @@ describe('useFilterOperationsCore — Day 3 extended handlers', () => {
     mockResolvePending.mockResolvedValue(null);
     mockFindNext.mockResolvedValue(null);
     mockRecomputeCache.mockResolvedValue(undefined);
+    mockAppendCompletion.mockResolvedValue(undefined);
     mockGetCachedData.mockResolvedValue({});
     mockCacheData.mockResolvedValue(undefined);
     mockGetCurrentActions.mockResolvedValue([]);
@@ -611,8 +616,12 @@ describe('useFilterOperationsCore — Day 3 extended handlers', () => {
     expect(result.current.dialogState.kind).toBe('none');
   });
 
-  it('submitChecklist() online (executed=true) does NOT touch the cache row', async () => {
-    mockResolvePending.mockResolvedValueOnce([{ id: 'cl-f1', questions: [] }]);
+  it('submitChecklist() calls appendChecklistCompletion for each profile in the dialog (Tier 1 log — 21 CFR)', async () => {
+    // Open a checklist dialog with 2 profiles
+    mockResolvePending.mockResolvedValueOnce([
+      { checklistProfileId: 'p1', questions: [] },
+      { checklistProfileId: 'p2', questions: [] },
+    ]);
 
     const { result } = renderHook(() => useFilterOperationsCore());
     await act(async () => {
@@ -624,6 +633,48 @@ describe('useFilterOperationsCore — Day 3 extended handlers', () => {
     });
 
     mockExecuteOrQueue.mockResolvedValueOnce({ executed: true });
+    // Cache row says currentState=WASH_OUT, cycleId=cyc-1
+    mockGetCachedData.mockResolvedValueOnce({
+      currentState: 'WASH_OUT',
+      currentCycle: { id: 'cyc-1' },
+    });
+
+    await act(async () => {
+      await result.current.submitChecklist({
+        filterId: 'f1',
+        filterName: 'F-1',
+        answers: { q1: 'YES' },
+      });
+    });
+
+    expect(mockAppendCompletion).toHaveBeenCalledTimes(2);
+    expect(mockAppendCompletion).toHaveBeenNthCalledWith(1, 'f1', expect.objectContaining({
+      checklistProfileId: 'p1',
+      afterStage: 'WASH_OUT',
+      cycleId: 'cyc-1',
+      completedAt: expect.any(String),
+    }));
+    expect(mockAppendCompletion).toHaveBeenNthCalledWith(2, 'f1', expect.objectContaining({
+      checklistProfileId: 'p2',
+      afterStage: 'WASH_OUT',
+      cycleId: 'cyc-1',
+    }));
+  });
+
+  it('submitChecklist() skips appendChecklistCompletion when cache row has no currentState (defensive)', async () => {
+    mockResolvePending.mockResolvedValueOnce([{ checklistProfileId: 'p1', questions: [] }]);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({
+        filterId: 'f1',
+        filterName: 'F-1',
+        targetState: 'WASH_OUT',
+      });
+    });
+
+    mockExecuteOrQueue.mockResolvedValueOnce({ executed: true });
+    mockGetCachedData.mockResolvedValueOnce({}); // no currentState
 
     await act(async () => {
       await result.current.submitChecklist({
@@ -633,7 +684,71 @@ describe('useFilterOperationsCore — Day 3 extended handlers', () => {
       });
     });
 
-    expect(mockGetCachedData).not.toHaveBeenCalled();
+    expect(mockAppendCompletion).not.toHaveBeenCalled();
+  });
+
+  it('submitChecklist() swallows appendChecklistCompletion failures (best-effort log)', async () => {
+    mockResolvePending.mockResolvedValueOnce([{ checklistProfileId: 'p1', questions: [] }]);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({
+        filterId: 'f1',
+        filterName: 'F-1',
+        targetState: 'WASH_OUT',
+      });
+    });
+
+    mockExecuteOrQueue.mockResolvedValueOnce({ executed: true });
+    mockGetCachedData.mockResolvedValueOnce({
+      currentState: 'WASH_OUT',
+      currentCycle: { id: 'cyc-1' },
+    });
+    mockAppendCompletion.mockRejectedValueOnce(new Error('IDB write failed'));
+
+    let thrown: unknown = null;
+    await act(async () => {
+      try {
+        await result.current.submitChecklist({
+          filterId: 'f1',
+          filterName: 'F-1',
+          answers: {},
+        });
+      } catch (e) { thrown = e; }
+    });
+
+    expect(thrown).toBeNull();
+    expect(result.current.dialogState.kind).toBe('none');
+  });
+
+  it('submitChecklist() online (executed=true) does NOT mutate the cache row (only reads for log)', async () => {
+    mockResolvePending.mockResolvedValueOnce([{ checklistProfileId: 'p1', questions: [] }]);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({
+        filterId: 'f1',
+        filterName: 'F-1',
+        targetState: 'WASH_OUT',
+      });
+    });
+
+    mockExecuteOrQueue.mockResolvedValueOnce({ executed: true });
+    mockGetCachedData.mockResolvedValueOnce({
+      currentState: 'WASH_OUT',
+      currentCycle: { id: 'cyc-1' },
+    });
+
+    await act(async () => {
+      await result.current.submitChecklist({
+        filterId: 'f1',
+        filterName: 'F-1',
+        answers: {},
+      });
+    });
+
+    // getCachedData is called once for the appendChecklistCompletion lookup,
+    // but no cache-row-clear / nextAllowedStages re-derive runs online.
     expect(mockCacheData).not.toHaveBeenCalled();
   });
 });
