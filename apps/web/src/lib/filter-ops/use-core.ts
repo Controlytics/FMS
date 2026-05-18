@@ -113,16 +113,23 @@ export interface UseFilterOperationsCoreResult {
   clearError: () => void;
 }
 
-const REAUTH_OR_RECOMPUTE_CODES = new Set([
+// Errors that MUST propagate to the page-level catch so the page can handle
+// them with structured UI (reauth dialog, block-change modal, etc.).
+// BLOCK_CHANGE_REQUIRED: page catches it and dispatches open_block_change.
+// REAUTH_REQUIRED / REAUTH_FAILED: reauth.execute() wrapper needs to surface
+//   the inline "Incorrect password" message and let the operator retry.
+// OFFLINE_CACHE_RECOMPUTE_FAILED: page-level error state for the operator.
+const PROPAGATED_ERROR_CODES = new Set([
   'REAUTH_REQUIRED',
   'REAUTH_FAILED',
   'OFFLINE_CACHE_RECOMPUTE_FAILED',
+  'BLOCK_CHANGE_REQUIRED',
 ]);
 
 function isReauthOrRecompute(e: unknown): boolean {
   const err = e as { error?: string; code?: string };
   const code = err?.error ?? err?.code;
-  return typeof code === 'string' && REAUTH_OR_RECOMPUTE_CODES.has(code);
+  return typeof code === 'string' && PROPAGATED_ERROR_CODES.has(code);
 }
 
 /**

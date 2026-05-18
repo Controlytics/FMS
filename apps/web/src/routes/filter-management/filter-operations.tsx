@@ -37,6 +37,10 @@ import {
   type PendingChecklist,
   type PendingChecklistBatchItem,
 } from '@/lib/filter-ops';
+// D1/D2/D4 refactor Day 4 (2026-05-18) — useFilterOperationsCore is now
+// authoritative. All dialog state lives in core.dialogState; all writes
+// go through core.dispatch / core.advance / core.startAndAdvance / core.submitChecklist.
+import { useFilterOperationsCore } from '@/lib/filter-ops/use-core';
 
 const CLEANING_STAGES = CLEANING_STAGES_OPS;
 
@@ -49,6 +53,8 @@ export function FilterOperationsPage() {
   const ahuIdFilter = searchParams.get('ahuId');
   const { formatDateTime, formatDate, formatTime } = useDatetimeFormat();
   const reauth = useReauth();
+  // ─── D1/D2/D4 Day 4 — useFilterOperationsCore is now authoritative ──────
+  const core = useFilterOperationsCore();
   const { online, pendingCount, syncing, executeOrQueue, manualSync, clearQueue, cache, getCache } = useOffline();
   const { data: instancesData, error: instancesError } = useSWR<PaginatedResponse<FilterInstance>>('/api/assets/instances?limit=500', { refreshInterval: online ? 30000 : 0 });
   const { data: templatesData, error: templatesError } = useSWR<PaginatedResponse<{ id: string; name: string }>>('/api/assets/templates?limit=1000');
@@ -103,59 +109,69 @@ export function FilterOperationsPage() {
   // Snapshot of queue while a shared dialog (reason/duration/equipment/checklist) is open
   const [pendingBatch, setPendingBatch] = useState<Array<{ filterId: string; filterName: string }> | null>(null);
 
-  // Cleaning reason dialog state
-  const [reasonDialog, setReasonDialog] = useState<{ filterId: string; filterName: string; stage: typeof CLEANING_STAGES[0]; block?: { id: string; name: string } } | null>(null);
+  // ─── Dialog state — owned by useFilterOperationsCore (D1/D2/D4 Day 4) ───
+  // The six imperative useState hooks below are replaced by compat aliases
+  // that narrow core.dialogState. JSX reads unchanged; all writes route
+  // through core.dispatch / core.advance / core.startAndAdvance /
+  // core.submitChecklist so the D4 clobber-races are no longer expressible.
+  // Capture narrowed state once so TypeScript's type narrowing holds inside
+  // each compat alias (ternary RHS resets the narrowing).
+  const _ds = core.dialogState;
+  const reasonDialog = _ds.kind === 'awaiting_reason'
+    ? {
+        filterId: _ds.filterId,
+        filterName: _ds.filterName,
+        stage: CLEANING_STAGES.find(s => s.key === _ds.stage) as typeof CLEANING_STAGES[0],
+        block: selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined,
+      }
+    : null;
+  const checklistDialog = _ds.kind === 'awaiting_checklist'
+    ? {
+        filterId: _ds.filterId,
+        filterName: _ds.filterName,
+        checklists: _ds.checklists as PendingChecklist[],
+      }
+    : null;
+  const equipmentDialog = _ds.kind === 'awaiting_equipment'
+    ? {
+        filterId: _ds.filterId,
+        filterName: _ds.filterName,
+        stage: CLEANING_STAGES.find(s => s.key === _ds.stage) as typeof CLEANING_STAGES[0],
+        groups: _ds.groups as any[],
+        cycleEquipmentGroup: _ds.cycleGroup,
+        block: selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined,
+      }
+    : null;
+  const dryerDialog = _ds.kind === 'awaiting_dryer'
+    ? {
+        filterId: _ds.filterId,
+        filterName: _ds.filterName,
+        block: selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined,
+      }
+    : null;
+  const blockChangeDialog = _ds.kind === 'awaiting_block_change'
+    ? _ds
+    : null;
+
   const [reasonError, setReasonError] = useState('');
 
   // Toast notification (appears at top, auto-dismisses)
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t); } }, [toast]);
 
-  // Checklist state
-  const [checklistDialog, setChecklistDialog] = useState<{
-    filterId: string;
-    filterName: string;
-    checklists: PendingChecklist[];
-  } | null>(null);
+  // Checklist state (loading/error remain local; dialog state is in core)
   const [checklistLoading, setChecklistLoading] = useState(false);
   const [checklistError, setChecklistError] = useState('');
-  // Multi-filter post-advance checklist cycling — distinct from `pendingBatch`
-  // (which feeds the BATCH MODE flow that submits ONE set of answers for every
-  // filter). This queue is set by `advanceBatch` after queued offline advances:
-  // each filter may have its OWN pending checklist, so we open the dialog for
-  // the first one, stash the rest here, and walk through them in
-  // handleChecklistSubmit. Pre-fix the loop dropped everything past the first
-  // (PHASE_5_RECENT_WORK.md § 11, session 04-20 follow-up).
-  const [postAdvanceChecklistQueue, setPostAdvanceChecklistQueue] = useState<PendingChecklistBatchItem[]>([]);
 
-  // Equipment group & instrument readings state
-  const [equipmentDialog, setEquipmentDialog] = useState<{
-    filterId: string;
-    filterName: string;
-    stage: typeof CLEANING_STAGES[0];
-    groups: any[];
-    cycleEquipmentGroup?: any;
-    block?: { id: string; name: string };
-  } | null>(null);
+  // Equipment group & instrument readings state (loading/error remain local)
   const [equipmentError, setEquipmentError] = useState('');
   const [equipmentLoading, setEquipmentLoading] = useState(false);
 
-  // Dryer duration state
-  const [dryerDialog, setDryerDialog] = useState<{
-    filterId: string;
-    filterName: string;
-    stage: typeof CLEANING_STAGES[0];
-    block?: { id: string; name: string };
-  } | null>(null);
+  // Dryer duration state (loading/error remain local)
   const [dryerLoading, setDryerLoading] = useState(false);
   const [dryerError, setDryerError] = useState('');
 
-  // Block change request dialog state
-  const [blockChangeDialog, setBlockChangeDialog] = useState<{
-    filterId: string; filterName: string;
-    homeBlockId: string; homeBlockName: string;
-    requestedBlockId: string; requestedBlockName: string;
-  } | null>(null);
+  // Block change request state (reason/submitting remain local)
   const [blockChangeReason, setBlockChangeReason] = useState('');
   const [blockChangeSubmitting, setBlockChangeSubmitting] = useState(false);
   // Saved cycle-start payload when equipment dialog is opened before cycle is started (offline flow)
@@ -251,7 +267,7 @@ export function FilterOperationsPage() {
   // Close stage screen and go back to landing
   const closeDialog = () => {
     setActiveStage(null); setSelectedBlock(null); setScanValue(''); setRemarks(''); setError(''); setScanQueue([]); setEquipmentGroupSyncWarning(null);
-    setPostAdvanceChecklistQueue([]);
+    core.dispatch({ type: 'close' });
     navigate('/filters');
   };
 
@@ -356,11 +372,12 @@ export function FilterOperationsPage() {
         success++;
         // Update cached pipeline state after offline advance.
         // Deep-review fix D3: pass blockId so the offline cycle stub records cleaningAreaId.
-        if (!executed) await updateCachedStateAfterAdvance(item.filterId, overrideTargetState ?? activeStage.key, false, blockId ?? null);
+        if (!executed) await recomputeAndCacheFilterState(item.filterId, overrideTargetState ?? activeStage.key, false, blockId ?? null);
         newSubmissions.push({ stage: stageLabel + (executed ? '' : ' (queued)'), filter: item.filterName, block: blockName, time: formatTime(new Date()) });
       } catch (e: any) {
         if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
-          setBlockChangeDialog({
+          core.dispatch({
+            type: 'open_block_change',
             filterId: e.connectionInfo.filterId ?? item.filterId,
             filterName: item.filterName,
             homeBlockId: e.connectionInfo.homeBlockId,
@@ -407,12 +424,13 @@ export function FilterOperationsPage() {
         }));
         const next = await findNextPendingChecklist(cycleBatch, resolvePendingChecklistDialog);
         if (next) {
-          setChecklistDialog({
+          core.dispatch({
+            type: 'open_checklist',
             filterId: next.item.filterId,
             filterName: next.item.filterName,
             checklists: next.checklists,
+            remainingBatch: next.remaining,
           });
-          setPostAdvanceChecklistQueue(next.remaining);
           setChecklistError('');
         }
       } catch { /* ignore */ }
@@ -424,30 +442,6 @@ export function FilterOperationsPage() {
     }
   };
 
-  // Phase 8.6 part 2: cache rewrite after a queued offline advance. Wraps
-  // `recomputeAndCacheFilterState` (the lib that replaces the deleted
-  // `findChecklistsAfterStage` / `buildOfflineChecklist` /
-  // `updateCachedStateAfterAdvance` helpers).
-  //
-  // Deep-review fix 2026-05-17 (D3): signature now matches mobile's
-  // `updateOfflineState` exactly — both pages MUST pass blockId so the
-  // shared lib stamps it onto the offline cycle stub. Pre-fix desktop
-  // hardcoded `null`, so offline operators on desktop with a selected
-  // block had cleaningAreaId missing from the cache row, leading to
-  // BLOCK_CHANGE_REQUIRED mis-fires on sync.
-  const updateCachedStateAfterAdvance = async (
-    filterId: string,
-    newStageKey: string,
-    cycleStarted?: boolean,
-    blockId?: string | null,
-  ) => {
-    await recomputeAndCacheFilterState(
-      filterId,
-      newStageKey,
-      !!cycleStarted,
-      blockId ?? selectedBlock?.id ?? null,
-    );
-  };
 
   const handleSubmitBatch = async () => {
     if (scanQueue.length === 0 || !activeStage || submitting) return;
@@ -577,7 +571,8 @@ export function FilterOperationsPage() {
 
       // Gap 9: Proactive block change check (before any dialogs)
       if (state.blockChangeStatus === 'REQUIRED' && state.homeBlock && selectedBlock?.id) {
-        setBlockChangeDialog({
+        core.dispatch({
+          type: 'open_block_change',
           filterId: first.filterId,
           filterName: first.filterName,
           homeBlockId: state.homeBlock.id,
@@ -631,7 +626,7 @@ export function FilterOperationsPage() {
           const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
           setPendingBatch(batch);
           clearScanState();
-          setChecklistDialog({ filterId: first.filterId, filterName: `${batch.length} filter(s)`, checklists: dialogChecklists });
+          core.dispatch({ type: 'open_checklist', filterId: first.filterId, filterName: `${batch.length} filter(s)`, checklists: dialogChecklists });
           setChecklistError('');
           setLoading(false); setSubmitting(false);
           return;
@@ -661,7 +656,8 @@ export function FilterOperationsPage() {
               // (mobile-operations.tsx:1015-1022) and pop the existing block-change modal.
               if (e?.code === 'BLOCK_CHANGE_REQUIRED' && e?.connectionInfo) {
                 if (!blockChangePopped) {
-                  setBlockChangeDialog({
+                  core.dispatch({
+                    type: 'open_block_change',
                     filterId: e.connectionInfo.filterId ?? item.filterId,
                     filterName: item.filterName,
                     homeBlockId: e.connectionInfo.homeBlockId,
@@ -692,9 +688,8 @@ export function FilterOperationsPage() {
         // No PM — show reason dialog
         const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
         setPendingBatch(batch);
-        const blockForReason = selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined;
         clearScanState();
-        setReasonDialog({ filterId: first.filterId, filterName: `${batch.length} filter(s)`, stage: activeStage, block: blockForReason });
+        core.dispatch({ type: 'open_reason', filterId: first.filterId, filterName: `${batch.length} filter(s)`, stage: activeStage.key });
         setReasonError('');
         setLoading(false); setSubmitting(false);
         return;
@@ -716,12 +711,7 @@ export function FilterOperationsPage() {
           const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
           setPendingBatch(batch);
           clearScanState();
-          setDryerDialog({
-            filterId: first.filterId,
-            filterName: `${batch.length} filter(s)`,
-            stage: activeStage,
-            block: selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined,
-          });
+          core.dispatch({ type: 'open_dryer', filterId: first.filterId, filterName: `${batch.length} filter(s)` });
           setDryerError('');
           setLoading(false); setSubmitting(false);
           return;
@@ -741,14 +731,7 @@ export function FilterOperationsPage() {
           const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
           setPendingBatch(batch);
           clearScanState();
-          setEquipmentDialog({
-            filterId: first.filterId,
-            filterName: `${batch.length} filter(s)`,
-            stage: activeStage,
-            groups: [],
-            cycleEquipmentGroup: state.equipmentGroup,
-            block: selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined,
-          });
+          core.dispatch({ type: 'open_equipment', filterId: first.filterId, filterName: `${batch.length} filter(s)`, stage: activeStage.key, groups: [], cycleGroup: state.equipmentGroup });
           setEquipmentError('');
           setLoading(false); setSubmitting(false);
           return;
@@ -763,14 +746,7 @@ export function FilterOperationsPage() {
           const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
           setPendingBatch(batch);
           clearScanState();
-          setEquipmentDialog({
-            filterId: first.filterId,
-            filterName: `${batch.length} filter(s)`,
-            stage: activeStage,
-            groups: [],
-            cycleEquipmentGroup: state.equipmentGroup,
-            block: selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined,
-          });
+          core.dispatch({ type: 'open_equipment', filterId: first.filterId, filterName: `${batch.length} filter(s)`, stage: activeStage.key, groups: [], cycleGroup: state.equipmentGroup });
           setEquipmentError('');
           setLoading(false); setSubmitting(false);
           return;
@@ -839,7 +815,9 @@ export function FilterOperationsPage() {
               throw e;
             }
             if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
-              setBlockChangeDialog({
+              core.dispatch({ type: 'close' }); // close reason dialog
+              core.dispatch({
+                type: 'open_block_change',
                 filterId: e.connectionInfo.filterId ?? item.filterId,
                 filterName: item.filterName,
                 homeBlockId: e.connectionInfo.homeBlockId,
@@ -848,7 +826,6 @@ export function FilterOperationsPage() {
                 requestedBlockName: e.connectionInfo.requestedBlockName,
               });
               setBlockChangeReason('');
-              setReasonDialog(null);
               setPendingBatch(null);
               refreshFilters();
               setLoading(false); setSubmitting(false);
@@ -859,7 +836,7 @@ export function FilterOperationsPage() {
         }
         if (startFailed.length > 0) {
           setPopupError(`${started} cycle(s) started, ${startFailed.length} failed:\n${startFailed.join('\n')}`);
-          setReasonDialog(null);
+          core.dispatch({ type: 'close' }); // close reason dialog
           setPendingBatch(null);
           refreshFilters();
           return;
@@ -879,14 +856,8 @@ export function FilterOperationsPage() {
             } catch { /* no cached groups */ }
           }
           if (groups.length > 0) {
-            setReasonDialog(null);
-            setEquipmentDialog({
-              filterId: batch[0].filterId,
-              filterName: `${batch.length} filter(s)`,
-              stage,
-              groups,
-              block,
-            });
+            core.dispatch({ type: 'close' }); // close reason dialog
+            core.dispatch({ type: 'open_equipment', filterId: batch[0].filterId, filterName: `${batch.length} filter(s)`, stage: stage.key, groups });
             setEquipmentError('');
             return; // pendingBatch stays set — equipment dialog handles advance
           }
@@ -906,7 +877,9 @@ export function FilterOperationsPage() {
             newSubs.push({ stage: stage.label + (executed ? '' : ' (queued)'), filter: item.filterName, block: blockName, time: formatTime(new Date()) });
           } catch (e: any) {
             if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
-              setBlockChangeDialog({
+              core.dispatch({ type: 'close' }); // close reason dialog
+              core.dispatch({
+                type: 'open_block_change',
                 filterId: e.connectionInfo.filterId ?? item.filterId,
                 filterName: item.filterName,
                 homeBlockId: e.connectionInfo.homeBlockId,
@@ -915,7 +888,7 @@ export function FilterOperationsPage() {
                 requestedBlockName: e.connectionInfo.requestedBlockName,
               });
               setBlockChangeReason('');
-              setReasonDialog(null); setPendingBatch(null); refreshFilters();
+              setPendingBatch(null); refreshFilters();
               return;
             }
             failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
@@ -923,7 +896,7 @@ export function FilterOperationsPage() {
         }
         recordSubmission(newSubs);
         refreshFilters();
-        setReasonDialog(null);
+        core.dispatch({ type: 'close' }); // close reason dialog
         setPendingBatch(null);
         if (failed.length > 0) setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
         else setToast({ type: 'success', message: `${success} filter(s) → ${stage.label}` });
@@ -952,14 +925,8 @@ export function FilterOperationsPage() {
           try {
             const groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${reasonBlock.id}`);
             if (groups && groups.length > 0) {
-              setReasonDialog(null);
-              setEquipmentDialog({
-                filterId: dialogCapture.filterId,
-                filterName: dialogCapture.filterName,
-                stage: dialogCapture.stage,
-                groups,
-                block: reasonBlock,
-              });
+              core.dispatch({ type: 'close' }); // close reason dialog
+              core.dispatch({ type: 'open_equipment', filterId: dialogCapture.filterId, filterName: dialogCapture.filterName, stage: dialogCapture.stage.key, groups });
               setEquipmentError('');
               setLoading(false); setSubmitting(false);
               return;
@@ -985,7 +952,7 @@ export function FilterOperationsPage() {
             : await apiClient.post<any>(`/api/filters/${dialogCapture.filterId}/advance`, advBodyWithTape);
           recordSubmission({ stage: dialogCapture.stage.label, filter: dialogCapture.filterName, block: reasonBlock?.name, time: formatTime(new Date()) });
           refreshFilters();
-          setReasonDialog(null);
+          core.dispatch({ type: 'close' }); // close reason dialog
           setToast({ type: 'success', message: `${dialogCapture.filterName} \u2192 ${dialogCapture.stage.label}` });
           // Phase 8.7 Wave-5: shared checklist-dialog resolver. /advance
           // returns getCurrentState() — its actions[] is the canonical source.
@@ -995,7 +962,7 @@ export function FilterOperationsPage() {
               advanceResult?.actions,
             );
             if (dialogChecklists) {
-              setChecklistDialog({ filterId: dialogCapture.filterId, filterName: dialogCapture.filterName, checklists: dialogChecklists });
+              core.dispatch({ type: 'open_checklist', filterId: dialogCapture.filterId, filterName: dialogCapture.filterName, checklists: dialogChecklists });
               setChecklistError('');
             }
           }
@@ -1003,7 +970,9 @@ export function FilterOperationsPage() {
           onError: (e: unknown) => {
             const err = e as any;
             if (err?.code === 'BLOCK_CHANGE_REQUIRED' && err?.connectionInfo) {
-              setBlockChangeDialog({
+              core.dispatch({ type: 'close' }); // close reason dialog
+              core.dispatch({
+                type: 'open_block_change',
                 filterId: err.connectionInfo.filterId ?? dialogCapture.filterId,
                 filterName: dialogCapture.filterName,
                 homeBlockId: err.connectionInfo.homeBlockId,
@@ -1012,7 +981,6 @@ export function FilterOperationsPage() {
                 requestedBlockName: err.connectionInfo.requestedBlockName,
               });
               setBlockChangeReason('');
-              setReasonDialog(null);
               return;
             }
             setReasonError(err?.message ?? 'Failed'); setPopupError(err?.message ?? 'Failed');
@@ -1029,41 +997,32 @@ export function FilterOperationsPage() {
           if (groups.length > 0) {
             // Save cycle payload — equipment dialog will use it for compound start-and-advance
             setPendingCyclePayload(cycleBody);
-            setReasonDialog(null);
-            setEquipmentDialog({
-              filterId: dialogCapture.filterId,
-              filterName: dialogCapture.filterName,
-              stage: dialogCapture.stage,
-              groups,
-              block: reasonBlock,
-            });
+            core.dispatch({ type: 'close' }); // close reason dialog
+            core.dispatch({ type: 'open_equipment', filterId: dialogCapture.filterId, filterName: dialogCapture.filterName, stage: dialogCapture.stage.key, groups });
             setEquipmentError('');
             setLoading(false); setSubmitting(false);
             return;
           }
         }
 
-        const { executed, result } = await executeOrQueue('start-and-advance', dialogCapture.filterId, dialogCapture.filterName, { cyclePayload: cycleBody, advancePayload: advBody } as any, dialogCapture.stage.key);
+        const { executed, result } = await core.startAndAdvance({
+          filterId: dialogCapture.filterId,
+          filterName: dialogCapture.filterName,
+          cyclePayload: cycleBody,
+          advancePayload: advBody,
+          targetState: dialogCapture.stage.key,
+          cleaningAreaId: reasonBlock?.id,
+        });
         recordSubmission({ stage: dialogCapture.stage.label + (executed ? '' : ' (queued)'), filter: dialogCapture.filterName, block: reasonBlock?.name, time: formatTime(new Date()) });
         refreshFilters();
-        setReasonDialog(null);
+        core.dispatch({ type: 'close' }); // close reason dialog
         setToast({ type: 'success', message: `${dialogCapture.filterName} \u2192 ${dialogCapture.stage.label}${executed ? '' : ' (queued)'}` });
-        // Phase 8.7 Wave-5: shared checklist-dialog resolver (only when the
-        // request was executed online — queued path has no server result).
-        if (executed) {
-          const dialogChecklists = await resolvePendingChecklistDialog(
-            dialogCapture.filterId,
-            result?.actions,
-          );
-          if (dialogChecklists) {
-            setChecklistDialog({ filterId: dialogCapture.filterId, filterName: dialogCapture.filterName, checklists: dialogChecklists });
-            setChecklistError('');
-          }
-        }
       }
     } catch (e: any) {
       if (e?.code === 'BLOCK_CHANGE_REQUIRED' && e?.connectionInfo) {
-        setBlockChangeDialog({
+        core.dispatch({ type: 'close' }); // close reason dialog
+        core.dispatch({
+          type: 'open_block_change',
           filterId: e.connectionInfo.filterId ?? dialogCapture.filterId,
           filterName: dialogCapture.filterName,
           homeBlockId: e.connectionInfo.homeBlockId,
@@ -1072,7 +1031,6 @@ export function FilterOperationsPage() {
           requestedBlockName: e.connectionInfo.requestedBlockName,
         });
         setBlockChangeReason('');
-        setReasonDialog(null);
       } else {
         setReasonError(e?.message ?? 'Failed'); setPopupError(e?.message ?? 'Failed');
       }
@@ -1139,9 +1097,9 @@ export function FilterOperationsPage() {
       // Update offline cache (action tape + reachable-target mirrors) per filter when queued.
       // Deep-review fix D3: blockId pulled from selectedBlock via wrapper default.
       for (const item of batch) {
-        await updateCachedStateAfterAdvance(item.filterId, 'DRY_IN', false, selectedBlock?.id ?? null);
+        await recomputeAndCacheFilterState(item.filterId, 'DRY_IN', false, selectedBlock?.id ?? null);
       }
-      setDryerDialog(null);
+        core.dispatch({ type: 'close' }); // close dryer dialog
       setPendingBatch(null);
       if (failed.length > 0) setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
       else setToast({ type: 'success', message: `${success} filter(s) → Dryer running (${minutes} min)` });
@@ -1184,9 +1142,9 @@ export function FilterOperationsPage() {
       // Update offline cache (action tape + reachable-target mirrors) when queued.
       // Deep-review fix D3: pass blockId explicitly.
       if (!executed) {
-        await updateCachedStateAfterAdvance(dryerDialog.filterId, 'DRY_IN', false, selectedBlock?.id ?? null);
+      await recomputeAndCacheFilterState(dryerDialog.filterId, 'DRY_IN', false, selectedBlock?.id ?? null);
       }
-      setDryerDialog(null);
+      core.dispatch({ type: 'close' }); // close dryer dialog
       setToast({ type: 'success', message: `${dryerDialog.filterName} → Dryer running (${minutes} min)${executed ? '' : ' (queued)'}` });
     } catch (e: any) {
       setDryerError(e.message ?? 'Failed to start dryer');
@@ -1240,7 +1198,7 @@ export function FilterOperationsPage() {
           success++;
           // Update cached state after offline operation.
           // Deep-review fix D3: pass blockId from the equipment dialog scope.
-          if (!executed) await updateCachedStateAfterAdvance(item.filterId, isDryerReadings ? 'DRY_IN' : stage.key, !!savedCyclePayload, blockId ?? null);
+          if (!executed) await recomputeAndCacheFilterState(item.filterId, isDryerReadings ? 'DRY_IN' : stage.key, !!savedCyclePayload, blockId ?? null);
           newSubs.push({ stage: stage.label + (executed ? '' : ' (queued)'), filter: item.filterName, block: blockName, time: formatTime(new Date()) });
         } catch (e: any) {
           // B7.2: equipment-dialog batch loop uses `start-and-advance` when a
@@ -1250,7 +1208,8 @@ export function FilterOperationsPage() {
           // pattern) and continue iterating so other items can still succeed.
           if (e?.code === 'BLOCK_CHANGE_REQUIRED' && e?.connectionInfo) {
             if (!blockChangePopped) {
-              setBlockChangeDialog({
+              core.dispatch({
+                type: 'open_block_change',
                 filterId: e.connectionInfo.filterId ?? item.filterId,
                 filterName: item.filterName,
                 homeBlockId: e.connectionInfo.homeBlockId,
@@ -1259,7 +1218,6 @@ export function FilterOperationsPage() {
                 requestedBlockName: e.connectionInfo.requestedBlockName,
               });
               setBlockChangeReason('');
-              blockChangePopped = true;
             }
             failed.push(`${item.filterName}: Block change approval required`);
           } else {
@@ -1270,7 +1228,7 @@ export function FilterOperationsPage() {
       recordSubmission(newSubs);
       refreshFilters();
       refreshOfflineInstances(); // refresh cached data after queued ops
-      setEquipmentDialog(null);
+      core.dispatch({ type: 'close' }); // close equipment dialog (batch end)
       setPendingBatch(null);
       setPendingCyclePayload(null);
       // Minor #3: suppress generic toast when block-change modal is up
@@ -1292,46 +1250,45 @@ export function FilterOperationsPage() {
         remarks: remarks || `${equipmentDialog.stage.label} - ${equipmentDialog.filterName}`,
       };
       let executed: boolean;
-      let advanceResult: any;
       if (pendingCyclePayload) {
         // Cycle not started yet — compound start-and-advance with readings
-        const res = await executeOrQueue('start-and-advance', equipmentDialog.filterId, equipmentDialog.filterName, {
+        const res = await core.startAndAdvance({
+          filterId: equipmentDialog.filterId,
+          filterName: equipmentDialog.filterName,
           cyclePayload: { ...pendingCyclePayload, equipmentGroupId: groupId },
           advancePayload: advPayload,
-        } as any, isDryerReadings ? 'DRY_IN' : equipmentDialog.stage.key);
+          targetState: isDryerReadings ? 'DRY_IN' : equipmentDialog.stage.key,
+          cleaningAreaId: equipmentDialog.block?.id,
+        });
         executed = res.executed;
-        advanceResult = res.result;
         setPendingCyclePayload(null);
       } else {
-        const res = await executeOrQueue('advance', equipmentDialog.filterId, equipmentDialog.filterName, advPayload, isDryerReadings ? 'DRY_IN' : equipmentDialog.stage.key);
+        const res = await core.advance({
+          filterId: equipmentDialog.filterId,
+          filterName: equipmentDialog.filterName,
+          targetState: isDryerReadings ? 'DRY_IN' : equipmentDialog.stage.key,
+          cleaningAreaId: equipmentDialog.block?.id,
+          equipmentGroupId: groupId,
+          instrumentReadings: readings,
+          ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' as const } : {}),
+          remarks: advPayload.remarks,
+        });
         executed = res.executed;
-        advanceResult = res.result;
       }
 
       recordSubmission({ stage: equipmentDialog.stage.label + (executed ? '' : ' (queued)'), filter: equipmentDialog.filterName, block: equipmentDialog.block?.name, time: formatTime(new Date()) });
       refreshFilters();
-      setEquipmentDialog(null);
-      setToast({ type: 'success', message: `${equipmentDialog.filterName} \u2192 ${equipmentDialog.stage.label}${executed ? '' : ' (queued)'}` });
-
-      // Phase 8.7 Wave-5: shared checklist-dialog resolver.
-      if (executed) {
-        const dialogChecklists = await resolvePendingChecklistDialog(
-          equipmentDialog.filterId,
-          advanceResult?.actions,
-        );
-        if (dialogChecklists) {
-          setChecklistDialog({ filterId: equipmentDialog.filterId, filterName: equipmentDialog.filterName, checklists: dialogChecklists });
-          setChecklistError('');
-        }
-      }
+      // Close equip dialog. core.advance/startAndAdvance dispatches open_checklist
+      // when the advance gate detects a pending checklist (awaiting_equipment allowed).
+      if (core.dialogState.kind === 'awaiting_equipment') core.dispatch({ type: 'close' });
+      setToast({ type: 'success', message: `${equipmentDialog.filterName} → ${equipmentDialog.stage.label}${executed ? '' : ' (queued)'}` });
     } catch (e: any) {
-      // B7.2: single-filter equipment submit goes through `start-and-advance`
-      // when pendingCyclePayload is set (cycle not yet started). That calls
-      // start-cycle → validateBlockChange and can return 409 BLOCK_CHANGE_REQUIRED.
-      // Mirror the reason-dialog catch (line ~1060) and pop the structured
-      // modal instead of falling through to a generic toast.
+      // B7.2: single-filter equipment submit may return 409 BLOCK_CHANGE_REQUIRED
+      // when pendingCyclePayload is set (start-and-advance path).
       if (e?.code === 'BLOCK_CHANGE_REQUIRED' && e?.connectionInfo) {
-        setBlockChangeDialog({
+        core.dispatch({ type: 'close' }); // close equipment dialog first
+        core.dispatch({
+          type: 'open_block_change',
           filterId: e.connectionInfo.filterId ?? equipmentDialog.filterId,
           filterName: equipmentDialog.filterName,
           homeBlockId: e.connectionInfo.homeBlockId,
@@ -1340,8 +1297,6 @@ export function FilterOperationsPage() {
           requestedBlockName: e.connectionInfo.requestedBlockName,
         });
         setBlockChangeReason('');
-        // Clear equipment-dialog state so the structured modal isn't stacked.
-        setEquipmentDialog(null);
         setPendingCyclePayload(null);
       } else {
         setEquipmentError(e.message ?? 'Failed to advance');
@@ -1385,12 +1340,8 @@ export function FilterOperationsPage() {
             failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
           }
         }
-        setChecklistDialog(null);
+        core.dispatch({ type: 'close' }); // BATCH MODE: close checklist dialog
         setPendingBatch(null);
-        // BATCH MODE owns its own batch (`pendingBatch`); the post-advance
-        // queue should never be set here, but clear defensively to keep the
-        // two cycling paths from interfering if state ever overlaps.
-        setPostAdvanceChecklistQueue([]);
         refreshFilters();
         if (failed.length > 0) setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
         else setToast({ type: 'success', message: `Checklist submitted for ${success} filter(s)` });
@@ -1398,31 +1349,14 @@ export function FilterOperationsPage() {
       }
 
       try {
-        const { executed } = await executeOrQueue('submit-checklist', checklistDialog.filterId, checklistDialog.filterName, submitPayload, undefined, password);
-        // Multi-filter post-advance cycling (PHASE_5_RECENT_WORK.md § 11 fix):
-        // walk `postAdvanceChecklistQueue` for the next filter that still has
-        // a pending checklist. If none remain, the dialog closes; otherwise we
-        // re-open it pointing at the next filter. Filters whose checklist was
-        // just submitted resolve to `null` and are skipped automatically. The
-        // pre-advance BATCH MODE path (above) is unaffected — it never sets
-        // `postAdvanceChecklistQueue`.
-        let nextDialog: { filterId: string; filterName: string; checklists: PendingChecklist[] } | null = null;
-        let nextRemaining: PendingChecklistBatchItem[] = [];
-        if (postAdvanceChecklistQueue.length > 0) {
-          try {
-            const next = await findNextPendingChecklist(postAdvanceChecklistQueue, resolvePendingChecklistDialog);
-            if (next) {
-              nextDialog = {
-                filterId: next.item.filterId,
-                filterName: next.item.filterName,
-                checklists: next.checklists,
-              };
-              nextRemaining = next.remaining;
-            }
-          } catch { /* ignore — falls through to close dialog */ }
-        }
-        setChecklistDialog(nextDialog);
-        setPostAdvanceChecklistQueue(nextRemaining);
+        const { executed } = await core.submitChecklist({
+          filterId: checklistDialog.filterId,
+          filterName: checklistDialog.filterName,
+          answers: submitPayload.answers,
+          expectedProfileVersions: submitPayload.expectedProfileVersions,
+          password,
+        });
+        // Dialog close + offline cache-clear + batch walking handled by core.submitChecklist.
         setToast({ type: 'success', message: executed ? 'Checklist submitted successfully' : 'Checklist queued for sync' });
         refreshFilters();
       } catch (e: any) {
@@ -1452,7 +1386,7 @@ export function FilterOperationsPage() {
         reason: blockChangeReason.trim(),
       });
       setToast({ type: 'success', message: 'Block change request submitted. Waiting for approval.' });
-      setBlockChangeDialog(null);
+      core.dispatch({ type: 'close' });
       setBlockChangeReason('');
     } catch (e: any) {
       setPopupError(e.message ?? 'Failed to submit block change request');
@@ -1541,10 +1475,10 @@ export function FilterOperationsPage() {
             setPopupError={setPopupError}
           />
         )}
-        <CleaningReasonDialog dialog={reasonDialog} onClose={() => { setReasonDialog(null); setReasonError(''); }} onSubmit={handleReasonSubmit} loading={loading} error={reasonError} onClearError={() => setReasonError('')} />
-        <EquipmentDialog dialog={equipmentDialog} onClose={() => { setEquipmentDialog(null); }} onSubmit={handleEquipmentSubmit} loading={equipmentLoading} error={equipmentError} />
-        <DryerDurationDialog open={!!dryerDialog} filterName={dryerDialog?.filterName ?? ''} loading={dryerLoading} error={dryerError} onClose={() => { setDryerDialog(null); setDryerError(''); }} onSubmit={handleDryerDurationSubmit} />
-        <ChecklistDialog dialog={checklistDialog} onClose={() => { setChecklistDialog(null); setPostAdvanceChecklistQueue([]); }} onSubmit={handleChecklistSubmit} loading={checklistLoading} error={checklistError} />
+        <CleaningReasonDialog dialog={reasonDialog} onClose={() => { core.dispatch({ type: 'close' }); setReasonError(''); }} onSubmit={handleReasonSubmit} loading={loading} error={reasonError} onClearError={() => setReasonError('')} />
+        <EquipmentDialog dialog={equipmentDialog} onClose={() => core.dispatch({ type: 'close' })} onSubmit={handleEquipmentSubmit} loading={equipmentLoading} error={equipmentError} />
+        <DryerDurationDialog open={!!dryerDialog} filterName={dryerDialog?.filterName ?? ''} loading={dryerLoading} error={dryerError} onClose={() => { core.dispatch({ type: 'close' }); setDryerError(''); }} onSubmit={handleDryerDurationSubmit} />
+        <ChecklistDialog dialog={checklistDialog} onClose={() => core.dispatch({ type: 'close' })} onSubmit={handleChecklistSubmit} loading={checklistLoading} error={checklistError} />
         <ReauthDialog open={reauth.isOpen} password={reauth.password} error={reauth.error} isVerifying={reauth.isVerifying} onPasswordChange={reauth.setPassword} onConfirm={reauth.confirm} onCancel={reauth.cancel} actionLabel="Filter Operation" />
         <BlockChangeRequestDialog
           dialog={blockChangeDialog}
@@ -1552,7 +1486,7 @@ export function FilterOperationsPage() {
           onReasonChange={setBlockChangeReason}
           submitting={blockChangeSubmitting}
           onSubmit={handleBlockChangeRequest}
-          onCancel={() => { setBlockChangeDialog(null); }}
+          onCancel={() => { core.dispatch({ type: 'close' }); }}
         />
         <ErrorPopup error={popupError} onClose={() => setPopupError('')} />
       </div>
@@ -1713,7 +1647,7 @@ export function FilterOperationsPage() {
       {/* Cleaning Reason Dialog */}
       <CleaningReasonDialog
         dialog={reasonDialog}
-        onClose={() => { setReasonDialog(null); setReasonError(''); }}
+        onClose={() => { core.dispatch({ type: 'close' }); setReasonError(''); }}
         onSubmit={handleReasonSubmit}
         loading={loading}
         error={reasonError}
@@ -1723,7 +1657,7 @@ export function FilterOperationsPage() {
       {/* Equipment Group & Instrument Readings Dialog */}
       <EquipmentDialog
         dialog={equipmentDialog}
-        onClose={() => { setEquipmentDialog(null); }}
+        onClose={() => core.dispatch({ type: 'close' })}
         onSubmit={handleEquipmentSubmit}
         loading={equipmentLoading}
         error={equipmentError}
@@ -1735,14 +1669,14 @@ export function FilterOperationsPage() {
         filterName={dryerDialog?.filterName ?? ''}
         loading={dryerLoading}
         error={dryerError}
-        onClose={() => { setDryerDialog(null); setDryerError(''); }}
+        onClose={() => { core.dispatch({ type: 'close' }); setDryerError(''); }}
         onSubmit={handleDryerDurationSubmit}
       />
 
       {/* Checklist Dialog */}
       <ChecklistDialog
         dialog={checklistDialog}
-        onClose={() => { setChecklistDialog(null); setPostAdvanceChecklistQueue([]); }}
+        onClose={() => core.dispatch({ type: 'close' })}
         onSubmit={handleChecklistSubmit}
         loading={checklistLoading}
         error={checklistError}
@@ -1767,7 +1701,7 @@ export function FilterOperationsPage() {
         onReasonChange={setBlockChangeReason}
         submitting={blockChangeSubmitting}
         onSubmit={handleBlockChangeRequest}
-        onCancel={() => { setBlockChangeDialog(null); }}
+        onCancel={() => { core.dispatch({ type: 'close' }); }}
       />
 
       {/* Error Popup */}
