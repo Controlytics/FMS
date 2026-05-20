@@ -68,7 +68,12 @@ export function ChangePasswordPage() {
     try {
       await apiClient.post('/api/auth/change-password', data);
       await mutate();
-      navigate('/');
+      // 2026-05-20: tablet users routed here by mobile-login.tsx (temp/forced
+      // change password flow) need to land back on /m, not the desktop
+      // dashboard. mobile-login stashes the hint before navigating us here.
+      const redirect = sessionStorage.getItem('post_change_password_redirect');
+      sessionStorage.removeItem('post_change_password_redirect');
+      navigate(redirect || '/');
     } catch (err: any) {
       setError(err.message || 'Failed to change password');
     }

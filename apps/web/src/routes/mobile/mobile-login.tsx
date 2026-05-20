@@ -104,7 +104,19 @@ export function MobileLoginPage() {
       localStorage.setItem('access_token_backup', res.token);
       // Mint the offline-replay grant (was the missing piece on tablet logins).
       await mintOfflineGrant(password);
-      navigate('/m', { replace: true });
+      // 2026-05-20: tablet operator with a temporary/forced-change password
+      // must be sent to the change-password screen, same as desktop. Without
+      // this they land on /m and get full operator UI but every mutation
+      // would fail FORCE_PASSWORD_CHANGE at the server. Mirror the desktop
+      // useAuth().login() flow at hooks/use-auth.ts:127-128.
+      if (res.user?.forcePasswordChange) {
+        // Stash a hint so change-password.tsx returns to /m after success
+        // instead of dropping the operator onto the desktop dashboard.
+        sessionStorage.setItem('post_change_password_redirect', '/m');
+        navigate('/change-password', { replace: true });
+      } else {
+        navigate('/m', { replace: true });
+      }
     } catch (e: any) {
       if (e?.code === 'SESSION_CONFLICT' || e?.error === 'SESSION_CONFLICT' || e?.message?.includes('session')) {
         if (!force) {
@@ -131,7 +143,13 @@ export function MobileLoginPage() {
             // always had a lingering session and EVERY login forced through
             // this branch, missing the grant.
             await mintOfflineGrant(password);
-            navigate('/m', { replace: true });
+            // Same forced-change check as the main login path above.
+            if (res.user?.forcePasswordChange) {
+              sessionStorage.setItem('post_change_password_redirect', '/m');
+              navigate('/change-password', { replace: true });
+            } else {
+              navigate('/m', { replace: true });
+            }
           } catch (e2: any) {
             // Auto-retry failed — show manual force button as fallback
             setShowForce(true);
