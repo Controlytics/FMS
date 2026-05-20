@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
+import { formatActionLabel } from '../audit-helpers';
 
 type SortField = 'timestamp' | 'action' | 'userId' | 'userRole';
 
@@ -146,8 +147,11 @@ export function AuditTable({
                       </span>
                     </TableCell>
                     <TableCell>
-                      <span className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-medium border ${ACTION_COLORS[record.action] || 'bg-slate-100 text-slate-700 border-slate-200'}`}>
-                        {record.action}
+                      <span
+                        className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-medium border ${ACTION_COLORS[record.action] || 'bg-slate-100 text-slate-700 border-slate-200'}`}
+                        title={record.action}
+                      >
+                        {formatActionLabel(record.action, record.afterValue, record.beforeValue)}
                       </span>
                     </TableCell>
                     <TableCell>

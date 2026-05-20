@@ -1,4 +1,5 @@
 import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { formatActionLabel } from '../audit-helpers';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

@@ -81,6 +81,43 @@ export function getAuditStatus(action: string): 'Success' | 'Fail' {
   return FAIL_ACTIONS.has(action) ? 'Fail' : 'Success';
 }
 
+/**
+ * 2026-05-20: human-friendly action badge label.
+ *
+ * The audit table previously rendered the raw constant (ASSET_IDENTIFIER_CREATED)
+ * which is operator-unfriendly. This formatter returns a short title-cased
+ * label, with dynamic specialisation for identifier rows where the type
+ * (RFID / QR / BARCODE) is the meaningful detail.
+ *
+ * For unknown / generic actions it falls back to title-casing the snake_case
+ * key (STATE_TRANSITION → "State Transition") so badges always render
+ * presentably even when a new action key lands without an explicit override.
+ */
+const ACTION_BADGE_OVERRIDES: Record<string, (after: any, before: any) => string> = {
+  ASSET_IDENTIFIER_CREATED: (after) => {
+    const t = (after?.identifierType as string) || '';
+    return t ? `${t} Added` : 'Identifier Added';
+  },
+  ASSET_IDENTIFIER_DELETED: (after, before) => {
+    const t = (after?.identifierType as string) || (before?.identifierType as string) || '';
+    return t ? `${t} Removed` : 'Identifier Removed';
+  },
+};
+
+function titleCase(snake: string): string {
+  return snake
+    .split('_')
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+}
+
+export function formatActionLabel(action: string, afterValue?: any, beforeValue?: any): string {
+  const override = ACTION_BADGE_OVERRIDES[action];
+  if (override) return override(afterValue ?? {}, beforeValue ?? {});
+  return titleCase(action);
+}
+
 export function getAuditSummary(record: any, templates: Record<string, string>): string {
   const actor = record.userId || 'System';
   const before = record.beforeValue || {};
