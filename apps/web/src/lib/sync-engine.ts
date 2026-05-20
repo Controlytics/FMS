@@ -114,7 +114,14 @@ export type SyncEvent =
   | { type: 'complete'; synced?: number; total?: number; error?: string }
   | { type: 'error'; synced?: number; total?: number; error?: string }
   | { type: 'interrupted'; synced?: number; total?: number; error?: string }
-  | { type: 'stage'; stage: SyncStage; message?: string; current?: number; total?: number };
+  | { type: 'stage'; stage: SyncStage; message?: string; current?: number; total?: number }
+  // 2026-05-20 fix: emitted when the offline-replay grant is missing/expired
+  // AND there are pending ops. UI catches this to surface a password prompt
+  // so the operator can mint a fresh grant without losing the queue. Pre-fix
+  // the sync engine just retried each op 5 times → marked them `failed` →
+  // dropped operator's work silently because the "Data Synced" badge was
+  // driven by op-status not grant-state.
+  | { type: 'needs-reauth'; pendingCount: number; reason: 'missing' | 'expired' | 'rejected' };
 
 type SyncListener = (event: SyncEvent) => void;
 
@@ -371,6 +378,37 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
     return { synced: 0, failed: 0 };
   }
 
+  // 2026-05-20 fix — pre-flight offline-replay grant check.
+  //
+  // Pre-fix: if the grant was never minted (use-auth.ts swallowed errors with
+  // console.warn) or expired during a long offline shift, every cycle-write
+  // op would 401 REAUTH_REQUIRED on replay. The retry loop burned 5 attempts
+  // per op → marked `failed` (terminal) → operator's work vanished silently
+  // because "Data Synced" badge looks at op-status not grant-state. Observed
+  // 2026-05-20 with operator 101114 (Siva): start-cycle at 11:07 burnt 5
+  // retries and went `failed`; downstream advance + checklist ops landed
+  // CYCLE_ENDED because the missing start-cycle meant the cycle never existed.
+  //
+  // Fix: check grant presence + freshness once, BEFORE draining. If missing,
+  // emit `needs-reauth` event and bail — ops stay in `pending`, retry budget
+  // intact. UI catches the event and shows a password dialog; on success,
+  // `offline_replay_token` is restocked and the next drain proceeds normally.
+  const grantHeader = getOfflineReplayHeader();
+  const hasGrant = !!grantHeader['x-offline-replay-token'];
+  if (!hasGrant) {
+    notifyStage('idle');
+    // Determine if it's a missing token or a freshly expired one (storage
+    // entries cleared above in getOfflineReplayHeader on expiry). We can't
+    // tell which post-clear, so report as 'missing' which the UI handles
+    // identically (prompt for password to re-mint).
+    notify({ type: 'needs-reauth', pendingCount: pending.length, reason: 'missing' });
+    notify({
+      type: 'error',
+      error: `${pending.length} queued op(s) waiting on re-authentication. Tap to enter password.`,
+    });
+    return { synced: 0, failed: 0 };
+  }
+
   // Drain tombstones first so deletes apply before any mutation that follows
   notifyStage('tombstone-drain');
   await syncTombstones();
@@ -507,6 +545,30 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
           notify({ type: 'error', error: `${op.filterName}: another operator changed this cycle. Refreshing...` });
         }
         continue;
+      }
+
+      // 2026-05-20 fix — REAUTH_REQUIRED / REAUTH_FAILED handling.
+      //
+      // These errors mean the offline-replay grant is missing/expired/wrong,
+      // NOT that this specific op is bad. Retrying the same op 5 times in a
+      // row with the same dead grant will fail every time, then mark the op
+      // `failed` (terminal) and drop the operator's work silently. Same root
+      // cause as the pre-drain pre-flight above, but reached only when the
+      // grant existed at pre-flight but the server now rejects it (e.g. user
+      // changed their password mid-shift).
+      //
+      // Treatment: stop the drain immediately, keep op + every subsequent
+      // op in 'pending' state (retry budget intact). Emit a needs-reauth
+      // event so the UI prompts for password — same recovery as the pre-flight.
+      const isReauthErr = e?.error === 'REAUTH_REQUIRED' || e?.error === 'REAUTH_FAILED'
+        || msg.includes('reauth') || msg.includes('re-authentication') || msg.includes('re-auth');
+      if (isReauthErr) {
+        await updateOperationStatus(op.id, 'pending', errMsg);
+        failed++;
+        notifyStage('idle');
+        notify({ type: 'needs-reauth', pendingCount: pending.length - synced, reason: 'rejected' });
+        notify({ type: 'error', error: `Sync paused: ${errMsg}. Re-enter password to resume.` });
+        break;
       }
 
       // API error: retry up to MAX_RETRIES, then mark as permanently failed
