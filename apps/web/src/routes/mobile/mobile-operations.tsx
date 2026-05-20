@@ -645,30 +645,37 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           failed.push(`${item.filterName}: ${gate.reason}`);
           continue;
         }
-        // Issue #3 fix (2026-05-18): when the queue holds exactly ONE item that
-        // needs a cycle start, route it through the same reason-dialog flow that
-        // single-scan handleSubmit uses. The dialog itself works offline because
-        // cleaning reasons + equipment groups are cached on login (see line 363,
-        // 364). Multi-filter queues still refuse mid-batch dialog because the
-        // operator can't sensibly answer one reason for N filters in series.
+        // 2026-05-20: batch cycle-start. When any queued filter has no
+        // active cycle, open the reason dialog for the FIRST such filter
+        // and stash the rest in remainingBatch. On equipment-readings
+        // submit, the handler will iterate remainingBatch and apply the
+        // SAME reason + equipment readings to each — one reason dialog,
+        // one equipment dialog, N cycle-starts. Pre-fix this case fell
+        // through to "use single scan" for queue.length > 1, blocking
+        // common batch workflows where operators scan multiple filters
+        // for a fresh cycle (typical: Wash In on shift start).
         if (!cycleInProgress) {
-          if (scanQueue.length === 1) {
-            core.dispatch({
-              type: 'open_reason',
-              filterId: item.filterId,
-              filterName: item.filterName,
-              stage: activeStage.key,
-            });
-            setSelectedReason('');
-            setJustification('');
-            // Drop the queue — the reason dialog drives the rest of the flow,
-            // and the operator no longer needs the Submit-All button.
-            setScanQueue([]);
-            setLoading(false);
-            return;
-          }
-          failed.push(`${item.filterName}: no active cycle — use single scan to start a cycle`);
-          continue;
+          // Build the remainingBatch from ALL queued items after this one
+          // — they share the reason + equipment dialog values when they
+          // are all cycle-start candidates.
+          const startIdx = scanQueue.findIndex(q => q.filterId === item.filterId);
+          const rest = startIdx >= 0
+            ? scanQueue.slice(startIdx + 1).map(q => ({ filterId: q.filterId, filterName: q.filterName }))
+            : [];
+          core.dispatch({
+            type: 'open_reason',
+            filterId: item.filterId,
+            filterName: item.filterName,
+            stage: activeStage.key,
+            remainingBatch: rest.length > 0 ? rest : undefined,
+          });
+          setSelectedReason('');
+          setJustification('');
+          // Drop the queue — the reason dialog (carrying remainingBatch)
+          // drives the rest of the flow. Equipment-submit will iterate.
+          setScanQueue([]);
+          setLoading(false);
+          return;
         }
 
         // Issue #4 fix (2026-05-18): DRY_IN advance requires dryerAction +
@@ -1121,8 +1128,18 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         // Save the cycle payload — equipment dialog will use it for the compound operation
         // (handleEquipSubmit's `if (pendingCyclePayload)` branch reauth-wraps the actual mutation)
         setPendingCyclePayload(cyclePayload);
+        // 2026-05-20: thread the batch list through to equipment dialog so
+        // handleEquipSubmit can iterate after the first cycle-start completes.
+        const batchRest = reasonDialog.remainingBatch;
         core.dispatch({ type: 'close' }); // close reason dialog
-        core.dispatch({ type: 'open_equipment', filterId: reasonDialog.filterId, filterName: reasonDialog.filterName, stage: reasonDialog.stage, groups });
+        core.dispatch({
+          type: 'open_equipment',
+          filterId: reasonDialog.filterId,
+          filterName: reasonDialog.filterName,
+          stage: reasonDialog.stage,
+          groups,
+          remainingBatch: batchRest,
+        });
         setSelectedEquipGroup(null); setReadings({});
         setLoading(false); return;
       }
@@ -1230,6 +1247,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     const equipFiltId = equipDialog.filterId;
     const equipFiltName = equipDialog.filterName;
     const equipStage = equipDialog.stage;
+    // 2026-05-20 batch cycle-start: stash the remaining filters before the
+    // dispatch clears equipDialog. After the first cycle-start completes,
+    // iterate through these applying the SAME reason + equipment + readings.
+    const batchRest = equipDialog.remainingBatch ?? [];
     try {
       const isDryerReadings = equipStage === 'DRY_IN';
       const targetState = isDryerReadings ? 'DRY_IN' : equipStage;
@@ -1283,6 +1304,46 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       const queued = !executed;
       setSuccess(`${equipFiltName} → ${equipStage.replace(/_/g, ' ')}${queued ? ' (queued)' : ''}`);
       setRecentOps(prev => [{ stage: equipStage, filter: equipFiltName, time: formatTime(new Date()), queued }, ...prev].slice(0, 20));
+
+      // 2026-05-20 batch cycle-start continuation. After the first filter's
+      // start-and-advance completes, replay the SAME reason payload +
+      // equipment + readings for each remaining filter in the queue. Sequential
+      // (not parallel) so each cycle's auditTrail row is ordered + the
+      // optimistic UI state stays consistent.
+      if (batchRest.length > 0 && pendingCyclePayload) {
+        const cyclePayloadSnap = pendingCyclePayload;
+        const equipGroupSnap = selectedEquipGroup;
+        const readingsSnap = readings;
+        for (const rest of batchRest) {
+          try {
+            await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
+              await core.startAndAdvance({
+                filterId: rest.filterId,
+                filterName: rest.filterName,
+                cyclePayload: cyclePayloadSnap,
+                advancePayload: {
+                  targetState,
+                  cleaningAreaId: selectedBlock?.id,
+                  equipmentGroupId: equipGroupSnap.id,
+                  instrumentReadings: readingsSnap,
+                  ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}),
+                  remarks: remarks || `${equipStage.replace(/_/g, ' ')} - ${rest.filterName}`,
+                },
+                targetState,
+                cleaningAreaId: selectedBlock?.id,
+                password,
+              });
+            });
+            setRecentOps(prev => [{ stage: equipStage, filter: rest.filterName, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 20));
+          } catch (batchErr: any) {
+            // eslint-disable-next-line no-console
+            console.warn(`[batch-cycle-start] ${rest.filterName} failed:`, batchErr);
+            setError(`${rest.filterName}: ${batchErr?.message ?? 'cycle-start failed'}`);
+          }
+        }
+        setSuccess(`Started ${batchRest.length + 1} cycles successfully`);
+      }
+
       setScanValue(''); setRemarks(''); setSelectedEquipGroup(null); setReadings({});
       // Close the equip dialog. core.advance/startAndAdvance dispatches open_checklist
       // if there's a gate (allowed from awaiting_equipment), or does nothing.

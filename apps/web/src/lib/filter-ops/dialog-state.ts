@@ -43,6 +43,14 @@ export type DialogState =
       filterId: string;
       filterName: string;
       stage: string;
+      /** 2026-05-20: batch cycle-start. When the operator queued multiple
+       *  filters that ALL need fresh cycles, the reason dialog opens once
+       *  for the first filter and stashes the rest here. On completion of
+       *  the reason → equipment → start-and-advance chain, the equipment
+       *  submit handler iterates this list, applying the SAME reason +
+       *  equipment readings to each remaining filter. Single-filter flow
+       *  leaves this undefined. */
+      remainingBatch?: { filterId: string; filterName: string }[];
     }
   | {
       kind: 'awaiting_equipment';
@@ -51,6 +59,8 @@ export type DialogState =
       stage: string;
       groups: unknown[];
       cycleGroup?: unknown;
+      /** Batch continuation carried over from awaiting_reason. */
+      remainingBatch?: { filterId: string; filterName: string }[];
     }
   | {
       kind: 'awaiting_dryer';
@@ -79,8 +89,8 @@ export type DialogState =
 
 export type DialogEvent =
   | { type: 'close' }
-  | { type: 'open_reason'; filterId: string; filterName: string; stage: string }
-  | { type: 'open_equipment'; filterId: string; filterName: string; stage: string; groups: unknown[]; cycleGroup?: unknown }
+  | { type: 'open_reason'; filterId: string; filterName: string; stage: string; remainingBatch?: { filterId: string; filterName: string }[] }
+  | { type: 'open_equipment'; filterId: string; filterName: string; stage: string; groups: unknown[]; cycleGroup?: unknown; remainingBatch?: { filterId: string; filterName: string }[] }
   | { type: 'open_dryer'; filterId: string; filterName: string }
   | { type: 'open_checklist'; filterId: string; filterName: string; checklists: unknown[]; remainingBatch?: { filterId: string; filterName: string }[] }
   | { type: 'open_block_change'; filterId: string; filterName: string; homeBlockId: string; homeBlockName: string; requestedBlockId: string; requestedBlockName: string }
@@ -109,7 +119,7 @@ export function reduceDialogState(state: DialogState, event: DialogEvent): Dialo
       // Reason dialog can open from idle OR from a previous block-change
       // resolution (rare). Anything else is a programmer error.
       assertOpenable(state, ['none', 'awaiting_block_change']);
-      return { kind: 'awaiting_reason', filterId: event.filterId, filterName: event.filterName, stage: event.stage };
+      return { kind: 'awaiting_reason', filterId: event.filterId, filterName: event.filterName, stage: event.stage, remainingBatch: event.remainingBatch };
 
     case 'open_equipment':
       // Equipment opens from idle (mid-cycle) OR from awaiting_reason
@@ -122,6 +132,7 @@ export function reduceDialogState(state: DialogState, event: DialogEvent): Dialo
         stage: event.stage,
         groups: event.groups,
         cycleGroup: event.cycleGroup,
+        remainingBatch: event.remainingBatch,
       };
 
     case 'open_dryer':
