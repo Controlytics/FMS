@@ -818,7 +818,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     setScanQueue([]); setDryerDurations({});
     if (successCount > 0) setSuccess(`${successCount} filter(s) → ${activeStage.label}${failed.length > 0 ? ` (${failed.length} failed)` : ''}`);
     if (failed.length > 0) setError(failed.join('\n'));
+    // 2026-05-20: refresh BOTH the SWR cache (so allFilters sees the new
+    // currentLifecycleState) AND the offline filter cache (so the
+    // Currently Drying panel populates immediately for batch dryer-start
+    // on DRY_IN stage). Pre-fix: tablet running offline after batch submit
+    // didn't see the panel until the next reload because offlineFilters
+    // was stale; the per-filter cache write was correct but allFilters
+    // doesn't pull from there.
     if (online) mutate('/api/assets/instances?limit=500');
+    refreshOfflineData();
     } catch (e: any) {
       // REAUTH bubbled out of the inner loop — the reauth dialog stays open
       // (managed by useReauth at the executeOrQueue site). Surface a clear
