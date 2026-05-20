@@ -89,7 +89,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const [activeStage, setActiveStage] = useState<typeof STAGES[0] | null>(initialStage ?? null);
   const [selectedBlock, setSelectedBlock] = useState<any>(null);
   const [scanValue, setScanValue] = useState('');
-  const [scanQueue, setScanQueue] = useState<Array<{ filterId: string; filterName: string; tagId: string }>>([]);
+  const [scanQueue, setScanQueue] = useState<Array<{ filterId: string; filterName: string; ahuName?: string; tagId: string }>>([]);
   const [remarks, setRemarks] = useState('');
   // ─── Dialog state — now owned by useFilterOperationsCore (D1/D2/D4 Day 3b) ──
   // Compat aliases: read-only views into core.dialogState.
@@ -174,7 +174,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           // Defer one tick so React applies the value before submit reads it
           setTimeout(() => {
             setScanValue(epc);
-            if (scanQueue.length > 0) handleAddToQueue(); else handleSubmit();
+            handleAddToQueue();
           }, 0);
         },
         (err) => { if (!cancelled) setRfidError(err); },
@@ -218,7 +218,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             pushDebug(`SUBMIT: "${toSubmit}" (len ${toSubmit.length})`);
             setScanValue(toSubmit);
             if (view === 'stage') {
-              if (scanQueue.length > 0) handleAddToQueue(); else handleSubmit();
+              handleAddToQueue();
             }
           }
           buffer = '';
@@ -524,7 +524,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     if (online) mutate('/api/assets/instances?limit=500');
   };
 
-  const resolveFilter = async (): Promise<{ filterId: string; filterName: string } | null> => {
+  const resolveFilter = async (): Promise<{ filterId: string; filterName: string; ahuName?: string } | null> => {
     let filterId = ''; let filterName = '';
 
     // Deduplicate RFID scan value (reader may repeat tag ID)
@@ -562,7 +562,17 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     if (!filterId) { const m = allFilters.find((a: any) => a.name?.toLowerCase() === sv.toLowerCase()); if (m) { filterId = m.id; filterName = m.name; } }
     if (!filterId && sv.match(/^[0-9a-f]{8}-/i)) { filterId = sv; filterName = sv.slice(0, 8); }
     if (!filterId) { setError('Filter not found. Ensure you scanned while online first to cache identifiers.'); return null; }
-    return { filterId, filterName };
+    // 2026-05-20: resolve parent AHU name so the queue display can show
+    // "{filterName} · {ahuName}" — operators on the floor identify filters
+    // by their AHU context, not by serial alone. Lookup against the same
+    // instances cache that powers allFilters; both filter and AHU live there.
+    const filterRow = instances.find((i: any) => i.id === filterId);
+    let ahuName: string | undefined;
+    if (filterRow?.parentId) {
+      const parent = instances.find((i: any) => i.id === filterRow.parentId);
+      if (parent?.name) ahuName = parent.name;
+    }
+    return { filterId, filterName, ahuName };
   };
 
   // Add scanned filter to queue (batch mode)
@@ -2108,7 +2118,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
 
                 <div className="flex gap-2">
                   <input ref={scanInputRef} type="text" value={scanValue} onChange={e => { setScanValue(e.target.value); setError(''); }}
-                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); scanQueue.length > 0 ? handleAddToQueue() : handleSubmit(); } }}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddToQueue(); } }}
                     onBlur={() => {
                       // If focus drifted to body or a non-input element, snap back.
                       // Lets buttons and the submit flow steal focus, but never lets
@@ -2133,7 +2143,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                     <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Queue ({scanQueue.length})</div>
                     {scanQueue.map(q => (
                       <div key={q.filterId} className="flex items-center justify-between py-1.5 px-2 bg-slate-50 rounded-lg">
-                        <span className="text-sm font-medium text-slate-700">{q.filterName}</span>
+                        <span className="text-sm font-medium text-slate-700">
+                          {q.filterName}
+                          {q.ahuName && (
+                            <span className="ml-2 text-xs font-normal text-slate-500">· {q.ahuName}</span>
+                          )}
+                        </span>
                         <button onClick={() => removeFromQueue(q.filterId)} className="text-red-400 text-xs hover:text-red-600">Remove</button>
                       </div>
                     ))}
@@ -2143,18 +2158,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 <textarea value={remarks} onChange={e => setRemarks(e.target.value)} placeholder="Remarks (optional)" rows={2}
                   className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-cyan-500" />
 
-                {/* Single submit (when no queue) or Submit All (when queue has items) */}
-                {scanQueue.length === 0 ? (
-                  <button onClick={handleSubmit} disabled={loading || !scanValue.trim()}
-                    className={`w-full py-4 bg-gradient-to-r ${activeStage.gradient} text-white rounded-2xl font-bold text-base disabled:opacity-40 active:opacity-90 flex items-center justify-center gap-2 shadow-lg`}>
-                    {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <>✓ Submit</>}
-                  </button>
-                ) : (
-                  <button onClick={handleSubmitQueue} disabled={loading}
-                    className={`w-full py-4 bg-gradient-to-r ${activeStage.gradient} text-white rounded-2xl font-bold text-base disabled:opacity-40 active:opacity-90 flex items-center justify-center gap-2 shadow-lg`}>
-                    {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <>✓ Submit All ({scanQueue.length})</>}
-                  </button>
-                )}
+                {/* 2026-05-20: tablet now ALWAYS queues on scan — no single-
+                    scan auto-submit. Operator can scan multiple filters and
+                    confirm the queue before submitting all. The "Submit"
+                    button is disabled until at least one filter is queued. */}
+                <button onClick={handleSubmitQueue} disabled={loading || scanQueue.length === 0}
+                  className={`w-full py-4 bg-gradient-to-r ${activeStage.gradient} text-white rounded-2xl font-bold text-base disabled:opacity-40 active:opacity-90 flex items-center justify-center gap-2 shadow-lg`}>
+                  {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <>✓ Submit {scanQueue.length > 0 ? `All (${scanQueue.length})` : ''}</>}
+                </button>
               </div>
             )}
 
