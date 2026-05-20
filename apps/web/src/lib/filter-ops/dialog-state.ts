@@ -66,6 +66,10 @@ export type DialogState =
       kind: 'awaiting_dryer';
       filterId: string;
       filterName: string;
+      /** 2026-05-20: batch dryer-start. Same model as awaiting_reason's
+       *  remainingBatch — one duration entry drives N dryer-starts when the
+       *  operator queued multiple filters entering DRY_IN. */
+      remainingBatch?: { filterId: string; filterName: string }[];
     }
   | {
       kind: 'awaiting_checklist';
@@ -91,7 +95,7 @@ export type DialogEvent =
   | { type: 'close' }
   | { type: 'open_reason'; filterId: string; filterName: string; stage: string; remainingBatch?: { filterId: string; filterName: string }[] }
   | { type: 'open_equipment'; filterId: string; filterName: string; stage: string; groups: unknown[]; cycleGroup?: unknown; remainingBatch?: { filterId: string; filterName: string }[] }
-  | { type: 'open_dryer'; filterId: string; filterName: string }
+  | { type: 'open_dryer'; filterId: string; filterName: string; remainingBatch?: { filterId: string; filterName: string }[] }
   | { type: 'open_checklist'; filterId: string; filterName: string; checklists: unknown[]; remainingBatch?: { filterId: string; filterName: string }[] }
   | { type: 'open_block_change'; filterId: string; filterName: string; homeBlockId: string; homeBlockName: string; requestedBlockId: string; requestedBlockName: string }
   | { type: 'advance_batch'; /** Walk remainingBatch in awaiting_checklist; close if empty. */ };
@@ -138,7 +142,7 @@ export function reduceDialogState(state: DialogState, event: DialogEvent): Dialo
     case 'open_dryer':
       // Dryer opens only from idle.
       assertOpenable(state, ['none']);
-      return { kind: 'awaiting_dryer', filterId: event.filterId, filterName: event.filterName };
+      return { kind: 'awaiting_dryer', filterId: event.filterId, filterName: event.filterName, remainingBatch: event.remainingBatch };
 
     case 'open_checklist':
       // Checklist opens from idle (pre-advance gate) OR from awaiting_equipment

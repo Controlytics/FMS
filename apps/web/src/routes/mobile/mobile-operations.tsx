@@ -90,6 +90,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const [selectedBlock, setSelectedBlock] = useState<any>(null);
   const [scanValue, setScanValue] = useState('');
   const [scanQueue, setScanQueue] = useState<Array<{ filterId: string; filterName: string; ahuName?: string; tagId: string }>>([]);
+  // 2026-05-20: per-filter dryer duration (DRY_IN stage). Keyed by filterId
+  // so reordering the queue doesn't lose values. Cleared on queue drain.
+  const [dryerDurations, setDryerDurations] = useState<Record<string, number>>({});
   const [remarks, setRemarks] = useState('');
   // ─── Dialog state — now owned by useFilterOperationsCore (D1/D2/D4 Day 3b) ──
   // Compat aliases: read-only views into core.dialogState.
@@ -520,7 +523,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // since per-stage counters can't be derived from local optimistic state
   // without re-projecting every cached filter (separate follow-up).
   const goHome = () => {
-    setView('home'); setActiveStage(null); core.dispatch({ type: 'close' }); setError(''); setSuccess(''); setScanQueue([]); setEquipmentGroupSyncWarning(null);
+    setView('home'); setActiveStage(null); core.dispatch({ type: 'close' }); setError(''); setSuccess(''); setScanQueue([]); setDryerDurations({}); setEquipmentGroupSyncWarning(null);
     if (online) mutate('/api/assets/instances?limit=500');
   };
 
@@ -587,11 +590,19 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       return;
     }
     setScanQueue(prev => [...prev, { ...resolved, tagId: scanValue.trim() }]);
+    // 2026-05-20: pre-populate per-filter dryer duration with a sensible
+    // default so the Submit-All button is enabled out of the box. Operator
+    // can change per row before submitting. Only meaningful on DRY_IN
+    // stage; harmlessly ignored on others.
+    if (activeStage?.key === 'DRY_IN') {
+      setDryerDurations(prev => ({ ...prev, [resolved.filterId]: prev[resolved.filterId] ?? 30 }));
+    }
     setScanValue('');
   };
 
   const removeFromQueue = (filterId: string) => {
     setScanQueue(prev => prev.filter(q => q.filterId !== filterId));
+    setDryerDurations(prev => { const next = { ...prev }; delete next[filterId]; return next; });
   };
 
   // Submit all queued filters for the active stage (batch advance for mid-cycle stages).
@@ -673,7 +684,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           setJustification('');
           // Drop the queue — the reason dialog (carrying remainingBatch)
           // drives the rest of the flow. Equipment-submit will iterate.
-          setScanQueue([]);
+          setScanQueue([]); setDryerDurations({});
           setLoading(false);
           return;
         }
@@ -689,13 +700,56 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           const cyc = cachedState.currentCycle ?? {};
           const dryerStarted = !!cyc.dryerStartedAt && !!cyc.dryerDurationMinutes;
           if (!dryerStarted) {
-            if (scanQueue.length === 1) {
-              core.dispatch({ type: 'open_dryer', filterId: item.filterId, filterName: item.filterName });
-              setScanQueue([]);
-              setLoading(false);
-              return;
+            // 2026-05-20 PER-FILTER DURATION: each queued filter has its own
+            // duration dropdown rendered inline in the queue list. The user
+            // selects per-filter, then a single Submit-All drives the batch.
+            // We get here only when handleSubmitQueue is called with at least
+            // one filter still missing a duration — surface a clear error.
+            const dur = dryerDurations[item.filterId];
+            if (!dur) {
+              failed.push(`${item.filterName}: pick a dryer duration in the queue row first`);
+              continue;
             }
-            failed.push(`${item.filterName}: dryer not started — use single scan to set duration`);
+            // Has duration: fire SET_DURATION advance directly. Same payload
+            // shape as handleDryerDurationSubmit, but called per-filter from
+            // the batch loop instead of via the modal dialog.
+            try {
+              const { executed: dryerExec } = await core.advance({
+                filterId: item.filterId,
+                filterName: item.filterName,
+                targetState: 'DRY_IN',
+                cleaningAreaId: selectedBlock?.id,
+                dryerAction: 'SET_DURATION',
+                dryerDurationMinutes: dur,
+                remarks: remarks || `Dryer started (${dur} min) - ${item.filterName}`,
+              });
+              setRecentOps(prev => [{ stage: 'Dryer Started', filter: item.filterName, time: formatTime(new Date()), queued: !dryerExec }, ...prev].slice(0, 20));
+              // Mirror the dryer-timing cache write from handleDryerDurationSubmit.
+              try {
+                const cached = await getCache<any>(`filter-state-${item.filterId}`) ?? {};
+                let eqGroup = cached.equipmentGroup ?? null;
+                if (!eqGroup && selectedBlock?.id) {
+                  const allGroups = await getCache<any[]>('equipment-groups') ?? [];
+                  const blockGroups = allGroups.filter((g: any) => g.blockId === selectedBlock.id);
+                  if (blockGroups.length === 1) eqGroup = blockGroups[0];
+                }
+                cache(`filter-state-${item.filterId}`, {
+                  ...cached,
+                  currentState: 'DRY_IN',
+                  equipmentGroup: eqGroup,
+                  currentCycle: {
+                    ...(cached.currentCycle ?? {}),
+                    status: 'IN_PROGRESS',
+                    dryerDurationMinutes: dur,
+                    dryerStartedAt: new Date().toISOString(),
+                    cleaningAreaId: selectedBlock?.id ?? cached.currentCycle?.cleaningAreaId ?? null,
+                  },
+                }, 24 * 60 * 60 * 1000);
+              } catch { /* ignore cache errors */ }
+              successCount++;
+            } catch (e: any) {
+              failed.push(`${item.filterName}: ${e?.message ?? 'dryer start failed'}`);
+            }
             continue;
           }
         }
@@ -761,7 +815,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         }
       } catch { /* ignore — user can re-scan to trigger */ }
     }
-    setScanQueue([]);
+    setScanQueue([]); setDryerDurations({});
     if (successCount > 0) setSuccess(`${successCount} filter(s) → ${activeStage.label}${failed.length > 0 ? ` (${failed.length} failed)` : ''}`);
     if (failed.length > 0) setError(failed.join('\n'));
     if (online) mutate('/api/assets/instances?limit=500');
@@ -1221,6 +1275,55 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         }, 24 * 60 * 60 * 1000);
       } catch { /* ignore cache errors */ }
       setScanValue(''); setRemarks('');
+
+      // 2026-05-20 batch dryer-start continuation. Apply the SAME duration
+      // to each remaining filter in the batch. Sequential so cache writes +
+      // audit order stay deterministic.
+      const batchRest = dryerDialog.remainingBatch ?? [];
+      if (batchRest.length > 0) {
+        for (const rest of batchRest) {
+          try {
+            const { executed: restExecuted } = await core.advance({
+              filterId: rest.filterId,
+              filterName: rest.filterName,
+              targetState: 'DRY_IN',
+              cleaningAreaId: selectedBlock?.id,
+              dryerAction: 'SET_DURATION',
+              dryerDurationMinutes: minutes,
+              remarks: remarks || `Dryer started (${minutes} min) - ${rest.filterName}`,
+            });
+            setRecentOps(prev => [{ stage: 'Dryer Started', filter: rest.filterName, time: formatTime(new Date()), queued: !restExecuted }, ...prev].slice(0, 20));
+            // Mirror the dryer-timing cache write for each batched filter.
+            try {
+              const cached = await getCache<any>(`filter-state-${rest.filterId}`) ?? {};
+              let eqGroup = cached.equipmentGroup ?? null;
+              if (!eqGroup && selectedBlock?.id) {
+                const allGroups = await getCache<any[]>('equipment-groups') ?? [];
+                const blockGroups = allGroups.filter((g: any) => g.blockId === selectedBlock.id);
+                if (blockGroups.length === 1) eqGroup = blockGroups[0];
+              }
+              cache(`filter-state-${rest.filterId}`, {
+                ...cached,
+                currentState: 'DRY_IN',
+                equipmentGroup: eqGroup,
+                currentCycle: {
+                  ...(cached.currentCycle ?? {}),
+                  status: 'IN_PROGRESS',
+                  dryerDurationMinutes: minutes,
+                  dryerStartedAt: new Date().toISOString(),
+                  cleaningAreaId: selectedBlock?.id ?? cached.currentCycle?.cleaningAreaId ?? null,
+                },
+              }, 24 * 60 * 60 * 1000);
+            } catch { /* ignore cache errors */ }
+          } catch (batchErr: any) {
+            // eslint-disable-next-line no-console
+            console.warn(`[batch-dryer-start] ${rest.filterName} failed:`, batchErr);
+            setDryerError(`${rest.filterName}: ${batchErr?.message ?? 'dryer start failed'}`);
+          }
+        }
+        setSuccess(`Started dryer on ${batchRest.length + 1} filters (${minutes} min each)`);
+      }
+
       // Close the dryer dialog. open_checklist from awaiting_dryer is illegal
       // (assertOpenable), so core.advance never auto-opens a checklist from here.
       // Dispatch close explicitly so the dialog dismisses.
@@ -2203,14 +2306,30 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                   <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-1.5">
                     <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Queue ({scanQueue.length})</div>
                     {scanQueue.map(q => (
-                      <div key={q.filterId} className="flex items-center justify-between py-1.5 px-2 bg-slate-50 rounded-lg">
-                        <span className="text-sm font-medium text-slate-700">
+                      <div key={q.filterId} className="flex items-center justify-between gap-2 py-1.5 px-2 bg-slate-50 rounded-lg">
+                        <span className="text-sm font-medium text-slate-700 min-w-0 flex-1">
                           {q.filterName}
                           {q.ahuName && (
                             <span className="ml-2 text-xs font-normal text-slate-500">· {q.ahuName}</span>
                           )}
                         </span>
-                        <button onClick={() => removeFromQueue(q.filterId)} className="text-red-400 text-xs hover:text-red-600">Remove</button>
+                        {/* 2026-05-20: per-filter dryer duration selector. Only
+                            rendered on DRY_IN stage; the operator picks a value
+                            for each filter, then Submit All iterates with
+                            per-filter durations. Default 30 min set in
+                            handleAddToQueue. */}
+                        {activeStage?.key === 'DRY_IN' && (
+                          <select
+                            value={dryerDurations[q.filterId] ?? 30}
+                            onChange={e => setDryerDurations(prev => ({ ...prev, [q.filterId]: Number(e.target.value) }))}
+                            className="bg-white border border-slate-300 rounded-md px-2 py-1 text-xs text-slate-700 shrink-0"
+                          >
+                            {[5, 10, 15, 30, 45, 60, 90, 120, 180, 240].map(m => (
+                              <option key={m} value={m}>{m} min</option>
+                            ))}
+                          </select>
+                        )}
+                        <button onClick={() => removeFromQueue(q.filterId)} className="text-red-400 text-xs hover:text-red-600 shrink-0">Remove</button>
                       </div>
                     ))}
                   </div>
