@@ -827,7 +827,13 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // `for…break` opened the dialog for the first matching filter and then
     // never iterated to the rest of the batch — every other pending filter
     // silently skipped the checklist gate.
-    if (successCount > 0) {
+    // 2026-05-20: open the checklist dialog whenever ANY queued filter has
+    // a pending checklist — not just when at least one advance succeeded.
+    // Pre-fix the gate was `if (successCount > 0)`, which meant batch-DRY_IN
+    // submits where ALL filters needed a pre-DRY_IN checklist (every one
+    // pushed to `failed` with "checklist required first") never opened the
+    // dialog. Operator only saw the error toast and couldn't proceed.
+    if (successCount > 0 || failed.length > 0) {
       try {
         // Phase 8.7 Wave-5: shared checklist-dialog resolver — mirrors the
         // desktop advanceBatch site (filter-operations.tsx ~line 437).
