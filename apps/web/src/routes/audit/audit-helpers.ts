@@ -155,9 +155,12 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   const stage = (after.stage as string) || (after.state as string) || '';
   // 2026-05-20: explicit "from" stage for STATE_TRANSITION rows, reads only
   // beforeValue so it never collides with the post-transition stage. Genesis
-  // transitions (state-machine entry, e.g. WASH_IN from null) render "(start)".
+  // transitions (state-machine entry, e.g. WASH_IN with no prior state) are
+  // the operator scanning a filter that's awaiting its first cleaning cycle,
+  // so render the "from" half as "To Be Cleaned" — the user-facing label
+  // for that pre-cycle lifecycle state.
   const fromStageRaw = (before.stage as string) || (before.state as string) || '';
-  const fromStage = fromStageRaw || '(start)';
+  const fromStage = fromStageRaw || 'To Be Cleaned';
   const status = (after.status as string) || (before.status as string) || afterStatus || beforeStatus || '';
 
   const replacePlaceholders = (tpl: string) =>
