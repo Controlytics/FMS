@@ -91,13 +91,25 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   const nonUuid = (v: unknown): string => (typeof v === 'string' && !UUID_RE.test(v) ? v : '');
   const targetUser = after.username || before.username || nonUuid(record.targetId) || '';
   const isSelf = targetUser === actor;
-  const targetName = after.name || before.name || after.label || before.label || nonUuid(record.targetId) || '';
+  // 2026-05-20 fix: targetName falls through to filterName (CYCLE_STARTED +
+  // other filter-scoped events store filterName, not name) and equipmentName.
+  const targetName = after.name || before.name || after.label || before.label
+    || after.filterName || before.filterName
+    || after.equipmentName || before.equipmentName
+    || nonUuid(record.targetId) || '';
   const configKey = nonUuid(record.targetId) || targetType || '';
   const version = after.versionNumber || after.version || before.versionNumber || before.version || '';
   const sourceName = after.sourceName || before.sourceName || '';
   const beforeStatus = before.status || '';
   const afterStatus = after.status || '';
   const identifierType = after.identifierType || before.identifierType || '';
+  // 2026-05-20 fix: {reason} was in the CYCLE_STARTED template (per
+  // packages/shared/src/types/audit-templates.ts:342) but had no substitution
+  // here — rendered as literal "{reason}" on every cycle-start row. Read
+  // cleaningReasonLabel (human-readable) with fallback to the key.
+  const reason = after.cleaningReasonLabel || before.cleaningReasonLabel
+    || after.cleaningReasonKey || before.cleaningReasonKey
+    || after.reason || before.reason || '';
 
   const replacePlaceholders = (tpl: string) =>
     tpl
@@ -110,7 +122,8 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
       .replace(/\{sourceName\}/g, sourceName)
       .replace(/\{beforeStatus\}/g, beforeStatus)
       .replace(/\{afterStatus\}/g, afterStatus)
-      .replace(/\{identifierType\}/g, identifierType);
+      .replace(/\{identifierType\}/g, identifierType)
+      .replace(/\{reason\}/g, reason);
 
   // Self-action handling: check for _SELF variant
   const selfActions = ['USER_UPDATED', 'PROFILE_UPDATED', 'PASSWORD_CHANGED'];

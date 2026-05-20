@@ -215,7 +215,19 @@ export async function startCycleImpl(
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'CYCLE_STARTED',
       targetType: 'cleaning_cycle', targetId: newCycle.id,
-      afterValue: { cycleCode, cleaningReasonKey, filterId },
+      // 2026-05-20 fix: include filterName + cleaningReasonLabel so the
+      // audit template "Cleaning cycle started for filter \"{targetName}\"
+      // with reason \"{reason}\" by {actor}" renders with real values.
+      // Pre-fix afterValue had only {cycleCode, cleaningReasonKey, filterId}
+      // — both {targetName} and {reason} placeholders fell through to empty
+      // / literal text on the audit-trail page.
+      afterValue: {
+        cycleCode,
+        cleaningReasonKey,
+        cleaningReasonLabel: reason.name,
+        filterId,
+        filterName: filter.name,
+      },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
     }, tx);
 
