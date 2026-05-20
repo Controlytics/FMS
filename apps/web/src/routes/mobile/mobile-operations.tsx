@@ -129,6 +129,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     setTimeout(() => { scanInputRef.current?.focus(); }, 0);
   };
 
+  // 2026-05-20: when batch DRY_IN gate opens a checklist dialog, scanQueue +
+  // dryerDurations stay populated so they can be replayed once all checklists
+  // in the batch finish. This ref + effect below is the trigger: set to true
+  // at the gate, watched by an effect that fires handleSubmitQueue when the
+  // checklist dialog walks to 'none'. Without this, the per-filter SET_DURATION
+  // advances never fire — operator saw no countdowns after batch DRY_IN.
+  const pendingBatchReplayRef = useRef(false);
+  const prevDialogKindRef = useRef<string>('none');
+
   // Dialogs (compat aliases — see blockChangeDialog above)
   const reasonDialog = core.dialogState.kind === 'awaiting_reason' ? core.dialogState : null;
   const equipDialog = core.dialogState.kind === 'awaiting_equipment' ? core.dialogState : null;
@@ -737,9 +746,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               remainingBatch: rest.length > 0 ? rest : undefined,
             });
             setChecklistAnswers({});
-            // Drop the queue — the checklist dialog drives the rest of the flow.
-            setScanQueue([]); setDryerDurations({});
+            // 2026-05-20: KEEP scanQueue + dryerDurations populated so that
+            // after the checklist dialog walks the batch and closes, the
+            // useEffect watcher below can re-trigger handleSubmitQueue and
+            // fire SET_DURATION for each queued filter (the gate is now
+            // cleared post-checklist). Pre-fix we cleared the queue here,
+            // which dropped the durations on the floor and left the
+            // operator with no countdowns after batch checklist completion.
             setLoading(false);
+            pendingBatchReplayRef.current = true;
             return;
           }
         }
@@ -935,6 +950,35 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       setLoading(false);
     }
   };
+
+  // 2026-05-20: batch-replay effect. When handleSubmitQueue's pre-DRY_IN
+  // checklist gate opens a dialog, it sets pendingBatchReplayRef=true and
+  // keeps scanQueue + dryerDurations populated. core.submitChecklist walks
+  // the remaining batch (one dialog per filter that needs a checklist), then
+  // closes when remainingBatch is empty (dialogState.kind transitions from
+  // awaiting_checklist → none). This effect fires handleSubmitQueue again
+  // on that transition — the gate is now cleared, so the loop reaches the
+  // SET_DURATION advance for every queued filter.
+  useEffect(() => {
+    const prev = prevDialogKindRef.current;
+    const curr = core.dialogState.kind;
+    prevDialogKindRef.current = curr;
+    if (
+      prev === 'awaiting_checklist' &&
+      curr === 'none' &&
+      pendingBatchReplayRef.current &&
+      scanQueue.length > 0 &&
+      !loading
+    ) {
+      pendingBatchReplayRef.current = false;
+      // Defer one tick so dialog close + SWR refresh land before replay.
+      setTimeout(() => { handleSubmitQueue(); }, 50);
+    }
+    // handleSubmitQueue intentionally omitted — the ref guards re-entry and
+    // including a function from this same component would force a new
+    // closure each render and re-fire the effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [core.dialogState.kind, scanQueue.length, loading]);
 
   // Helper: detect network errors (fetch failures + CapacitorHttp native errors)
   const isNetworkError = (e: any): boolean => {
