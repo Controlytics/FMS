@@ -705,23 +705,45 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         // advance which the server then rejected at replay time, leaving the
         // cycle stuck. Mirror the single-scan behavior here so the batch
         // mode also opens the dryer dialog when the queue has just one item.
+        // 2026-05-20 PRE-ADVANCE CHECKLIST FIX: ANY queued filter (not just
+        // DRY_IN entry) may have a pending checklist that the server enforces
+        // before allowing advance. The single-scan handleSubmit at line ~1061
+        // pre-resolves this via resolvePendingChecklistDialog(filterId,
+        // resolvedActions) and dispatches open_checklist directly. The batch
+        // loop previously relied on the post-loop findNextPendingChecklist
+        // which calls the resolver WITHOUT serverActions — fallback path
+        // uses local cache, which may be stale on fresh ops. Result:
+        // multi-scan never opened the checklist dialog while single-scan
+        // worked. Dispatch the dialog HERE using itemActions (fresh
+        // server-resolved tape for THIS filter) and stash the rest of the
+        // queue as remainingBatch — same continuation flow checklist dialog
+        // already supports.
+        if (hasActionKind(itemActions, 'SUBMIT_CHECKLIST')) {
+          const dialogChecklists = await resolvePendingChecklistDialog(item.filterId, itemActions);
+          if (dialogChecklists && dialogChecklists.length > 0) {
+            const startIdx = scanQueue.findIndex(q => q.filterId === item.filterId);
+            const rest = startIdx >= 0
+              ? scanQueue.slice(startIdx + 1).map(q => ({ filterId: q.filterId, filterName: q.filterName }))
+              : [];
+            core.dispatch({
+              type: 'open_checklist',
+              filterId: item.filterId,
+              filterName: item.filterName,
+              checklists: dialogChecklists,
+              remainingBatch: rest.length > 0 ? rest : undefined,
+            });
+            setChecklistAnswers({});
+            // Drop the queue — the checklist dialog drives the rest of the flow.
+            setScanQueue([]); setDryerDurations({});
+            setLoading(false);
+            return;
+          }
+        }
+
         if (activeStage.key === 'DRY_IN') {
           const cyc = cachedState.currentCycle ?? {};
           const dryerStarted = !!cyc.dryerStartedAt && !!cyc.dryerDurationMinutes;
           if (!dryerStarted) {
-            // 2026-05-20 PIPELINE FIX: filters between WASH_OUT and DRY_IN
-            // typically have a CHECKLIST gate. Server rejected SET_DURATION
-            // with 400 CHECKLIST_PENDING when we tried to advance directly.
-            // Skip the SET_DURATION call and fall through to the post-loop
-            // checklist batching, which opens the checklist dialog for this
-            // filter (and any others with pending checklists). After
-            // operator completes all checklists, they re-submit and THIS
-            // branch fires SET_DURATION for real.
-            const hasChecklistPending = hasActionKind(itemActions, 'SUBMIT_CHECKLIST');
-            if (hasChecklistPending) {
-              failed.push(`${item.filterName}: checklist required first`);
-              continue;
-            }
             // 2026-05-20 PER-FILTER DURATION: each queued filter has its own
             // duration dropdown rendered inline in the queue list. The user
             // selects per-filter, then a single Submit-All drives the batch.
