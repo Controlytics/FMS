@@ -485,7 +485,7 @@ export function FilterDataManagementPage() {
     if (!endpoint && tab === 'cleaning-cycles') endpoint = '/api/super-admin/data/cleaning-cycles';
     if (!endpoint && tab === 'filter-events') endpoint = '/api/super-admin/data/filter-events';
     if (!endpoint && tab === 'pm-entries') endpoint = '/api/super-admin/data/pm-entries';
-    if (!endpoint && tab === 'audit-trail') endpoint = '/api/super-admin/data/audit-trail';
+    // audit-trail intentionally NOT mapped — 21 CFR §11 immutability (delta-audit §C2). Edit/Delete row buttons hidden in UI.
     if (!endpoint && tab === 'notifications') endpoint = '/api/super-admin/data/notifications';
     if (!endpoint && tab === 'admin-requests') endpoint = '/api/super-admin/data/admin-requests';
     if (!endpoint && tab === 'block-changes') endpoint = '/api/super-admin/data/block-change-requests';
@@ -1036,11 +1036,8 @@ export function FilterDataManagementPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-1 justify-end">
-                          <button onClick={() => setConfirmDelete({ id: a.id, type: 'generic' as any, name: a.action ?? 'Audit record' })}
-                            className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100">
-                            Delete
-                          </button>
+                        <div className="flex items-center gap-1 justify-end" title="Audit rows are immutable per 21 CFR §11.10(e). Edit/Delete endpoints removed 2026-05-20 (delta-audit §C2).">
+                          <span className="px-2 py-1 text-slate-400 text-[10px] font-medium">Immutable</span>
                         </div>
                       </td>
                     </tr>

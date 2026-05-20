@@ -345,29 +345,17 @@ export default async function superAdminRoutes(app: FastifyInstance) {
   });
 
   // ─── Audit Trail ──────────────────────────────────────
+  // List is allowed (read-only). PUT + DELETE were removed 2026-05-20
+  // (delta-audit §C2 / May 16 §1.3) — they let SUPER_ADMIN rewrite or erase
+  // any audit row with no reauth and no audit-of-the-audit, making the
+  // hash-chain machinery decorative. Audit records are immutable by 21 CFR
+  // §11.10(e); the DB-level audit_trail_no_delete trigger and
+  // verifyAuditChain are the source of truth, and the data-mgmt UI must not
+  // expose escape hatches. If a row must be redacted, do it via the
+  // dedicated REDACT path (Wave 4 §C1 — preserves chain links, NULLs
+  // payload, requires reauth + meta-audit).
   app.get('/data/audit-trail', { preHandler: dataPreHandler, schema: dataSchema('List audit trail entries') }, async (req) => {
     return paginatedList(prisma.auditTrail, req.query, { timestamp: 'desc' });
-  });
-
-  app.put('/data/audit-trail/:id', { preHandler: dataPreHandler, schema: { ...dataSchema('Edit audit trail entry'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', additionalProperties: true } } }, async (req, reply) => {
-    const { id } = req.params as any;
-    const body = req.body as any;
-    const existing = await prisma.auditTrail.findUnique({ where: { id } });
-    if (!existing) return reply.code(404).send({ error: 'NOT_FOUND' });
-    const data: any = {};
-    for (const f of ['action', 'userName', 'userId', 'userRole', 'targetType', 'targetId', 'ipAddress']) {
-      if (body[f] !== undefined) data[f] = body[f];
-    }
-    if (body.timestamp !== undefined) data.timestamp = new Date(body.timestamp);
-    if (body.beforeValue !== undefined) data.beforeValue = body.beforeValue;
-    if (body.afterValue !== undefined) data.afterValue = body.afterValue;
-    return prisma.auditTrail.update({ where: { id }, data });
-  });
-
-  app.delete('/data/audit-trail/:id', { preHandler: dataPreHandler, schema: { ...dataSchema('Delete audit trail entry'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req) => {
-    const { id } = req.params as any;
-    await prisma.auditTrail.delete({ where: { id } }).catch(() => null);
-    return { success: true };
   });
 
   // ─── Notifications ────────────────────────────────────

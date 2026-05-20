@@ -19,6 +19,29 @@ export interface AuditEntry {
 }
 
 /**
+ * Actions that are emitted by background system processes (no human or
+ * authenticated principal). NULL `userId` is allowed for these. Every other
+ * action must carry a userId, enforced at runtime by `auditLog`.
+ *
+ * Delta-audit 2026-05-20 §C5 / May 16 §1.6 fix. Pre-fix the userId was
+ * optional with no app-layer check; any state-changing action could be
+ * recorded with no user attribution, violating § 11.10(e).
+ *
+ * If a new system-emitted action needs to skip the userId check, add it
+ * here AND document why. Default is "userId required."
+ */
+const SYSTEM_AUDIT_ACTIONS = new Set<string>([
+  'SYSTEM_BOOT',
+  'SYSTEM_HEALTH_CHECK',
+  'SYSTEM_SHUTDOWN',
+  'MOSQUITTO_ACL_REFRESH',     // internal route fired by mqtt service refresh
+  'PIPELINE_TRACE',             // ingestion stage traces
+  'NOTIFICATION_DISPATCH',      // worker-emitted delivery audit
+  'BACKUP_RETENTION_PRUNE',     // retention sweep
+  'DLQ_OVERFLOW',               // dead-letter overflow
+]);
+
+/**
  * Prisma transaction-client type. Anything that satisfies the Prisma
  * `Prisma.TransactionClient` interface — i.e., the `tx` parameter inside
  * a `prisma.$transaction(async (tx) => { ... })` callback — can be passed
@@ -64,6 +87,16 @@ const AUDIT_CHAIN_LOCK_ID = 7421151037n;
  * means a deletion of the last pre-chain row is detectable too.
  */
 export async function auditLog(entry: AuditEntry, tx?: AuditTx): Promise<void> {
+  // 21 CFR §11.10(e): every state-changing action must identify the
+  // individual responsible. Reject calls that omit userId unless the
+  // action is on the explicit system allow-list.
+  if (!entry.userId && !SYSTEM_AUDIT_ACTIONS.has(entry.action)) {
+    throw new Error(
+      `audit.userId required for action='${entry.action}'. ` +
+      `If this is a system-emitted action with no user principal, add it to ` +
+      `SYSTEM_AUDIT_ACTIONS in apps/api/src/lib/audit.ts and document why.`,
+    );
+  }
   const timestamp = new Date();
   const afterValueClean = entry.afterValue ? JSON.parse(JSON.stringify(entry.afterValue)) : undefined;
   const beforeValueClean = entry.beforeValue ? JSON.parse(JSON.stringify(entry.beforeValue)) : undefined;
