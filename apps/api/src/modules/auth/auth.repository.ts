@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
+import { invalidateUserAuthCache } from '../../plugins/auth.js';
 import { createHash } from 'node:crypto';
 
 export const authRepository = {
@@ -34,11 +35,16 @@ export const authRepository = {
   },
 
   async updateUser(id: string, data: Record<string, unknown>) {
-    return prisma.user.update({ where: { id }, data: data as any });
+    const updated = await prisma.user.update({ where: { id }, data: data as any });
+    // Bust 30s auth cache so role/status/forcePasswordChange flips take effect
+    // immediately. Closes the May 16 audit gap (admin-force-reset + DB-correct
+    // but cache serves stale principal for up to 30s window).
+    invalidateUserAuthCache(id);
+    return updated;
   },
 
   async updateUserProfile(id: string, data: Record<string, unknown>) {
-    return prisma.user.update({
+    const updated = await prisma.user.update({
       where: { id },
       data,
       select: {
@@ -46,6 +52,8 @@ export const authRepository = {
         photoUrl: true, role: true,
       },
     });
+    invalidateUserAuthCache(id);
+    return updated;
   },
 
   async findActiveSessions(userId: string) {
@@ -128,7 +136,7 @@ export const authRepository = {
   },
 
   async changePassword(userId: string, newHash: string, passwordExpiresAt: Date | null) {
-    return prisma.$transaction([
+    const result = await prisma.$transaction([
       prisma.user.update({
         where: { id: userId },
         data: {
@@ -143,6 +151,8 @@ export const authRepository = {
         data: { userId, passwordHash: newHash },
       }),
     ]);
+    invalidateUserAuthCache(userId);
+    return result;
   },
 
   async findPendingResetRequest(userId: string) {

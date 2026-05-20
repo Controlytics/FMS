@@ -1,5 +1,6 @@
 import { Client } from 'ldapts';
 import { prisma } from '../../lib/prisma.js';
+import { invalidateUserAuthCache } from '../../plugins/auth.js';
 
 export interface LdapConfig {
   enabled: boolean;
@@ -248,6 +249,7 @@ export const ldapService = {
 
     if (Object.keys(updates).length > 0) {
       await prisma.user.update({ where: { id: userId }, data: updates });
+      invalidateUserAuthCache(userId);
     }
   },
 };

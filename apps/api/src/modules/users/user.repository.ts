@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
+import { invalidateUserAuthCache } from '../../plugins/auth.js';
 
 export const userRepository = {
   async findMany(where: Record<string, unknown>, page: number, limit?: number) {
@@ -78,17 +79,23 @@ export const userRepository = {
   },
 
   async update(id: string, data: Record<string, unknown>) {
-    return prisma.user.update({ where: { id }, data: data as any });
+    const updated = await prisma.user.update({ where: { id }, data: data as any });
+    invalidateUserAuthCache(id);
+    return updated;
   },
 
   async delete(id: string) {
     await prisma.userConfig.deleteMany({ where: { userId: id } });
-    return prisma.user.delete({ where: { id } });
+    const result = await prisma.user.delete({ where: { id } });
+    invalidateUserAuthCache(id);
+    return result;
   },
 
   async deleteMany(ids: string[]) {
     await prisma.userConfig.deleteMany({ where: { userId: { in: ids } } });
-    return prisma.user.deleteMany({ where: { id: { in: ids } } });
+    const result = await prisma.user.deleteMany({ where: { id: { in: ids } } });
+    for (const id of ids) invalidateUserAuthCache(id);
+    return result;
   },
 
   async findManyByIds(ids: string[]) {
@@ -133,7 +140,7 @@ export const userRepository = {
   },
 
   async unlockUser(id: string, newHash: string, passwordExpiresAt: Date | null, updatedBy: string) {
-    return prisma.$transaction([
+    const result = await prisma.$transaction([
       prisma.user.update({
         where: { id },
         data: {
@@ -150,10 +157,12 @@ export const userRepository = {
       }),
       prisma.passwordHistory.create({ data: { userId: id, passwordHash: newHash } }),
     ]);
+    invalidateUserAuthCache(id);
+    return result;
   },
 
   async resetPassword(id: string, newHash: string, passwordExpiresAt: Date | null, updatedBy: string) {
-    return prisma.$transaction([
+    const result = await prisma.$transaction([
       prisma.user.update({
         where: { id },
         data: {
@@ -170,6 +179,8 @@ export const userRepository = {
       }),
       prisma.passwordHistory.create({ data: { userId: id, passwordHash: newHash } }),
     ]);
+    invalidateUserAuthCache(id);
+    return result;
   },
 
   // Password Reset Requests
@@ -186,7 +197,7 @@ export const userRepository = {
   },
 
   async approveResetRequest(requestId: string, userId: string, newHash: string, passwordExpiresAt: Date | null, processedBy: string, notes?: string) {
-    return prisma.$transaction([
+    const result = await prisma.$transaction([
       prisma.user.update({
         where: { id: userId },
         data: {
@@ -207,6 +218,8 @@ export const userRepository = {
         data: { status: 'APPROVED', processedAt: new Date(), processedBy, notes },
       }),
     ]);
+    invalidateUserAuthCache(userId);
+    return result;
   },
 
   async rejectResetRequest(requestId: string, processedBy: string, notes?: string) {
