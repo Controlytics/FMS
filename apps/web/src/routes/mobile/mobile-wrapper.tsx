@@ -68,6 +68,11 @@ export function MobileWrapperPage() {
 
   const [view, setView] = useState<View>('home');
   const [selectedStageKey, setSelectedStageKey] = useState<string | null>(null);
+  // 2026-05-20: Filter Status drill-down. Tapping a stage card on the Status
+  // view now filters the list below by that stage (read-only details — Name,
+  // AHU, Last Cleaned, Stage) instead of routing into the scan-operations
+  // page. Tap a second time / tap "Show all" to clear.
+  const [statusStageFilter, setStatusStageFilter] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -136,8 +141,10 @@ export function MobileWrapperPage() {
     useSWR<any>(approvalsKey, { refreshInterval: view === 'approvals' ? 30000 : 120000 });
 
   // Issue #7 fix (2026-05-18): cleaning-cycles list for mobile.
+  // 2026-05-20: also load when view==='status' so the new stage-detail drill-down
+  // can derive "Last cleaned" per filter from the most-recent COMPLETED cycle.
   const { data: cyclesData, isLoading: cyclesLoading } =
-    useSWR<any>(online && view === 'cycles' ? '/api/filters/cycles?page=1&limit=30&includeEvents=true' : null,
+    useSWR<any>(online && (view === 'cycles' || view === 'status') ? '/api/filters/cycles?page=1&limit=200&includeEvents=true' : null,
       { refreshInterval: view === 'cycles' ? 30000 : 0 });
   const [offlineCycles, setOfflineCycles] = useState<any[]>([]);
   const [expandedCycle, setExpandedCycle] = useState<string | null>(null);
@@ -522,39 +529,100 @@ export function MobileWrapperPage() {
         )}
 
         {/* === STATUS VIEW === */}
-        {view === 'status' && (
+        {view === 'status' && (() => {
+          // 2026-05-20: stage cards now filter the list below (read-only
+          // drill-down) instead of routing to the scan-operations page.
+          // Operators tapped them expecting "show me everything in WASH_IN"
+          // but got dropped into the queueing flow — confusing and wrong.
+          //
+          // For each filter we look up:
+          //   - AHU name via instances.find(parentId)
+          //   - Last cleaned timestamp via the most recent COMPLETED cycle
+          //     from cyclesData (loaded when view==='status', see useSWR
+          //     conditional above)
+          const cycles: any[] = (cyclesData?.data ?? []) as any[];
+          const lastCleanedByFilter = new Map<string, string>();
+          for (const c of cycles) {
+            if (c.status !== 'COMPLETED' || !c.completedAt || !c.filterId) continue;
+            const prev = lastCleanedByFilter.get(c.filterId);
+            if (!prev || c.completedAt > prev) lastCleanedByFilter.set(c.filterId, c.completedAt);
+          }
+          const ahuById = new Map(instances.map((i: any) => [i.id, i] as [string, any]));
+          const visibleFilters = statusStageFilter
+            ? allFilters.filter((f: any) => f.currentLifecycleState === statusStageFilter)
+            : allFilters;
+          const formatDate = (iso: string) => {
+            try {
+              const d = new Date(iso);
+              return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }) +
+                ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+            } catch { return '—'; }
+          };
+          return (
           <div className="p-4 space-y-4">
             <h2 className="text-lg font-bold text-slate-800">Filter Status</h2>
             <div className="grid grid-cols-2 gap-3">
-              {STAGES.map(s => (
-                <button key={s.key} onClick={() => openStage(s.key)} className={`bg-white border ${s.border} rounded-xl p-4 text-left active:scale-[0.98] transition-all`}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-lg">{s.icon}</span>
-                    <span className="text-xs font-semibold text-slate-600">{s.label}</span>
-                  </div>
-                  <div className={`text-2xl font-bold ${s.text}`}>{stageCounts[s.key] ?? 0}</div>
-                </button>
-              ))}
-            </div>
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-slate-600">All Filters ({allFilters.length})</h3>
-              {allFilters.map((f: any) => {
-                const stageInfo = STAGES.find(s => s.key === f.currentLifecycleState);
+              {STAGES.map(s => {
+                const isActive = statusStageFilter === s.key;
                 return (
-                  <div key={f.id} className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-medium text-slate-800">{f.name}</div>
-                      {f.filterSet && <span className="text-[10px] text-slate-400">Set {f.filterSet.replace('SET_', '')}</span>}
+                  <button
+                    key={s.key}
+                    onClick={() => setStatusStageFilter(isActive ? null : s.key)}
+                    className={`bg-white border-2 rounded-xl p-4 text-left active:scale-[0.98] transition-all ${isActive ? 'border-cyan-500 shadow-md' : s.border}`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-lg">{s.icon}</span>
+                      <span className="text-xs font-semibold text-slate-600">{s.label}</span>
                     </div>
-                    <span className={`text-[10px] px-2.5 py-1 rounded-full border font-medium ${stageInfo ? `${stageInfo.bg} ${stageInfo.text} ${stageInfo.border}` : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
-                      {f.currentLifecycleState?.replace(/_/g, ' ') ?? 'Idle'}
-                    </span>
-                  </div>
+                    <div className={`text-2xl font-bold ${s.text}`}>{stageCounts[s.key] ?? 0}</div>
+                  </button>
                 );
               })}
             </div>
+            {statusStageFilter && (
+              <button
+                onClick={() => setStatusStageFilter(null)}
+                className="text-xs text-cyan-600 font-medium underline active:text-cyan-700"
+              >
+                Show all filters
+              </button>
+            )}
+            <div className="space-y-2">
+              <h3 className="text-sm font-semibold text-slate-600">
+                {statusStageFilter
+                  ? `${STAGES.find(s => s.key === statusStageFilter)?.label} (${visibleFilters.length})`
+                  : `All Filters (${visibleFilters.length})`}
+              </h3>
+              {visibleFilters.map((f: any) => {
+                const stageInfo = STAGES.find(s => s.key === f.currentLifecycleState);
+                const ahu = ahuById.get(f.parentId);
+                const lastCleaned = lastCleanedByFilter.get(f.id);
+                return (
+                  <div key={f.id} className="bg-white border border-slate-200 rounded-xl px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-slate-800 truncate">{f.name}</div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">
+                          AHU: <span className="text-slate-700">{ahu?.name ?? '—'}</span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">
+                          Last Cleaned: <span className="text-slate-700">{lastCleaned ? formatDate(lastCleaned) : '—'}</span>
+                        </div>
+                      </div>
+                      <span className={`text-[10px] px-2.5 py-1 rounded-full border font-medium whitespace-nowrap ${stageInfo ? `${stageInfo.bg} ${stageInfo.text} ${stageInfo.border}` : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
+                        {f.currentLifecycleState?.replace(/_/g, ' ') ?? 'Idle'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+              {visibleFilters.length === 0 && (
+                <div className="text-sm text-slate-400 text-center py-6">No filters in this stage</div>
+              )}
+            </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* === MY TASKS VIEW === */}
         {view === 'my-tasks' && (

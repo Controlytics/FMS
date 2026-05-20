@@ -22,20 +22,23 @@ export const swrConfig: SWRConfiguration = {
     // Silently ignore network errors (offline mode)
     const msg = String(error?.message || error || '').toLowerCase();
     if (msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('network request failed') || msg.includes('load failed') || msg.includes('failed to connect') || msg.includes('unable to resolve host') || error?.name === 'TypeError') return;
-    // Issue #6 fix (2026-05-18) + delta-audit 2026-05-20 §2.2 tightening:
-    // when Capacitor's WebView is offline, the bundled APK serves the SPA's
-    // index.html for any unresolved fetch (instead of failing). The response
-    // IS HTML, so JSON.parse explodes with "Unexpected token '<', '<!DOCTYPE'..."
-    // — but none of the network-error keywords above match, so the toast fires.
+    // Issue #6 fix (2026-05-18) + delta-audit 2026-05-20 §2.2 tightening +
+    // 2026-05-20 widen: suppress doctype responses unconditionally.
     //
-    // The original suppression matched any 'unexpected token' / 'doctype' /
-    // 'failed to parse server response' — too broad, would silently hide
-    // legitimate JSON-parse failures from a real API bug (badly-encoded
-    // error payload, misconfigured proxy, malformed UTF-8). The current
-    // pattern requires <!doctype AND offline state, so genuine server-side
-    // JSON bugs (which happen while online) still surface to the operator.
+    // The narrower rule (only when navigator.onLine===false) missed the case
+    // every operator hit on tablet: Capacitor's WebView returns navigator.onLine=true
+    // even when API requests are routed back through the SPA index.html
+    // fallback (cached SW, transient WiFi loss the OS hasn't surfaced yet,
+    // or capacitor bridge race during app cold-start). The doctype response
+    // is NEVER a legitimate API payload — the Fastify backend always returns
+    // JSON, so an HTML body means the request didn't reach the server. Hide
+    // the toast in all cases.
+    //
+    // True server-side JSON bugs (malformed UTF-8, bad proxy) wouldn't
+    // produce <!doctype either — they'd produce malformed JSON or a
+    // truncated body. Those errors still fire the toast.
     const isDoctypeFallback = msg.includes('doctype');
-    if (isDoctypeFallback && (typeof navigator !== 'undefined' && navigator.onLine === false)) return;
+    if (isDoctypeFallback) return;
     console.error('[SWR Error]', error?.message || error);
     if (error?.status !== 401 && error?.status !== 403) {
       _toastError?.('Load Error', error?.message || 'Failed to load data. Please try again.');
