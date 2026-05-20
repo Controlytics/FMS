@@ -39,7 +39,7 @@ import { useFilterOperationsCore } from '@/lib/filter-ops/use-core';
 
 import { CLEANING_STAGES_MOBILE as STAGES } from '@/lib/filter-constants';
 
-type View = 'home' | 'status' | 'stage' | 'my-tasks' | 'approvals';
+type View = 'home' | 'status' | 'stage' | 'my-tasks' | 'approvals' | 'cycles';
 
 // Build identifier→filter map from identifiers list
 function buildIdentifierMap(identifiers: any[]): Record<string, { filterId: string; filterName: string }> {
@@ -303,6 +303,22 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const { data: approvalsData, mutate: mutateApprovals, isLoading: approvalsLoading } =
     useSWR<any>(approvalsKey, { refreshInterval: 30000 });
 
+  // Issue #7 fix (2026-05-18): Cleaning Cycles list on mobile. Desktop has a
+  // full /cleaning-cycles/history page but tablets had no equivalent — after
+  // an offline sync, operators couldn't view the resulting cycle data without
+  // a desktop. Mirror the desktop endpoint, scoped to recent cycles only.
+  const { data: cyclesData, isLoading: cyclesLoading } =
+    useSWR<any>(online && view === 'cycles' ? '/api/filters/cycles?page=1&limit=30&includeEvents=true' : null, { refreshInterval: 30000 });
+  const [offlineCycles, setOfflineCycles] = useState<any[]>([]);
+  useEffect(() => { if (cyclesData?.data) cache('cleaning-cycles-recent', cyclesData.data); }, [cyclesData, cache]);
+  useEffect(() => {
+    if (!online && view === 'cycles') {
+      getCache<any[]>('cleaning-cycles-recent').then(c => setOfflineCycles(c ?? []));
+    }
+  }, [online, view, getCache]);
+  const cyclesList: any[] = online ? (cyclesData?.data ?? []) : offlineCycles;
+  const [expandedCycle, setExpandedCycle] = useState<string | null>(null);
+
   // Cache tasks and approvals for offline use
   const [offlineTasks, setOfflineTasks] = useState<any>(null);
   const [offlineApprovals, setOfflineApprovals] = useState<any[]>([]);
@@ -449,6 +465,18 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   useEffect(() => {
     if (!online) refreshOfflineData();
   }, [online]);
+  // Issue #5 fix (2026-05-18): home/status tile counters were rendering
+  // stale state-counts (e.g. Wash In: 1 even after the filter advanced to
+  // Wash Out offline). `recomputeAndCacheFilterState` correctly writes the
+  // new currentLifecycleState to IndexedDB, but `refreshOfflineData()` is
+  // fire-and-forget at the call site — if React happened to render before
+  // setOfflineFilters resolved, the tile saw the old in-memory snapshot.
+  // pendingCount changes whenever the queue grows (new offline op) or
+  // shrinks (sync completed), so it's the right tripwire for re-reading
+  // the cache and updating the counts.
+  useEffect(() => {
+    refreshOfflineData();
+  }, [pendingCount]);
 
   const cleaningReasons = online ? ((reasonsData as any)?.reasons ?? reasonsData ?? []) : offlineReasons;
   const templates = (online ? (templatesData?.data ?? []) : offlineTemplates) as any[];
@@ -597,6 +625,8 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           // itemActions is the executor-resolved tape for this filter.
           hasPendingChecklist: hasActionKind(itemActions, 'SUBMIT_CHECKLIST'),
           dryerReadingsSubmitted: cachedState.currentCycle?.dryerReadingsSubmitted,
+          dryerStartedAt: cachedState.currentCycle?.dryerStartedAt ?? null,
+          dryerDurationMinutes: cachedState.currentCycle?.dryerDurationMinutes ?? null,
           homeBlockId: cachedState.homeBlock?.id,
           blockChangeStatus: cachedState.blockChangeStatus,
           selectedBlockId: selectedBlock?.id,
@@ -605,10 +635,52 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           failed.push(`${item.filterName}: ${gate.reason}`);
           continue;
         }
-        // Batch path: cannot handle interactive reason dialog for new cycles
+        // Issue #3 fix (2026-05-18): when the queue holds exactly ONE item that
+        // needs a cycle start, route it through the same reason-dialog flow that
+        // single-scan handleSubmit uses. The dialog itself works offline because
+        // cleaning reasons + equipment groups are cached on login (see line 363,
+        // 364). Multi-filter queues still refuse mid-batch dialog because the
+        // operator can't sensibly answer one reason for N filters in series.
         if (!cycleInProgress) {
+          if (scanQueue.length === 1) {
+            core.dispatch({
+              type: 'open_reason',
+              filterId: item.filterId,
+              filterName: item.filterName,
+              stage: activeStage.key,
+            });
+            setSelectedReason('');
+            setJustification('');
+            // Drop the queue — the reason dialog drives the rest of the flow,
+            // and the operator no longer needs the Submit-All button.
+            setScanQueue([]);
+            setLoading(false);
+            return;
+          }
           failed.push(`${item.filterName}: no active cycle — use single scan to start a cycle`);
           continue;
+        }
+
+        // Issue #4 fix (2026-05-18): DRY_IN advance requires dryerAction +
+        // dryerDurationMinutes when the dryer hasn't been started yet for this
+        // cycle. handleSubmit (single-scan) opens the Set-Dryer-Duration dialog
+        // for this case (line 979). The batch path used to fire a plain
+        // advance which the server then rejected at replay time, leaving the
+        // cycle stuck. Mirror the single-scan behavior here so the batch
+        // mode also opens the dryer dialog when the queue has just one item.
+        if (activeStage.key === 'DRY_IN') {
+          const cyc = cachedState.currentCycle ?? {};
+          const dryerStarted = !!cyc.dryerStartedAt && !!cyc.dryerDurationMinutes;
+          if (!dryerStarted) {
+            if (scanQueue.length === 1) {
+              core.dispatch({ type: 'open_dryer', filterId: item.filterId, filterName: item.filterName });
+              setScanQueue([]);
+              setLoading(false);
+              return;
+            }
+            failed.push(`${item.filterName}: dryer not started — use single scan to set duration`);
+            continue;
+          }
         }
 
         const { executed } = await executeOrQueue('advance', item.filterId, item.filterName, {
@@ -816,6 +888,8 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           // the gate validates against — single source of truth.
           hasPendingChecklist: hasActionKind(resolvedActions, 'SUBMIT_CHECKLIST'),
           dryerReadingsSubmitted: state.currentCycle?.dryerReadingsSubmitted,
+          dryerStartedAt: state.currentCycle?.dryerStartedAt ?? null,
+          dryerDurationMinutes: state.currentCycle?.dryerDurationMinutes ?? null,
           homeBlockId: state.homeBlock?.id,
           blockChangeStatus: state.blockChangeStatus,
           selectedBlockId: selectedBlock?.id,
@@ -1499,6 +1573,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 <div className="text-xs text-slate-400 mt-0.5">{isApprover ? 'Review requests' : 'Track your requests'}</div>
               </button>
               )}
+              {/* Issue #7 fix — Cleaning Cycles tile on mobile */}
+              <button onClick={() => setView('cycles')} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm active:shadow-none active:scale-[0.98] transition-all text-left">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center mb-3 shadow-lg shadow-indigo-500/20">
+                  <span className="text-2xl">📋</span>
+                </div>
+                <div className="text-sm font-bold text-slate-800">Cleaning Cycles</div>
+                <div className="text-xs text-slate-400 mt-0.5">Recent cycle history</div>
+              </button>
             </div>
             )}
 
@@ -1880,6 +1962,92 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                     )}
                   </div>
                 </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ═══ CLEANING CYCLES VIEW (Issue #7) ═══ */}
+        {view === 'cycles' && (
+          <div className="p-4 space-y-3">
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">Cleaning Cycles</h2>
+              <p className="text-xs text-slate-500 mt-0.5">Recent cycles · {cyclesList.length}</p>
+            </div>
+            {!online && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700">
+                Offline — showing last cached snapshot. Reconnect to refresh.
+              </div>
+            )}
+            {online && cyclesLoading && (
+              <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="bg-white border border-slate-200 rounded-2xl h-24 animate-pulse" />
+              ))}</div>
+            )}
+            {cyclesList.length === 0 && !cyclesLoading && (
+              <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-sm text-slate-500">
+                No cleaning cycles yet.
+              </div>
+            )}
+            {cyclesList.map((cyc: any) => {
+              const isExpanded = expandedCycle === cyc.id;
+              const statusBadge =
+                cyc.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                cyc.status === 'TERMINATED' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                'bg-blue-50 text-blue-700 border-blue-200';
+              const durSec = cyc.completedAt
+                ? Math.max(0, Math.floor((new Date(cyc.completedAt).getTime() - new Date(cyc.startedAt).getTime()) / 1000))
+                : Math.max(0, Math.floor((Date.now() - new Date(cyc.startedAt).getTime()) / 1000));
+              const durLabel = durSec >= 3600
+                ? `${Math.floor(durSec / 3600)}h ${Math.floor((durSec % 3600) / 60)}m`
+                : `${Math.floor(durSec / 60)}m ${durSec % 60}s`;
+              const events = (cyc.events ?? []) as any[];
+              return (
+                <button key={cyc.id} onClick={() => setExpandedCycle(isExpanded ? null : cyc.id)}
+                  className="w-full bg-white rounded-2xl border border-slate-200 p-3 shadow-sm active:bg-slate-50 text-left">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-bold text-slate-800 truncate">{cyc.filter?.name ?? cyc.filterName ?? cyc.cycleCode}</div>
+                      <div className="text-[11px] text-slate-400 truncate">{cyc.cycleCode}</div>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${statusBadge}`}>
+                      {cyc.status === 'IN_PROGRESS' ? 'In Progress' : cyc.status === 'COMPLETED' ? 'Completed' : 'Terminated'}
+                    </span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
+                    <div>
+                      <div className="text-slate-400">Started</div>
+                      <div className="text-slate-700 font-medium">{formatTime(new Date(cyc.startedAt))}</div>
+                    </div>
+                    <div>
+                      <div className="text-slate-400">Duration</div>
+                      <div className="text-slate-700 font-medium">{durLabel}</div>
+                    </div>
+                    <div>
+                      <div className="text-slate-400">Reason</div>
+                      <div className="text-slate-700 font-medium truncate">{cyc.cleaningReasonLabel ?? '-'}</div>
+                    </div>
+                  </div>
+                  {isExpanded && events.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-slate-100 space-y-1.5">
+                      {events.map((e: any, i: number) => (
+                        <div key={e.id ?? i} className="flex items-center justify-between text-[11px] gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="text-slate-400 shrink-0">{formatTime(new Date(e.performedAt))}</span>
+                            <span className="font-medium text-slate-700 truncate">
+                              {e.eventType === 'STATE_TRANSITION'
+                                ? (e.fromState ? `${e.fromState.replace(/_/g, ' ')} → ${e.toState?.replace(/_/g, ' ')}` : (e.toState?.replace(/_/g, ' ') ?? 'transition'))
+                                : e.eventType.replace(/_/g, ' ').toLowerCase()}
+                            </span>
+                          </div>
+                          {(e.attributes as any)?.action && (
+                            <span className="text-[10px] text-slate-400 truncate">{(e.attributes as any).action.replace(/_/g, ' ').toLowerCase()}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </button>
               );
             })}
           </div>

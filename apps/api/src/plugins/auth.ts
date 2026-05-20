@@ -84,7 +84,17 @@ async function getCachedUser(userId: string): Promise<CachedUser | null> {
     where: { id: userId },
     select: { role: true, username: true, status: true, forcePasswordChange: true, passwordExpiresAt: true },
   });
-  if (user) userAuthCache.set(userId, { user, cachedAt: Date.now() });
+  if (!user) return user;
+  // Do NOT cache users mid-password-change. Temp-password / expired-password
+  // operators flip forcePasswordChange false the moment they submit a new
+  // password; if we cache the stale `true`, dashboard SWR queries after the
+  // redirect see 403 FORCE_PASSWORD_CHANGE for up to 30s and the FE
+  // window.location-redirects back to /change-password (operator perceives
+  // it as "page refreshed, new password didn't take"). They go through
+  // change-password exactly once — paying one extra DB read per request
+  // during that brief window is cheap; the cache is for steady-state users.
+  if (user.forcePasswordChange) return user;
+  userAuthCache.set(userId, { user, cachedAt: Date.now() });
   return user;
 }
 

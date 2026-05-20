@@ -222,19 +222,48 @@ export async function advanceImpl(
     }
   }
 
+  // Fold the dryer-action info into the main event's attributes so that
+  // SET_DURATION emits ONE filter_event row, not two. The previous code
+  // wrote a separate "DRYER_STARTED" STATE_TRANSITION inside the same tx
+  // (lines below, now removed), both stamped with the same clientOpId.
+  // That broke server-side idempotency-by-clientOpId — a single op produced
+  // two audit rows with identical clientOpId 14ms apart — and bloated the
+  // immutable trail with redundant transitions (see test 2026-05-18
+  // cycle CC-fffffff-00-003 at 16:42:54).
+  //
+  // Offline-cycle correctness (2026-05-18): when SET_DURATION is replayed
+  // from an offline queue, stamp dryer_started_at with the offline
+  // timestamp, not server NOW. Otherwise the FOLLOWING op in the queue
+  // (advance DRY_IN → STORAGE_IN, also stamped with an offline
+  // performedAt) will fail assertDryerHalfTimeBeforeLeavingDryIn because
+  // (offlinePerformedAt - serverNow) is negative or tiny. With offline
+  // anchor, the subsequent op compares two offline timestamps and the
+  // half-time guard passes for cycles the operator actually waited out.
+  const dryerStartedAt = dryerAction === 'SET_DURATION' ? (offlineTime ?? new Date()) : null;
   const eventAttributes = withClientOpId({
     ...(parameters ?? {}),
     ...(validatedReadings ? { instrumentReadings: validatedReadings } : {}),
+    ...(dryerAction === 'SET_DURATION' ? { action: 'DRYER_STARTED', dryerDurationMinutes, dryerStartedAt: dryerStartedAt!.toISOString() } : {}),
+    ...(dryerAction === 'SUBMIT_READINGS' ? { action: 'DRYER_READINGS_SUBMITTED' } : {}),
   }, clientOpId);
 
+  // Dryer-readings submission is recorded as a STATE_TRANSITION row but
+  // the filter never actually leaves DRY_IN (isDryerInPlace). Storing
+  // fromState=toState=DRY_IN reads as "DRY_IN → DRY_IN" in the audit UI,
+  // which misleads inspectors into thinking a transition happened. Set
+  // fromState=null when no transition actually occurs; the `action`
+  // attribute already labels the event correctly.
+  const persistedFromState = isDryerInPlace ? null : fromState;
   const eventData = {
     filterId, cycleId: cycle.id, eventType: 'STATE_TRANSITION' as const,
-    fromState, toState: targetState,
+    fromState: persistedFromState, toState: targetState,
     performedBy: ctx.userSub,
     cleaningAreaId: cleaningAreaId ?? null,
     equipmentId: equipmentId ?? null,
     attributes: eventAttributes,
-    remarks: remarks ?? null,
+    remarks: dryerAction === 'SET_DURATION'
+      ? (remarks ?? `Dryer started for ${dryerDurationMinutes} minute(s)`)
+      : (remarks ?? null),
   };
   const checksum = computeChecksum(eventData);
 
@@ -282,27 +311,15 @@ export async function advanceImpl(
       });
     }
 
-    // Dryer SET_DURATION: persist duration + start time, emit DRYER_STARTED event
+    // Dryer SET_DURATION: persist duration + start time on the cycle row.
+    // The DRYER_STARTED audit info is now folded into the main advance event
+    // (see eventAttributes above) — emitting a separate row here would
+    // duplicate the audit-trail with two state transitions per advance and
+    // break clientOpId-based idempotency.
     if (dryerAction === 'SET_DURATION') {
-      const startedAt = new Date();
       await tx.cleaningCycle.update({
         where: { id: cycle.id },
-        data: { dryerDurationMinutes, dryerStartedAt: startedAt },
-      });
-      const dryerEvent = {
-        filterId, cycleId: cycle.id, eventType: 'STATE_TRANSITION' as const,
-        fromState: currentState, toState: targetState,
-        performedBy: ctx.userSub,
-        attributes: withClientOpId({ dryerDurationMinutes, dryerStartedAt: startedAt.toISOString(), action: 'DRYER_STARTED' }, clientOpId),
-        remarks: `Dryer started for ${dryerDurationMinutes} minute(s)`,
-      };
-      await tx.filterEvent.create({
-        data: {
-          ...dryerEvent,
-          checksum: computeChecksum(dryerEvent),
-          ipAddress: ctx.ipAddress,
-          telemetrySnapshot: {},
-        },
+        data: { dryerDurationMinutes, dryerStartedAt: dryerStartedAt! },
       });
     }
 

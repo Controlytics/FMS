@@ -77,3 +77,13 @@ RFID/.gradle/
 *.apk
 *.aab
 !old/apks/*.apk
+!DigiLog-FilterOps.apk
+
+# Temporary test/debug artifacts (.tmp_* convention used by maintenance
+# scripts that dump user state, wipe SQL, password-history snapshots, etc.)
+/.tmp_*
+/APPLICATION_REPORT.md
+
+# mkcert accidentally creates a nested certs/certs/ dir if you run it
+# from the certs/ folder — duplicate of the parent. Never commit.
+certs/certs/

@@ -47,6 +47,8 @@ export interface GateInput {
   cycleInProgress: boolean;
   hasPendingChecklist: boolean;
   dryerReadingsSubmitted?: boolean;
+  dryerStartedAt?: string | Date | null;
+  dryerDurationMinutes?: number | null;
   homeBlockId?: string | null;
   blockChangeStatus?: string | null;
   selectedBlockId?: string | null;
@@ -135,6 +137,29 @@ export function validateOfflineGate(g: GateInput): GateResult {
   // DRY_IN guard
   if (g.activeStageKey === 'DRY_IN' && g.dryerReadingsSubmitted) {
     return { ok: false, reason: 'dry-in already recorded — scan on Dry Out' };
+  }
+  // Leaving-DRY_IN guard (2026-05-18): when the filter is at DRY_IN and the
+  // operator scans a non-DRY_IN stage, mirror the server's
+  // assertDryerHalfTimeBeforeLeavingDryIn + dryer-readings rules locally.
+  // Otherwise the offline queue accepts the advance, syncs Wash In/Out + Dry
+  // In, then the server rejects Storage In / Storage Out replay because
+  // dryer half-time hasn't elapsed (dryer_started_at gets stamped at sync
+  // moment). Operator sees "duration was still there" and the cycle stays
+  // stuck mid-pipeline.
+  if (g.currentLifecycle === 'DRY_IN' && g.activeStageKey !== 'DRY_IN') {
+    if (!g.dryerStartedAt || !g.dryerDurationMinutes) {
+      return { ok: false, reason: 'set the dryer duration before leaving Dry In' };
+    }
+    if (!g.dryerReadingsSubmitted) {
+      const startedMs = new Date(g.dryerStartedAt).getTime();
+      const halfMs = (g.dryerDurationMinutes * 60_000) / 2;
+      const elapsedMs = Date.now() - startedMs;
+      if (elapsedMs < halfMs) {
+        const remainingMin = Math.max(1, Math.ceil((halfMs - elapsedMs) / 60_000));
+        return { ok: false, reason: `dryer still running — wait ${remainingMin} more minute(s) before leaving Dry In` };
+      }
+      return { ok: false, reason: 'submit dryer temperature before leaving Dry In' };
+    }
   }
   return { ok: true };
 }
