@@ -76,11 +76,12 @@ export const REAUTH_ACTIONS = {
   EXECUTE_RETENTION: { label: 'Execute Retention', category: 'Retention' },
   // Audit deletion (audit 2026-05-04 fix #5 — web-routes review H4):
   // 21 CFR Part 11 § 11.10(e) requires audit-trail records be "secure".
-  // Deletion is allowed (the route exists) but must be challengeable;
-  // each delete is a deliberate, signed act. Distinct keys for single
-  // vs bulk so the audit trail records the operator's intent.
-  DELETE_AUDIT_RECORD: { label: 'Delete Audit Record', category: 'Configuration' },
-  BULK_DELETE_AUDIT_RECORDS: { label: 'Bulk Delete Audit Records', category: 'Configuration' },
+  // Deletion is NOT allowed — it broke the hash chain at the deletion point.
+  // REDACT replaces it: payload is NULLed but checksum + chain link preserved.
+  // Distinct keys for single vs bulk so the surviving audit row records the
+  // operator's intent. Delta-audit 2026-05-20 §C1 / May 16 §1.2 fix.
+  REDACT_AUDIT_RECORD: { label: 'Redact Audit Record', category: 'Configuration' },
+  BULK_REDACT_AUDIT_RECORDS: { label: 'Bulk Redact Audit Records', category: 'Configuration' },
   // LDAP config (audit 2026-05-04 fix #5 — web-routes review H2):
   // bind credentials and base-DN edits can redirect every login to an
   // attacker-controlled directory. Distinct from UPDATE_LOGIN_SECURITY

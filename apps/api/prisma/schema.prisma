@@ -292,6 +292,15 @@ model AuditTrail {
   // batched writes; chainPosition can't). bigserial-equivalent.
   chainPosition    BigInt?  @default(autoincrement()) @map("chain_position")
   signatureMeaning String?  @map("signature_meaning") @db.VarChar(255)
+  // Audit 2026-05-20 §C1 / May 16 §1.2 fix: 21 CFR §11.10(e)-compliant
+  // REDACTION path replaces physical DELETE. When set, beforeValue + afterValue
+  // are NULLed but checksum + chainPosition + previousChecksum are preserved
+  // so the chain stays intact. verifyAuditChecksum() treats redactedAt != null
+  // rows as "valid: redacted" rather than recomputing the per-row checksum
+  // (which would no longer match after payload was NULLed).
+  redactedAt       DateTime? @map("redacted_at") @db.Timestamptz
+  redactedBy       String?   @map("redacted_by") @db.VarChar(100)
+  redactionReason  String?   @map("redaction_reason")
 
   @@index([timestamp(sort: Desc)])
   @@index([userId])

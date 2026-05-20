@@ -107,15 +107,19 @@ export function AuditTrailPage() {
   const isAllSelected = data?.data?.length > 0 && data.data.every((r: any) => selectedIds.has(r.id));
   const isSomeSelected = selectedIds.size > 0;
 
-  // Audit 2026-05-04 fix #5 (web-routes review H4): per § 11.10(e), audit
-  // deletion must be challengeable. Distinct keys for single vs bulk so the
-  // operator intent is recorded in the surviving audit trail.
-  const deleteSingleAudit = (id: string) => {
+  // Delta-audit 2026-05-20 §C1 / May 16 §1.2: audit DELETE replaced with REDACT.
+  // REDACT preserves checksum + chain link, NULLs the payload, stamps redactedAt/By.
+  // Per 21 CFR §11.10(e) the chain MUST remain intact — physical deletion broke it.
+  // Operator must supply a reason (>= 5 chars).
+  const redactSingleAudit = (id: string) => {
+    const reason = window.prompt('Reason for redacting this audit record (min 5 characters):');
+    if (!reason || reason.trim().length < 5) return;
     reauth.execute(
-      'DELETE_AUDIT_RECORD',
+      'REDACT_AUDIT_RECORD',
       async (password?: string) => {
-        if (password) await api.deleteWithReauth(`/api/audit/${id}`, password);
-        else await apiClient.delete(`/api/audit/${id}`);
+        const body = { reason: reason.trim() };
+        if (password) await api.postWithReauth(`/api/audit/${id}/redact`, body, password);
+        else await apiClient.post(`/api/audit/${id}/redact`, body);
       },
       {
         onSuccess: () => {
@@ -126,19 +130,21 @@ export function AuditTrailPage() {
           });
           mutate();
         },
-        onError: (err: any) => console.error('Failed to delete audit record:', err),
+        onError: (err: any) => console.error('Failed to redact audit record:', err),
       },
     );
   };
 
-  const bulkDeleteAudit = () => {
+  const bulkRedactAudit = () => {
+    const reason = window.prompt(`Reason for redacting ${selectedIds.size} audit records (min 5 characters):`);
+    if (!reason || reason.trim().length < 5) return;
     setDeleting(true);
     reauth.execute(
-      'BULK_DELETE_AUDIT_RECORDS',
+      'BULK_REDACT_AUDIT_RECORDS',
       async (password?: string) => {
-        const body = { ids: Array.from(selectedIds) };
-        if (password) await api.postWithReauth('/api/audit/bulk-delete', body, password);
-        else await apiClient.post('/api/audit/bulk-delete', body);
+        const body = { ids: Array.from(selectedIds), reason: reason.trim() };
+        if (password) await api.postWithReauth('/api/audit/bulk-redact', body, password);
+        else await apiClient.post('/api/audit/bulk-redact', body);
       },
       {
         onSuccess: () => {
@@ -148,7 +154,7 @@ export function AuditTrailPage() {
           setDeleting(false);
         },
         onError: (err: any) => {
-          console.error('Failed to bulk delete audit records:', err);
+          console.error('Failed to bulk redact audit records:', err);
           setDeleting(false);
         },
       },
@@ -310,7 +316,7 @@ export function AuditTrailPage() {
           templates={templates}
           ACTION_COLORS={ACTION_COLORS}
           onViewRecord={setSelectedRecord}
-          onDeleteRecord={deleteSingleAudit}
+          onDeleteRecord={redactSingleAudit}
         />
       </ReportPageWrapper>
 
@@ -343,7 +349,7 @@ export function AuditTrailPage() {
         selectedCount={selectedIds.size}
         deleting={deleting}
         onClose={() => setShowDeleteConfirm(false)}
-        onConfirm={bulkDeleteAudit}
+        onConfirm={bulkRedactAudit}
       />
 
       <ReauthDialog

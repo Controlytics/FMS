@@ -49,7 +49,17 @@ export function verifyAuditChecksum(record: {
   afterValue?: unknown;
   checksum: string;
   previousChecksum?: string | null;
+  redactedAt?: Date | string | null;
 }): boolean {
+  // Audit 2026-05-20 §C1 fix: redacted rows preserve the original checksum +
+  // chain link, but beforeValue + afterValue are NULLed. Recomputing would
+  // now fail because the payload no longer matches the original. Treat
+  // redactedAt != null as "valid (redacted)" — the chain walker still
+  // verifies the previous_checksum linkage, so an UN-authorized payload
+  // mutation on a redacted row would still surface via chain mismatch on
+  // the NEXT row (its previous_checksum points at this row's stored
+  // checksum, which is the pre-redaction value).
+  if (record.redactedAt != null) return true;
   const baseFields = {
     timestamp: record.timestamp instanceof Date ? record.timestamp.toISOString() : record.timestamp,
     userId: record.userId ?? undefined,

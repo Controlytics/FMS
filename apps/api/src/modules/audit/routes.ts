@@ -217,118 +217,139 @@ export default async function auditRoutes(app: FastifyInstance) {
   });
 
   // DELETE /api/audit/:id — delete single audit record (SUPER_ADMIN only)
-  app.delete('/:id', {
+  // POST /api/audit/:id/redact — redact a single audit record (SUPER_ADMIN only).
+  // Replaces DELETE per delta-audit §C1 / May 16 §1.2: physical deletion broke
+  // the hash chain at the gap point. REDACT preserves checksum + chain link,
+  // NULLs the beforeValue/afterValue payload, and stamps redactedAt/redactedBy.
+  // verifyAuditChecksum() treats redactedAt != null rows as "valid (redacted)"
+  // — chain integrity preserved, payload contents withheld.
+  app.post('/:id/redact', {
     preHandler: [app.requireSuperAdmin()],
     schema: {
       tags: ['Audit'],
-      summary: 'Delete audit record',
-      description: 'Permanently delete a single audit trail record. SUPER_ADMIN only.',
+      summary: 'Redact audit record',
+      description: 'Redact the payload of a single audit trail record while preserving the chain link. SUPER_ADMIN only. Replaces the prior DELETE endpoint per 21 CFR §11.10(e).',
       params: {
         type: 'object',
         required: ['id'],
-        properties: {
-          id: { type: 'string', description: 'Audit record ID' },
-        },
+        properties: { id: { type: 'string', description: 'Audit record ID' } },
+      },
+      body: {
+        type: 'object',
+        required: ['reason'],
+        properties: { reason: { type: 'string', minLength: 5, maxLength: 500 } },
       },
       response: {
-        200: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-          },
-        },
+        200: { type: 'object', properties: { success: { type: 'boolean' }, redactedAt: { type: 'string' } } },
         ...errorResponses,
       },
     },
   }, async (req, reply) => {
-    // Audit 2026-05-04 fix #5 (web-routes review H4): per § 11.10(e),
-    // audit-record deletion must be challengeable. Distinct action key
-    // (DELETE_AUDIT_RECORD vs BULK_DELETE_AUDIT_RECORDS) so the operator
-    // intent is recorded in the surviving audit trail.
-    const { ok } = await enforceReauth('DELETE_AUDIT_RECORD', req, reply);
+    const { ok } = await enforceReauth('REDACT_AUDIT_RECORD', req, reply);
     if (!ok) return;
     const { id } = req.params as { id: string };
+    const { reason } = req.body as { reason: string };
 
     const record = await prisma.auditTrail.findUnique({ where: { id } });
     if (!record) return reply.code(404).send({ error: 'Audit record not found' });
+    // redactedAt accessed via raw SQL because the Prisma client may not yet
+    // be regenerated against the 20260520140000 migration on dev machines
+    // with tsx watch holding the engine DLL (per LOCAL_SETUP_WINDOWS notes).
+    const priorRedact = await prisma.$queryRaw<Array<{ redacted_at: Date | null }>>`
+      SELECT redacted_at FROM audit_trail WHERE id = ${id}::uuid
+    `;
+    if (priorRedact[0]?.redacted_at) return reply.code(409).send({ error: 'ALREADY_REDACTED', message: 'Record was already redacted' });
 
-    await auditLog({
-      userId: req.user.sub, userRole: req.user.role,
-      action: 'AUDIT_RECORD_DELETED',
-      targetType: 'audit_trail', targetId: id,
-      beforeValue: { id: record.id, action: record.action, timestamp: record.timestamp, userId: record.userId, targetType: record.targetType, targetId: record.targetId },
-      reason: 'Audit record deleted by administrator',
-      signatureMeaning: `Audit record ${id} permanently deleted`,
-      ipAddress: req.ip, sessionId: req.user.sessionId,
-    });
-
+    const now = new Date();
     await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe('ALTER TABLE "audit_trail" DISABLE TRIGGER audit_trail_no_delete');
-      await tx.auditTrail.delete({ where: { id } });
-      await tx.$executeRawUnsafe('ALTER TABLE "audit_trail" ENABLE TRIGGER audit_trail_no_delete');
+      await tx.$executeRaw`
+        UPDATE audit_trail
+        SET before_value = NULL,
+            after_value = NULL,
+            redacted_at = ${now},
+            redacted_by = ${req.user.sub},
+            redaction_reason = ${reason}
+        WHERE id = ${id}::uuid
+      `;
+      // Meta-audit row records the redaction itself (within the same tx so
+      // it cannot be lost if anything else fails).
+      await auditLog({
+        userId: req.user.sub, userRole: req.user.role,
+        action: 'AUDIT_RECORD_REDACTED',
+        targetType: 'audit_trail', targetId: id,
+        beforeValue: { id: record.id, action: record.action, timestamp: record.timestamp, userId: record.userId, targetType: record.targetType, targetId: record.targetId },
+        reason,
+        signatureMeaning: `Audit record ${id} payload redacted; chain link preserved`,
+        ipAddress: req.ip, sessionId: req.user.sessionId,
+      }, tx);
     });
 
-    return { success: true };
+    return { success: true, redactedAt: now.toISOString() };
   });
 
-  // POST /api/audit/bulk-delete — delete multiple audit records (SUPER_ADMIN only)
-  app.post('/bulk-delete', {
+  // POST /api/audit/bulk-redact — redact multiple audit records (SUPER_ADMIN only).
+  app.post('/bulk-redact', {
     preHandler: [app.requireSuperAdmin()],
     schema: {
       tags: ['Audit'],
-      summary: 'Delete selected audit records',
-      description: 'Permanently delete multiple audit trail records by their IDs. SUPER_ADMIN only.',
+      summary: 'Redact selected audit records',
+      description: 'Redact the payloads of multiple audit trail records by ID. SUPER_ADMIN only. Replaces bulk-delete per 21 CFR §11.10(e).',
       body: {
         type: 'object',
-        required: ['ids'],
+        required: ['ids', 'reason'],
         properties: {
-          ids: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
+          ids: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1, maxItems: 1000 },
+          reason: { type: 'string', minLength: 5, maxLength: 500 },
         },
       },
       response: {
-        200: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            count: { type: 'integer' },
-          },
-        },
+        200: { type: 'object', properties: { success: { type: 'boolean' }, count: { type: 'integer' }, redactedAt: { type: 'string' } } },
         ...errorResponses,
       },
     },
   }, async (req, reply) => {
-    // Audit 2026-05-04 fix #5 (web-routes review H4): bulk delete needs its
-    // own action key — collapsing it into DELETE_AUDIT_RECORD would let an
-    // operator wipe many rows under a single password challenge.
-    const { ok } = await enforceReauth('BULK_DELETE_AUDIT_RECORDS', req, reply);
+    const { ok } = await enforceReauth('BULK_REDACT_AUDIT_RECORDS', req, reply);
     if (!ok) return;
-    const { ids } = req.body as { ids: string[] };
+    const { ids, reason } = req.body as { ids: string[]; reason: string };
 
-    const records = await prisma.auditTrail.findMany({
-      where: { id: { in: ids } },
-      select: { id: true, action: true, timestamp: true, userId: true, targetType: true, targetId: true },
-    });
+    // Pull un-redacted matching ids via raw SQL (Prisma client regen-pending
+    // on dev). The redacted_at filter ensures we never re-redact (which
+    // would overwrite the prior redactor's name + reason).
+    const unredacted = await prisma.$queryRaw<Array<{ id: string; action: string; timestamp: Date; user_id: string | null; target_type: string | null; target_id: string | null }>>`
+      SELECT id, action, timestamp, user_id, target_type, target_id
+      FROM audit_trail
+      WHERE id = ANY(${ids}::uuid[]) AND redacted_at IS NULL
+    `;
+    if (unredacted.length === 0) return reply.code(409).send({ error: 'ALREADY_REDACTED_OR_MISSING', message: 'No matching un-redacted records' });
+    const matchedIds = unredacted.map((r) => r.id);
 
-    await auditLog({
-      userId: req.user.sub, userRole: req.user.role,
-      action: 'AUDIT_RECORDS_BULK_DELETED',
-      targetType: 'audit_trail', targetId: ids.join(','),
-      beforeValue: { recordCount: records.length, records },
-      reason: `${records.length} audit records deleted by administrator`,
-      signatureMeaning: `${records.length} audit records permanently deleted`,
-      ipAddress: req.ip, sessionId: req.user.sessionId,
-    });
-
+    const now = new Date();
     const result = await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe('ALTER TABLE "audit_trail" DISABLE TRIGGER audit_trail_no_delete');
-      const deleted = await tx.auditTrail.deleteMany({
-        where: { id: { in: ids } },
-      });
-      await tx.$executeRawUnsafe('ALTER TABLE "audit_trail" ENABLE TRIGGER audit_trail_no_delete');
-      return deleted;
+      const updated = await tx.$executeRaw`
+        UPDATE audit_trail
+        SET before_value = NULL,
+            after_value = NULL,
+            redacted_at = ${now},
+            redacted_by = ${req.user.sub},
+            redaction_reason = ${reason}
+        WHERE id = ANY(${matchedIds}::uuid[])
+      `;
+      await auditLog({
+        userId: req.user.sub, userRole: req.user.role,
+        action: 'AUDIT_RECORDS_BULK_REDACTED',
+        targetType: 'audit_trail', targetId: matchedIds.join(','),
+        beforeValue: { recordCount: unredacted.length, records: unredacted.map((r) => ({
+          id: r.id, action: r.action, timestamp: r.timestamp, userId: r.user_id,
+          targetType: r.target_type, targetId: r.target_id,
+        })) },
+        reason,
+        signatureMeaning: `${unredacted.length} audit record payloads redacted; chain links preserved`,
+        ipAddress: req.ip, sessionId: req.user.sessionId,
+      }, tx);
+      return updated;
     });
 
-    return { success: true, count: result.count };
+    return { success: true, count: result, redactedAt: now.toISOString() };
   });
 
   // GET /api/audit/verify-chain — audit 2026-05-04 fix C3.
