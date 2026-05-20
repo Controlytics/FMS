@@ -207,7 +207,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     let buffer = '';
     let lastKeyTime = 0;
     let captureMode = false;
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
     const RFID_INTERVAL_MS = 150;  // ≤ this gap = RFID. Used only to gate captureMode.
+    // 2026-05-20: gap-based auto-flush. Some KC-series readers send tags
+    // back-to-back without Enter/Tab between them, so without this the
+    // global buffer accumulates "tag-Atag-B…" and the scan input shows the
+    // concatenation. After the last key of a burst, wait FLUSH_AFTER_MS for
+    // another key — if none arrives, treat it as the burst end and submit.
+    const FLUSH_AFTER_MS = 250;
 
     const handler = (e: KeyboardEvent) => {
       const now = Date.now();
@@ -221,12 +228,13 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // Enter or Tab terminates an RFID burst — most readers append CR/LF/TAB.
       // Submit immediately on terminator. Zero wait.
       if (e.key === 'Enter' || e.key === 'Tab') {
+        if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
         if (captureMode || buffer.length > 0) {
           e.preventDefault();
           if (buffer.length >= 4) {
             const toSubmit = buffer;
             pushDebug(`SUBMIT: "${toSubmit}" (len ${toSubmit.length})`);
-            setScanValue(toSubmit);
+            setScanValue('');
             if (view === 'stage') {
               // Pass buffer directly — scanValue state hasn't committed yet.
               handleAddToQueue(toSubmit);
@@ -257,10 +265,25 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         buffer += e.key;
 
         // Live update: stuff the buffer into the scan input as each key arrives.
-        // No setTimeout, no flush timer — operator sees the EPC build in real
-        // time. If a slow reader doesn't send Enter/Tab, the input still shows
-        // the full tag the moment the last character arrives.
+        // Operator sees the EPC build in real time.
         setScanValue(buffer);
+
+        // Restart the gap-based flush timer. If no further key arrives within
+        // FLUSH_AFTER_MS, submit the buffer. This catches readers that don't
+        // send Enter/Tab between back-to-back tags (without this, buffer
+        // accumulates "tag-Atag-B…" and only one tag is registered).
+        if (flushTimer) clearTimeout(flushTimer);
+        flushTimer = setTimeout(() => {
+          if (buffer.length >= 4) {
+            const toSubmit = buffer;
+            pushDebug(`AUTO-FLUSH: "${toSubmit}" (len ${toSubmit.length})`);
+            setScanValue('');
+            if (view === 'stage') handleAddToQueue(toSubmit);
+          }
+          buffer = '';
+          captureMode = false;
+          flushTimer = null;
+        }, FLUSH_AFTER_MS);
 
         if (!isScanInput && captureMode) {
           e.preventDefault();
@@ -270,12 +293,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         // Human-speed key after a long gap — reset state in case prior buffer was stale
         buffer = '';
         captureMode = false;
+        if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
       }
     };
 
     document.addEventListener('keydown', handler, true);
     return () => {
       document.removeEventListener('keydown', handler, true);
+      if (flushTimer) clearTimeout(flushTimer);
     };
   }, [view, scanQueue.length]);
 
@@ -2423,24 +2448,24 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 )}
 
                 <div className="flex gap-2">
-                  <input ref={scanInputRef} type="text" value={scanValue} onChange={e => { setScanValue(e.target.value); setError(''); }}
-                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddToQueue(); } }}
+                  {/* 2026-05-20: scan field is RFID-only — no manual text
+                      entry. readOnly prevents the on-screen keyboard from
+                      surfacing on tap AND blocks pasted/typed input from
+                      appearing in the field. The global RFID-burst handler
+                      above still writes the EPC into scanValue via
+                      setScanValue (React state update bypasses readOnly).
+                      The +Add button is gone — RFID auto-flush + Enter/Tab
+                      submit are the only paths into the queue. */}
+                  <input ref={scanInputRef} type="text" value={scanValue} readOnly
                     onBlur={() => {
-                      // If focus drifted to body or a non-input element, snap back.
-                      // Lets buttons and the submit flow steal focus, but never lets
-                      // focus end up on document.body where RFID keystrokes get lost.
                       setTimeout(() => {
                         const ae = document.activeElement;
                         if (!ae || ae === document.body) focusScanInput();
                       }, 50);
                     }}
-                    placeholder="Scan or type filter name..."
+                    placeholder="Scan RFID tag..."
                     data-rfid="true"
-                    className="flex-1 bg-white border-2 border-slate-200 rounded-2xl px-4 py-4 text-base text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-cyan-500 shadow-sm" autoFocus />
-                  <button onClick={() => handleAddToQueue()} disabled={!scanValue.trim()}
-                    className="px-4 py-4 bg-white border-2 border-cyan-500 text-cyan-700 rounded-2xl font-bold text-sm disabled:opacity-40 active:bg-cyan-50 shrink-0">
-                    + Add
-                  </button>
+                    className="flex-1 bg-white border-2 border-slate-200 rounded-2xl px-4 py-4 text-base text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-cyan-500 shadow-sm cursor-default" autoFocus />
                 </div>
 
                 {/* Scan Queue */}
