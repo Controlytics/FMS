@@ -620,6 +620,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const handleSubmitQueue = async () => {
     if (scanQueue.length === 0 || !activeStage || loading) return;
     setLoading(true); setError(''); setSuccess('');
+    // 2026-05-20: snapshot the queue BEFORE the loop so the post-batch
+    // current-state prime can target every filter even after setScanQueue([])
+    // clears the live state.
+    const scanQueueSnapshot = scanQueue.slice();
     let successCount = 0;
     const failed: string[] = [];
     // Deep-review fix D6 (2026-05-17): outer try/finally so the loading flag
@@ -886,7 +890,32 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // didn't see the panel until the next reload because offlineFilters
     // was stale; the per-filter cache write was correct but allFilters
     // doesn't pull from there.
-    if (online) mutate('/api/assets/instances?limit=500');
+    // 2026-05-20: force a hard revalidation for the instances list AND for
+    // each queued filter's /current-state endpoint. Pre-fix: only one
+    // countdown card surfaced after batch dryer-start because:
+    //   (a) `mutate(key)` was deduped by the global SWR config
+    //       (dedupingInterval: 5000) when a prior fetch was in-flight; and
+    //   (b) DryingFilterCard does its OWN apiClient.get for current-state on
+    //       mount + 15s interval — no SWR cache key, so global mutate didn't
+    //       touch it. The card for the FIRST filter (still mounted from a
+    //       previous flow) kept its stale cycleData until the 15s tick.
+    //
+    // Fix: revalidate with explicit `{ revalidate: true }` for the list,
+    // then prime each per-filter card's cycleData directly via apiClient
+    // so the panel paints with all countdowns immediately, no 15s wait.
+    const queuedIds = scanQueueSnapshot.map(q => q.filterId);
+    if (online) {
+      await mutate('/api/assets/instances?limit=500', undefined, { revalidate: true });
+      // Prime per-filter cache so when DryingFilterCard remounts/refetches,
+      // the data is already in the in-memory store. We also write to the
+      // offline-store cache so an OFFLINE remount sees the same data.
+      await Promise.all(queuedIds.map(async fid => {
+        try {
+          const st = await apiClient.get<any>(`/api/filters/${fid}/current-state`);
+          if (st) await cache(`filter-state-${fid}`, st, 24 * 60 * 60 * 1000);
+        } catch { /* per-filter prime is best-effort */ }
+      }));
+    }
     refreshOfflineData();
     } catch (e: any) {
       // REAUTH bubbled out of the inner loop — the reauth dialog stays open
