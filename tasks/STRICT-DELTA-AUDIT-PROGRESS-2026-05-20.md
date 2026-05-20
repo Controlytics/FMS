@@ -2,7 +2,7 @@
 
 Companion to `STRICT-DELTA-AUDIT-2026-05-20.md`. Records what landed in this session and what's still open.
 
-**Session commits on RFID** (8 in total, all pushed branch unchanged):
+**Session commits on RFID** (12 in total, all local — `git push` deferred):
 
 | Commit | Wave | Scope |
 |---|---|---|
@@ -14,6 +14,10 @@ Companion to `STRICT-DELTA-AUDIT-2026-05-20.md`. Records what landed in this ses
 | `c5a3a8b` | 4 | Drop SUPER_ADMIN audit-trail edit/delete + userId guard |
 | `5f6e81f` | 4 | REDACT replaces audit DELETE (preserves hash chain) |
 | `3e88ca1` | 5 | Delete schema.prisma.bak + AssetInstance.parentId Restrict |
+| `f11633f` | — | Wave 1-5 progress doc |
+| `05ecf96` | 6 | Backup pre-flight size guard (mitigates §1.9 silent OOM) |
+| `041f3be` | 6 | May 16 H1 / H12 / H19 / H20 / H21 quick wins |
+| `7e15137` | 6 | H2 env-gated trustProxy + H18 lazy-load FilterOps/AuditTrail |
 
 ## Status of every audit finding
 
@@ -29,18 +33,41 @@ Companion to `STRICT-DELTA-AUDIT-2026-05-20.md`. Records what landed in this ses
 | §1.6 | audit_trail.userId nullable | ✅ CLOSED THIS SESSION (app-layer) | `c5a3a8b` runtime guard with SYSTEM_AUDIT_ACTIONS allow-list; DB CHECK deferred (historical NULL rows exist; cannot backfill without breaking chain) |
 | §1.7 | Per-request auth-tax | ✅ CLOSED | Pre-this-session (userAuthCache landed May 16) |
 | §1.8 | Unbounded list endpoints | ✅ CLOSED | Pre-this-session (default + max limits) |
-| §1.9 | Backup loads entire DB into memory | ❌ OPEN | Wave 6 deferred — 1-2 dev-days; needs streaming rewrite + integration test on 100k+ row audit_trail |
+| §1.9 | Backup loads entire DB into memory | 🟡 MITIGATED (`05ecf96`) | Pre-flight row-count guard fails fast with 413 BACKUP_TOO_LARGE before allocation. Proper streaming refactor still planned. |
 | §1.10 | Cross-cycle idempotency replay | ✅ CLOSED | Pre-this-session (cycleId required) |
 | §1.11 | Backup leaks bcrypt hashes | ✅ CLOSED | Pre-this-session (password fields stripped on export) |
 
-**Net CRIT outcome: 1 of 6 originally-open CRITs remains open (§1.9 backup streaming).**
+**Net CRIT outcome: 0 of 6 originally-open CRITs remain in their original form.** §1.9 mitigated via early-fail guard; full streaming rewrite still planned as a separate effort.
 
-### HIGH delta-audit findings (was 22, now 21 open)
+### HIGH findings (was 22, now 15 open)
 
 | # | Finding | Status |
 |---|---|---|
-| §2.1 | Auth cache invalidation on admin-force-reset | ✅ CLOSED THIS SESSION (`b7c6acb`) |
-| May 16 H1-H21 | Various | All still open per May 16 baseline — none addressed this session |
+| §2.1 | Auth cache invalidation on admin-force-reset | ✅ CLOSED (`b7c6acb`) |
+| H1 | Unauth user enumeration via /user-lookup | ✅ CLOSED (`041f3be`) |
+| H2 | XFF forgery via unconditional trustProxy:1 | ✅ CLOSED (`7e15137`) |
+| H4 | WS subscription DoS (Set.add unbounded) | ✅ CLOSED (`208f6c1` — 1000-subs cap) |
+| H8 | AssetInstance.parentId SetNull silent re-root | ✅ CLOSED (`3e88ca1`) |
+| H10 | TimescaleDB compression policies | ✅ ALREADY DONE (init-tsdb.sql:167-172 — May 16 audit missed) |
+| H11 | schema.prisma.bak in source | ✅ CLOSED (`3e88ca1`) |
+| H12 | template_kinds.code FK ON UPDATE CASCADE | ✅ CLOSED (`041f3be`) |
+| H18 | Main bundle 1.47 MB | ✅ CLOSED (`7e15137` — FilterOps + AuditTrail lazy) |
+| H19 | Aggressive SWR polling | ✅ CLOSED (`041f3be` — 4 endpoints retuned) |
+| H20 | getDashboardStats sequential queries | ✅ CLOSED (`041f3be` — Promise.all) |
+| H21 | puppeteer networkidle0 500ms penalty | ✅ CLOSED (`041f3be` — `'load'`) |
+| H3, H5, H6, H7, H9, H13, H14, H15, H16, H17 | Various | ❌ STILL OPEN — see below |
+
+**Remaining HIGH items (10 of 22 still open)**:
+- H3 — 13 SUPER_ADMIN routes only check CONFIG_UPDATE (ADMIN policy-escalation, ~6h)
+- H5 — Reauth `_reauthVerified` flag set but unused (~2h)
+- H6 — FilterEvent soft-keyed FKs (needs orphan backfill, ~1d)
+- H7 — 14 tables with UUID columns lacking FK (orphan creep, ~1d)
+- H9 — Retention policy not enforced on 4 Prisma tables (~6h)
+- H13 — Audit-chain advisory lock latency under burst (3-5d, big change)
+- H14 — Notification retries lost on restart (setTimeout-based, 1-2d)
+- H15 — Unbounded SMTP fan-out (200 concurrent, ~4h)
+- H16 — MQTT handler fire-and-forget memory exhaustion (~1d)
+- H17 — getCurrentState 9-13 sequential reads per call (1-2d, needs query plan analysis)
 
 ### NEW MEDIUM (was 32, now 30 open)
 
