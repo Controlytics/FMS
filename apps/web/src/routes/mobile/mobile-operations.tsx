@@ -174,11 +174,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           const epc = (tag.epc ?? '').trim();
           if (!epc) return;
           setScanValue(epc);
-          // Defer one tick so React applies the value before submit reads it
-          setTimeout(() => {
-            setScanValue(epc);
-            handleAddToQueue();
-          }, 0);
+          // Pass epc directly so handleAddToQueue doesn't rely on the
+          // not-yet-committed scanValue state (stale-closure issue).
+          handleAddToQueue(epc);
         },
         (err) => { if (!cancelled) setRfidError(err); },
       );
@@ -221,7 +219,8 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             pushDebug(`SUBMIT: "${toSubmit}" (len ${toSubmit.length})`);
             setScanValue(toSubmit);
             if (view === 'stage') {
-              handleAddToQueue();
+              // Pass buffer directly — scanValue state hasn't committed yet.
+              handleAddToQueue(toSubmit);
             }
           }
           buffer = '';
@@ -527,11 +526,17 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     if (online) mutate('/api/assets/instances?limit=500');
   };
 
-  const resolveFilter = async (): Promise<{ filterId: string; filterName: string; ahuName?: string } | null> => {
+  // 2026-05-20: accept an explicit `rawValue` arg so RFID-driven scans can
+  // pass the EPC directly, bypassing the stale-closure problem where
+  // setScanValue(epc) + immediate handleAddToQueue() sees the OLD scanValue
+  // (React state update isn't observable inside the same callback frame).
+  // The keyboard-input path falls back to reading scanValue as before.
+  const resolveFilter = async (rawValue?: string): Promise<{ filterId: string; filterName: string; ahuName?: string } | null> => {
     let filterId = ''; let filterName = '';
+    const source = rawValue ?? scanValue;
 
     // Deduplicate RFID scan value (reader may repeat tag ID)
-    let sv = scanValue.trim().toUpperCase();
+    let sv = source.trim().toUpperCase();
     if (sv.length >= 6 && sv.length % 2 === 0) {
       const half = sv.length / 2;
       if (sv.substring(0, half) === sv.substring(half)) sv = sv.substring(0, half);
@@ -555,7 +560,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       try {
         const map = await getCache<Record<string, { filterId: string; filterName: string }>>('identifier-map');
         if (map) {
-          const match = map[sv] || map[sv.toUpperCase()] || map[sv.toLowerCase()] || map[scanValue.trim()];
+          const match = map[sv] || map[sv.toUpperCase()] || map[sv.toLowerCase()] || map[source.trim()];
           if (match) { filterId = match.filterId; filterName = match.filterName; }
         }
       } catch { /* IDB read failed — fall through to name match below */ }
@@ -578,18 +583,22 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     return { filterId, filterName, ahuName };
   };
 
-  // Add scanned filter to queue (batch mode)
-  const handleAddToQueue = async () => {
-    if (!scanValue.trim()) return;
+  // Add scanned filter to queue (batch mode).
+  // 2026-05-20: accept an explicit `rawValue` arg so RFID-driven scans
+  // bypass the stale-closure problem (setScanValue + immediate call sees
+  // the old value). Falls back to scanValue for the keyboard Enter path.
+  const handleAddToQueue = async (rawValue?: string) => {
+    const value = (rawValue ?? scanValue).trim();
+    if (!value) return;
     setError('');
-    const resolved = await resolveFilter();
+    const resolved = await resolveFilter(value);
     if (!resolved) return;
     if (scanQueue.some(q => q.filterId === resolved.filterId)) {
       setError('Filter already in queue');
       setScanValue('');
       return;
     }
-    setScanQueue(prev => [...prev, { ...resolved, tagId: scanValue.trim() }]);
+    setScanQueue(prev => [...prev, { ...resolved, tagId: value }]);
     // 2026-05-20: pre-populate per-filter dryer duration with a sensible
     // default so the Submit-All button is enabled out of the box. Operator
     // can change per row before submitting. Only meaningful on DRY_IN
@@ -2314,7 +2323,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                     placeholder="Scan or type filter name..."
                     data-rfid="true"
                     className="flex-1 bg-white border-2 border-slate-200 rounded-2xl px-4 py-4 text-base text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-cyan-500 shadow-sm" autoFocus />
-                  <button onClick={handleAddToQueue} disabled={!scanValue.trim()}
+                  <button onClick={() => handleAddToQueue()} disabled={!scanValue.trim()}
                     className="px-4 py-4 bg-white border-2 border-cyan-500 text-cyan-700 rounded-2xl font-bold text-sm disabled:opacity-40 active:bg-cyan-50 shrink-0">
                     + Add
                   </button>
