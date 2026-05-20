@@ -141,11 +141,89 @@ export default async function auditRoutes(app: FastifyInstance) {
       prisma.auditTrail.count({ where: where as any }),
     ]);
 
-    // Verify checksum integrity for each record
-    const data = records.map((record: any) => ({
-      ...record,
-      integrityValid: verifyAuditChecksum(record),
-    }));
+    // 2026-05-20 enrichment fix: many older audit rows stored only IDs in
+    // afterValue (e.g. CYCLE_STARTED had {cycleCode, cleaningReasonKey,
+    // filterId} but no filterName). The audit-templates substitution on the
+    // FE looks for `name` / `filterName` / `equipmentName` and falls through
+    // to "" when none are present — so the rendered row reads
+    //   `cycle started for filter "" with reason "FILTER" by 101114`
+    // Backfilling stored payloads is impossible without a chain-breaking
+    // UPDATE. Instead, enrich at read time by batch-looking up filters and
+    // cycles that the audit row references, then attaching `_enriched`
+    // fields to afterValue (NOT modifying the original — the checksum still
+    // verifies). FE merges these in for rendering.
+    const filterIds = new Set<string>();
+    const cycleIds = new Set<string>();
+    for (const r of records as any[]) {
+      const af = (r.afterValue ?? {}) as Record<string, unknown>;
+      const bf = (r.beforeValue ?? {}) as Record<string, unknown>;
+      const fid = (af.filterId as string) || (bf.filterId as string);
+      if (fid) filterIds.add(fid);
+      if (r.targetType === 'filter' && typeof r.targetId === 'string') filterIds.add(r.targetId);
+      if (r.targetType === 'cleaning_cycle' && typeof r.targetId === 'string') cycleIds.add(r.targetId);
+    }
+    const [filters, cycles] = await Promise.all([
+      filterIds.size > 0
+        ? prisma.assetInstance.findMany({
+            where: { id: { in: Array.from(filterIds) } },
+            select: { id: true, name: true },
+          })
+        : Promise.resolve([] as Array<{ id: string; name: string }>),
+      cycleIds.size > 0
+        ? prisma.cleaningCycle.findMany({
+            where: { id: { in: Array.from(cycleIds) } },
+            select: { id: true, cycleCode: true, filterId: true, cleaningReasonLabel: true },
+          })
+        : Promise.resolve([] as Array<{ id: string; cycleCode: string; filterId: string; cleaningReasonLabel: string | null }>),
+    ]);
+    const filterNameById = new Map(filters.map((f) => [f.id, f.name]));
+    const cycleById = new Map(cycles.map((c) => [c.id, c]));
+    // Second-pass filter lookup for cycles → their referenced filterIds
+    const extraFilterIds = new Set<string>();
+    for (const c of cycles) if (c.filterId && !filterNameById.has(c.filterId)) extraFilterIds.add(c.filterId);
+    if (extraFilterIds.size > 0) {
+      const extra = await prisma.assetInstance.findMany({
+        where: { id: { in: Array.from(extraFilterIds) } },
+        select: { id: true, name: true },
+      });
+      for (const f of extra) filterNameById.set(f.id, f.name);
+    }
+
+    const data = records.map((record: any) => {
+      const af = (record.afterValue ?? {}) as Record<string, unknown>;
+      const bf = (record.beforeValue ?? {}) as Record<string, unknown>;
+      const enriched: Record<string, unknown> = { ...af };
+
+      const fid = (af.filterId as string) || (bf.filterId as string)
+        || (record.targetType === 'filter' ? record.targetId : null);
+      if (fid && filterNameById.has(fid)) {
+        enriched.filterName = enriched.filterName ?? filterNameById.get(fid);
+      }
+      if (record.targetType === 'cleaning_cycle' && typeof record.targetId === 'string') {
+        const c = cycleById.get(record.targetId);
+        if (c) {
+          if (c.filterId && filterNameById.has(c.filterId)) {
+            enriched.filterName = enriched.filterName ?? filterNameById.get(c.filterId);
+          }
+          if (c.cleaningReasonLabel) {
+            enriched.cleaningReasonLabel = enriched.cleaningReasonLabel ?? c.cleaningReasonLabel;
+          }
+          if (c.cycleCode) {
+            enriched.cycleCode = enriched.cycleCode ?? c.cycleCode;
+          }
+        }
+      }
+
+      return {
+        ...record,
+        // Override afterValue with enriched fields so the FE template
+        // substitution picks them up without any FE-side fetches. Original
+        // checksum is computed against ORIGINAL afterValue — recompute
+        // verification against THAT, not the enriched copy.
+        afterValue: enriched,
+        integrityValid: verifyAuditChecksum({ ...record, afterValue: af }),
+      };
+    });
 
     return {
       data,

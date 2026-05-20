@@ -111,6 +111,13 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
     || after.cleaningReasonKey || before.cleaningReasonKey
     || after.reason || before.reason || '';
 
+  // 2026-05-20 fix: add {stage} (checklist/state-transition rows have
+  // afterValue.stage / afterValue.state) and generic {status} (many flows
+  // store status without before/after split). These were used by templates
+  // but had no substitution → rendered as literal "{stage}".
+  const stage = (after.stage as string) || (after.state as string) || (before.stage as string) || (before.state as string) || '';
+  const status = (after.status as string) || (before.status as string) || afterStatus || beforeStatus || '';
+
   const replacePlaceholders = (tpl: string) =>
     tpl
       .replace(/\{actor\}/g, actor)
@@ -123,7 +130,9 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
       .replace(/\{beforeStatus\}/g, beforeStatus)
       .replace(/\{afterStatus\}/g, afterStatus)
       .replace(/\{identifierType\}/g, identifierType)
-      .replace(/\{reason\}/g, reason);
+      .replace(/\{reason\}/g, reason)
+      .replace(/\{stage\}/g, stage)
+      .replace(/\{status\}/g, status);
 
   // Self-action handling: check for _SELF variant
   const selfActions = ['USER_UPDATED', 'PROFILE_UPDATED', 'PASSWORD_CHANGED'];
