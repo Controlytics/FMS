@@ -35,6 +35,51 @@ export function MobileLoginPage() {
     }
   };
 
+  // 2026-05-20 fix — mobile login NEVER minted the offline-replay grant.
+  //
+  // This handler is a standalone code path that bypasses use-auth.ts entirely
+  // (no `useAuth().login()` call). The grant-minting code in use-auth.ts that
+  // posts to /api/auth/offline-grant after every successful login was
+  // therefore unreachable on the tablet — operator 101114 (Siva) logged in
+  // 2026-05-20 11:04:27 and 12:46:49 and 13:08:55 with NO grant landing,
+  // confirmed via audit_trail. Every queued offline op then 401'd with
+  // REAUTH_REQUIRED on replay, got marked `failed` after 5 retries, and the
+  // operator's cleaning work disappeared silently.
+  //
+  // Inlining the grant call here AFTER both the main success path AND the
+  // SESSION_CONFLICT force-retry path. Best-effort with single retry to
+  // ride out transient network blips. On total failure, sets
+  // sessionStorage['offline_grant_failed']=1 so the sync-engine's
+  // needs-reauth pre-flight (added 2026-05-20) catches the missing grant
+  // before draining the queue.
+  const mintOfflineGrant = async (password: string): Promise<void> => {
+    const post = async () => {
+      const grant = await apiClient.post<{ token: string; expiresAt: string }>(
+        '/api/auth/offline-grant',
+        { _currentPassword: password },
+      );
+      sessionStorage.setItem('offline_replay_token', grant.token);
+      sessionStorage.setItem('offline_replay_expires', grant.expiresAt);
+      localStorage.setItem('offline_replay_token_backup', grant.token);
+      localStorage.setItem('offline_replay_expires_backup', grant.expiresAt);
+      sessionStorage.removeItem('offline_grant_failed');
+    };
+    try {
+      await post();
+    } catch (e) {
+      // eslint-disable-next-line no-console -- intentional structured log
+      console.warn('[mobile-login] Offline-replay grant first attempt failed; retrying once:', e);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        await post();
+      } catch (e2) {
+        // eslint-disable-next-line no-console -- intentional structured log
+        console.error('[mobile-login] Failed to mint offline-replay grant after retry — offline mode will fail until next login:', e2);
+        sessionStorage.setItem('offline_grant_failed', '1');
+      }
+    }
+  };
+
   const handleLogin = async (force?: boolean) => {
     if (!username.trim() || !password.trim()) return;
     setLoading(true); setError(''); setAttemptsRemaining(null); setAccountLocked(false);
@@ -57,6 +102,8 @@ export function MobileLoginPage() {
       }
       sessionStorage.setItem('access_token', res.token);
       localStorage.setItem('access_token_backup', res.token);
+      // Mint the offline-replay grant (was the missing piece on tablet logins).
+      await mintOfflineGrant(password);
       navigate('/m', { replace: true });
     } catch (e: any) {
       if (e?.code === 'SESSION_CONFLICT' || e?.error === 'SESSION_CONFLICT' || e?.message?.includes('session')) {
@@ -79,6 +126,11 @@ export function MobileLoginPage() {
             }
             sessionStorage.setItem('access_token', res.token);
             localStorage.setItem('access_token_backup', res.token);
+            // Mint the offline-replay grant on the force-retry path too. This
+            // is the exact scenario that bit operator 101114: their tablet
+            // always had a lingering session and EVERY login forced through
+            // this branch, missing the grant.
+            await mintOfflineGrant(password);
             navigate('/m', { replace: true });
           } catch (e2: any) {
             // Auto-retry failed — show manual force button as fallback
