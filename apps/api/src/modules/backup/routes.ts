@@ -33,32 +33,44 @@ export default async function backupRoutes(app: FastifyInstance) {
     const ctx = buildContext(req);
     const { format = 'json' } = req.query as { format?: string };
 
-    if (format === 'sql') {
-      const { sqlContent, filename } = await backupService.exportSql(req.user.username, ctx);
-      reply.header('Content-Type', 'application/sql');
+    // BackupTooLargeError is thrown by fetchAllTablesRaw when any table
+    // exceeds BACKUP_MAX_ROWS_PER_TABLE — closes the silent OOM mode of
+    // May 16 §1.9 / delta-audit C6 until the streaming refactor lands.
+    try {
+      if (format === 'sql') {
+        const { sqlContent, filename } = await backupService.exportSql(req.user.username, ctx);
+        reply.header('Content-Type', 'application/sql');
+        reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+        return reply.send(sqlContent);
+      }
+      if (format === 'csv') {
+        const { zipBuffer, filename } = await backupService.exportCsv(req.user.username, ctx);
+        reply.header('Content-Type', 'application/zip');
+        reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+        return reply.send(zipBuffer);
+      }
+      if (format === 'bak') {
+        const { compressed, filename } = await backupService.exportBak(req.user.username, ctx);
+        reply.header('Content-Type', 'application/octet-stream');
+        reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+        return reply.send(compressed);
+      }
+      const { backup, filename } = await backupService.exportJson(req.user.username, ctx);
+      reply.header('Content-Type', 'application/json');
       reply.header('Content-Disposition', `attachment; filename="${filename}"`);
-      return reply.send(sqlContent);
+      return reply.send(JSON.stringify(backup, null, 2));
+    } catch (err: any) {
+      if (err?.name === 'BackupTooLargeError') {
+        return reply.code(413).send({
+          error: 'BACKUP_TOO_LARGE',
+          message: err.message,
+          table: err.table,
+          rowCount: err.rowCount,
+          limit: err.limit,
+        });
+      }
+      throw err;
     }
-
-    if (format === 'csv') {
-      const { zipBuffer, filename } = await backupService.exportCsv(req.user.username, ctx);
-      reply.header('Content-Type', 'application/zip');
-      reply.header('Content-Disposition', `attachment; filename="${filename}"`);
-      return reply.send(zipBuffer);
-    }
-
-    if (format === 'bak') {
-      const { compressed, filename } = await backupService.exportBak(req.user.username, ctx);
-      reply.header('Content-Type', 'application/octet-stream');
-      reply.header('Content-Disposition', `attachment; filename="${filename}"`);
-      return reply.send(compressed);
-    }
-
-    // JSON format (default)
-    const { backup, filename } = await backupService.exportJson(req.user.username, ctx);
-    reply.header('Content-Type', 'application/json');
-    reply.header('Content-Disposition', `attachment; filename="${filename}"`);
-    return reply.send(JSON.stringify(backup, null, 2));
   });
 
   // POST /api/backup/restore — Restore from backup file.

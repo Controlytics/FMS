@@ -173,8 +173,60 @@ function stripSensitiveColumns(table: string, rows: Record<string, any>[]): Reco
   return rows;
 }
 
+/**
+ * Per-table row cap. Closes the immediate failure mode of May 16 §1.9 /
+ * delta-audit C6 — the current backup pipeline loads every table into
+ * memory then builds 2-4 copies (JSON.stringify, gzipSync, SQL string
+ * concatenation). With a 1.5 GB Node heap that OOMs silently at ~3M
+ * audit_trail rows.
+ *
+ * Until the proper streaming-to-temp-file rewrite lands, this guard
+ * fails the export early with a clear error code instead of OOMing
+ * mid-stream. Operators with larger DBs must use `pg_dump` directly
+ * (out-of-band, OS-level credentials, audited via OS journaling) until
+ * the streaming refactor ships.
+ *
+ * Cap is the per-table row count, NOT total bytes — far easier to
+ * compute and a good proxy. Configurable via BACKUP_MAX_ROWS_PER_TABLE
+ * env var (default 500k). Set to 0 to disable the guard (NOT recommended
+ * in production).
+ */
+const BACKUP_MAX_ROWS_PER_TABLE = (() => {
+  const v = process.env.BACKUP_MAX_ROWS_PER_TABLE;
+  if (!v) return 500_000;
+  const n = Number.parseInt(v, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 500_000;
+})();
+
+export class BackupTooLargeError extends Error {
+  constructor(public readonly table: string, public readonly rowCount: number, public readonly limit: number) {
+    super(
+      `Backup blocked: table "${table}" has ${rowCount.toLocaleString()} rows ` +
+      `(per-table limit ${limit.toLocaleString()}). The current backup pipeline ` +
+      `loads everything into memory and will OOM at this size. ` +
+      `Use pg_dump out-of-band, or raise BACKUP_MAX_ROWS_PER_TABLE after the ` +
+      `streaming refactor lands (May 16 §1.9 / delta-audit C6).`,
+    );
+    this.name = 'BackupTooLargeError';
+  }
+}
+
 export async function fetchAllTablesRaw(): Promise<Record<string, Record<string, any>[]>> {
   const tables = await getAllTables();
+
+  // Pre-flight size guard — fail fast before allocating gigabytes.
+  if (BACKUP_MAX_ROWS_PER_TABLE > 0) {
+    for (const table of tables) {
+      const countRows = await prisma.$queryRawUnsafe<Array<{ c: bigint }>>(
+        `SELECT COUNT(*)::bigint AS c FROM "${table}"`,
+      );
+      const n = Number(countRows[0]?.c ?? 0n);
+      if (n > BACKUP_MAX_ROWS_PER_TABLE) {
+        throw new BackupTooLargeError(table, n, BACKUP_MAX_ROWS_PER_TABLE);
+      }
+    }
+  }
+
   const result: Record<string, Record<string, any>[]> = {};
   for (const table of tables) {
     const orderClause = table === 'audit_trail' ? ' ORDER BY id ASC' : '';
