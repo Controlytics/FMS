@@ -397,28 +397,36 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
              legacy cache rows that pre-date this wiring */
         }
 
-        if (!executed) {
-          // Offline-parity cache rewrite — clear pendingChecklist and
-          // re-derive nextAllowedStages + actions from the tape. Errors
-          // here are swallowed (legacy behaviour at
-          // mobile-operations.tsx:1397-1415 pre-migration) so a transient
-          // IDB failure doesn't trip OFFLINE_CACHE_RECOMPUTE_FAILED.
-          try {
-            const cs = await getCachedData<any>(`filter-state-${args.filterId}`) ?? {};
-            const clearedRow = { ...cs, pendingChecklist: [] };
-            await cacheData(`filter-state-${args.filterId}`, clearedRow, OFFLINE_TTL_MS);
-            const tape = await getCurrentActions(args.filterId, null);
-            const newAllowed = tape
-              .filter((a) => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION')
-              .map((a) => (a as { params: { targetState: string } }).params.targetState);
-            await cacheData(
-              `filter-state-${args.filterId}`,
-              { ...clearedRow, nextAllowedStages: newAllowed, actions: tape },
-              OFFLINE_TTL_MS,
-            );
-          } catch {
-            /* see jsdoc — intentionally swallowed to match legacy behaviour */
-          }
+        // 2026-05-20: cache rewrite runs for BOTH online + offline submits.
+        // Pre-fix: this branch was `if (!executed)`, so an online checklist
+        // submit left the cached `actions` tape with SUBMIT_CHECKLIST still
+        // at the head. The batch-DRY_IN replay (handleSubmitQueue retrying
+        // after the dialog closes) re-read that stale tape, saw the gate
+        // still pending, and re-opened the same checklist dialog — the
+        // operator submitted, the dialog reopened, looped forever.
+        //
+        // The legacy mobile-operations.tsx flow didn't care because it
+        // didn't have an auto-replay — the operator manually re-scanned
+        // after checklist, which triggered a fresh /current-state fetch.
+        // The replay path needs the cache to reflect server reality.
+        try {
+          const cs = await getCachedData<any>(`filter-state-${args.filterId}`) ?? {};
+          const clearedRow = { ...cs, pendingChecklist: [] };
+          await cacheData(`filter-state-${args.filterId}`, clearedRow, OFFLINE_TTL_MS);
+          const tape = await getCurrentActions(args.filterId, null);
+          const newAllowed = tape
+            .filter((a) => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION')
+            .map((a) => (a as { params: { targetState: string } }).params.targetState);
+          await cacheData(
+            `filter-state-${args.filterId}`,
+            { ...clearedRow, nextAllowedStages: newAllowed, actions: tape },
+            OFFLINE_TTL_MS,
+          );
+        } catch {
+          /* IDB failure non-fatal — the next /current-state fetch will
+             repopulate. Without this swallow, a transient IDB hiccup would
+             trip OFFLINE_CACHE_RECOMPUTE_FAILED and surface a scary error
+             for a flow that's already succeeded server-side. */
         }
 
         const remainingBatch =
