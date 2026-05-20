@@ -33,6 +33,12 @@ const allClients = new Set<WsClient>();
 // Default max connections per user
 const DEFAULT_MAX_CONNECTIONS = 5;
 
+// Per-client subscription cap. Closes the May 16 H4 DoS where any
+// authenticated user could call Set.add(entityId) repeatedly to grow
+// the bus-relay walk cost without bound. Real installs have <2k entities;
+// 1000 is generous headroom.
+const MAX_SUBSCRIPTIONS_PER_CLIENT = 1000;
+
 let busUnsubscribe: BusUnsubscribe | null = null;
 
 async function getMaxConnectionsPerUser(): Promise<number> {
@@ -81,6 +87,66 @@ function initBusSubscriber(): void {
     }
   });
   console.info('[WS] Subscribed to internal-bus channel ws:events');
+}
+
+/**
+ * Per-entity authorization for WS SUBSCRIBE.
+ *
+ * Delta-audit 2026-05-20 §C3 / May 16 §1.4 fix. Pre-fix any authenticated
+ * user could subscribe to any entityId and receive live telemetry / RPC /
+ * attribute streams for entities outside their visibility scope.
+ *
+ * Mirrors the HTTP-route visibility semantics from
+ * `apps/api/src/modules/assets/routes/instance.routes.ts` so WS and REST
+ * answer the same question the same way:
+ *   - SUPER_ADMIN / ADMIN bypass.
+ *   - Otherwise, opt-in scoping: if any EntityAssignment / TemplateAssignment
+ *     row targets this user (USER) or their role (ROLE), only those entities
+ *     (plus the user's own creations) are visible. If no rows target the
+ *     user, scoping is OFF and ASSET_VIEW alone is the gate.
+ *
+ * This deliberately does NOT call requirePermission('ASSET_VIEW') — the
+ * @fastify/websocket plugin doesn't run pre-handlers. The JWT verify step
+ * already established the user is authenticated; we treat any authenticated
+ * principal as having read access UNLESS opt-in scoping is active.
+ */
+async function canSubscribeToEntity(client: WsClient, entityId: string): Promise<boolean> {
+  if (client.role === 'SUPER_ADMIN' || client.role === 'ADMIN') return true;
+
+  const entity = await prisma.assetInstance.findUnique({
+    where: { id: entityId },
+    select: { id: true, templateId: true, createdBy: true },
+  });
+  if (!entity) return false; // refuse subscriptions to non-existent entities
+
+  // Opt-in scoping check — keyed by USER + ROLE.
+  const [entityRows, templateRows] = await Promise.all([
+    prisma.entityAssignment.findMany({
+      where: {
+        OR: [
+          { assigneeType: 'USER', userId: client.userId },
+          { assigneeType: 'ROLE', roleValue: client.role },
+        ],
+      },
+      select: { entityId: true },
+      take: 10000,
+    }),
+    prisma.templateAssignment.findMany({
+      where: { assigneeType: 'USER', userId: client.userId },
+      select: { templateId: true },
+      take: 10000,
+    }),
+  ]);
+
+  const assignedEntityIds = new Set(entityRows.map((r) => r.entityId));
+  const assignedTemplateIds = new Set(templateRows.map((r) => r.templateId));
+  const hasExplicit = assignedEntityIds.size > 0 || assignedTemplateIds.size > 0;
+  if (!hasExplicit) return true; // opt-in scoping inactive → ASSET_VIEW grants all
+
+  if (assignedEntityIds.has(entityId)) return true;
+  if (entity.templateId && assignedTemplateIds.has(entity.templateId)) return true;
+  if (entity.createdBy && entity.createdBy === client.username) return true;
+  return false;
 }
 
 function addConnection(client: WsClient): boolean {
@@ -212,6 +278,26 @@ export default async function wsHandler(app: FastifyInstance) {
         const entityId = msg.entityId as string;
         if (!entityId) {
           socket.send(JSON.stringify({ type: 'ERROR', message: 'Missing entityId' }));
+          return;
+        }
+
+        if (client.subscriptions.size >= MAX_SUBSCRIPTIONS_PER_CLIENT) {
+          socket.send(JSON.stringify({
+            type: 'ERROR',
+            code: 'SUBSCRIPTION_LIMIT',
+            message: `Max ${MAX_SUBSCRIPTIONS_PER_CLIENT} subscriptions per connection`,
+          }));
+          return;
+        }
+
+        const allowed = await canSubscribeToEntity(client, entityId);
+        if (!allowed) {
+          socket.send(JSON.stringify({
+            type: 'ERROR',
+            code: 'FORBIDDEN',
+            message: 'Not authorized to subscribe to this entity',
+            entityId,
+          }));
           return;
         }
 
