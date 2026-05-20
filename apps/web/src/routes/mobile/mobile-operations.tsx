@@ -724,6 +724,17 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 remarks: remarks || `Dryer started (${dur} min) - ${item.filterName}`,
               });
               setRecentOps(prev => [{ stage: 'Dryer Started', filter: item.filterName, time: formatTime(new Date()), queued: !dryerExec }, ...prev].slice(0, 20));
+              // 2026-05-20 explicit IDB filters-store write — guarantees the
+              // Currently Drying panel sees DRY_IN for this filter regardless
+              // of whether core.advance's recomputeAndCacheFilterState ran
+              // (it only runs on the offline-queued path; the online path
+              // skips it). Without this, online batch dryer-start populated
+              // the panel only after the next SWR refresh (15s polling
+              // window) — operator saw nothing immediately.
+              try {
+                const { updateFilterStateLocally } = await import('@/lib/offline-store');
+                await updateFilterStateLocally(item.filterId, 'DRY_IN', false);
+              } catch { /* IDB write failure is non-fatal; SWR mutate is the fallback */ }
               // Mirror the dryer-timing cache write from handleDryerDurationSubmit.
               try {
                 const cached = await getCache<any>(`filter-state-${item.filterId}`) ?? {};
