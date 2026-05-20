@@ -37,7 +37,9 @@ logs/
 CREDENTIALS.md
 *.pem
 *.key
-.bak
+# Backup snapshots of any file (audit-relevant: schema.prisma.bak
+# would let `prisma db push` overwrite live schema from a stale snapshot).
+*.bak
 
 # Playwright MCP session traces (regenerated each run)
 .playwright-mcp/

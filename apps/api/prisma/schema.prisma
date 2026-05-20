@@ -617,7 +617,11 @@ model AssetInstance {
   updatedBy        String?  @map("updated_by") @db.VarChar(50)
 
   template          AssetTemplate       @relation(fields: [templateId], references: [id])
-  parent            AssetInstance?      @relation("AssetHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  // Wave 5 (2026-05-20) / May 16 H8 fix: was onDelete: SetNull. That meant
+  // deleting a Block silently re-rooted every Area / AHU / Filter under it
+  // (parent_id → NULL), losing the hierarchy context with no error. Restrict
+  // forces the operator to detach children explicitly before delete.
+  parent            AssetInstance?      @relation("AssetHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
   children          AssetInstance[]     @relation("AssetHierarchy")
   sourceRelations   AssetRelationship[] @relation("SourceAsset")
   targetRelations   AssetRelationship[] @relation("TargetAsset")
