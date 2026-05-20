@@ -136,15 +136,30 @@ export function AuditTable({
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span
-                        className="text-sm text-slate-700"
-                        title={getAuditSummary(record, templates)}
-                      >
-                        {(() => {
-                          const desc = getAuditSummary(record, templates);
-                          return desc.length > 70 ? desc.slice(0, 67) + '...' : desc;
-                        })()}
-                      </span>
+                      {(() => {
+                        const desc = getAuditSummary(record, templates);
+                        const isTruncated = desc.length > 70;
+                        const shown = isTruncated ? desc.slice(0, 67) + '...' : desc;
+                        // Styled hover popup for truncated descriptions.
+                        // The native `title` tooltip is OS-themed and slow
+                        // (~1s delay on most platforms); the custom popup
+                        // fires immediately and uses the app's color scheme.
+                        return (
+                          <span className="relative inline-block group">
+                            <span className="text-sm text-slate-700 cursor-default">
+                              {shown}
+                            </span>
+                            {isTruncated && (
+                              <span
+                                className="pointer-events-none absolute left-0 bottom-full mb-2 z-50 hidden group-hover:block w-[28rem] max-w-[36rem] bg-white text-slate-800 text-xs leading-snug rounded-lg border border-slate-200 shadow-xl px-3 py-2 whitespace-normal break-words"
+                                role="tooltip"
+                              >
+                                {desc}
+                              </span>
+                            )}
+                          </span>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       <span
