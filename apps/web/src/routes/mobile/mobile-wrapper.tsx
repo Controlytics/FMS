@@ -116,9 +116,12 @@ export function MobileWrapperPage() {
   }, [online]);
 
   // SWR for live data while online (refresh intervals for real-time updates)
-  const { data: instancesData } = useSWR(online ? '/api/assets/instances?limit=500' : null, { refreshInterval: 15000 });
+  // May 16 H19 tuning (2026-05-20): bumped intervals to halve API load.
+  // Stage-by-stage workflows operate on minute-scale, so 30-60s polling is
+  // well below operator-perceptible staleness.
+  const { data: instancesData } = useSWR(online ? '/api/assets/instances?limit=500' : null, { refreshInterval: 30000 });
   const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=1000' : null);
-  const { data: identifiersData, mutate: mutateIdentifiers } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null, { refreshInterval: 30000 });
+  const { data: identifiersData, mutate: mutateIdentifiers } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null, { refreshInterval: 60000 });
 
   // My Tasks + Approvals
   const { data: dueTasksData, mutate: mutateDueTasks, isLoading: dueTasksLoading } =

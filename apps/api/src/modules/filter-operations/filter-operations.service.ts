@@ -116,58 +116,51 @@ export class FilterOperationsService {
   }
 
   async getDashboardStats(_ctx: RequestContext) {
-    // 1. Filters by current lifecycle stage (FilterDetails — Step 6).
-    // Joining through assetInstance lets us preserve the isActive filter on
-    // the asset row even though state lives on the sidecar.
-    const stageCountsRaw = await prisma.filterDetails.groupBy({
-      by: ['currentLifecycleState'],
-      where: {
-        currentLifecycleState: { not: null },
-        assetInstance: { isActive: true },
-      },
-      _count: true,
-    });
+    // May 16 H20 fix (2026-05-20): 7 independent queries now run in parallel
+    // via Promise.all instead of sequentially. Dashboard load drops from
+    // ~7× single-query time to ~1× (limited by the slowest of the seven).
+    // Each query is independent — no shared state, no ordering dependency.
+    const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const twelveMonthsAgo = new Date(); twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+    const startOfToday = new Date(new Date().toISOString().slice(0, 10));
+
+    const [stageCountsRaw, statusCountsRaw, dailyRaw, monthlyRaw, totalFilters, activeCycles, completedToday] =
+      await Promise.all([
+        prisma.filterDetails.groupBy({
+          by: ['currentLifecycleState'],
+          where: { currentLifecycleState: { not: null }, assetInstance: { isActive: true } },
+          _count: true,
+        }),
+        prisma.cleaningCycle.groupBy({ by: ['status'], _count: true }),
+        prisma.$queryRawUnsafe<any[]>(`
+          SELECT DATE(started_at) as day, COUNT(*)::int as count
+          FROM cleaning_cycles
+          WHERE started_at >= $1
+          GROUP BY DATE(started_at) ORDER BY day
+        `, thirtyDaysAgo),
+        prisma.$queryRawUnsafe<any[]>(`
+          SELECT TO_CHAR(started_at, 'YYYY-MM') as month, COUNT(*)::int as count
+          FROM cleaning_cycles
+          WHERE started_at >= $1
+          GROUP BY TO_CHAR(started_at, 'YYYY-MM') ORDER BY month
+        `, twelveMonthsAgo),
+        prisma.assetInstance.count({
+          where: { isActive: true, template: { templateKind: 'FILTER' } },
+        }),
+        prisma.cleaningCycle.count({ where: { status: 'IN_PROGRESS' } }),
+        prisma.cleaningCycle.count({
+          where: { status: 'COMPLETED', completedAt: { gte: startOfToday } },
+        }),
+      ]);
+
     const stageCounts: Record<string, number> = {};
     for (const row of stageCountsRaw) {
       if (row.currentLifecycleState) stageCounts[row.currentLifecycleState] = row._count;
     }
-
-    // 2. Cycle status breakdown
-    const statusCountsRaw = await prisma.cleaningCycle.groupBy({
-      by: ['status'],
-      _count: true,
-    });
     const statusCounts: Record<string, number> = {};
     for (const row of statusCountsRaw) statusCounts[row.status] = row._count;
-
-    // 3. Daily cycle counts (last 30 days)
-    const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const dailyRaw: any[] = await prisma.$queryRawUnsafe(`
-      SELECT DATE(started_at) as day, COUNT(*)::int as count
-      FROM cleaning_cycles
-      WHERE started_at >= $1
-      GROUP BY DATE(started_at) ORDER BY day
-    `, thirtyDaysAgo);
-    const dailyCycles = dailyRaw.map(r => ({ day: r.day, count: r.count }));
-
-    // 4. Monthly cycle counts (last 12 months)
-    const twelveMonthsAgo = new Date(); twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
-    const monthlyRaw: any[] = await prisma.$queryRawUnsafe(`
-      SELECT TO_CHAR(started_at, 'YYYY-MM') as month, COUNT(*)::int as count
-      FROM cleaning_cycles
-      WHERE started_at >= $1
-      GROUP BY TO_CHAR(started_at, 'YYYY-MM') ORDER BY month
-    `, twelveMonthsAgo);
-    const monthlyCycles = monthlyRaw.map(r => ({ month: r.month, count: r.count }));
-
-    // 5. Total filters + active cycles
-    const totalFilters = await prisma.assetInstance.count({
-      where: { isActive: true, template: { templateKind: 'FILTER' } },
-    });
-    const activeCycles = await prisma.cleaningCycle.count({ where: { status: 'IN_PROGRESS' } });
-    const completedToday = await prisma.cleaningCycle.count({
-      where: { status: 'COMPLETED', completedAt: { gte: new Date(new Date().toISOString().slice(0, 10)) } },
-    });
+    const dailyCycles = dailyRaw.map((r: any) => ({ day: r.day, count: r.count }));
+    const monthlyCycles = monthlyRaw.map((r: any) => ({ month: r.month, count: r.count }));
 
     return { stageCounts, statusCounts, dailyCycles, monthlyCycles, totalFilters, activeCycles, completedToday };
   }

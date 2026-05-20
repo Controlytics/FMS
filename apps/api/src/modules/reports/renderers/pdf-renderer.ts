@@ -25,7 +25,13 @@ export async function renderPdf(html: string, options: PdfOptions): Promise<Buff
   const page = await b.newPage();
 
   try {
-    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30_000 });
+    // May 16 H21 tuning (2026-05-20): was 'networkidle0' which forces a 500ms
+    // idle window even when no network requests are pending. Phase 5 swapped
+    // chart rendering from chartjs-node-canvas to inline @napi-rs/canvas
+    // data URIs — there are NO network requests during setContent. 'load'
+    // returns as soon as the synchronous parse + style + paint completes,
+    // saving the 500ms penalty on every report.
+    await page.setContent(html, { waitUntil: 'load', timeout: 30_000 });
 
     const pdfUint8 = await page.pdf({
       format: (options.pageSize || 'A4') as never,

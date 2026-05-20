@@ -39,7 +39,10 @@ export function AhuDashboardPage() {
   const { formatDateTime, formatDate, formatTime } = useDatetimeFormat();
   const { data: asset } = useSWR(id ? `/api/assets/instances/${id}` : null);
   // Max 1000 filters per AHU; if more exist, a warning banner below alerts the operator.
-  const { data: childrenData } = useSWR(id ? `/api/assets/instances?parentId=${id}&limit=1000` : null, { refreshInterval: 10000 });
+  // May 16 H19 tuning (2026-05-20): was 10s. With 1000-child AHU pages, this
+  // pulled the same large payload 6×/min/operator. 30s halves API load and
+  // still feels live for cleanroom workflows that take minutes per stage.
+  const { data: childrenData } = useSWR(id ? `/api/assets/instances?parentId=${id}&limit=1000` : null, { refreshInterval: 30000 });
   const truncated = (childrenData?.total ?? 0) > ((childrenData?.data ?? []).length ?? 0);
   const { data: events } = useSWR(id ? `/api/filters/events?filterId=${id}&limit=10` : null);
   const [bulkOpen, setBulkOpen] = useState(false);

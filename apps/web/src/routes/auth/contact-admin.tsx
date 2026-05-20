@@ -47,19 +47,21 @@ export function ContactAdminPage() {
     setRequesterUser(null);
     try {
       const res = await fetch(`/api/admin-requests/user-lookup?username=${encodeURIComponent(trimmed)}`);
-      if (res.status === 404) {
-        setRequesterLookupError('Employee ID does not exist in the application');
-        return;
-      }
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setRequesterLookupError(data.message ?? `Lookup failed (${res.status})`);
         return;
       }
-      const data: LookupUser = await res.json();
-      setRequesterUser(data);
-      setRequesterName(data.fullName);
-      setRequesterEmail(data.email);
+      // Delta-audit (May 16 H1) — endpoint now returns minimal info to prevent
+      // unauthenticated org enumeration. Email + role + department dropped;
+      // operator must type them in the form below.
+      const data = await res.json() as { exists: boolean; username: string; fullName: string | null };
+      if (!data.exists) {
+        setRequesterLookupError('Employee ID does not exist in the application');
+        return;
+      }
+      setRequesterUser({ username: data.username, fullName: data.fullName ?? '', email: '', department: null, role: '', roleDisplayName: '', status: '' });
+      setRequesterName(data.fullName ?? '');
     } catch (err: any) {
       setRequesterLookupError(err.message ?? 'Lookup failed');
     } finally {
@@ -104,17 +106,17 @@ export function ContactAdminPage() {
     setLookupUser(null);
     try {
       const res = await fetch(`/api/admin-requests/user-lookup?username=${encodeURIComponent(trimmed)}`);
-      if (res.status === 404) {
-        setLookupError('Employee ID does not exist in the application');
-        return;
-      }
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setLookupError(data.message ?? `Lookup failed (${res.status})`);
         return;
       }
-      const data: LookupUser = await res.json();
-      setLookupUser(data);
+      const data = await res.json() as { exists: boolean; username: string; fullName: string | null };
+      if (!data.exists) {
+        setLookupError('Employee ID does not exist in the application');
+        return;
+      }
+      setLookupUser({ username: data.username, fullName: data.fullName ?? '', email: '', department: null, role: '', roleDisplayName: '', status: '' });
     } catch (err: any) {
       setLookupError(err.message ?? 'Lookup failed');
     } finally {

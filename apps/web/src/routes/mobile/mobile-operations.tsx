@@ -269,7 +269,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   }, [view, scanQueue.length]);
 
   // Data — always fetch when online, cache for offline
-  const { data: instancesData } = useSWR(online ? '/api/assets/instances?limit=500' : null, { refreshInterval: 15000 });
+  const { data: instancesData } = useSWR(online ? '/api/assets/instances?limit=500' : null, { refreshInterval: 30000 });
   const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=1000' : null);
   const { data: reasonsData } = useSWR(online ? '/api/filters/reasons' : null);
   const { data: identifiersData } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null);

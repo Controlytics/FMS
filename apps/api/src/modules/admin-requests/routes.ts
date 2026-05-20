@@ -64,7 +64,17 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
     });
   });
 
-  // 1b. GET /user-lookup — Public lookup by username/employee ID (for contact-admin form)
+  // 1b. GET /user-lookup — Public lookup by employee ID (for contact-admin form).
+  // Delta-audit 2026-05-20 / May 16 H1 fix: pre-fix returned distinguishable
+  // 200 (with full PII) vs 404 responses — perfect enumeration oracle for
+  // an attacker probing the org's directory. Two changes:
+  //   1. Response is uniform — always 200 with { exists, username, fullName? }.
+  //      No 404, no distinguishable error code.
+  //   2. Sensitive fields (email, department, role, status) are dropped.
+  //      They were used for FE auto-fill on MODIFY_USER; FE now asks the
+  //      operator to type the new values (safer UX too).
+  // Rate limit kept at 20/15min (rate-limiting alone wasn't enough — the
+  // shape of the response leaked info even at 1 req/min).
   app.get('/user-lookup', {
     config: {
       skipAuth: true,
@@ -77,7 +87,7 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Admin Requests'],
       summary: 'Lookup a user by employee ID (username)',
-      description: 'Public endpoint used by the contact-admin form to confirm a user exists before submitting a modification/unlock/reset request.',
+      description: 'Public endpoint used by the contact-admin form to confirm a user exists. Returns minimal info to prevent unauthenticated enumeration of org directory.',
       security: [],
       querystring: {
         type: 'object',
@@ -88,43 +98,21 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
         200: {
           type: 'object',
           properties: {
+            exists: { type: 'boolean' },
             username: { type: 'string' },
-            fullName: { type: 'string' },
-            email: { type: 'string' },
-            department: { type: ['string', 'null'] },
-            role: { type: 'string' },
-            roleDisplayName: { type: 'string' },
-            status: { type: 'string' },
-          },
-        },
-        404: {
-          type: 'object',
-          properties: {
-            error: { type: 'string' },
-            message: { type: 'string' },
+            fullName: { type: ['string', 'null'] },
           },
         },
       },
     },
-  }, async (req, reply) => {
+  }, async (req) => {
     const { username } = req.query as { username: string };
     const user = await prisma.user.findUnique({
       where: { username: username.trim() },
-      select: {
-        username: true, fullName: true, email: true, department: true, role: true, status: true,
-      },
+      select: { username: true, fullName: true },
     });
-    if (!user) {
-      return reply.code(404).send({
-        error: 'NOT_FOUND',
-        message: 'Employee ID does not exist in the application',
-      });
-    }
-    const role = await prisma.role.findUnique({
-      where: { name: user.role },
-      select: { displayName: true },
-    });
-    return { ...user, roleDisplayName: role?.displayName ?? user.role };
+    if (!user) return { exists: false, username: username.trim(), fullName: null };
+    return { exists: true, username: user.username, fullName: user.fullName };
   });
 
   // 2. GET / — List all requests (admin only)

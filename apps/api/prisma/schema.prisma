@@ -567,7 +567,14 @@ model AssetTemplate {
   versions              AssetTemplateVersion[]
   instances             AssetInstance[]
   templateAssignments   TemplateAssignment[]
-  templateKindRef       TemplateKind                      @relation(fields: [templateKind], references: [code])
+  // May 16 H12 fix (2026-05-20): explicit onUpdate: Restrict. Was implicit
+  // ON UPDATE CASCADE per Prisma default — a direct SQL `UPDATE template_kinds
+  // SET code='NEW' WHERE code='OLD'` would silently rewrite the
+  // template_kind column on EVERY asset_template row, breaking Filter
+  // Management's resolution (admin UI doesn't expose this path but DB-level
+  // operators / scripts could trigger it). RESTRICT forces explicit row
+  // migration; safer for compliance.
+  templateKindRef       TemplateKind                      @relation(fields: [templateKind], references: [code], onUpdate: Restrict)
   // Step 4 (2026-05-02): FilterProfile applicable-templates moved from JSONB
   // array on FilterProfile to a proper join table with cascade FKs. Deletes
   // are guarded server-side with 409 IN_USE if any FilterProfile binds this
