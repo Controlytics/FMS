@@ -115,7 +115,12 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   // afterValue.stage / afterValue.state) and generic {status} (many flows
   // store status without before/after split). These were used by templates
   // but had no substitution → rendered as literal "{stage}".
-  const stage = (after.stage as string) || (after.state as string) || (before.stage as string) || (before.state as string) || '';
+  const stage = (after.stage as string) || (after.state as string) || '';
+  // 2026-05-20: explicit "from" stage for STATE_TRANSITION rows, reads only
+  // beforeValue so it never collides with the post-transition stage. Genesis
+  // transitions (state-machine entry, e.g. WASH_IN from null) render "(start)".
+  const fromStageRaw = (before.stage as string) || (before.state as string) || '';
+  const fromStage = fromStageRaw || '(start)';
   const status = (after.status as string) || (before.status as string) || afterStatus || beforeStatus || '';
 
   const replacePlaceholders = (tpl: string) =>
@@ -132,6 +137,7 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
       .replace(/\{identifierType\}/g, identifierType)
       .replace(/\{reason\}/g, reason)
       .replace(/\{stage\}/g, stage)
+      .replace(/\{fromStage\}/g, fromStage)
       .replace(/\{status\}/g, status);
 
   // Self-action handling: check for _SELF variant

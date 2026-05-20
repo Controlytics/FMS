@@ -345,8 +345,11 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
   STATE_TRANSITION: {
     label: 'Filter Stage Advanced',
     category: 'Filter Operations',
-    template: 'Filter "{targetName}" advanced to stage "{stage}" by {actor}',
-    placeholders: ['actor', 'targetName', 'stage'],
+    // 2026-05-20: include the previous stage so operators can audit
+    // movement direction (advance vs. rewind on bypass). Genesis transitions
+    // out of a null fromState render the "from" half as "(start)".
+    template: 'Filter "{targetName}" advanced from "{fromStage}" to "{stage}" by {actor}',
+    placeholders: ['actor', 'targetName', 'fromStage', 'stage'],
   },
   CHECKLIST_COMPLETED: {
     label: 'Checklist Completed',
