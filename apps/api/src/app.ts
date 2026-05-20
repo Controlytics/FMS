@@ -77,11 +77,25 @@ const httpsOptions = process.env.API_HTTPS === 'true'
     }
   : null;
 
+// May 16 H2 fix (2026-05-20): trustProxy was unconditionally 1. When the
+// API serves browsers DIRECTLY (no reverse proxy in front — the local
+// Windows dev setup; some appliance deployments), the "first hop" is the
+// attacker's browser, and X-Forwarded-For becomes attacker-controlled.
+// Result: audit-trail IP + rate-limit keys both spoofable.
+//
+// Only trust the X-Forwarded-* family when explicitly behind a known
+// reverse proxy (set TRUST_PROXY=1 or TRUST_PROXY=<hop-count> in env).
+// Default false → req.ip uses the raw socket address, attacker can't lie.
+const trustProxyEnv = process.env.TRUST_PROXY;
+const trustProxy = trustProxyEnv
+  ? (Number.isFinite(Number(trustProxyEnv)) ? Number(trustProxyEnv) : trustProxyEnv === 'true')
+  : false;
+
 const app = Fastify({
   logger: {
     level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
   },
-  trustProxy: 1,  // Trust exactly 1 proxy hop (nginx/Vite proxy) — prevents X-Forwarded-For spoofing
+  trustProxy,
   bodyLimit: 10 * 1024 * 1024, // 10 MB for base64 image uploads in checklists
   ajv: {
     customOptions: {

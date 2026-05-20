@@ -13,7 +13,10 @@ import { ForgotPasswordPage } from './routes/auth/forgot-password';
 import { ChangePasswordPage } from './routes/auth/change-password';
 import { ContactAdminPage } from './routes/auth/contact-admin';
 import { DashboardPage } from './routes/dashboard';
-import { FilterOperationsPage } from "./routes/filter-management/filter-operations";
+// May 16 H18 bundle-split (2026-05-20): FilterOperationsPage is ~80k LOC
+// (2k LOC file + deep deps); AuditTrailPage pulls jspdf + jspdf-autotable
+// (+ ~250 KB gz). Lazy-load both so the main chunk shrinks meaningfully
+// for first paint on tablet WebView.
 import { PERMISSIONS } from '@digilog/shared';
 import { UserListPage } from './routes/users/list';
 import { CreateUserPage } from './routes/users/create';
@@ -34,13 +37,15 @@ import { ActionReauthPage } from './routes/config/action-reauth';
 import { AuditTemplatesConfigPage } from './routes/config/audit-templates';
 import { PaginationConfigPage } from './routes/config/pagination';
 import DashboardCardsConfig from './routes/config/dashboard-cards';
-import { AuditTrailPage } from './routes/audit/index';
 import { NotificationsPage } from './routes/notifications/index';
 import { ProfilePage } from './routes/profile/index';
 import { ToastProvider } from './components/toast-provider';
 import './app.css';
 
-// Lazy-loaded heavy pages (code-split into separate chunks)
+// Lazy-loaded heavy pages (code-split into separate chunks).
+// FilterOperationsPage + AuditTrailPage added 2026-05-20 (May 16 H18 fix).
+const FilterOperationsPage = lazy(() => import('./routes/filter-management/filter-operations').then(m => ({ default: m.FilterOperationsPage })));
+const AuditTrailPage = lazy(() => import('./routes/audit/index').then(m => ({ default: m.AuditTrailPage })));
 const UnsConfigPage = lazy(() => import('./routes/config/uns').then(m => ({ default: m.UnsConfigPage })));
 const HelpArticlesPage = lazy(() => import('./routes/config/help').then(m => ({ default: m.HelpArticlesPage })));
 const RetentionConfigPage = lazy(() => import('./routes/config/retention').then(m => ({ default: m.RetentionConfigPage })));
