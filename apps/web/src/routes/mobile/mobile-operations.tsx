@@ -709,6 +709,19 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           const cyc = cachedState.currentCycle ?? {};
           const dryerStarted = !!cyc.dryerStartedAt && !!cyc.dryerDurationMinutes;
           if (!dryerStarted) {
+            // 2026-05-20 PIPELINE FIX: filters between WASH_OUT and DRY_IN
+            // typically have a CHECKLIST gate. Server rejected SET_DURATION
+            // with 400 CHECKLIST_PENDING when we tried to advance directly.
+            // Skip the SET_DURATION call and fall through to the post-loop
+            // checklist batching, which opens the checklist dialog for this
+            // filter (and any others with pending checklists). After
+            // operator completes all checklists, they re-submit and THIS
+            // branch fires SET_DURATION for real.
+            const hasChecklistPending = hasActionKind(itemActions, 'SUBMIT_CHECKLIST');
+            if (hasChecklistPending) {
+              failed.push(`${item.filterName}: checklist required first`);
+              continue;
+            }
             // 2026-05-20 PER-FILTER DURATION: each queued filter has its own
             // duration dropdown rendered inline in the queue list. The user
             // selects per-filter, then a single Submit-All drives the batch.
