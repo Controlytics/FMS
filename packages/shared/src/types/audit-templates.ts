@@ -309,15 +309,15 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
 
   // Entity Identifiers
   ASSET_IDENTIFIER_CREATED: {
-    label: 'Entity Identifier Added',
-    category: 'Entity Management',
-    template: 'New identifier ({identifierType}) added to entity "{targetName}" by {actor}',
+    label: 'Filter Identifier Added',
+    category: 'Filter Management',
+    template: 'New identifier ({identifierType}) added to filter "{targetName}" by {actor}',
     placeholders: ['actor', 'targetName', 'identifierType'],
   },
   ASSET_IDENTIFIER_DELETED: {
-    label: 'Entity Identifier Removed',
-    category: 'Entity Management',
-    template: 'Identifier ({identifierType}) removed from entity "{targetName}" by {actor}',
+    label: 'Filter Identifier Removed',
+    category: 'Filter Management',
+    template: 'Identifier ({identifierType}) removed from filter "{targetName}" by {actor}',
     placeholders: ['actor', 'targetName', 'identifierType'],
   },
 

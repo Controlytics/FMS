@@ -152,15 +152,28 @@ export default async function auditRoutes(app: FastifyInstance) {
     // cycles that the audit row references, then attaching `_enriched`
     // fields to afterValue (NOT modifying the original — the checksum still
     // verifies). FE merges these in for rendering.
+    // Common shapes for asset-instance ID across audit row variants:
+    //   - afterValue.filterId           (cycle-write events)
+    //   - afterValue.assetId            (identifier service)
+    //   - afterValue.assetInstanceId    (legacy)
+    //   - afterValue.entityId           (legacy + some queries)
+    //   - targetId when targetType='filter' OR 'asset_instance'
     const filterIds = new Set<string>();
     const cycleIds = new Set<string>();
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     for (const r of records as any[]) {
       const af = (r.afterValue ?? {}) as Record<string, unknown>;
       const bf = (r.beforeValue ?? {}) as Record<string, unknown>;
-      const fid = (af.filterId as string) || (bf.filterId as string);
-      if (fid) filterIds.add(fid);
-      if (r.targetType === 'filter' && typeof r.targetId === 'string') filterIds.add(r.targetId);
-      if (r.targetType === 'cleaning_cycle' && typeof r.targetId === 'string') cycleIds.add(r.targetId);
+      for (const key of ['filterId', 'assetId', 'assetInstanceId', 'entityId']) {
+        const v = af[key] || bf[key];
+        if (typeof v === 'string' && UUID_RE.test(v)) filterIds.add(v);
+      }
+      if (typeof r.targetId === 'string' && UUID_RE.test(r.targetId)) {
+        if (r.targetType === 'filter' || r.targetType === 'asset_instance') {
+          filterIds.add(r.targetId);
+        }
+        if (r.targetType === 'cleaning_cycle') cycleIds.add(r.targetId);
+      }
     }
     const [filters, cycles] = await Promise.all([
       filterIds.size > 0
@@ -194,8 +207,20 @@ export default async function auditRoutes(app: FastifyInstance) {
       const bf = (record.beforeValue ?? {}) as Record<string, unknown>;
       const enriched: Record<string, unknown> = { ...af };
 
-      const fid = (af.filterId as string) || (bf.filterId as string)
-        || (record.targetType === 'filter' ? record.targetId : null);
+      // Any of the common ID-keys map to the same asset_instances row;
+      // stamp filterName on the enriched payload so the FE's targetName
+      // resolver (after.name || filterName || ...) picks it up.
+      const fid = (af.filterId as string)
+        || (bf.filterId as string)
+        || (af.assetId as string)
+        || (bf.assetId as string)
+        || (af.assetInstanceId as string)
+        || (bf.assetInstanceId as string)
+        || (af.entityId as string)
+        || (bf.entityId as string)
+        || ((record.targetType === 'filter' || record.targetType === 'asset_instance')
+            ? record.targetId
+            : null);
       if (fid && filterNameById.has(fid)) {
         enriched.filterName = enriched.filterName ?? filterNameById.get(fid);
       }
