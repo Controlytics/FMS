@@ -87,3 +87,7 @@ RFID/.gradle/
 # mkcert accidentally creates a nested certs/certs/ dir if you run it
 # from the certs/ folder — duplicate of the parent. Never commit.
 certs/certs/
+
+# Per-machine MCP config (ANDROID_HOME path is user-specific). Each dev
+# generates their own; see reference_mobile_mcp_install memory.
+/.mcp.json

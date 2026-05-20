@@ -75,7 +75,7 @@
 │   │   ├── lib/                   Shared utilities (audit, jwt, sanitize, prisma, etc.)
 │   │   └── types/                 TypeScript type definitions
 │   └── prisma/
-│       ├── schema.prisma          64 models, 23 enums
+│       ├── schema.prisma          68 models, 21 enums
 │       └── seed.ts                Default roles, superadmin, configs
 │
 ├── apps/web/                      (React SPA)
@@ -138,7 +138,7 @@
 
 | Path | Purpose |
 |---|---|
-| `apps/api/prisma/schema.prisma` | 64 models, 23 enums |
+| `apps/api/prisma/schema.prisma` | 68 models, 21 enums |
 | `apps/api/prisma/seed.ts` | Default roles, super-admin user, system configs, default rule chain |
 | `apps/api/prisma/migrations/` | Versioned Prisma migrations (8+ migrations: phase_a_data_ingestion, sync_schema, audit_fixes, equipment_groups, admin_requests, sync_drift_phase3, block_change_nullable_org, …) plus `migration_lock.toml` |
 | `apps/api/prisma/sql/extensions.sql` | Hand-written SQL — installs PostgreSQL extensions (e.g. `pg_trgm`, `uuid-ossp`) used by Prisma |
