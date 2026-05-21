@@ -671,24 +671,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         const currentLifecycle = cached?.currentLifecycleState || cachedState.currentState || null;
         const cycleInProgress = !!(cachedState.currentCycle?.id || cached?.currentCycleId);
 
-        // Phase 8.6 part 2 + 2026-05-21 race fix: ALWAYS recompute the action
-        // tape from the current local-context, never trust the cached
-        // `actions` blob. Pre-fix this passed `cachedState.actions` as the
-        // server-actions seed, which short-circuited inside
-        // getCurrentActions (returns the seed when non-empty). Multiple
-        // writers all hit the same `filter-state-${id}` cache key:
-        //   - submitChecklist's cache rewrite (clears SUBMIT_CHECKLIST)
-        //   - SWR /current-state refresh (writes server's snapshot)
-        //   - appendChecklistCompletion (writes alongside)
-        //   - advance handlers (clears old tape entries)
-        // Without sequencing, a stale cached tape with SUBMIT_CHECKLIST
-        // re-fires the checklist dialog after a clean submit. Operators saw
-        // the same checklist appear 2x at WASH_IN, or BOTH WASH_IN +
-        // WASH_OUT checklists at WASH_OUT, etc. — depending on which
-        // writer lost the race. Forcing recompute makes the gate check
-        // depend ONLY on persisted events + current state, both of which
-        // are written transactionally.
-        const itemActions = await getCurrentActions(item.filterId, null);
+        // Phase 8.6 part 2: resolve the action tape — server actions[] when
+        // TAPE_PARALLEL=true (currently absent in dev), else local compute via
+        // the shared executor over loadLocalContextFromCache().
+        const itemActions = await getCurrentActions(item.filterId, cachedState.actions);
 
         const gate = validateOfflineGate({
           activeStageKey: activeStage.key,
