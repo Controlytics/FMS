@@ -346,12 +346,20 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
 
       // Snapshot the profiles whose completion we'll log post-submit. Read
       // from dialogState BEFORE we dispatch close (close wipes the data).
-      // afterStage + cycleId come from the cached filter-state row — the
-      // hook doesn't have them in args, and the page would have to construct
-      // them itself otherwise. Reading from cache keeps the contract minimal.
+      // 2026-05-21: ALSO capture each checklist's afterStage at dialog-open
+      // time (it's already baked into the action-tape's
+      // params.afterStage — see packages/shared executor). Pre-fix we
+      // re-read `currentState` from the cache at submit time, which was
+      // racy: any concurrent writer (SWR refresh / advance handler /
+      // appendChecklistCompletion) could flip cs.currentState between
+      // dialog open and submit, so the completion got logged with the
+      // wrong afterStage and the executor's gate stayed pending → dialog
+      // reopened. Pinning to the action-tape afterStage (which is
+      // immutable once the dialog opens) makes the log correct
+      // regardless of cache races.
       const profilesAwaitingLog =
         dialogState.kind === 'awaiting_checklist'
-          ? (dialogState.checklists as Array<{ checklistProfileId: string }>)
+          ? (dialogState.checklists as Array<{ checklistProfileId: string; afterStage?: string | null }>)
           : [];
 
       try {
@@ -378,19 +386,22 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
             currentState?: string | null;
             currentCycle?: { id?: string | null } | null;
           }>(`filter-state-${args.filterId}`);
-          const afterStage = cs?.currentState ?? null;
+          // Fallback only — afterStage now comes from each checklist's
+          // params.afterStage (captured at action-tape time), not from a
+          // re-read of cs.currentState. See note on profilesAwaitingLog.
+          const fallbackAfterStage = cs?.currentState ?? null;
           const cycleId = cs?.currentCycle?.id ?? null;
-          if (afterStage) {
-            const completedAt = new Date().toISOString();
-            for (const p of profilesAwaitingLog) {
-              if (!p.checklistProfileId) continue;
-              await appendChecklistCompletion(args.filterId, {
-                checklistProfileId: p.checklistProfileId,
-                afterStage,
-                completedAt,
-                cycleId,
-              });
-            }
+          const completedAt = new Date().toISOString();
+          for (const p of profilesAwaitingLog) {
+            if (!p.checklistProfileId) continue;
+            const afterStage = p.afterStage ?? fallbackAfterStage;
+            if (!afterStage) continue;
+            await appendChecklistCompletion(args.filterId, {
+              checklistProfileId: p.checklistProfileId,
+              afterStage,
+              completedAt,
+              cycleId,
+            });
           }
         } catch {
           /* idempotent log is best-effort — Tier 2 fallback remains for
