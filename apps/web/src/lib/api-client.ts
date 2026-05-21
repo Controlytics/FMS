@@ -133,7 +133,22 @@ class ApiClient {
   post<T>(url: string, body: unknown, headers?: Record<string, string>) { return this.request<T>(url, { method: 'POST', body: JSON.stringify(body), ...(headers && { headers }) }); }
   put<T>(url: string, body: unknown, headers?: Record<string, string>) { return this.request<T>(url, { method: 'PUT', body: JSON.stringify(body), ...(headers && { headers }) }); }
   patch<T>(url: string, body: unknown) { return this.request<T>(url, { method: 'PATCH', body: JSON.stringify(body) }); }
-  delete<T>(url: string) { return this.request<T>(url, { method: 'DELETE' }); }
+  // 2026-05-21 fix: DELETE must carry an explicit Content-Type + body, even
+  // when the route doesn't need a body. On Android, CapacitorHttp's native
+  // path uses HttpURLConnection which defaults Content-Type to
+  // `application/x-www-form-urlencoded` for any non-GET request when the FE
+  // didn't set one. Fastify has no parser for that media type and replies 415
+  // "Unsupported Media Type" — which surfaced on the tablet as RFID Remove
+  // failing with "Unsupported Media Type". Sending an empty JSON body forces
+  // Fastify's JSON parser to handle it; routes that don't read req.body see
+  // an empty object and ignore it.
+  delete<T>(url: string) {
+    return this.request<T>(url, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+  }
 
   // Re-auth variants: include password for actions requiring re-authentication
   // Password is sent in BOTH body (_currentPassword) and header (x-reauth-password)
@@ -141,8 +156,12 @@ class ApiClient {
   withReauth<T>(method: string, url: string, password: string, body?: unknown) {
     const headers: Record<string, string> = { 'x-reauth-password': password };
     const opts: RequestInit = { method, headers };
-    if (body !== undefined) {
-      opts.body = JSON.stringify({ ...(body as object), _currentPassword: password });
+    // Methods that can carry a body: send one (with the password) so the
+    // request always has a Content-Type Fastify can parse. See delete()
+    // above for the Android Content-Type-default quirk this addresses.
+    if (method !== 'GET' && method !== 'HEAD') {
+      headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify({ ...((body as object) ?? {}), _currentPassword: password });
     }
     return this.request<T>(url, opts);
   }

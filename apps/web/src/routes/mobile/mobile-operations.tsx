@@ -67,17 +67,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const core = useFilterOperationsCore();
   const mobileNav = useNavigate();
 
-  if (!authLoading && !user) return <Navigate to="/m/login" replace />;
-
   // Tablet access control — which features are allowed for this role
   const { data: tabletAccess } = useSWR(user && online ? '/api/config/tablet-access/my-features' : null);
   const allowedFeatures: string[] = (tabletAccess as any)?.allowed ?? [];
   const hasFeature = (f: string) => allowedFeatures.length === 0 || allowedFeatures.includes(f); // empty = all allowed (backwards compat)
 
-  // If login is disabled for this role, redirect to login
-  if (tabletAccess && allowedFeatures.length > 0 && !hasFeature('login')) {
-    return <Navigate to="/m/login" replace />;
-  }
+  // 2026-05-21: auth/feature redirects deferred to the final JSX block. See
+  // mobile-wrapper.tsx for the same fix — early-returning before the ~50
+  // hooks below caused React 19 error #300 ("Rendered fewer hooks than
+  // expected") on logout when `user` flipped to undefined mid-render.
 
   const logout = async () => {
     await authLogout();
@@ -1747,6 +1745,21 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   };
 
   const genOpts = (min: number, max: number, step: number): number[] => { const o: number[] = []; if (step <= 0) return o; for (let v = min, i = 0; v <= max + 1e-9 && i < 10000; v = Math.round((v + step) * 1e10) / 1e10, i++) o.push(v); return o; };
+
+  // 2026-05-21 fix: same as mobile-wrapper.tsx — only redirect when truly
+  // unauthenticated. SWR's mutate(undefined,false) at logout leaves a cache
+  // entry with value=undefined; on next mount isLoading is false (cache hit)
+  // while user is briefly undefined → without the token guard below, the
+  // operator was bounced back to /m/login right after a successful login.
+  const hasAuthTokenInStorage =
+    !!sessionStorage.getItem('access_token') ||
+    !!localStorage.getItem('access_token_backup');
+  if (!authLoading && !user && !hasAuthTokenInStorage) {
+    return <Navigate to="/m/login" replace />;
+  }
+  if (tabletAccess && allowedFeatures.length > 0 && !hasFeature('login')) {
+    return <Navigate to="/m/login" replace />;
+  }
 
   return (
     <div className="h-[100dvh] flex flex-col bg-gradient-to-b from-slate-50 to-slate-100 select-none overflow-hidden">

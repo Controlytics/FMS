@@ -49,17 +49,17 @@ export function MobileWrapperPage() {
   const blockChangeApproval = useBlockChangeApproval();
   const mobileNav = useNavigate();
 
-  if (!authLoading && !user) return <Navigate to="/m/login" replace />;
-
   // Tablet access control — which features are allowed for this role
   const { data: tabletAccess } = useSWR(user && online ? '/api/config/tablet-access/my-features' : null);
   const allowedFeatures: string[] = (tabletAccess as any)?.allowed ?? [];
   const hasFeature = (f: string) => allowedFeatures.length === 0 || allowedFeatures.includes(f); // empty = all allowed (backwards compat)
 
-  // If login is disabled for this role, redirect to login
-  if (tabletAccess && allowedFeatures.length > 0 && !hasFeature('login')) {
-    return <Navigate to="/m/login" replace />;
-  }
+  // 2026-05-21: auth/feature redirects are deferred to the final JSX block
+  // (just above the main `return (` below). Returning early HERE skipped the
+  // ~50 hooks that follow, so on logout (`useAuth.mutate(undefined, false)`
+  // → user becomes undefined → re-render) React 19 threw error #300
+  // "Rendered fewer hooks than expected." The component's "Something went
+  // wrong" overlay swallowed the crash. Keep all hook calls unconditional.
 
   const logout = async () => {
     await authLogout();
@@ -362,6 +362,25 @@ export function MobileWrapperPage() {
       },
     });
   };
+
+  // 2026-05-21 fix: only redirect when there is truly no auth state.
+  // useAuth.logout()'s mutate(undefined, false) leaves the SWR cache for
+  // /api/auth/me holding `undefined`. On the next login + this wrapper mount,
+  // SWR returns isLoading=false immediately (cache "hit" with undefined) while
+  // the new /api/auth/me request is still in flight, so `user` is briefly
+  // undefined even though a fresh token sits in sessionStorage. Without the
+  // token check below, the guard fired during that gap and bounced the
+  // operator straight back to /m/login — the "page refresh on 1st login"
+  // operators reported.
+  const hasAuthTokenInStorage =
+    !!sessionStorage.getItem('access_token') ||
+    !!localStorage.getItem('access_token_backup');
+  if (!authLoading && !user && !hasAuthTokenInStorage) {
+    return <Navigate to="/m/login" replace />;
+  }
+  if (tabletAccess && allowedFeatures.length > 0 && !hasFeature('login')) {
+    return <Navigate to="/m/login" replace />;
+  }
 
   return (
     <div className="h-[100dvh] flex flex-col bg-gradient-to-b from-slate-50 to-slate-100 select-none overflow-hidden">
