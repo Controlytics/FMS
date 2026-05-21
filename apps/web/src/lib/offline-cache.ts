@@ -458,10 +458,6 @@ export function dialogChecklistsFromActions(actions: Action[]): Array<{
   checklistProfileId: string;
   checklistProfileName: string;
   profileVersion?: number;
-  // 2026-05-21: include afterStage so use-core.submitChecklist can log
-  // CHECKLIST_COMPLETED with the EXACT stage the gate was opened against,
-  // regardless of cache races between dialog-open and submit time.
-  afterStage: string | null;
   questions: any[];
 }> {
   return actions
@@ -475,7 +471,6 @@ export function dialogChecklistsFromActions(actions: Action[]): Array<{
         checklistProfileId: a.params.checklistProfileId,
         checklistProfileName: name,
         profileVersion: a.params.versionPin,
-        afterStage: a.params.afterStage ?? null,
         questions: (a.params.questions ?? []).map((q, i) => ({
           id: q.id,
           question: q.question,
