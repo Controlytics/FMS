@@ -213,6 +213,16 @@ export function useAuth() {
   // both tabs are actively talking to the API, in which case both refreshes
   // succeed and the second-applied wins (idempotent).
   useEffect(() => {
+    // 2026-05-21: skip background JWT refresh while the operator is on the
+    // change-password screen with forcePasswordChange=true. The server
+    // blocks /api/auth/refresh for fpc:true users (it's not in
+    // PASSWORD_CHANGE_ALLOWED → 403 FORCE_PASSWORD_CHANGE). The api-client
+    // 403 handler then hard-redirects to /change-password, which on Capacitor
+    // tabletkicks in main.tsx's mount-time redirect and bounces the operator
+    // to /m/login — mid-typing. Skipping the refresh is correct: the operator
+    // is about to change their password anyway; extending the JWT here is
+    // pointless.
+    if (user?.forcePasswordChange) return;
     const REFRESH_INTERVAL = 30 * 60 * 1000; // 30 minutes
     const interval = setInterval(() => { void apiClient.refreshToken(); }, REFRESH_INTERVAL);
     // Also refresh once shortly after mount to extend token on page load.

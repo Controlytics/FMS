@@ -67,9 +67,16 @@ class ApiClient {
       if (err.error === 'REAUTH_REQUIRED' || err.error === 'REAUTH_FAILED') {
         throw err;
       }
-      // Force password change or password expired — redirect to change password
+      // Force password change or password expired — redirect to change password.
+      // 2026-05-21: skip the hard redirect when we're already on the
+      // change-password page. Some background calls (JWT refresh, branding
+      // poll) fire while the operator is typing the new password; a 403 here
+      // would hard-reload the page and on Capacitor bounce the operator to
+      // /m/login mid-typing. Just throw and let the caller handle it.
       if (err.error === 'FORCE_PASSWORD_CHANGE' || err.error === 'PASSWORD_EXPIRED') {
-        window.location.href = '/change-password';
+        if (!window.location.pathname.startsWith('/change-password')) {
+          window.location.href = '/change-password';
+        }
         throw err;
       }
       // Generic 401 = session expired, log out (but not during login itself)

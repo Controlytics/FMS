@@ -3,6 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../../lib/api-client';
 import { useBranding } from '../../hooks/use-branding';
 
+// 2026-05-21: raw fetch() calls below must hit the API host directly, not the
+// Capacitor SPA origin. On the tablet the WebView serves from
+// https://localhost (the bundled assets), so a relative URL like
+// `/api/config/tablet-access/my-features` resolves to the SPA server and
+// returns index.html — checkTabletAccess then can't parse it, the catch
+// block returns { allowed: true }, and login goes through even when the
+// allowlist forbids it. Prepending VITE_API_URL routes the fetch through
+// the LAN/local API instead. apiClient does this already; raw fetches must
+// match its behaviour.
+const API_BASE: string = import.meta.env.VITE_API_URL ?? '';
+
 export function MobileLoginPage() {
   const navigate = useNavigate();
   const { branding } = useBranding();
@@ -20,18 +31,28 @@ export function MobileLoginPage() {
   const [accountLocked, setAccountLocked] = useState(false);
 
   const checkTabletAccess = async (token: string): Promise<{ allowed: boolean; role?: string }> => {
+    // 2026-05-21 v2 — fail-closed. Pre-fix this returned `allowed:true` on
+    // any non-2xx OR thrown error ("fail open if endpoint errors"). With the
+    // tablet's intermittent HTTPS flakiness, /my-features sometimes timed
+    // out / returned non-2xx → check passed → operators with deny configs
+    // sailed past the allowlist. Now any failure to read the allowlist
+    // blocks login; operator must retry when network is healthier.
     try {
-      const res = await fetch('/api/config/tablet-access/my-features', {
+      const res = await fetch(`${API_BASE}/api/config/tablet-access/my-features`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) return { allowed: true }; // fail open if endpoint errors
+      if (!res.ok) return { allowed: false };
       const data = await res.json();
       const allowed: string[] = Array.isArray(data?.allowed) ? data.allowed : [];
-      // Matches the wrapper's rule: empty list = all allowed (backwards compat)
-      if (allowed.length === 0) return { allowed: true };
+      // Respect the server-supplied `configured` flag. Admin explicitly
+      // configured this role with an empty allowlist must DENY login, not
+      // fall through to "empty = allowed" backwards-compat. Only when the
+      // role has no entry in the config at all do we default-allow.
+      const configured = data?.configured === true;
+      if (!configured) return { allowed: true, role: data?.role };
       return { allowed: allowed.includes('login'), role: data?.role };
     } catch {
-      return { allowed: true };
+      return { allowed: false };
     }
   };
 
@@ -93,22 +114,26 @@ export function MobileLoginPage() {
       const access = await checkTabletAccess(res.token);
       if (!access.allowed) {
         // Discard the freshly-issued token so the wrapper can't log us back in
-        try { await fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${res.token}` } }); } catch {}
+        try { await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${res.token}` } }); } catch {}
         sessionStorage.removeItem('access_token');
         localStorage.removeItem('access_token_backup');
-        setError(`The ${access.role ?? 'current'} role is not permitted to log in on the tablet. Contact an administrator.`);
+        setError("You don't have access to log in on the tablet.");
         setLoading(false);
         return;
       }
       sessionStorage.setItem('access_token', res.token);
       localStorage.setItem('access_token_backup', res.token);
-      // Mint the offline-replay grant (was the missing piece on tablet logins).
-      await mintOfflineGrant(password);
-      // 2026-05-20: tablet operator with a temporary/forced-change password
-      // must be sent to the change-password screen, same as desktop. Without
-      // this they land on /m and get full operator UI but every mutation
-      // would fail FORCE_PASSWORD_CHANGE at the server. Mirror the desktop
-      // useAuth().login() flow at hooks/use-auth.ts:127-128.
+      // 2026-05-21: skip mintOfflineGrant when the operator must change their
+      // password first. The /api/auth/offline-grant endpoint isn't in the
+      // server's PASSWORD_CHANGE_ALLOWED list, so calling it returns 403
+      // FORCE_PASSWORD_CHANGE and api-client.ts:72 does a hard
+      // window.location.href redirect that races with our own navigate() and
+      // ends up bouncing the operator back to /m/login. The grant is minted
+      // automatically on the next login (post-password-change).
+      // Pattern matches hooks/use-auth.ts:96 which already gates mintGrant.
+      if (!res.user?.forcePasswordChange) {
+        await mintOfflineGrant(password);
+      }
       if (res.user?.forcePasswordChange) {
         // Stash a hint so change-password.tsx returns to /m after success
         // instead of dropping the operator onto the desktop dashboard.
@@ -129,21 +154,20 @@ export function MobileLoginPage() {
             });
             const access = await checkTabletAccess(res.token);
             if (!access.allowed) {
-              try { await fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${res.token}` } }); } catch {}
+              try { await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${res.token}` } }); } catch {}
               sessionStorage.removeItem('access_token');
               localStorage.removeItem('access_token_backup');
-              setError(`The ${access.role ?? 'current'} role is not permitted to log in on the tablet.`);
+              setError("You don't have access to log in on the tablet.");
               setLoading(false);
               return;
             }
             sessionStorage.setItem('access_token', res.token);
             localStorage.setItem('access_token_backup', res.token);
-            // Mint the offline-replay grant on the force-retry path too. This
-            // is the exact scenario that bit operator 101114: their tablet
-            // always had a lingering session and EVERY login forced through
-            // this branch, missing the grant.
-            await mintOfflineGrant(password);
-            // Same forced-change check as the main login path above.
+            // Same forcePasswordChange skip as the main login path above —
+            // /api/auth/offline-grant returns 403 for force-change users.
+            if (!res.user?.forcePasswordChange) {
+              await mintOfflineGrant(password);
+            }
             if (res.user?.forcePasswordChange) {
               sessionStorage.setItem('post_change_password_redirect', '/m');
               navigate('/change-password', { replace: true });

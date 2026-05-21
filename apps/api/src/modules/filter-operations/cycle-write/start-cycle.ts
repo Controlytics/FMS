@@ -82,7 +82,14 @@ export async function startCycleImpl(
   const prevCycleCount = await prisma.cleaningCycle.count({ where: { filterId } });
   const seq = prevCycleCount + 1;
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const cycleCode = `CC-${filter.name?.replace(/\s+/g, '').slice(0, 10) ?? filterId.slice(0, 8)}-${String(seq).padStart(3, '0')}-${dateStr}`;
+  // 2026-05-21: don't slice the filter name. Pre-fix truncated to 10 chars,
+  // which collided across filters whose names share a 10-char prefix
+  // (e.g. `L1/AHu-01/00` and `L1/AHu-01/02` both truncated to `L1/AHu-01/`),
+  // failing start-cycle with "Unique constraint failed on (cycle_code)".
+  // cycle_code column is varchar(100); pass the full name and let the
+  // column cap us if anyone names a filter longer than ~85 chars.
+  const filterNameForCode = (filter.name ?? filterId.slice(0, 8)).replace(/\s+/g, '');
+  const cycleCode = `CC-${filterNameForCode}-${String(seq).padStart(3, '0')}-${dateStr}`;
 
   // Resolve to cleaning profile — could be a FilterProfile ID or a CleaningProfile ID directly
   const fp = await prisma.filterProfile.findUnique({ where: { id: resolvedProfileIdForCycle } });

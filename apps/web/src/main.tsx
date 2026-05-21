@@ -112,9 +112,17 @@ function LazyFallback() {
   );
 }
 
-// Auto-redirect to mobile UI when running inside Capacitor APK
-if ((window as any).Capacitor?.isNativePlatform?.() && !window.location.pathname.startsWith('/m')) {
-  window.location.href = '/m/login';
+// Auto-redirect to mobile UI when running inside Capacitor APK.
+// 2026-05-21: also allow /change-password through — tablet temp-password
+// flow legitimately lands there from mobile-login. Without this, any hard
+// reload on /change-password (e.g. from a background API call) bounced the
+// operator to /m/login mid-typing.
+{
+  const path = window.location.pathname;
+  const allowedOnTablet = path.startsWith('/m') || path.startsWith('/change-password');
+  if ((window as any).Capacitor?.isNativePlatform?.() && !allowedOnTablet) {
+    window.location.href = '/m/login';
+  }
 }
 
 // B.2 — Background sync trigger: when SW (registered by vite-plugin-pwa) sends

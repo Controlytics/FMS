@@ -218,19 +218,19 @@ export function computeNextActions(
     }
   }
 
-  if (checklistsPending) {
-    actions.push(terminate);
-    return {
-      state,
-      actions,
-      tapeVersion: computeTapeVersion(cycle.profileVersion, filterEventCount),
-    };
-  }
-
   // 2. Reachable stages (skipping CHECKLIST nodes).
   const { reachableStages, leadsToEnd } = findReachable(fromNode.id, stages, connections);
 
-  // 3. DRY_IN specials.
+  // 3. DRY_IN specials — compute BEFORE the checklist-gate short-circuit so
+  // SUBMIT_DRYER_READINGS coexists with a pending post-DRY_IN checklist.
+  // Pre-fix the gate immediately returned when a checklist was pending,
+  // and the operator at DRY_IN had no way to enter dryer instrument readings
+  // — the only action on the tape was the post-stage checklist (which asks
+  // about temperature but doesn't capture the numeric reading). They'd
+  // submit the checklist, scan again, then see SUBMIT_DRYER_READINGS —
+  // confusing two-scan flow at best, and the FE batch-replay didn't always
+  // re-open the readings dialog. Emitting the dryer-readings action up here
+  // lets the FE surface BOTH dialogs (or sequence them) cleanly.
   let blockedByDryerHalfTime = false;
   let dryerReadingsAction: SubmitDryerReadingsAction | null = null;
   if (state === 'DRY_IN' && cycle.dryerStartedAt && cycle.dryerDurationMinutes) {
@@ -258,6 +258,20 @@ export function computeNextActions(
         };
       }
     }
+  }
+
+  if (checklistsPending) {
+    // Surface dryer-readings alongside the checklist so the operator at
+    // DRY_IN can complete both without two scans + a confusing wait.
+    if (dryerReadingsAction) {
+      actions.push(dryerReadingsAction);
+    }
+    actions.push(terminate);
+    return {
+      state,
+      actions,
+      tapeVersion: computeTapeVersion(cycle.profileVersion, filterEventCount),
+    };
   }
 
   if (dryerReadingsAction) {

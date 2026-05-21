@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { Fragment, useState, useEffect, useRef } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient, api } from '../../lib/api-client';
@@ -17,7 +17,7 @@ import { triggerSync, startSyncPolling } from '../../lib/sync-since';
 import { MobileOperationsPage } from './mobile-operations';
 import { CLEANING_STAGES_MOBILE as STAGES } from '../../lib/filter-constants';
 
-type View = 'home' | 'status' | 'my-tasks' | 'approvals' | 'operations' | 'rfid-assign' | 'cycles';
+type View = 'home' | 'status' | 'my-tasks' | 'approvals' | 'operations' | 'rfid-assign' | 'cycles' | 'cycle-detail';
 
 // Build identifier->filter map from identifiers list
 function buildIdentifierMap(identifiers: any[]): Record<string, { filterId: string; filterName: string }> {
@@ -36,7 +36,7 @@ function buildIdentifierMap(identifiers: any[]): Record<string, { filterId: stri
 
 export function MobileWrapperPage() {
   const { user, isLoading: authLoading, logout: authLogout } = useAuth();
-  const { formatTime } = useDatetimeFormat();
+  const { formatTime, formatDate, formatDateTime } = useDatetimeFormat();
   // W2: mobile entry point bypasses AppLayout, so wire the offline-cache
   // config bootstrap here too. The hook is a no-op when the user isn't
   // authenticated yet (SWR doesn't fire on null key inside it).
@@ -49,10 +49,16 @@ export function MobileWrapperPage() {
   const blockChangeApproval = useBlockChangeApproval();
   const mobileNav = useNavigate();
 
-  // Tablet access control — which features are allowed for this role
+  // Tablet access control — which features are allowed for this role.
+  // 2026-05-21: use the `configured` flag the server now returns to distinguish
+  // "no admin config exists for this role" (default all-allowed) from
+  // "admin configured this role with an empty allowlist" (deny everything).
+  // Without this the FE backwards-compat path treated empty as all-allowed,
+  // letting supervisors into my-tasks/rfid-assign that admin had unchecked.
   const { data: tabletAccess } = useSWR(user && online ? '/api/config/tablet-access/my-features' : null);
   const allowedFeatures: string[] = (tabletAccess as any)?.allowed ?? [];
-  const hasFeature = (f: string) => allowedFeatures.length === 0 || allowedFeatures.includes(f); // empty = all allowed (backwards compat)
+  const tabletConfigured: boolean = (tabletAccess as any)?.configured === true;
+  const hasFeature = (f: string) => !tabletConfigured || allowedFeatures.includes(f);
 
   // 2026-05-21: auth/feature redirects are deferred to the final JSX block
   // (just above the main `return (` below). Returning early HERE skipped the
@@ -68,11 +74,37 @@ export function MobileWrapperPage() {
 
   const [view, setView] = useState<View>('home');
   const [selectedStageKey, setSelectedStageKey] = useState<string | null>(null);
+
+  // 2026-05-21: bounce the operator back to home if they're on a view their
+  // role isn't allowed to use (admin disabled the feature mid-session, or the
+  // tabletAccess config changed via a different device). Map each view to its
+  // gating feature key; views not in the map are unconditionally reachable.
+  useEffect(() => {
+    if (!tabletAccess) return;
+    const featureForView: Partial<Record<View, string>> = {
+      status: 'filter_status',
+      'my-tasks': 'my_tasks',
+      approvals: 'approvals',
+      'rfid-assign': 'rfid_assign',
+      operations: 'filter_cleaning',
+    };
+    const feature = featureForView[view];
+    if (feature && !hasFeature(feature)) {
+      setView('home');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, tabletConfigured, allowedFeatures.join(',')]);
   // 2026-05-20: Filter Status drill-down. Tapping a stage card on the Status
   // view now filters the list below by that stage (read-only details — Name,
   // AHU, Last Cleaned, Stage) instead of routing into the scan-operations
   // page. Tap a second time / tap "Show all" to clear.
   const [statusStageFilter, setStatusStageFilter] = useState<string | null>(null);
+  // 2026-05-21: cascading hierarchy filters for the Status view —
+  // Block → Area → AHU → Filter. Each dropdown narrows the next.
+  const [statusBlockId, setStatusBlockId] = useState<string>('all');
+  const [statusAreaId, setStatusAreaId] = useState<string>('all');
+  const [statusAhuId, setStatusAhuId] = useState<string>('all');
+  const [statusFilterId, setStatusFilterId] = useState<string>('all');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -148,11 +180,31 @@ export function MobileWrapperPage() {
       { refreshInterval: view === 'cycles' ? 30000 : 0 });
   const [offlineCycles, setOfflineCycles] = useState<any[]>([]);
   const [expandedCycle, setExpandedCycle] = useState<string | null>(null);
+  // 2026-05-21: cycle list filters + selected-cycle for detail view.
+  // cycleAhuId='all' shows every AHU's cycles, otherwise scoped to one AHU.
+  // cycleFilterId='all' shows every filter's cycles, otherwise scoped to one
+  // filter. cycleFrom/cycleTo are local `datetime-local` ISO strings (no TZ);
+  // we parse to Date for comparison. selectedCycleId drives view='cycle-detail'.
+  const [cycleAhuId, setCycleAhuId] = useState<string>('all');
+  const [cycleFilterId, setCycleFilterId] = useState<string>('all');
+  const [cycleFrom, setCycleFrom] = useState<string>('');
+  const [cycleTo, setCycleTo] = useState<string>('');
+  const [selectedCycleId, setSelectedCycleId] = useState<string | null>(null);
   useEffect(() => { if (cyclesData?.data) cache('cleaning-cycles-recent', cyclesData.data); }, [cyclesData, cache]);
   useEffect(() => {
     if (!online && view === 'cycles') getCache<any[]>('cleaning-cycles-recent').then(c => setOfflineCycles(c ?? []));
   }, [online, view, getCache]);
   const cyclesList: any[] = (online ? (cyclesData?.data ?? []) : offlineCycles) as any[];
+
+  // Cycle detail fetch — fires only when view='cycle-detail' AND we have an id.
+  // Returns the full cycle row including events[] with enrichedAnswers (checklist
+  // questions+answers) and instrumentReadings (submitted values) per event.
+  const { data: cycleDetailData, isLoading: cycleDetailLoading } = useSWR<any>(
+    online && selectedCycleId && view === 'cycle-detail' ? `/api/filters/cycles/${selectedCycleId}` : null,
+  );
+  // Offline fallback: synthesize detail from the list row if we have it cached.
+  const cycleDetail: any = cycleDetailData
+    ?? (selectedCycleId ? cyclesList.find((c: any) => c.id === selectedCycleId) : null);
 
   // Offline data from IndexedDB cache
   const [offlineTasks, setOfflineTasks] = useState<any>(null);
@@ -168,6 +220,12 @@ export function MobileWrapperPage() {
   const [rfidSubmitting, setRfidSubmitting] = useState(false);
   const [rfidError, setRfidError] = useState('');
   const [rfidSuccess, setRfidSuccess] = useState('');
+  // 2026-05-21: cascading hierarchy filters for the RFID Assign filter list —
+  // Block → Area → AHU → Filter, mirroring the Status view.
+  const [rfidBlockId, setRfidBlockId] = useState<string>('all');
+  const [rfidAreaId, setRfidAreaId] = useState<string>('all');
+  const [rfidAhuId, setRfidAhuId] = useState<string>('all');
+  const [rfidFilterId, setRfidFilterId] = useState<string>('all');
 
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
   const [processingApproval, setProcessingApproval] = useState<string | null>(null);
@@ -215,6 +273,41 @@ export function MobileWrapperPage() {
 
   const stageCounts: Record<string, number> = {};
   allFilters.forEach((f: any) => { if (f.currentLifecycleState) stageCounts[f.currentLifecycleState] = (stageCounts[f.currentLifecycleState] ?? 0) + 1; });
+
+  // 2026-05-21: cycles-view filter helpers (depend on allFilters + instances).
+  // AHUs are derived from the set of parent ids referenced by any filter row.
+  const filterParentByFilterId = new Map<string, string | null>(
+    (allFilters as any[]).map((f: any) => [f.id, (f.parentId ?? null) as string | null]),
+  );
+  const ahuIdsWithFilters = new Set<string>(
+    (allFilters as any[]).map((f: any) => f.parentId).filter((p: any): p is string => typeof p === 'string'),
+  );
+  const ahuOptions: any[] = (instances as any[])
+    .filter((i: any) => ahuIdsWithFilters.has(i.id))
+    .sort((a: any, b: any) => String(a.name ?? '').localeCompare(String(b.name ?? '')));
+  // When AHU is selected, the Filter dropdown narrows to that AHU's filters.
+  const filterOptionsForAhu: any[] = cycleAhuId === 'all'
+    ? (allFilters as any[])
+    : (allFilters as any[]).filter((f: any) => f.parentId === cycleAhuId);
+
+  // Filtered cycles list — combines AHU, single-filter, and date-range filters.
+  const filteredCyclesList: any[] = cyclesList.filter((c: any) => {
+    if (cycleAhuId !== 'all') {
+      const parent = filterParentByFilterId.get(c.filterId);
+      if (parent !== cycleAhuId) return false;
+    }
+    if (cycleFilterId !== 'all' && c.filterId !== cycleFilterId) return false;
+    const t = c.startedAt ? new Date(c.startedAt).getTime() : 0;
+    if (cycleFrom) {
+      const fromMs = new Date(cycleFrom).getTime();
+      if (Number.isFinite(fromMs) && t < fromMs) return false;
+    }
+    if (cycleTo) {
+      const toMs = new Date(cycleTo).getTime();
+      if (Number.isFinite(toMs) && t > toMs) return false;
+    }
+    return true;
+  });
 
   useEffect(() => { if (success) { const t = setTimeout(() => setSuccess(''), 4000); return () => clearTimeout(t); } }, [success]);
   useEffect(() => { if (error) { const t = setTimeout(() => setError(''), 6000); return () => clearTimeout(t); } }, [error]);
@@ -397,10 +490,7 @@ export function MobileWrapperPage() {
             </button>
           )}
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white text-xs font-extrabold shadow-lg shadow-cyan-500/20">DL</div>
-          <div>
-            <div className="text-sm font-bold text-slate-800 leading-tight">DigiLog</div>
-            <div className="text-[10px] text-slate-400 leading-tight">{user?.fullName ?? user?.username}</div>
-          </div>
+          <div className="font-display text-sm font-semibold text-slate-800 leading-tight">DigiLog</div>
         </div>
         <div className="flex items-center gap-2">
           <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium ${online ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
@@ -444,108 +534,113 @@ export function MobileWrapperPage() {
       {/* --- CONTENT --- */}
       <div className="flex-1 overflow-y-auto">
 
-        {/* === HOME VIEW === */}
-        {view === 'home' && (
-          <div className="p-4 space-y-4">
-            {/* Status Card */}
-            {hasFeature('filter_status') && <button onClick={() => setView('status')} className="w-full bg-white rounded-2xl border border-slate-200 p-5 shadow-sm active:shadow-none active:bg-slate-50 transition-all">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
-                    <span className="text-2xl">{'\u{1F4CA}'}</span>
-                  </div>
-                  <div className="text-left">
-                    <div className="text-base font-bold text-slate-800">Filter Status</div>
-                    <div className="text-xs text-slate-400">{allFilters.length} total filters</div>
+        {/* === HOME VIEW (2026-05-21 UI refresh — premium instrument-dashboard) ===
+            Operator greeting → pipeline visualization → quick-action cards with
+            live data → ghost utility row. Bricolage Grotesque display face +
+            JetBrains Mono for counts. Staggered fade-in via animate-rise. */}
+        {view === 'home' && (() => {
+          const firstName = (user?.fullName ?? user?.username ?? 'Operator').split(/\s+/)[0];
+          const hour = new Date().getHours();
+          const greeting = hour < 5 ? 'Working late' : hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : hour < 21 ? 'Good evening' : 'Working late';
+          return (
+          <div className="bg-dot-grid min-h-full">
+            <div className="p-4 space-y-4 max-w-2xl mx-auto">
+              {/* === Greeting strip === */}
+              <div className="animate-rise flex items-end justify-between gap-3 pt-1" style={{ animationDelay: '0ms' }}>
+                <div className="min-w-0">
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400 font-medium">{greeting}</div>
+                  <div className="flex items-baseline gap-2 min-w-0">
+                    <h1 className="font-display text-[28px] font-semibold text-slate-900 leading-tight truncate">{firstName}</h1>
+                    {user?.username && user.username !== firstName && (
+                      <span className="font-mono-tab text-[13px] text-slate-500 font-medium leading-tight shrink-0">&middot; {user.username}</span>
+                    )}
                   </div>
                 </div>
-                <svg className="w-5 h-5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  <div className="font-mono-tab text-[10px] text-slate-500 leading-none">{new Date().toLocaleDateString(undefined, { weekday: 'short', day: '2-digit', month: 'short' }).toUpperCase()}</div>
+                  <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-slate-900 text-white text-[10px] font-medium tracking-wide">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    {user?.role?.replace('_', ' ') ?? 'OPERATOR'}
+                  </div>
+                </div>
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                {STAGES.slice(0, 3).map(s => (
-                  <div key={s.key} className={`${s.bg} ${s.border} border rounded-lg px-2 py-1.5 text-center`}>
-                    <div className={`text-lg font-bold ${s.text}`}>{stageCounts[s.key] ?? 0}</div>
-                    <div className="text-[9px] text-slate-500">{s.label}</div>
-                  </div>
-                ))}
-              </div>
-            </button>}
 
-            {/* Quick access: My Tasks + Approvals */}
-            {(hasFeature('my_tasks') || hasFeature('approvals')) && (
-            <div className="grid grid-cols-2 gap-3">
-              {hasFeature('my_tasks') && (
-              <button onClick={() => setView('my-tasks')} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm active:shadow-none active:scale-[0.98] transition-all text-left">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 flex items-center justify-center mb-3 shadow-lg shadow-cyan-500/20">
-                  <span className="text-2xl">{'\u{1F3AF}'}</span>
+              {/* 2026-05-21 follow-up: removed Cleaning Pipeline hero + the
+                  My Tasks / Approvals / Cycles cards on operator request.
+                  Those views are still reachable via the wrapper's existing
+                  setView() entry points (header chips / future bottom nav).
+                  Home stays focused on the operator's primary task: tap a
+                  scan station to start cleaning. */}
+
+              {/* === Direct-stage scan stations === */}
+              {hasFeature('filter_cleaning') && (
+                <div className="animate-rise" style={{ animationDelay: '300ms' }}>
+                  <div className="flex items-center justify-between mb-2 px-1">
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400 font-medium">Scan stations</div>
+                    <div className="font-mono-tab text-[10px] text-slate-400">tap to start</div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2.5">
+                    {STAGES.map((stage) => (
+                      <button key={stage.key} onClick={() => openStage(stage.key)}
+                        className="tile-lift relative bg-white rounded-2xl border border-slate-200 p-3 text-left overflow-hidden">
+                        <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${stage.gradient} grid place-items-center shadow-[0_4px_12px_-4px_rgba(15,23,42,0.25)] text-xl mb-2`}>
+                          {stage.icon}
+                        </div>
+                        <div className="font-display text-[12px] font-semibold text-slate-900 leading-tight">{stage.label}</div>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="text-sm font-bold text-slate-800">My Tasks</div>
-                <div className="text-xs text-slate-400 mt-0.5">Filters due for cleaning</div>
-              </button>
               )}
-              {hasFeature('approvals') && (
-              <button onClick={() => setView('approvals')} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm active:shadow-none active:scale-[0.98] transition-all text-left">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center mb-3 shadow-lg shadow-amber-500/20">
-                  <span className="text-2xl">{'\u2705'}</span>
-                </div>
-                <div className="text-sm font-bold text-slate-800">Approvals</div>
-                <div className="text-xs text-slate-400 mt-0.5">{isApprover ? 'Review requests' : 'Track your requests'}</div>
-              </button>
-              )}
-              {/* Issue #7 fix \u2014 Cleaning Cycles tile on mobile */}
-              <button onClick={() => setView('cycles')} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm active:shadow-none active:scale-[0.98] transition-all text-left">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center mb-3 shadow-lg shadow-indigo-500/20">
-                  <span className="text-2xl">{'\u{1F4CB}'}</span>
-                </div>
-                <div className="text-sm font-bold text-slate-800">Cleaning Cycles</div>
-                <div className="text-xs text-slate-400 mt-0.5">Recent cycle history</div>
-              </button>
-            </div>
-            )}
 
-            {/* RFID Assign */}
-            {hasFeature('rfid_assign') && online && (
-              <button onClick={() => setView('rfid-assign')} className="w-full bg-white rounded-2xl border border-slate-200 p-4 shadow-sm active:shadow-none active:bg-slate-50 transition-all">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-violet-500/20">
-                      <span className="text-2xl">{'\u{1F4F6}'}</span>
-                    </div>
-                    <div className="text-left">
-                      <div className="text-sm font-bold text-slate-800">RFID Assign</div>
-                      <div className="text-xs text-slate-400">Tag or untag filters</div>
-                    </div>
+              {/* === Cycles + RFID Assign — paired row === */}
+              <div className="animate-rise grid grid-cols-2 gap-2.5 pt-1" style={{ animationDelay: '360ms' }}>
+                <button onClick={() => setView('cycles')} className="tile-lift bg-white rounded-2xl border border-slate-200 px-4 py-3 flex items-center gap-2.5 text-left">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 grid place-items-center text-white shrink-0">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 12h6m-6 4h6" /></svg>
                   </div>
-                  <svg className="w-5 h-5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                </div>
-              </button>
-            )}
-
-            {/* Stage Cards — direct access to each cleaning stage */}
-            {hasFeature('filter_cleaning') && (
-            <div className="grid grid-cols-2 gap-3">
-              {STAGES.map(stage => (
-                <button key={stage.key} onClick={() => openStage(stage.key)}
-                  className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm active:shadow-none active:scale-[0.98] transition-all text-left">
-                  <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${stage.gradient} flex items-center justify-center mb-3 shadow-lg shadow-slate-300/30`}>
-                    <span className="text-3xl">{stage.icon}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-display text-[13px] font-semibold text-slate-900 leading-tight">Cleaning Cycles</div>
+                    <div className="text-[10px] text-slate-400 truncate">recent history</div>
                   </div>
-                  <div className="text-sm font-bold text-slate-800">{stage.label}</div>
-                  <div className="text-xs text-slate-400 mt-0.5">{stageCounts[stage.key] ?? 0} filter(s)</div>
                 </button>
-              ))}
-            </div>
-            )}
+                {hasFeature('rfid_assign') && online ? (
+                  <button onClick={() => setView('rfid-assign')} className="tile-lift bg-white rounded-2xl border border-slate-200 px-4 py-3 flex items-center gap-2.5 text-left">
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-600 grid place-items-center text-white shrink-0">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z" /></svg>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-display text-[13px] font-semibold text-slate-900 leading-tight">RFID Assign</div>
+                      <div className="text-[10px] text-slate-400 truncate">tag &middot; untag</div>
+                    </div>
+                  </button>
+                ) : <div className="bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 flex items-center gap-2.5 opacity-60">
+                  <div className="w-8 h-8 rounded-lg bg-slate-200 grid place-items-center text-slate-400 shrink-0">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z" /></svg>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-display text-[13px] font-semibold text-slate-400 leading-tight">RFID Assign</div>
+                    <div className="text-[10px] text-slate-400 truncate">offline</div>
+                  </div>
+                </div>}
+              </div>
 
-            {/* Logout */}
-            {hasFeature('logout') && (
-            <button onClick={logout} className="w-full py-3 bg-white border border-red-200 rounded-2xl text-sm font-medium text-red-600 active:bg-red-50 flex items-center justify-center gap-2">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
-              Logout
-            </button>
-            )}
+              {/* === Logout — its own row === */}
+              {hasFeature('logout') && (
+                <button onClick={logout} className="animate-rise tile-lift w-full bg-white rounded-2xl border border-rose-200 px-4 py-3.5 flex items-center justify-center gap-2.5 text-rose-600 font-display text-[13px] font-semibold active:bg-rose-50" style={{ animationDelay: '420ms' }}>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+                  Logout
+                </button>
+              )}
+
+              {/* === Footer build tag === */}
+              <div className="pt-2 pb-1 text-center font-mono-tab text-[9px] tracking-[0.2em] text-slate-300 uppercase">
+                DigiLog v1.0 &middot; 21 CFR Part 11
+              </div>
+            </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* === STATUS VIEW === */}
         {view === 'status' && (() => {
@@ -566,10 +661,70 @@ export function MobileWrapperPage() {
             const prev = lastCleanedByFilter.get(c.filterId);
             if (!prev || c.completedAt > prev) lastCleanedByFilter.set(c.filterId, c.completedAt);
           }
-          const ahuById = new Map(instances.map((i: any) => [i.id, i] as [string, any]));
-          const visibleFilters = statusStageFilter
-            ? allFilters.filter((f: any) => f.currentLifecycleState === statusStageFilter)
-            : allFilters;
+          // 2026-05-21: walk the hierarchy filter→AHU→Area→Block. Each instance
+          // row carries `parentId`; we use that to build per-filter ancestry,
+          // then derive distinct sets at each tier for the cascading dropdowns.
+          const instById = new Map((instances as any[]).map((i: any) => [i.id, i] as [string, any]));
+          const ahuById = instById;
+          const filterAncestors = new Map<string, { ahuId: string | null; areaId: string | null; blockId: string | null }>();
+          for (const f of (allFilters as any[])) {
+            const ahu = f.parentId ? instById.get(f.parentId) : null;
+            const area = ahu?.parentId ? instById.get(ahu.parentId) : null;
+            const block = area?.parentId ? instById.get(area.parentId) : null;
+            filterAncestors.set(f.id, {
+              ahuId: ahu?.id ?? null,
+              areaId: area?.id ?? null,
+              blockId: block?.id ?? null,
+            });
+          }
+          const allBlockIds = new Set<string>();
+          const allAreaIds = new Set<string>();
+          const allAhuIds = new Set<string>();
+          for (const a of filterAncestors.values()) {
+            if (a.blockId) allBlockIds.add(a.blockId);
+            if (a.areaId) allAreaIds.add(a.areaId);
+            if (a.ahuId) allAhuIds.add(a.ahuId);
+          }
+          const sortByName = (a: any, b: any) => String(a.name ?? '').localeCompare(String(b.name ?? ''));
+          const blockOptions = [...allBlockIds].map((id) => instById.get(id)).filter(Boolean).sort(sortByName);
+          const areaOptions = [...allAreaIds]
+            .map((id) => instById.get(id)).filter(Boolean)
+            .filter((area: any) => statusBlockId === 'all' || area.parentId === statusBlockId)
+            .sort(sortByName);
+          const ahuOptionsStatus = [...allAhuIds]
+            .map((id) => instById.get(id)).filter(Boolean)
+            .filter((ahu: any) => {
+              if (statusAreaId !== 'all' && ahu.parentId !== statusAreaId) return false;
+              if (statusBlockId !== 'all') {
+                const area = ahu.parentId ? instById.get(ahu.parentId) : null;
+                if (!area || area.parentId !== statusBlockId) return false;
+              }
+              return true;
+            })
+            .sort(sortByName);
+          const filterOptionsStatus = (allFilters as any[])
+            .filter((f: any) => {
+              const a = filterAncestors.get(f.id);
+              if (!a) return false;
+              if (statusBlockId !== 'all' && a.blockId !== statusBlockId) return false;
+              if (statusAreaId !== 'all' && a.areaId !== statusAreaId) return false;
+              if (statusAhuId !== 'all' && a.ahuId !== statusAhuId) return false;
+              return true;
+            })
+            .slice()
+            .sort(sortByName);
+          // Apply cascade + stage filter to produce the visible list.
+          const visibleFilters = (allFilters as any[]).filter((f: any) => {
+            const a = filterAncestors.get(f.id);
+            if (!a) return false;
+            if (statusBlockId !== 'all' && a.blockId !== statusBlockId) return false;
+            if (statusAreaId !== 'all' && a.areaId !== statusAreaId) return false;
+            if (statusAhuId !== 'all' && a.ahuId !== statusAhuId) return false;
+            if (statusFilterId !== 'all' && f.id !== statusFilterId) return false;
+            if (statusStageFilter && f.currentLifecycleState !== statusStageFilter) return false;
+            return true;
+          });
+          const cascadeActive = statusBlockId !== 'all' || statusAreaId !== 'all' || statusAhuId !== 'all' || statusFilterId !== 'all';
           const formatDate = (iso: string) => {
             try {
               const d = new Date(iso);
@@ -607,11 +762,107 @@ export function MobileWrapperPage() {
               </button>
             )}
             <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-slate-600">
-                {statusStageFilter
-                  ? `${STAGES.find(s => s.key === statusStageFilter)?.label} (${visibleFilters.length})`
-                  : `All Filters (${visibleFilters.length})`}
-              </h3>
+              <div className="flex items-baseline justify-between">
+                <h3 className="text-sm font-semibold text-slate-600">
+                  {statusStageFilter
+                    ? `${STAGES.find(s => s.key === statusStageFilter)?.label} (${visibleFilters.length})`
+                    : `All Filters (${visibleFilters.length})`}
+                </h3>
+                {cascadeActive && (
+                  <button
+                    onClick={() => { setStatusBlockId('all'); setStatusAreaId('all'); setStatusAhuId('all'); setStatusFilterId('all'); }}
+                    className="text-[11px] text-cyan-600 font-medium underline active:text-cyan-700"
+                  >clear</button>
+                )}
+              </div>
+
+              {/* 4-up hierarchy dropdown row: Block / Area / AHU / Filter */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-2 grid grid-cols-4 gap-1.5">
+                <div>
+                  <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Block</label>
+                  <select
+                    value={statusBlockId}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setStatusBlockId(v);
+                      // cascade-reset descendants if they no longer fit
+                      if (v !== 'all') {
+                        if (statusAreaId !== 'all') {
+                          const area = instById.get(statusAreaId);
+                          if (!area || area.parentId !== v) setStatusAreaId('all');
+                        }
+                        if (statusAhuId !== 'all') {
+                          const ahu = instById.get(statusAhuId);
+                          const ahuArea = ahu?.parentId ? instById.get(ahu.parentId) : null;
+                          if (!ahuArea || ahuArea.parentId !== v) setStatusAhuId('all');
+                        }
+                        if (statusFilterId !== 'all') {
+                          const anc = filterAncestors.get(statusFilterId);
+                          if (anc?.blockId !== v) setStatusFilterId('all');
+                        }
+                      }
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-cyan-500 focus:bg-white truncate"
+                  >
+                    <option value="all">All</option>
+                    {blockOptions.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Area</label>
+                  <select
+                    value={statusAreaId}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setStatusAreaId(v);
+                      if (v !== 'all') {
+                        if (statusAhuId !== 'all') {
+                          const ahu = instById.get(statusAhuId);
+                          if (!ahu || ahu.parentId !== v) setStatusAhuId('all');
+                        }
+                        if (statusFilterId !== 'all') {
+                          const anc = filterAncestors.get(statusFilterId);
+                          if (anc?.areaId !== v) setStatusFilterId('all');
+                        }
+                      }
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-cyan-500 focus:bg-white truncate"
+                  >
+                    <option value="all">All</option>
+                    {areaOptions.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">AHU</label>
+                  <select
+                    value={statusAhuId}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setStatusAhuId(v);
+                      if (v !== 'all' && statusFilterId !== 'all') {
+                        const anc = filterAncestors.get(statusFilterId);
+                        if (anc?.ahuId !== v) setStatusFilterId('all');
+                      }
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-cyan-500 focus:bg-white truncate"
+                  >
+                    <option value="all">All</option>
+                    {ahuOptionsStatus.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Filter</label>
+                  <select
+                    value={statusFilterId}
+                    onChange={(e) => setStatusFilterId(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-cyan-500 focus:bg-white truncate"
+                  >
+                    <option value="all">All</option>
+                    {filterOptionsStatus.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
               {visibleFilters.map((f: any) => {
                 const stageInfo = STAGES.find(s => s.key === f.currentLifecycleState);
                 const ahu = ahuById.get(f.parentId);
@@ -956,13 +1207,86 @@ export function MobileWrapperPage() {
           </div>
         )}
 
-        {/* === CLEANING CYCLES VIEW (Issue #7) === */}
+        {/* === CLEANING CYCLES VIEW — list with filters (2026-05-21) ===
+            From + To datetime + filter dropdown narrow the list. Cards show
+            date AND time. Tap → setSelectedCycleId + view='cycle-detail'. */}
         {view === 'cycles' && (
-          <div className="p-4 space-y-3">
-            <div>
-              <h2 className="text-lg font-bold text-slate-800">Cleaning Cycles</h2>
-              <p className="text-xs text-slate-500 mt-0.5">Recent cycles &middot; {cyclesList.length}</p>
+          <div className="p-4 space-y-3 max-w-2xl mx-auto">
+            <div className="flex items-baseline justify-between">
+              <div>
+                <h2 className="font-display text-[22px] font-semibold text-slate-900 leading-tight">Cleaning Cycles</h2>
+                <p className="text-[11px] text-slate-500 mt-0.5 font-mono-tab">
+                  showing <span className="text-slate-700 font-semibold">{filteredCyclesList.length}</span> of {cyclesList.length}
+                </p>
+              </div>
+              {(cycleAhuId !== 'all' || cycleFilterId !== 'all' || cycleFrom || cycleTo) && (
+                <button
+                  onClick={() => { setCycleAhuId('all'); setCycleFilterId('all'); setCycleFrom(''); setCycleTo(''); }}
+                  className="text-[11px] text-cyan-600 font-medium underline active:text-cyan-700"
+                >clear filters</button>
+              )}
             </div>
+
+            {/* Filter strip — AHU + Filter side-by-side, then From / To side-by-side */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-3 space-y-2.5">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">AHU</label>
+                  <select
+                    value={cycleAhuId}
+                    onChange={(e) => {
+                      const nextAhu = e.target.value;
+                      setCycleAhuId(nextAhu);
+                      // If the currently-selected filter doesn't belong to the new AHU, reset it.
+                      if (nextAhu !== 'all' && cycleFilterId !== 'all') {
+                        const stillValid = (allFilters as any[]).some((f: any) => f.id === cycleFilterId && f.parentId === nextAhu);
+                        if (!stillValid) setCycleFilterId('all');
+                      }
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 font-medium focus:outline-none focus:border-cyan-500 focus:bg-white"
+                  >
+                    <option value="all">All AHUs</option>
+                    {ahuOptions.map((a: any) => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">Filter</label>
+                  <select
+                    value={cycleFilterId}
+                    onChange={(e) => setCycleFilterId(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 font-medium focus:outline-none focus:border-cyan-500 focus:bg-white"
+                  >
+                    <option value="all">All filters</option>
+                    {filterOptionsForAhu.slice().sort((a: any, b: any) => (a.name ?? '').localeCompare(b.name ?? '')).map((f: any) => (
+                      <option key={f.id} value={f.id}>{f.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">From</label>
+                  <input
+                    type="datetime-local"
+                    value={cycleFrom}
+                    onChange={(e) => setCycleFrom(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-[12px] text-slate-800 font-mono-tab focus:outline-none focus:border-cyan-500 focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">To</label>
+                  <input
+                    type="datetime-local"
+                    value={cycleTo}
+                    onChange={(e) => setCycleTo(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-[12px] text-slate-800 font-mono-tab focus:outline-none focus:border-cyan-500 focus:bg-white"
+                  />
+                </div>
+              </div>
+            </div>
+
             {!online && (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700">
                 Offline &mdash; showing last cached snapshot. Reconnect to refresh.
@@ -973,13 +1297,12 @@ export function MobileWrapperPage() {
                 <div key={i} className="bg-white border border-slate-200 rounded-2xl h-24 animate-pulse" />
               ))}</div>
             )}
-            {cyclesList.length === 0 && !cyclesLoading && (
+            {filteredCyclesList.length === 0 && !cyclesLoading && (
               <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-sm text-slate-500">
-                No cleaning cycles yet.
+                {cyclesList.length === 0 ? 'No cleaning cycles yet.' : 'No cycles match these filters.'}
               </div>
             )}
-            {cyclesList.map((cyc: any) => {
-              const isExpanded = expandedCycle === cyc.id;
+            {filteredCyclesList.map((cyc: any) => {
               const statusBadge =
                 cyc.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
                 cyc.status === 'TERMINATED' ? 'bg-rose-50 text-rose-700 border-rose-200' :
@@ -990,92 +1313,433 @@ export function MobileWrapperPage() {
               const durLabel = durSec >= 3600
                 ? `${Math.floor(durSec / 3600)}h ${Math.floor((durSec % 3600) / 60)}m`
                 : `${Math.floor(durSec / 60)}m ${durSec % 60}s`;
-              const events = (cyc.events ?? []) as any[];
               return (
-                <button key={cyc.id} onClick={() => setExpandedCycle(isExpanded ? null : cyc.id)}
-                  className="w-full bg-white rounded-2xl border border-slate-200 p-3 shadow-sm active:bg-slate-50 text-left">
+                <button key={cyc.id} onClick={() => { setSelectedCycleId(cyc.id); setView('cycle-detail'); }}
+                  className="tile-lift w-full bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm text-left">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-bold text-slate-800 truncate">{cyc.filter?.name ?? cyc.filterName ?? cyc.cycleCode}</div>
-                      <div className="text-[11px] text-slate-400 truncate">{cyc.cycleCode}</div>
+                      <div className="font-display text-[14px] font-semibold text-slate-900 truncate leading-tight">{cyc.filter?.name ?? cyc.filterName ?? cyc.cycleCode}</div>
+                      <div className="text-[11px] text-slate-400 truncate font-mono-tab mt-0.5">{cyc.cycleCode}</div>
                     </div>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${statusBadge}`}>
+                    <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${statusBadge}`}>
                       {cyc.status === 'IN_PROGRESS' ? 'In Progress' : cyc.status === 'COMPLETED' ? 'Completed' : 'Terminated'}
                     </span>
                   </div>
-                  <div className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
+                  <div className="mt-2.5 grid grid-cols-3 gap-2">
                     <div>
-                      <div className="text-slate-400">Started</div>
-                      <div className="text-slate-700 font-medium">{formatTime(new Date(cyc.startedAt))}</div>
+                      <div className="text-[9.5px] uppercase tracking-wider text-slate-400 font-medium">Started</div>
+                      <div className="text-[11.5px] text-slate-800 font-mono-tab leading-tight mt-0.5">{formatDate(cyc.startedAt)}</div>
+                      <div className="text-[10.5px] text-slate-500 font-mono-tab leading-tight">{formatTime(new Date(cyc.startedAt))}</div>
                     </div>
                     <div>
-                      <div className="text-slate-400">Duration</div>
-                      <div className="text-slate-700 font-medium">{durLabel}</div>
+                      <div className="text-[9.5px] uppercase tracking-wider text-slate-400 font-medium">Duration</div>
+                      <div className="text-[11.5px] text-slate-800 font-mono-tab leading-tight mt-0.5">{durLabel}</div>
                     </div>
                     <div>
-                      <div className="text-slate-400">Reason</div>
-                      <div className="text-slate-700 font-medium truncate">{cyc.cleaningReasonLabel ?? '-'}</div>
+                      <div className="text-[9.5px] uppercase tracking-wider text-slate-400 font-medium">Reason</div>
+                      <div className="text-[11.5px] text-slate-700 font-medium truncate leading-tight mt-0.5">{cyc.cleaningReasonLabel ?? '—'}</div>
                     </div>
                   </div>
-                  {isExpanded && events.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-slate-100 space-y-1.5">
-                      {events.map((e: any, i: number) => (
-                        <div key={e.id ?? i} className="flex items-center justify-between text-[11px] gap-2">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span className="text-slate-400 shrink-0">{formatTime(new Date(e.performedAt))}</span>
-                            <span className="font-medium text-slate-700 truncate">
-                              {e.eventType === 'STATE_TRANSITION'
-                                ? (e.fromState ? `${e.fromState.replace(/_/g, ' ')} → ${e.toState?.replace(/_/g, ' ')}` : (e.toState?.replace(/_/g, ' ') ?? 'transition'))
-                                : e.eventType.replace(/_/g, ' ').toLowerCase()}
-                            </span>
-                          </div>
-                          {(e.attributes as any)?.action && (
-                            <span className="text-[10px] text-slate-400 truncate">{(e.attributes as any).action.replace(/_/g, ' ').toLowerCase()}</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </button>
               );
             })}
           </div>
         )}
 
+        {/* === CLEANING CYCLE DETAIL — full event timeline (2026-05-21) ===
+            Mirrors apps/web/src/routes/cleaning-cycles/timeline.tsx but on the
+            tablet. Shows stage transitions (with date+time), instrument
+            readings, and checklist Q&A from cycle.events[].enrichedAnswers. */}
+        {view === 'cycle-detail' && (() => {
+          const STAGE_LABELS: Record<string, string> = {
+            WASH_IN: 'Wash In', WASH_OUT: 'Wash Out', DRY_IN: 'Dry In', DRY_OUT: 'Dry Out',
+            STORAGE_IN: 'Storage In', STORAGE_OUT: 'Storage Out', START: 'Start', END: 'End',
+          };
+          const EVENT_STYLE: Record<string, { label: string; dot: string; ring: string; bg: string }> = {
+            CYCLE_STARTED:       { label: 'Cycle Started',       dot: 'bg-cyan-500',    ring: 'ring-cyan-200',    bg: 'bg-cyan-50/60' },
+            STATE_TRANSITION:    { label: 'Stage Moved',         dot: 'bg-blue-500',    ring: 'ring-blue-200',    bg: 'bg-blue-50/60' },
+            PARAMETER_CAPTURE:   { label: 'Readings Captured',   dot: 'bg-purple-500',  ring: 'ring-purple-200',  bg: 'bg-purple-50/60' },
+            CHECKLIST_COMPLETED: { label: 'Checklist Submitted', dot: 'bg-emerald-500', ring: 'ring-emerald-200', bg: 'bg-emerald-50/60' },
+            BYPASS_DEVIATION:    { label: 'Bypass Deviation',    dot: 'bg-rose-500',    ring: 'ring-rose-200',    bg: 'bg-rose-50/60' },
+            EQUIPMENT_LINKED:    { label: 'Equipment Linked',    dot: 'bg-amber-500',   ring: 'ring-amber-200',   bg: 'bg-amber-50/60' },
+            CYCLE_COMPLETED:     { label: 'Cycle Completed',     dot: 'bg-emerald-600', ring: 'ring-emerald-200', bg: 'bg-emerald-50/60' },
+            APPROVAL_GRANTED:    { label: 'Approval Granted',    dot: 'bg-emerald-500', ring: 'ring-emerald-200', bg: 'bg-emerald-50/60' },
+            REMARK_ADDED:        { label: 'Remark Added',        dot: 'bg-slate-500',   ring: 'ring-slate-200',   bg: 'bg-slate-50/60' },
+          };
+          const goBackToCycles = () => { setSelectedCycleId(null); setView('cycles'); };
+          if (cycleDetailLoading && !cycleDetail) {
+            return (
+              <div className="p-4 space-y-3 max-w-2xl mx-auto">
+                <button onClick={goBackToCycles} className="text-[12px] text-slate-500 font-medium inline-flex items-center gap-1 active:text-slate-700">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                  Back
+                </button>
+                <div className="bg-white rounded-2xl border border-slate-200 p-8 grid place-items-center">
+                  <div className="w-7 h-7 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              </div>
+            );
+          }
+          if (!cycleDetail) {
+            return (
+              <div className="p-4 space-y-3 max-w-2xl mx-auto">
+                <button onClick={goBackToCycles} className="text-[12px] text-slate-500 font-medium inline-flex items-center gap-1 active:text-slate-700">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                  Back to Cycles
+                </button>
+                <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-500">Cycle not found.</div>
+              </div>
+            );
+          }
+          const events = (cycleDetail.events ?? []) as any[];
+          const durSec = cycleDetail.completedAt
+            ? Math.max(0, Math.floor((new Date(cycleDetail.completedAt).getTime() - new Date(cycleDetail.startedAt).getTime()) / 1000))
+            : Math.max(0, Math.floor((Date.now() - new Date(cycleDetail.startedAt).getTime()) / 1000));
+          const durLabel = durSec >= 3600
+            ? `${Math.floor(durSec / 3600)}h ${Math.floor((durSec % 3600) / 60)}m`
+            : `${Math.floor(durSec / 60)}m ${durSec % 60}s`;
+          const statusBadge =
+            cycleDetail.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+            cycleDetail.status === 'TERMINATED' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+            'bg-blue-50 text-blue-700 border-blue-200';
+          return (
+            <div className="p-4 space-y-3 max-w-2xl mx-auto">
+              {/* Header strip */}
+              <div className="flex items-center justify-between">
+                <button onClick={goBackToCycles} className="text-[12px] text-slate-500 font-medium inline-flex items-center gap-1.5 active:text-slate-700">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                  Cycles
+                </button>
+                <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border ${statusBadge}`}>
+                  {cycleDetail.status === 'IN_PROGRESS' ? 'In Progress' : cycleDetail.status === 'COMPLETED' ? 'Completed' : 'Terminated'}
+                </span>
+              </div>
+
+              {/* Summary card */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+                <div className="font-display text-[18px] font-semibold text-slate-900 leading-tight">{cycleDetail.filterName ?? cycleDetail.filter?.name ?? cycleDetail.cycleCode}</div>
+                <div className="text-[11px] text-slate-400 font-mono-tab mt-0.5">{cycleDetail.cycleCode}</div>
+                <div className="grid grid-cols-2 gap-2.5 mt-3">
+                  <div className="bg-slate-50 rounded-lg px-3 py-2">
+                    <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold">Started</div>
+                    <div className="text-[12px] text-slate-800 font-mono-tab mt-0.5 leading-tight">{formatDate(cycleDetail.startedAt)}</div>
+                    <div className="text-[11px] text-slate-500 font-mono-tab leading-tight">{formatTime(new Date(cycleDetail.startedAt))}</div>
+                  </div>
+                  <div className="bg-slate-50 rounded-lg px-3 py-2">
+                    <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold">{cycleDetail.completedAt ? 'Completed' : 'Duration so far'}</div>
+                    {cycleDetail.completedAt ? (
+                      <>
+                        <div className="text-[12px] text-slate-800 font-mono-tab mt-0.5 leading-tight">{formatDate(cycleDetail.completedAt)}</div>
+                        <div className="text-[11px] text-slate-500 font-mono-tab leading-tight">{formatTime(new Date(cycleDetail.completedAt))}</div>
+                      </>
+                    ) : (
+                      <div className="text-[14px] text-slate-800 font-mono-tab mt-0.5 leading-tight font-semibold">{durLabel}</div>
+                    )}
+                  </div>
+                  <div className="bg-slate-50 rounded-lg px-3 py-2">
+                    <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold">Duration</div>
+                    <div className="text-[14px] text-slate-800 font-mono-tab mt-0.5 leading-tight font-semibold">{durLabel}</div>
+                  </div>
+                  <div className="bg-slate-50 rounded-lg px-3 py-2">
+                    <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold">Reason</div>
+                    <div className="text-[12px] text-slate-700 font-medium mt-0.5 leading-tight">{cycleDetail.cleaningReasonLabel ?? cycleDetail.cleaningReasonKey ?? '—'}</div>
+                  </div>
+                </div>
+                {cycleDetail.cleaningJustification && (
+                  <div className="mt-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-[12px] text-amber-700 italic leading-snug">
+                    {cycleDetail.cleaningJustification}
+                  </div>
+                )}
+              </div>
+
+              {/* Event timeline */}
+              <div className="space-y-2">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400 font-medium px-1">Event timeline &middot; <span className="font-mono-tab">{events.length}</span></div>
+                {events.length === 0 ? (
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center text-sm text-slate-500">No events recorded.</div>
+                ) : (
+                  events.map((ev: any, idx: number) => {
+                    const style = EVENT_STYLE[ev.eventType] ?? EVENT_STYLE.REMARK_ADDED;
+                    const attrs = (ev.attributes ?? {}) as Record<string, any>;
+                    const readings: any[] = Array.isArray(attrs.instrumentReadings) ? attrs.instrumentReadings : [];
+                    const enrichedAnswers: any[] = Array.isArray(ev.enrichedAnswers) ? ev.enrichedAnswers : [];
+                    return (
+                      <div key={ev.id ?? idx} className={`relative bg-white rounded-2xl border border-slate-200 overflow-hidden`}>
+                        {/* color accent strip */}
+                        <div className={`absolute left-0 top-0 bottom-0 w-1 ${style.dot}`} />
+                        <div className={`pl-4 pr-3.5 py-3 ${style.bg}`}>
+                          <div className="flex items-start justify-between gap-2 mb-1.5">
+                            <div className="font-display text-[13px] font-semibold text-slate-900 leading-tight">
+                              {style.label}
+                              {ev.eventType === 'STATE_TRANSITION' && ev.toState && (
+                                <span className="ml-1.5 text-[11px] font-mono-tab text-slate-500">&rarr; {STAGE_LABELS[ev.toState] ?? ev.toState.replace(/_/g, ' ')}</span>
+                              )}
+                            </div>
+                            <div className="text-right shrink-0">
+                              <div className="text-[10.5px] text-slate-700 font-mono-tab leading-tight">{formatDate(ev.performedAt)}</div>
+                              <div className="text-[10px] text-slate-500 font-mono-tab leading-tight">{formatTime(new Date(ev.performedAt))}</div>
+                            </div>
+                          </div>
+                          {(ev.performedByUsername || ev.performedByName) && (
+                            <div className="text-[10.5px] text-slate-500">by <span className="text-slate-700 font-medium font-mono-tab">{ev.performedByUsername ?? ev.performedByName}</span></div>
+                          )}
+                          {ev.fromState && ev.toState && (
+                            <div className="flex items-center gap-1.5 mt-1.5">
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-white border border-slate-200 text-slate-500 font-mono-tab">{STAGE_LABELS[ev.fromState] ?? ev.fromState}</span>
+                              <svg className="w-3 h-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-white border border-slate-300 text-slate-700 font-mono-tab font-semibold">{STAGE_LABELS[ev.toState] ?? ev.toState}</span>
+                            </div>
+                          )}
+                        </div>
+                        {/* Instrument readings */}
+                        {readings.length > 0 && (
+                          <div className="px-4 pt-2.5 pb-3 space-y-1.5">
+                            <div className="text-[9.5px] uppercase tracking-wider text-slate-400 font-semibold">Submitted readings</div>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {readings.map((r: any, ri: number) => (
+                                <div key={ri} className="bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1.5">
+                                  <div className="text-[10px] text-slate-400 truncate">{r.description ?? r.instrumentCode ?? `Reading ${ri + 1}`}</div>
+                                  <div className="flex items-baseline gap-1 mt-0.5">
+                                    <span className="text-[14px] text-slate-900 font-mono-tab font-semibold leading-none">{String(r.value ?? '—')}</span>
+                                    <span className="text-[10px] text-slate-500">{r.uom ?? r.unit ?? ''}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {/* Checklist Q&A */}
+                        {enrichedAnswers.length > 0 && (
+                          <div className="px-4 pt-2.5 pb-3 space-y-1.5">
+                            <div className="text-[9.5px] uppercase tracking-wider text-slate-400 font-semibold">Checklist responses &middot; <span className="font-mono-tab">{enrichedAnswers.length}</span></div>
+                            <div className="space-y-1.5">
+                              {enrichedAnswers.map((qa: any, qi: number) => (
+                                <div key={qa.questionId ?? qi} className="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 flex items-start gap-2">
+                                  <div className="font-mono-tab text-[10px] text-slate-400 font-medium pt-0.5 shrink-0">{String(qi + 1).padStart(2, '0')}.</div>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-[12px] text-slate-700 leading-snug">{qa.question}</div>
+                                    <div className="text-[12px] text-slate-900 font-semibold mt-0.5 break-words">
+                                      {typeof qa.answer === 'boolean' ? (qa.answer ? 'Yes' : 'No') : String(qa.answer ?? '—')}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {/* Remarks / deviation */}
+                        {ev.remarks && (
+                          <div className="px-4 pb-3 text-[12px] text-slate-500 italic">{ev.remarks}</div>
+                        )}
+                        {ev.deviationDetails && (
+                          <div className="mx-3 mb-3 px-3 py-2 bg-rose-50 border border-rose-200 rounded-lg text-[12px] text-rose-700">
+                            Deviation: {(ev.deviationDetails as any).justification || JSON.stringify(ev.deviationDetails)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* === RFID ASSIGN VIEW === */}
-        {view === 'rfid-assign' && (
-          <div className="p-4 space-y-4">
+        {view === 'rfid-assign' && (() => {
+          // Re-derive hierarchy locally so this view stays self-contained and
+          // doesn't depend on status-view internals.
+          const rfidInstById = new Map((instances as any[]).map((i: any) => [i.id, i] as [string, any]));
+          const rfidFilterAncestors = new Map<string, { ahuId: string | null; areaId: string | null; blockId: string | null }>();
+          for (const f of (allFilters as any[])) {
+            const ahu = f.parentId ? rfidInstById.get(f.parentId) : null;
+            const area = ahu?.parentId ? rfidInstById.get(ahu.parentId) : null;
+            const block = area?.parentId ? rfidInstById.get(area.parentId) : null;
+            rfidFilterAncestors.set(f.id, {
+              ahuId: ahu?.id ?? null,
+              areaId: area?.id ?? null,
+              blockId: block?.id ?? null,
+            });
+          }
+          const rfidBlockIds = new Set<string>();
+          const rfidAreaIds = new Set<string>();
+          const rfidAhuIds = new Set<string>();
+          for (const a of rfidFilterAncestors.values()) {
+            if (a.blockId) rfidBlockIds.add(a.blockId);
+            if (a.areaId) rfidAreaIds.add(a.areaId);
+            if (a.ahuId) rfidAhuIds.add(a.ahuId);
+          }
+          const byName = (a: any, b: any) => String(a.name ?? '').localeCompare(String(b.name ?? ''));
+          const rfidBlockOptions = [...rfidBlockIds].map((id) => rfidInstById.get(id)).filter(Boolean).sort(byName);
+          const rfidAreaOptions = [...rfidAreaIds]
+            .map((id) => rfidInstById.get(id)).filter(Boolean)
+            .filter((area: any) => rfidBlockId === 'all' || area.parentId === rfidBlockId)
+            .sort(byName);
+          const rfidAhuOptions = [...rfidAhuIds]
+            .map((id) => rfidInstById.get(id)).filter(Boolean)
+            .filter((ahu: any) => {
+              if (rfidAreaId !== 'all' && ahu.parentId !== rfidAreaId) return false;
+              if (rfidBlockId !== 'all') {
+                const area = ahu.parentId ? rfidInstById.get(ahu.parentId) : null;
+                if (!area || area.parentId !== rfidBlockId) return false;
+              }
+              return true;
+            })
+            .sort(byName);
+          const rfidFilterOptions = (allFilters as any[])
+            .filter((f: any) => {
+              const a = rfidFilterAncestors.get(f.id);
+              if (!a) return false;
+              if (rfidBlockId !== 'all' && a.blockId !== rfidBlockId) return false;
+              if (rfidAreaId !== 'all' && a.areaId !== rfidAreaId) return false;
+              if (rfidAhuId !== 'all' && a.ahuId !== rfidAhuId) return false;
+              return true;
+            })
+            .slice().sort(byName);
+          const rfidVisibleFilters = (allFilters as any[]).filter((f: any) => {
+            const a = rfidFilterAncestors.get(f.id);
+            if (!a) return false;
+            if (rfidBlockId !== 'all' && a.blockId !== rfidBlockId) return false;
+            if (rfidAreaId !== 'all' && a.areaId !== rfidAreaId) return false;
+            if (rfidAhuId !== 'all' && a.ahuId !== rfidAhuId) return false;
+            if (rfidFilterId !== 'all' && f.id !== rfidFilterId) return false;
+            if (rfidSearch && !f.name?.toLowerCase().includes(rfidSearch.toLowerCase())) return false;
+            return true;
+          });
+          const rfidCascadeActive = rfidBlockId !== 'all' || rfidAreaId !== 'all' || rfidAhuId !== 'all' || rfidFilterId !== 'all';
+          return (
+          <div className="p-4 space-y-4 max-w-2xl mx-auto">
             {!rfidSelectedFilter ? (
               <>
+                <div className="flex items-baseline justify-between">
+                  <h2 className="font-display text-[20px] font-semibold text-slate-900">Select filter</h2>
+                  {rfidCascadeActive && (
+                    <button
+                      onClick={() => { setRfidBlockId('all'); setRfidAreaId('all'); setRfidAhuId('all'); setRfidFilterId('all'); }}
+                      className="text-[11px] text-cyan-600 font-medium underline active:text-cyan-700"
+                    >clear</button>
+                  )}
+                </div>
+
+                {/* 4-up hierarchy dropdown row — same pattern as Status view */}
+                <div className="bg-white rounded-2xl border border-slate-200 p-2 grid grid-cols-4 gap-1.5">
+                  <div>
+                    <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Block</label>
+                    <select
+                      value={rfidBlockId}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setRfidBlockId(v);
+                        if (v !== 'all') {
+                          if (rfidAreaId !== 'all') {
+                            const area = rfidInstById.get(rfidAreaId);
+                            if (!area || area.parentId !== v) setRfidAreaId('all');
+                          }
+                          if (rfidAhuId !== 'all') {
+                            const ahu = rfidInstById.get(rfidAhuId);
+                            const ahuArea = ahu?.parentId ? rfidInstById.get(ahu.parentId) : null;
+                            if (!ahuArea || ahuArea.parentId !== v) setRfidAhuId('all');
+                          }
+                          if (rfidFilterId !== 'all') {
+                            const anc = rfidFilterAncestors.get(rfidFilterId);
+                            if (anc?.blockId !== v) setRfidFilterId('all');
+                          }
+                        }
+                      }}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-violet-500 focus:bg-white truncate"
+                    >
+                      <option value="all">All</option>
+                      {rfidBlockOptions.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Area</label>
+                    <select
+                      value={rfidAreaId}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setRfidAreaId(v);
+                        if (v !== 'all') {
+                          if (rfidAhuId !== 'all') {
+                            const ahu = rfidInstById.get(rfidAhuId);
+                            if (!ahu || ahu.parentId !== v) setRfidAhuId('all');
+                          }
+                          if (rfidFilterId !== 'all') {
+                            const anc = rfidFilterAncestors.get(rfidFilterId);
+                            if (anc?.areaId !== v) setRfidFilterId('all');
+                          }
+                        }
+                      }}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-violet-500 focus:bg-white truncate"
+                    >
+                      <option value="all">All</option>
+                      {rfidAreaOptions.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">AHU</label>
+                    <select
+                      value={rfidAhuId}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setRfidAhuId(v);
+                        if (v !== 'all' && rfidFilterId !== 'all') {
+                          const anc = rfidFilterAncestors.get(rfidFilterId);
+                          if (anc?.ahuId !== v) setRfidFilterId('all');
+                        }
+                      }}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-violet-500 focus:bg-white truncate"
+                    >
+                      <option value="all">All</option>
+                      {rfidAhuOptions.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Filter</label>
+                    <select
+                      value={rfidFilterId}
+                      onChange={(e) => setRfidFilterId(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-violet-500 focus:bg-white truncate"
+                    >
+                      <option value="all">All</option>
+                      {rfidFilterOptions.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Select Filter</label>
+                  <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">Search by name</label>
                   <input
                     type="text"
                     value={rfidSearch}
                     onChange={e => setRfidSearch(e.target.value)}
-                    placeholder="Search by filter name..."
+                    placeholder="Type to narrow…"
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
                   />
                 </div>
+
                 <div className="space-y-2">
-                  {allFilters
-                    .filter((f: any) => !rfidSearch || f.name?.toLowerCase().includes(rfidSearch.toLowerCase()))
-                    .slice(0, 60)
-                    .map((f: any) => {
-                      const tags = rfidTagsByFilter.get(f.id) ?? [];
-                      return (
-                        <button key={f.id} onClick={() => { setRfidSelectedFilter({ id: f.id, name: f.name }); setRfidError(''); setRfidSuccess(''); }}
-                          className="w-full bg-white rounded-xl border border-slate-200 p-3 active:bg-slate-50 transition-colors text-left flex items-center justify-between">
-                          <div>
-                            <div className="text-sm font-semibold text-slate-800">{f.name}</div>
-                            <div className="text-[11px] text-slate-400 mt-0.5">
-                              {tags.length > 0 ? `${tags.length} tag${tags.length > 1 ? 's' : ''} assigned` : 'No tag assigned'}
-                            </div>
+                  <div className="text-[11px] text-slate-500 font-mono-tab px-1">
+                    showing <span className="text-slate-800 font-semibold">{Math.min(rfidVisibleFilters.length, 60)}</span> of {rfidVisibleFilters.length}
+                  </div>
+                  {rfidVisibleFilters.length === 0 && (
+                    <div className="bg-white border border-slate-200 rounded-xl p-6 text-center text-sm text-slate-500">No filters match.</div>
+                  )}
+                  {rfidVisibleFilters.slice(0, 60).map((f: any) => {
+                    const tags = rfidTagsByFilter.get(f.id) ?? [];
+                    return (
+                      <button key={f.id} onClick={() => { setRfidSelectedFilter({ id: f.id, name: f.name }); setRfidError(''); setRfidSuccess(''); }}
+                        className="tile-lift w-full bg-white rounded-xl border border-slate-200 p-3 text-left flex items-center justify-between">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-display text-[13px] font-semibold text-slate-900 truncate leading-tight">{f.name}</div>
+                          <div className="text-[10.5px] text-slate-400 mt-0.5 font-mono-tab">
+                            {tags.length > 0 ? `${tags.length} tag${tags.length > 1 ? 's' : ''} assigned` : 'no tag assigned'}
                           </div>
-                          <svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                        </button>
-                      );
-                    })}
+                        </div>
+                        <svg className="w-4 h-4 text-slate-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                      </button>
+                    );
+                  })}
                 </div>
               </>
             ) : (
@@ -1139,28 +1803,38 @@ export function MobileWrapperPage() {
               </>
             )}
           </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* --- BOTTOM NAVIGATION --- */}
       {view !== 'operations' && (
         <div className="bg-white/90 backdrop-blur-lg border-t border-slate-200/60 px-2 py-2 flex items-center justify-around shrink-0 z-10">
+          {/* 2026-05-21: bottom-nav buttons gated by hasFeature so admin's
+              tablet-access allowlist actually blocks navigation. Home is
+              always reachable (it's the safe landing for any logged-in user). */}
           <button onClick={() => setView('home')} className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-colors ${view === 'home' ? 'text-cyan-600' : 'text-slate-400'}`}>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
             <span className="text-[10px] font-semibold">Home</span>
           </button>
-          <button onClick={() => setView('status')} className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-colors ${view === 'status' ? 'text-cyan-600' : 'text-slate-400'}`}>
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-            <span className="text-[10px] font-semibold">Status</span>
-          </button>
-          <button onClick={() => setView('my-tasks')} className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-colors ${view === 'my-tasks' ? 'text-cyan-600' : 'text-slate-400'}`}>
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
-            <span className="text-[10px] font-semibold">My Tasks</span>
-          </button>
-          <button onClick={() => setView('approvals')} className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-colors ${view === 'approvals' ? 'text-cyan-600' : 'text-slate-400'}`}>
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            <span className="text-[10px] font-semibold">Approvals</span>
-          </button>
+          {hasFeature('filter_status') && (
+            <button onClick={() => setView('status')} className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-colors ${view === 'status' ? 'text-cyan-600' : 'text-slate-400'}`}>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+              <span className="text-[10px] font-semibold">Status</span>
+            </button>
+          )}
+          {hasFeature('my_tasks') && (
+            <button onClick={() => setView('my-tasks')} className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-colors ${view === 'my-tasks' ? 'text-cyan-600' : 'text-slate-400'}`}>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+              <span className="text-[10px] font-semibold">My Tasks</span>
+            </button>
+          )}
+          {hasFeature('approvals') && (
+            <button onClick={() => setView('approvals')} className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-colors ${view === 'approvals' ? 'text-cyan-600' : 'text-slate-400'}`}>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <span className="text-[10px] font-semibold">Approvals</span>
+            </button>
+          )}
         </div>
       )}
 

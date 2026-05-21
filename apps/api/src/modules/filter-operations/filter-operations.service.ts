@@ -217,7 +217,10 @@ export class FilterOperationsService {
       where: { id: { in: allPerformerIds } },
       select: { id: true, username: true, fullName: true },
     }) : [];
-    const userMap = new Map(performers.map(u => [u.id, u.fullName || u.username]));
+    // 2026-05-21: expose both fullName and username so the FE can choose which
+    // to render. Mobile cycle view uses the username (operator login id) per
+    // operator request; desktop continues to show fullName.
+    const userMap = new Map(performers.map(u => [u.id, { fullName: u.fullName || u.username, username: u.username }]));
 
     const enriched = data.map(c => ({
       ...c,
@@ -225,10 +228,14 @@ export class FilterOperationsService {
       filterSet: assetMap.get(c.filterId)?.filterSet ?? null,
       cleaningAreaName: c.cleaningAreaId ? (assetMap.get(c.cleaningAreaId)?.name ?? null) : null,
       ...((c as any).events ? {
-        events: (c as any).events.map((e: any) => ({
-          ...e,
-          performedByName: e.performedBy ? userMap.get(e.performedBy) ?? null : null,
-        })),
+        events: (c as any).events.map((e: any) => {
+          const u = e.performedBy ? userMap.get(e.performedBy) : null;
+          return {
+            ...e,
+            performedByName: u?.fullName ?? null,
+            performedByUsername: u?.username ?? null,
+          };
+        }),
       } : {}),
     }));
 
@@ -259,12 +266,14 @@ export class FilterOperationsService {
     }) : null;
 
     // Resolve performedBy UUIDs to user names
+    // 2026-05-21: also expose username (operator login id) — mobile cycle view
+    // renders that instead of fullName per operator request.
     const performerIds = [...new Set(cycle.events.map(e => e.performedBy).filter(Boolean) as string[])];
     const users = performerIds.length > 0 ? await prisma.user.findMany({
       where: { id: { in: performerIds } },
       select: { id: true, username: true, fullName: true },
     }) : [];
-    const userMap = Object.fromEntries(users.map(u => [u.id, u.fullName || u.username]));
+    const userMap = Object.fromEntries(users.map(u => [u.id, { fullName: u.fullName || u.username, username: u.username }]));
 
     // Resolve checklist question IDs to question text.
     // Phase A.1: prefer the per-event questionsSnapshot (frozen at submit time)
@@ -317,7 +326,12 @@ export class FilterOperationsService {
     }
 
     const enrichedEvents = cycle.events.map(e => {
-      const enriched: any = { ...e, performedByName: e.performedBy ? userMap[e.performedBy] ?? null : null };
+      const u = e.performedBy ? userMap[e.performedBy] : null;
+      const enriched: any = {
+        ...e,
+        performedByName: u?.fullName ?? null,
+        performedByUsername: u?.username ?? null,
+      };
       if (e.eventType === 'CHECKLIST_COMPLETED' && (e.attributes as any)?.answers) {
         const answers = (e.attributes as any).answers;
         enriched.enrichedAnswers = Object.entries(answers).map(([qId, answer]) => ({
