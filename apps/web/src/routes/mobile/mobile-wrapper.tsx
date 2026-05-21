@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useRef } from 'react';
+import { Fragment, useState, useEffect } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient, api } from '../../lib/api-client';
@@ -113,17 +113,39 @@ export function MobileWrapperPage() {
   // Then keep SWR for live data refresh while online.
   const [dataCached, setDataCached] = useState(false);
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
-  const syncStarted = useRef(false);
-
-  // Run full sync once after login while online
+  // 2026-05-21: tablet operator explicit ask — the same APK can be installed
+  // on many tablets and operators move between them. Every app open must
+  // pull a fresh copy of master data (instances, identifiers, templates,
+  // cleaning reasons, equipment groups, profile assignments, etc.) so an
+  // identifier added on one tablet shows up on another without manual
+  // intervention. Plus we re-sync whenever the app comes back from
+  // background (visibilitychange) so leaving the tablet for an hour and
+  // returning doesn't scan against stale data.
   useEffect(() => {
-    if (!online || !user || syncStarted.current) return;
-    syncStarted.current = true;
+    if (!online || !user) return;
+    // Mark cache stale until the fresh sync completes — UI shows "Syncing…"
+    setDataCached(false);
     syncAllDataForOffline((progress) => {
       setSyncProgress(progress);
       if (progress.done) setDataCached(true);
     });
   }, [online, user]);
+  // Re-sync on foreground (visibilitychange) so the cache reflects any
+  // server-side changes that happened while the tablet was backgrounded.
+  useEffect(() => {
+    if (!user) return;
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        setDataCached(false);
+        syncAllDataForOffline((progress) => {
+          setSyncProgress(progress);
+          if (progress.done) setDataCached(true);
+        });
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [user]);
 
   // Phase 8.4b — versioned-cache sync (Option D). Runs in parallel with the
   // legacy syncAllDataForOffline above. Different cache (the v5 sync stores
