@@ -511,11 +511,13 @@ model Filter {
   customAttributes      Json     @default("{}") @map("custom_attributes") @db.JsonB
   unsPath               String?  @map("uns_path") @db.VarChar(500)
   isActive              Boolean  @default(true) @map("is_active")
-  // Inlined from legacy FilterDetails 1:1 sidecar (Step 6, 2026-05-01):
-  filterProfileId       String?  @map("filter_profile_id") @db.Uuid
-  currentLifecycleState String?  @map("current_lifecycle_state") @db.VarChar(100)
-  currentCycleId        String?  @map("current_cycle_id") @db.Uuid
-  filterSet             String?  @map("filter_set") @db.VarChar(50)
+  // 2026-05-25 D-03 fix: the four mirror columns (filterProfileId,
+  // currentLifecycleState, currentCycleId, filterSet) lived here as a
+  // duplicate of FilterDetails. No application code ever read or wrote
+  // them through prisma.filter.*, so they were pure drift hazard.
+  // FilterDetails remains the authoritative source for cycle state.
+  // When the asset cutover (A-01) lands and FilterDetails merges into
+  // this model, re-add these columns then.
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz
   createdBy             String?  @map("created_by") @db.VarChar(50)
@@ -527,9 +529,6 @@ model Filter {
   @@index([status])
   @@index([name])
   @@index([isActive])
-  @@index([currentLifecycleState])
-  @@index([currentCycleId])
-  @@index([filterProfileId])
   @@map("filters")
 }
 
