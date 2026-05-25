@@ -103,6 +103,21 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [recentOps, setRecentOps] = useState<Array<{ stage: string; filter: string; time: string; queued?: boolean }>>([]);
+  // 2026-05-25: combined-screen UX. When a stage submit triggers a follow-up
+  // checklist dialog (resolveAndDispatchChecklist auto-opens it), we want the
+  // operator to see the stage readings they just submitted at the top of the
+  // checklist dialog — so both readings + checklist are visible on a single
+  // screen instead of looking like two unrelated steps. We snapshot the
+  // readings + stage right before advance fires and clear after the checklist
+  // closes. `readings` is an instrument-id keyed map; we resolve the labels
+  // (description + uom) lazily from the active stage's `instrumentsForStage`
+  // when rendering, so the snapshot stays small and stable.
+  const [stageSubmitRecap, setStageSubmitRecap] = useState<{
+    stage: string;
+    filterName: string;
+    readings: Array<{ description: string; value: string | number; uom: string }>;
+    submittedAt: string;
+  } | null>(null);
   // B7.4 (2026-05-02): advisory shown when admin edited the cycle's pinned
   // EquipmentGroup mid-cycle. Persistent (no auto-clear) — operator can keep
   // working on the pinned ranges, but should know the live group has moved.
@@ -583,7 +598,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // since per-stage counters can't be derived from local optimistic state
   // without re-projecting every cached filter (separate follow-up).
   const goHome = () => {
-    setView('home'); setActiveStage(null); core.dispatch({ type: 'close' }); setError(''); setSuccess(''); setScanQueue([]); setDryerDurations({}); setEquipmentGroupSyncWarning(null);
+    setView('home'); setActiveStage(null); core.dispatch({ type: 'close' }); setError(''); setSuccess(''); setScanQueue([]); setDryerDurations({}); setEquipmentGroupSyncWarning(null); setStageSubmitRecap(null);
     if (online) mutate('/api/assets/instances?limit=500');
   };
 
@@ -1598,6 +1613,23 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         executed = res.executed;
       }
 
+      // 2026-05-25 combined-screen UX: snapshot the readings the operator just
+      // sent so the checklist dialog (auto-opened by resolveAndDispatchChecklist)
+      // can show them at the top. selectedEquipGroup carries the instrument
+      // metadata needed to render the values with their descriptions + uoms.
+      const recap = (selectedEquipGroup?.instruments ?? [])
+        .filter((i: any) => i.stageKey === equipStage && readings[i.id] !== undefined)
+        .map((i: any) => ({
+          description: i.description as string,
+          value: formatByLeastCount(readings[i.id], i.leastCount),
+          uom: i.uom as string,
+        }));
+      setStageSubmitRecap({
+        stage: equipStage,
+        filterName: equipFiltName,
+        readings: recap,
+        submittedAt: formatTime(new Date()),
+      });
       const queued = !executed;
       setSuccess(`${equipFiltName} → ${equipStage.replace(/_/g, ' ')}${queued ? ' (queued)' : ''}`);
       setRecentOps(prev => [{ stage: equipStage, filter: equipFiltName, time: formatTime(new Date()), queued }, ...prev].slice(0, 20));
@@ -1702,6 +1734,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       });
       setSuccess(`Checklist submitted${executed ? '' : ' (queued)'}`);
       setChecklistAnswers({});
+      // Combined-screen UX: once the checklist is submitted, the stage flow
+      // for this filter is fully complete — drop the recap so the next stage
+      // doesn't show last cycle's data.
+      setStageSubmitRecap(null);
       // Dialog close + offline cache-clear + batch walking handled by core.submitChecklist.
       if (executed) mutate('/api/assets/instances?limit=500');
     }, {
@@ -2668,7 +2704,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         onSubmit={handleDryerDurationSubmit}
       />
 
-      {/* Checklist */}
+      {/* Checklist — combined-screen UX (2026-05-25): the readings are
+          already submitted server-side at this point; the dialog shows a
+          ✓ confirmation banner up top with the stage info + readings recap
+          (when available) so the operator sees BOTH on one screen instead
+          of perceiving the checklist as an unrelated second step. The
+          checklist questions themselves and the Submit button are below. */}
       {checklistDialog && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end justify-center z-50">
           <div className="bg-white rounded-t-3xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl animate-slide-up">
@@ -2677,6 +2718,38 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               <div><h2 className="text-lg font-bold text-white">Checklist Required</h2><p className="text-purple-100 text-sm">{checklistDialog.filterName}</p></div>
             </div>
             <div className="p-5 space-y-5 overflow-y-auto flex-1">
+              {/* Stage-submitted recap (2026-05-25 combined-screen UX).
+                  Shows the operator that the stage data they submitted was
+                  accepted, with optional reading values so they can verify
+                  before answering the checklist. Falls back to a simple
+                  confirmation when no recap snapshot is available. */}
+              {(stageSubmitRecap || activeStage) && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <div className="text-sm font-semibold text-emerald-800">
+                      {stageSubmitRecap?.stage?.replace(/_/g, ' ') ?? activeStage?.label ?? 'Stage'} submitted
+                    </div>
+                    {stageSubmitRecap?.submittedAt && (
+                      <div className="text-[10px] text-emerald-600 ml-auto">{stageSubmitRecap.submittedAt}</div>
+                    )}
+                  </div>
+                  {stageSubmitRecap && stageSubmitRecap.readings.length > 0 ? (
+                    <div className="space-y-1">
+                      {stageSubmitRecap.readings.map((r, i) => (
+                        <div key={i} className="flex justify-between text-xs">
+                          <span className="text-emerald-700">{r.description}</span>
+                          <span className="font-mono text-emerald-900 font-semibold">{r.value} {r.uom}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-emerald-700">Readings recorded. Please complete the checklist below to finalize this step.</div>
+                  )}
+                </div>
+              )}
               {(checklistDialog.checklists as any[]).map((cl: any) => (
                 <div key={cl.pipelineNodeId}>
                   <h3 className="text-sm font-semibold text-purple-700 uppercase tracking-wider mb-3">{cl.checklistProfileName}</h3>
