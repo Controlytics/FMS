@@ -28,6 +28,7 @@ const {
     getLoginSecurityConfig: vi.fn(),
     getSessionConfig: vi.fn(),
     getPasswordPolicyConfig: vi.fn(),
+    getPasswordPolicyRow: vi.fn(),
     getPasswordHistory: vi.fn(),
     changePassword: vi.fn(),
     findPendingResetRequest: vi.fn(),
@@ -73,6 +74,11 @@ describe('authService', () => {
     mockRepo.getLoginSecurityConfig.mockResolvedValue({});
     mockRepo.getSessionConfig.mockResolvedValue({ sessionDurationHours: 8 });
     mockRepo.getPasswordPolicyConfig.mockResolvedValue({ maxFailedAttempts: 5 });
+    // Default to a long-ago policy save so the grace floor doesn't bind.
+    mockRepo.getPasswordPolicyRow.mockResolvedValue({
+      configValue: { passwordExpiryDays: 90 },
+      updatedAt: new Date(Date.now() - 365 * 86400000),
+    });
     mockRepo.terminateOtherSessions.mockResolvedValue({ count: 0 });
   });
 

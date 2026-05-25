@@ -3,6 +3,7 @@ import { prisma } from "../../lib/prisma.js";
 import type { RequestContext } from '../../types/context.js';
 import { auditLog } from '../../lib/audit.js';
 import { hashPassword, verifyPassword } from '../../lib/password.js';
+import { isPasswordExpired } from '../../lib/password-expiry.js';
 import { ldapService } from '../ldap/ldap.service.js';
 import { signToken, signVerificationToken, verifyToken } from '../../lib/jwt.js';
 import { AppError, NotFoundError, ValidationError, ConflictError } from '../../lib/errors.js';
@@ -166,8 +167,19 @@ export const authService = {
       throw err;
     }
 
-    // Check password expiry (21 CFR Part 11 — applies to all users including SUPER_ADMIN)
-    if (user.passwordExpiresAt && user.passwordExpiresAt < new Date() && !user.forcePasswordChange) {
+    // Check password expiry (derived from passwordChangedAt + live policy,
+    // floored at policy save time). SUPER_ADMIN is exempt — same posture as
+    // the auto-unlock / auto-recover / lockout-exempt branches above. This
+    // weakens 21 CFR Part 11 §11.10(g) for privileged accounts; documented
+    // trade-off per user request 2026-05-25. The legacy `passwordExpiresAt`
+    // column is a frozen-at-write snapshot and is no longer authoritative.
+    const policyRow = user.role === 'SUPER_ADMIN'
+      ? null
+      : await authRepository.getPasswordPolicyRow();
+    const expiryDays = (policyRow?.configValue as { passwordExpiryDays?: number } | null)?.passwordExpiryDays;
+    if (user.role !== 'SUPER_ADMIN'
+        && isPasswordExpired(user.passwordChangedAt, user.createdAt, expiryDays, policyRow?.updatedAt ?? null)
+        && !user.forcePasswordChange) {
       await authRepository.updateUser(user.id, { forcePasswordChange: true });
       user.forcePasswordChange = true;
 

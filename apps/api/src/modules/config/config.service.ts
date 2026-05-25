@@ -7,6 +7,7 @@ import { getDefaultTemplates, FEATURE_TO_PERMISSION_MAP, FEATURE_PRIVILEGES } fr
 import { validateUserId } from '../../lib/user-id-validator.js';
 import { prisma } from '../../lib/prisma.js';
 import { invalidateRolePermsCache } from '../../plugins/rbac.js';
+import { invalidatePasswordPolicyCache } from '../../plugins/auth.js';
 
 /**
  * Reverse-map a role's permission constants to feature privilege booleans.
@@ -43,6 +44,10 @@ export const configService = {
     const beforeValue = existing?.configValue;
 
     await configRepository.upsertSystemConfig(key, parsed.data, configType, requiresReauth, ctx.userId);
+
+    // Bust the auth-plugin's policy cache so new passwordExpiryDays takes
+    // effect on the next request instead of after up to 60s of TTL lag.
+    if (key === 'password-policy') invalidatePasswordPolicyCache();
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'CONFIG_CHANGED',

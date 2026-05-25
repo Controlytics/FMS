@@ -127,6 +127,14 @@ export const authRepository = {
     }) as Record<string, unknown>;
   },
 
+  /** Returns the full SystemConfig row for password-policy so callers can
+   * read `updatedAt` alongside `configValue` — required by the expiry gate
+   * (lib/password-expiry.ts) which floors the per-user anchor at the
+   * policy's save time. */
+  async getPasswordPolicyRow() {
+    return prisma.systemConfig.findUnique({ where: { configKey: 'password-policy' } });
+  },
+
   async getPasswordHistory(userId: string, count: number) {
     return prisma.passwordHistory.findMany({
       where: { userId },

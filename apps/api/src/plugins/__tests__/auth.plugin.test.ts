@@ -16,7 +16,7 @@ const { mockVerifyToken, mockPrisma } = vi.hoisted(() => ({
 vi.mock('../../lib/jwt.js', () => ({ verifyToken: mockVerifyToken }));
 vi.mock('../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 
-import authPlugin from '../auth.js';
+import authPlugin, { invalidatePasswordPolicyCache } from '../auth.js';
 
 function makeReq(overrides: Record<string, any> = {}) {
   return {
@@ -41,6 +41,9 @@ describe('authPlugin', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    // The plugin's password-policy cache is module-scope and persists
+    // across tests; reset it so each test's findUnique mock is observed.
+    invalidatePasswordPolicyCache();
     const app = {
       addHook: vi.fn((event: string, handler: Function) => {
         if (event === 'onRequest') onRequestHook = handler;
@@ -99,6 +102,8 @@ describe('authPlugin', () => {
       username: 'admin',
       status: 'ENABLED',
       forcePasswordChange: false,
+      passwordChangedAt: new Date(),
+      createdAt: new Date(),
       passwordExpiresAt: new Date(Date.now() + 86400000),
     });
     mockPrisma.session.update.mockResolvedValue({});
@@ -106,6 +111,12 @@ describe('authPlugin', () => {
     // configKey: 'session' to compute the sliding-window expiry.
     mockPrisma.systemConfig.findFirst.mockResolvedValue({
       configValue: { sessionDurationHours: 8 },
+    });
+    // password-policy is read via findUnique; default 90-day expiry, policy
+    // saved a year ago so it's not the binding floor for these fixtures.
+    mockPrisma.systemConfig.findUnique.mockResolvedValue({
+      configValue: { passwordExpiryDays: 90 },
+      updatedAt: new Date(Date.now() - 365 * 86400000),
     });
 
     const req = makeReq();
@@ -187,8 +198,17 @@ describe('authPlugin', () => {
     mockPrisma.user.findUnique.mockResolvedValue({
       id: 'u1',
       status: 'ENABLED',
-      forcePasswordChange: true,
-      passwordExpiresAt: new Date(Date.now() - 86400000), // expired
+      forcePasswordChange: false,                       // start un-flagged
+      passwordChangedAt: new Date(Date.now() - 100 * 86400000), // 100 days ago
+      createdAt: new Date(Date.now() - 100 * 86400000),
+      passwordExpiresAt: new Date(Date.now() + 86400000), // legacy column, ignored
+    });
+    // 90-day policy + 100-day-old password ⇒ derived expiry trips.
+    // policyUpdatedAt is 100 days ago too, so the grace floor doesn't move
+    // the anchor; the user is genuinely expired.
+    mockPrisma.systemConfig.findUnique.mockResolvedValue({
+      configValue: { passwordExpiryDays: 90 },
+      updatedAt: new Date(Date.now() - 100 * 86400000),
     });
     // The expired-password branch persists forcePasswordChange via user.update.
     mockPrisma.user.update.mockResolvedValue({});
@@ -198,6 +218,45 @@ describe('authPlugin', () => {
 
     await onRequestHook(req, reply);
     expect(reply.code).toHaveBeenCalledWith(403);
+    expect(reply.send).toHaveBeenCalledWith(expect.objectContaining({ error: 'PASSWORD_EXPIRED' }));
+  });
+
+  it('does NOT force password change for SUPER_ADMIN even with an ancient password', async () => {
+    const payload = { sub: 'u1', username: 'superadmin', role: 'SUPER_ADMIN', sessionId: 's1' };
+    mockVerifyToken.mockResolvedValue(payload);
+    mockPrisma.session.findFirst.mockResolvedValue({
+      id: 's1',
+      isActive: true,
+      createdAt: new Date(Date.now() - 60_000),
+      expiresAt: new Date(Date.now() + 3600000),
+    });
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      role: 'SUPER_ADMIN',
+      username: 'superadmin',
+      status: 'ENABLED',
+      forcePasswordChange: false,
+      passwordChangedAt: new Date(Date.now() - 1000 * 86400000), // 1000 days old
+      createdAt: new Date(Date.now() - 1000 * 86400000),
+      passwordExpiresAt: new Date(Date.now() - 500 * 86400000),
+    });
+    mockPrisma.session.update.mockResolvedValue({});
+    mockPrisma.systemConfig.findFirst.mockResolvedValue({
+      configValue: { sessionDurationHours: 8 },
+    });
+    // policy = 1 day, saved a year ago — would force-flag any non-SUPER_ADMIN
+    mockPrisma.systemConfig.findUnique.mockResolvedValue({
+      configValue: { passwordExpiryDays: 1 },
+      updatedAt: new Date(Date.now() - 365 * 86400000),
+    });
+
+    const req = makeReq({ url: '/api/users' });
+    const reply = makeReply();
+
+    await onRequestHook(req, reply);
+    // Must NOT 403 — SUPER_ADMIN is exempt
+    expect(reply.code).not.toHaveBeenCalledWith(403);
+    expect(mockPrisma.user.update).not.toHaveBeenCalled(); // no force-flag write
   });
 
   it('allows password change endpoint when force password change is true', async () => {
@@ -213,11 +272,17 @@ describe('authPlugin', () => {
       id: 'u1',
       status: 'ENABLED',
       forcePasswordChange: true,
+      passwordChangedAt: new Date(),
+      createdAt: new Date(),
       passwordExpiresAt: new Date(Date.now() + 86400000),
     });
     mockPrisma.session.update.mockResolvedValue({});
     mockPrisma.systemConfig.findFirst.mockResolvedValue({
       configValue: { sessionDurationHours: 8 },
+    });
+    mockPrisma.systemConfig.findUnique.mockResolvedValue({
+      configValue: { passwordExpiryDays: 90 },
+      updatedAt: new Date(Date.now() - 365 * 86400000),
     });
 
     const req = makeReq({ url: '/api/auth/change-password' });

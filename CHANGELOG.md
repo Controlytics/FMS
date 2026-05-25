@@ -1,5 +1,37 @@
 # Changelog
 
+## [Unreleased] — Password expiry derives from live policy + grace floor (2026-05-23 → 25)
+
+**Original bug (5/23)**: Setting `passwordExpiryDays` to 1 (or any value) did not expire existing users' passwords. Root cause: `users.password_expires_at` was a frozen snapshot baked in at password-change / create / unlock / reset time; lowering the policy later did not retroactively update any user row, and the login + per-request expiry checks only consulted that stale column.
+
+**Follow-up bug (5/25)**: First iteration of the fix derived `expired = passwordChangedAt + days < now`. Admin lowered policy from 120 → 1 day and **every** account was force-flagged the instant they saved, including superadmin — bad UX, even though the policy was finally being honored.
+
+**Fix**: new helper `apps/api/src/lib/password-expiry.ts` exports `isPasswordExpired(passwordChangedAt, createdAt, expiryDays, policyUpdatedAt)`. Anchor = `MAX(passwordChangedAt ?? createdAt, policyUpdatedAt)`. So saving the policy grants every account a fresh `days`-long grace window from the save time. After that window, accounts whose password is still older than the policy expire. The two enforcement sites — `authService.login` (`auth.service.ts:170`) and the auth plugin's per-request gate (`plugins/auth.ts:236`) — both consume the helper. The legacy `passwordExpiresAt` column is still written (vestigial, no longer authoritative).
+
+**SUPER_ADMIN exemption (2026-05-25)**: Both gate sites now short-circuit for `user.role === 'SUPER_ADMIN'` before computing or applying expiry — mirrors the existing LOCKED-auto-unlock / EXPIRED-auto-recover / lockout-exempt branches in `auth.service.login`. Weakens 21 CFR §11.10(g) for privileged accounts; documented trade-off per user request. Plugin test `does NOT force password change for SUPER_ADMIN even with an ancient password` locks the behavior.
+
+**Supporting changes**:
+- `plugins/auth.ts`: added `passwordPolicyCache` (60s TTL holding `{ passwordExpiryDays, policyUpdatedAt }`) + `getPasswordPolicy()` + exported `invalidatePasswordPolicyCache()`.
+- `auth.repository.ts`: added `getPasswordPolicyRow()` returning the full `SystemConfig` row so callers can read `updatedAt` alongside `configValue`.
+- `config.service.ts updateConfig`: calls `invalidatePasswordPolicyCache()` when `key === 'password-policy'` so admin saves take effect immediately rather than after up to 60s of TTL lag.
+- `user.repository.ts`: `createUser`, `unlockUser`, `resetPassword`, `approveResetRequest` now write `passwordChangedAt = new Date()` (previously only `auth.repository.changePassword` did). Makes the new derived check consistent across all password-write paths and removes the implicit dependency on `forcePasswordChange` ordering after admin resets.
+- `auth.plugin.test.ts`: fixtures updated for new `passwordChangedAt` / `createdAt` + `systemConfig.findUnique(password-policy)` mocks including `updatedAt`; cache reset in `beforeEach`.
+- `auth.service.test.ts`: added `getPasswordPolicyRow` to the repository mock + default fixture.
+- **NEW** `lib/__tests__/password-expiry.test.ts`: 9 unit tests covering 0-day no-expiry, null `passwordChangedAt` fallback, the grace floor (the 5/25 regression), and the null-`policyUpdatedAt` legacy path.
+
+**Net test delta**: 0 from this fix (+9 helper tests, 0 new failures). Same 4 pre-existing auth.plugin failures remain (module-scope cache pollution between tests — unrelated). Type-check clean.
+
+**Deploy note**: On admin's next save of the password policy, every account gets a fresh `days`-long grace window starting from save. Accounts whose password is *still* older than `days` after the window elapses then expire on their next request. With expiry=1 day, that means the warning becomes: "everyone has 24 hours from save to change their password before being force-flagged." Preview who will eventually flip (run after save):
+
+```sql
+SELECT username, role, created_at, password_changed_at FROM users
+ WHERE GREATEST(
+         COALESCE(password_changed_at, created_at),
+         (SELECT updated_at FROM system_config WHERE config_key='password-policy')
+       )
+       < NOW() - (SELECT (config_value->>'passwordExpiryDays')::int FROM system_config WHERE config_key='password-policy') * INTERVAL '1 day';
+```
+
 ## [Unreleased] — Rule chain + alarm tear-out (2026-05-17)
 
 Branch: `RFID`. Single-bundle commit covering 8 phases. Plan: `tasks/REMOVE-RULECHAIN-ALARM-PLAN.md`. Pre-removal git tag: `pre-rulechain-alarm-drop`. Test counts: api **1080 / 22 / 8** (matches baseline 1233/22/8 minus ~153 deleted rule-chain/alarm test cases — zero new failures). Web build clean (12.78s).

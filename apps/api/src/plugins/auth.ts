@@ -8,6 +8,7 @@ import {
   OFFLINE_REPLAY_TOKEN_HEADER,
   LEGACY_OFFLINE_REPLAY_HEADER,
 } from '../lib/offline-replay-token.js';
+import { isPasswordExpired } from '../lib/password-expiry.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -31,6 +32,34 @@ async function getSessionDurationHours(): Promise<number> {
   const hours = (config?.configValue as any)?.sessionDurationHours ?? 8;
   sessionConfigCache = { sessionDurationHours: hours, cachedAt: now };
   return hours;
+}
+
+// Password-policy cache (1-min TTL). Read on every authenticated request
+// to derive password expiry from the LIVE policy + each user's
+// passwordChangedAt + the policy's own updatedAt (grace floor).
+// invalidatePasswordPolicyCache() is called from config.service.ts when
+// the admin saves a new password policy so the new window applies
+// immediately instead of after up to 60s of TTL lag.
+type CachedPasswordPolicy = { passwordExpiryDays: number; policyUpdatedAt: Date | null };
+let passwordPolicyCache: { policy: CachedPasswordPolicy; cachedAt: number } | null = null;
+const PASSWORD_POLICY_CACHE_TTL = 60_000;
+
+async function getPasswordPolicy(): Promise<CachedPasswordPolicy> {
+  const now = Date.now();
+  if (passwordPolicyCache && (now - passwordPolicyCache.cachedAt) < PASSWORD_POLICY_CACHE_TTL) {
+    return passwordPolicyCache.policy;
+  }
+  const config = await prisma.systemConfig.findUnique({ where: { configKey: 'password-policy' } });
+  const policy: CachedPasswordPolicy = {
+    passwordExpiryDays: ((config?.configValue as { passwordExpiryDays?: number })?.passwordExpiryDays) ?? 90,
+    policyUpdatedAt: config?.updatedAt ?? null,
+  };
+  passwordPolicyCache = { policy, cachedAt: now };
+  return policy;
+}
+
+export function invalidatePasswordPolicyCache(): void {
+  passwordPolicyCache = null;
 }
 
 /**
@@ -59,6 +88,11 @@ type CachedUser = {
   username: string;
   status: string;
   forcePasswordChange: boolean;
+  passwordChangedAt: Date | null;
+  createdAt: Date;
+  /** Legacy snapshot column — no longer used to gate expiry (isPasswordExpired
+   * derives from passwordChangedAt + live policy). Retained for back-compat
+   * with any caller that still reads from req-attached user. */
   passwordExpiresAt: Date | null;
 };
 
@@ -82,7 +116,10 @@ async function getCachedUser(userId: string): Promise<CachedUser | null> {
   if (cached && Date.now() - cached.cachedAt < AUTH_CACHE_TTL_MS) return cached.user;
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { role: true, username: true, status: true, forcePasswordChange: true, passwordExpiresAt: true },
+    select: {
+      role: true, username: true, status: true, forcePasswordChange: true,
+      passwordChangedAt: true, createdAt: true, passwordExpiresAt: true,
+    },
   });
   if (!user) return user;
   // Do NOT cache users mid-password-change. Temp-password / expired-password
@@ -198,8 +235,27 @@ async function authPlugin(app: FastifyInstance) {
         '/api/config/password-policy',
       ];
 
-      // Check password expiry (server-side enforcement)
-      if (user.passwordExpiresAt && user.passwordExpiresAt < new Date() && !user.forcePasswordChange) {
+      // Check password expiry (server-side enforcement). Derived from
+      // passwordChangedAt + the live policy + policy save time (which acts
+      // as a grace-period floor — lowering the policy doesn't mass-lock
+      // every account whose password is older than the new window). See
+      // lib/password-expiry.ts.
+      //
+      // SUPER_ADMIN is exempt — same posture as the LOCKED / EXPIRED auto-
+      // recovery in auth.service.login(). Weakens 21 CFR §11.10(g) for
+      // privileged accounts; documented trade-off per user request 2026-05-25.
+      let passwordExpired = false;
+      if (user.role !== 'SUPER_ADMIN') {
+        const policy = await getPasswordPolicy();
+        passwordExpired = isPasswordExpired(
+          user.passwordChangedAt,
+          user.createdAt,
+          policy.passwordExpiryDays,
+          policy.policyUpdatedAt,
+        );
+      }
+
+      if (passwordExpired && !user.forcePasswordChange) {
         await prisma.user.update({
           where: { id: payload.sub },
           data: { forcePasswordChange: true },
@@ -214,9 +270,7 @@ async function authPlugin(app: FastifyInstance) {
       if (user.forcePasswordChange) {
         const isAllowed = PASSWORD_CHANGE_ALLOWED.some((p) => req.url.startsWith(p));
         if (!isAllowed) {
-          const errorCode = user.passwordExpiresAt && user.passwordExpiresAt < new Date()
-            ? 'PASSWORD_EXPIRED'
-            : 'FORCE_PASSWORD_CHANGE';
+          const errorCode = passwordExpired ? 'PASSWORD_EXPIRED' : 'FORCE_PASSWORD_CHANGE';
           return reply.code(403).send({
             error: errorCode,
             message: errorCode === 'PASSWORD_EXPIRED'
