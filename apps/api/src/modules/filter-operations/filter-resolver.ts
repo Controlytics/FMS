@@ -136,6 +136,33 @@ export function extractBlocks(stages: any[]): { nodeType: string; configuration:
     .map((s: any) => ({ nodeType: s.nodeType, configuration: s.configuration }));
 }
 
+/**
+ * Configurable / convention-based fallback. Reads two sources in order:
+ *   1. `system_config['default-cleaning-profile'].profileId` — admin-set default
+ *   2. First `FilterCleaningProfile` with status=ACTIVE, oldest first
+ *
+ * Used as the FINAL fallback in resolveFilterProfile() — when neither the
+ * filter's direct filterProfileId nor any cleaning-profile-assignment rule
+ * matches. Pre-fix, the absence of either threw NO_PROFILE at start-cycle
+ * and operators on the tablet saw "no cleaning profile assigned" even when
+ * a perfectly usable pipeline existed in the system. Per 2026-05-25 user
+ * request: filter_profile_id should not be required for a cycle to start.
+ */
+async function getDefaultCleaningProfileId(): Promise<string | null> {
+  const cfg = await prisma.systemConfig.findUnique({ where: { configKey: 'default-cleaning-profile' } });
+  const configured = (cfg?.configValue as { profileId?: string } | null)?.profileId;
+  if (configured) {
+    const exists = await prisma.filterCleaningProfile.findFirst({ where: { id: configured, status: 'ACTIVE' } });
+    if (exists) return exists.id;
+  }
+  const firstActive = await prisma.filterCleaningProfile.findFirst({
+    where: { status: 'ACTIVE' },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  });
+  return firstActive?.id ?? null;
+}
+
 export async function resolveFilterProfile(filter: { id: string; filterProfileId: string | null; filterSet: string | null; name: string | null }): Promise<string | null> {
   // 1. Direct assignment takes priority
   if (filter.filterProfileId) return filter.filterProfileId;
@@ -143,7 +170,10 @@ export async function resolveFilterProfile(filter: { id: string; filterProfileId
   // 2. Check config-based assignment
   const configRow = await prisma.systemConfig.findUnique({ where: { configKey: 'cleaning-profile-assignment' } });
   const config = configRow?.configValue as { mode: string; rules: Array<{ matchValue: string; profileId: string }> } | null;
-  if (!config || !config.rules || config.rules.length === 0) return null;
+  if (!config || !config.rules || config.rules.length === 0) {
+    // No rules at all — go straight to default fallback.
+    return getDefaultCleaningProfileId();
+  }
 
   // 3. Get filter's attributes and ancestors for matching
   const instance = await prisma.assetInstance.findUnique({
@@ -156,19 +186,21 @@ export async function resolveFilterProfile(filter: { id: string; filterProfileId
     case 'BY_FILTER_SIZE': {
       const filterSize = attrs.filterSize ?? '';
       const rule = config.rules.find(r => r.matchValue === filterSize);
-      return rule?.profileId ?? null;
+      if (rule?.profileId) return rule.profileId;
+      return getDefaultCleaningProfileId();
     }
     case 'BY_FILTER_SET': {
       const rule = config.rules.find(r => r.matchValue === filter.filterSet);
-      return rule?.profileId ?? null;
+      if (rule?.profileId) return rule.profileId;
+      return getDefaultCleaningProfileId();
     }
     case 'BY_AHU': {
       // Filter's parent is typically AHU
       if (instance?.parentId) {
         const rule = config.rules.find(r => r.matchValue === instance.parentId);
-        return rule?.profileId ?? null;
+        if (rule?.profileId) return rule.profileId;
       }
-      return null;
+      return getDefaultCleaningProfileId();
     }
     case 'BY_BLOCK': {
       // Walk up: Filter -> AHU -> ... -> Block
@@ -181,14 +213,15 @@ export async function resolveFilterProfile(filter: { id: string; filterProfileId
         const parent = await prisma.assetInstance.findUnique({ where: { id: currentId }, select: { parentId: true } });
         currentId = parent?.parentId ?? null;
       }
-      return null;
+      return getDefaultCleaningProfileId();
     }
     case 'BY_ENTITY': {
       const rule = config.rules.find(r => r.matchValue === filter.id);
-      return rule?.profileId ?? null;
+      if (rule?.profileId) return rule.profileId;
+      return getDefaultCleaningProfileId();
     }
     default:
-      return null;
+      return getDefaultCleaningProfileId();
   }
 }
 
