@@ -87,6 +87,7 @@ export {
   assertDryerStarted,
   assertDryerHalfTimeElapsed,
   assertDryerHalfTimeBeforeLeavingDryIn,
+  assertDryerReadingsSubmittedBeforeLeavingDryIn,
 } from './dryer.js';
 
 // ── Instruments + Equipment Group ────────────────────────────────────────

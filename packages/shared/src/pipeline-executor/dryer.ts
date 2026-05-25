@@ -110,6 +110,42 @@ export function assertDryerHalfTimeElapsed(
 }
 
 /**
+ * Guard #27 (added 2026-05-25): leaving DRY_IN requires that the operator
+ * actually submitted the dryer-temperature readings (SUBMIT_READINGS) —
+ * NOT just SET_DURATION + half-time elapsed. Pre-fix the chain only
+ * checked half-time, so a filter could advance to DRY_OUT after the
+ * dryer countdown ended even though no temperature reading was ever
+ * recorded. The DB then held `dryer_readings_submitted = false` for a
+ * completed cycle — a 21 CFR Part 11 attestation gap.
+ *
+ * Applies whenever the cycle has actually entered the dryer phase
+ * (`dryerStartedAt` set). If the pipeline doesn't use the dryer at all
+ * (no SET_DURATION ever submitted), this guard is a no-op so non-dryer
+ * pipelines aren't blocked.
+ *
+ * Unlike `assertDryerHalfTimeBeforeLeavingDryIn`, this guard does NOT
+ * skip for offline replay — a queued advance that skipped the readings
+ * submission represents real data the operator never produced, and the
+ * audit trail should refuse to back-fill it.
+ */
+export function assertDryerReadingsSubmittedBeforeLeavingDryIn(
+  cycle: CycleSlice,
+  currentLifecycleState: string | null | undefined,
+  targetState: string | null | undefined,
+): GuardResult {
+  if (currentLifecycleState !== 'DRY_IN') return { ok: true };
+  if (targetState === 'DRY_IN') return { ok: true };
+  // Pipeline doesn't use the dryer at all → no readings to require.
+  if (!cycle.dryerStartedAt) return { ok: true };
+  if (cycle.dryerReadingsSubmitted) return { ok: true };
+  return {
+    ok: false,
+    code: 'DRYER_READINGS_REQUIRED',
+    message: 'Submit dryer temperature readings before leaving DRY_IN.',
+  };
+}
+
+/**
  * Guard #26: leaving DRY_IN requires the dryer to have run at least half its
  * duration. Skipped for offline replay.
  *

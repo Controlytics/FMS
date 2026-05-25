@@ -137,6 +137,17 @@ export async function advanceImpl(
       offlineTime ?? null,
     ),
   );
+  // 2026-05-25: require the SUBMIT_READINGS submission before leaving DRY_IN.
+  // The half-time guard alone was letting cycles auto-advance once the timer
+  // elapsed even though no actual temperature reading was recorded — a 21
+  // CFR Part 11 gap reported by an operator the same day.
+  throwIfFailed(
+    executor.assertDryerReadingsSubmittedBeforeLeavingDryIn(
+      localCtx.cycle,
+      currentState,
+      targetState,
+    ),
+  );
 
   // Validate instrument readings if provided.
   let validatedReadings: any = null;
