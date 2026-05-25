@@ -13,7 +13,7 @@ import { themeGradientBr, themeButton } from '@/lib/theme-styles';
 
 import { STATUS_LABELS, LIFECYCLE_STATE_OPTIONS } from './filter-list/constants';
 import type { CreateDialogState, DiagramFilterState, HierarchyNode, StatusPanelFilter, EditFilterRef, FilterRef } from './filter-list/types';
-import { AreaDiagNode, AhuDiagNode, renderChildrenConnector } from './filter-list/components/HierarchyDiagram';
+import { HierarchyCanvas } from './filter-list/components/HierarchyCanvas';
 import { StatusUpdatePanel } from './filter-list/dialogs/StatusUpdatePanel';
 import { DeleteBlockDialog } from './filter-list/dialogs/DeleteBlockDialog';
 import { RetireReplacePanel } from './filter-list/dialogs/RetireReplacePanel';
@@ -95,6 +95,10 @@ export function FilterListPage() {
   // Single-filter create dialog
   const [createFilterOpen, setCreateFilterOpen] = useState(false);
   const [createFilterAhu, setCreateFilterAhu] = useState('');
+  // Optional Area pre-filter for the AHU dropdown. Empty string = no filter
+  // (current behavior — show every AHU in the block). Selecting an Area
+  // narrows the AHU options to AHUs whose parent is that Area.
+  const [createFilterArea, setCreateFilterArea] = useState('');
   const [createFilterName, setCreateFilterName] = useState('');
   const [createFilterSet, setCreateFilterSet] = useState<'A' | 'B'>('A');
   // Reserved stub for the future "select cleaning profile at filter-create"
@@ -106,6 +110,13 @@ export function FilterListPage() {
   const [createFilterSubmitting, setCreateFilterSubmitting] = useState(false);
   const [createFilterError, setCreateFilterError] = useState('');
   const [bulkUploadAhu, setBulkUploadAhu] = useState('');
+  // Optional Area pre-filter for the AHU dropdown in the bulk upload dialog.
+  // Empty = no filter (show all AHUs in block). Selecting an Area narrows
+  // the AHU list to AHUs under that area. Mirrors createFilterArea exactly.
+  const [bulkUploadArea, setBulkUploadArea] = useState('');
+  // Dialog-level fallback Set for CSV rows that omit `filterSet` column.
+  // CSV row value still wins when present.
+  const [bulkUploadDefaultSet, setBulkUploadDefaultSet] = useState<'A' | 'B'>('A');
   const [bulkUploadFile, setBulkUploadFile] = useState<File | null>(null);
   const [bulkUploadStep, setBulkUploadStep] = useState<'select' | 'preview' | 'uploading' | 'results'>('select');
   const [bulkUploadRows, setBulkUploadRows] = useState<any[]>([]);
@@ -316,14 +327,14 @@ export function FilterListPage() {
     }
   };
 
-  // Walk up parent chain to find Block, Area and AHU ancestors. Only the
-  // ahuName label is rendered today (table AHU column); area/block names
-  // are intentionally not surfaced here, but the IDs feed blockFilters /
-  // blockCounts filtering.
+  // Walk up parent chain to find Block, Area and AHU ancestors. Name labels
+  // for AHU + Area surface in the Filters table (conditionally, based on the
+  // hierarchy-diagram scope). Block name not needed at row level.
   const resolveAncestors = (filterId: string) => {
     let ahuId: string | null = null;
     let ahuName = '-';
     let areaId: string | null = null;
+    let areaName: string | null = null;
     let blockId: string | null = null;
     let currentId = instanceMap.get(filterId)?.parentId;
     const visited = new Set<string>();
@@ -337,6 +348,7 @@ export function FilterListPage() {
       }
       if (entity.templateId === areaTemplateId && !areaId) {
         areaId = entity.id;
+        areaName = entity.name;
       }
       if (blockIds.has(entity.id)) {
         blockId = entity.id;
@@ -344,17 +356,17 @@ export function FilterListPage() {
       }
       currentId = entity.parentId;
     }
-    return { ahuId, ahuName, areaId, blockId };
+    return { ahuId, ahuName, areaId, areaName, blockId };
   };
 
   const enrichedFilters = useMemo(() => {
     return allFilters.map((f: any) => {
-      const { ahuId, ahuName, areaId, blockId } = resolveAncestors(f.id);
+      const { ahuId, ahuName, areaId, areaName, blockId } = resolveAncestors(f.id);
       return {
         id: f.id, name: f.name, filterSet: f.filterSet,
         currentState: f.currentLifecycleState,
         status: f.status ?? 'Active',
-        ahuId, ahuName, areaId, blockId,
+        ahuId, ahuName, areaId, areaName, blockId,
         filterType: f.attributes?.filterType ?? '-',
         ahuType: f.attributes?.ahuType ?? '-',
         lastCleaningDate: f.attributes?.lastCleaningDate ?? null,
@@ -688,6 +700,61 @@ export function FilterListPage() {
     return allAhus;
   }, [selectedBlock, treeData, diagramFilter]);
 
+  // Areas in the selected block, for the Create Filter dialog's optional
+  // Area dropdown. Read-only derivation from treeData — does NOT modify
+  // the hierarchy logic. Bulk Upload does NOT use this list; only the
+  // single-create-filter flow does.
+  const createFilterAreas = useMemo(() => {
+    if (!selectedBlock) return [];
+    const blockTree = treeData.find((b: any) => b.id === selectedBlock);
+    if (!blockTree) return [];
+    return blockTree.areas.map((a: any) => ({ id: a.id, name: a.name }));
+  }, [selectedBlock, treeData]);
+
+  // AHUs in the selected block, optionally narrowed by `createFilterArea`.
+  // Separate list from `bulkUploadAhus` so the bulk-upload flow stays
+  // unchanged. Selecting an Area filters to AHUs whose parent is that
+  // Area; leaving Area empty shows every AHU in the block (matches the
+  // pre-2026-05-22 single-create behavior exactly).
+  const createFilterAhusVisible = useMemo(() => {
+    if (!selectedBlock) return [];
+    const blockTree = treeData.find((b: any) => b.id === selectedBlock);
+    if (!blockTree) return [];
+    const all: { id: string; name: string; areaId: string | null }[] = [];
+    blockTree.areas.forEach((a: any) => a.ahus.forEach((h: any) => all.push({ id: h.id, name: h.name, areaId: a.id })));
+    blockTree.directAhus.forEach((h: any) => all.push({ id: h.id, name: h.name, areaId: null }));
+    const filtered = createFilterArea
+      ? all.filter(a => a.areaId === createFilterArea)
+      : all;
+    return filtered.map(({ id, name }) => ({ id, name }));
+  }, [selectedBlock, treeData, createFilterArea]);
+
+  // Areas in the selected block — for the Bulk Upload dialog's optional
+  // Area dropdown. Same shape as createFilterAreas; separate memo so it
+  // stays scoped to the bulk-upload flow.
+  const bulkUploadAreas = useMemo(() => {
+    if (!selectedBlock) return [];
+    const blockTree = treeData.find((b: any) => b.id === selectedBlock);
+    if (!blockTree) return [];
+    return blockTree.areas.map((a: any) => ({ id: a.id, name: a.name }));
+  }, [selectedBlock, treeData]);
+
+  // AHUs visible in the Bulk Upload dialog — filtered by the selected
+  // bulkUploadArea (empty = show all AHUs from `bulkUploadAhus`, which
+  // already respects diagramFilter scope). When an Area is picked, we
+  // restrict to AHUs whose parent is that Area. Kept separate from
+  // `bulkUploadAhus` so any other consumer of that list (the diagram
+  // create-AHU flow, etc.) keeps seeing the unfiltered list.
+  const bulkUploadAhusVisible = useMemo(() => {
+    if (!bulkUploadArea) return bulkUploadAhus;
+    if (!selectedBlock) return [];
+    const blockTree = treeData.find((b: any) => b.id === selectedBlock);
+    if (!blockTree) return [];
+    const area = blockTree.areas.find((a: any) => a.id === bulkUploadArea);
+    if (!area) return [];
+    return area.ahus.map((h: any) => ({ id: h.id, name: h.name }));
+  }, [bulkUploadArea, bulkUploadAhus, selectedBlock, treeData]);
+
   // ── Hierarchy edit/delete helpers ──
   const openHierarchyEdit = (node: { id: string; name: string; entityType: string }) => {
     setHierarchyEditDialog(node);
@@ -811,6 +878,10 @@ export function FilterListPage() {
 
   const openCreateFilter = () => {
     setCreateFilterOpen(true);
+    // Start with no Area filter so the AHU dropdown shows every AHU in the
+    // block (same behavior as the pre-Area-dropdown flow). Operator may
+    // optionally narrow by Area afterwards.
+    setCreateFilterArea('');
     // Pre-select when there is exactly one AHU in scope; the dialog still
     // shows it as a normal <select> (operators may want to verify the choice
     // before submit, hence we do not lock the dropdown).
@@ -889,6 +960,9 @@ export function FilterListPage() {
   const openBulkUpload = () => {
     setBulkUploadOpen(true);
     setBulkUploadStep('select');
+    // Reset both pickers so a previous session's choices don't leak in.
+    setBulkUploadArea('');
+    setBulkUploadDefaultSet('A');
     setBulkUploadAhu(bulkUploadAhus.length === 1 ? bulkUploadAhus[0].id : '');
     setBulkUploadFile(null);
     setBulkUploadRows([]);
@@ -961,6 +1035,10 @@ export function FilterListPage() {
         formData.append('file', bulkUploadFile);
         formData.append('ahuId', bulkUploadAhu);
         if (selectedBlock) formData.append('blockId', selectedBlock);
+        // 2026-05-22: dialog-level default Set. Backend uses it when a
+        // CSV row has no `filterSet` column. CSV row's value wins when
+        // present, so existing CSVs still work.
+        formData.append('defaultFilterSet', bulkUploadDefaultSet);
         const token = sessionStorage.getItem('access_token');
         const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
         if (password) headers['x-reauth-password'] = password;
@@ -1173,6 +1251,15 @@ export function FilterListPage() {
                         </svg>
                       </div>
                       <h3 className="text-sm font-semibold text-slate-800 truncate flex-1">{block.name}</h3>
+                      {canEditHierarchy && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openHierarchyEdit({ id: block.id, name: block.name, entityType: 'BLOCK' }); }}
+                          className="w-7 h-7 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-50 hover:text-blue-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"
+                          title="Edit block name"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                        </button>
+                      )}
                       {hasPerm('ASSET_DELETE') && (
                         <button
                           onClick={(e) => { e.stopPropagation(); setDeleteBlockDialog({ id: block.id, name: block.name }); }}
@@ -1213,58 +1300,14 @@ export function FilterListPage() {
               ...block.directAhus.map((h: any) => ({ ...h, type: 'ahu' as const })),
             ];
             return (
-              <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
-                <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-                    </svg>
-                    <span className="text-sm font-semibold text-slate-700">Hierarchy</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-[11px] text-slate-400">
-                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm border-2 inline-block" style={{ borderColor: 'var(--theme-primary)', backgroundColor: 'var(--theme-primary-light)' }} /> Block</span>
-                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm border-2 border-purple-500 bg-purple-50 inline-block" /> Area</span>
-                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm border-2 border-teal-500 bg-teal-50 inline-block" /> AHU</span>
-                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm border-2 border-slate-300 bg-white inline-block" /> Filter</span>
-                  </div>
-                </div>
-                <div className="px-6 py-8 overflow-x-auto min-h-[400px] flex items-start justify-center">
-                  <div className="flex justify-center min-w-fit">
-                    <div className="flex flex-col items-center group/block">
-                      <div className="relative">
-                        <button onClick={() => navigateFromDiagram('block', block.id, block.name)}
-                          className="flex flex-col items-center px-5 py-3 rounded-xl border-2 shadow-md ring-2 min-w-[130px] max-w-[170px] hover:shadow-lg cursor-pointer transition-all"
-                          style={{ borderColor: 'var(--theme-primary)', backgroundColor: 'var(--theme-primary-light)', '--tw-ring-color': 'var(--theme-primary-light)' } as React.CSSProperties}>
-                          <svg className="w-5 h-5 mb-1 text-theme-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                          </svg>
-                          <span className="text-xs font-bold text-center truncate w-full" style={{ color: 'var(--theme-primary-dark)' }}>{block.name}</span>
-                          <span className="text-[9px] mt-0.5 text-theme-primary">Block</span>
-                        </button>
-                        {canCreate && (
-                          <div className="absolute -top-2 -right-2 flex gap-0.5 opacity-0 group-hover/block:opacity-100 transition-opacity z-10">
-                            <button className="w-5 h-5 rounded-full bg-purple-500 text-white flex items-center justify-center shadow-sm hover:bg-purple-600 transition-colors" title="Add Area"
-                              onClick={() => setCreateDialog({ type: 'area', parentId: block.id, parentName: block.name })}>
-                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
-                            </button>
-                            <button className="w-5 h-5 rounded-full bg-teal-500 text-white flex items-center justify-center shadow-sm hover:bg-teal-600 transition-colors" title="Add AHU"
-                              onClick={() => setCreateDialog({ type: 'ahu', parentId: block.id, parentName: block.name })}>
-                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                      {allBlockChildren.length > 0 && renderChildrenConnector(
-                        allBlockChildren.map((child) =>
-                          child.type === 'area'
-                            ? <AreaDiagNode key={child.id} area={child} identifiersByAsset={identifiersByAsset} perms={diagramPerms} handlers={diagramHandlers} />
-                            : <AhuDiagNode key={child.id} ahu={child} identifiersByAsset={identifiersByAsset} perms={diagramPerms} handlers={diagramHandlers} />
-                        ), 180,
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <HierarchyCanvas
+                block={{ id: block.id, name: block.name }}
+                children={allBlockChildren}
+                identifiersByAsset={identifiersByAsset}
+                perms={diagramPerms}
+                handlers={diagramHandlers}
+                onAddBlockChild={(next) => setCreateDialog(next)}
+              />
             );
           })()}
 
@@ -1354,6 +1397,15 @@ export function FilterListPage() {
           ) : (
             <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
+                {(() => {
+                  // Column visibility follows the hierarchy-diagram scope:
+                  // - no scope / Block clicked  → show Area + AHU (broadest view, needs both ancestors)
+                  // - Area clicked              → show AHU only (Area is implied by the chip)
+                  // - AHU / Filter clicked      → hide both (we're already at AHU level or below)
+                  const scope = diagramFilter?.type ?? null;
+                  const showAreaColumn = scope === null || scope === 'block';
+                  const showAhuColumn  = scope === null || scope === 'block' || scope === 'area';
+                  return (
                 <table className="w-full">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200">
@@ -1362,8 +1414,15 @@ export function FilterListPage() {
                           className="w-4 h-4 rounded border-slate-300 text-[var(--theme-primary)] focus:ring-[var(--theme-focus-ring)] cursor-pointer" />
                       </th>
                       <th className="w-14 text-center px-2 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">S.No</th>
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">AHU</th>
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">AHU Type</th>
+                      {showAreaColumn && (
+                        <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Area</th>
+                      )}
+                      {showAhuColumn && (
+                        <>
+                          <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">AHU</th>
+                          <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">AHU Type</th>
+                        </>
+                      )}
                       <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Filter</th>
                       <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Type</th>
                       <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Set</th>
@@ -1388,14 +1447,27 @@ export function FilterListPage() {
                             ) : <div className="w-4 h-4" />}
                           </td>
                           <td className="w-14 text-center px-2 py-3.5 text-sm text-slate-400 font-medium">{(page - 1) * perPage + idx + 1}</td>
-                          <td className="px-5 py-3.5">
-                            {f.ahuId ? (
-                              <Link to={`/ahus/${f.ahuId}`} className="text-sm hover:opacity-80 font-medium text-theme-primary">{f.ahuName}</Link>
-                            ) : (
-                              <span className="text-sm text-slate-400">--</span>
-                            )}
-                          </td>
-                          <td className="px-5 py-3.5 text-sm text-slate-500">{f.ahuType !== '-' ? f.ahuType : '--'}</td>
+                          {showAreaColumn && (
+                            <td className="px-5 py-3.5">
+                              {f.areaId ? (
+                                <span className="text-sm font-medium text-purple-700">{f.areaName ?? '--'}</span>
+                              ) : (
+                                <span className="text-sm text-slate-400">--</span>
+                              )}
+                            </td>
+                          )}
+                          {showAhuColumn && (
+                            <>
+                              <td className="px-5 py-3.5">
+                                {f.ahuId ? (
+                                  <Link to={`/ahus/${f.ahuId}`} className="text-sm hover:opacity-80 font-medium text-theme-primary">{f.ahuName}</Link>
+                                ) : (
+                                  <span className="text-sm text-slate-400">--</span>
+                                )}
+                              </td>
+                              <td className="px-5 py-3.5 text-sm text-slate-500">{f.ahuType !== '-' ? f.ahuType : '--'}</td>
+                            </>
+                          )}
                           <td className="px-5 py-3.5">
                             <div className="flex items-center gap-2.5">
                               <div className={`w-2 h-2 rounded-full shrink-0 ${FILTER_STATE_COLORS[f.currentState ?? ''] ?? 'bg-gray-400'}`} />
@@ -1480,6 +1552,8 @@ export function FilterListPage() {
                     })}
                   </tbody>
                 </table>
+                  );
+                })()}
               </div>
               {/* Pagination Footer */}
               <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
@@ -1655,14 +1729,20 @@ export function FilterListPage() {
       {createFilterOpen && (
         <CreateFilterDialog
           ahu={createFilterAhu}
+          area={createFilterArea}
           name={createFilterName}
           filterSet={createFilterSet}
           attrs={createFilterAttrs}
           schema={filterAttributeSchema}
-          ahus={bulkUploadAhus}
+          ahus={createFilterAhusVisible}
+          areas={createFilterAreas}
           error={createFilterError}
           submitting={createFilterSubmitting}
           onAhuChange={setCreateFilterAhu}
+          // When the operator changes the Area selector the previously-picked
+          // AHU may no longer be in the visible list — clear it so they pick
+          // a fresh AHU from the narrowed set.
+          onAreaChange={(v) => { setCreateFilterArea(v); setCreateFilterAhu(''); }}
           onNameChange={setCreateFilterName}
           onFilterSetChange={setCreateFilterSet}
           onAttrChange={setCreateFilterAttrs}
@@ -1723,7 +1803,10 @@ export function FilterListPage() {
         <BulkUploadDialog
           step={bulkUploadStep}
           ahu={bulkUploadAhu}
-          ahus={bulkUploadAhus}
+          area={bulkUploadArea}
+          defaultSet={bulkUploadDefaultSet}
+          ahus={bulkUploadAhusVisible}
+          areas={bulkUploadAreas}
           file={bulkUploadFile}
           rows={bulkUploadRows}
           error={bulkUploadError}
@@ -1734,6 +1817,10 @@ export function FilterListPage() {
           diagramFilter={diagramFilter}
           selectedBlockName={selectedBlockName}
           onAhuChange={setBulkUploadAhu}
+          // When Area changes, the previously-picked AHU may no longer be
+          // in the narrowed list — clear it so operator picks fresh.
+          onAreaChange={(v) => { setBulkUploadArea(v); setBulkUploadAhu(''); }}
+          onDefaultSetChange={setBulkUploadDefaultSet}
           onFileSelect={handleBulkUploadFileSelect}
           onSubmit={handleBulkUploadSubmit}
           onClose={closeBulkUpload}
