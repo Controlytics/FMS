@@ -6,6 +6,7 @@ import { useAuth } from '../../hooks/use-auth';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { useOffline } from '../../hooks/use-offline';
 import { useReauth } from '../../hooks/use-reauth';
+import { useToast } from '@/hooks/use-toast';
 import { ReauthDialog } from '../../components/reauth-dialog';
 import { onSyncEvent } from '../../lib/sync-engine';
 import { DryerDurationDialog } from '../filter-management/components/dryer-duration-dialog';
@@ -535,7 +536,23 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   allFilters.forEach((f: any) => { if (f.currentLifecycleState) stageCounts[f.currentLifecycleState] = (stageCounts[f.currentLifecycleState] ?? 0) + 1; });
 
   useEffect(() => { if (success) { const t = setTimeout(() => setSuccess(''), 4000); return () => clearTimeout(t); } }, [success]);
-  useEffect(() => { if (error) { const t = setTimeout(() => setError(''), 6000); return () => clearTimeout(t); } }, [error]);
+  // Per operator request 2026-05-25: errors must surface as a popup, not
+  // an inline banner buried in the page chrome. Whenever `error` is set
+  // anywhere in the page, fan out a toast.error popup so the operator
+  // sees it from any view (home / stage / cycles / approvals / etc.).
+  // The inline banners at the top of the page and inside the checklist
+  // dialog have been removed below — the toast is the single source of
+  // truth for error display.
+  const { toast } = useToast();
+  useEffect(() => {
+    if (error) {
+      toast.error('Error', error);
+      // Clear local state immediately so the same error can re-toast if it
+      // recurs (e.g. operator retries the same failing op).
+      const t = setTimeout(() => setError(''), 100);
+      return () => clearTimeout(t);
+    }
+  }, [error]);
 
   const openStage = (stage: typeof STAGES[0]) => {
     setActiveStage(stage);
@@ -1863,7 +1880,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           </div>
         </div>
       )}
-      {error && <div className="mx-4 mt-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 shadow-sm">{error}</div>}
+      {/* Error banner removed 2026-05-25 — error surfaces via toast.error()
+          popup in the useEffect above so it's visible from any view. Keeping
+          this comment in case the inline banner is restored later. */}
       {/* B7.4 (2026-05-02): equipmentGroupSyncWarning advisory — admin edited
           the cycle's pinned EquipmentGroup mid-cycle. Persistent (no auto-clear);
           operator may continue on the pinned ranges or terminate-and-restart. */}
@@ -2735,10 +2754,18 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                   </div>
                 </div>
               ))}
-              {error && <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
+              {/* Inline error banner replaced by toast.error() popup (2026-05-25) — see useEffect above. */}
+            </div>
+            <div className="px-5 pt-3 pb-1 text-[11px] text-slate-500 italic">
+              This checklist is mandatory under 21 CFR §11 — closing here will keep the cycle paused. The dialog will reappear on the next scan.
             </div>
             <div className="px-5 py-4 border-t border-slate-200 shrink-0 flex gap-3">
-              <button onClick={() => { core.dispatch({ type: 'close' }); }} disabled={loading} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition-colors disabled:opacity-40">Cancel</button>
+              {/* Renamed Cancel → Close (2026-05-25): operators were treating
+                  Cancel as "skip the checklist" — but the server-side gate
+                  refuses to advance without it, so the dialog re-opened on
+                  next action. "Close" + the hint above makes the contract
+                  explicit. dispatch close still actually closes the dialog. */}
+              <button onClick={() => { core.dispatch({ type: 'close' }); }} disabled={loading} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition-colors disabled:opacity-40">Close</button>
               <button onClick={handleChecklistSubmit} disabled={loading} className="flex-1 py-3 bg-purple-600 text-white rounded-xl font-bold disabled:opacity-40 flex items-center justify-center gap-2 hover:bg-purple-500 transition-colors">
                 {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <>Submit Checklist</>}
               </button>
