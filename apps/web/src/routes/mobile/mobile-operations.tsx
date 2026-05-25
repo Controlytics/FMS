@@ -535,24 +535,36 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const stageCounts: Record<string, number> = {};
   allFilters.forEach((f: any) => { if (f.currentLifecycleState) stageCounts[f.currentLifecycleState] = (stageCounts[f.currentLifecycleState] ?? 0) + 1; });
 
-  useEffect(() => { if (success) { const t = setTimeout(() => setSuccess(''), 4000); return () => clearTimeout(t); } }, [success]);
-  // Per operator request 2026-05-25: errors must surface as a popup, not
-  // an inline banner buried in the page chrome. Whenever `error` is set
-  // anywhere in the page, fan out a toast.error popup so the operator
-  // sees it from any view (home / stage / cycles / approvals / etc.).
-  // The inline banners at the top of the page and inside the checklist
-  // dialog have been removed below — the toast is the single source of
-  // truth for error display.
+  // Per operator request 2026-05-25: every message (error / success /
+  // warning) surfaces as a toast popup — no inline banners. Inline banners
+  // were getting buried beneath scrollable content and operators missed
+  // them. Toast pops at the top of the page from any view.
   const { toast } = useToast();
   useEffect(() => {
     if (error) {
       toast.error('Error', error);
-      // Clear local state immediately so the same error can re-toast if it
-      // recurs (e.g. operator retries the same failing op).
       const t = setTimeout(() => setError(''), 100);
       return () => clearTimeout(t);
     }
   }, [error]);
+  useEffect(() => {
+    if (success) {
+      toast.success('Success', success);
+      const t = setTimeout(() => setSuccess(''), 100);
+      return () => clearTimeout(t);
+    }
+  }, [success]);
+  useEffect(() => {
+    if (equipmentGroupSyncWarning) {
+      toast.error(
+        'Equipment group changed',
+        `Admin updated this group (you started on v${equipmentGroupSyncWarning.pinnedVersion}, current is v${equipmentGroupSyncWarning.liveVersion}). Readings still validate against your pinned version — terminate-and-restart only if you need the new ranges.`,
+      );
+    }
+  }, [equipmentGroupSyncWarning]);
+  // batchCacheError stays as an inline banner because it carries a Retry button;
+  // a toast can't host the action. rfidError also stays inline — it's stage-
+  // local and the toast wouldn't see the same view scope.
 
   const openStage = (stage: typeof STAGES[0]) => {
     setActiveStage(stage);
@@ -1829,8 +1841,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       {/* Offline Banner */}
       {!hideHeader && !online && <div className="mx-4 mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-700 flex items-center gap-2"><span>📡</span> Working offline — operations queued for sync</div>}
 
-      {/* Toast */}
-      {success && <div className="mx-4 mt-2 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 font-medium shadow-sm">✓ {success}</div>}
+      {/* Success / error / warning all surface as toast popups (2026-05-25).
+          Inline banners removed — see the useEffect block above where success,
+          error, equipmentGroupSyncWarning, and batchCacheError all fan out to
+          toast.error / toast.success. */}
       {batchCacheError && online && (
         <div className="mx-4 mt-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 flex items-center justify-between gap-3">
           <span>⚠ Offline pre-cache failed. New filters may not work offline. {batchCacheError}</span>
@@ -1883,17 +1897,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       {/* Error banner removed 2026-05-25 — error surfaces via toast.error()
           popup in the useEffect above so it's visible from any view. Keeping
           this comment in case the inline banner is restored later. */}
-      {/* B7.4 (2026-05-02): equipmentGroupSyncWarning advisory — admin edited
-          the cycle's pinned EquipmentGroup mid-cycle. Persistent (no auto-clear);
-          operator may continue on the pinned ranges or terminate-and-restart. */}
-      {equipmentGroupSyncWarning && (
-        <div className="mx-4 mt-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 shadow-sm flex items-start gap-2">
-          <svg className="w-4 h-4 mt-0.5 shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-          <span>
-            Equipment group has been updated by admin (you started on v{equipmentGroupSyncWarning.pinnedVersion}, current is v{equipmentGroupSyncWarning.liveVersion}). Your readings will continue to validate against the version you started with — terminate-and-restart only if you need the new ranges.
-          </span>
-        </div>
-      )}
+      {/* equipmentGroupSyncWarning inline banner removed 2026-05-25 —
+          replaced by toast.error popup in the useEffect above. Same content,
+          better visibility from any view. */}
 
       {/* ─── CONTENT ─── */}
       <div className="flex-1 overflow-y-auto">
