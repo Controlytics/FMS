@@ -78,6 +78,15 @@ Currently the column stores plaintext + has a UNIQUE index for lookup. Table is 
 - **Estimate**: half day.
 - **Reference**: `tasks/DB-AUDIT-2026-05-25.md` F-11
 
+### M-04 — Patch `fn_mirror_asset_instance` to stop writing dropped columns
+
+Companion to today's `fn_mirror_filter_details` drop (migration `20260525223000_drop_filter_details_mirror_trigger`). After commit `97d298c` dropped `filter_profile_id`, `current_lifecycle_state`, `current_cycle_id`, `filter_set` from the `filters` table, `fn_mirror_asset_instance` still references all four in its `INSERT INTO filters (... filter_profile_id, current_lifecycle_state, current_cycle_id, filter_set ...)` upsert. Latent on the cycle-write path (which doesn't touch `asset_instances`), but breaks every filter create / rename / retire / replace flow + bulk-upload because those write `asset_instances` and trip the trigger.
+
+- **Why pending**: I confirmed during tablet E2E on 2026-05-25 that cycle ops are unblocked by dropping the simpler `fn_mirror_filter_details`. Cannot just drop this one — it also routes new rows into the typed sidecar tables (blocks / areas / ahus / filters) per `template_kind`, which is critical for the Wave 2 typed-hierarchy migration.
+- **What needs to happen**: `CREATE OR REPLACE FUNCTION fn_mirror_asset_instance()` removing only the four dead column references from the `filters`-branch INSERT/UPDATE list. Keep blocks / areas / ahus branches untouched. Verify with: create a new FILTER asset_instance via the asset routes, confirm a `filters` sidecar row appears with the expected fields.
+- **Estimate**: 1–2 hours including a repro test for filter creation + retirement.
+- **Reference**: `apps/api/prisma/migrations/20260525223000_drop_filter_details_mirror_trigger/migration.sql` (companion migration shipped today), commit `97d298c`.
+
 ---
 
 ## §3 — Small fixes (hours each)
