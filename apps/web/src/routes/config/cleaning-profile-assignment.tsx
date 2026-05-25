@@ -144,6 +144,41 @@ export function CleaningProfileAssignmentPage() {
     setRules(prev => prev.map((r, i) => i === index ? { ...r, [field]: value } : r));
   };
 
+  // Operator request 2026-05-25: prevent a second rule from being created for
+  // an entity (block / AHU / filter / size) that already has one. Two rules
+  // for the same key would race against each other in resolveFilterProfile()
+  // — the first match wins, the second is dead data.
+  //
+  // We surface this two ways:
+  //   1. Each rule's match-value dropdown excludes values used by OTHER rules
+  //      (the current rule's own value stays visible so the user can see what
+  //      they picked).
+  //   2. The "Add Rule" button disables once every possible value has been
+  //      assigned. matchValue=''-rules (operator picked a profile but no
+  //      target yet) don't count as "used" for either calculation.
+  // BY_FILTER_SET is exempt — it's seeded with both A and B at mode-change
+  // time and the UI doesn't let the operator add/remove rows for it.
+  const usedValuesByOtherRules = (currentIndex: number) =>
+    new Set(
+      rules
+        .filter((_, idx) => idx !== currentIndex)
+        .map(r => r.matchValue)
+        .filter(Boolean),
+    );
+
+  const totalAvailableForMode = () => {
+    switch (mode) {
+      case 'BY_FILTER_SIZE': return filterSizes.length;
+      case 'BY_ENTITY':      return filterInstances.length;
+      case 'BY_AHU':         return ahuInstances.length;
+      case 'BY_BLOCK':       return blockInstances.length;
+      default:               return Infinity;
+    }
+  };
+  const allOptionsAssigned =
+    mode !== 'BY_FILTER_SET'
+    && rules.filter(r => r.matchValue).length >= totalAvailableForMode();
+
   // Audit 2026-05-04 fix #5 (web-routes review H — lower-blast config
   // surfaces). UPDATE_CONFIG_PAGE umbrella; backend mirror in
   // static-routes/cleaning-profile-assignment.routes.ts.
@@ -182,8 +217,13 @@ export function CleaningProfileAssignmentPage() {
   };
 
   const renderMatchDropdown = (rule: AssignmentRule, index: number) => {
+    // Used elsewhere → hide from this row's options (the row's own current
+    // value stays visible so the user can still see what they picked).
+    const used = usedValuesByOtherRules(index);
+
     switch (mode) {
-      case 'BY_FILTER_SIZE':
+      case 'BY_FILTER_SIZE': {
+        const available = filterSizes.filter(s => s === rule.matchValue || !used.has(s));
         return (
           <select
             value={rule.matchValue}
@@ -191,13 +231,15 @@ export function CleaningProfileAssignmentPage() {
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
           >
             <option value="">Select filter size...</option>
-            {filterSizes.map(s => (
+            {available.map(s => (
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
         );
+      }
 
-      case 'BY_ENTITY':
+      case 'BY_ENTITY': {
+        const available = filterInstances.filter(f => f.id === rule.matchValue || !used.has(f.id));
         return (
           <select
             value={rule.matchValue}
@@ -205,13 +247,15 @@ export function CleaningProfileAssignmentPage() {
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
           >
             <option value="">Select filter...</option>
-            {filterInstances.map(f => (
+            {available.map(f => (
               <option key={f.id} value={f.id}>{f.name || f.id}</option>
             ))}
           </select>
         );
+      }
 
-      case 'BY_AHU':
+      case 'BY_AHU': {
+        const available = ahuInstances.filter(a => a.id === rule.matchValue || !used.has(a.id));
         return (
           <select
             value={rule.matchValue}
@@ -219,13 +263,15 @@ export function CleaningProfileAssignmentPage() {
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
           >
             <option value="">Select AHU...</option>
-            {ahuInstances.map(a => (
+            {available.map(a => (
               <option key={a.id} value={a.id}>{a.name || a.id}</option>
             ))}
           </select>
         );
+      }
 
-      case 'BY_BLOCK':
+      case 'BY_BLOCK': {
+        const available = blockInstances.filter(b => b.id === rule.matchValue || !used.has(b.id));
         return (
           <select
             value={rule.matchValue}
@@ -233,11 +279,12 @@ export function CleaningProfileAssignmentPage() {
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
           >
             <option value="">Select block / area...</option>
-            {blockInstances.map(b => (
+            {available.map(b => (
               <option key={b.id} value={b.id}>{b.name || b.id}</option>
             ))}
           </select>
         );
+      }
 
       case 'BY_FILTER_SET':
         return (
@@ -338,7 +385,9 @@ export function CleaningProfileAssignmentPage() {
             {mode !== 'BY_FILTER_SET' && (
               <button
                 onClick={addRule}
-                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 font-medium text-sm transition-colors flex items-center gap-1.5"
+                disabled={allOptionsAssigned}
+                title={allOptionsAssigned ? `Every ${getMatchColumnLabel().toLowerCase()} already has a rule` : undefined}
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 font-medium text-sm transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-100"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
