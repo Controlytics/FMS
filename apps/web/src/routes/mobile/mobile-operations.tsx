@@ -1238,11 +1238,39 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
 
       // Phase 8.7 Wave-5: shared pre-advance checklist-dialog resolver. Pass
       // the tape resolved above so we don't recompute it.
+      //
+      // 2026-05-25 fix: GUARD against opening a checklist dialog that belongs
+      // to a DIFFERENT stage than the one the operator selected. The original
+      // gate fired whenever any SUBMIT_CHECKLIST was pending — even if the
+      // cycle was stuck in WASH_OUT and the operator tapped WASH_IN looking
+      // to start fresh, the cycle's WASH_OUT-pending checklist would pop up,
+      // and the operator's clear intent (start fresh on WASH_IN) was hijacked.
+      // Cycle CC-MUPS/RDU/0-005 (started 2026-05-20, sat in WASH_OUT for 5
+      // days, then got "completed" today via a misrouted checklist submit)
+      // is the smoking-gun example.
+      //
+      // New rule: only auto-open the checklist dialog if (a) the cycle's
+      // current state equals the stage the operator selected (i.e. the
+      // checklist is for the current step), OR (b) there's no active cycle
+      // and this is a pre-cycle-start checklist (rare). Otherwise we point
+      // the operator at the correct stage card so they can either complete
+      // the pending checklist there or recognise that the cycle is stuck.
       {
         const dialogChecklists = await resolvePendingChecklistDialog(filterId, resolvedActions);
         if (dialogChecklists) {
-          core.dispatch({ type: 'open_checklist', filterId, filterName: filterName || state.filterName, checklists: dialogChecklists });
-          setChecklistAnswers({});
+          const stageMatches = currentLifecycle === activeStage.key;
+          const noActiveCycle = !state.currentCycle;
+          if (stageMatches || noActiveCycle) {
+            core.dispatch({ type: 'open_checklist', filterId, filterName: filterName || state.filterName, checklists: dialogChecklists });
+            setChecklistAnswers({});
+            setLoading(false);
+            return;
+          }
+          // Stage mismatch — show a clear instruction instead of hijacking the operator's intent.
+          const atLabel = (currentLifecycle ?? 'an earlier stage').replace(/_/g, ' ');
+          setError(
+            `This filter has a pending checklist for ${atLabel}. Tap the ${atLabel} stage card to complete it before scanning on ${activeStage.label}.`,
+          );
           setLoading(false);
           return;
         }
