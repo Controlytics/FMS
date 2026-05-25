@@ -2590,7 +2590,23 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 <textarea className="w-full border border-slate-200 rounded-xl px-4 py-2 text-sm" rows={2} placeholder="Justification (min 10 chars)" value={justification} onChange={e => setJustification(e.target.value)} />
               )}
             </div>
-            <div className="p-4 border-t border-slate-200 flex gap-3"><button onClick={() => core.dispatch({ type: 'close' })} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium">Cancel</button><button onClick={handleReasonSubmit} disabled={loading || !selectedReason} className="flex-1 py-3 bg-cyan-600 text-white rounded-xl font-bold disabled:opacity-40">{loading ? 'Starting...' : 'Start'}</button></div>
+            {(() => {
+              // Match server contract at start-cycle.ts:78 — block submit when
+              // the selected reason has requiresJustification=true unless the
+              // operator has typed at least 10 chars. Pre-fix the button was
+              // enabled and the server returned 400 JUSTIFICATION_REQUIRED,
+              // which use-core.ts then misclassified as "queued" (bug fix 5/25).
+              const reason = cleaningReasons.find((r: any) => r.key === selectedReason);
+              const needsJustification = !!reason?.requiresJustification;
+              const justificationOk = !needsJustification || justification.trim().length >= 10;
+              const submitDisabled = loading || !selectedReason || !justificationOk;
+              return (
+                <div className="p-4 border-t border-slate-200 flex gap-3">
+                  <button onClick={() => core.dispatch({ type: 'close' })} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium">Cancel</button>
+                  <button onClick={handleReasonSubmit} disabled={submitDisabled} className="flex-1 py-3 bg-cyan-600 text-white rounded-xl font-bold disabled:opacity-40">{loading ? 'Starting...' : 'Start'}</button>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}

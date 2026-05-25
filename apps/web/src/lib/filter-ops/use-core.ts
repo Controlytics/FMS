@@ -261,7 +261,14 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
         if (isReauthOrRecompute(e)) throw e;
         const err = e as { message?: string };
         setError(err?.message ?? 'Advance failed');
-        return { executed: false };
+        // Re-throw (don't return { executed: false }) — that pre-fix shape
+        // was indistinguishable from a genuinely queued offline op, and the
+        // caller (mobile/desktop submit handlers) painted the result with a
+        // misleading "(queued)" success message even when the server had
+        // rejected the request (e.g. 400 JUSTIFICATION_REQUIRED). Bubbling
+        // lets reauth.execute's onError handler / try-catch surface a real
+        // error toast. Bug reported 2026-05-25 (wash-in justification path).
+        throw e;
       } finally {
         setIsLoading(false);
       }
@@ -317,7 +324,9 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
         if (isReauthOrRecompute(e)) throw e;
         const err = e as { message?: string };
         setError(err?.message ?? 'Start-and-advance failed');
-        return { executed: false };
+        // See `advance` above — re-throw so the caller can surface the real
+        // error (was the wash-in JUSTIFICATION_REQUIRED bug reported 5/25).
+        throw e;
       } finally {
         setIsLoading(false);
       }
@@ -460,7 +469,9 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
         if (isReauthOrRecompute(e)) throw e;
         const err = e as { message?: string };
         setError(err?.message ?? 'Checklist submission failed');
-        return { executed: false };
+        // See `advance` above — re-throw so the caller can surface the real
+        // error instead of mistaking server rejection for a queued op.
+        throw e;
       } finally {
         setIsLoading(false);
       }

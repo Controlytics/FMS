@@ -63,13 +63,26 @@ export function CleaningReasonDialog({ dialog, onClose, onSubmit, loading, error
               placeholder="Justification (min 10 characters)" value={justification} onChange={e => setJustification(e.target.value)} />
           )}
           {error && <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
-          <div className="flex gap-3">
-            <button onClick={onClose} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl">Cancel</button>
-            <button onClick={() => onSubmit(selectedReason, justification)} disabled={loading || !selectedReason}
-              className="flex-1 py-3 bg-cyan-600 text-white rounded-xl font-bold disabled:opacity-40 hover:bg-cyan-500 transition-colors flex items-center justify-center gap-2">
-              {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : 'Start & Submit'}
-            </button>
-          </div>
+          {(() => {
+            // Match server contract at start-cycle.ts:78 — block submit when
+            // the selected reason has requiresJustification=true unless the
+            // operator has typed at least 10 chars. Pre-fix the button was
+            // enabled, the server returned 400 JUSTIFICATION_REQUIRED, and
+            // use-core.ts misclassified that as "queued" (bug fix 2026-05-25).
+            const reason = cleaningReasons.find((r: any) => r.key === selectedReason);
+            const needsJustification = !!reason?.requiresJustification;
+            const justificationOk = !needsJustification || justification.trim().length >= 10;
+            const submitDisabled = loading || !selectedReason || !justificationOk;
+            return (
+              <div className="flex gap-3">
+                <button onClick={onClose} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl">Cancel</button>
+                <button onClick={() => onSubmit(selectedReason, justification)} disabled={submitDisabled}
+                  className="flex-1 py-3 bg-cyan-600 text-white rounded-xl font-bold disabled:opacity-40 hover:bg-cyan-500 transition-colors flex items-center justify-center gap-2">
+                  {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : 'Start & Submit'}
+                </button>
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>
