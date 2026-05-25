@@ -522,7 +522,20 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
 
       // Phase B2: stranded ops (cycle ended on server) — mark failed immediately,
       // don't retry. The user has to reconcile manually (cycle is gone).
-      if (e?.stranded || e?.code === 'CYCLE_ENDED') {
+      //
+      // 2026-05-25 extension: NO_CYCLE has the same root cause and same correct
+      // treatment. Pre-fix it fell through to the default 5-retry loop because
+      // it wasn't enumerated here. Symptom on the tablet:
+      //   - operator completes cycle X, FE thinks it's still open due to a
+      //     queued op that was captured pre-completion
+      //   - sync drains the stale op → server returns NO_CYCLE
+      //   - retry loop re-fires the same op (and the checklist dialog re-opens
+      //     in some FE paths) up to 5 times
+      //   - operator sees the "no cleaning cycle found" error repeatedly +
+      //     the checklist looks like it's "repeating offline"
+      // Treating NO_CYCLE as terminal here drops the stale op once, emits one
+      // toast, and clears the queue. Operator can start a fresh cycle.
+      if (e?.stranded || e?.code === 'CYCLE_ENDED' || e?.code === 'NO_CYCLE') {
         await updateOperationStatus(op.id, 'failed', `Cycle ended before this operation could sync: ${errMsg}`);
         failed++;
         notify({ type: 'error', error: `${op.filterName}: cycle ended before sync — operation discarded` });

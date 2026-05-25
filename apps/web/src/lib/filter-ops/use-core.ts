@@ -92,6 +92,23 @@ export interface StartAndAdvanceArgs {
   cleaningAreaId?: string | null;
   password?: string;
   batchRemainder?: PendingChecklistBatchItem[];
+  /**
+   * 2026-05-25 — Tablet repro on Block FD offline: the FD profile has a
+   * WASH_IN → CHECKLIST → DRY_IN gate, so every just-started cycle has a
+   * pending checklist immediately. With two filters batched, filter 1's
+   * `resolveAndDispatchChecklist` dispatched `open_checklist` (state →
+   * `awaiting_checklist`), then the explicit batch-continuation loop in
+   * `handleEquipSubmit` called `startAndAdvance` for filter 2, which
+   * tried to dispatch another `open_checklist` from `awaiting_checklist`
+   * and tripped the state-machine guard in `dialog-state.ts:190-197`.
+   *
+   * Set this to `true` on every iteration AFTER the first when running a
+   * batched cycle-start loop. The first call should still pass
+   * `batchRemainder` so the dialog cascade (filter 1's checklist → filter
+   * 2's checklist) walks through `remainingBatch` cleanly when the
+   * operator submits each one.
+   */
+  skipChecklistDispatch?: boolean;
 }
 
 export interface SubmitChecklistArgs {
@@ -311,13 +328,19 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
           );
         }
 
-        await resolveAndDispatchChecklist(
-          args.filterId,
-          args.filterName,
-          executed ? (result as { actions?: unknown[] } | undefined)?.actions ?? null : null,
-          args.batchRemainder,
-          dispatch,
-        );
+        // skipChecklistDispatch: batch continuation iterations (filter 2..N
+        // in handleEquipSubmit) MUST skip this; the first iteration's
+        // dispatch already carries `remainingBatch` and the dialog cascade
+        // handles the rest.
+        if (!args.skipChecklistDispatch) {
+          await resolveAndDispatchChecklist(
+            args.filterId,
+            args.filterName,
+            executed ? (result as { actions?: unknown[] } | undefined)?.actions ?? null : null,
+            args.batchRemainder,
+            dispatch,
+          );
+        }
 
         return { executed, result };
       } catch (e: unknown) {

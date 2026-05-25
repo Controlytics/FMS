@@ -130,6 +130,15 @@ function DryingFilterRow({
     : [];
   const tempUom = dryerInstrument?.uom ?? '°C';
 
+  // 2026-05-25: once dryer readings are submitted, hide the row entirely until
+  // the next time this filter re-enters DRY_IN (i.e. until a fresh cycle for
+  // this filter reaches DRY_IN, at which point dryerReadingsSubmitted is
+  // false again). The cycle stays in DRY_IN state on the server until the
+  // operator manually advances; the "Currently Drying" panel is purely an
+  // operator nudge, so once they've given the reading there is nothing more
+  // for them to do here.
+  if (cyc?.dryerReadingsSubmitted) return null;
+
   if (!startedAt || !durationMin) {
     return (
       <div className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0 text-sm">

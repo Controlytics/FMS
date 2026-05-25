@@ -1601,6 +1601,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       let executed: boolean | undefined;
       if (pendingCyclePayload) {
         const cyclePayloadSnap = pendingCyclePayload;
+        // 2026-05-25 tablet repro on Block FD offline: pass `batchRemainder`
+        // to filter 1's startAndAdvance so its `resolveAndDispatchChecklist`
+        // opens filter 1's checklist gate (if any) with the remaining
+        // filters queued in `remainingBatch`. When the operator submits
+        // filter 1's checklist, the existing `advance_batch` flow walks to
+        // filter 2's checklist automatically — no second open_checklist
+        // dispatch from the batch loop below. See StartAndAdvanceArgs
+        // docblock for the full context.
         await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
           const res = await core.startAndAdvance({
             filterId: equipFiltId,
@@ -1617,6 +1625,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             targetState,
             cleaningAreaId: selectedBlock?.id,
             password,
+            batchRemainder: batchRest.length > 0
+              ? batchRest.map(b => ({ filterId: b.filterId, filterName: b.filterName }))
+              : undefined,
           });
           executed = res.executed;
         });
@@ -1689,6 +1700,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 targetState,
                 cleaningAreaId: selectedBlock?.id,
                 password,
+                // 2026-05-25: Filter 1's startAndAdvance already dispatched
+                // open_checklist with remainingBatch — subsequent batch
+                // iterations only start cycles, they must NOT dispatch
+                // dialogs (would crash state machine if checklist already
+                // open). See StartAndAdvanceArgs.skipChecklistDispatch.
+                skipChecklistDispatch: true,
               });
             });
             setRecentOps(prev => [{ stage: equipStage, filter: rest.filterName, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 20));
@@ -3012,6 +3029,11 @@ function DryingFilterCard({
   // Phase 8.7 Wave-5: shared countdown projection (same shape desktop uses).
   const projection = projectDryerCountdown(cycleData, now);
   const { startedAt, durationMin, halfReached, remainingMin, remainingSecPart, progressPct } = projection;
+
+  // 2026-05-25: once dryer readings are submitted, hide the card entirely
+  // until this filter re-enters DRY_IN in a future cycle. Desktop mirrors
+  // this — see drying-filters-panel.tsx DryingFilterRow.
+  if (cycleData?.dryerReadingsSubmitted) return null;
 
   if (!startedAt || !durationMin) {
     return (
