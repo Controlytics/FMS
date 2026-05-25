@@ -37,7 +37,23 @@ export const configService = {
   },
 
   async updateConfig(key: string, data: any, schema: any, configType: string, requiresReauth: boolean, ctx: RequestContext) {
-    const parsed = schema.safeParse(data);
+    // Security fix 2026-05-25: strip the reauth password and any other
+    // underscore-prefixed transport fields before validating + persisting.
+    // api-client.withReauth() injects `_currentPassword` into the body so
+    // the server-side enforceReauth() can verify it. Pre-fix that field
+    // survived the schema parse (configs use additionalProperties: true)
+    // and got persisted into system_config.config_value as plaintext — a
+    // /api/config/cleaning-profile-assignment GET as any CONFIG_READ user
+    // would then echo the SUPER_ADMIN's password back. Found in the
+    // 5/25 cleaning-profile-assignment update audit.
+    const sanitized: Record<string, any> = {};
+    if (data && typeof data === 'object') {
+      for (const k of Object.keys(data)) {
+        if (k.startsWith('_')) continue; // transport-only field
+        sanitized[k] = (data as any)[k];
+      }
+    }
+    const parsed = schema.safeParse(sanitized);
     if (!parsed.success) throw new ValidationError('VALIDATION_ERROR', parsed.error.flatten());
 
     const existing = await configRepository.getSystemConfig(key);
