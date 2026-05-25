@@ -2719,24 +2719,27 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             </div>
             <div className="p-5 space-y-5 overflow-y-auto flex-1">
               {/* Stage-submitted recap (2026-05-25 combined-screen UX).
-                  Shows the operator that the stage data they submitted was
-                  accepted, with optional reading values so they can verify
-                  before answering the checklist. Falls back to a simple
-                  confirmation when no recap snapshot is available. */}
-              {(stageSubmitRecap || activeStage) && (
+                  Only renders when the snapshot was actually captured during
+                  the just-completed handleEquipSubmit. Pre-fix this also
+                  fell back to `activeStage` which led to a misleading
+                  "✓ Wash In submitted" header when the checklist opened
+                  from a pending-cycle state where the operator hadn't gone
+                  through the reason + equipment + readings dialogs. Now:
+                  no recap → no banner. The operator's reason/equip flow
+                  fires (via dispatch open_reason / open_equipment) BEFORE
+                  the checklist ever auto-opens. */}
+              {stageSubmitRecap && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                     </svg>
                     <div className="text-sm font-semibold text-emerald-800">
-                      {stageSubmitRecap?.stage?.replace(/_/g, ' ') ?? activeStage?.label ?? 'Stage'} submitted
+                      {stageSubmitRecap.stage.replace(/_/g, ' ')} submitted
                     </div>
-                    {stageSubmitRecap?.submittedAt && (
-                      <div className="text-[10px] text-emerald-600 ml-auto">{stageSubmitRecap.submittedAt}</div>
-                    )}
+                    <div className="text-[10px] text-emerald-600 ml-auto">{stageSubmitRecap.submittedAt}</div>
                   </div>
-                  {stageSubmitRecap && stageSubmitRecap.readings.length > 0 ? (
+                  {stageSubmitRecap.readings.length > 0 ? (
                     <div className="space-y-1">
                       {stageSubmitRecap.readings.map((r, i) => (
                         <div key={i} className="flex justify-between text-xs">
