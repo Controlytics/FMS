@@ -69,9 +69,16 @@ export async function terminateCycleImpl(
     // an in-flight advance that already swapped the cycle.
     await lockAndVerifyFilterState(tx, filterId, fromState, filterCurrentCycleId);
 
+    // F-06 fix (2026-05-25 DB audit): TERMINATED cycles should set
+    // terminated_at, not just completed_at. Pre-fix, terminated_at stayed
+    // NULL for any cycle terminated via the app, which made it impossible
+    // to distinguish "completed successfully" from "terminated mid-cycle"
+    // in the cleaning_cycles table without joining filter_events. Now both
+    // columns are written and the column name matches the cycle status.
+    const terminatedAt = new Date();
     await tx.cleaningCycle.update({
       where: { id: filterCurrentCycleId! },
-      data: { status: 'TERMINATED', completedAt: new Date() },
+      data: { status: 'TERMINATED', completedAt: terminatedAt, terminatedAt },
     });
     // currentCycleId + currentLifecycleState moved to FilterDetails (Step 6).
     await tx.filterDetails.update({
