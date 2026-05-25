@@ -17,7 +17,13 @@ const CYCLE_STATUS_CONFIG: Record<string, { label: string; bg: string; text: str
 };
 function getStageInfoFromEvents(events: any[], stage: string) {
   const stageEvents = (events ?? []).filter((e: any) => e.eventType === 'STATE_TRANSITION' && e.toState === stage);
-  const ev = stageEvents.find((e: any) => (e.attributes as any)?.instrumentReadings?.length > 0) ?? stageEvents[0];
+  // DRY_IN — require the SUBMIT_READINGS event; the SET_DURATION event
+  // (which entered DRY_IN with no readings) should not back-fill the time
+  // column. Same rule as cleaning-cycles/history.tsx — operator request
+  // 2026-05-25: DRY_IN time = temperature submission time only.
+  const requireReadings = stage === 'DRY_IN';
+  const evWithReadings = stageEvents.find((e: any) => (e.attributes as any)?.instrumentReadings?.length > 0);
+  const ev = evWithReadings ?? (requireReadings ? null : stageEvents[0]);
   if (!ev) return null;
   return {
     time: ev.performedAt,

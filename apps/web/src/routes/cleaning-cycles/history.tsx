@@ -71,8 +71,18 @@ export function CleaningCycleHistoryPage() {
 
   const getStageInfo = (events: FilterEvent[], stage: string) => {
     const stageEvents = (events ?? []).filter((e) => e.eventType === 'STATE_TRANSITION' && e.toState === stage);
-    // Prefer the event with instrument readings (e.g., DRY_IN temperature submit)
-    const ev = stageEvents.find((e) => (e.attributes as any)?.instrumentReadings?.length > 0) ?? stageEvents[0];
+    // For DRY_IN specifically, two STATE_TRANSITION events land with toState=DRY_IN:
+    //   1. SET_DURATION (entering DRY_IN, dryer started, NO instrumentReadings)
+    //   2. SUBMIT_READINGS (later, when operator records the dryer temperature)
+    // Per operator request 2026-05-25, the DRY_IN time column must reflect the
+    // temperature-submission time, NOT the duration-set time. So for DRY_IN
+    // we require the readings event — if it doesn't exist yet, the column is
+    // intentionally blank (cycle is mid-dryer, no temperature recorded yet).
+    // Every other stage emits a single readings-bearing STATE_TRANSITION so
+    // the fallback to stageEvents[0] still makes sense there.
+    const requireReadings = stage === 'DRY_IN';
+    const evWithReadings = stageEvents.find((e) => (e.attributes as any)?.instrumentReadings?.length > 0);
+    const ev = evWithReadings ?? (requireReadings ? null : stageEvents[0]);
     if (!ev) return null;
     return { time: ev.performedAt, performedBy: ev.performedByName ?? ev.performedBy?.substring(0, 8) ?? '-', readings: (ev.attributes as any)?.instrumentReadings ?? [] };
   };
