@@ -56,8 +56,9 @@ export const REAUTH_ACTIONS = {
   CREATE_ASSET: { label: 'Create Asset', category: 'Asset Management' },
   UPDATE_ASSET: { label: 'Update Asset', category: 'Asset Management' },
   DELETE_ASSET: { label: 'Delete Asset', category: 'Asset Management' },
-  CREATE_ASSET_RELATIONSHIP: { label: 'Create Asset Relationship', category: 'Asset Management' },
-  DELETE_ASSET_RELATIONSHIP: { label: 'Delete Asset Relationship', category: 'Asset Management' },
+  // 2026-05-26 audit fix (PA-CLEANUP-4): CREATE_ASSET_RELATIONSHIP +
+  // DELETE_ASSET_RELATIONSHIP removed — neither FE nor BE ever called
+  // enforceReauth / reauth.execute with those names. Dead constants.
   CREATE_ASSET_IDENTIFIER: { label: 'Create Asset Identifier', category: 'Asset Management' },
   DELETE_ASSET_IDENTIFIER: { label: 'Delete Asset Identifier', category: 'Asset Management' },
 
@@ -82,6 +83,18 @@ export const REAUTH_ACTIONS = {
   // operator's intent. Delta-audit 2026-05-20 §C1 / May 16 §1.2 fix.
   REDACT_AUDIT_RECORD: { label: 'Redact Audit Record', category: 'Configuration' },
   BULK_REDACT_AUDIT_RECORDS: { label: 'Bulk Redact Audit Records', category: 'Configuration' },
+  // 2026-05-26 audit fix (PA-REAUTH-4): notification bulk-delete is
+  // destructive (irreversible, no recycle bin) and was missing reauth.
+  // Single-delete uses the same key — same blast radius per row.
+  DELETE_NOTIFICATION: { label: 'Delete Notification', category: 'Notifications' },
+  BULK_DELETE_NOTIFICATIONS: { label: 'Bulk Delete Notifications', category: 'Notifications' },
+  // 2026-05-26 audit fix (PA-REAUTH-3): super-admin filter-data
+  // routes (super-admin/routes.ts) can edit/delete cleaning cycles,
+  // filter events, notifications, admin-requests, etc. with no audit
+  // trail (per current code comment). Adding reauth on every mutation
+  // is the bare-minimum hardening pending the larger audit-trail
+  // retrofit. Applies to every PUT/DELETE/POST in super-admin/routes.ts.
+  SUPER_ADMIN_DATA_EDIT: { label: 'Super-Admin Data Edit', category: 'Super Admin' },
   // LDAP config (audit 2026-05-04 fix #5 — web-routes review H2):
   // bind credentials and base-DN edits can redirect every login to an
   // attacker-controlled directory. Distinct from UPDATE_LOGIN_SECURITY

@@ -1,5 +1,6 @@
 import { type FastifyInstance } from 'fastify';
 import { errorResponses } from '../../lib/error-schemas.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 import { notificationService } from './notification.service.js';
 
 export default async function notificationRoutes(app: FastifyInstance) {
@@ -172,7 +173,12 @@ export default async function notificationRoutes(app: FastifyInstance) {
         },
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    // 2026-05-26 audit fix (PA-REAUTH-4): bulk delete is destructive +
+    // irreversible. Reauth roles are configurable via the action-reauth
+    // admin UI; default is SUPER_ADMIN only per BULK_DELETE_NOTIFICATIONS.
+    const { ok } = await enforceReauth('BULK_DELETE_NOTIFICATIONS', req, reply);
+    if (!ok) return;
     const { ids } = req.body as { ids: string[] };
     return notificationService.bulkDelete(ids, req.user.role, req.user.username);
   });
@@ -256,7 +262,11 @@ export default async function notificationRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    // 2026-05-26 audit fix (PA-REAUTH-4): single delete uses the same
+    // DELETE_NOTIFICATION reauth key — same per-row blast radius as bulk.
+    const { ok } = await enforceReauth('DELETE_NOTIFICATION', req, reply);
+    if (!ok) return;
     const { id } = req.params as { id: string };
     return notificationService.delete(id, req.user.role, req.user.username);
   });

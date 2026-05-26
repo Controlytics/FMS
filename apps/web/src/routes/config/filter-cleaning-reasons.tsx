@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient, api } from '../../lib/api-client';
+import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 
@@ -11,6 +12,11 @@ interface CleaningReason {
 }
 
 export function CleaningReasonsConfigPage() {
+  // 2026-05-26 audit fix (PA-FE-1): gate Add/Edit/Save on CONFIG_UPDATE.
+  const { user } = useAuth();
+  const perms = (user?.permissions as string[] | undefined) ?? [];
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const canWrite = isSuperAdmin || perms.includes('CONFIG_UPDATE');
   const navigate = useNavigate();
   const { data: config } = useSWR('/api/config/dynamic/filter-cleaning-reasons');
   const [reasons, setReasons] = useState<CleaningReason[]>([]);
@@ -127,11 +133,13 @@ export function CleaningReasonsConfigPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <button onClick={openAdd}
-            className="px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-colors shadow-sm font-medium text-sm">
+          <button onClick={openAdd} disabled={!canWrite}
+            title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
+            className="px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm font-medium text-sm">
             + Add Reason
           </button>
-          <button onClick={save} disabled={saving}
+          <button onClick={save} disabled={saving || !canWrite}
+            title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
             className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 transition-all shadow-sm font-medium text-sm">
             {saving ? 'Saving...' : 'Save Changes'}
           </button>

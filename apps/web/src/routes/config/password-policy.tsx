@@ -7,11 +7,22 @@ import useSWR, { mutate } from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 
 export function PasswordPolicyPage() {
   const navigate = useNavigate();
+  // 2026-05-26 audit fix (PA-FE-1): route is gated only by CONFIG_READ
+  // (intentionally broad for read-only viewers). Pre-fix the Save button
+  // was rendered + clickable for every CONFIG_READ user; backend rejects
+  // PUT /api/config/password-policy without CONFIG_UPDATE, so the
+  // mutation 403'd, but operators saw a fully editable form. The Save
+  // button now disables when the user lacks CONFIG_UPDATE.
+  const { user } = useAuth();
+  const perms = (user?.permissions as string[] | undefined) ?? [];
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const canWrite = isSuperAdmin || perms.includes('CONFIG_UPDATE');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const reauth = useReauth();
@@ -339,7 +350,8 @@ export function PasswordPolicyPage() {
           <Button type="button" variant="outline" onClick={() => navigate('/config')}>
             Cancel
           </Button>
-          <Button type="submit" disabled={!isDirty || isSubmitting}>
+          <Button type="submit" disabled={!isDirty || isSubmitting || !canWrite}
+            title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}>
             {isSubmitting ? 'Saving...' : 'Save Changes'}
           </Button>
         </div>

@@ -273,18 +273,21 @@ Already fixed in this audit pass:
 | PA-REAUTH-2 | CRITICAL | `CREATE/UPDATE/DELETE_ASSET_TEMPLATE` reauth permanently OFF (not declared in shared types) | Add 3 constants to `reauth-actions.ts` + shared rebuild |
 | PA-PERMS-1 | CRITICAL | `ASSET_TEMPLATE_CREATE/UPDATE/DELETE` permission gates non-functional (constants not declared) | Either collapse to existing `ASSET_*` perms OR add new constants + seed + privileges |
 
-### Deferred (HIGH but lower urgency)
+### Second pass — all "Deferred" items fixed 2026-05-26 commit `tbd`
 
-| ID | Severity | Issue |
-|---|---|---|
-| PA-FE-1 | HIGH | 7 config pages (filter-cleaning-reasons, password-policy, ldap, datetime, dynamic-config, report-settings, ahu-filter-set-config) leak Save controls to CONFIG_READ users — backend rejects, UI surface wrong |
-| PA-BE-1 | MEDIUM | `GET /api/config/field-ids` ungated (pattern drift) |
-| PA-REAUTH-3 | HIGH | Super-admin filter-data routes (`super-admin/routes.ts`) silent-edit cleaning cycles + filter events with no reauth + no audit |
-| PA-REAUTH-4 | HIGH | Notification bulk-delete missing reauth gate |
-| PA-CLEANUP-1 | MEDIUM | 2 PDF export buttons (cleaning-cycles/timeline + history) ungated |
-| PA-CLEANUP-2 | MEDIUM | `UPDATE_SESSION` vs `UPDATE_SESSION_CONFIG` drift in dynamic-config.tsx:166 |
-| PA-CLEANUP-3 | LOW | `BACKUP_EXPORT` not declared as constant (works via suffix expansion) |
-| PA-CLEANUP-4 | LOW | `CREATE_ASSET_RELATIONSHIP` / `DELETE_ASSET_RELATIONSHIP` declared but never used |
+| ID | Severity | Original issue | Status |
+|---|---|---|---|
+| PA-FE-1 | HIGH | 7 config pages leak Save controls to CONFIG_READ users | ✅ All 7 gated on `CONFIG_UPDATE` (or `PM_UPDATE` for ahu-filter-set-config) |
+| PA-BE-1 | MEDIUM | `GET /api/config/field-ids` ungated | ✅ Gated on `CONFIG_READ` |
+| PA-REAUTH-3 | HIGH | Super-admin filter-data routes silent-edit with no reauth | ✅ All 18 mutations now `enforceReauth('SUPER_ADMIN_DATA_EDIT')` via shared preHandler |
+| PA-REAUTH-4 | HIGH | Notification bulk-delete missing reauth | ✅ Added `BULK_DELETE_NOTIFICATIONS` + `DELETE_NOTIFICATION` reauth, BE enforce + FE wrap |
+| PA-CLEANUP-1 | MEDIUM | 2 PDF export buttons ungated | ✅ Gated on `REPORT_EXPORT` / `REPORT_GENERATE` |
+| PA-CLEANUP-2 | MEDIUM | `UPDATE_SESSION` vs `UPDATE_SESSION_CONFIG` drift | ✅ Override map added in dynamic-config.tsx |
+| PA-CLEANUP-3 | LOW | `BACKUP_EXPORT` not declared as constant | ✅ Declared |
+| PA-CLEANUP-4 | LOW | `CREATE_ASSET_RELATIONSHIP` / `DELETE_ASSET_RELATIONSHIP` dead | ✅ Removed from reauth-actions.ts |
+| PA-REAUTH-1 | CRITICAL | `UPDATE_UNS_PATH` FE name doesn't match shared types | ✅ Renamed to `OVERRIDE_UNS_PATH` in uns.tsx |
+| PA-REAUTH-2 | CRITICAL | `CREATE/UPDATE/DELETE_ASSET_TEMPLATE` reauth permanently OFF | ✅ Resolved — dead routes deleted entirely (asset-template editing UI was removed Phase 1) |
+| PA-PERMS-1 | CRITICAL | `ASSET_TEMPLATE_CREATE/UPDATE/DELETE` not declared | ✅ Resolved — same as PA-REAUTH-2; the three POST/PUT/DELETE template routes were dead since Phase 1 and have been removed from `template.routes.ts`. The GET endpoints (still consumed by FE for template-kind lookup) remain on `ASSET_VIEW`. Audit-action constants `ASSET_TEMPLATE_CREATED/UPDATED/DELETED` retained in shared types for 21 CFR §11 historic-row rendering. |
 
 ---
 

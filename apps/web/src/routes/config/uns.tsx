@@ -193,8 +193,13 @@ export function UnsConfigPage() {
     if (!selectedEntityId || !pathOverride.trim()) return;
     setOverrideSaving(true);
 
+    // 2026-05-26 audit fix (PA-REAUTH-1): pre-fix name 'UPDATE_UNS_PATH'
+    // is NOT declared in shared reauth-actions.ts. needsReauth() always
+    // returned false → FE never pre-prompted; operator got a retroactive
+    // 401 instead of a clean reauth dialog. BE uses 'OVERRIDE_UNS_PATH'
+    // (apps/api/src/modules/uns/routes.ts:180) — renamed to match.
     await reauth.execute(
-      'UPDATE_UNS_PATH',
+      'OVERRIDE_UNS_PATH',
       async (password?) => {
         if (password) {
           await apiClient.putWithReauth(`/api/uns/entity/${selectedEntityId}`, { pathOverride: pathOverride.trim() }, password);

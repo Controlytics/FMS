@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
+import { useAuth } from '../../hooks/use-auth';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { createReport } from '../../lib/pdf-report';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
@@ -41,6 +42,12 @@ export function CleaningCycleTimelinePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { formatDateTime, formatDate, formatTime } = useDatetimeFormat();
+  // 2026-05-26 audit fix (PA-CLEANUP-1): gate PDF export on
+  // REPORT_EXPORT — pre-fix any CYCLE_READ user could PDF the timeline.
+  const { user } = useAuth();
+  const perms = (user?.permissions as string[] | undefined) ?? [];
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const canExportPdf = isSuperAdmin || perms.includes('REPORT_EXPORT') || perms.includes('REPORT_GENERATE');
   const [downloading, setDownloading] = useState(false);
   const { data: cycle, isLoading } = useSWR(id ? `/api/filters/cycles/${id}` : null);
 
@@ -161,7 +168,8 @@ export function CleaningCycleTimelinePage() {
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             Back to History
           </button>
-          <button onClick={handleExportPDF} disabled={downloading}
+          <button onClick={handleExportPDF} disabled={downloading || !canExportPdf}
+            title={!canExportPdf ? 'REPORT_EXPORT permission required' : undefined}
             className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed">
             {downloading ? (
               <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />

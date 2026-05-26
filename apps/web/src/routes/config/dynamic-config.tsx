@@ -4,6 +4,7 @@ import useSWR from 'swr';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { apiClient } from '@/lib/api-client';
@@ -61,6 +62,14 @@ function groupSettings(settings: SettingDef[]) {
 export function DynamicConfigPage() {
   const { moduleKey } = useParams<{ moduleKey: string }>();
   const navigate = useNavigate();
+  // 2026-05-26 audit fix (PA-FE-1): gate Save on CONFIG_UPDATE.
+  // dynamic-config.tsx renders every module's settings page that
+  // doesn't have a hardcoded route, so this gate covers many config
+  // surfaces with one change.
+  const { user } = useAuth();
+  const perms = (user?.permissions as string[] | undefined) ?? [];
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const canWrite = isSuperAdmin || perms.includes('CONFIG_UPDATE');
   const reauth = useReauth();
 
   const { data: manifest } = useSWR<ManifestEntry[]>(
@@ -163,7 +172,21 @@ export function DynamicConfigPage() {
     setSuccess('');
 
     try {
-      const action = `UPDATE_${moduleKey!.toUpperCase().replace(/-/g, '_')}`;
+      // 2026-05-26 audit fix (PA-CLEANUP-2): pre-fix this constructed
+      // `UPDATE_${KEY}` from the URL path. For `session` that produced
+      // `UPDATE_SESSION` — which is NOT declared in shared types.
+      // The declared key is `UPDATE_SESSION_CONFIG`. Maintain a small
+      // override map for the keys that don't follow the suffix-strip
+      // convention; the BE hardcoded fallback in config/routes.ts:99
+      // already enforces reauth, so the failure mode pre-fix was that
+      // operators got a retroactive 401 instead of a clean dialog.
+      const reauthActionByModuleKey: Record<string, string> = {
+        session: 'UPDATE_SESSION_CONFIG',
+        datetime: 'UPDATE_DATETIME_CONFIG',
+      };
+      const action =
+        reauthActionByModuleKey[moduleKey!] ??
+        `UPDATE_${moduleKey!.toUpperCase().replace(/-/g, '_')}`;
       await reauth.execute(action, async (password?) => {
         const body = { ...values };
         if (password) (body as any)._currentPassword = password;
@@ -336,7 +359,7 @@ export function DynamicConfigPage() {
 
       <div className="flex justify-end gap-3">
         <Button variant="outline" onClick={() => navigate('/config')}>Cancel</Button>
-        <Button onClick={handleSave} disabled={saving}>
+        <Button onClick={handleSave} disabled={saving || !canWrite} title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}>
           {saving ? 'Saving...' : 'Save Changes'}
         </Button>
       </div>

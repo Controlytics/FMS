@@ -1,13 +1,37 @@
-import { type FastifyInstance } from 'fastify';
+﻿import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 
 /**
- * Super Admin routes — SUPER_ADMIN only, platform management
+ * Super Admin routes â€” SUPER_ADMIN only, platform management
  * Prefix: /api/super-admin
+ *
+ * 2026-05-26 audit fix (PA-REAUTH-3): every mutation (PUT/POST/DELETE)
+ * under this module silently edits cleaning cycles / filter events /
+ * notifications / admin requests / block-change requests / PM entries
+ * with NO AUDIT TRAIL (per the doc comments below). Pre-fix there was
+ * also no reauth â€” a compromised SUPER_ADMIN session could erase the
+ * chain-of-custody for cleaning records with a single click. The
+ * `requireDataEditReauth` preHandler below now enforces a password
+ * step on every mutation; pair with the existing requireRole gate.
+ *
+ * This is bare-minimum hardening. A proper audit-trail retrofit (so
+ * even SUPER_ADMIN data edits leave a record visible to SUPER_ADMIN)
+ * is tracked separately â€” adding it here would require a service-layer
+ * audit-log emit on each handler.
  */
+async function requireDataEditReauth(req: FastifyRequest, reply: FastifyReply) {
+  const { ok } = await enforceReauth('SUPER_ADMIN_DATA_EDIT', req, reply);
+  if (!ok) {
+    // enforceReauth has already sent the 401 response â€” Fastify stops
+    // the preHandler chain on send. Returning is sufficient.
+    return;
+  }
+}
+
 export default async function superAdminRoutes(app: FastifyInstance) {
 
-  // ─── PLATFORM STATS ────────────────────────────────────
+  // â”€â”€â”€ PLATFORM STATS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.get('/stats', {
     preHandler: [app.requireRole('SUPER_ADMIN')],
     schema: {
@@ -23,15 +47,15 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return { users: userCount, devices: deviceCount, entities: entityCount };
   });
 
-  // ═══════════════════════════════════════════════════════════
-  // FILTER DATA MANAGEMENT — SUPER_ADMIN ONLY, NO AUDIT TRAIL
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // FILTER DATA MANAGEMENT â€” SUPER_ADMIN ONLY, NO AUDIT TRAIL
   // Allows silent editing/deletion of retirement and replacement
   // records. These operations leave no trace in the application.
-  // ═══════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-  // ─── Edit a retired filter's fields ────────────────────
+  // â”€â”€â”€ Edit a retired filter's fields â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.put('/filter-data/retirements/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requireRole('SUPER_ADMIN'), requireDataEditReauth],
     schema: {
       tags: ['Super Admin'],
       summary: 'Edit retired filter record (no audit trail)',
@@ -57,7 +81,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     if (body.attributes !== undefined) data.attributes = body.attributes;
     if (body.updatedAt !== undefined) data.updatedAt = new Date(body.updatedAt);
 
-    // filterSet now lives on FilterDetails (Step 6) — route to the sidecar.
+    // filterSet now lives on FilterDetails (Step 6) â€” route to the sidecar.
     if (body.filterSet !== undefined) {
       await prisma.filterDetails.upsert({
         where: { assetInstanceId: id },
@@ -71,9 +95,9 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return updated;
   });
 
-  // ─── Delete a retirement record (hard delete) ──────────
+  // â”€â”€â”€ Delete a retirement record (hard delete) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.delete('/filter-data/retirements/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requireRole('SUPER_ADMIN'), requireDataEditReauth],
     schema: {
       tags: ['Super Admin'],
       summary: 'Delete retired filter record permanently (no audit trail)',
@@ -93,12 +117,12 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
-  // ─── Unretire a filter (restore to Active) ─────────────
+  // â”€â”€â”€ Unretire a filter (restore to Active) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.post('/filter-data/retirements/:id/unretire', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requireRole('SUPER_ADMIN'), requireDataEditReauth],
     schema: {
       tags: ['Super Admin'],
-      summary: 'Unretire a filter — restore to Active status (no audit trail)',
+      summary: 'Unretire a filter â€” restore to Active status (no audit trail)',
       params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
       body: {
         type: 'object',
@@ -185,7 +209,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
         // Terminate and delete any cleaning cycles on the replacement filter
         await prisma.filterEvent.deleteMany({ where: { filterId: newFilterId } });
         await prisma.cleaningCycle.deleteMany({ where: { filterId: newFilterId } });
-        // Clear currentCycleId if set (FilterDetails — Step 6).
+        // Clear currentCycleId if set (FilterDetails â€” Step 6).
         await prisma.filterDetails.updateMany({ where: { assetInstanceId: newFilterId }, data: { currentCycleId: null } });
         // Delete the replacement filter itself
         await prisma.assetInstance.delete({ where: { id: newFilterId } }).catch(() => null);
@@ -202,9 +226,9 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
-  // ─── Edit a replacement record ─────────────────────────
+  // â”€â”€â”€ Edit a replacement record â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.put('/filter-data/replacements/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requireRole('SUPER_ADMIN'), requireDataEditReauth],
     schema: {
       tags: ['Super Admin'],
       summary: 'Edit replacement record (no audit trail)',
@@ -240,9 +264,9 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
-  // ─── Delete a replacement record ───────────────────────
+  // â”€â”€â”€ Delete a replacement record â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.delete('/filter-data/replacements/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN')],
+    preHandler: [app.requireRole('SUPER_ADMIN'), requireDataEditReauth],
     schema: {
       tags: ['Super Admin'],
       summary: 'Delete replacement record permanently (no audit trail)',
@@ -257,12 +281,15 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
-  // ═══════════════════════════════════════════════════════════
-  // COMPREHENSIVE DATA MANAGEMENT — ALL OPERATIONAL DATA
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // COMPREHENSIVE DATA MANAGEMENT â€” ALL OPERATIONAL DATA
   // Generic list/edit/delete for every data table, no audit trail
-  // ═══════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   const dataPreHandler = [app.requireRole('SUPER_ADMIN')];
+  // 2026-05-26 PA-REAUTH-3: separate preHandler list for mutations.
+  // GETs keep the role-only gate; PUT/DELETE add the reauth step.
+  const dataMutationPreHandler = [app.requireRole('SUPER_ADMIN'), requireDataEditReauth];
   const dataSchema = (summary: string) => ({
     tags: ['Super Admin - Data Management'],
     summary: `${summary} (no audit trail)`,
@@ -283,12 +310,12 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   };
 
-  // ─── Cleaning Cycles ──────────────────────────────────
+  // â”€â”€â”€ Cleaning Cycles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.get('/data/cleaning-cycles', { preHandler: dataPreHandler, schema: dataSchema('List cleaning cycles') }, async (req) => {
     return paginatedList(prisma.cleaningCycle, req.query, [{ startedAt: 'desc' }]);
   });
 
-  app.put('/data/cleaning-cycles/:id', { preHandler: dataPreHandler, schema: { ...dataSchema('Edit cleaning cycle'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', additionalProperties: true } } }, async (req, reply) => {
+  app.put('/data/cleaning-cycles/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Edit cleaning cycle'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', additionalProperties: true } } }, async (req, reply) => {
     const { id } = req.params as any;
     const existing = await prisma.cleaningCycle.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND' });
@@ -305,7 +332,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return prisma.cleaningCycle.update({ where: { id }, data });
   });
 
-  app.delete('/data/cleaning-cycles/:id', { preHandler: dataPreHandler, schema: { ...dataSchema('Delete cleaning cycle'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req, reply) => {
+  app.delete('/data/cleaning-cycles/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete cleaning cycle'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req, reply) => {
     const { id } = req.params as any;
     const existing = await prisma.cleaningCycle.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND' });
@@ -316,12 +343,12 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
-  // ─── Filter Events ────────────────────────────────────
+  // â”€â”€â”€ Filter Events â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.get('/data/filter-events', { preHandler: dataPreHandler, schema: dataSchema('List filter events') }, async (req) => {
     return paginatedList(prisma.filterEvent, req.query, { performedAt: 'desc' });
   });
 
-  app.put('/data/filter-events/:id', { preHandler: dataPreHandler, schema: { ...dataSchema('Edit filter event'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', additionalProperties: true } } }, async (req, reply) => {
+  app.put('/data/filter-events/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Edit filter event'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', additionalProperties: true } } }, async (req, reply) => {
     const { id } = req.params as any;
     const body = req.body as any;
     const existing = await prisma.filterEvent.findUnique({ where: { id } });
@@ -338,32 +365,32 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return prisma.filterEvent.update({ where: { id }, data });
   });
 
-  app.delete('/data/filter-events/:id', { preHandler: dataPreHandler, schema: { ...dataSchema('Delete filter event'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req, reply) => {
+  app.delete('/data/filter-events/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete filter event'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req, reply) => {
     const { id } = req.params as any;
     await prisma.filterEvent.delete({ where: { id } }).catch(() => null);
     return { success: true };
   });
 
-  // ─── Audit Trail ──────────────────────────────────────
+  // â”€â”€â”€ Audit Trail â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // List is allowed (read-only). PUT + DELETE were removed 2026-05-20
-  // (delta-audit §C2 / May 16 §1.3) — they let SUPER_ADMIN rewrite or erase
+  // (delta-audit Â§C2 / May 16 Â§1.3) â€” they let SUPER_ADMIN rewrite or erase
   // any audit row with no reauth and no audit-of-the-audit, making the
   // hash-chain machinery decorative. Audit records are immutable by 21 CFR
-  // §11.10(e); the DB-level audit_trail_no_delete trigger and
+  // Â§11.10(e); the DB-level audit_trail_no_delete trigger and
   // verifyAuditChain are the source of truth, and the data-mgmt UI must not
   // expose escape hatches. If a row must be redacted, do it via the
-  // dedicated REDACT path (Wave 4 §C1 — preserves chain links, NULLs
+  // dedicated REDACT path (Wave 4 Â§C1 â€” preserves chain links, NULLs
   // payload, requires reauth + meta-audit).
   app.get('/data/audit-trail', { preHandler: dataPreHandler, schema: dataSchema('List audit trail entries') }, async (req) => {
     return paginatedList(prisma.auditTrail, req.query, { timestamp: 'desc' });
   });
 
-  // ─── Notifications ────────────────────────────────────
+  // â”€â”€â”€ Notifications â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.get('/data/notifications', { preHandler: dataPreHandler, schema: dataSchema('List notifications') }, async (req) => {
     return paginatedList(prisma.notification, req.query, { createdAt: 'desc' });
   });
 
-  app.put('/data/notifications/:id', { preHandler: dataPreHandler, schema: { ...dataSchema('Edit notification'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', additionalProperties: true } } }, async (req, reply) => {
+  app.put('/data/notifications/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Edit notification'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', additionalProperties: true } } }, async (req, reply) => {
     const { id } = req.params as any;
     const body = req.body as any;
     const data: any = {};
@@ -373,18 +400,18 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return prisma.notification.update({ where: { id }, data });
   });
 
-  app.delete('/data/notifications/:id', { preHandler: dataPreHandler, schema: { ...dataSchema('Delete notification'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req) => {
+  app.delete('/data/notifications/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete notification'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req) => {
     const { id } = req.params as any;
     await prisma.notification.delete({ where: { id } }).catch(() => null);
     return { success: true };
   });
 
-  // ─── Admin Requests ───────────────────────────────────
+  // â”€â”€â”€ Admin Requests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.get('/data/admin-requests', { preHandler: dataPreHandler, schema: dataSchema('List admin requests') }, async (req) => {
     return paginatedList(prisma.adminRequest, req.query, { requestedAt: 'desc' });
   });
 
-  app.put('/data/admin-requests/:id', { preHandler: dataPreHandler, schema: { ...dataSchema('Edit admin request'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', additionalProperties: true } } }, async (req) => {
+  app.put('/data/admin-requests/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Edit admin request'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', additionalProperties: true } } }, async (req) => {
     const { id } = req.params as any;
     const body = req.body as any;
     const data: any = {};
@@ -398,18 +425,18 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return prisma.adminRequest.update({ where: { id }, data });
   });
 
-  app.delete('/data/admin-requests/:id', { preHandler: dataPreHandler, schema: { ...dataSchema('Delete admin request'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req) => {
+  app.delete('/data/admin-requests/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete admin request'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req) => {
     const { id } = req.params as any;
     await prisma.adminRequest.delete({ where: { id } }).catch(() => null);
     return { success: true };
   });
 
-  // ─── Block Change Requests ────────────────────────────
+  // â”€â”€â”€ Block Change Requests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.get('/data/block-change-requests', { preHandler: dataPreHandler, schema: dataSchema('List block change requests') }, async (req) => {
     return paginatedList(prisma.blockChangeRequest, req.query);
   });
 
-  app.put('/data/block-change-requests/:id', { preHandler: dataPreHandler, schema: { ...dataSchema('Edit block change request'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', additionalProperties: true } } }, async (req) => {
+  app.put('/data/block-change-requests/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Edit block change request'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', additionalProperties: true } } }, async (req) => {
     const { id } = req.params as any;
     const body = req.body as any;
     const data: any = {};
@@ -425,18 +452,18 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return prisma.blockChangeRequest.update({ where: { id }, data });
   });
 
-  app.delete('/data/block-change-requests/:id', { preHandler: dataPreHandler, schema: { ...dataSchema('Delete block change request'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req) => {
+  app.delete('/data/block-change-requests/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete block change request'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req) => {
     const { id } = req.params as any;
     await prisma.blockChangeRequest.delete({ where: { id } }).catch(() => null);
     return { success: true };
   });
 
-  // ─── PM Schedule Entries ──────────────────────────────
+  // â”€â”€â”€ PM Schedule Entries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.get('/data/pm-entries', { preHandler: dataPreHandler, schema: dataSchema('List PM schedule entries') }, async (req) => {
     return paginatedList(prisma.pmScheduleEntry, req.query, { plannedDate: 'desc' }, { schedule: true });
   });
 
-  app.put('/data/pm-entries/:id', { preHandler: dataPreHandler, schema: { ...dataSchema('Edit PM schedule entry'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', additionalProperties: true } } }, async (req, reply) => {
+  app.put('/data/pm-entries/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Edit PM schedule entry'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', additionalProperties: true } } }, async (req, reply) => {
     const { id } = req.params as any;
     const body = req.body as any;
     const existing = await prisma.pmScheduleEntry.findUnique({ where: { id } });
@@ -448,7 +475,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return prisma.pmScheduleEntry.update({ where: { id }, data });
   });
 
-  app.delete('/data/pm-entries/:id', { preHandler: dataPreHandler, schema: { ...dataSchema('Delete PM schedule entry'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req) => {
+  app.delete('/data/pm-entries/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete PM schedule entry'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req) => {
     const { id } = req.params as any;
     await prisma.pmScheduleEntry.delete({ where: { id } }).catch(() => null);
     return { success: true };

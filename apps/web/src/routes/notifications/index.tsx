@@ -5,8 +5,11 @@ import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { apiClient } from '@/lib/api-client';
+import { api } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
 
@@ -93,6 +96,10 @@ export function NotificationsPage() {
   const [readFilter, setReadFilter] = useState('');
   const { mutate: globalMutate } = useSWRConfig();
   const { toast } = useToast();
+  // 2026-05-26 audit fix (PA-REAUTH-4): wrap bulk + single delete
+  // mutations in reauth.execute so the FE matches the BE enforceReauth
+  // gate on BULK_DELETE_NOTIFICATIONS / DELETE_NOTIFICATION.
+  const reauth = useReauth();
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -185,30 +192,55 @@ export function NotificationsPage() {
   };
 
   const bulkDelete = async () => {
-    try {
-      await apiClient.post('/api/notifications/bulk-delete', { ids: Array.from(selectedIds) });
-      setSelectedIds(new Set());
-      setShowDeleteConfirm(false);
-      mutate();
-      globalMutate('/api/notifications/unread-count');
-    } catch (err: any) {
-      toast.error('Failed to delete notifications', err.message || 'Operation failed');
-    }
+    await reauth.execute(
+      'BULK_DELETE_NOTIFICATIONS',
+      async (password?: string) => {
+        const body = { ids: Array.from(selectedIds) };
+        if (password) {
+          await api.postWithReauth('/api/notifications/bulk-delete', body, password);
+        } else {
+          await apiClient.post('/api/notifications/bulk-delete', body);
+        }
+      },
+      {
+        onSuccess: () => {
+          setSelectedIds(new Set());
+          setShowDeleteConfirm(false);
+          mutate();
+          globalMutate('/api/notifications/unread-count');
+        },
+        onError: (err: any) => {
+          toast.error('Failed to delete notifications', err.message || 'Operation failed');
+        },
+      },
+    );
   };
 
   const deleteSingle = async (id: string) => {
-    try {
-      await apiClient.delete(`/api/notifications/${id}`);
-      setSelectedIds(prev => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-      mutate();
-      globalMutate('/api/notifications/unread-count');
-    } catch (err: any) {
-      toast.error('Failed to delete notification', err.message || 'Operation failed');
-    }
+    await reauth.execute(
+      'DELETE_NOTIFICATION',
+      async (password?: string) => {
+        if (password) {
+          await api.deleteWithReauth(`/api/notifications/${id}`, password);
+        } else {
+          await apiClient.delete(`/api/notifications/${id}`);
+        }
+      },
+      {
+        onSuccess: () => {
+          setSelectedIds(prev => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+          mutate();
+          globalMutate('/api/notifications/unread-count');
+        },
+        onError: (err: any) => {
+          toast.error('Failed to delete notification', err.message || 'Operation failed');
+        },
+      },
+    );
   };
 
   const formatDate = (dateStr: string) => {
@@ -636,6 +668,18 @@ export function NotificationsPage() {
           </div>
         </div>
       </Dialog>
+
+      {/* 2026-05-26 PA-REAUTH-4: prompt for password before notification
+          delete (single or bulk) when the role requires reauth for it. */}
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+      />
     </div>
   );
 }

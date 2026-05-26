@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { api } from '../../lib/api-client';
+import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 
@@ -49,6 +50,11 @@ const DEFAULTS: LdapConfig = {
 };
 
 export default function LdapConfigPage() {
+  // 2026-05-26 audit fix (PA-FE-1): gate Save / Test / Enable on CONFIG_UPDATE.
+  const { user } = useAuth();
+  const perms = (user?.permissions as string[] | undefined) ?? [];
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const canWrite = isSuperAdmin || perms.includes('CONFIG_UPDATE');
   const { data: savedConfig, mutate } = useSWR<LdapConfig>('/api/ldap/config');
   const { data: rolesData } = useSWR<Array<{ name: string; displayName: string }>>('/api/roles/active');
   const reauth = useReauth();
@@ -212,7 +218,8 @@ export default function LdapConfigPage() {
 
           {/* Test Connection */}
           <div className="flex items-center gap-4 pt-2">
-            <button onClick={handleTest} disabled={testing || !config.serverUrl}
+            <button onClick={handleTest} disabled={testing || !config.serverUrl || !canWrite}
+              title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl text-sm font-medium hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 shadow-sm">
               {testing ? (
                 <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>Testing...</>
@@ -351,7 +358,8 @@ export default function LdapConfigPage() {
         <Link to="/config">
           <button className="px-5 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50">Cancel</button>
         </Link>
-        <button onClick={handleSave} disabled={saving}
+        <button onClick={handleSave} disabled={saving || !canWrite}
+          title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
           className="inline-flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl text-sm font-medium hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 shadow-lg shadow-green-500/25">
           {saving ? 'Saving...' : 'Save Configuration'}
         </button>

@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
+import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 import type { ReportConfig } from '@/hooks/use-report-config';
 
@@ -38,6 +39,11 @@ function Toggle({ label, description, checked, onChange }: { label: string; desc
 }
 
 export function ReportSettingsPage() {
+  // 2026-05-26 audit fix (PA-FE-1): gate Save on CONFIG_UPDATE.
+  const { user } = useAuth();
+  const perms = (user?.permissions as string[] | undefined) ?? [];
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const canWrite = isSuperAdmin || perms.includes('CONFIG_UPDATE');
   const { toast } = useToast();
   const { data, mutate } = useSWR('/api/config/report-settings/current', { revalidateOnMount: true });
   const [config, setConfig] = useState<ReportConfig>(DEFAULTS);
@@ -89,7 +95,7 @@ export function ReportSettingsPage() {
             </div>
           </div>
           {dirty && (
-            <button onClick={handleSave} disabled={saving}
+            <button onClick={handleSave} disabled={saving || !canWrite} title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
               className="px-5 py-2.5 bg-white text-slate-800 rounded-xl text-sm font-semibold shadow-lg hover:bg-slate-50 disabled:opacity-50 transition-all">
               {saving ? 'Saving...' : 'Save Changes'}
             </button>
@@ -125,7 +131,7 @@ export function ReportSettingsPage() {
             <div className="mt-4">
               <label className="text-xs font-medium text-slate-500 uppercase tracking-wider">Custom Header Text</label>
               <input type="text" value={config.customHeaderText} onChange={e => update('customHeaderText', e.target.value)}
-                placeholder="e.g. CONFIDENTIAL — Internal Use Only"
+                placeholder="e.g. CONFIDENTIAL â€” Internal Use Only"
                 className="w-full mt-1.5 px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2"
                 style={{ '--tw-ring-color': 'var(--theme-focus-ring)' } as React.CSSProperties} />
             </div>
@@ -268,7 +274,7 @@ export function ReportSettingsPage() {
       {/* Bottom Save Bar */}
       {dirty && (
         <div className="fixed bottom-6 right-6 z-40">
-          <button onClick={handleSave} disabled={saving}
+          <button onClick={handleSave} disabled={saving || !canWrite} title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
             className="px-6 py-3 text-white rounded-xl text-sm font-semibold shadow-2xl disabled:opacity-50 transition-all flex items-center gap-2"
             style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>

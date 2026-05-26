@@ -1,13 +1,28 @@
-import type { FastifyInstance } from 'fastify';
-import { enforceReauth } from '../../../lib/reauth-check.js';
-import { buildContext } from '../../../lib/build-context.js';
+﻿import type { FastifyInstance } from 'fastify';
+import { templateQuerySchema, TEMPLATE_CATEGORIES } from '@digilog/shared';
 import { errorResponses } from '../../../lib/error-schemas.js';
-import { createAssetTemplateValidated, updateAssetTemplateSchema, templateQuerySchema, TEMPLATE_CATEGORIES } from '@digilog/shared';
 import { templateService } from '../services/template.service.js';
+
+// 2026-05-26 cleanup: the asset-template editing UI was removed in Phase
+// 1 (2026-05-16 entity UI removal). Only the GET endpoints remain â€” they
+// are still consumed across the FE to identify which template-kind a
+// given asset is (filter-list.tsx, mobile-wrapper.tsx, etc. all call
+// `/api/assets/templates?limit=1000` to build a kind-lookup map).
+//
+// The POST /templates, PUT /templates/:id, DELETE /templates/:id routes
+// were dead â€” pre-fix they were gated on the undeclared
+// ASSET_TEMPLATE_CREATE/UPDATE/DELETE perms (none of which exist in
+// PERMISSIONS or seed.ts), and there was no FE consumer. They have been
+// removed with the rest of the entity-template editing surface.
+//
+// Historic audit_trail rows of ASSET_TEMPLATE_CREATED/UPDATED/DELETED
+// remain renderable via packages/shared/src/types/audit-actions.ts (per
+// 21 CFR Â§11 retention) â€” the entry is preserved even though no new
+// records of that type can be created.
 
 export default async function templateRoutes(app: FastifyInstance) {
 
-  // 1. GET /templates — List templates with search/pagination
+  // 1. GET /templates â€” List templates with search/pagination
   app.get('/templates', {
     preHandler: [app.requirePermission('ASSET_VIEW')],
     schema: {
@@ -80,7 +95,7 @@ export default async function templateRoutes(app: FastifyInstance) {
     let visibilityFilter: Record<string, unknown> | undefined;
 
     if (role === "SUPER_ADMIN" || role === "ADMIN") {
-      // No filter — see all templates
+      // No filter â€” see all templates
     } else {
       // Check if user has explicit template assignments
       const { prisma } = await import("../../../lib/prisma.js");
@@ -95,16 +110,16 @@ export default async function templateRoutes(app: FastifyInstance) {
 
       const assignedIds = templateAssignments.map((a: any) => a.templateId);
       if (assignedIds.length > 0) {
-        // User has explicit assignments — show only those
+        // User has explicit assignments â€” show only those
         visibilityFilter = { id: { in: assignedIds } };
       }
       // If no assignments exist, show all templates (user already passed permission check)
-      // Templates are blueprints — visibility is gated by permissions, not assignments
+      // Templates are blueprints â€” visibility is gated by permissions, not assignments
     }
     return templateService.list(query, visibilityFilter);
   });
 
-  // 2. GET /templates/:id — Get single template by UUID
+  // 2. GET /templates/:id â€” Get single template by UUID
   app.get('/templates/:id', {
     preHandler: [app.requirePermission('ASSET_VIEW')],
     schema: {
@@ -157,148 +172,7 @@ export default async function templateRoutes(app: FastifyInstance) {
     return templateService.getById(id);
   });
 
-  // 3. POST /templates — Create template
-  app.post('/templates', {
-    preHandler: [app.requirePermission('ASSET_TEMPLATE_CREATE')],
-    schema: {
-      tags: ['Entity Templates'],
-      summary: 'Create entity template',
-      description: 'Create a new entity template. Auto-creates version 1 snapshot. Requires ASSET_TEMPLATE_CREATE permission.',
-      body: {
-        type: 'object',
-        required: ['name'],
-        properties: {
-          name: { type: 'string' },
-          description: { type: 'string' },
-          category: { type: 'string', enum: ['General', 'Equipment', 'Room', 'Building', 'Sensor', 'Vehicle', 'Utility', 'Process', 'Storage', 'Laboratory'], description: 'Template category' },
-          icon: { type: 'string' },
-          templateKind: { type: 'string', maxLength: 50, description: 'TemplateKind code (FK → /api/template-kinds). Must be UPPER_SNAKE_CASE. The 6 system kinds (BLOCK / AREA / AHU / FILTER / EQUIPMENT / OTHER) are seeded; admins can add more at runtime via the Configuration UI.' },
-          attributeSchema: { type: 'array' },
-          expectedIdentifiers: { type: 'array' },
-          expectedRelationships: { type: 'array', description: 'Expected relationship type definitions' },
-          statusLifecycle: { type: 'array', description: 'Status definitions with transitions' },
-          checklistSchema: { type: 'array', description: 'Checklist question definitions' },
-          maxParentConnections: { type: 'integer', description: 'Number of Parent Connections: 0=not allowed, 1=single parent only, 2+=multiple parents' },
-          maxConnections: { type: 'integer', description: 'Max total connections (all types): 0=unlimited, N=limit' },
-          dataIngestionEnabled: { type: 'boolean', description: 'Enable data ingestion for entities of this template' },
-          transportType: { oneOf: [{ type: 'string', enum: ['MQTT', 'HTTP', 'WEBSOCKET'] }, { type: 'null' }], description: 'Transport protocol' },
-          credentialType: { type: 'string', enum: ['TOKEN', 'BASIC', 'X509'], description: 'Device credential type' },
-          inactivityTimeout: { type: 'integer', description: 'Inactivity timeout in seconds before marking device offline' },
-          defaultMaxDataRate: { type: 'integer', description: 'Max messages per rate-limit window' },
-          autoProvision: { type: 'boolean', description: 'Auto-create device credentials on first connect' },
-        },
-      },
-      response: {
-        201: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            data: { type: 'object', additionalProperties: true },
-          },
-        },
-        ...errorResponses,
-      },
-    },
-  }, async (req, reply) => {
-    const { ok } = await enforceReauth('CREATE_ASSET_TEMPLATE', req, reply);
-    if (!ok) return;
-
-    const parsed = createAssetTemplateValidated.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
-
-    const template = await templateService.create(parsed.data, buildContext(req));
-    return reply.code(201).send({ success: true, data: template });
-  });
-
-  // 4. PUT /templates/:id — Update template
-  app.put('/templates/:id', {
-    preHandler: [app.requirePermission('ASSET_TEMPLATE_UPDATE')],
-    schema: {
-      tags: ['Entity Templates'],
-      summary: 'Update entity template',
-      description: 'Update an entity template. Increments version and creates a new version snapshot. Requires ASSET_TEMPLATE_UPDATE permission.',
-      params: {
-        type: 'object',
-        required: ['id'],
-        properties: { id: { type: 'string', format: 'uuid' } },
-      },
-      body: {
-        type: 'object',
-        properties: {
-          name: { type: 'string' },
-          description: { type: 'string' },
-          category: { type: 'string', enum: ['General', 'Equipment', 'Room', 'Building', 'Sensor', 'Vehicle', 'Utility', 'Process', 'Storage', 'Laboratory'], description: 'Template category' },
-          icon: { type: 'string' },
-          templateKind: { type: 'string', maxLength: 50, description: 'TemplateKind code (FK → /api/template-kinds). Must be UPPER_SNAKE_CASE. The 6 system kinds (BLOCK / AREA / AHU / FILTER / EQUIPMENT / OTHER) are seeded; admins can add more at runtime via the Configuration UI.' },
-          attributeSchema: { type: 'array' },
-          expectedIdentifiers: { type: 'array' },
-          expectedRelationships: { type: 'array', description: 'Expected relationship type definitions' },
-          statusLifecycle: { type: 'array', description: 'Status definitions with transitions' },
-          checklistSchema: { type: 'array', description: 'Checklist question definitions' },
-          maxParentConnections: { type: 'integer', description: 'Number of Parent Connections: 0=not allowed, 1=single parent only, 2+=multiple parents' },
-          maxConnections: { type: 'integer', description: 'Max total connections (all types): 0=unlimited, N=limit' },
-          dataIngestionEnabled: { type: 'boolean', description: 'Enable data ingestion for entities of this template' },
-          transportType: { oneOf: [{ type: 'string', enum: ['MQTT', 'HTTP', 'WEBSOCKET'] }, { type: 'null' }], description: 'Transport protocol' },
-          credentialType: { type: 'string', enum: ['TOKEN', 'BASIC', 'X509'], description: 'Device credential type' },
-          inactivityTimeout: { type: 'integer', description: 'Inactivity timeout in seconds before marking device offline' },
-          defaultMaxDataRate: { type: 'integer', description: 'Max messages per rate-limit window' },
-          autoProvision: { type: 'boolean', description: 'Auto-create device credentials on first connect' },
-        },
-      },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            data: { type: 'object', additionalProperties: true },
-          },
-        },
-        ...errorResponses,
-      },
-    },
-  }, async (req, reply) => {
-    const { ok } = await enforceReauth('UPDATE_ASSET_TEMPLATE', req, reply);
-    if (!ok) return;
-
-    const { id } = req.params as { id: string };
-    const parsed = updateAssetTemplateSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
-    }
-
-    const template = await templateService.update(id, parsed.data, buildContext(req));
-    return { success: true, data: template };
-  });
-
-  // 5. DELETE /templates/:id — Soft-delete (set isActive=false)
-  app.delete('/templates/:id', {
-    preHandler: [app.requirePermission('ASSET_TEMPLATE_DELETE')],
-    schema: {
-      tags: ['Entity Templates'],
-      summary: 'Soft-delete entity template',
-      description: 'Set isActive=false on an entity template. Requires ASSET_TEMPLATE_DELETE permission.',
-      params: {
-        type: 'object',
-        required: ['id'],
-        properties: { id: { type: 'string', format: 'uuid' } },
-      },
-      response: {
-        200: {
-          type: 'object',
-          properties: { success: { type: 'boolean' } },
-        },
-        ...errorResponses,
-      },
-    },
-  }, async (req, reply) => {
-    const { ok } = await enforceReauth('DELETE_ASSET_TEMPLATE', req, reply);
-    if (!ok) return;
-
-    const { id } = req.params as { id: string };
-    await templateService.delete(id, buildContext(req));
-    return { success: true };
-  });
+  // POST/PUT/DELETE template routes removed 2026-05-26 — see header docblock.
 
 }
+

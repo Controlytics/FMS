@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useSWR, { mutate as globalMutate } from 'swr';
 import { apiClient, api } from '../../lib/api-client';
+import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 
@@ -26,6 +27,14 @@ const MODE_META: Record<AhuMode, { label: string; bg: string; text: string; bord
 };
 
 export function AhuFilterSetConfigPage() {
+  // 2026-05-26 audit fix (PA-FE-1): gate the mode-toggle dropdown on
+  // PM_UPDATE (since this controls which set counts toward PM
+  // completion). Pre-fix any PM_READ + ASSET_VIEW user could mutate
+  // here.
+  const { user } = useAuth();
+  const perms = (user?.permissions as string[] | undefined) ?? [];
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const canWrite = isSuperAdmin || perms.includes('PM_UPDATE') || perms.includes('CONFIG_UPDATE');
   const navigate = useNavigate();
   const { data, mutate: mutateList, isLoading } =
     useSWR<{ ahus: AhuConfigRow[] }>('/api/pm-schedules/ahu-configs');
@@ -241,9 +250,10 @@ export function AhuFilterSetConfigPage() {
                         <div className="flex items-center gap-2">
                           <select
                             value={a.mode}
-                            disabled={isSaving}
+                            disabled={isSaving || !canWrite}
+                            title={!canWrite ? 'PM_UPDATE permission required' : undefined}
                             onChange={e => handleModeChange(a.ahuId, e.target.value as AhuMode)}
-                            className={`flex-1 px-3 py-2 border rounded-xl text-sm font-semibold outline-none transition-colors disabled:opacity-60 disabled:cursor-wait ${MODE_META[a.mode].bg} ${MODE_META[a.mode].text} ${MODE_META[a.mode].border} focus:ring-2 focus:ring-cyan-100`}
+                            className={`flex-1 px-3 py-2 border rounded-xl text-sm font-semibold outline-none transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${MODE_META[a.mode].bg} ${MODE_META[a.mode].text} ${MODE_META[a.mode].border} focus:ring-2 focus:ring-cyan-100`}
                           >
                             <option value="BOTH">Both Sets (A + B)</option>
                             <option value="SET_A">Only Set A</option>

@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { datetimeConfigSchema, type DatetimeConfig } from '@digilog/shared';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '@/lib/api-client';
+import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
@@ -12,6 +13,11 @@ import { Select } from '@/components/ui/select';
 
 export function DatetimeConfigPage() {
   const navigate = useNavigate();
+  // 2026-05-26 audit fix (PA-FE-1): gate Save on CONFIG_UPDATE.
+  const { user } = useAuth();
+  const perms = (user?.permissions as string[] | undefined) ?? [];
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const canWrite = isSuperAdmin || perms.includes('CONFIG_UPDATE');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const { data } = useSWR('/api/config/datetime', { revalidateOnMount: true, dedupingInterval: 0 });
@@ -277,7 +283,8 @@ export function DatetimeConfigPage() {
           <Button type="button" variant="outline" onClick={() => navigate('/config')}>
             Cancel
           </Button>
-          <Button type="submit" disabled={!isDirty || isSubmitting}>
+          <Button type="submit" disabled={!isDirty || isSubmitting || !canWrite}
+            title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}>
             {isSubmitting ? 'Saving...' : 'Save Changes'}
           </Button>
         </div>

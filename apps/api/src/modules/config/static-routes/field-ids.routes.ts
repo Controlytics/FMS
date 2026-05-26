@@ -3,11 +3,16 @@ import { buildContext } from '../../../lib/build-context.js';
 import { configService } from '../config.service.js';
 
 export async function fieldIdsRoutes(app: FastifyInstance) {
+  // 2026-05-26 audit fix (PA-BE-1): pre-fix this GET had no permission
+  // preHandler. Pattern drift — every other admin-config list GET in
+  // this codebase gates the full list on CONFIG_READ and exposes a
+  // separate `/current` for everyone. Added CONFIG_READ to match.
   app.get('/field-ids', {
+    preHandler: [app.requirePermission('CONFIG_READ')],
     schema: {
       tags: ['Config'],
       summary: 'List all field ID configurations',
-      description: 'Retrieve all field ID label configurations. Available to all authenticated users.',
+      description: 'Retrieve all field ID label configurations. Requires CONFIG_READ permission.',
       response: {
         200: {
           type: 'array',

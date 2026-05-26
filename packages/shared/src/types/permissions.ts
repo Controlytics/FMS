@@ -135,6 +135,12 @@ export const PERMISSIONS = {
   // ADMIN today). Wired up 2026-05-14 — before that, both /export and
   // /restore checked CONFIG_UPDATE and BACKUP_MANAGE was dead scaffolding.
   BACKUP_MANAGE: 'BACKUP_MANAGE',
+  // 2026-05-26 audit fix (PA-CLEANUP-3): BACKUP_EXPORT was used as a
+  // literal string at apps/api/src/modules/backup/routes.ts:17 + on
+  // the FE backup page. It worked via suffix-expansion
+  // (`BACKUP_MANAGE` grants `_EXPORT`); declaring it here is
+  // hygiene-only (typing + searchability + stable identifier).
+  BACKUP_EXPORT: 'BACKUP_EXPORT',
   BACKUP_RESTORE: 'BACKUP_RESTORE',
 
   // Block Change Requests

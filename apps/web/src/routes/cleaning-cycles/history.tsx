@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
+import { useAuth } from '../../hooks/use-auth';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { usePaginationDefaults } from '../../hooks/use-pagination-config';
 import { useReportConfig } from '@/hooks/use-report-config';
@@ -18,6 +19,12 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; d
 export function CleaningCycleHistoryPage() {
   const navigate = useNavigate();
   const { formatDateTime } = useDatetimeFormat();
+  // 2026-05-26 audit fix (PA-CLEANUP-1): gate PDF export on
+  // REPORT_EXPORT — pre-fix any CYCLE_READ user could PDF the history.
+  const { user } = useAuth();
+  const perms = (user?.permissions as string[] | undefined) ?? [];
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const canExportPdf = isSuperAdmin || perms.includes('REPORT_EXPORT') || perms.includes('REPORT_GENERATE');
   const { options: paginationOptions, defaultLimit } = usePaginationDefaults();
   const { config: reportConfig } = useReportConfig();
   const [page, setPage] = useState(1);
@@ -183,7 +190,8 @@ export function CleaningCycleHistoryPage() {
               <p className="text-[13px] text-slate-400 mt-0.5">{total.toLocaleString()} total cycle{total !== 1 ? 's' : ''}</p>
             </div>
           </div>
-          <button onClick={handleDownloadPDF} disabled={downloading || cycles.length === 0}
+          <button onClick={handleDownloadPDF} disabled={downloading || cycles.length === 0 || !canExportPdf}
+            title={!canExportPdf ? 'REPORT_EXPORT permission required' : undefined}
             className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed">
             {downloading ? (
               <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
