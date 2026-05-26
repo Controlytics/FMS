@@ -714,6 +714,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // recompute (which depends on cache state that the post-loop /current-
     // state prime overwrites before the dispatch runs).
     const serverActionsByFilter = new Map<string, any[]>();
+    // 2026-05-26: filters whose dialog was ALREADY dispatched inside the
+    // loop by core.advance/startAndAdvance's resolveAndDispatchChecklist.
+    // The post-loop dispatch must SKIP these — otherwise it tries to open
+    // open_checklist from awaiting_checklist and the state-machine guard
+    // throws (caught offline DRY_IN SET_DURATION repro on 2026-05-26).
+    const dialogDispatchedInLoop = new Set<string>();
     // Deep-review fix D6 (2026-05-17): outer try/finally so the loading flag
     // always clears even when REAUTH or OFFLINE_CACHE_RECOMPUTE_FAILED bubble
     // out of the inner loop. Pre-fix a re-thrown REAUTH left loading=true
@@ -878,7 +884,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             // shape as handleDryerDurationSubmit, but called per-filter from
             // the batch loop instead of via the modal dialog.
             try {
-              const { executed: dryerExec } = await core.advance({
+              const dryerRes = await core.advance({
                 filterId: item.filterId,
                 filterName: item.filterName,
                 targetState: 'DRY_IN',
@@ -887,6 +893,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 dryerDurationMinutes: dur,
                 remarks: remarks || `Dryer started (${dur} min) - ${item.filterName}`,
               });
+              const dryerExec = dryerRes.executed;
+              // 2026-05-26: core.advance already dispatched open_checklist if
+              // a gate fires after DRY_IN entry — mark this filter so the
+              // post-loop dispatch doesn't try to open a second dialog and
+              // hit assertOpenable's "Cannot open dialog from state awaiting_
+              // checklist" throw (caught the offline DRY_IN SET_DURATION path).
+              if (dryerRes.dialogOpened) {
+                dialogDispatchedInLoop.add(item.filterId);
+              }
               setRecentOps(prev => [{ stage: 'Dryer Started', filter: item.filterName, time: formatTime(new Date()), queued: !dryerExec }, ...prev].slice(0, 20));
               // 2026-05-20 explicit IDB filters-store write — guarantees the
               // Currently Drying panel sees DRY_IN for this filter regardless
@@ -998,6 +1013,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         type Pending = { item: { filterId: string; filterName: string }; checklists: any[]; signature: string };
         const pending: Pending[] = [];
         for (const q of scanQueueSnapshot) {
+          // 2026-05-26: skip filters whose dialog was already dispatched
+          // by core.advance/startAndAdvance inside the loop (e.g. DRY_IN
+          // SET_DURATION path). A second open_checklist from awaiting_
+          // checklist trips assertOpenable.
+          if (dialogDispatchedInLoop.has(q.filterId)) continue;
           try {
             // 2026-05-26: prefer server tape captured during the inner-loop
             // advance over a cache-driven local recompute. The local path
