@@ -164,8 +164,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const [dryerLoading, setDryerLoading] = useState(false);
   const [dryerError, setDryerError] = useState('');
   const [checklistAnswers, setChecklistAnswers] = useState<Record<string, any>>({});
-  // pendingChecklistBatch removed (D1/D2/D4 Day 3b): batch continuation queue
-  // is now owned by core.dialogState.remainingBatch inside useFilterOperationsCore.
+  // 2026-05-26: unified-batch checklist (mirrors desktop filter-operations.tsx
+  // `pendingBatch` state at line ~110). When multiple filters are advancing
+  // through the same checklist gate, the dialog now opens ONCE with
+  // filterName="N filter(s)" and pendingBatch carries every filter; on submit
+  // the same answers are POSTed for each filter sequentially. Replaces the
+  // pre-fix per-filter cycling via `remainingBatch`, which made the operator
+  // re-answer the same checklist N times.
+  const [pendingBatch, setPendingBatch] = useState<Array<{ filterId: string; filterName: string }> | null>(null);
 
   // Refocus the scan input whenever we enter the stage view, all dialogs close,
   // or success flashes. autoFocus only fires once on mount, so without this
@@ -801,16 +807,38 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         if (hasActionKind(itemActions, 'SUBMIT_CHECKLIST')) {
           const dialogChecklists = await resolvePendingChecklistDialog(item.filterId, itemActions);
           if (dialogChecklists && dialogChecklists.length > 0) {
+            // 2026-05-26: unified-batch — collect EVERY queued filter that is
+            // at the same checklist gate so the operator answers once. The
+            // current item is always included; downstream queue items are
+            // included when their tape also has SUBMIT_CHECKLIST against the
+            // same checklistProfileId set (same block + same profile = same
+            // gate, which is the operator's expectation).
+            const sigOf = (rows: any[]) =>
+              rows.map((r: any) => `${r.checklistProfileId}@${r.profileVersion ?? 0}`).sort().join('|');
+            const primarySig = sigOf(dialogChecklists);
+            const batchMembers: Array<{ filterId: string; filterName: string }> = [
+              { filterId: item.filterId, filterName: item.filterName },
+            ];
             const startIdx = scanQueue.findIndex(q => q.filterId === item.filterId);
-            const rest = startIdx >= 0
-              ? scanQueue.slice(startIdx + 1).map(q => ({ filterId: q.filterId, filterName: q.filterName }))
-              : [];
+            const downstream = startIdx >= 0 ? scanQueue.slice(startIdx + 1) : [];
+            for (const q of downstream) {
+              try {
+                const cs = await getCache<any>(`filter-state-${q.filterId}`) ?? {};
+                const qActions = await getCurrentActions(q.filterId, cs.actions);
+                if (!hasActionKind(qActions, 'SUBMIT_CHECKLIST')) continue;
+                const qChecklists = await resolvePendingChecklistDialog(q.filterId, qActions);
+                if (!qChecklists || qChecklists.length === 0) continue;
+                if (sigOf(qChecklists) === primarySig) {
+                  batchMembers.push({ filterId: q.filterId, filterName: q.filterName });
+                }
+              } catch { /* skip — unresolved filters fall back to single-mode */ }
+            }
+            setPendingBatch(batchMembers);
             core.dispatch({
               type: 'open_checklist',
               filterId: item.filterId,
-              filterName: item.filterName,
+              filterName: batchMembers.length > 1 ? `${batchMembers.length} filter(s)` : item.filterName,
               checklists: dialogChecklists,
-              remainingBatch: rest.length > 0 ? rest : undefined,
             });
             setChecklistAnswers({});
             // 2026-05-20: KEEP scanQueue + dryerDurations populated so that
@@ -943,20 +971,51 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // dialog. Operator only saw the error toast and couldn't proceed.
     if (successCount > 0 || failed.length > 0) {
       try {
-        // Phase 8.7 Wave-5: shared checklist-dialog resolver — mirrors the
-        // desktop advanceBatch site (filter-operations.tsx ~line 437).
-        const batchItems: PendingChecklistBatchItem[] = scanQueue.map(q => ({
-          filterId: q.filterId,
-          filterName: q.filterName,
-        }));
-        const next = await findNextPendingChecklist(batchItems, resolvePendingChecklistDialog);
-        if (next) {
+        // 2026-05-26: unified-batch post-advance dialog dispatch. Replaces the
+        // per-filter cycling via `findNextPendingChecklist`+`remainingBatch`
+        // (which made the operator re-answer the same checklist N times for
+        // a same-block batch). Walk every filter that landed on a checklist
+        // gate, group by signature, dispatch ONE dialog for the largest
+        // group. Same answers POSTed to each member of the group on submit
+        // (see handleChecklistSubmit batch branch).
+        const sigOf = (rows: any[]) =>
+          rows.map((r: any) => `${r.checklistProfileId}@${r.profileVersion ?? 0}`).sort().join('|');
+        type Pending = { item: { filterId: string; filterName: string }; checklists: any[]; signature: string };
+        const pending: Pending[] = [];
+        for (const q of scanQueueSnapshot) {
+          try {
+            const checklists = await resolvePendingChecklistDialog(q.filterId);
+            if (checklists && checklists.length > 0) {
+              pending.push({
+                item: { filterId: q.filterId, filterName: q.filterName },
+                checklists,
+                signature: sigOf(checklists),
+              });
+            }
+          } catch { /* per-filter resolver failure shouldn't poison the batch */ }
+        }
+        if (pending.length > 0) {
+          // Pick the largest same-signature group; the rest (mixed signature
+          // case) can be triggered on the next scan if they need attention —
+          // matches today's "re-scan to retry" muscle memory.
+          const groups = new Map<string, Pending[]>();
+          for (const p of pending) {
+            const arr = groups.get(p.signature) ?? [];
+            arr.push(p);
+            groups.set(p.signature, arr);
+          }
+          let chosen: Pending[] = [];
+          for (const arr of groups.values()) {
+            if (arr.length > chosen.length) chosen = arr;
+          }
+          const primary = chosen[0];
+          const batchMembers = chosen.map(p => p.item);
+          setPendingBatch(batchMembers);
           core.dispatch({
             type: 'open_checklist',
-            filterId: next.item.filterId,
-            filterName: next.item.filterName,
-            checklists: next.checklists,
-            remainingBatch: next.remaining,
+            filterId: primary.item.filterId,
+            filterName: batchMembers.length > 1 ? `${batchMembers.length} filter(s)` : primary.item.filterName,
+            checklists: primary.checklists,
           });
           setChecklistAnswers({});
         }
@@ -1261,6 +1320,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           const stageMatches = currentLifecycle === activeStage.key;
           const noActiveCycle = !state.currentCycle;
           if (stageMatches || noActiveCycle) {
+            // Single-scan: clear any stale unified-batch state from a prior
+            // session so handleChecklistSubmit takes the single-mode path.
+            setPendingBatch(null);
             core.dispatch({ type: 'open_checklist', filterId, filterName: filterName || state.filterName, checklists: dialogChecklists });
             setChecklistAnswers({});
             setLoading(false);
@@ -1770,6 +1832,52 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // (per system_config['action-reauth']). Wrap so the password dialog
     // appears when policy demands it.
     await reauth.execute('SUBMIT_CHECKLIST_WITH_SIGNATURE', async (password?) => {
+      // 2026-05-26: unified-batch branch. When pendingBatch is set AND the
+      // open dialog's primary filter is part of that batch, submit the same
+      // answers to every member sequentially. The primary-filter check
+      // protects against a stale pendingBatch left over from a prior batch
+      // session colliding with a fresh single-scan dialog. Mirrors desktop
+      // filter-operations.tsx handleChecklistSubmit BATCH MODE branch.
+      if (pendingBatch && pendingBatch.length > 0 && pendingBatch.some(p => p.filterId === checklistDialog.filterId)) {
+        const batch = pendingBatch;
+        let success = 0;
+        const failed: string[] = [];
+        for (const item of batch) {
+          try {
+            const { executed } = await core.submitChecklist({
+              filterId: item.filterId,
+              filterName: item.filterName,
+              answers: checklistAnswers,
+              expectedProfileVersions,
+              password,
+            });
+            success++;
+            if (!executed) failed.push(`${item.filterName}: queued for sync`);
+          } catch (e: any) {
+            // Re-throw REAUTH so the reauth.execute wrapper surfaces it.
+            const errCode = e?.error ?? e?.code;
+            if (errCode === 'REAUTH_FAILED' || errCode === 'REAUTH_REQUIRED') throw e;
+            failed.push(`${item.filterName}: ${e?.message ?? 'failed'}`);
+          }
+        }
+        // The last successful submitChecklist already dispatched close (no
+        // remainingBatch carried). Force-close in case every item failed so
+        // the dialog doesn't get stuck open.
+        if (core.dialogState.kind === 'awaiting_checklist') core.dispatch({ type: 'close' });
+        setPendingBatch(null);
+        setChecklistAnswers({});
+        setStageSubmitRecap(null);
+        if (failed.length > 0 && success === 0) {
+          setError(failed.join('\n'));
+        } else if (failed.length > 0) {
+          setError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
+        } else {
+          setSuccess(`Checklist submitted for ${success} filter(s)`);
+        }
+        mutate('/api/assets/instances?limit=500');
+        return;
+      }
+
       const { executed } = await core.submitChecklist({
         filterId: checklistDialog.filterId,
         filterName: checklistDialog.filterName,
@@ -2892,7 +3000,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                   refuses to advance without it, so the dialog re-opened on
                   next action. "Close" + the hint above makes the contract
                   explicit. dispatch close still actually closes the dialog. */}
-              <button onClick={() => { core.dispatch({ type: 'close' }); }} disabled={loading} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition-colors disabled:opacity-40">Close</button>
+              <button onClick={() => { core.dispatch({ type: 'close' }); setPendingBatch(null); }} disabled={loading} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition-colors disabled:opacity-40">Close</button>
               <button onClick={handleChecklistSubmit} disabled={loading} className="flex-1 py-3 bg-purple-600 text-white rounded-xl font-bold disabled:opacity-40 flex items-center justify-center gap-2 hover:bg-purple-500 transition-colors">
                 {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <>Submit Checklist</>}
               </button>

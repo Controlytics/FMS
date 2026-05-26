@@ -721,7 +721,12 @@ describe('useFilterOperationsCore — Day 3 extended handlers', () => {
     expect(result.current.dialogState.kind).toBe('none');
   });
 
-  it('submitChecklist() online (executed=true) does NOT mutate the cache row (only reads for log)', async () => {
+  it('submitChecklist() online (executed=true) DOES rewrite the cache row (clear pendingChecklist + re-derive tape)', async () => {
+    // 2026-05-20: online submitChecklist MUST clear pendingChecklist and
+    // re-derive nextAllowedStages/actions so the batch-DRY_IN replay loop
+    // doesn't re-open the same checklist dialog forever. Pre-fix this branch
+    // was gated on `!executed` and the cache stayed stale. See use-core.ts
+    // L432-462 comment block.
     mockResolvePending.mockResolvedValueOnce([{ checklistProfileId: 'p1', questions: [] }]);
 
     const { result } = renderHook(() => useFilterOperationsCore());
@@ -733,6 +738,7 @@ describe('useFilterOperationsCore — Day 3 extended handlers', () => {
       });
     });
 
+    mockCacheData.mockClear();
     mockExecuteOrQueue.mockResolvedValueOnce({ executed: true });
     mockGetCachedData.mockResolvedValueOnce({
       currentState: 'WASH_OUT',
@@ -747,8 +753,10 @@ describe('useFilterOperationsCore — Day 3 extended handlers', () => {
       });
     });
 
-    // getCachedData is called once for the appendChecklistCompletion lookup,
-    // but no cache-row-clear / nextAllowedStages re-derive runs online.
-    expect(mockCacheData).not.toHaveBeenCalled();
+    // Two writes: (1) clear pendingChecklist, (2) re-derived tape +
+    // nextAllowedStages on top of the cleared row.
+    expect(mockCacheData).toHaveBeenCalled();
+    const writes = mockCacheData.mock.calls.map((c: any[]) => c[1]);
+    expect(writes.some((w: any) => Array.isArray(w?.pendingChecklist) && w.pendingChecklist.length === 0)).toBe(true);
   });
 });

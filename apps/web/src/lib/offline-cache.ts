@@ -379,6 +379,45 @@ export interface ServerCurrentStateForCache {
 }
 
 /**
+ * Derive the legacy `pendingChecklist[]` cache shape from a tape's
+ * SUBMIT_CHECKLIST entries.
+ *
+ * 2026-05-26 — Issue 2 fix (online checklist appearing one stage late):
+ * after Phase 8.7 the server stopped emitting `pendingChecklist` on
+ * /advance + /current-state responses; only the tape carries the gate.
+ * `cacheServerStateResponse` was writing `pendingChecklist: []` for every
+ * online response, and `synthesizeEvents` Tier 2 then read the empty array
+ * as "no gate pending" → synthesized a fake CHECKLIST_COMPLETED → local
+ * tape recompute skipped SUBMIT_CHECKLIST. The dialog therefore opened on
+ * the NEXT stage transition (the server's 400 reply on the second advance
+ * surfaced it), not the one that just landed.
+ *
+ * Deriving `pendingChecklist` from the tape closes the gap without touching
+ * the synthesizeEvents Tier 2 invariant (offline still works via
+ * recomputeAndCacheFilterState's graph-walk derivation).
+ */
+function pendingChecklistFromActions(actions: Action[] | null | undefined): any[] {
+  if (!Array.isArray(actions) || actions.length === 0) return [];
+  const LABEL_PREFIX = 'Submit Checklist: ';
+  const rows: any[] = [];
+  for (const a of actions) {
+    if (a.type !== 'SUBMIT_CHECKLIST') continue;
+    const params = a.params;
+    const name = a.label?.startsWith(LABEL_PREFIX)
+      ? a.label.slice(LABEL_PREFIX.length)
+      : a.label;
+    rows.push({
+      pipelineNodeId: `${params.afterStage}-${params.checklistProfileId}`,
+      checklistProfileId: params.checklistProfileId,
+      checklistProfileName: name,
+      profileVersion: params.versionPin,
+      questions: Array.isArray(params.questions) ? params.questions : [],
+    });
+  }
+  return rows;
+}
+
+/**
  * Persist a /current-state server response to the `filter-state-{filterId}`
  * cache row. Replaces the inline `cache(...)` blocks in filter-operations.tsx
  * (and the equivalent block in the pre-cache loop) so those pages no longer
@@ -392,13 +431,21 @@ export async function cacheServerStateResponse(
   st: ServerCurrentStateForCache,
   ttlMs: number = 24 * 60 * 60 * 1000,
 ): Promise<void> {
+  // Server stopped emitting pendingChecklist post Phase 8.7 — derive from the
+  // tape so synthesizeEvents Tier 2 keeps its "empty pendingChecklist + gate
+  // node present = synthesize completion" invariant correct. See
+  // pendingChecklistFromActions docblock.
+  const derivedPending =
+    Array.isArray(st.pendingChecklist) && st.pendingChecklist.length > 0
+      ? st.pendingChecklist
+      : pendingChecklistFromActions(st.actions);
   await cacheData(
     `filter-state-${filterId}`,
     {
       currentState: st.currentState ?? null,
       equipmentGroup: st.equipmentGroup ?? null,
       blockEquipmentGroups: st.blockEquipmentGroups ?? [],
-      pendingChecklist: st.pendingChecklist ?? [],
+      pendingChecklist: derivedPending,
       pipelineStages: st.pipelineStages ?? [],
       pipelineGraph: st.pipelineGraph ?? null,
       stageLookup: st.stageLookup ?? null,
