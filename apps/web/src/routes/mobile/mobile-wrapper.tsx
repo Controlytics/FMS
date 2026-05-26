@@ -6,6 +6,7 @@ import { useAuth } from '../../hooks/use-auth';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { useOffline } from '../../hooks/use-offline';
 import { useReauth } from '@/hooks/use-reauth';
+import { useRfidScanField } from '@/hooks/use-rfid-scan-field';
 import { useBlockChangeApproval } from '@/hooks/use-block-change-approval';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { onSyncEvent } from '../../lib/sync-engine';
@@ -238,10 +239,19 @@ export function MobileWrapperPage() {
   // RFID Assign state
   const [rfidSearch, setRfidSearch] = useState('');
   const [rfidSelectedFilter, setRfidSelectedFilter] = useState<{ id: string; name: string } | null>(null);
-  const [rfidInput, setRfidInput] = useState('');
+  // 2026-05-26: rfidInput moved off plain useState onto useRfidScanField.
+  // Fixes the multi-scan-append bug + adds duplicate-submit debounce.
+  const rfidScan = useRfidScanField();
   const [rfidSubmitting, setRfidSubmitting] = useState(false);
   const [rfidError, setRfidError] = useState('');
   const [rfidSuccess, setRfidSuccess] = useState('');
+
+  // 2026-05-26: Filter Status → Scan RFID modal state. Operator taps the
+  // "Scan RFID" button on the Status view, scans a tag, sees the mapped
+  // filter's current state + Block→Area→AHU hierarchy + last cleaned.
+  const [scanRfidOpen, setScanRfidOpen] = useState(false);
+  const scanRfid = useRfidScanField();
+  const [scanRfidError, setScanRfidError] = useState('');
   // 2026-05-21: cascading hierarchy filters for the RFID Assign filter list —
   // Block → Area → AHU → Filter, mirroring the Status view.
   const [rfidBlockId, setRfidBlockId] = useState<string>('all');
@@ -347,9 +357,12 @@ export function MobileWrapperPage() {
     setSuccess('');
     setRfidSearch('');
     setRfidSelectedFilter(null);
-    setRfidInput('');
+    rfidScan.setValue('');
     setRfidError('');
     setRfidSuccess('');
+    setScanRfidOpen(false);
+    scanRfid.setValue('');
+    setScanRfidError('');
     // 2026-05-17 stale-stage-counter fix: revalidate `instances` on
     // home-enter. Matches the same fix in mobile-operations.tsx::goHome —
     // SWR's 15s refresh interval can leave the dashboard reading the
@@ -377,15 +390,19 @@ export function MobileWrapperPage() {
   // had drifted. CREATE_ASSET_IDENTIFIER / DELETE_ASSET_IDENTIFIER actions
   // already declared in packages/shared/src/types/reauth-actions.ts:47-48.
   const assignRfid = () => {
-    if (!rfidSelectedFilter || !rfidInput.trim()) {
+    if (!rfidSelectedFilter || !rfidScan.value.trim()) {
       setRfidError('Enter or scan a tag value.');
       return;
     }
+    const tagValue = rfidScan.value.trim();
+    // 2026-05-26: guard against double-fire from the scanner emitting the
+    // same physical scan twice within ~1s. Silent skip — the operator
+    // already saw a success toast from the first submit.
+    if (rfidScan.isDuplicate(tagValue)) return;
     setRfidSubmitting(true);
     setRfidError('');
     setRfidSuccess('');
     const filterName = rfidSelectedFilter.name;
-    const tagValue = rfidInput.trim();
     reauth.execute(
       'CREATE_ASSET_IDENTIFIER',
       async (password?: string) => {
@@ -403,7 +420,7 @@ export function MobileWrapperPage() {
       {
         onSuccess: async () => {
           setRfidSuccess(`Tag assigned to "${filterName}"`);
-          setRfidInput('');
+          rfidScan.setValue('');
           await mutateIdentifiers();
           setRfidSubmitting(false);
         },
@@ -756,7 +773,20 @@ export function MobileWrapperPage() {
           };
           return (
           <div className="p-4 space-y-4">
-            <h2 className="text-lg font-bold text-slate-800">Filter Status</h2>
+            {/* 2026-05-26: header row — title + Scan RFID quick action.
+                Tapping the button opens a modal that looks up the scanned
+                tag against the cached identifier list and shows the
+                mapped filter's current state + Block→Area→AHU hierarchy. */}
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-lg font-bold text-slate-800">Filter Status</h2>
+              <button
+                onClick={() => { scanRfid.setValue(''); setScanRfidError(''); setScanRfidOpen(true); }}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-violet-500 to-purple-600 shadow-md shadow-violet-500/20 active:shadow-none"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" /></svg>
+                Scan RFID
+              </button>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               {STAGES.map(s => {
                 const isActive = statusStageFilter === s.key;
@@ -1747,18 +1777,41 @@ export function MobileWrapperPage() {
                   {rfidVisibleFilters.length === 0 && (
                     <div className="bg-white border border-slate-200 rounded-xl p-6 text-center text-sm text-slate-500">No filters match.</div>
                   )}
+                  {/* 2026-05-26: assignment status is encoded in card color
+                      so operators can scan the list visually without having
+                      to read each line. Green = at least one tag assigned;
+                      red = no tag yet. Right-side mono shows the FIRST tag
+                      ID when assigned (with "+N more" if multiple). */}
                   {rfidVisibleFilters.slice(0, 60).map((f: any) => {
                     const tags = rfidTagsByFilter.get(f.id) ?? [];
+                    const isAssigned = tags.length > 0;
+                    const firstTag = isAssigned ? (tags[0]?.identifierValue ?? '') : '';
                     return (
                       <button key={f.id} onClick={() => { setRfidSelectedFilter({ id: f.id, name: f.name }); setRfidError(''); setRfidSuccess(''); }}
-                        className="tile-lift w-full bg-white rounded-xl border border-slate-200 p-3 text-left flex items-center justify-between">
+                        className={`tile-lift w-full rounded-xl border-2 p-3 text-left flex items-center justify-between transition-colors ${
+                          isAssigned
+                            ? 'bg-emerald-50 border-emerald-300 active:bg-emerald-100'
+                            : 'bg-rose-50 border-rose-300 active:bg-rose-100'
+                        }`}>
                         <div className="min-w-0 flex-1">
                           <div className="font-display text-[13px] font-semibold text-slate-900 truncate leading-tight">{f.name}</div>
-                          <div className="text-[10.5px] text-slate-400 mt-0.5 font-mono-tab">
-                            {tags.length > 0 ? `${tags.length} tag${tags.length > 1 ? 's' : ''} assigned` : 'no tag assigned'}
+                          <div className="flex items-center gap-1.5 mt-1 min-w-0">
+                            <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${isAssigned ? 'bg-emerald-500' : 'bg-rose-500'}`} aria-hidden="true" />
+                            <span className={`text-[10.5px] font-semibold shrink-0 ${isAssigned ? 'text-emerald-700' : 'text-rose-700'}`}>
+                              {isAssigned ? 'Tag Assigned' : 'Tag Not Assigned'}
+                            </span>
+                            {isAssigned && firstTag && (
+                              <>
+                                <span className="text-[10.5px] text-slate-400 shrink-0">|</span>
+                                <span className="text-[10.5px] font-mono text-slate-700 truncate" title={firstTag}>{firstTag}</span>
+                                {tags.length > 1 && (
+                                  <span className="text-[10.5px] text-slate-500 shrink-0">+{tags.length - 1}</span>
+                                )}
+                              </>
+                            )}
                           </div>
                         </div>
-                        <svg className="w-4 h-4 text-slate-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                        <svg className={`w-4 h-4 shrink-0 ${isAssigned ? 'text-emerald-400' : 'text-rose-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                       </button>
                     );
                   })}
@@ -1772,7 +1825,7 @@ export function MobileWrapperPage() {
                       <div className="text-[11px] text-slate-400 uppercase tracking-wider font-bold">Selected Filter</div>
                       <div className="text-base font-bold text-slate-800 mt-0.5">{rfidSelectedFilter.name}</div>
                     </div>
-                    <button onClick={() => { setRfidSelectedFilter(null); setRfidInput(''); setRfidError(''); setRfidSuccess(''); }}
+                    <button onClick={() => { setRfidSelectedFilter(null); rfidScan.setValue(''); setRfidError(''); setRfidSuccess(''); }}
                       className="text-xs font-semibold text-violet-600">Change</button>
                   </div>
                 </div>
@@ -1808,16 +1861,28 @@ export function MobileWrapperPage() {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Assign New Tag</label>
+                  {/* 2026-05-26: input bound to useRfidScanField — auto
+                      clears between scan bursts (fixes multi-scan append),
+                      trims CR/LF on every change. Enter-key submits the
+                      currently-displayed value so the operator can either
+                      scan-and-Enter or scan-and-tap. */}
                   <input
                     data-rfid="true"
                     type="text"
-                    value={rfidInput}
-                    onChange={e => setRfidInput(e.target.value)}
+                    value={rfidScan.value}
+                    onKeyDown={(e) => {
+                      rfidScan.onKeyDown(e);
+                      if (e.key === 'Enter' && rfidScan.value.trim() && !rfidSubmitting) {
+                        e.preventDefault();
+                        assignRfid();
+                      }
+                    }}
+                    onChange={rfidScan.onChange}
                     placeholder="Scan or enter tag value..."
                     autoFocus
                     className="w-full px-3 py-3 border border-slate-200 rounded-xl text-base font-mono bg-white focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
                   />
-                  <button onClick={assignRfid} disabled={rfidSubmitting || !rfidInput.trim()}
+                  <button onClick={assignRfid} disabled={rfidSubmitting || !rfidScan.value.trim()}
                     className="w-full mt-3 py-3 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-violet-500 to-purple-600 shadow-lg shadow-violet-500/20 active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed">
                     {rfidSubmitting ? 'Assigning...' : 'Assign Tag'}
                   </button>
@@ -1828,6 +1893,196 @@ export function MobileWrapperPage() {
           );
         })()}
       </div>
+
+      {/* 2026-05-26: Filter Status → Scan RFID lookup modal.
+          Opens from the "Scan RFID" button on the Status view. The
+          operator scans a tag; the modal looks it up against the
+          cached `allIdentifiers` list (which is already populated for
+          the RFID Assign view, so no extra fetch) and renders the
+          mapped filter's name + current state + Block→Area→AHU
+          hierarchy + last cleaned timestamp.
+
+          Lookup states:
+            - empty input  → idle "scan a tag" prompt
+            - input set, no identifier match → "Tag not assigned"
+            - input set, identifier found but no filter row → "orphan"
+              (rare — stale cache)
+            - input set, identifier + filter both resolve → details
+              card. */}
+      {scanRfidOpen && (() => {
+        const tag = scanRfid.value.trim();
+        const instByIdLookup = new Map((instances as any[]).map((i: any) => [i.id, i] as [string, any]));
+        const filterTemplateIdsLookup = new Set(
+          templates.filter((t: any) => t.templateKind === 'FILTER').map((t: any) => t.id),
+        );
+        type LookupResult =
+          | { kind: 'idle' }
+          | { kind: 'not_found' }
+          | { kind: 'orphan'; tag: string }
+          | { kind: 'wrong_kind'; tag: string; name: string }
+          | { kind: 'ok'; tag: string; filter: any; ahu: any; area: any; block: any; lastCleaned: string | null };
+        let result: LookupResult = { kind: 'idle' };
+        if (tag) {
+          const ident = allIdentifiers.find(
+            (i: any) => i.identifierType === 'RFID' && i.identifierValue === tag,
+          );
+          if (!ident) {
+            result = { kind: 'not_found' };
+          } else {
+            const filter = (instances as any[]).find((f: any) => f.id === ident.assetId);
+            if (!filter) {
+              result = { kind: 'orphan', tag };
+            } else if (
+              !(filterTemplateIdsLookup.has(filter.templateId) || filter.template?.templateKind === 'FILTER')
+            ) {
+              result = { kind: 'wrong_kind', tag, name: filter.name };
+            } else {
+              const ahu = filter.parentId ? instByIdLookup.get(filter.parentId) : null;
+              const area = ahu?.parentId ? instByIdLookup.get(ahu.parentId) : null;
+              const block = area?.parentId ? instByIdLookup.get(area.parentId) : null;
+              // Reuse the same last-cleaned map the Status view builds.
+              const cycles: any[] = (cyclesData?.data ?? []) as any[];
+              let lastCleaned: string | null = null;
+              for (const c of cycles) {
+                if (c.status !== 'COMPLETED' || !c.completedAt || c.filterId !== filter.id) continue;
+                if (!lastCleaned || c.completedAt > lastCleaned) lastCleaned = c.completedAt;
+              }
+              result = { kind: 'ok', tag, filter, ahu, area, block, lastCleaned };
+            }
+          }
+        }
+        const fmt = (iso: string | null) => {
+          if (!iso) return '—';
+          try {
+            const d = new Date(iso);
+            return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }) +
+              ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+          } catch { return '—'; }
+        };
+        const stageInfo = result.kind === 'ok' ? STAGES.find(s => s.key === result.filter.currentLifecycleState) : null;
+        return (
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 backdrop-blur-sm" onClick={() => setScanRfidOpen(false)}>
+            <div className="w-full max-w-2xl bg-white rounded-t-3xl shadow-2xl max-h-[90dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="sticky top-0 bg-gradient-to-r from-violet-500 to-purple-600 px-5 py-4 rounded-t-3xl flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-bold text-white">Scan RFID</h2>
+                  <p className="text-violet-100 text-xs">Look up filter by tag</p>
+                </div>
+                <button onClick={() => setScanRfidOpen(false)} className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center text-white active:bg-white/25">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">RFID Tag</label>
+                  <input
+                    data-rfid="true"
+                    type="text"
+                    value={scanRfid.value}
+                    onKeyDown={(e) => {
+                      scanRfid.onKeyDown(e);
+                      // Enter is a no-op here (lookup is live as the value
+                      // changes); just prevent accidental form submit.
+                      if (e.key === 'Enter') e.preventDefault();
+                    }}
+                    onChange={(e) => { scanRfid.onChange(e); setScanRfidError(''); }}
+                    placeholder="Scan or enter tag value..."
+                    autoFocus
+                    className="w-full px-3 py-3 border border-slate-200 rounded-xl text-base font-mono bg-white focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                  />
+                  {scanRfidError && (
+                    <div className="mt-2 text-xs text-rose-600 font-medium">{scanRfidError}</div>
+                  )}
+                </div>
+
+                {result.kind === 'idle' && (
+                  <div className="rounded-xl bg-slate-50 border border-slate-200 p-6 text-center text-sm text-slate-500">
+                    Scan a tag to look up the mapped filter.
+                  </div>
+                )}
+
+                {result.kind === 'not_found' && (
+                  <div className="rounded-xl bg-rose-50 border-2 border-rose-300 p-4 text-sm">
+                    <div className="font-semibold text-rose-700">Tag Not Assigned</div>
+                    <div className="text-rose-600 mt-1 break-all font-mono text-xs">{tag}</div>
+                    <div className="text-slate-600 mt-2 text-xs">This RFID is not mapped to any filter. Assign it from the RFID Assign view first.</div>
+                  </div>
+                )}
+
+                {result.kind === 'orphan' && (
+                  <div className="rounded-xl bg-amber-50 border-2 border-amber-300 p-4 text-sm">
+                    <div className="font-semibold text-amber-800">Stale RFID Mapping</div>
+                    <div className="text-amber-700 mt-1 break-all font-mono text-xs">{result.tag}</div>
+                    <div className="text-slate-600 mt-2 text-xs">The tag is mapped to an asset that no longer exists. Refresh the page or contact admin.</div>
+                  </div>
+                )}
+
+                {result.kind === 'wrong_kind' && (
+                  <div className="rounded-xl bg-amber-50 border-2 border-amber-300 p-4 text-sm">
+                    <div className="font-semibold text-amber-800">Not a Filter</div>
+                    <div className="text-amber-700 mt-1 text-xs">Tag <span className="font-mono break-all">{result.tag}</span> is mapped to <span className="font-semibold">"{result.name}"</span>, which is not a FILTER-kind asset.</div>
+                  </div>
+                )}
+
+                {result.kind === 'ok' && (
+                  <div className="rounded-2xl bg-emerald-50 border-2 border-emerald-300 p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[10px] uppercase tracking-wider text-emerald-700 font-bold">Match Found</div>
+                        <div className="text-base font-bold text-slate-900 mt-0.5 break-all">{result.filter.name}</div>
+                      </div>
+                      <span className={`text-[10px] px-2.5 py-1 rounded-full border font-medium whitespace-nowrap ${stageInfo ? `${stageInfo.bg} ${stageInfo.text} ${stageInfo.border}` : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
+                        {result.filter.currentLifecycleState?.replace(/_/g, ' ') ?? 'Idle'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div className="bg-white rounded-lg border border-emerald-200 p-2">
+                        <div className="text-[9px] uppercase tracking-wider text-slate-400 font-medium">Block</div>
+                        <div className="text-slate-800 font-semibold mt-0.5 truncate" title={result.block?.name ?? '—'}>{result.block?.name ?? '—'}</div>
+                      </div>
+                      <div className="bg-white rounded-lg border border-emerald-200 p-2">
+                        <div className="text-[9px] uppercase tracking-wider text-slate-400 font-medium">Area</div>
+                        <div className="text-slate-800 font-semibold mt-0.5 truncate" title={result.area?.name ?? '—'}>{result.area?.name ?? '—'}</div>
+                      </div>
+                      <div className="bg-white rounded-lg border border-emerald-200 p-2">
+                        <div className="text-[9px] uppercase tracking-wider text-slate-400 font-medium">AHU</div>
+                        <div className="text-slate-800 font-semibold mt-0.5 truncate" title={result.ahu?.name ?? '—'}>{result.ahu?.name ?? '—'}</div>
+                      </div>
+                    </div>
+
+                    <div className="bg-white rounded-lg border border-emerald-200 p-2">
+                      <div className="text-[9px] uppercase tracking-wider text-slate-400 font-medium">RFID Tag</div>
+                      <div className="text-slate-800 font-mono text-xs mt-0.5 break-all">{result.tag}</div>
+                    </div>
+
+                    <div className="bg-white rounded-lg border border-emerald-200 p-2">
+                      <div className="text-[9px] uppercase tracking-wider text-slate-400 font-medium">Last Cleaned</div>
+                      <div className="text-slate-800 text-xs mt-0.5">{fmt(result.lastCleaned)}</div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between gap-2 pt-2">
+                  <button
+                    onClick={() => { scanRfid.setValue(''); setScanRfidError(''); }}
+                    className="px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 active:bg-slate-200"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    onClick={() => setScanRfidOpen(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-slate-700 active:bg-slate-800"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* --- BOTTOM NAVIGATION --- */}
       {view !== 'operations' && (
