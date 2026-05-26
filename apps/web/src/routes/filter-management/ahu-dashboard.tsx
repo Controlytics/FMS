@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
+import { useAuth } from '../../hooks/use-auth';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { BulkUploadFiltersDialog } from './components/bulk-upload-filters-dialog';
 import { FILTER_STATE_COLORS } from '../../lib/filter-constants';
@@ -36,6 +37,16 @@ function FilterSetCard({ label, filters, status }: { label: string; filters: any
 
 export function AhuDashboardPage() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  // 2026-05-26 permission-leak fix (audit task #12): pre-fix the
+  // "Bulk Upload Filters" button rendered without any permission
+  // check; the route is gated only by ASSET_VIEW so any operator
+  // with read access to AHUs could open the upload dialog. Backend
+  // is gated on FILTER_BULK_UPLOAD so the actual write was blocked,
+  // but the UI affordance was wrong.
+  const perms: string[] = (user?.permissions as string[] | undefined) ?? [];
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const canBulkUpload = isSuperAdmin || perms.includes('FILTER_BULK_UPLOAD');
   const { formatDateTime, formatDate, formatTime } = useDatetimeFormat();
   const { data: asset } = useSWR(id ? `/api/assets/instances/${id}` : null);
   // Max 1000 filters per AHU; if more exist, a warning banner below alerts the operator.
@@ -73,11 +84,13 @@ export function AhuDashboardPage() {
             </span>
           )}
         </div>
-        <button onClick={() => setBulkOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-cyan-700 text-white rounded-lg text-sm hover:bg-cyan-600 transition-colors">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-          Bulk Upload Filters
-        </button>
+        {canBulkUpload && (
+          <button onClick={() => setBulkOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-cyan-700 text-white rounded-lg text-sm hover:bg-cyan-600 transition-colors">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+            Bulk Upload Filters
+          </button>
+        )}
       </div>
 
       {/* Filter Set Cards */}

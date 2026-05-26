@@ -129,6 +129,17 @@ export function UserListPage() {
 
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
   const canDeleteUsers = isSuperAdmin || (currentUser?.permissions?.includes('USER_DELETE') ?? false);
+  // 2026-05-26 permission-leak fix (reported on 2026-05-26 audit):
+  // the user-table previously rendered Edit, Disable/Enable, and Unlock
+  // unconditionally. Anyone who could *see* the Users list could
+  // disable other accounts. Each action now has its own gate; the
+  // backend routes are also reauth-gated for these mutations (see
+  // apps/api/src/modules/users/routes.ts) so even a direct API hit
+  // requires the matching permission. SUPER_ADMIN bypass mirrors the
+  // wider convention used across the rest of the FE.
+  const canEditUsers = isSuperAdmin || (currentUser?.permissions?.includes('USER_UPDATE') ?? false);
+  const canDisableUsers = isSuperAdmin || (currentUser?.permissions?.includes('USER_ENABLE_DISABLE') ?? false);
+  const canUnlockUsers = isSuperAdmin || (currentUser?.permissions?.includes('USER_UNLOCK') ?? false);
 
   // Get filtered user list for display
   const displayedUsers = data?.data ?? [];
@@ -323,6 +334,9 @@ export function UserListPage() {
       {/* Table */}
       <UserTable
         canDeleteUsers={canDeleteUsers}
+        canEditUsers={canEditUsers}
+        canDisableUsers={canDisableUsers}
+        canUnlockUsers={canUnlockUsers}
         displayedUsers={displayedUsers}
         selectedIds={selectedIds}
         toggleSelect={toggleSelect}

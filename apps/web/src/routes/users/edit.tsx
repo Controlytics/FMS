@@ -31,6 +31,18 @@ export function EditUserPage() {
   const { userLabels } = useFieldLabels();
   const { formatDate, formatTime } = useDatetimeFormat();
   const navigate = useNavigate();
+  // 2026-05-26 permission-leak fix (audit task #12): the route is gated
+  // by USER_READ (read-only access), but this page exposed:
+  //   - "Save Changes" (PUT /api/users/:id, gated USER_UPDATE on BE)
+  //   - "Generate Temporary Password" (POST /api/users/:id/reset-password,
+  //     gated USER_RESET_PASSWORD on BE)
+  // Backend RBAC stopped the actual writes, but the operator saw a
+  // fully editable form and a working reset-password dialog before
+  // hitting the 403. Now each action is gated to match the BE.
+  const perms: string[] = (currentUser?.permissions as string[] | undefined) ?? [];
+  const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
+  const canEdit = isSuperAdmin || perms.includes('USER_UPDATE');
+  const canResetPassword = isSuperAdmin || perms.includes('USER_RESET_PASSWORD');
   const [error, setError] = useState('');
   const [tempPasswordDialog, setTempPasswordDialog] = useState(false);
   const [generatedPassword, setGeneratedPassword] = useState('');
@@ -321,25 +333,31 @@ export function EditUserPage() {
             </div>
           </div>
 
-          {/* Footer Actions */}
+          {/* Footer Actions — 2026-05-26 gated per-button */}
           <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleOpenTempPasswordDialog}
-              className="gap-2 border-amber-200 text-amber-700 hover:bg-amber-50"
-            >
-              Generate Temporary Password
-            </Button>
+            {canResetPassword ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleOpenTempPasswordDialog}
+                className="gap-2 border-amber-200 text-amber-700 hover:bg-amber-50"
+              >
+                Generate Temporary Password
+              </Button>
+            ) : (
+              <span className="text-xs text-slate-400">Reset password requires USER_RESET_PASSWORD</span>
+            )}
             <div className="flex items-center gap-3">
               <Link to="/users">
                 <Button type="button" variant="outline">
-                  Cancel
+                  {canEdit ? 'Cancel' : 'Back'}
                 </Button>
               </Link>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? 'Saving...' : 'Save Changes'}
-              </Button>
+              {canEdit && (
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? 'Saving...' : 'Save Changes'}
+                </Button>
+              )}
             </div>
           </div>
         </form>

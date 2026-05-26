@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
+import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
@@ -73,6 +74,24 @@ const FORMAT_OPTIONS: { value: BackupFormat; label: string; description: string;
 ];
 
 export function BackupRestorePage() {
+  // 2026-05-26 permission-leak fix (audit task #12): the route is gated
+  // by CONFIG_READ which intentionally allows read-only config viewers.
+  // Pre-fix this page exposed Download (full DB dump) and Restore
+  // (overwrite every table) buttons to anyone who could reach the
+  // route. Backend RBAC stopped the actual write on Restore, but the
+  // UI surface contradicted the role intent and a curious operator
+  // could trigger BACKUP_EXPORT (which IS suffix-covered by
+  // BACKUP_MANAGE per packages/shared/src/types/permissions.ts) by
+  // chaining their CONFIG_READ token with a manual API call.
+  const { user } = useAuth();
+  const perms: string[] = (user?.permissions as string[] | undefined) ?? [];
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const canExport = isSuperAdmin || perms.includes('BACKUP_MANAGE') || perms.includes('BACKUP_EXPORT');
+  // BACKUP_RESTORE is intentionally NOT covered by BACKUP_MANAGE suffix
+  // expansion (see comment in shared types). Restore requires the
+  // explicit perm — destructive enough that a SUPER_ADMIN bypass is
+  // the only override.
+  const canRestore = isSuperAdmin || perms.includes('BACKUP_RESTORE');
   const reauth = useReauth();
   const { formatDateTime } = useDatetimeFormat();
   const [selectedFormat, setSelectedFormat] = useState<BackupFormat>('json');
@@ -263,8 +282,9 @@ export function BackupRestorePage() {
           <div className="flex items-center gap-4">
             <Button
               onClick={handleExport}
-              disabled={exporting}
-              className="gap-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-lg shadow-blue-500/25"
+              disabled={exporting || !canExport}
+              title={!canExport ? 'BACKUP_MANAGE permission required' : undefined}
+              className="gap-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-lg shadow-blue-500/25 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -274,6 +294,11 @@ export function BackupRestorePage() {
             <p className="text-sm text-slate-500">
               Includes all users, roles, configuration, audit trail, templates, and hierarchy data.
             </p>
+            {!canExport && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                You do not have permission to download backups. Required: BACKUP_MANAGE.
+              </p>
+            )}
           </div>
           {exportError && (
             <div className="mt-3 rounded-xl bg-red-50 border border-red-200 p-3 text-sm text-red-700">{exportError}</div>
@@ -417,18 +442,27 @@ export function BackupRestorePage() {
                 </div>
               </div>
 
-              {/* Restore button */}
+              {/* Restore button — 2026-05-26 gated on BACKUP_RESTORE
+                  (explicit, NOT covered by BACKUP_MANAGE suffix). */}
               {validation.checksumValid && (
-                <Button
-                  onClick={() => setConfirmRestore(true)}
-                  disabled={restoring}
-                  className="w-full gap-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 shadow-lg shadow-amber-500/25"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  Restore Database from This Backup
-                </Button>
+                <>
+                  <Button
+                    onClick={() => setConfirmRestore(true)}
+                    disabled={restoring || !canRestore}
+                    title={!canRestore ? 'BACKUP_RESTORE permission required' : undefined}
+                    className="w-full gap-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 shadow-lg shadow-amber-500/25 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Restore Database from This Backup
+                  </Button>
+                  {!canRestore && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
+                      You do not have permission to restore from a backup. Required: BACKUP_RESTORE.
+                    </p>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -504,8 +538,9 @@ export function BackupRestorePage() {
           <Button
             variant="destructive"
             onClick={handleRestore}
-            disabled={restoring}
-            className="bg-gradient-to-r from-red-500 to-rose-500 hover:from-red-600 hover:to-rose-600"
+            disabled={restoring || !canRestore}
+            title={!canRestore ? 'BACKUP_RESTORE permission required' : undefined}
+            className="bg-gradient-to-r from-red-500 to-rose-500 hover:from-red-600 hover:to-rose-600 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {restoring ? 'Restoring...' : 'Restore Database'}
           </Button>

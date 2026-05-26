@@ -26,6 +26,13 @@ interface UserLabels {
 
 interface UserTableProps {
   canDeleteUsers: boolean;
+  /** 2026-05-26 permission-leak fix: each action button is now
+   *  individually gated. Pre-fix the table rendered Edit / Disable /
+   *  Enable / Unlock unconditionally, so any operator who reached
+   *  the Users list could mutate other accounts. */
+  canEditUsers: boolean;
+  canDisableUsers: boolean;
+  canUnlockUsers: boolean;
   displayedUsers: any[];
   selectedIds: Set<string>;
   toggleSelect: (id: string) => void;
@@ -46,6 +53,9 @@ interface UserTableProps {
 
 export function UserTable({
   canDeleteUsers,
+  canEditUsers,
+  canDisableUsers,
+  canUnlockUsers,
   displayedUsers,
   selectedIds,
   toggleSelect,
@@ -134,15 +144,20 @@ export function UserTable({
               </TableCell>
               <TableCell>
                 <div className="flex justify-end gap-2">
-                  <Link to={`/users/${user.id}`}>
-                    <Button variant="outline" size="sm" className="gap-1.5 border-slate-200 hover:bg-slate-50">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                      Edit
-                    </Button>
-                  </Link>
-                  {user.status === 'LOCKED' && (
+                  {/* 2026-05-26 permission-leak fix: each action below is
+                      gated on its own permission. Pre-fix all four were
+                      rendered unconditionally. */}
+                  {canEditUsers && (
+                    <Link to={`/users/${user.id}`}>
+                      <Button variant="outline" size="sm" className="gap-1.5 border-slate-200 hover:bg-slate-50">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                        Edit
+                      </Button>
+                    </Link>
+                  )}
+                  {canUnlockUsers && user.status === 'LOCKED' && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -155,7 +170,7 @@ export function UserTable({
                       Unlock
                     </Button>
                   )}
-                  {user.status === 'ENABLED' && (
+                  {canDisableUsers && user.status === 'ENABLED' && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -168,7 +183,7 @@ export function UserTable({
                       Disable
                     </Button>
                   )}
-                  {user.status === 'DISABLED' && (
+                  {canDisableUsers && user.status === 'DISABLED' && (
                     <Button
                       variant="outline"
                       size="sm"

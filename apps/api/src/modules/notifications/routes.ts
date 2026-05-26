@@ -116,7 +116,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { ids } = req.body as { ids: string[] };
-    return notificationService.bulkRead(ids, req.user.username);
+    return notificationService.bulkRead(ids, req.user.role, req.user.username);
   });
 
   // PUT /api/notifications/bulk-unread — mark multiple as unread
@@ -144,7 +144,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { ids } = req.body as { ids: string[] };
-    return notificationService.bulkUnread(ids, req.user.username);
+    return notificationService.bulkUnread(ids, req.user.role, req.user.username);
   });
 
   // POST /api/notifications/bulk-delete — delete multiple (SUPER_ADMIN only)
@@ -174,7 +174,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { ids } = req.body as { ids: string[] };
-    return notificationService.bulkDelete(ids, req.user.username);
+    return notificationService.bulkDelete(ids, req.user.role, req.user.username);
   });
 
   // PUT /api/notifications/:id/read — mark as read

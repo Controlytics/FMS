@@ -124,18 +124,18 @@ export const notificationService = {
     return { success: true };
   },
 
-  async bulkRead(ids: string[], username: string) {
-    const result = await notificationRepository.bulkMarkRead(ids, username);
+  async bulkRead(ids: string[], userRole: string, username: string) {
+    const result = await notificationRepository.bulkMarkRead(ids, userRole, username);
     return { success: true, count: result.count };
   },
 
-  async bulkUnread(ids: string[], username: string) {
-    const result = await notificationRepository.bulkMarkUnread(ids, username);
+  async bulkUnread(ids: string[], userRole: string, username: string) {
+    const result = await notificationRepository.bulkMarkUnread(ids, userRole, username);
     return { success: true, count: result.count };
   },
 
-  async bulkDelete(ids: string[], username: string) {
-    const result = await notificationRepository.bulkDelete(ids, username);
+  async bulkDelete(ids: string[], userRole: string, username: string) {
+    const result = await notificationRepository.bulkDelete(ids, userRole, username);
     return { success: true, count: result.count };
   },
 

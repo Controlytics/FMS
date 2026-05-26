@@ -548,11 +548,20 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
   });
 
   // POST /rpc — User JWT, publish RPC request to device via MQTT
+  // 2026-05-26 audit fix (BE route-guard audit HIGH #1): pre-fix the
+  // route had no permission preHandler — any authenticated user
+  // (down to OPERATOR) could publish arbitrary (entityId, method,
+  // params) MQTT commands to any device. ASSET_UPDATE matches the
+  // "modify an asset's runtime state" semantics; the call already
+  // requires a JWT via the global onRequest gate but that's no longer
+  // sufficient for RPC invocation. enforceReauth is overkill for a
+  // routine device command but the permission gate is mandatory.
   app.post('/rpc', {
+    preHandler: [app.requirePermission('ASSET_UPDATE')],
     schema: {
       tags: ['Data Ingestion'],
       summary: 'Send RPC request to device',
-      description: 'Sends an RPC command to a device via MQTT. Requires user JWT.',
+      description: 'Sends an RPC command to a device via MQTT. Requires ASSET_UPDATE permission.',
       security: [{ bearerAuth: [] }],
       body: {
         type: 'object',
@@ -603,11 +612,15 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
   });
 
   // GET /rpc/response/:requestId — User JWT, check Redis for response
+  // 2026-05-26 audit fix (BE route-guard audit HIGH #2): pre-fix the
+  // route had no permission preHandler. ASSET_VIEW pairs with the
+  // ASSET_UPDATE gate on the matching POST /rpc.
   app.get('/rpc/response/:requestId', {
+    preHandler: [app.requirePermission('ASSET_VIEW')],
     schema: {
       tags: ['Data Ingestion'],
       summary: 'Get RPC response',
-      description: 'Polls for an RPC response by request ID. Returns null data if not yet received.',
+      description: 'Polls for an RPC response by request ID. Requires ASSET_VIEW permission.',
       security: [{ bearerAuth: [] }],
       params: {
         type: 'object',

@@ -62,18 +62,16 @@ export const notificationRepository = {
     });
   },
 
-  async bulkMarkRead(ids: string[], username?: string) {
-    const where: any = { id: { in: ids } };
-    if (username) where.OR = [{ forUserId: username }, { targetUserId: username }];
+  async bulkMarkRead(ids: string[], userRole?: string, username?: string) {
+    const where = buildBulkVisibilityFilter(ids, userRole, username);
     return prisma.notification.updateMany({
       where,
       data: { isRead: true, readAt: new Date() },
     });
   },
 
-  async bulkMarkUnread(ids: string[], username?: string) {
-    const where: any = { id: { in: ids } };
-    if (username) where.OR = [{ forUserId: username }, { targetUserId: username }];
+  async bulkMarkUnread(ids: string[], userRole?: string, username?: string) {
+    const where = buildBulkVisibilityFilter(ids, userRole, username);
     return prisma.notification.updateMany({
       where,
       data: { isRead: false, readAt: null },
@@ -84,9 +82,51 @@ export const notificationRepository = {
     return prisma.notification.delete({ where: { id } });
   },
 
-  async bulkDelete(ids: string[], username?: string) {
-    const where: any = { id: { in: ids } };
-    if (username) where.OR = [{ forUserId: username }, { targetUserId: username }];
+  async bulkDelete(ids: string[], userRole?: string, username?: string) {
+    const where = buildBulkVisibilityFilter(ids, userRole, username);
     return prisma.notification.deleteMany({ where });
   },
 };
+
+/**
+ * 2026-05-26 bug fix: pre-fix, bulkDelete / bulkMarkRead / bulkMarkUnread
+ * only filtered by `{ forUserId: username, OR targetUserId: username }`.
+ * For ADMIN / SUPER_ADMIN viewing all notifications (per the visibility
+ * rules in notification.service.ts buildVisibilityFilter), the bulk
+ * ops silently filtered out any notification not directly addressed to
+ * the operator and returned { count: <small> } as if successful. The UI
+ * cleared the selection + toast'd success while the data lived on.
+ *
+ * This builder mirrors notification.service.ts buildVisibilityFilter so
+ * bulk-op visibility matches list-visibility byte-for-byte:
+ *   - SUPER_ADMIN: no extra restriction beyond ID set
+ *   - ADMIN: forUserId === self OR forRole === 'ADMIN' OR system-wide
+ *     (forRole + forUserId both null); never anything addressed to
+ *     SUPER_ADMIN
+ *   - everyone else: forUserId === self OR targetUserId === self
+ */
+function buildBulkVisibilityFilter(
+  ids: string[],
+  userRole?: string,
+  username?: string,
+): Record<string, unknown> {
+  const where: Record<string, unknown> = { id: { in: ids } };
+  if (userRole === 'SUPER_ADMIN') return where;
+  if (userRole === 'ADMIN') {
+    where.AND = [
+      {
+        OR: [
+          { forUserId: username },
+          { forRole: 'ADMIN' },
+          { forRole: null, forUserId: null },
+        ],
+      },
+      { NOT: { forRole: 'SUPER_ADMIN' } },
+    ];
+    return where;
+  }
+  if (username) {
+    where.OR = [{ forUserId: username }, { targetUserId: username }];
+  }
+  return where;
+}
