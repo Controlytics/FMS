@@ -1250,6 +1250,13 @@ export function FilterOperationsPage() {
         remarks: remarks || `${equipmentDialog.stage.label} - ${equipmentDialog.filterName}`,
       };
       let executed: boolean;
+      // 2026-05-26: trust the hook's dialogOpened signal instead of reading
+      // core.dialogState.kind — the kind is a stale-closure snapshot from
+      // when this handler started ('awaiting_equipment'), so the close-on-
+      // no-gate check below was firing AFTER open_checklist had transitioned
+      // state to 'awaiting_checklist' and killing the checklist dialog on
+      // L1-style every-stage-has-gate profiles.
+      let dialogOpenedByCore = false;
       if (pendingCyclePayload) {
         // Cycle not started yet — compound start-and-advance with readings
         const res = await core.startAndAdvance({
@@ -1261,6 +1268,7 @@ export function FilterOperationsPage() {
           cleaningAreaId: equipmentDialog.block?.id,
         });
         executed = res.executed;
+        dialogOpenedByCore = res.dialogOpened;
         setPendingCyclePayload(null);
       } else {
         const res = await core.advance({
@@ -1274,13 +1282,14 @@ export function FilterOperationsPage() {
           remarks: advPayload.remarks,
         });
         executed = res.executed;
+        dialogOpenedByCore = res.dialogOpened;
       }
 
       recordSubmission({ stage: equipmentDialog.stage.label + (executed ? '' : ' (queued)'), filter: equipmentDialog.filterName, block: equipmentDialog.block?.name, time: formatTime(new Date()) });
       refreshFilters();
-      // Close equip dialog. core.advance/startAndAdvance dispatches open_checklist
-      // when the advance gate detects a pending checklist (awaiting_equipment allowed).
-      if (core.dialogState.kind === 'awaiting_equipment') core.dispatch({ type: 'close' });
+      // Close equip dialog ONLY when no checklist gate fired — otherwise the
+      // explicit close races the checklist dispatch and dismisses it.
+      if (!dialogOpenedByCore) core.dispatch({ type: 'close' });
       setToast({ type: 'success', message: `${equipmentDialog.filterName} → ${equipmentDialog.stage.label}${executed ? '' : ' (queued)'}` });
     } catch (e: any) {
       // B7.2: single-filter equipment submit may return 409 BLOCK_CHANGE_REQUIRED

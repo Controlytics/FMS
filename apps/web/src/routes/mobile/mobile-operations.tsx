@@ -708,6 +708,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     const scanQueueSnapshot = scanQueue.slice();
     let successCount = 0;
     const failed: string[] = [];
+    // 2026-05-26: capture per-filter server tape so the post-loop checklist
+    // dispatch can pass authoritative server actions to
+    // resolvePendingChecklistDialog instead of falling back to local
+    // recompute (which depends on cache state that the post-loop /current-
+    // state prime overwrites before the dispatch runs).
+    const serverActionsByFilter = new Map<string, any[]>();
     // Deep-review fix D6 (2026-05-17): outer try/finally so the loading flag
     // always clears even when REAUTH or OFFLINE_CACHE_RECOMPUTE_FAILED bubble
     // out of the inner loop. Pre-fix a re-thrown REAUTH left loading=true
@@ -923,13 +929,22 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           }
         }
 
-        const { executed } = await executeOrQueue('advance', item.filterId, item.filterName, {
+        const { executed, result } = await executeOrQueue('advance', item.filterId, item.filterName, {
           targetState: activeStage.key, cleaningAreaId: selectedBlock?.id,
           remarks: remarks || `${activeStage.label} - ${item.filterName}`,
         }, activeStage.key);
         if (!executed) {
           await recomputeAndCacheFilterState(item.filterId, activeStage.key, false, selectedBlock?.id ?? null);
           refreshOfflineData();
+        }
+        // 2026-05-26: stash server tape so post-loop dispatch passes the
+        // authoritative actions to resolvePendingChecklistDialog. The
+        // earlier code relied solely on local recompute which was failing
+        // for mid-cycle advances on profiles where every stage has a
+        // checklist gate (the cache row's pendingChecklist field gets
+        // clobbered by the trailing per-filter /current-state prime).
+        if (executed && Array.isArray(result?.actions)) {
+          serverActionsByFilter.set(item.filterId, result.actions);
         }
         successCount++;
         setRecentOps(prev => [{ stage: activeStage.key, filter: item.filterName, time: formatTime(new Date()), queued: !executed }, ...prev].slice(0, 20));
@@ -984,7 +999,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         const pending: Pending[] = [];
         for (const q of scanQueueSnapshot) {
           try {
-            const checklists = await resolvePendingChecklistDialog(q.filterId);
+            // 2026-05-26: prefer server tape captured during the inner-loop
+            // advance over a cache-driven local recompute. The local path
+            // is fragile because the per-filter /current-state prime fires
+            // AFTER this dispatch and overwrites the cache with the raw
+            // response (which has no pendingChecklist field). Server tape
+            // is authoritative.
+            const serverActions = serverActionsByFilter.get(q.filterId);
+            const checklists = await resolvePendingChecklistDialog(q.filterId, serverActions ?? undefined);
             if (checklists && checklists.length > 0) {
               pending.push({
                 item: { filterId: q.filterId, filterName: q.filterName },
@@ -1661,6 +1683,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // The start-cycle half is reauth-gated (START_CLEANING_CYCLE for ADMIN role) — wrap.
       // The plain-advance branch is NOT reauth-gated (POST /advance has no enforceReauth).
       let executed: boolean | undefined;
+      // 2026-05-26: track whether core.startAndAdvance / core.advance opened
+      // a checklist dialog. The trailing "close stale equipment dialog"
+      // logic at the end of this handler used to read core.dialogState.kind
+      // — a stale-closure value captured at handler entry — and would fire
+      // close on top of the just-opened checklist dialog, killing the gate
+      // on every L1-style profile (every-stage checklist). Now we trust the
+      // hook's return value.
+      let dialogOpenedByCore = false;
       if (pendingCyclePayload) {
         const cyclePayloadSnap = pendingCyclePayload;
         // 2026-05-25 tablet repro on Block FD offline: pass `batchRemainder`
@@ -1692,6 +1722,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               : undefined,
           });
           executed = res.executed;
+          dialogOpenedByCore = dialogOpenedByCore || res.dialogOpened;
         });
         setPendingCyclePayload(null);
         // If reauth dialog was cancelled or failed, `executed` stays undefined —
@@ -1712,6 +1743,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           remarks: remarks || `${equipStage.replace(/_/g, ' ')} - ${equipFiltName}`,
         });
         executed = res.executed;
+        dialogOpenedByCore = dialogOpenedByCore || res.dialogOpened;
       }
 
       // 2026-05-25 combined-screen UX: snapshot the readings the operator just
@@ -1781,10 +1813,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       }
 
       setScanValue(''); setRemarks(''); setSelectedEquipGroup(null); setReadings({});
-      // Close the equip dialog. core.advance/startAndAdvance dispatches open_checklist
-      // if there's a gate (allowed from awaiting_equipment), or does nothing.
-      // If no checklist was dispatched, close explicitly.
-      if (core.dialogState.kind === 'awaiting_equipment') core.dispatch({ type: 'close' });
+      // 2026-05-26 fix: explicit close ONLY when core did NOT open a
+      // checklist dialog. Pre-fix this read `core.dialogState.kind` which is
+      // a stale-closure snapshot from when the handler started ('awaiting_
+      // equipment'), so the close fired AFTER open_checklist had transitioned
+      // the state to 'awaiting_checklist' — killing the checklist dialog on
+      // every L1-style profile where every stage has a gate. Now using the
+      // hook's return-value signal so we close the equip dialog when (and
+      // only when) the cycle write produced no gate transition.
+      if (!dialogOpenedByCore) core.dispatch({ type: 'close' });
       if (executed) mutate('/api/assets/instances?limit=500');
       // Dialog + checklist dispatch handled by core.advance / core.startAndAdvance
     } catch (e: any) {

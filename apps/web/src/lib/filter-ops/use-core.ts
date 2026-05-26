@@ -122,8 +122,8 @@ export interface SubmitChecklistArgs {
 export interface UseFilterOperationsCoreResult {
   dialogState: DialogState;
   dispatch: (event: DialogEvent) => void;
-  advance: (args: AdvanceArgs) => Promise<{ executed: boolean; result?: any }>;
-  startAndAdvance: (args: StartAndAdvanceArgs) => Promise<{ executed: boolean; result?: any }>;
+  advance: (args: AdvanceArgs) => Promise<{ executed: boolean; result?: any; dialogOpened: boolean }>;
+  startAndAdvance: (args: StartAndAdvanceArgs) => Promise<{ executed: boolean; result?: any; dialogOpened: boolean }>;
   submitChecklist: (args: SubmitChecklistArgs) => Promise<{ executed: boolean }>;
   isLoading: boolean;
   error: string | null;
@@ -242,7 +242,7 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
    * reauth.execute() / catch block can present a structured error.
    */
   const advance = useCallback(
-    async (args: AdvanceArgs): Promise<{ executed: boolean; result?: any }> => {
+    async (args: AdvanceArgs): Promise<{ executed: boolean; result?: any; dialogOpened: boolean }> => {
       setIsLoading(true);
       setError(null);
       try {
@@ -265,15 +265,21 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
           );
         }
 
-        await resolveAndDispatchChecklist(
+        // 2026-05-26: return dialogOpened so callers can distinguish "checklist
+        // dialog auto-opened" from "no gate, equipment dialog still open". A
+        // stale-closure read of dialogState.kind in handleEquipSubmit was
+        // dispatching close immediately AFTER open_checklist, killing the
+        // checklist dialog on L1-style profiles where every stage has a gate.
+        const dispatchOutcome = await resolveAndDispatchChecklist(
           args.filterId,
           args.filterName,
           executed ? (result as { actions?: unknown[] } | undefined)?.actions ?? null : null,
           args.batchRemainder,
           dispatch,
         );
+        const dialogOpened = dispatchOutcome === 'opened' || dispatchOutcome === 'opened_from_batch';
 
-        return { executed, result };
+        return { executed, result, dialogOpened };
       } catch (e: unknown) {
         if (isReauthOrRecompute(e)) throw e;
         const err = e as { message?: string };
@@ -306,7 +312,7 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
    * cycle-in-progress.
    */
   const startAndAdvance = useCallback(
-    async (args: StartAndAdvanceArgs): Promise<{ executed: boolean; result?: any }> => {
+    async (args: StartAndAdvanceArgs): Promise<{ executed: boolean; result?: any; dialogOpened: boolean }> => {
       setIsLoading(true);
       setError(null);
       try {
@@ -332,17 +338,19 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
         // in handleEquipSubmit) MUST skip this; the first iteration's
         // dispatch already carries `remainingBatch` and the dialog cascade
         // handles the rest.
+        let dialogOpened = false;
         if (!args.skipChecklistDispatch) {
-          await resolveAndDispatchChecklist(
+          const dispatchOutcome = await resolveAndDispatchChecklist(
             args.filterId,
             args.filterName,
             executed ? (result as { actions?: unknown[] } | undefined)?.actions ?? null : null,
             args.batchRemainder,
             dispatch,
           );
+          dialogOpened = dispatchOutcome === 'opened' || dispatchOutcome === 'opened_from_batch';
         }
 
-        return { executed, result };
+        return { executed, result, dialogOpened };
       } catch (e: unknown) {
         if (isReauthOrRecompute(e)) throw e;
         const err = e as { message?: string };
