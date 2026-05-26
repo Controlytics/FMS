@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect } from 'react';
+import { Fragment, useState, useEffect, useRef } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient, api } from '../../lib/api-client';
@@ -246,12 +246,35 @@ export function MobileWrapperPage() {
   const [rfidError, setRfidError] = useState('');
   const [rfidSuccess, setRfidSuccess] = useState('');
 
-  // 2026-05-26: Filter Status → Scan RFID modal state. Operator taps the
-  // "Scan RFID" button on the Status view, scans a tag, sees the mapped
+  // 2026-05-26: Filter Status → Scan RFID modal state. Operator taps
+  // "Scan RFID" on the Status view, scans a tag, sees the mapped
   // filter's current state + Block→Area→AHU hierarchy + last cleaned.
+  //
+  // The scan capture uses a HIDDEN uncontrolled input — not a visible
+  // controlled one — for two reasons drawn directly from operator
+  // feedback on the tablet:
+  //
+  //   1. Multiple scans were concatenating ("CA000C01CA000C03" on
+  //      one line). Controlled inputs accumulate React-state across
+  //      scan bursts when the next burst arrives before React flushes
+  //      its render. An uncontrolled input + DOM-snapshot-on-Enter
+  //      bypasses the race entirely.
+  //   2. The operator should NOT be able to manually type a tag value
+  //      into the field. The modal is for scan-driven lookup, not
+  //      keyboard entry. A hidden input with a read-only display chip
+  //      removes the text-entry affordance while still capturing
+  //      scanner-emitted keystrokes (it's autofocused; the modal's
+  //      onClick refocuses it if the user taps elsewhere).
+  //
+  // `scanRfidValue` is set on Enter (the scan-burst terminator emitted
+  // by the KC-series scanner) from the input's .value snapshot, then
+  // the input is cleared so the next scan starts from empty regardless
+  // of how rapid the back-to-back scans are.
   const [scanRfidOpen, setScanRfidOpen] = useState(false);
-  const scanRfid = useRfidScanField();
+  const [scanRfidValue, setScanRfidValue] = useState('');
   const [scanRfidError, setScanRfidError] = useState('');
+  const scanRfidInputRef = useRef<HTMLInputElement>(null);
+  const scanRfidLastSubmitRef = useRef<{ value: string; time: number }>({ value: '', time: 0 });
   // 2026-05-21: cascading hierarchy filters for the RFID Assign filter list —
   // Block → Area → AHU → Filter, mirroring the Status view.
   const [rfidBlockId, setRfidBlockId] = useState<string>('all');
@@ -361,7 +384,7 @@ export function MobileWrapperPage() {
     setRfidError('');
     setRfidSuccess('');
     setScanRfidOpen(false);
-    scanRfid.setValue('');
+    setScanRfidValue('');
     setScanRfidError('');
     // 2026-05-17 stale-stage-counter fix: revalidate `instances` on
     // home-enter. Matches the same fix in mobile-operations.tsx::goHome —
@@ -780,7 +803,7 @@ export function MobileWrapperPage() {
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-lg font-bold text-slate-800">Filter Status</h2>
               <button
-                onClick={() => { scanRfid.setValue(''); setScanRfidError(''); setScanRfidOpen(true); }}
+                onClick={() => { setScanRfidValue(''); setScanRfidError(''); setScanRfidOpen(true); }}
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-violet-500 to-purple-600 shadow-md shadow-violet-500/20 active:shadow-none"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" /></svg>
@@ -1910,7 +1933,7 @@ export function MobileWrapperPage() {
             - input set, identifier + filter both resolve → details
               card. */}
       {scanRfidOpen && (() => {
-        const tag = scanRfid.value.trim();
+        const tag = scanRfidValue.trim();
         const instByIdLookup = new Map((instances as any[]).map((i: any) => [i.id, i] as [string, any]));
         const filterTemplateIdsLookup = new Set(
           templates.filter((t: any) => t.templateKind === 'FILTER').map((t: any) => t.id),
@@ -1961,8 +1984,21 @@ export function MobileWrapperPage() {
         };
         const stageInfo = result.kind === 'ok' ? STAGES.find(s => s.key === result.filter.currentLifecycleState) : null;
         return (
-          <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 backdrop-blur-sm" onClick={() => setScanRfidOpen(false)}>
-            <div className="w-full max-w-2xl bg-white rounded-t-3xl shadow-2xl max-h-[90dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 backdrop-blur-sm"
+            onClick={() => setScanRfidOpen(false)}
+            // Refocus the hidden scan input whenever any part of the
+            // modal (incl. the dimmer) is interacted with — if the user
+            // taps the result card, the input mustn't lose focus,
+            // otherwise the next scan goes to document.body and gets
+            // blocked by the global RFID guard.
+            onMouseDown={() => scanRfidInputRef.current?.focus()}
+          >
+            <div
+              className="w-full max-w-2xl bg-white rounded-t-3xl shadow-2xl max-h-[90dvh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => { e.stopPropagation(); scanRfidInputRef.current?.focus(); }}
+            >
               <div className="sticky top-0 bg-gradient-to-r from-violet-500 to-purple-600 px-5 py-4 rounded-t-3xl flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-bold text-white">Scan RFID</h2>
@@ -1974,23 +2010,90 @@ export function MobileWrapperPage() {
               </div>
 
               <div className="p-5 space-y-4">
+                {/* Hidden uncontrolled input that captures scanner
+                    keystrokes. data-rfid="true" lets the global
+                    use-rfid-guard hook pass the fast-burst keys through.
+                    autoFocus + the modal's refocus-on-interact handlers
+                    keep this focused even when the operator taps the
+                    result card. On Enter (KC-series burst terminator),
+                    we snapshot .value, clear the DOM input, and lift the
+                    snapshot into React state for the lookup below.
+                    Using `defaultValue` + DOM-snapshot is critical here:
+                    a controlled `<input value={state}>` has a
+                    React-render-race that causes back-to-back scans to
+                    concatenate ("CA000C01CA000C03") under rapid timing —
+                    the bug operators reported on the tablet. */}
+                <input
+                  ref={scanRfidInputRef}
+                  data-rfid="true"
+                  type="text"
+                  defaultValue=""
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const el = e.currentTarget;
+                      // Strip CR/LF/tab/whitespace inline — same contract
+                      // as useRfidScanField's onChange cleanup.
+                      const raw = el.value;
+                      const cleaned = raw.replace(/[\r\n\t]/g, '').replace(/^\s+|\s+$/g, '');
+                      // Clear the DOM input BEFORE handling — guarantees
+                      // the next scan starts from empty no matter what.
+                      el.value = '';
+                      if (!cleaned) return;
+                      // Duplicate-submit guard: same value within 1s is
+                      // silently dropped (KC-series scanners sometimes
+                      // double-fire on an unsteady physical scan).
+                      const now = Date.now();
+                      if (
+                        cleaned === scanRfidLastSubmitRef.current.value &&
+                        now - scanRfidLastSubmitRef.current.time < 1000
+                      ) {
+                        return;
+                      }
+                      scanRfidLastSubmitRef.current = { value: cleaned, time: now };
+                      setScanRfidValue(cleaned);
+                      setScanRfidError('');
+                    }
+                  }}
+                  autoFocus
+                  tabIndex={-1}
+                  aria-hidden="true"
+                  // Visually hidden but still focusable + key-receiving.
+                  // `pointer-events: none` would block focus, so we just
+                  // collapse the box and zero out opacity instead.
+                  style={{
+                    position: 'absolute',
+                    left: '-9999px',
+                    top: 'auto',
+                    width: 1,
+                    height: 1,
+                    overflow: 'hidden',
+                    opacity: 0,
+                  }}
+                />
+
+                {/* Read-only display chip — shows the LAST committed
+                    scan value (or "Awaiting scan..." when empty). No
+                    text-entry possible because the chip is a div, not
+                    an input, per operator request. */}
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">RFID Tag</label>
-                  <input
-                    data-rfid="true"
-                    type="text"
-                    value={scanRfid.value}
-                    onKeyDown={(e) => {
-                      scanRfid.onKeyDown(e);
-                      // Enter is a no-op here (lookup is live as the value
-                      // changes); just prevent accidental form submit.
-                      if (e.key === 'Enter') e.preventDefault();
-                    }}
-                    onChange={(e) => { scanRfid.onChange(e); setScanRfidError(''); }}
-                    placeholder="Scan or enter tag value..."
-                    autoFocus
-                    className="w-full px-3 py-3 border border-slate-200 rounded-xl text-base font-mono bg-white focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                  />
+                  <div
+                    onClick={() => scanRfidInputRef.current?.focus()}
+                    className={`w-full min-h-[3rem] px-3 py-3 border-2 rounded-xl text-base font-mono break-all select-none cursor-default flex items-center justify-between gap-3 ${
+                      scanRfidValue
+                        ? 'border-violet-300 bg-violet-50 text-slate-900'
+                        : 'border-dashed border-slate-300 bg-slate-50 text-slate-400'
+                    }`}
+                  >
+                    <span className="flex-1">{scanRfidValue || 'Awaiting scan...'}</span>
+                    {scanRfidValue && (
+                      <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-violet-600 font-bold shrink-0">
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+                        Scanned
+                      </span>
+                    )}
+                  </div>
                   {scanRfidError && (
                     <div className="mt-2 text-xs text-rose-600 font-medium">{scanRfidError}</div>
                   )}
@@ -2066,7 +2169,13 @@ export function MobileWrapperPage() {
 
                 <div className="flex items-center justify-between gap-2 pt-2">
                   <button
-                    onClick={() => { scanRfid.setValue(''); setScanRfidError(''); }}
+                    onClick={() => {
+                      setScanRfidValue('');
+                      setScanRfidError('');
+                      scanRfidLastSubmitRef.current = { value: '', time: 0 };
+                      if (scanRfidInputRef.current) scanRfidInputRef.current.value = '';
+                      scanRfidInputRef.current?.focus();
+                    }}
                     className="px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 active:bg-slate-200"
                   >
                     Clear
