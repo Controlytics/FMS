@@ -884,6 +884,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             // shape as handleDryerDurationSubmit, but called per-filter from
             // the batch loop instead of via the modal dialog.
             try {
+              // 2026-05-26: skip the in-core dispatch entirely for
+              // multi-filter DRY_IN SET_DURATION. The post-loop unified-
+              // batch dispatch below groups every filter with a pending
+              // gate into ONE dialog (filterName="N filter(s)") so the
+              // operator answers once, then handleChecklistSubmit's batch
+              // branch loops core.submitChecklist for each. If we let
+              // core.advance dispatch per-filter inside the loop, filter
+              // 2's dispatch trips assertOpenable on filter 1's
+              // awaiting_checklist state. Also stash server actions so
+              // the post-loop resolver uses authoritative server tape.
               const dryerRes = await core.advance({
                 filterId: item.filterId,
                 filterName: item.filterName,
@@ -892,15 +902,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 dryerAction: 'SET_DURATION',
                 dryerDurationMinutes: dur,
                 remarks: remarks || `Dryer started (${dur} min) - ${item.filterName}`,
+                skipChecklistDispatch: true,
               });
               const dryerExec = dryerRes.executed;
-              // 2026-05-26: core.advance already dispatched open_checklist if
-              // a gate fires after DRY_IN entry — mark this filter so the
-              // post-loop dispatch doesn't try to open a second dialog and
-              // hit assertOpenable's "Cannot open dialog from state awaiting_
-              // checklist" throw (caught the offline DRY_IN SET_DURATION path).
-              if (dryerRes.dialogOpened) {
-                dialogDispatchedInLoop.add(item.filterId);
+              if (dryerExec && Array.isArray((dryerRes.result as any)?.actions)) {
+                serverActionsByFilter.set(item.filterId, (dryerRes.result as any).actions);
               }
               setRecentOps(prev => [{ stage: 'Dryer Started', filter: item.filterName, time: formatTime(new Date()), queued: !dryerExec }, ...prev].slice(0, 20));
               // 2026-05-20 explicit IDB filters-store write — guarantees the

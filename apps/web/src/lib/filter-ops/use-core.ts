@@ -71,6 +71,16 @@ export interface AdvanceArgs {
    *  this call in reauth.execute() and forward the password the operator
    *  enters. Never persisted to IDB. */
   password?: string;
+  /**
+   * 2026-05-26: skip the post-advance checklist dispatch. Mirrors the same
+   * flag on `StartAndAdvanceArgs`. Set this on filter-2..N iterations of a
+   * multi-filter loop where filter-1's advance already opened the dialog —
+   * otherwise `resolveAndDispatchChecklist` tries to open a second dialog
+   * from `awaiting_checklist` and trips `assertOpenable`. The page is
+   * responsible for stashing the remaining filters so the dialog cascade
+   * handles them on submit.
+   */
+  skipChecklistDispatch?: boolean;
 }
 
 /**
@@ -270,14 +280,23 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
         // stale-closure read of dialogState.kind in handleEquipSubmit was
         // dispatching close immediately AFTER open_checklist, killing the
         // checklist dialog on L1-style profiles where every stage has a gate.
-        const dispatchOutcome = await resolveAndDispatchChecklist(
-          args.filterId,
-          args.filterName,
-          executed ? (result as { actions?: unknown[] } | undefined)?.actions ?? null : null,
-          args.batchRemainder,
-          dispatch,
-        );
-        const dialogOpened = dispatchOutcome === 'opened' || dispatchOutcome === 'opened_from_batch';
+        //
+        // skipChecklistDispatch: multi-filter DRY_IN SET_DURATION loop. The
+        // first filter's resolveAndDispatchChecklist opens the dialog; every
+        // subsequent filter MUST skip dispatch or it trips assertOpenable
+        // (dialog already in awaiting_checklist). Same pattern as
+        // startAndAdvance's batch-continuation iterations.
+        let dialogOpened = false;
+        if (!args.skipChecklistDispatch) {
+          const dispatchOutcome = await resolveAndDispatchChecklist(
+            args.filterId,
+            args.filterName,
+            executed ? (result as { actions?: unknown[] } | undefined)?.actions ?? null : null,
+            args.batchRemainder,
+            dispatch,
+          );
+          dialogOpened = dispatchOutcome === 'opened' || dispatchOutcome === 'opened_from_batch';
+        }
 
         return { executed, result, dialogOpened };
       } catch (e: unknown) {
