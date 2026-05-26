@@ -1717,16 +1717,19 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // on every L1-style profile (every-stage checklist). Now we trust the
       // hook's return value.
       let dialogOpenedByCore = false;
+      // 2026-05-26: capture server tape per filter so the unified-batch
+      // post-loop dispatch (below) groups same-signature filters into ONE
+      // dialog. Pre-fix the cycle-start used the per-filter remainingBatch
+      // cycling pattern which dropped 2 of 3 checklists in the multi-filter
+      // L1 batch test on tablet HA28H13Z 2026-05-26 19:00 IST.
+      const cycleStartActionsByFilter = new Map<string, any[]>();
       if (pendingCyclePayload) {
         const cyclePayloadSnap = pendingCyclePayload;
-        // 2026-05-25 tablet repro on Block FD offline: pass `batchRemainder`
-        // to filter 1's startAndAdvance so its `resolveAndDispatchChecklist`
-        // opens filter 1's checklist gate (if any) with the remaining
-        // filters queued in `remainingBatch`. When the operator submits
-        // filter 1's checklist, the existing `advance_batch` flow walks to
-        // filter 2's checklist automatically — no second open_checklist
-        // dispatch from the batch loop below. See StartAndAdvanceArgs
-        // docblock for the full context.
+        // For multi-filter cycle-start: skip the in-core dispatch entirely
+        // and let the post-loop unified-batch dispatch handle it. Same shape
+        // as the multi-filter DRY_IN SET_DURATION path (handleSubmitQueue
+        // line ~890). For single-filter, no batchRest, normal dispatch.
+        const useUnifiedBatch = batchRest.length > 0;
         await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
           const res = await core.startAndAdvance({
             filterId: equipFiltId,
@@ -1743,12 +1746,13 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             targetState,
             cleaningAreaId: selectedBlock?.id,
             password,
-            batchRemainder: batchRest.length > 0
-              ? batchRest.map(b => ({ filterId: b.filterId, filterName: b.filterName }))
-              : undefined,
+            skipChecklistDispatch: useUnifiedBatch,
           });
           executed = res.executed;
           dialogOpenedByCore = dialogOpenedByCore || res.dialogOpened;
+          if (useUnifiedBatch && executed && Array.isArray((res.result as any)?.actions)) {
+            cycleStartActionsByFilter.set(equipFiltId, (res.result as any).actions);
+          }
         });
         setPendingCyclePayload(null);
         // If reauth dialog was cancelled or failed, `executed` stays undefined —
@@ -1805,7 +1809,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         for (const rest of batchRest) {
           try {
             await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
-              await core.startAndAdvance({
+              const restRes = await core.startAndAdvance({
                 filterId: rest.filterId,
                 filterName: rest.filterName,
                 cyclePayload: cyclePayloadSnap,
@@ -1820,13 +1824,17 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 targetState,
                 cleaningAreaId: selectedBlock?.id,
                 password,
-                // 2026-05-25: Filter 1's startAndAdvance already dispatched
-                // open_checklist with remainingBatch — subsequent batch
-                // iterations only start cycles, they must NOT dispatch
-                // dialogs (would crash state machine if checklist already
-                // open). See StartAndAdvanceArgs.skipChecklistDispatch.
+                // 2026-05-26: all batch iterations skip in-core dispatch.
+                // Unified-batch dispatch fires AFTER this loop completes,
+                // grouping all filters into one dialog. Replaces the old
+                // per-filter remainingBatch cycling pattern that dropped
+                // checklists when the operator didn't see/answer every
+                // sequential dialog.
                 skipChecklistDispatch: true,
               });
+              if (restRes.executed && Array.isArray((restRes.result as any)?.actions)) {
+                cycleStartActionsByFilter.set(rest.filterId, (restRes.result as any).actions);
+              }
             });
             setRecentOps(prev => [{ stage: equipStage, filter: rest.filterName, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 20));
           } catch (batchErr: any) {
@@ -1836,6 +1844,55 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           }
         }
         setSuccess(`Started ${batchRest.length + 1} cycles successfully`);
+
+        // 2026-05-26: unified-batch checklist dispatch for multi-filter
+        // cycle-start. Walk every filter's server tape, group by checklist
+        // signature, open ONE dialog covering all same-signature filters.
+        // handleChecklistSubmit's batch branch then POSTs identical answers
+        // to each member sequentially. Same pattern as the mid-cycle batch
+        // path in handleSubmitQueue post-loop.
+        try {
+          const sigOf = (rows: any[]) =>
+            rows.map((r: any) => `${r.checklistProfileId}@${r.profileVersion ?? 0}`).sort().join('|');
+          type Pending = { item: { filterId: string; filterName: string }; checklists: any[]; signature: string };
+          const pending: Pending[] = [];
+          const allFiltersInBatch = [
+            { filterId: equipFiltId, filterName: equipFiltName },
+            ...batchRest.map(b => ({ filterId: b.filterId, filterName: b.filterName })),
+          ];
+          for (const f of allFiltersInBatch) {
+            try {
+              const serverActions = cycleStartActionsByFilter.get(f.filterId);
+              const checklists = await resolvePendingChecklistDialog(f.filterId, serverActions ?? undefined);
+              if (checklists && checklists.length > 0) {
+                pending.push({ item: f, checklists, signature: sigOf(checklists) });
+              }
+            } catch { /* per-filter resolver failure shouldn't poison the batch */ }
+          }
+          if (pending.length > 0) {
+            const groups = new Map<string, Pending[]>();
+            for (const p of pending) {
+              const arr = groups.get(p.signature) ?? [];
+              arr.push(p);
+              groups.set(p.signature, arr);
+            }
+            let chosen: Pending[] = [];
+            for (const arr of groups.values()) {
+              if (arr.length > chosen.length) chosen = arr;
+            }
+            const primary = chosen[0];
+            const batchMembers = chosen.map(p => p.item);
+            setPendingBatch(batchMembers);
+            core.dispatch({
+              type: 'open_checklist',
+              filterId: primary.item.filterId,
+              filterName: batchMembers.length > 1 ? `${batchMembers.length} filter(s)` : primary.item.filterName,
+              checklists: primary.checklists,
+            });
+            setChecklistAnswers({});
+            dialogOpenedByCore = true;
+          }
+        } catch { /* ignore — operator can re-scan to trigger */ }
       }
 
       setScanValue(''); setRemarks(''); setSelectedEquipGroup(null); setReadings({});
