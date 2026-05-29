@@ -28,7 +28,12 @@ const DB_NAME = 'digilog-offline';
 //   - syncVersionState (keyPath key) — single-row store ('current' key)
 //       holding {profileVersion, filterProfileVersion, equipmentGroupVersion,
 //       checklistVersion, assetTemplateVersion, filterUpdatedSince}.
-const DB_VERSION = 5;
+// A-01 coupled-cluster Step 1 (2026-05-29): v6 adds 4 kind-scoped typed
+// caches (cache_blocks / cache_areas / cache_ahus / cache_filters_typed)
+// alongside the existing legacy mixed-kind `filters` store. Dual-cache
+// during the migration window lets consumers migrate one at a time.
+// Legacy `filters` store drops in Step 7 once all consumers migrate.
+const DB_VERSION = 6;
 
 // Single source of truth for offline-critical TTLs. Long shifts (>= 12h)
 // require everything that participates in cleaning to outlive a full day,
@@ -226,6 +231,21 @@ function openDB(): Promise<IDBDatabase> {
           db.createObjectStore('syncVersionState', { keyPath: 'key' });
         }
       }
+
+      // A-01 coupled-cluster Step 1 (2026-05-29): v5 -> v6 adds 4 typed
+      // caches mirroring the typed-hierarchy tables. Populated by
+      // offline-sync-service (Step 2) alongside the legacy mixed `filters`
+      // store. Existing consumers continue to read the legacy store; new
+      // consumers (mobile-wrapper, mobile-operations, filter-operations,
+      // use-filter-operations-offline-cache) migrate to typed stores in
+      // Steps 3-6. The legacy `filters` store drops in Step 7.
+      if (oldVersion < 6) {
+        for (const name of ['cache_blocks', 'cache_areas', 'cache_ahus', 'cache_filters_typed']) {
+          if (!db.objectStoreNames.contains(name)) {
+            db.createObjectStore(name, { keyPath: 'id' });
+          }
+        }
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -377,7 +397,63 @@ export async function compactSyncedOperations(): Promise<{ removed: number }> {
   });
 }
 
-// === Filter Cache ===
+// === A-01 Wave 5 — Typed-Kind Caches (Step 1, 2026-05-29) ============================
+//
+// Per-kind cache stores mirror the typed-hierarchy tables exposed at
+// /api/hierarchy/{blocks,areas,ahus,filters}. Populated by offline-sync-
+// service.ts alongside the legacy mixed `filters` store. Consumer files
+// (mobile-wrapper, mobile-operations, filter-operations, the offline-cache
+// hook) migrate to these stores one-per-step in the coupled-cluster plan.
+//
+// No `templateId` / `templateKind` discriminator field — the cache name IS
+// the kind. This eliminates the bug class that plagued PM, cleaning-profile-
+// assignment, and the mobile pages where filter instances got mis-classified
+// as AHUs because of name-substring matching against legacy template names.
+
+export interface CachedBlock {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  attributes: Record<string, unknown>;
+  customAttributes?: Record<string, unknown>;
+  unsPath: string | null;
+  isActive: boolean;
+}
+export interface CachedArea extends CachedBlock { blockId: string | null; }
+export interface CachedAhu  extends CachedBlock { areaId:  string | null; }
+export interface CachedFilterTyped extends CachedBlock { ahuId: string | null; }
+
+async function cacheTypedRows<T extends { id: string }>(storeName: string, rows: T[]): Promise<void> {
+  const db = await openDB();
+  const tx = db.transaction(storeName, 'readwrite');
+  const store = tx.objectStore(storeName);
+  store.clear();
+  for (const r of rows) store.put(r);
+  return new Promise((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); });
+}
+
+async function getCachedTypedRows<T>(storeName: string): Promise<T[]> {
+  const db = await openDB();
+  const tx = db.transaction(storeName, 'readonly');
+  const req = tx.objectStore(storeName).getAll();
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result ?? []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export const cacheBlocks       = (rows: CachedBlock[])       => cacheTypedRows('cache_blocks', rows);
+export const cacheAreas        = (rows: CachedArea[])        => cacheTypedRows('cache_areas', rows);
+export const cacheAhus         = (rows: CachedAhu[])         => cacheTypedRows('cache_ahus', rows);
+export const cacheFiltersTyped = (rows: CachedFilterTyped[]) => cacheTypedRows('cache_filters_typed', rows);
+
+export const getCachedBlocks       = () => getCachedTypedRows<CachedBlock>('cache_blocks');
+export const getCachedAreas        = () => getCachedTypedRows<CachedArea>('cache_areas');
+export const getCachedAhus         = () => getCachedTypedRows<CachedAhu>('cache_ahus');
+export const getCachedFiltersTyped = () => getCachedTypedRows<CachedFilterTyped>('cache_filters_typed');
+
+// === Filter Cache (legacy mixed-kind store — drops in Step 7) ===
 
 export async function cacheFilters(filters: CachedFilter[]): Promise<void> {
   const db = await openDB();

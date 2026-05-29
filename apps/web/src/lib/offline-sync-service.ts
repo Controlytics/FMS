@@ -15,7 +15,18 @@
  */
 
 import { apiClient } from './api-client';
-import { cacheData, cacheFilters } from './offline-store';
+import {
+  cacheData,
+  cacheFilters,
+  // A-01 coupled-cluster Step 2 (2026-05-29): typed-kind caches populated
+  // alongside the legacy mixed `filters` store. New consumers will read
+  // from these typed stores; existing carve-out consumers continue with the
+  // legacy mixed cache until they migrate (Steps 3-6).
+  cacheBlocks,
+  cacheAreas,
+  cacheAhus,
+  cacheFiltersTyped,
+} from './offline-store';
 
 export interface SyncProgress {
   step: string;
@@ -100,6 +111,28 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
     const instances = instancesRes?.data ?? [];
     await cacheFilters(instances); // stores in 'filters' IndexedDB store
     await cacheItem('instances-raw', instances); // also cache raw for reference
+
+    // A-01 coupled-cluster Step 2 (2026-05-29): silently dual-cache from the
+    // typed-hierarchy endpoints. Soft-fail so a hierarchy outage doesn't
+    // break the (still-canonical) legacy sync above. When consumers migrate
+    // (Steps 3-6) they'll read from these typed stores; until then they're
+    // populated-but-unused inventory.
+    try {
+      const [blocksRes, areasRes, ahusRes, filtersTypedRes] = await Promise.all([
+        apiClient.get<any>('/api/hierarchy/blocks?limit=500'),
+        apiClient.get<any>('/api/hierarchy/areas?limit=500'),
+        apiClient.get<any>('/api/hierarchy/ahus?limit=500'),
+        apiClient.get<any>('/api/hierarchy/filters?limit=500'),
+      ]);
+      await Promise.all([
+        cacheBlocks(blocksRes?.data ?? []),
+        cacheAreas(areasRes?.data ?? []),
+        cacheAhus(ahusRes?.data ?? []),
+        cacheFiltersTyped(filtersTypedRes?.data ?? []),
+      ]);
+    } catch (err) {
+      recordSoftFailure('typed-hierarchy-caches', err);
+    }
     currentStep++;
 
     // 3. Filter states (batch — single API call for ALL filters)
