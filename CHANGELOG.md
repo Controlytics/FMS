@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased] — M-04: fix asset→typed-table mirror trigger breaking filter writes (2026-05-27)
+
+**Bug**: Commit `97d298c` (2026-05-25) dropped four cycle-state columns (`filter_profile_id`, `current_lifecycle_state`, `current_cycle_id`, `filter_set`) from the `filters` typed-hierarchy table (FilterDetails is their authoritative home). The companion migration `20260525223000` dropped the sibling `fn_mirror_filter_details()` trigger and unblocked the *cycle-write* path — but the Wave-1 `fn_mirror_asset_instance()` trigger (mirrors every `asset_instances` write into `blocks`/`areas`/`ahus`/`filters` by `template_kind`) was left untouched. Its FILTER branch still did `INSERT INTO filters (... filter_profile_id ...)`, so every `asset_instances` write of FILTER kind failed with `column "filter_profile_id" of relation "filters" does not exist` — **breaking filter create / rename / retire / replace and bulk-upload** since 2026-05-25. Confirmed live on 2026-05-27 (columns absent from `filters`; `pg_get_functiondef` still referenced them).
+
+**Fix**: migration `20260527191316_fix_mirror_asset_instance_drop_dead_filter_cols` — `CREATE OR REPLACE FUNCTION fn_mirror_asset_instance()` with only the FILTER branch cleaned (dropped the four dead column refs from the INSERT list, VALUES, and `ON CONFLICT DO UPDATE` set, plus the now-unused local vars and the `filter_details` SELECT-INTO). BLOCK / AREA / AHU / DELETE / ELSE branches unchanged; the trigger `trg_mirror_asset_instance_iud` untouched. Applied directly via psql (the `_prisma_migrations` table is absent — A-02 — so `migrate deploy` is not in use; `CREATE OR REPLACE` is idempotent).
+
+**Verification** (transactional, all rolled back — zero test rows persisted): FILTER `asset_instance` INSERT now succeeds and mirrors a `filters` row with the correct `ahu_id` + reused UUID; UPDATE (rename + retire) drives the `ON CONFLICT DO UPDATE` branch correctly; BLOCK insert still mirrors. No application code changed — the fix is DB-side and live immediately, no API restart needed.
+
+**Context**: This is item **M-04** in `tasks/PENDING-FIXES-2026-05-25.md`, on the asset-removal (typed-tables) programme path. The full generic-model→typed-table cutover remains task **A-01** (4–8 weeks, separate engagement) — executable plan now drafted at `tasks/A-01-ASSET-CUTOVER-PLAN.md`.
+
 ## [Unreleased] — Password expiry derives from live policy + grace floor (2026-05-23 → 25)
 
 **Original bug (5/23)**: Setting `passwordExpiryDays` to 1 (or any value) did not expire existing users' passwords. Root cause: `users.password_expires_at` was a frozen snapshot baked in at password-change / create / unlock / reset time; lowering the policy later did not retroactively update any user row, and the login + per-request expiry checks only consulted that stale column.

@@ -10,6 +10,8 @@ Each item includes: **why it's pending** • **what needs to happen** • **esti
 
 ### A-01 — Complete the `asset_instances` cutover
 
+> **Detailed executable plan drafted 2026-05-27:** `tasks/A-01-ASSET-CUTOVER-PLAN.md` (6 phases, live-measured surface, D1–D5 decision gate, rollback). The summary below stands; the plan supersedes it for execution.
+
 The 2026-05-17 typed-hierarchy migration added `blocks` / `areas` / `ahus` / `filters` sidecar tables but did not migrate the FK references. `cleaning_cycles.filter_id`, `filter_events.filter_id`, `asset_identifiers.asset_id`, `filter_details.asset_instance_id`, and the parent-chain walker all still point at `asset_instances`. **This is the structural blocker for "remove the Asset / Template / Entity concept."**
 
 - **Why pending**: 4–8 weeks of focused work; ~150 query-site cutover; 21 CFR §11 audit-chain re-anchoring; backfill scripts + rollback plan.
@@ -78,7 +80,10 @@ Currently the column stores plaintext + has a UNIQUE index for lookup. Table is 
 - **Estimate**: half day.
 - **Reference**: `tasks/DB-AUDIT-2026-05-25.md` F-11
 
-### M-04 — Patch `fn_mirror_asset_instance` to stop writing dropped columns
+### M-04 — Patch `fn_mirror_asset_instance` to stop writing dropped columns — ✅ DONE 2026-05-27
+
+> **Resolved** in migration `20260527191316_fix_mirror_asset_instance_drop_dead_filter_cols`. `CREATE OR REPLACE` cleaned only the FILTER branch (dropped the 4 dead column refs from INSERT/VALUES/ON CONFLICT + the unused vars + the filter_details SELECT-INTO); BLOCK/AREA/AHU/DELETE branches unchanged. Applied via psql; verified transactionally (FILTER insert + rename/retire UPDATE + BLOCK insert all mirror correctly, rolled back). See CHANGELOG [Unreleased] 2026-05-27.
+
 
 Companion to today's `fn_mirror_filter_details` drop (migration `20260525223000_drop_filter_details_mirror_trigger`). After commit `97d298c` dropped `filter_profile_id`, `current_lifecycle_state`, `current_cycle_id`, `filter_set` from the `filters` table, `fn_mirror_asset_instance` still references all four in its `INSERT INTO filters (... filter_profile_id, current_lifecycle_state, current_cycle_id, filter_set ...)` upsert. Latent on the cycle-write path (which doesn't touch `asset_instances`), but breaks every filter create / rename / retire / replace flow + bulk-upload because those write `asset_instances` and trip the trigger.
 
