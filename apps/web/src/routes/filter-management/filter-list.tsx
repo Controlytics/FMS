@@ -12,7 +12,8 @@ import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import { themeGradientBr, themeButton } from '@/lib/theme-styles';
 
 import { STATUS_LABELS, LIFECYCLE_STATE_OPTIONS } from './filter-list/constants';
-import type { CreateDialogState, DiagramFilterState, HierarchyNode, StatusPanelFilter, EditFilterRef, FilterRef } from './filter-list/types';
+import type { CreateDialogState, DiagramFilterState, HierarchyNode, StatusPanelFilter, EditFilterRef, FilterRef, FilterFieldOptions, LastCleaningDateState } from './filter-list/types';
+import { encodeLastCleaningDate, decodeLastCleaningDate } from './filter-list/lib/lastCleaningDateState';
 import { HierarchyCanvas } from './filter-list/components/HierarchyCanvas';
 import { StatusUpdatePanel } from './filter-list/dialogs/StatusUpdatePanel';
 import { DeleteBlockDialog } from './filter-list/dialogs/DeleteBlockDialog';
@@ -89,6 +90,29 @@ export function FilterListPage() {
   const [editFilterSet, setEditFilterSet] = useState<'A' | 'B'>('A');
   const [editFilterSubmitting, setEditFilterSubmitting] = useState(false);
   const [editFilterError, setEditFilterError] = useState('');
+
+  // ── Filter Field Options config (Task 7) ──
+  const { data: filterFieldOptionsConfig } = useSWR('/api/config/dynamic/filter-field-options');
+  const fieldOptions: FilterFieldOptions = (() => {
+    const v = filterFieldOptionsConfig?.value as Partial<FilterFieldOptions> | undefined;
+    return {
+      ahuType: Array.isArray(v?.ahuType) ? v!.ahuType : ['Process', 'Non Process'],
+      filterType: Array.isArray(v?.filterType) ? v!.filterType : [],
+      micronSize: Array.isArray(v?.micronSize) ? v!.micronSize : [],
+    };
+  })();
+
+  // Create-filter state additions
+  const [createFilterAhuType, setCreateFilterAhuType] = useState('');
+  const [createFilterFilterType, setCreateFilterFilterType] = useState('');
+  const [createFilterMicronSize, setCreateFilterMicronSize] = useState('');
+  const [createFilterLastCleaning, setCreateFilterLastCleaning] = useState<LastCleaningDateState>({ date: '', na: false });
+
+  // Edit-filter state additions
+  const [editFilterAhuType, setEditFilterAhuType] = useState('');
+  const [editFilterFilterType, setEditFilterFilterType] = useState('');
+  const [editFilterMicronSize, setEditFilterMicronSize] = useState('');
+  const [editFilterLastCleaning, setEditFilterLastCleaning] = useState<LastCleaningDateState>({ date: '', na: false });
   // Delete filter dialog
   const [deleteFilterDialog, setDeleteFilterDialog] = useState<FilterRef | null>(null);
   const [deleteFilterSubmitting, setDeleteFilterSubmitting] = useState(false);
@@ -369,7 +393,9 @@ export function FilterListPage() {
         ahuId, ahuName, areaId, areaName, blockId,
         filterType: f.attributes?.filterType ?? '-',
         ahuType: f.attributes?.ahuType ?? '-',
+        micronSize: f.attributes?.micronSize ?? '-',
         lastCleaningDate: f.attributes?.lastCleaningDate ?? null,
+        _rawAttributes: f.attributes ?? {},
       };
     });
   }, [allFilters, instanceMap, ahuTemplateId, blockIds]);
@@ -810,10 +836,17 @@ export function FilterListPage() {
   };
 
   // ── Edit filter helpers ──
-  const openEditFilter = (f: { id: string; name: string; filterSet?: string }) => {
+  const openEditFilter = (f: {
+    id: string; name: string; filterSet?: string;
+    ahuType?: string; filterType?: string; micronSize?: string; lastCleaningDate?: string | null;
+  }) => {
     setEditFilterDialog(f);
     setEditFilterName(f.name);
     setEditFilterSet((f.filterSet === 'B' ? 'B' : 'A') as 'A' | 'B');
+    setEditFilterAhuType(f.ahuType && f.ahuType !== '-' ? f.ahuType : '');
+    setEditFilterFilterType(f.filterType && f.filterType !== '-' ? f.filterType : '');
+    setEditFilterMicronSize(f.micronSize && f.micronSize !== '-' ? f.micronSize : '');
+    setEditFilterLastCleaning(decodeLastCleaningDate(f.lastCleaningDate ?? null));
     setEditFilterError('');
   };
 
@@ -826,7 +859,23 @@ export function FilterListPage() {
     setEditFilterError('');
     const id = editFilterDialog.id;
     await reauth.execute('EDIT_FILTER', async (password?: string) => {
-      const body = { name: editFilterName.trim(), filterSet: editFilterSet };
+      // Read existing attributes off the current row so we don't blow away
+      // template-schema fields when patching.
+      const current = enrichedFilters.find(x => x.id === id);
+      const attributes: Record<string, any> = {
+        ...(current as any)?._rawAttributes ?? {},
+      };
+      if (editFilterAhuType) attributes.ahuType = editFilterAhuType; else delete attributes.ahuType;
+      if (editFilterFilterType) attributes.filterType = editFilterFilterType; else delete attributes.filterType;
+      if (editFilterMicronSize) attributes.micronSize = editFilterMicronSize; else delete attributes.micronSize;
+      const lastEnc = encodeLastCleaningDate(editFilterLastCleaning);
+      if (lastEnc !== undefined) attributes.lastCleaningDate = lastEnc; else delete attributes.lastCleaningDate;
+
+      const body = {
+        name: editFilterName.trim(),
+        filterSet: editFilterSet,
+        ...(Object.keys(attributes).length > 0 && { attributes }),
+      };
       if (password) await api.putWithReauth(`/api/assets/instances/${id}`, body, password);
       else await api.put(`/api/assets/instances/${id}`, body);
     }, {
@@ -890,6 +939,10 @@ export function FilterListPage() {
     setCreateFilterSet('A');
     setCreateFilterProfile('');
     setCreateFilterAttrs({});
+    setCreateFilterAhuType('');
+    setCreateFilterFilterType('');
+    setCreateFilterMicronSize('');
+    setCreateFilterLastCleaning({ date: '', na: false });
     setCreateFilterError('');
   };
 
@@ -924,6 +977,14 @@ export function FilterListPage() {
         attributes[field.fieldName] = raw;
       }
     }
+
+    // Filter Field Options (Task 7) — write into attributes alongside any
+    // template attributeSchema fields.
+    if (createFilterAhuType)    attributes.ahuType    = createFilterAhuType;
+    if (createFilterFilterType) attributes.filterType = createFilterFilterType;
+    if (createFilterMicronSize) attributes.micronSize = createFilterMicronSize;
+    const lastEnc = encodeLastCleaningDate(createFilterLastCleaning);
+    if (lastEnc !== undefined)  attributes.lastCleaningDate = lastEnc;
 
     setCreateFilterSubmitting(true);
     setCreateFilterError('');
@@ -1424,7 +1485,8 @@ export function FilterListPage() {
                         </>
                       )}
                       <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Filter</th>
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Type</th>
+                      <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Filter Type</th>
+                      <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Micron Size</th>
                       <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Set</th>
                       <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Last Cleaned</th>
                       <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Status</th>
@@ -1475,6 +1537,9 @@ export function FilterListPage() {
                             </div>
                           </td>
                           <td className="px-5 py-3.5 text-sm text-slate-500">{f.filterType}</td>
+                          <td className="px-5 py-3.5 text-sm text-slate-500">
+                            {f.micronSize !== '-' ? <>{f.micronSize} <span className="text-slate-400">µm</span></> : '--'}
+                          </td>
                           <td className="px-5 py-3.5">
                             {f.filterSet ? (
                               <span className={`text-[11px] px-2 py-0.5 rounded-md font-medium ${f.filterSet === 'SET_A' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
@@ -1482,7 +1547,13 @@ export function FilterListPage() {
                               </span>
                             ) : <span className="text-sm text-slate-300">--</span>}
                           </td>
-                          <td className="px-5 py-3.5 text-sm text-slate-500">{f.lastCleaningDate ? formatDate(f.lastCleaningDate) : '--'}</td>
+                          <td className="px-5 py-3.5 text-sm text-slate-500">
+                            {f.lastCleaningDate === 'NA'
+                              ? <span className="text-slate-400 italic">NA</span>
+                              : f.lastCleaningDate
+                                ? formatDate(f.lastCleaningDate)
+                                : '--'}
+                          </td>
                           <td className="px-5 py-3.5">
                             <span className={`text-[11px] px-2.5 py-1 rounded-full border font-medium ${stateInfo.color}`}>{stateInfo.label}</span>
                           </td>
@@ -1504,7 +1575,7 @@ export function FilterListPage() {
                               {!isRetired && (
                                 <>
                                   {canEditFilter && (
-                                    <button onClick={() => openEditFilter({ id: f.id, name: f.name, filterSet: f.filterSet })}
+                                    <button onClick={() => openEditFilter({ id: f.id, name: f.name, filterSet: f.filterSet, ahuType: f.ahuType, filterType: f.filterType, micronSize: f.micronSize, lastCleaningDate: f.lastCleaningDate })}
                                       className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors" title="Edit Filter">
                                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -1738,6 +1809,11 @@ export function FilterListPage() {
           areas={createFilterAreas}
           error={createFilterError}
           submitting={createFilterSubmitting}
+          fieldOptions={fieldOptions}
+          ahuType={createFilterAhuType}
+          filterType={createFilterFilterType}
+          micronSize={createFilterMicronSize}
+          lastCleaning={createFilterLastCleaning}
           onAhuChange={setCreateFilterAhu}
           // When the operator changes the Area selector the previously-picked
           // AHU may no longer be in the visible list — clear it so they pick
@@ -1746,6 +1822,10 @@ export function FilterListPage() {
           onNameChange={setCreateFilterName}
           onFilterSetChange={setCreateFilterSet}
           onAttrChange={setCreateFilterAttrs}
+          onAhuTypeChange={setCreateFilterAhuType}
+          onFilterTypeChange={setCreateFilterFilterType}
+          onMicronSizeChange={setCreateFilterMicronSize}
+          onLastCleaningChange={setCreateFilterLastCleaning}
           onClose={() => setCreateFilterOpen(false)}
           onSubmit={submitCreateFilter}
         />
@@ -1781,8 +1861,17 @@ export function FilterListPage() {
           filterSet={editFilterSet}
           error={editFilterError}
           submitting={editFilterSubmitting}
+          fieldOptions={fieldOptions}
+          ahuType={editFilterAhuType}
+          filterType={editFilterFilterType}
+          micronSize={editFilterMicronSize}
+          lastCleaning={editFilterLastCleaning}
           onNameChange={setEditFilterName}
           onFilterSetChange={setEditFilterSet}
+          onAhuTypeChange={setEditFilterAhuType}
+          onFilterTypeChange={setEditFilterFilterType}
+          onMicronSizeChange={setEditFilterMicronSize}
+          onLastCleaningChange={setEditFilterLastCleaning}
           onClose={() => setEditFilterDialog(null)}
           onSubmit={submitEditFilter}
         />
