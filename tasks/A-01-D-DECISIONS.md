@@ -1,7 +1,24 @@
 # A-01 D-Decisions — Concrete Option Analysis
 
-**Status:** Awaiting sign-off
+**Status:** ✅ **SIGNED OFF 2026-05-29 — all recommendations accepted by user.**
 **Date:** 2026-05-29
+
+## Decisions accepted
+- **D1:** C — keep slim `asset_instances` for OTHER-kind only
+- **D2:** A — per-kind config defs (extend Filter-Field-Options pattern)
+- **D3:** A — re-FK `equipment_groups.block_id` → `blocks(id)`
+- **D4(i):** Yes — audit resolver re-anchor
+- **D4(ii):** B — archive `asset_template_versions.snapshot` to cold storage then drop
+- **D5:** A — drop the 7 empty telemetry tables
+
+**What's now unblocked:**
+- `checklist-form/index.tsx` migration (was D2-blocked) — can now build `Checklist-Schema-Per-Kind` config + drop the `entity.template.checklistSchema` read.
+- Phase 2 backend write-cutover — can execute per `A-01-PHASE-2-PLAN.md`.
+- Phase 4 — `equipment_groups.block_id` reanchor + audit resolver re-anchor.
+- Phase 5 — drop legacy tables (after Phase 2/4 complete + asset_template_versions archived).
+
+---
+
 **Purpose:** Five decisions in the A-01 cutover plan that gate Phases 2/4/5. Each has a recommendation, but business / compliance ownership is yours.
 
 > **Why these matter:** the A-01 frontend read-path migration (Wave 5) is well under way (7 of 14 pages done as of commit `3e2251d`). Backend write-path cutover (Phase 2) can start independently. But **dropping the legacy `asset_instances` / `asset_templates` tables (Phase 5 — point of no return)** is blocked until D1–D5 are answered. So is `checklist-form` page migration (D2-blocked) and the equipment-groups schema cleanup (D3-blocked).
