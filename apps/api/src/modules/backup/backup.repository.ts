@@ -2,6 +2,28 @@ import { prisma } from '../../lib/prisma.js';
 import type { BackupData } from './backup.helpers.js';
 
 // ---------------------------------------------------------------------------
+// Safe-identifier guard (audit S-14)
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate any PostgreSQL identifier (table or column name) that gets
+ * interpolated into $queryRawUnsafe / $executeRawUnsafe.  Names are sourced
+ * from pg_tables and pg_attribute — not user input — so the chance of an
+ * unsafe name is near-zero, but guarding here makes the safe-API contract
+ * explicit and protects against any future change in how getAllTables() is
+ * built.
+ *
+ * The regex follows PostgreSQL unquoted identifier rules: starts with a
+ * letter or underscore, followed by up to 62 letters, digits, or underscores
+ * (63 chars total = PG's NAMEDATALEN - 1).
+ */
+function assertSafeIdentifier(name: string): void {
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]{0,62}$/.test(name)) {
+    throw new Error(`Refusing to use unsafe SQL identifier: ${JSON.stringify(name)}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Dynamic table discovery
 // ---------------------------------------------------------------------------
 
@@ -217,6 +239,7 @@ export async function fetchAllTablesRaw(): Promise<Record<string, Record<string,
   // Pre-flight size guard — fail fast before allocating gigabytes.
   if (BACKUP_MAX_ROWS_PER_TABLE > 0) {
     for (const table of tables) {
+      assertSafeIdentifier(table);
       const countRows = await prisma.$queryRawUnsafe<Array<{ c: bigint }>>(
         `SELECT COUNT(*)::bigint AS c FROM "${table}"`,
       );
@@ -229,6 +252,7 @@ export async function fetchAllTablesRaw(): Promise<Record<string, Record<string,
 
   const result: Record<string, Record<string, any>[]> = {};
   for (const table of tables) {
+    assertSafeIdentifier(table);
     const orderClause = table === 'audit_trail' ? ' ORDER BY id ASC' : '';
     const rows = await prisma.$queryRawUnsafe(
       `SELECT * FROM "${table}"${orderClause}`,
@@ -329,6 +353,7 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
     }
 
     // Truncate every DB table in one statement — CASCADE handles all FKs in a single pass
+    for (const t of dbTables) assertSafeIdentifier(t);
     await tx.$executeRawUnsafe(
       `TRUNCATE TABLE ${dbTables.map(t => `"${t}"`).join(', ')} CASCADE`,
     );
@@ -385,6 +410,8 @@ async function fixupSelfRefs(
 
   if (payload.length === 0) return;
 
+  assertSafeIdentifier(table);
+  for (const col of selfRefCols) assertSafeIdentifier(col);
   const setClause = selfRefCols.map(c => `"${c}" = s."${c}"`).join(', ');
 
   const BATCH = 500;
@@ -408,6 +435,8 @@ async function insertRows(
   nullOutColumns: string[] = [],
 ) {
   if (rows.length === 0) return;
+
+  assertSafeIdentifier(table);
 
   // Discover actual columns on the target table — skip keys that don't exist
   const colRows: { column_name: string }[] = await tx.$queryRawUnsafe(
