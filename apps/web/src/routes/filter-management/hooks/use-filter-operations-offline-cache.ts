@@ -5,6 +5,19 @@ import { useOffline } from '../../../hooks/use-offline';
 import { onSyncEvent } from '../../../lib/sync-engine';
 import { cacheServerStateResponse } from '@/lib/offline-cache';
 import { SYNC_AFTER_ONLINE_DELAY_MS } from '@/lib/timing-constants';
+// A-01 coupled-cluster Step 3 (2026-05-29): typed-cache reads exposed
+// alongside the legacy mixed-store reads. Parent (filter-operations.tsx)
+// opts into these in Step 4 — until then, additive only.
+import {
+  getCachedBlocks,
+  getCachedAreas,
+  getCachedAhus,
+  getCachedFiltersTyped,
+  type CachedBlock,
+  type CachedArea,
+  type CachedAhu,
+  type CachedFilterTyped,
+} from '@/lib/offline-store';
 
 // Per-filter `/current-state` priming. Module-level so it can't accidentally
 // capture stale component state — all inputs are explicit args.
@@ -73,6 +86,16 @@ interface UseFilterOperationsOfflineCacheReturn {
   offlineInstances: any[];
   /** Cached templates loaded from IndexedDB on mount or offline transition. */
   offlineTemplates: any[];
+  /** A-01 cluster Step 3 (2026-05-29): typed-kind caches read from the v6
+   *  IDB stores (cache_blocks / cache_areas / cache_ahus / cache_filters_typed).
+   *  Populated by offline-sync-service.ts on login + sync drain. Use these
+   *  instead of filtering the mixed offlineInstances array by templateId —
+   *  no template-kind discrimination needed. Additive: existing consumers
+   *  of offlineInstances are unaffected. */
+  offlineBlocks: CachedBlock[];
+  offlineAreas: CachedArea[];
+  offlineAhus: CachedAhu[];
+  offlineFiltersTyped: CachedFilterTyped[];
   /** True once the first mount-time load resolves (success OR failure). The
    *  parent uses this to gate its `isLoading` computation. */
   offlineDataLoaded: boolean;
@@ -81,6 +104,9 @@ interface UseFilterOperationsOfflineCacheReturn {
    *  the new lifecycle state. Replaces the previous
    *  `getOfflineFilters().then(setOfflineInstances)` inline pattern. */
   refreshOfflineInstances: () => Promise<void>;
+  /** A-01 cluster Step 3: re-pull typed-kind caches after a sync drain so
+   *  the consumer sees fresh data. Mirrors refreshOfflineInstances above. */
+  refreshOfflineTyped: () => Promise<void>;
 }
 
 /**
@@ -124,6 +150,11 @@ export function useFilterOperationsOfflineCache(
 
   const [offlineInstances, setOfflineInstances] = useState<any[]>([]);
   const [offlineTemplates, setOfflineTemplates] = useState<any[]>([]);
+  // A-01 cluster Step 3: typed-kind caches alongside the legacy mixed cache.
+  const [offlineBlocks, setOfflineBlocks] = useState<CachedBlock[]>([]);
+  const [offlineAreas, setOfflineAreas] = useState<CachedArea[]>([]);
+  const [offlineAhus, setOfflineAhus] = useState<CachedAhu[]>([]);
+  const [offlineFiltersTyped, setOfflineFiltersTyped] = useState<CachedFilterTyped[]>([]);
   const [offlineDataLoaded, setOfflineDataLoaded] = useState(false);
 
   // Latest SWR payloads, mirrored to a ref so non-React-flow triggers
@@ -221,20 +252,30 @@ export function useFilterOperationsOfflineCache(
     Promise.all([
       getOfflineFilters().then(setOfflineInstances),
       getCache<any[]>('templates').then(t => setOfflineTemplates(t ?? [])),
+      // A-01 cluster Step 3: typed-kind caches.
+      getCachedBlocks().then(setOfflineBlocks).catch(() => {}),
+      getCachedAreas().then(setOfflineAreas).catch(() => {}),
+      getCachedAhus().then(setOfflineAhus).catch(() => {}),
+      getCachedFiltersTyped().then(setOfflineFiltersTyped).catch(() => {}),
     ]).finally(() => setOfflineDataLoaded(true));
     // Mount-only — getOfflineFilters / getCache are stable closures from
     // useOffline; including them re-runs the load needlessly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 8. Re-load offline filters + templates whenever connectivity drops.
-  //    Without this, the offline fallback shows stale (mount-time) data
-  //    if the operator was online for hours before disconnecting.
+  // 8. Re-load offline filters + templates + typed caches whenever
+  //    connectivity drops. Without this, the offline fallback shows stale
+  //    (mount-time) data if the operator was online for hours before
+  //    disconnecting.
   useEffect(() => {
     if (!online) {
       Promise.all([
         getOfflineFilters().then(setOfflineInstances),
         getCache<any[]>('templates').then(t => setOfflineTemplates(t ?? [])),
+        getCachedBlocks().then(setOfflineBlocks).catch(() => {}),
+        getCachedAreas().then(setOfflineAreas).catch(() => {}),
+        getCachedAhus().then(setOfflineAhus).catch(() => {}),
+        getCachedFiltersTyped().then(setOfflineFiltersTyped).catch(() => {}),
       ]).finally(() => setOfflineDataLoaded(true));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -260,10 +301,31 @@ export function useFilterOperationsOfflineCache(
     setOfflineInstances(fresh);
   }, [getOfflineFilters]);
 
+  // A-01 cluster Step 3: refresh the typed-kind caches in parallel. Called
+  // by parent after sync drain (post-sync hook in effect 9 below would also
+  // call this, but kept separate so callers can refresh independently).
+  const refreshOfflineTyped = useCallback(async () => {
+    const [blocks, areas, ahus, filtersTyped] = await Promise.all([
+      getCachedBlocks().catch(() => []),
+      getCachedAreas().catch(() => []),
+      getCachedAhus().catch(() => []),
+      getCachedFiltersTyped().catch(() => []),
+    ]);
+    setOfflineBlocks(blocks);
+    setOfflineAreas(areas);
+    setOfflineAhus(ahus);
+    setOfflineFiltersTyped(filtersTyped);
+  }, []);
+
   return {
     offlineInstances,
     offlineTemplates,
+    offlineBlocks,
+    offlineAreas,
+    offlineAhus,
+    offlineFiltersTyped,
     offlineDataLoaded,
     refreshOfflineInstances,
+    refreshOfflineTyped,
   };
 }
