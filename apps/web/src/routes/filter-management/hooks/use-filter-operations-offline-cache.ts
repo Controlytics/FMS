@@ -101,6 +101,17 @@ interface UseFilterOperationsOfflineCacheReturn {
  *       8. offline flip  -> re-load offline filters + templates
  *       9. post-sync     -> mutate('/api/assets/instances?limit=500') + reprime
  *
+ * A-01 Wave 5 migration note (2026-05-29): this hook has NO legacy
+ * /api/assets/* API calls to migrate. The only legacy reference is the
+ * `mutate('/api/assets/instances?limit=500')` SWR cache-key invalidation in
+ * effect 9. That key MUST match the SWR fetcher key in filter-operations.tsx
+ * (line ~59), mobile-operations.tsx (line ~328), and mobile-wrapper.tsx
+ * (line ~182) — all of which are carve-outs not migrated in Wave 5. Changing
+ * the mutate key here without coordinating those files would silently break
+ * cross-component invalidation (post-sync drain would no longer trigger
+ * filter-operations.tsx to revalidate). Migration is gated on those three
+ * carve-out files moving their SWR keys first.
+ *
  * Hook is read-side caching only. Mutation handlers remain in
  * filter-operations.tsx (Phase 3 of the extraction was explicitly declined —
  * see [[filter-ops-extraction-2026-05-14]] memory).
