@@ -2,6 +2,31 @@ import { Client } from 'ldapts';
 import { prisma } from '../../lib/prisma.js';
 import { invalidateUserAuthCache } from '../../plugins/auth.js';
 
+/**
+ * Escape a string for safe use as an LDAP search-filter assertion value.
+ *
+ * Per RFC 4515 §3, the following characters MUST be escaped in filter
+ * assertion values (this is search-filter escaping, NOT DN escaping —
+ * the two character sets differ):
+ *   \  → \5c   (MUST be substituted FIRST — later substitutions produce \, so
+ *               processing \ first prevents those from being double-escaped)
+ *   *  → \2a
+ *   (  → \28
+ *   )  → \29
+ *   NUL → \00
+ *
+ * Audit finding reference: L-1 (Medium-LATENT) — LDAP filter injection.
+ * LDAP is currently disabled (enabled: false) so this is a latent risk.
+ */
+export function escapeLdapFilterValue(v: string): string {
+  return v
+    .replace(/\\/g, '\\5c')   // MUST be first — subsequent substitutions produce \ in output
+    .replace(/\*/g, '\\2a')
+    .replace(/\(/g, '\\28')
+    .replace(/\)/g, '\\29')
+    .replace(/\0/g, '\\00');
+}
+
 export interface LdapConfig {
   enabled: boolean;
   serverUrl: string;
@@ -113,7 +138,12 @@ export const ldapService = {
       await client.bind(cfg.bindDN, cfg.bindPassword);
 
       // Step 2: Search for the user
-      const filter = cfg.searchFilter.replace(/\{\{username\}\}/g, username);
+      // Escape the user-supplied username before substitution to prevent LDAP
+      // filter injection (RFC 4515 §3). An unescaped * or () could allow
+      // user enumeration or wildcard-targeting even though auth bypass is not
+      // possible (bind still requires the real password).
+      const safeUsername = escapeLdapFilterValue(username);
+      const filter = cfg.searchFilter.replace(/\{\{username\}\}/g, safeUsername);
       const { searchEntries } = await client.search(cfg.searchBase, {
         scope: 'sub',
         filter,
