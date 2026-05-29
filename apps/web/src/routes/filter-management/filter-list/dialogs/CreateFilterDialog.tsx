@@ -3,14 +3,17 @@ import type { AhuOption, TemplateField } from '../types';
 
 type Props = {
   ahu: string;
+  area: string;
   name: string;
   filterSet: 'A' | 'B';
   attrs: Record<string, any>;
   schema: TemplateField[];
   ahus: AhuOption[];
+  areas: AhuOption[];
   error: string;
   submitting: boolean;
   onAhuChange: (v: string) => void;
+  onAreaChange: (v: string) => void;
   onNameChange: (v: string) => void;
   onFilterSetChange: (v: 'A' | 'B') => void;
   onAttrChange: (next: (prev: Record<string, any>) => Record<string, any>) => void;
@@ -19,8 +22,8 @@ type Props = {
 };
 
 export function CreateFilterDialog({
-  ahu, name, filterSet, attrs, schema, ahus, error, submitting,
-  onAhuChange, onNameChange, onFilterSetChange, onAttrChange, onClose, onSubmit,
+  ahu, area, name, filterSet, attrs, schema, ahus, areas, error, submitting,
+  onAhuChange, onAreaChange, onNameChange, onFilterSetChange, onAttrChange, onClose, onSubmit,
 }: Props) {
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
@@ -37,6 +40,23 @@ export function CreateFilterDialog({
         <div className="px-6 py-5 space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(90vh - 160px)' }}>
           {error && (
             <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">{error}</div>
+          )}
+          {/* Area (Optional) — narrows the AHU list to AHUs in this area.
+              Leaving it empty shows every AHU in the block (matches the
+              pre-2026-05-22 behavior exactly). Only rendered when the
+              block has at least one Area instance; if a block has only
+              direct AHUs, the dialog looks like it did before. */}
+          {areas.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Area <span className="text-slate-400 font-normal">(Optional)</span>
+              </label>
+              <select value={area} onChange={e => onAreaChange(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
+                <option value="">All / Any</option>
+                {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
           )}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">AHU <span className="text-red-500">*</span></label>
