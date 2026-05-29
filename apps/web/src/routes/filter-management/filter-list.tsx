@@ -92,7 +92,14 @@ export function FilterListPage() {
   const [editFilterError, setEditFilterError] = useState('');
 
   // ── Filter Field Options config (Task 7) ──
-  const { data: filterFieldOptionsConfig } = useSWR('/api/config/dynamic/filter-field-options');
+  // Runtime read of the field-option dropdown values. The admin-side write
+  // endpoint /api/config/dynamic/filter-field-options is SUPER_ADMIN-gated
+  // (filter-field-options.def.ts → requiredRole) and 401s for operators /
+  // supervisors / admins. The runtime sibling at /api/filters/field-options
+  // (ASSET_READ) returns the same { value: {...} } shape — mirrors the
+  // /reasons + /api/config/dynamic/filter-cleaning-reasons dual-endpoint
+  // pattern in apps/api/src/modules/filter-operations/events-routes.ts.
+  const { data: filterFieldOptionsConfig } = useSWR('/api/filters/field-options');
   const fieldOptions: FilterFieldOptions = (() => {
     const v = filterFieldOptionsConfig?.value as Partial<FilterFieldOptions> | undefined;
     return {

@@ -77,6 +77,9 @@ export function FilterFieldOptionsConfigPage() {
       {
         onSuccess: () => {
           mutate('/api/config/dynamic/filter-field-options');
+          // Also invalidate the runtime read sibling so any open operator
+          // session in this browser sees the new values without a reload.
+          mutate('/api/filters/field-options');
           setError(null);
           setSaving(false);
         },

@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { FilterOperationsService } from './filter-operations.service.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
+import { prisma } from '../../lib/prisma.js';
 
 export default async function filterEventsRoutes(app: FastifyInstance) {
   const service = new FilterOperationsService();
@@ -104,5 +105,61 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
     const { profileId } = req.query as { profileId?: string };
     const reasons = await service.getCleaningReasons(profileId);
     return { reasons };
+  });
+
+  // Runtime read of the filter-field-options dropdown values (AHU Type /
+  // Filter Type / Micron Size). The admin CRUD endpoint at
+  // /api/config/dynamic/filter-field-options is SUPER_ADMIN-gated
+  // (filter-field-options.def.ts → requiredRole: 'SUPER_ADMIN'), so it
+  // returns 401 for the operator/supervisor/admin roles that open the
+  // filter add/edit dialogs and need to populate those dropdowns. This
+  // mirrors the established cleaning-reasons pattern: `/api/filters/reasons`
+  // (above) is the runtime sibling of the SUPER_ADMIN-only
+  // `/api/config/dynamic/filter-cleaning-reasons`. Same dual-endpoint shape.
+  app.get('/field-options', {
+    preHandler: [app.requirePermission('ASSET_READ')],
+    schema: {
+      tags: ['Filter Operations'],
+      summary: 'Get filter field-option dropdown values',
+      description: 'Returns AHU Type / Filter Type / Micron Size dropdown value-lists for the filter add/edit dialogs. Lower-priv mirror of the SUPER_ADMIN-only /api/config/dynamic/filter-field-options.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            value: {
+              type: 'object',
+              properties: {
+                ahuType: { type: 'array', items: { type: 'string' } },
+                filterType: { type: 'array', items: { type: 'string' } },
+                micronSize: { type: 'array', items: { type: 'string' } },
+              },
+              additionalProperties: false,
+            },
+          },
+          required: ['value'],
+          additionalProperties: false,
+        },
+        ...errorResponses,
+      },
+    },
+  }, async () => {
+    const row = await prisma.systemConfig.findUnique({
+      where: { configKey: 'filter-field-options' },
+    });
+    // Stored shape is `{ value: { ahuType, filterType, micronSize } }`
+    // (the dynamic-config PUT spreads the request body as-is). Return
+    // configValue directly so the SWR consumer (filter-list.tsx) reads the
+    // same `data.value` path on both endpoints.
+    const stored = row?.configValue as { value?: unknown } | undefined;
+    const inner = stored && typeof stored === 'object' && 'value' in stored
+      ? (stored.value as Record<string, unknown>)
+      : {};
+    return {
+      value: {
+        ahuType: Array.isArray((inner as any).ahuType) ? (inner as any).ahuType as string[] : ['Process', 'Non Process'],
+        filterType: Array.isArray((inner as any).filterType) ? (inner as any).filterType as string[] : [],
+        micronSize: Array.isArray((inner as any).micronSize) ? (inner as any).micronSize as string[] : [],
+      },
+    };
   });
 }
