@@ -48,6 +48,13 @@ export default async function uploadRoutes(app: FastifyInstance) {
             message: { type: 'string' },
           },
         },
+        413: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' },
+            message: { type: 'string' },
+          },
+        },
         500: {
           type: 'object',
           properties: {
@@ -87,9 +94,16 @@ export default async function uploadRoutes(app: FastifyInstance) {
       }
       const buffer = Buffer.concat(chunks);
 
-      // Check file size
-      if (buffer.length > MAX_FILE_SIZE) {
-        return reply.code(400).send({ error: 'FILE_TOO_LARGE', message: 'File exceeds 5MB' });
+      // Check truncation flag — @fastify/multipart silently TRUNCATES the stream
+      // at the configured fileSize limit instead of throwing. The post-buffer
+      // length check (buffer.length > MAX_FILE_SIZE) is therefore always false
+      // because the buffer is capped at exactly MAX_FILE_SIZE bytes. Checking
+      // data.file.truncated is the only reliable way to detect oversized uploads.
+      if ((data.file as any).truncated) {
+        return reply.code(413).send({
+          error: 'FILE_TOO_LARGE',
+          message: `File exceeds maximum size of ${MAX_FILE_SIZE / 1024 / 1024} MB`,
+        });
       }
 
       // Validate magic bytes

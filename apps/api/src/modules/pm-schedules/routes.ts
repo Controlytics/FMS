@@ -102,8 +102,13 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       for await (const chunk of data.file) chunks.push(chunk);
       const buffer = Buffer.concat(chunks);
 
-      if (buffer.length > 5 * 1024 * 1024) {
-        return reply.code(400).send({ error: 'FILE_TOO_LARGE', message: 'File exceeds 5 MB limit' });
+      // Check truncation flag — @fastify/multipart silently TRUNCATES the stream
+      // at the configured fileSize limit instead of throwing. The post-buffer
+      // length check (buffer.length > 5 MB) is therefore always false because
+      // the buffer is capped at exactly the limit. Checking data.file.truncated
+      // is the only reliable way to detect oversized uploads.
+      if ((data.file as any).truncated) {
+        return reply.code(413).send({ error: 'FILE_TOO_LARGE', message: 'File exceeds 5 MB limit' });
       }
 
       // Parse with SheetJS — handles both CSV and XLSX via the same API.

@@ -20,5 +20,6 @@ export const errorResponses = {
   403: errorBody,
   404: errorBody,
   409: errorBody,
+  413: errorBody,
   500: errorBody,
 };
