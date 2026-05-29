@@ -15,11 +15,7 @@ export function LoginPage() {
   const { login, isAuthenticated, isLoading } = useAuth();
   const [searchParams] = useSearchParams();
 
-  // If already authenticated, redirect to home — prevents back-button to login
-  if (!isLoading && isAuthenticated) {
-    const returnUrl = searchParams.get("returnUrl") || "/";
-    return <Navigate to={returnUrl} replace />;
-  }
+  // All hooks must be called unconditionally before any early return
   const { branding } = useBranding();
   const { formatDateTime } = useDatetimeFormat();
   const [error, setError] = useState('');
@@ -54,6 +50,13 @@ export function LoginPage() {
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
   });
+
+  // If already authenticated, redirect to home — prevents back-button to login.
+  // This must appear AFTER all hook calls to satisfy React Rules of Hooks.
+  if (!isLoading && isAuthenticated) {
+    const returnUrl = searchParams.get("returnUrl") || "/";
+    return <Navigate to={returnUrl} replace />;
+  }
 
   const onSubmit = async (data: LoginInput) => {
     setError('');
