@@ -325,8 +325,23 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
   });
 
   // POST /binary — Device Token auth, multipart, normalize, enqueue
+  // Audit S-7: enforces MIME allowlist, 50 MB cap, and filename sanitization.
+  const MAX_BINARY_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+
+  const ALLOWED_BINARY_MIME = new Set([
+    'application/octet-stream',
+    'application/pdf',
+    'image/png',
+    'image/jpeg',
+    'image/gif',
+    'image/webp',
+    'text/csv',
+    'text/plain',
+  ]);
+
   app.post('/binary', {
     preHandler: [authenticateDeviceToken],
+    bodyLimit: MAX_BINARY_FILE_SIZE,
     schema: {
       tags: ['Data Ingestion'],
       summary: 'Submit binary data',
@@ -352,14 +367,40 @@ export default async function dataIngestionRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'No file uploaded' });
     }
 
+    // Audit S-7: MIME type allowlist — reject unsupported types before buffering
+    if (!ALLOWED_BINARY_MIME.has(file.mimetype)) {
+      // Drain the stream so the connection is not left open
+      file.file.resume();
+      return reply.code(415).send({
+        error: 'UNSUPPORTED_MEDIA_TYPE',
+        message: `Mimetype ${file.mimetype} is not allowed for binary ingestion`,
+      });
+    }
+
+    // Audit S-7: Sanitize filename — strip path traversal components and
+    // non-printable / shell-special characters. This value is stored as
+    // metadata only; the actual storage path is derived server-side.
+    const safeFilename = path.basename(file.filename ?? 'upload')
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .slice(0, 255) || 'upload';
+
+    // Audit S-7: Buffer with size cap — reject oversized payloads mid-stream
     const chunks: Buffer[] = [];
+    let totalSize = 0;
     for await (const chunk of file.file) {
+      totalSize += chunk.length;
+      if (totalSize > MAX_BINARY_FILE_SIZE) {
+        return reply.code(413).send({
+          error: 'PAYLOAD_TOO_LARGE',
+          message: `File exceeds maximum size of ${MAX_BINARY_FILE_SIZE / 1024 / 1024} MB`,
+        });
+      }
       chunks.push(chunk);
     }
     const buffer = Buffer.concat(chunks);
 
     const rawPayload = {
-      filename: file.filename,
+      filename: safeFilename,
       mimetype: file.mimetype,
       size: buffer.length,
       encoding: file.encoding,
