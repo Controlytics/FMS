@@ -25,11 +25,23 @@ export interface JwtPayload {
   sessionId: string;
 }
 
-export async function signToken(payload: JwtPayload, expirationHours = 8): Promise<string> {
+// Audit S-8: JWT TTL default reduced from 8h → 1h.
+// Callers may pass a sessionDurationHours value from the session config; this
+// function clamps it to JWT_EXPIRY_HOURS (env, default 1h) so the token never
+// outlives the security policy even if the session config row drifts upward.
+// To restore 8h behaviour temporarily set JWT_EXPIRY_HOURS=8 in .env.
+const JWT_MAX_EXPIRY_HOURS = process.env.JWT_EXPIRY_HOURS
+  ? Number(process.env.JWT_EXPIRY_HOURS)
+  : 1;
+
+export async function signToken(payload: JwtPayload, expirationHours = JWT_MAX_EXPIRY_HOURS): Promise<string> {
+  // Clamp: the JWT must never be valid longer than JWT_MAX_EXPIRY_HOURS,
+  // regardless of what the session config says.
+  const clampedHours = Math.min(expirationHours, JWT_MAX_EXPIRY_HOURS);
   return new jose.SignJWT(payload as unknown as jose.JWTPayload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime(`${expirationHours}h`)
+    .setExpirationTime(`${clampedHours}h`)
     .sign(JWT_SECRET);
 }
 
