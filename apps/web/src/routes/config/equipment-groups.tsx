@@ -59,8 +59,13 @@ export function EquipmentGroupsConfigPage() {
   const canCreate = isSuperAdmin || perms.includes('EG_CREATE');
   const canEdit = isSuperAdmin || perms.includes('EG_EDIT');
   const canDelete = isSuperAdmin || perms.includes('EG_DELETE');
-  const { data: instancesData } = useSWR('/api/assets/instances?limit=200');
-  const { data: templatesData } = useSWR('/api/assets/templates?limit=1000');
+  // A-01 wave 5: migrated from /api/assets/templates + /api/assets/instances to the
+  // typed hierarchy endpoint. /api/hierarchy/blocks returns only block-kind rows —
+  // no templateKind heuristic or join needed. Equipment instances are not fetched
+  // here (instruments are embedded in the EquipmentGroup payload via g.instruments[]).
+  // Equipment-kind typed home is a deferred A-01 D1 decision; no carve-out needed.
+  const { data: blocksData } = useSWR('/api/hierarchy/blocks?limit=200');
+  const blocks = (blocksData?.data ?? []) as any[];
   const [selectedBlockId, setSelectedBlockId] = useState<string>('');
   const { data: groupsData } = useSWR(selectedBlockId ? `/api/equipment-groups?blockId=${selectedBlockId}` : null);
 
@@ -75,18 +80,6 @@ export function EquipmentGroupsConfigPage() {
   // — pinned cycles continue to validate against EquipmentGroupVersion at the
   // pin. The dialog is a heads-up, not a block.
   const [editConflict, setEditConflict] = useState<{ group: EquipmentGroup; activeCount: number } | null>(null);
-
-  // Bug fix 2026-05-10: this was matching `t.name === 'Block'` (case-sensitive,
-  // editable string), so the dropdown went empty whenever the admin renamed the
-  // template or created multiple block variants. Match by `templateKind === 'BLOCK'`
-  // — the protected stable code on the TemplateKind lookup table — same pattern
-  // PM-import already uses for AHU lookups (pm-import.ts:30).
-  const blockTemplateIds = new Set(
-    (templatesData?.data ?? [])
-      .filter((t: any) => t.templateKind === 'BLOCK')
-      .map((t: any) => t.id),
-  );
-  const blocks = (instancesData?.data ?? []).filter((e: any) => blockTemplateIds.has(e.templateId));
 
   useEffect(() => {
     if (blocks.length > 0 && !selectedBlockId) setSelectedBlockId(blocks[0].id);
