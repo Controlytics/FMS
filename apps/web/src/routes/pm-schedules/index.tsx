@@ -70,7 +70,11 @@ export function PmScheduleListPage() {
   const { toast } = useToast();
   const { formatDate } = useDatetimeFormat();
   const reauth = useReauth();
-  const { data: pmConfig } = useSWR('/api/config/dynamic/pm-schedule-settings');
+  // Runtime-facing PM settings; the admin /api/config/dynamic/pm-schedule-settings
+  // endpoint is SUPER_ADMIN-gated and 401s for operators/admins, so the page can't
+  // read its own gating flag. Mirrors the cleaning-reasons / field-options dual-
+  // endpoint pattern. Audit finding F-2 (High) — 2026-05-29.
+  const { data: pmConfig } = useSWR('/api/pm-schedules/settings');
 
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -422,7 +426,7 @@ export function PmScheduleListPage() {
   // PM disabled check — must run AFTER all hooks above to avoid React error #300
   // ("rendered fewer hooks than expected") when the config arrives async and
   // the page short-circuits on the second render.
-  if (pmConfig && !(pmConfig as any)?.enabled && !((pmConfig as any)?.value?.enabled)) {
+  if (pmConfig && !(pmConfig as any).enabled) {
     return (
       <div className="p-6">
         <div className="bg-white border border-slate-200 rounded-2xl p-16 text-center shadow-sm">

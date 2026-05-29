@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
+import { verifyToken } from './jwt.js';
 
 export async function registerSwagger(app: FastifyInstance) {
   const port = process.env.PORT ?? process.env.API_PORT ?? '3000';
@@ -90,6 +91,10 @@ export async function registerSwagger(app: FastifyInstance) {
     },
   });
 
+  // Swagger UI is auth-gated in production (audit API-5).
+  // In non-production the auth hook is still registered but /docs is also in
+  // auth.ts PUBLIC_PATHS so the check passes via two paths — harmless.
+  const isProduction = process.env.NODE_ENV === 'production';
   await app.register(swaggerUi, {
     routePrefix: '/docs',
     uiConfig: {
@@ -102,5 +107,19 @@ export async function registerSwagger(app: FastifyInstance) {
       syntaxHighlight: { theme: 'monokai' },
     },
     staticCSP: false,
+    uiHooks: {
+      onRequest: async (req: any, reply: any) => {
+        if (!isProduction) return; // allow in dev without token
+        const header: string | undefined = req.headers?.authorization;
+        if (!header?.startsWith('Bearer ')) {
+          return reply.code(401).send({ error: 'UNAUTHORIZED', message: 'Bearer token required to access API docs' });
+        }
+        try {
+          await verifyToken(header.slice(7));
+        } catch {
+          return reply.code(401).send({ error: 'UNAUTHORIZED', message: 'Invalid or expired token' });
+        }
+      },
+    },
   });
 }

@@ -105,6 +105,13 @@ const app = Fastify({
   ...(httpsOptions ? { https: httpsOptions } : {}),
 });
 
+// Block dangerous HTTP methods early — before any route or plugin (audit S-11)
+app.addHook('onRequest', async (req, reply) => {
+  if (req.method === 'TRACE' || req.method === 'CONNECT') {
+    return reply.code(405).send({ error: 'METHOD_NOT_ALLOWED' });
+  }
+});
+
 // Swagger API docs (register before routes)
 await registerSwagger(app);
 
@@ -120,12 +127,28 @@ await app.register(cors, {
   allowedHeaders: ['Content-Type', 'Authorization', 'x-reauth-password'],
 });
 await app.register(helmet, {
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],   // Swagger UI requires unsafe-inline
+      styleSrc: ["'self'", "'unsafe-inline'"],    // Swagger UI requires unsafe-inline
+      imgSrc: ["'self'", "data:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+    },
+  },
   strictTransportSecurity: {
     maxAge: 31536000,        // 1 year in seconds
     includeSubDomains: true,
     preload: true,
   },
+});
+// Permissions-Policy — restrict browser feature APIs (audit S-10)
+app.addHook('onSend', async (_req, reply, payload) => {
+  reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  return payload;
 });
 await app.register(rateLimit, { max: 500, timeWindow: '1 minute' });
 await app.register(multipart, {
@@ -190,6 +213,23 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
       error: 'VALIDATION_ERROR',
       message: err.message,
       ...(err as any).validation ? { details: (err as any).validation } : {},
+    });
+  }
+  // Unsupported Media Type — 415 (audit API-3)
+  if ((err as any).code === 'FST_ERR_CTP_INVALID_MEDIA_TYPE') {
+    return reply.code(415).send({
+      error: 'UNSUPPORTED_MEDIA_TYPE',
+      message: err.message || 'Unsupported Media Type',
+    });
+  }
+  // JSON parse errors — 400 (audit API-3)
+  if (
+    (err as any).code === 'FST_ERR_CTP_INVALID_JSON_BODY' ||
+    (err as any).code === 'FST_ERR_CTP_EMPTY_JSON_BODY'
+  ) {
+    return reply.code(400).send({
+      error: 'PARSE_ERROR',
+      message: 'Request body is not valid JSON',
     });
   }
   // Genuine internal errors

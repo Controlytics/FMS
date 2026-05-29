@@ -7,9 +7,47 @@ import { PmScheduleService } from './pm-schedule.service.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
+import { prisma } from '../../lib/prisma.js';
 
 export default async function pmScheduleRoutes(app: FastifyInstance) {
   const service = new PmScheduleService();
+
+  // ─── Runtime settings (public-read mirror) ───
+  // The /api/config/dynamic/pm-schedule-settings endpoint is SUPER_ADMIN-gated
+  // (requiredRole: 'SUPER_ADMIN'), so operators/admins get 401 and can never
+  // read the "PM enabled" flag their page depends on. This endpoint exposes
+  // only the runtime-relevant subset (just `enabled` for now) behind PM_READ.
+  // Mirrors the cleaning-reasons / field-options dual-endpoint pattern.
+  // Audit finding F-2 (High) — 2026-05-29.
+  app.get('/settings', {
+    preHandler: [app.requirePermission('PM_READ')],
+    schema: {
+      tags: ['PM Schedules'],
+      summary: 'Get PM module runtime settings',
+      description:
+        'Returns the runtime-relevant subset of pm-schedule-settings (just the enabled flag for now). Lower-priv mirror of the SUPER_ADMIN-only /api/config/dynamic/pm-schedule-settings.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            enabled: { type: 'boolean' },
+          },
+          required: ['enabled'],
+          additionalProperties: false,
+        },
+      },
+    },
+  }, async () => {
+    const row = await prisma.systemConfig.findUnique({
+      where: { configKey: 'pm-schedule-settings' },
+    });
+    // configValue stored shape can be either `{ value: { enabled } }` (dynamic-routes
+    // PUT spreads request body which has `{ value }`) or directly `{ enabled }`
+    // (older seed format). Handle both.
+    const stored = (row?.configValue ?? {}) as any;
+    const inner = stored && typeof stored === 'object' && 'value' in stored ? stored.value : stored;
+    return { enabled: (inner?.enabled ?? true) === true };
+  });
 
   // ─── Template download ───
   app.get('/template.csv', {
