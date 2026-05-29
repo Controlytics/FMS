@@ -199,19 +199,14 @@ export function FilterDataManagementPage() {
   // /filters/:id/trace?tab=events pages use, so the data-management view
   // displays the same joined+computed columns instead of raw DB rows.
   const cyclesEnriched = useSWR<any>(tab === 'cleaning-cycles' ? '/api/filters/cycles?page=1&limit=50&includeEvents=true' : null);
-  const cycleInstancesData = useSWR<any>(tab === 'cleaning-cycles' ? '/api/assets/instances?limit=500' : null);
-  const cycleTemplatesData = useSWR<any>(tab === 'cleaning-cycles' ? '/api/assets/templates?limit=1000' : null);
-  // Bug fix 2026-05-10: match by stable `templateKind === 'FILTER'`, not the
-  // editable `name`. Without this, the cycle attribute map was empty whenever
-  // the admin renamed the Filter template or created variants.
-  const cycleFilterTemplateIds = new Set(
-    (cycleTemplatesData.data?.data ?? [])
-      .filter((t: any) => t.templateKind === 'FILTER')
-      .map((t: any) => t.id),
-  );
+  // Wave 5 A-01: replaced /api/assets/instances + /api/assets/templates with
+  // /api/hierarchy/filters which returns typed filter rows directly — no
+  // templateKind heuristic needed. The `id` field is the same AssetInstance
+  // UUID referenced by cleaning_cycles.filter_id.
+  const cycleFiltersData = useSWR<any>(tab === 'cleaning-cycles' ? '/api/hierarchy/filters?limit=500' : null);
   const cycleFilterAttrMap = new Map<string, Record<string, any>>();
-  (cycleInstancesData.data?.data ?? []).forEach((i: any) => {
-    if (cycleFilterTemplateIds.has(i.templateId)) cycleFilterAttrMap.set(i.id, i.attributes ?? {});
+  (cycleFiltersData.data?.data ?? []).forEach((f: any) => {
+    cycleFilterAttrMap.set(f.id, f.attributes ?? {});
   });
   const enrichedCycles: any[] = cyclesEnriched.data?.data ?? [];
   const filteredEnrichedCycles = enrichedCycles.filter(c => !search || c.filterName?.toLowerCase().includes(search.toLowerCase()) || c.cycleCode?.toLowerCase().includes(search.toLowerCase()));
@@ -865,7 +860,7 @@ export function FilterDataManagementPage() {
                     <tr key={c.id} className="hover:bg-slate-50/50 group">
                       <td className="px-3 py-2.5 text-[12px] text-slate-400 tabular-nums">{idx + 1}</td>
                       <td className="px-3 py-2.5 text-[12px] font-semibold text-slate-800">{c.filterName ?? '-'}</td>
-                      <td className="px-3 py-2.5 text-[12px] text-slate-600">{attrs.filterSize ?? '-'}</td>
+                      <td className="px-3 py-2.5 text-[12px] text-slate-600">{attrs.micronSize ?? '-'}</td>
                       <td className="px-3 py-2.5 text-[12px] text-slate-600 font-mono tabular-nums">{getReadingValue(washReadings, 'air pressure')}</td>
                       <td className="px-3 py-2.5 text-[12px] text-slate-600 font-mono tabular-nums">{getReadingValue(washReadings, 'ro water')}</td>
                       <td className="px-3 py-2.5 text-[12px] text-slate-500 whitespace-nowrap">{washIn ? formatDateTime(washIn.time) : '-'}</td>
