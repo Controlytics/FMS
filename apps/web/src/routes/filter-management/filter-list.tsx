@@ -1311,10 +1311,13 @@ export function FilterListPage() {
                 const blockTree = treeData.find((b: any) => b.id === block.id);
                 const ahuCount = blockTree ? blockTree.areas.reduce((s: number, a: any) => s + a.ahus.length, 0) + blockTree.directAhus.length : 0;
                 return (
-                  <button
+                  <div
                     key={block.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => { setSelectedBlock(block.id); setBlockTab('view'); setSelectedFilterIds(new Set()); setPage(1); }}
-                    className="bg-white border border-slate-200 rounded-xl p-5 text-left hover:border-[var(--theme-primary)] hover:shadow-md transition-all group"
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedBlock(block.id); setBlockTab('view'); setSelectedFilterIds(new Set()); setPage(1); } }}
+                    className="bg-white border border-slate-200 rounded-xl p-5 text-left hover:border-[var(--theme-primary)] hover:shadow-md transition-all group cursor-pointer focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   >
                     <div className="flex items-center gap-3 mb-4">
                       <div className="w-10 h-10 rounded-lg flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow" style={themeGradientBr}>
@@ -1352,7 +1355,7 @@ export function FilterListPage() {
                         <p className="text-[11px] text-slate-400 mt-0.5">AHUs</p>
                       </div>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
