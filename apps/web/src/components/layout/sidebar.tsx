@@ -230,13 +230,17 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
 
   return (
     <>
-      {/* Mobile overlay */}
+      {/* Backdrop overlay — visible on viewports < 768 px when sidebar is open.
+          Dismisses the sidebar on tap/click anywhere outside it.
+          Audit finding N-5: auto-collapse sidebar below 768 px viewport. */}
       {open && (
-        <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={onClose} />
+        <div className="fixed inset-0 bg-black/30 z-40 md:hidden" onClick={onClose} />
       )}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex w-64 flex-col transition-transform duration-300 lg:static lg:translate-x-0',
+          // Below md (768 px): fixed overlay, slides in/out via translate.
+          // md and above: static in flow, always translated to 0 (always visible).
+          'fixed inset-y-0 left-0 z-50 flex w-64 flex-col transition-transform duration-300 md:static md:translate-x-0',
           open ? 'translate-x-0' : '-translate-x-full'
         )}
         style={{ background: `linear-gradient(180deg, ${branding.primaryColor} 0%, ${branding.loginBgStart} 100%)` }}
