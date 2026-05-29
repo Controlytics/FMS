@@ -1,5 +1,6 @@
 import { themeButton } from '@/lib/theme-styles';
-import type { AhuOption, TemplateField } from '../types';
+import type { AhuOption, TemplateField, FilterFieldOptions, LastCleaningDateState } from '../types';
+import { FilterFieldOptionsSection } from '../components/FilterFieldOptionsSection';
 
 type Props = {
   ahu: string;
@@ -12,18 +13,31 @@ type Props = {
   areas: AhuOption[];
   error: string;
   submitting: boolean;
+  // Filter Field Options (Task 5)
+  fieldOptions: FilterFieldOptions;
+  ahuType: string;
+  filterType: string;
+  micronSize: string;
+  lastCleaning: LastCleaningDateState;
   onAhuChange: (v: string) => void;
   onAreaChange: (v: string) => void;
   onNameChange: (v: string) => void;
   onFilterSetChange: (v: 'A' | 'B') => void;
   onAttrChange: (next: (prev: Record<string, any>) => Record<string, any>) => void;
+  onAhuTypeChange: (v: string) => void;
+  onFilterTypeChange: (v: string) => void;
+  onMicronSizeChange: (v: string) => void;
+  onLastCleaningChange: (s: LastCleaningDateState) => void;
   onClose: () => void;
   onSubmit: () => void;
 };
 
 export function CreateFilterDialog({
   ahu, area, name, filterSet, attrs, schema, ahus, areas, error, submitting,
-  onAhuChange, onAreaChange, onNameChange, onFilterSetChange, onAttrChange, onClose, onSubmit,
+  fieldOptions, ahuType, filterType, micronSize, lastCleaning,
+  onAhuChange, onAreaChange, onNameChange, onFilterSetChange, onAttrChange,
+  onAhuTypeChange, onFilterTypeChange, onMicronSizeChange, onLastCleaningChange,
+  onClose, onSubmit,
 }: Props) {
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
@@ -85,6 +99,17 @@ export function CreateFilterDialog({
               ))}
             </div>
           </div>
+          <FilterFieldOptionsSection
+            options={fieldOptions}
+            ahuType={ahuType}
+            filterType={filterType}
+            micronSize={micronSize}
+            lastCleaning={lastCleaning}
+            onAhuTypeChange={onAhuTypeChange}
+            onFilterTypeChange={onFilterTypeChange}
+            onMicronSizeChange={onMicronSizeChange}
+            onLastCleaningChange={onLastCleaningChange}
+          />
           {/* Dynamic fields from Filter template attributeSchema. Same renderer
               pattern as the Block/Area/AHU create dialog above so admins can
               add new fields once on the template and they show up everywhere. */}
