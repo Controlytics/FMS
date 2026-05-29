@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { computeChecksum, verifyAuditChecksum } from './hash-chain.js';
+import {
+  computeChecksum,
+  computeChainedChecksum,
+  computeChainedChecksumV2,
+  verifyAuditChecksum,
+} from './hash-chain.js';
 
-describe('computeChecksum', () => {
+describe('computeChecksum (V1 — top-level key sort)', () => {
   it('produces a SHA-256 hex string (64 chars)', () => {
     const checksum = computeChecksum({ key: 'value' });
     expect(checksum).toMatch(/^[a-f0-9]{64}$/);
@@ -43,21 +48,15 @@ describe('computeChecksum', () => {
   });
 });
 
-describe('verifyAuditChecksum', () => {
-  it('verifies a valid audit record', () => {
-    const timestamp = '2025-01-15T10:30:00.000Z';
-    const record = {
-      timestamp,
-      userId: 'admin',
-      action: 'LOGIN_SUCCESS',
-      targetType: 'user',
-      targetId: 'user-123',
-      afterValue: { username: 'admin' },
-      checksum: '', // will be computed below
-    };
+describe('verifyAuditChecksum — pre-chain legacy rows (backward compat)', () => {
+  // These tests simulate rows written BEFORE the C3 chain migration.
+  // Their stored checksum was computed with computeChecksum(baseFields) — no
+  // previousChecksum key. The verifier's legacy fallback path must still accept them.
 
-    // Compute expected checksum
-    record.checksum = computeChecksum({
+  it('verifies a pre-chain legacy audit record (no previousChecksum key)', () => {
+    const timestamp = '2025-01-15T10:30:00.000Z';
+    // Pre-chain formula: computeChecksum without previousChecksum key
+    const checksum = computeChecksum({
       timestamp,
       userId: 'admin',
       action: 'LOGIN_SUCCESS',
@@ -66,10 +65,19 @@ describe('verifyAuditChecksum', () => {
       afterValue: { username: 'admin' },
     });
 
-    expect(verifyAuditChecksum(record)).toBe(true);
+    // Record has no previousChecksum — simulates pre-chain row
+    expect(verifyAuditChecksum({
+      timestamp,
+      userId: 'admin',
+      action: 'LOGIN_SUCCESS',
+      targetType: 'user',
+      targetId: 'user-123',
+      afterValue: { username: 'admin' },
+      checksum,
+    })).toBe(true);
   });
 
-  it('detects tampered action', () => {
+  it('detects tampered action in a pre-chain record', () => {
     const timestamp = '2025-01-15T10:30:00.000Z';
     const checksum = computeChecksum({
       timestamp,
@@ -90,7 +98,7 @@ describe('verifyAuditChecksum', () => {
     })).toBe(false);
   });
 
-  it('detects tampered timestamp', () => {
+  it('detects tampered timestamp in a pre-chain record', () => {
     const timestamp = '2025-01-15T10:30:00.000Z';
     const checksum = computeChecksum({
       timestamp,
@@ -146,6 +154,305 @@ describe('verifyAuditChecksum', () => {
       timestamp: '2025-06-01T00:00:00.000Z',
       action: 'DELETE',
       checksum,
+    })).toBe(true);
+  });
+});
+
+describe('verifyAuditChecksum — V-2 fix: genesis row round-trip', () => {
+  // These tests exercise the exact write→verify round-trip for rows written
+  // post-C3 with previousChecksum === null (genesis rows). Bug V-2: the verifier
+  // was calling computeChecksum(baseFields) — omitting the previousChecksum key —
+  // while the writer calls computeChainedChecksum(baseFields, null) which includes
+  // {previousChecksum: null} in the hash. This caused genesis rows to always
+  // report as "tampered". The fix: verifier now tries computeChainedChecksum(..., null)
+  // first (matching the writer) before falling back to the legacy path.
+
+  it('genesis row: writer and verifier produce matching checksums', () => {
+    // Simulate exactly what auditLog() does on the write path
+    const baseFields = {
+      timestamp: '2026-01-01T00:00:00.000Z',
+      userId: 'user-abc',
+      action: 'FILTER_CREATED',
+      targetType: 'filter',
+      targetId: 'filter-001',
+      afterValue: undefined,
+    };
+    // Write path: computeChainedChecksum(baseFields, null)
+    const storedChecksum = computeChainedChecksum(baseFields, null);
+
+    // Verify path: verifyAuditChecksum with previousChecksum = null
+    expect(verifyAuditChecksum({
+      timestamp: '2026-01-01T00:00:00.000Z',
+      userId: 'user-abc',
+      action: 'FILTER_CREATED',
+      targetType: 'filter',
+      targetId: 'filter-001',
+      checksum: storedChecksum,
+      previousChecksum: null,
+    })).toBe(true);
+  });
+
+  it('genesis row with afterValue: writer and verifier match', () => {
+    const baseFields = {
+      timestamp: '2026-02-15T08:00:00.000Z',
+      userId: 'op-123',
+      action: 'CYCLE_STARTED',
+      targetType: 'cleaning_cycle',
+      targetId: 'cycle-999',
+      afterValue: { filterIds: ['f1', 'f2'], profileId: 'prof-x' },
+    };
+    const storedChecksum = computeChainedChecksum(baseFields, null);
+
+    expect(verifyAuditChecksum({
+      timestamp: '2026-02-15T08:00:00.000Z',
+      userId: 'op-123',
+      action: 'CYCLE_STARTED',
+      targetType: 'cleaning_cycle',
+      targetId: 'cycle-999',
+      afterValue: { filterIds: ['f1', 'f2'], profileId: 'prof-x' },
+      checksum: storedChecksum,
+      previousChecksum: null,
+    })).toBe(true);
+  });
+
+  it('genesis row: tampered field is still detected', () => {
+    const baseFields = {
+      timestamp: '2026-01-01T00:00:00.000Z',
+      userId: 'user-abc',
+      action: 'FILTER_CREATED',
+      targetType: 'filter',
+      targetId: 'filter-001',
+      afterValue: undefined,
+    };
+    const storedChecksum = computeChainedChecksum(baseFields, null);
+
+    expect(verifyAuditChecksum({
+      timestamp: '2026-01-01T00:00:00.000Z',
+      userId: 'user-abc',
+      action: 'FILTER_DELETED', // tampered
+      targetType: 'filter',
+      targetId: 'filter-001',
+      checksum: storedChecksum,
+      previousChecksum: null,
+    })).toBe(false);
+  });
+});
+
+describe('verifyAuditChecksum — V-1 fix: nested afterValue (JSONB key order)', () => {
+  // These tests exercise the JSONB-key-order problem: when afterValue is an object
+  // with multiple keys, PostgreSQL JSONB may return them in a different order than
+  // what was JSON.stringify'd at write time. The V2 recursive canonicalizer sorts
+  // nested keys, so write-side and read-side produce the same hash regardless of
+  // the key order that arrives from the DB.
+  //
+  // IMPORTANT: These tests use computeChainedChecksumV2 as the WRITE path.
+  // This represents the intended migration state where audit.ts has been updated
+  // to call computeChainedChecksumV2 for new writes. The verifier tries V2 first,
+  // so new rows (written with V2) verify correctly across JSONB key-order changes.
+  //
+  // For HISTORICAL rows (still written with V1/computeChainedChecksum), the V1
+  // verifier fallback handles flat/simple afterValues correctly. However, historical
+  // rows with multi-key nested afterValues where JSONB key order differs from
+  // write-time insertion order will continue to report per-row checksum mismatch
+  // (this is a pre-existing limitation that cannot be fixed without re-hashing
+  // historical data; chain-link verification is unaffected for those rows).
+
+  it('nested afterValue with different key order still verifies (V2 write path, simulates JSONB normalisation)', () => {
+    // Write path (V2): afterValue keys in insertion order z, a, m — but V2
+    // canonicalises recursively to sorted order, so the stored hash is
+    // computed over {a:1, m:2, z:3} regardless of insertion order.
+    const writeTimeAfterValue = { z: 3, a: 1, m: 2 };
+    const baseFields = {
+      timestamp: '2026-03-10T12:00:00.000Z',
+      userId: 'op-xyz',
+      action: 'STAGE_ADVANCED',
+      targetType: 'filter',
+      targetId: 'filter-abc',
+      afterValue: writeTimeAfterValue,
+    };
+    const storedChecksum = computeChainedChecksumV2(baseFields, null);
+
+    // Read path: JSONB returns keys in alphabetical order (a, m, z) — different
+    // from the write-time insertion order, but V2 verifier sorts recursively and
+    // produces the same canonical form as V2 write, so it matches.
+    const readBackAfterValue = { a: 1, m: 2, z: 3 }; // same values, JSONB-normalised order
+    expect(verifyAuditChecksum({
+      timestamp: '2026-03-10T12:00:00.000Z',
+      userId: 'op-xyz',
+      action: 'STAGE_ADVANCED',
+      targetType: 'filter',
+      targetId: 'filter-abc',
+      afterValue: readBackAfterValue,
+      checksum: storedChecksum,
+      previousChecksum: null,
+    })).toBe(true);
+  });
+
+  it('deeply nested afterValue with different key order still verifies (V2 write path)', () => {
+    const writeTimeAfterValue = {
+      stageId: 'stage-1',
+      readings: { tempC: 22, humidity: 65, pressurePa: 101325 },
+      operator: { name: 'Jane', role: 'OPERATOR' },
+    };
+    const baseFields = {
+      timestamp: '2026-03-11T09:30:00.000Z',
+      userId: 'op-456',
+      action: 'CHECKLIST_SUBMITTED',
+      targetType: 'checklist',
+      targetId: 'cl-789',
+      afterValue: writeTimeAfterValue,
+    };
+    const storedChecksum = computeChainedChecksumV2(baseFields, null);
+
+    // Simulate JSONB returning nested keys in sorted order
+    const readBackAfterValue = {
+      operator: { name: 'Jane', role: 'OPERATOR' }, // different outer key order
+      readings: { humidity: 65, pressurePa: 101325, tempC: 22 }, // different nested order
+      stageId: 'stage-1',
+    };
+    expect(verifyAuditChecksum({
+      timestamp: '2026-03-11T09:30:00.000Z',
+      userId: 'op-456',
+      action: 'CHECKLIST_SUBMITTED',
+      targetType: 'checklist',
+      targetId: 'cl-789',
+      afterValue: readBackAfterValue,
+      checksum: storedChecksum,
+      previousChecksum: null,
+    })).toBe(true);
+  });
+
+  it('nested afterValue: actual tampered value is still detected (V2 write path)', () => {
+    const baseFields = {
+      timestamp: '2026-03-10T12:00:00.000Z',
+      userId: 'op-xyz',
+      action: 'STAGE_ADVANCED',
+      targetType: 'filter',
+      targetId: 'filter-abc',
+      afterValue: { z: 3, a: 1, m: 2 },
+    };
+    const storedChecksum = computeChainedChecksumV2(baseFields, null);
+
+    // Tampered: value of 'a' changed from 1 to 99
+    expect(verifyAuditChecksum({
+      timestamp: '2026-03-10T12:00:00.000Z',
+      userId: 'op-xyz',
+      action: 'STAGE_ADVANCED',
+      targetType: 'filter',
+      targetId: 'filter-abc',
+      afterValue: { a: 99, m: 2, z: 3 }, // 'a' tampered
+      checksum: storedChecksum,
+      previousChecksum: null,
+    })).toBe(false);
+  });
+
+  it('chained row with nested afterValue: V2 write→verify round-trip matches', () => {
+    // Simulate a non-genesis chain row with a previousChecksum
+    const previousChecksum = 'a'.repeat(64); // synthetic prior row hash
+    const baseFields = {
+      timestamp: '2026-04-01T10:00:00.000Z',
+      userId: 'admin-1',
+      action: 'FILTER_RETIRED',
+      targetType: 'filter',
+      targetId: 'filter-zzz',
+      afterValue: { retiredBy: 'admin-1', reason: 'End of life', metadata: { code: 42, tags: ['a', 'b'] } },
+    };
+    const storedChecksum = computeChainedChecksumV2(baseFields, previousChecksum);
+
+    // Read back with JSONB-normalised key order in afterValue
+    const readBackAfterValue = {
+      metadata: { code: 42, tags: ['a', 'b'] }, // outer key reordered
+      reason: 'End of life',
+      retiredBy: 'admin-1',
+    };
+    expect(verifyAuditChecksum({
+      timestamp: '2026-04-01T10:00:00.000Z',
+      userId: 'admin-1',
+      action: 'FILTER_RETIRED',
+      targetType: 'filter',
+      targetId: 'filter-zzz',
+      afterValue: readBackAfterValue,
+      checksum: storedChecksum,
+      previousChecksum,
+    })).toBe(true);
+  });
+});
+
+describe('verifyAuditChecksum — chained rows (non-genesis)', () => {
+  it('verifies a valid chained row', () => {
+    const previousChecksum = 'b'.repeat(64);
+    const baseFields = {
+      timestamp: '2026-05-01T00:00:00.000Z',
+      userId: 'user-1',
+      action: 'LOGIN_SUCCESS',
+      targetType: undefined,
+      targetId: undefined,
+      afterValue: undefined,
+    };
+    const storedChecksum = computeChainedChecksum(baseFields, previousChecksum);
+
+    expect(verifyAuditChecksum({
+      timestamp: '2026-05-01T00:00:00.000Z',
+      userId: 'user-1',
+      action: 'LOGIN_SUCCESS',
+      checksum: storedChecksum,
+      previousChecksum,
+    })).toBe(true);
+  });
+
+  it('detects tampered field in a chained row', () => {
+    const previousChecksum = 'c'.repeat(64);
+    const baseFields = {
+      timestamp: '2026-05-01T00:00:00.000Z',
+      userId: 'user-2',
+      action: 'LOGOUT',
+      targetType: undefined,
+      targetId: undefined,
+      afterValue: undefined,
+    };
+    const storedChecksum = computeChainedChecksum(baseFields, previousChecksum);
+
+    expect(verifyAuditChecksum({
+      timestamp: '2026-05-01T00:00:00.000Z',
+      userId: 'user-2',
+      action: 'LOGIN_SUCCESS', // tampered
+      checksum: storedChecksum,
+      previousChecksum,
+    })).toBe(false);
+  });
+
+  it('detects tampered previousChecksum', () => {
+    const previousChecksum = 'd'.repeat(64);
+    const baseFields = {
+      timestamp: '2026-05-01T00:00:00.000Z',
+      userId: 'user-3',
+      action: 'LOGOUT',
+      targetType: undefined,
+      targetId: undefined,
+      afterValue: undefined,
+    };
+    const storedChecksum = computeChainedChecksum(baseFields, previousChecksum);
+
+    // Provide a different previousChecksum at verify time — should fail
+    expect(verifyAuditChecksum({
+      timestamp: '2026-05-01T00:00:00.000Z',
+      userId: 'user-3',
+      action: 'LOGOUT',
+      checksum: storedChecksum,
+      previousChecksum: 'e'.repeat(64), // tampered chain link
+    })).toBe(false);
+  });
+});
+
+describe('verifyAuditChecksum — redacted rows', () => {
+  it('always returns true for redacted rows', () => {
+    // Redacted rows have afterValue NULLed; we cannot recompute.
+    // The chain walker detects mutations via the next row's previousChecksum.
+    expect(verifyAuditChecksum({
+      timestamp: '2025-01-01T00:00:00.000Z',
+      action: 'SOME_ACTION',
+      checksum: 'does-not-matter',
+      redactedAt: new Date(),
     })).toBe(true);
   });
 });
