@@ -17,6 +17,8 @@ import { SuccessCard } from './components/SuccessCard';
 // Main page component
 // =============================================
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function ChecklistPage() {
   const { entityId } = useParams<{ entityId: string }>();
   const navigate = useNavigate();
@@ -24,13 +26,17 @@ export function ChecklistPage() {
   const { toast } = useToast();
   const reauth = useReauth();
 
+  // Guard: only fetch when entityId is a valid UUID — prevents double-fire
+  // SWR requests for malformed route params (e.g. /checklist/<bad-uuid>).
+  const isValidId = !!entityId && UUID_RE.test(entityId);
+
   // Fetch entity details
   const {
     data: entity,
     error: entityError,
     isLoading: entityLoading,
   } = useSWR<EntityInstance>(
-    entityId ? `/api/assets/instances/${entityId}` : null,
+    isValidId ? `/api/assets/instances/${entityId}` : null,
   );
 
   // Answers map: questionId -> value
@@ -216,7 +222,7 @@ export function ChecklistPage() {
     return null;
   }
 
-  if (entityError) {
+  if (entityError || !isValidId) {
     return (
       <div className="max-w-lg mx-auto px-4 py-12">
         <div className="bg-white rounded-2xl shadow-soft border border-red-100 p-8 text-center space-y-4">
