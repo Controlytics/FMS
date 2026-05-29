@@ -196,7 +196,7 @@ export function NotificationLogsPage() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                       <div>
                         <strong className="text-slate-600">Message:</strong>
-                        <div className="mt-1 p-3 bg-white rounded-lg border text-slate-700 max-h-40 overflow-y-auto text-xs" dangerouslySetInnerHTML={{ __html: log.message?.replace(/</g, '&lt;').replace(/>/g, '&gt;') || '' }} />
+                        <div className="mt-1 p-3 bg-white rounded-lg border text-slate-700 max-h-40 overflow-y-auto text-xs" style={{ whiteSpace: 'pre-wrap' }}>{log.message || ''}</div>
                       </div>
                       {log.errorMessage && (
                         <div>
