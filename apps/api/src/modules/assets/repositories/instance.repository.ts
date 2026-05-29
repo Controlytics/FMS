@@ -1,15 +1,16 @@
 import { prisma } from '../../../lib/prisma.js';
 import { flattenFilterFields, flattenFilterFieldsAll } from '../../../lib/filter-details.js';
-// A-01 Phase 2 Tier 1 (2026-05-29): typed-asset-dispatch helper is staged
-// at apps/api/src/lib/typed-asset-dispatch.ts and verified end-to-end
-// against the live DB (create + update + soft-delete all round-trip
-// correctly to both asset_instances AND typed tables). Activation here is
-// gated on updating 28 test mocks in this module's __tests__ to include
-// prisma.assetTemplate.findUnique + prisma.$transaction stubs. Tracked as
-// Tier 1.5 follow-up — see tasks/A-01-PHASE-2-PLAN.md.
-//   import {
-//     dispatchCreate, dispatchUpdate, dispatchSoftDeleteMany,
-//   } from '../../../lib/typed-asset-dispatch.js';
+// A-01 Phase 2 Tier 1 ACTIVATED (Tier 1.5 follow-up, 2026-05-29).
+// Every create/update/softDeleteMany now dual-writes to the typed
+// hierarchy table (blocks/areas/ahus/filters) AND the legacy asset_instances
+// table inside a single transaction. OTHER-kind asset_instances stay on
+// the legacy table only (per D-decision D1=C). Reads still hit
+// asset_instances directly — that's deferred to later Phase 2 tiers.
+import {
+  dispatchCreate,
+  dispatchUpdate,
+  dispatchSoftDeleteMany,
+} from '../../../lib/typed-asset-dispatch.js';
 
 // Filter-specific fields live on `FilterDetails` (1:1 sidecar) since Step 6.
 // Repositories ALWAYS include filterDetails and flatten before returning so
@@ -96,21 +97,15 @@ export const instanceRepository = {
   },
 
   async create(data: Record<string, unknown>) {
-    // Tier 1.5 will swap to dispatchCreate(data as any) once test mocks land.
-    return prisma.assetInstance.create({ data: data as any });
+    return dispatchCreate(data as any);
   },
 
   async update(id: string, data: Record<string, unknown>) {
-    // Tier 1.5 will swap to dispatchUpdate(id, data) once test mocks land.
-    return prisma.assetInstance.update({ where: { id }, data: data as any });
+    return dispatchUpdate(id, data);
   },
 
   async softDeleteMany(ids: string[], username: string) {
-    // Tier 1.5 will swap to dispatchSoftDeleteMany(ids, username) once test mocks land.
-    return prisma.assetInstance.updateMany({
-      where: { id: { in: ids } },
-      data: { isActive: false, updatedBy: username },
-    });
+    return dispatchSoftDeleteMany(ids, username);
   },
 
   async findChildren(parentId: string) {
