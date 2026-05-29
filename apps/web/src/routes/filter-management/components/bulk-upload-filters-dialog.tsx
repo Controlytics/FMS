@@ -44,19 +44,12 @@ export function BulkUploadFiltersDialog({ open, onClose, ahuId, ahuName, onSucce
   const [selectedBlock, setSelectedBlock] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Fetch blocks for dropdown
-  const { data: templatesData } = useSWR(open ? '/api/assets/templates?limit=1000' : null);
-  const { data: instancesData } = useSWR(open ? '/api/assets/instances?limit=500' : null);
-
-  // Bug fix 2026-05-10: match by stable `templateKind === 'BLOCK'`, not the
-  // editable `name`. Without this, admins who renamed the Block template
-  // (or added variants) saw an empty Block dropdown.
-  const blockTemplateIds = new Set(
-    (templatesData?.data ?? [])
-      .filter((t: any) => t.templateKind === 'BLOCK')
-      .map((t: any) => t.id),
-  );
-  const blocks = (instancesData?.data ?? []).filter((e: any) => blockTemplateIds.has(e.templateId));
+  // A-01 wave 5: migrated from /api/assets/templates + /api/assets/instances to the
+  // typed hierarchy endpoint. /api/hierarchy/blocks returns only block-kind rows —
+  // no templateKind heuristic or join needed. attributeSchema is not accessed here
+  // (CSV columns are hardcoded constants), so no legacy call is needed.
+  const { data: blocksData } = useSWR(open ? '/api/hierarchy/blocks?limit=500' : null);
+  const blocks = (blocksData?.data ?? []) as any[];
 
   useEffect(() => { if (!open) reset(); }, [open]);
 
