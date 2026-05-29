@@ -67,6 +67,7 @@ const CleaningProfileListPage = lazy(() => import("./routes/filter-management/cl
 const CleaningCycleHistoryPage = lazy(() => import("./routes/cleaning-cycles/history").then(m => ({ default: m.CleaningCycleHistoryPage })));
 const CleaningCycleTimelinePage = lazy(() => import("./routes/cleaning-cycles/timeline").then(m => ({ default: m.CleaningCycleTimelinePage })));
 const CleaningReasonsConfigPage = lazy(() => import("./routes/config/filter-cleaning-reasons").then(m => ({ default: m.CleaningReasonsConfigPage })));
+const FilterFieldOptionsConfigPage = lazy(() => import("./routes/config/filter-field-options").then(m => ({ default: m.FilterFieldOptionsConfigPage })));
 const EquipmentGroupsConfigPage = lazy(() => import("./routes/config/equipment-groups").then(m => ({ default: m.EquipmentGroupsConfigPage })));
 const CleaningProfileAssignmentPage = lazy(() => import('./routes/config/cleaning-profile-assignment').then(m => ({ default: m.CleaningProfileAssignmentPage })));
 const AhuFilterSetConfigPage = lazy(() => import('./routes/config/ahu-filter-set-config').then(m => ({ default: m.AhuFilterSetConfigPage })));
@@ -232,6 +233,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/cleaning-cycles" element={<RequireRole permissions={[PERMISSIONS.CYCLE_READ, PERMISSIONS.VERSION_HISTORY_VIEW]}><Suspense fallback={<LazyFallback />}><CleaningCycleHistoryPage /></Suspense></RequireRole>} />
             <Route path="/cleaning-cycles/:id" element={<RequireRole permissions={[PERMISSIONS.CYCLE_READ, PERMISSIONS.VERSION_HISTORY_VIEW]}><Suspense fallback={<LazyFallback />}><CleaningCycleTimelinePage /></Suspense></RequireRole>} />
             <Route path="/config/filter-cleaning-reasons" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><CleaningReasonsConfigPage /></Suspense></RequireRole>} />
+            <Route path="/config/filter-field-options" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><FilterFieldOptionsConfigPage /></Suspense></RequireRole>} />
             <Route path="/config/equipment-groups" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ, PERMISSIONS.EG_VIEW, PERMISSIONS.ASSET_READ]}><Suspense fallback={<LazyFallback />}><EquipmentGroupsConfigPage /></Suspense></RequireRole>} />
             <Route path="/config/cleaning-profile-assignment" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ, PERMISSIONS.FP_READ, PERMISSIONS.FP_ASSIGN, PERMISSIONS.VERSION_HISTORY_VIEW]}><Suspense fallback={<LazyFallback />}><CleaningProfileAssignmentPage /></Suspense></RequireRole>} />
             <Route path="/config/ahu-filter-set-config" element={<RequireRole permissions={[PERMISSIONS.PM_READ, PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AhuFilterSetConfigPage /></Suspense></RequireRole>} />

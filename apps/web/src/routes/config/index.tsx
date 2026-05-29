@@ -278,6 +278,18 @@ const superAdminCards = [
     shadowColor: 'shadow-amber-500/25',
   },
   {
+    title: 'Filter Field Options',
+    description: 'Manage AHU Type, Filter Type, and Micron Size dropdown values',
+    href: '/config/filter-field-options',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 12h16M4 18h7" />
+      </svg>
+    ),
+    gradient: 'from-cyan-500 to-blue-600',
+    shadowColor: 'shadow-cyan-500/25',
+  },
+  {
     title: 'PM Schedule Settings',
     description: 'Configure default tolerance, task visibility, and overdue display settings',
     href: '/config/dynamic/pm-schedule-settings',
