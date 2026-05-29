@@ -422,7 +422,20 @@ export interface CachedBlock {
 }
 export interface CachedArea extends CachedBlock { blockId: string | null; }
 export interface CachedAhu  extends CachedBlock { areaId:  string | null; }
-export interface CachedFilterTyped extends CachedBlock { ahuId: string | null; }
+// 2026-05-29 (Step 4 unblock): the four cycle-state fields below live on
+// FilterDetails (NOT on the typed `filters` table — see schema.prisma:514-520
+// for the D-03 rationale). The /api/hierarchy/filters endpoint LEFT JOINs
+// FilterDetails and flattens these onto each row so operator UIs reading
+// from the typed cache get the same fields they used to read off
+// /api/assets/instances. When A-01 Phase 2 merges FilterDetails INTO the
+// typed `filters` table these fields move home and this comment can go.
+export interface CachedFilterTyped extends CachedBlock {
+  ahuId: string | null;
+  currentLifecycleState: string | null;
+  currentCycleId: string | null;
+  filterProfileId: string | null;
+  filterSet: string | null;
+}
 
 async function cacheTypedRows<T extends { id: string }>(storeName: string, rows: T[]): Promise<void> {
   const db = await openDB();

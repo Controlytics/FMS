@@ -100,6 +100,44 @@ function parseExpandDepthFromAhu(expand?: string): 0 | 1 {
   return expand === 'filters' ? 1 : 0;
 }
 
+/**
+ * Fetch FilterDetails rows for the given filter ids and flatten the
+ * cycle-state fields onto each filter row. Single Prisma query, JS-side zip
+ * via a Map. Returns rows in the same order as input. Filters with no
+ * FilterDetails row (legacy / mid-migration) get explicit `null`s for the
+ * four cycle-state fields so the FE consumer never sees `undefined`.
+ */
+async function zipFilterDetails<T extends { id: string }>(rows: T[]): Promise<Array<T & {
+  currentLifecycleState: string | null;
+  currentCycleId: string | null;
+  filterProfileId: string | null;
+  filterSet: string | null;
+}>> {
+  if (rows.length === 0) return [] as any;
+  const ids = rows.map((r) => r.id);
+  const details = await prisma.filterDetails.findMany({
+    where: { assetInstanceId: { in: ids } },
+    select: {
+      assetInstanceId: true,
+      currentLifecycleState: true,
+      currentCycleId: true,
+      filterProfileId: true,
+      filterSet: true,
+    },
+  });
+  const byId = new Map(details.map((d) => [d.assetInstanceId, d]));
+  return rows.map((r) => {
+    const d = byId.get(r.id);
+    return {
+      ...r,
+      currentLifecycleState: d?.currentLifecycleState ?? null,
+      currentCycleId: d?.currentCycleId ?? null,
+      filterProfileId: d?.filterProfileId ?? null,
+      filterSet: (d?.filterSet as string | null | undefined) ?? null,
+    };
+  });
+}
+
 /** Build a nested Prisma `include` for the blocks query. */
 function buildBlockInclude(depth: ExpandLevel): Record<string, unknown> | undefined {
   if (depth === 0) return undefined;
@@ -250,6 +288,18 @@ export const hierarchyService = {
   },
 
   // ─── FILTERS ──────────────────────────────────────────────────────────
+  //
+  // Cycle-state fields (currentLifecycleState, currentCycleId, filterProfileId,
+  // filterSet) live on `FilterDetails`, NOT on the typed `Filter` table
+  // (schema.prisma:514-520 explains why — they were dropped 2026-05-25 as a
+  // drift hazard pending A-01 FilterDetails-into-Filter merge). The frontend
+  // operator UI in filter-operations.tsx reads those fields off every filter
+  // row to drive the stage counter / status drilldown / Set A/B labels, so
+  // this endpoint LEFT JOINs FilterDetails and flattens the cycle-state
+  // fields onto each filter row. The join is by ID because the trigger
+  // `fn_mirror_asset_instance` keeps `filters.id == asset_instances.id ==
+  // filter_details.asset_instance_id`. Once A-01 Phase 2 lands and the
+  // columns move home, drop the manual zip.
   async listFilters(q: FilterListQuery): Promise<PaginatedResult<unknown>> {
     const page = normalizePage(q.page);
     const limit = normalizeLimit(q.limit);
@@ -264,11 +314,15 @@ export const hierarchyService = {
       } as any),
       prisma.filter.count({ where }),
     ]);
-    return { data: rows as unknown[], ...paginateMeta(total, page, limit) };
+    const enriched = await zipFilterDetails(rows as Array<{ id: string }>);
+    return { data: enriched as unknown[], ...paginateMeta(total, page, limit) };
   },
 
   async getFilter(id: string) {
-    return prisma.filter.findFirst({ where: { id, isActive: true } } as any);
+    const row = await prisma.filter.findFirst({ where: { id, isActive: true } } as any);
+    if (!row) return row;
+    const [enriched] = await zipFilterDetails([row as { id: string }]);
+    return enriched;
   },
 
   // ─── FULL TREE ────────────────────────────────────────────────────────
