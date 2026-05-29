@@ -1,28 +1,46 @@
+import type { FilterFieldOptions, LastCleaningDateState } from '../types';
+import { FilterFieldOptionsSection } from '../components/FilterFieldOptionsSection';
+
 type Props = {
   name: string;
   filterSet: 'A' | 'B';
   error: string;
   submitting: boolean;
+  fieldOptions: FilterFieldOptions;
+  ahuType: string;
+  filterType: string;
+  micronSize: string;
+  lastCleaning: LastCleaningDateState;
   onNameChange: (v: string) => void;
   onFilterSetChange: (v: 'A' | 'B') => void;
+  onAhuTypeChange: (v: string) => void;
+  onFilterTypeChange: (v: string) => void;
+  onMicronSizeChange: (v: string) => void;
+  onLastCleaningChange: (s: LastCleaningDateState) => void;
   onClose: () => void;
   onSubmit: () => void;
 };
 
-export function EditFilterDialog({ name, filterSet, error, submitting, onNameChange, onFilterSetChange, onClose, onSubmit }: Props) {
+export function EditFilterDialog({
+  name, filterSet, error, submitting,
+  fieldOptions, ahuType, filterType, micronSize, lastCleaning,
+  onNameChange, onFilterSetChange,
+  onAhuTypeChange, onFilterTypeChange, onMicronSizeChange, onLastCleaningChange,
+  onClose, onSubmit,
+}: Props) {
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
       <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md overflow-hidden flex flex-col shadow-2xl">
         <div className="px-6 py-4 shrink-0 flex items-center justify-between bg-gradient-to-r from-amber-500 to-orange-500">
           <div>
             <h2 className="text-lg font-bold text-white">Edit Filter</h2>
-            <p className="text-white/70 text-sm">Update filter name and set</p>
+            <p className="text-white/70 text-sm">Update filter name, set, and field details</p>
           </div>
           <button onClick={onClose} className="text-white/80 hover:text-white">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
-        <div className="px-6 py-5 space-y-4">
+        <div className="px-6 py-5 space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(90vh - 160px)' }}>
           {error && (
             <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">{error}</div>
           )}
@@ -44,6 +62,18 @@ export function EditFilterDialog({ name, filterSet, error, submitting, onNameCha
               ))}
             </div>
           </div>
+
+          <FilterFieldOptionsSection
+            options={fieldOptions}
+            ahuType={ahuType}
+            filterType={filterType}
+            micronSize={micronSize}
+            lastCleaning={lastCleaning}
+            onAhuTypeChange={onAhuTypeChange}
+            onFilterTypeChange={onFilterTypeChange}
+            onMicronSizeChange={onMicronSizeChange}
+            onLastCleaningChange={onLastCleaningChange}
+          />
         </div>
         <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
           <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
