@@ -871,10 +871,14 @@ export function FilterListPage() {
       const lastEnc = encodeLastCleaningDate(editFilterLastCleaning);
       if (lastEnc !== undefined) attributes.lastCleaningDate = lastEnc; else delete attributes.lastCleaningDate;
 
+      // Always send `attributes` — even an empty object is a valid "clear
+      // all attributes" signal that the backend honors. The earlier
+      // conditional-spread variant silently retained the prior values when
+      // the user cleared the last field.
       const body = {
         name: editFilterName.trim(),
         filterSet: editFilterSet,
-        ...(Object.keys(attributes).length > 0 && { attributes }),
+        attributes,
       };
       if (password) await api.putWithReauth(`/api/assets/instances/${id}`, body, password);
       else await api.put(`/api/assets/instances/${id}`, body);
