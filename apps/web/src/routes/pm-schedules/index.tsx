@@ -265,6 +265,21 @@ export function PmScheduleListPage() {
   const { data: instancesData } = useSWR('/api/assets/instances?limit=500');
   const instances = (instancesData?.data ?? []) as any[];
 
+  // 2026-05-29 bug fix: the /api/assets/instances response includes
+  // template only as { name, icon } — NO templateKind field. Before this
+  // fix, the AHU dropdown filter fell back to a /AHU/i regex against
+  // template.name, which catches the FILTER template too (it is named
+  // 'CWH/AHU-E/01-00' — contains "AHU" as a substring). Result: 71 entries
+  // appeared in the AHU dropdown, only ~14 were real AHUs; the rest were
+  // filters mis-categorised. Build a Set of authentic AHU template IDs
+  // here from /api/assets/templates (which DOES return templateKind) and
+  // filter by membership, exactly mirroring cleaning-profile-assignment.tsx.
+  const { data: templatesData } = useSWR('/api/assets/templates?limit=1000');
+  const ahuTemplateIds = useMemo(() => {
+    const list = (templatesData?.data ?? templatesData ?? []) as any[];
+    return new Set(list.filter((t: any) => t?.templateKind === 'AHU').map((t: any) => t.id));
+  }, [templatesData]);
+
   const handleReject = (ids: string[]) => { setRejectDialog(ids); setRejectRemarks(''); };
 
   const submitReject = () => {
@@ -326,11 +341,15 @@ export function PmScheduleListPage() {
   };
 
   // Filter AHU instances for the create dialog dropdown.
+  // 2026-05-29 bug fix: use the authoritative templateKind Set built above
+  // from /api/assets/templates. The previous heuristic (templateKind on
+  // instance.template + /AHU/i regex fallback against template.name)
+  // failed because: (a) the instance response omits templateKind, (b) the
+  // FILTER template is named 'CWH/AHU-E/01-00' which matches the regex,
+  // so all 57 filters were mis-listed as AHUs.
   const ahuInstances = useMemo(() => {
-    return instances.filter((i: any) =>
-      i?.template?.templateKind === 'AHU' || /AHU/i.test(i?.template?.name ?? ''),
-    );
-  }, [instances]);
+    return instances.filter((i: any) => i?.templateId && ahuTemplateIds.has(i.templateId));
+  }, [instances, ahuTemplateIds]);
 
   // Audit 2026-05-09 fix: PM schedule DELETE was an orphan endpoint —
   // BE supports it with reauth (DELETE_PM_SCHEDULE), no FE caller. The
