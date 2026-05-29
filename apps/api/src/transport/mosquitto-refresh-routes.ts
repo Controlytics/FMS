@@ -134,8 +134,9 @@ export default async function mosquittoRefreshRoutes(app: FastifyInstance) {
       try {
         config = await generateDynamicSecurity({ devices: resolved, adminPassword });
       } catch (err) {
-        req.log.error({ err }, 'Failed to generate Mosquitto dynamic-security config');
-        return reply.code(500).send({ error: (err as Error).message });
+        // Audit S-12: log full error server-side; return generic message to caller
+        req.log.error(err, 'mosquitto-refresh failed');
+        return reply.code(500).send({ error: 'INTERNAL_ERROR', message: 'Mosquitto refresh failed' });
       }
 
       const targetPath = process.env.MOSQUITTO_DYNSEC_PATH ?? './mosquitto/dynamic-security.json';
