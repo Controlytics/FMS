@@ -119,6 +119,12 @@ export const REAUTH_ACTIONS = {
 
   // Phase 2: Filter Management
   START_CLEANING_CYCLE: { label: 'Start Cleaning Cycle', category: 'Filter Management' },
+  // Audit S-4 (2026-05-29): POST /:id/advance was the only cycle endpoint
+  // without enforceReauth. Every sibling (start-cycle, submit-checklist,
+  // bypass, retire, replace, terminate-cycle) requires step-up auth.
+  // Advancing through a stage IS a 21 CFR §11 signature-of-intent event —
+  // it is the highest-frequency operator action and must be operator-owned.
+  ADVANCE_FILTER_STAGE: { label: 'Advance Filter to Next Stage', category: 'Filter Management' },
   BYPASS_FILTER_STAGE: { label: 'Bypass Filter Stage (Deviation)', category: 'Filter Management' },
   TERMINATE_CLEANING_CYCLE: { label: 'Terminate Cleaning Cycle', category: 'Filter Management' },
   CREATE_FILTER: { label: 'Create Filter', category: 'Filter Management' },

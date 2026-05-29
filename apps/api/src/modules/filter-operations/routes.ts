@@ -234,7 +234,9 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('ADVANCE_FILTER_STAGE', req, reply);
+    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     return service.advance(ctx, id, req.body);
