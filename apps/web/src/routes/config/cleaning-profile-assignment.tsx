@@ -21,6 +21,7 @@ interface AssignmentConfig {
 interface CleaningProfile {
   id: string;
   name: string;
+  status?: string;  // 2026-05-29 bug fix #5: filter dropdown to ACTIVE only.
 }
 
 interface AssetInstance {
@@ -34,12 +35,18 @@ interface AssetInstance {
 interface AssetTemplate {
   id: string;
   name: string;
-  templateType: string | null;
+  // 2026-05-29 bug fix #3: was templateType (non-existent on the API
+  // response), which always fell back to fragile name-substring matching.
+  // The authoritative field is templateKind: 'BLOCK'|'AREA'|'AHU'|'FILTER'|'EQUIPMENT'|'OTHER'.
+  templateKind: string | null;
 }
 
 const MODE_OPTIONS: { value: AssignmentMode; label: string; description: string }[] = [
   { value: 'BY_ENTITY', label: 'By Individual Filter', description: 'Assign a cleaning profile to each filter individually' },
-  { value: 'BY_FILTER_SIZE', label: 'By Filter Size', description: 'Assign based on the filter size attribute' },
+  // 2026-05-29 bug fix #2: relabel — the underlying attribute is `micronSize`
+  // (configured via Filter Field Options config page); BY_FILTER_SIZE enum
+  // value preserved for backward-compat with stored configs.
+  { value: 'BY_FILTER_SIZE', label: 'By Micron Size', description: 'Assign based on the filter micron-size attribute' },
   { value: 'BY_AHU', label: 'By AHU', description: 'Assign based on which AHU the filter belongs to' },
   { value: 'BY_BLOCK', label: 'By Block / Area', description: 'Assign based on the parent block or area in the hierarchy' },
   { value: 'BY_FILTER_SET', label: 'By Filter Set (A/B)', description: 'Assign based on filter set designation' },
@@ -69,13 +76,13 @@ export function CleaningProfileAssignmentPage() {
     }
   }, [configData]);
 
-  // Derive filter instances (instances whose template is a filter type)
+  // 2026-05-29 bug fix #3: detect templates by the authoritative templateKind
+  // column instead of name-substring heuristics. The old heuristic failed for
+  // real-world template names (e.g. a FILTER template named "CWH/AHU-E/01-00"
+  // does not contain "filter" and was also mis-detected as AHU because the
+  // name contains "ahu").
   const filterTemplateIds = useMemo(() => {
-    return new Set(
-      templates
-        .filter(t => (t.templateType ?? t.name ?? '').toLowerCase().includes('filter'))
-        .map(t => t.id)
-    );
+    return new Set(templates.filter(t => t.templateKind === 'FILTER').map(t => t.id));
   }, [templates]);
 
   const filterInstances = useMemo(() => {
@@ -83,25 +90,17 @@ export function CleaningProfileAssignmentPage() {
   }, [instances, filterTemplateIds]);
 
   const ahuTemplateIds = useMemo(() => {
-    return new Set(
-      templates
-        .filter(t => (t.templateType ?? t.name ?? '').toLowerCase().includes('ahu'))
-        .map(t => t.id)
-    );
+    return new Set(templates.filter(t => t.templateKind === 'AHU').map(t => t.id));
   }, [templates]);
 
   const ahuInstances = useMemo(() => {
     return instances.filter(i => i.templateId && ahuTemplateIds.has(i.templateId));
   }, [instances, ahuTemplateIds]);
 
+  // BY_BLOCK mode label is "Block / Area" — include both kinds in the pool.
   const blockTemplateIds = useMemo(() => {
     return new Set(
-      templates
-        .filter(t => {
-          const key = (t.templateType ?? t.name ?? '').toLowerCase();
-          return key.includes('block') || key.includes('area') || key.includes('building') || key.includes('zone');
-        })
-        .map(t => t.id)
+      templates.filter(t => t.templateKind === 'BLOCK' || t.templateKind === 'AREA').map(t => t.id),
     );
   }, [templates]);
 
@@ -109,23 +108,49 @@ export function CleaningProfileAssignmentPage() {
     return instances.filter(i => i.templateId && blockTemplateIds.has(i.templateId));
   }, [instances, blockTemplateIds]);
 
-  // Unique filter sizes from filter instances
+  // 2026-05-29 bug fix #2: read attributes.micronSize (the canonical key
+  // populated by the Filter Field Options config page). The previous
+  // attributes.filterSize key was never populated by any UI in this app,
+  // so the BY_FILTER_SIZE rule pool was always empty.
   const filterSizes = useMemo(() => {
     const sizes = new Set<string>();
     filterInstances.forEach(i => {
-      const fs = (i.attributes as any)?.filterSize;
-      if (fs) sizes.add(fs);
+      const fs = (i.attributes as any)?.micronSize;
+      if (fs) sizes.add(String(fs));
     });
     return Array.from(sizes).sort();
   }, [filterInstances]);
 
+  // 2026-05-29 bug fix #5: only ACTIVE cleaning profiles are valid targets.
+  // Archived profiles were previously selectable and would silently fail
+  // at cycle start. Preserve any currently-saved-but-now-archived rule
+  // value in the dropdown so it remains visible / editable.
+  const activeProfiles = useMemo(() => {
+    const currentlyReferenced = new Set(rules.map(r => r.profileId).filter(Boolean));
+    return profiles.filter(p => p.status === 'ACTIVE' || !p.status || currentlyReferenced.has(p.id));
+  }, [profiles, rules]);
+
   const handleModeChange = (newMode: AssignmentMode) => {
+    // 2026-05-29 bug fix #6: warn before clobbering existing configured rules.
+    // Previously a stray click on a different mode silently wiped a saved
+    // setup (audit trail showed an operator's BY_FILTER_SET config wiped by
+    // a subsequent BY_BLOCK mode-switch + save).
+    const hasConfiguredRules = rules.some(r => r.matchValue && r.profileId);
+    if (hasConfiguredRules && newMode !== mode) {
+      const ok = window.confirm(
+        `Switching mode will reset the ${rules.length} currently-configured rule${rules.length === 1 ? '' : 's'}. Continue?`,
+      );
+      if (!ok) return;
+    }
     setMode(newMode);
-    // Reset rules when mode changes
     if (newMode === 'BY_FILTER_SET') {
+      // 2026-05-29 bug fix #1: seed with the canonical SET_A / SET_B values
+      // that match what filter_details.filter_set stores. The previous 'A'/'B'
+      // seeds never matched any filter at resolution time (resolver compared
+      // 'B' === 'SET_B' → always false → fell through to default).
       setRules([
-        { matchValue: 'A', profileId: '' },
-        { matchValue: 'B', profileId: '' },
+        { matchValue: 'SET_A', profileId: '' },
+        { matchValue: 'SET_B', profileId: '' },
       ]);
     } else {
       setRules([]);
@@ -175,9 +200,17 @@ export function CleaningProfileAssignmentPage() {
       default:               return Infinity;
     }
   };
+  // 2026-05-29 bug fix #4: previously fired when total === 0 (0 >= 0 is true),
+  // so Add Rule was permanently disabled in any mode whose pool was empty
+  // (BY_ENTITY with no detected filter templates, BY_FILTER_SIZE with no
+  // micron sizes configured, etc.). Now requires the pool to be non-empty
+  // before we ever disable Add Rule. The "pool empty" state surfaces as the
+  // empty-state hint in the table area instead of an unclickable button.
+  const totalForMode = totalAvailableForMode();
   const allOptionsAssigned =
     mode !== 'BY_FILTER_SET'
-    && rules.filter(r => r.matchValue).length >= totalAvailableForMode();
+    && totalForMode > 0
+    && rules.filter(r => r.matchValue).length >= totalForMode;
 
   // Audit 2026-05-04 fix #5 (web-routes review H — lower-blast config
   // surfaces). UPDATE_CONFIG_PAGE umbrella; backend mirror in
@@ -289,7 +322,11 @@ export function CleaningProfileAssignmentPage() {
       case 'BY_FILTER_SET':
         return (
           <div className="px-3 py-2 rounded-lg bg-slate-100 border border-slate-200 text-sm font-medium text-slate-700">
-            Set {rule.matchValue}
+            {/* 2026-05-29 bug fix #1: matchValue is now stored as 'SET_A'/'SET_B'
+                (matching filter_details.filter_set) but legacy saved configs
+                may still hold 'A'/'B' — strip the optional SET_ prefix for
+                display. Both formats render as "Set A" / "Set B". */}
+            Set {rule.matchValue.replace(/^SET_/, '')}
           </div>
         );
 
@@ -429,8 +466,8 @@ export function CleaningProfileAssignmentPage() {
                             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
                           >
                             <option value="">Select profile...</option>
-                            {profiles.map(p => (
-                              <option key={p.id} value={p.id}>{p.name}</option>
+                            {activeProfiles.map(p => (
+                              <option key={p.id} value={p.id}>{p.name}{p.status && p.status !== 'ACTIVE' ? ` (${p.status.toLowerCase()})` : ''}</option>
                             ))}
                           </select>
                         </td>

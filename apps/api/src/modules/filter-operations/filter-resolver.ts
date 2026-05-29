@@ -184,13 +184,28 @@ export async function resolveFilterProfile(filter: { id: string; filterProfileId
 
   switch (config.mode) {
     case 'BY_FILTER_SIZE': {
-      const filterSize = attrs.filterSize ?? '';
-      const rule = config.rules.find(r => r.matchValue === filterSize);
+      // 2026-05-29 bug fix #2: the only UI that writes filter size data is
+      // the Filter Field Options config page, which stores under the
+      // `micronSize` key (not `filterSize`). The previous read of
+      // attrs.filterSize never matched any filter and every BY_FILTER_SIZE
+      // rule fell through to the default profile.
+      const filterSize = String(attrs.micronSize ?? attrs.filterSize ?? '');
+      const rule = config.rules.find(r => String(r.matchValue) === filterSize);
       if (rule?.profileId) return rule.profileId;
       return getDefaultCleaningProfileId();
     }
     case 'BY_FILTER_SET': {
-      const rule = config.rules.find(r => r.matchValue === filter.filterSet);
+      // 2026-05-29 bug fix #1: filter_details.filter_set stores the prefixed
+      // enum value 'SET_A' / 'SET_B'; FE previously seeded rule matchValue as
+      // 'A' / 'B' (unprefixed). 'B' !== 'SET_B' → no match → fell through to
+      // the default profile. Normalise BOTH sides by stripping the SET_
+      // prefix so new (canonical) and legacy (unprefixed) configs both work.
+      // Uppercase FIRST then strip — guarantees lower-case inputs like
+      // 'set_b' also normalize correctly. (Production filter_set is always
+      // 'SET_A'/'SET_B' but defence in depth costs nothing here.)
+      const normalize = (v: string | null | undefined) => (v ?? '').toUpperCase().replace(/^SET_/, '');
+      const target = normalize(filter.filterSet);
+      const rule = config.rules.find(r => normalize(r.matchValue) === target);
       if (rule?.profileId) return rule.profileId;
       return getDefaultCleaningProfileId();
     }
