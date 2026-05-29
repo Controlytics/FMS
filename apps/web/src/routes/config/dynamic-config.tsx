@@ -78,7 +78,7 @@ export function DynamicConfigPage() {
   );
   const moduleDef = manifest?.find(m => m.moduleKey === moduleKey);
 
-  const { data: savedValues, mutate } = useSWR(
+  const { data: savedValues, error: savedValuesError, mutate } = useSWR(
     moduleKey ? `/api/config/dynamic/${moduleKey}` : null,
     { revalidateOnMount: true, dedupingInterval: 0 }
   );
@@ -146,6 +146,30 @@ export function DynamicConfigPage() {
         </div>
       </div>
     );
+  }
+
+  // D4(b): if the GET returned a permission error (401/403), show a clear
+  // message instead of a blank form. SWR puts the thrown error object here;
+  // api-client.ts attaches `status` on structured errors and throws objects
+  // with `error` field (e.g. 'UNAUTHORIZED', 'FORBIDDEN') for 4xx responses.
+  if (savedValuesError) {
+    const isPermissionError =
+      savedValuesError?.status === 401 ||
+      savedValuesError?.status === 403 ||
+      savedValuesError?.error === 'UNAUTHORIZED' ||
+      savedValuesError?.error === 'FORBIDDEN' ||
+      savedValuesError?.error === 'INSUFFICIENT_PERMISSIONS';
+    if (isPermissionError) {
+      return (
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center space-y-3">
+            <h2 className="text-lg font-semibold text-slate-800">{moduleDef.moduleName}</h2>
+            <p className="text-sm text-slate-500">Insufficient permissions to view this configuration.</p>
+            <Button variant="outline" onClick={() => navigate('/config')}>Back to Settings</Button>
+          </div>
+        </div>
+      );
+    }
   }
 
   if (moduleDef.settings.length === 0) {
