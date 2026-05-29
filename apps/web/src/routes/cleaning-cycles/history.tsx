@@ -43,17 +43,12 @@ export function CleaningCycleHistoryPage() {
   const [toDate, setToDate] = useState('');
   const [downloading, setDownloading] = useState(false);
 
-  const { data: instancesData } = useSWR<PaginatedResponse<FilterInstance>>('/api/assets/instances?limit=500');
-  const { data: templatesData } = useSWR<PaginatedResponse<{ id: string; name: string; templateKind?: string }>>('/api/assets/templates?limit=1000');
-  // Bug fix 2026-05-10: match by stable `templateKind === 'FILTER'` not the
-  // editable `name`, so admins can rename / add filter template variants
-  // without breaking this dropdown (same pattern PM-import already uses).
-  const filterTemplateIds = new Set(
-    (templatesData?.data ?? [])
-      .filter((t) => t.templateKind === 'FILTER')
-      .map((t) => t.id),
-  );
-  const filterInstances = (instancesData?.data ?? []).filter((i) => filterTemplateIds.has(i.templateId) && i.isActive !== false && i.status !== 'Retired');
+  // A-01 Wave 5 (2026-05-29): migrated off /api/assets/instances +
+  // /api/assets/templates to /api/hierarchy/filters (typed-table read).
+  // The hierarchy endpoint already gates on isActive=true and returns ONLY
+  // filter-kind rows — no template Set membership check needed.
+  const { data: instancesData } = useSWR<PaginatedResponse<FilterInstance>>('/api/hierarchy/filters?limit=500');
+  const filterInstances = (instancesData?.data ?? []).filter((i) => i.status !== 'Retired');
 
   const queryParams = new URLSearchParams({ page: String(page), limit: String(perPage), includeEvents: 'true' });
   if (status) queryParams.set('status', status);
@@ -73,7 +68,7 @@ export function CleaningCycleHistoryPage() {
 
   const filterAttrMap = new Map<string, Record<string, any>>();
   (instancesData?.data ?? []).forEach((i) => {
-    if (filterTemplateIds.has(i.templateId)) filterAttrMap.set(i.id, i.attributes ?? {});
+    filterAttrMap.set(i.id, i.attributes ?? {});
   });
 
   const getStageInfo = (events: FilterEvent[], stage: string) => {
