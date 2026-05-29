@@ -24,22 +24,9 @@ interface CleaningProfile {
   status?: string;  // 2026-05-29 bug fix #5: filter dropdown to ACTIVE only.
 }
 
-interface AssetInstance {
-  id: string;
-  name: string | null;
-  templateId: string | null;
-  attributes: Record<string, any> | null;
-  parentId: string | null;
-}
-
-interface AssetTemplate {
-  id: string;
-  name: string;
-  // 2026-05-29 bug fix #3: was templateType (non-existent on the API
-  // response), which always fell back to fragile name-substring matching.
-  // The authoritative field is templateKind: 'BLOCK'|'AREA'|'AHU'|'FILTER'|'EQUIPMENT'|'OTHER'.
-  templateKind: string | null;
-}
+// A-01 Wave 5 (2026-05-29): AssetInstance + AssetTemplate types removed.
+// This file now reads from /api/hierarchy/{blocks,areas,ahus,filters} which
+// returns typed rows directly — no template detection needed.
 
 const MODE_OPTIONS: { value: AssignmentMode; label: string; description: string }[] = [
   { value: 'BY_ENTITY', label: 'By Individual Filter', description: 'Assign a cleaning profile to each filter individually' },
@@ -58,16 +45,28 @@ export function CleaningProfileAssignmentPage() {
 
   const { data: configData } = useSWR<AssignmentConfig>('/api/config/cleaning-profile-assignment');
   const { data: profilesData } = useSWR<{ data: CleaningProfile[] }>('/api/filter-cleaning-profiles?limit=100');
-  const { data: instancesData } = useSWR<{ data: AssetInstance[] }>('/api/assets/instances?limit=500');
-  const { data: templatesData } = useSWR<{ data: AssetTemplate[] }>('/api/assets/templates?limit=1000');
+  // A-01 Wave 5 (2026-05-29): migrated off /api/assets/instances + /api/assets/templates
+  // to the typed-table /api/hierarchy/* endpoints. Removes the template-kind
+  // detection + Set-membership filtering that this file previously needed.
+  // Each endpoint returns only the rows of its kind, so no client-side
+  // filtering by kind is needed. AHUs / Blocks / Areas / Filters are
+  // separate calls (SWR dedupes per-key) — cheaper than one nested expand
+  // because each piece is consumed in a different `useMemo`.
+  const { data: blocksData }  = useSWR<{ data: any[] }>('/api/hierarchy/blocks?limit=500');
+  const { data: areasData }   = useSWR<{ data: any[] }>('/api/hierarchy/areas?limit=500');
+  const { data: ahusData }    = useSWR<{ data: any[] }>('/api/hierarchy/ahus?limit=500');
+  const { data: filtersData } = useSWR<{ data: any[] }>('/api/hierarchy/filters?limit=500');
 
   const [mode, setMode] = useState<AssignmentMode>('BY_ENTITY');
   const [rules, setRules] = useState<AssignmentRule[]>([]);
   const [saving, setSaving] = useState(false);
 
   const profiles: CleaningProfile[] = profilesData?.data ?? (Array.isArray(profilesData) ? profilesData as any : []);
-  const instances: AssetInstance[] = instancesData?.data ?? (Array.isArray(instancesData) ? instancesData as any : []);
-  const templates: AssetTemplate[] = templatesData?.data ?? (Array.isArray(templatesData) ? templatesData as any : []);
+  // Direct typed-table data — no kind filtering needed (endpoints are kind-scoped).
+  const blockInstances:  Array<{ id: string; name: string | null }> = blocksData?.data ?? [];
+  const areaInstances:   Array<{ id: string; name: string | null }> = areasData?.data ?? [];
+  const ahuInstances:    Array<{ id: string; name: string | null }> = ahusData?.data ?? [];
+  const filterInstances: Array<{ id: string; name: string | null; attributes?: Record<string, any> | null }> = filtersData?.data ?? [];
 
   useEffect(() => {
     if (configData) {
@@ -76,42 +75,17 @@ export function CleaningProfileAssignmentPage() {
     }
   }, [configData]);
 
-  // 2026-05-29 bug fix #3: detect templates by the authoritative templateKind
-  // column instead of name-substring heuristics. The old heuristic failed for
-  // real-world template names (e.g. a FILTER template named "CWH/AHU-E/01-00"
-  // does not contain "filter" and was also mis-detected as AHU because the
-  // name contains "ahu").
-  const filterTemplateIds = useMemo(() => {
-    return new Set(templates.filter(t => t.templateKind === 'FILTER').map(t => t.id));
-  }, [templates]);
+  // A-01 Wave 5 (2026-05-29): filterInstances / ahuInstances / blockInstances
+  // come directly from /api/hierarchy/{filters,ahus,blocks,areas}. No more
+  // template-Set membership filtering. BY_BLOCK mode label is "Block / Area"
+  // — concatenate blocks + areas into one pool (preserves prior behaviour).
+  const blockAndAreaInstances = useMemo(
+    () => [...blockInstances, ...areaInstances],
+    [blockInstances, areaInstances],
+  );
 
-  const filterInstances = useMemo(() => {
-    return instances.filter(i => i.templateId && filterTemplateIds.has(i.templateId));
-  }, [instances, filterTemplateIds]);
-
-  const ahuTemplateIds = useMemo(() => {
-    return new Set(templates.filter(t => t.templateKind === 'AHU').map(t => t.id));
-  }, [templates]);
-
-  const ahuInstances = useMemo(() => {
-    return instances.filter(i => i.templateId && ahuTemplateIds.has(i.templateId));
-  }, [instances, ahuTemplateIds]);
-
-  // BY_BLOCK mode label is "Block / Area" — include both kinds in the pool.
-  const blockTemplateIds = useMemo(() => {
-    return new Set(
-      templates.filter(t => t.templateKind === 'BLOCK' || t.templateKind === 'AREA').map(t => t.id),
-    );
-  }, [templates]);
-
-  const blockInstances = useMemo(() => {
-    return instances.filter(i => i.templateId && blockTemplateIds.has(i.templateId));
-  }, [instances, blockTemplateIds]);
-
-  // 2026-05-29 bug fix #2: read attributes.micronSize (the canonical key
-  // populated by the Filter Field Options config page). The previous
-  // attributes.filterSize key was never populated by any UI in this app,
-  // so the BY_FILTER_SIZE rule pool was always empty.
+  // Unique micron sizes from filter instances (attributes.micronSize is the
+  // canonical key written by the Filter Field Options config page).
   const filterSizes = useMemo(() => {
     const sizes = new Set<string>();
     filterInstances.forEach(i => {
@@ -196,7 +170,7 @@ export function CleaningProfileAssignmentPage() {
       case 'BY_FILTER_SIZE': return filterSizes.length;
       case 'BY_ENTITY':      return filterInstances.length;
       case 'BY_AHU':         return ahuInstances.length;
-      case 'BY_BLOCK':       return blockInstances.length;
+      case 'BY_BLOCK':       return blockAndAreaInstances.length;
       default:               return Infinity;
     }
   };
@@ -240,7 +214,13 @@ export function CleaningProfileAssignmentPage() {
   };
 
   const getInstanceName = (id: string) => {
-    const inst = instances.find(i => i.id === id);
+    // A-01 Wave 5: search across all hierarchy pools (was: single legacy
+    // instances[] array). Order: filters → ahus → areas → blocks.
+    const inst =
+      filterInstances.find(i => i.id === id) ||
+      ahuInstances.find(i => i.id === id) ||
+      areaInstances.find(i => i.id === id) ||
+      blockInstances.find(i => i.id === id);
     return inst?.name || id;
   };
 
@@ -304,7 +284,7 @@ export function CleaningProfileAssignmentPage() {
       }
 
       case 'BY_BLOCK': {
-        const available = blockInstances.filter(b => b.id === rule.matchValue || !used.has(b.id));
+        const available = blockAndAreaInstances.filter(b => b.id === rule.matchValue || !used.has(b.id));
         return (
           <select
             value={rule.matchValue}
