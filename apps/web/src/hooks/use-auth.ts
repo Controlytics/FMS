@@ -45,7 +45,7 @@ function isNetworkError(err: any): boolean {
 
 export function useAuth() {
   const navigate = useNavigate();
-  const getToken = () => sessionStorage.getItem('access_token') || localStorage.getItem('access_token_backup');
+  const getToken = () => sessionStorage.getItem('access_token');
 
   // Cache user data for offline use
   const getCachedUser = (): User | undefined => {
@@ -75,7 +75,6 @@ export function useAuth() {
       ...(force && { force }),
     });
     sessionStorage.setItem('access_token', res.token);
-    localStorage.setItem('access_token_backup', res.token);
 
     // Audit 2026-05-04 fix C1: fetch an offline-replay grant token using the
     // password the user just supplied (still in scope) so the sync engine can
@@ -101,6 +100,9 @@ export function useAuth() {
         );
         sessionStorage.setItem('offline_replay_token', grant.token);
         sessionStorage.setItem('offline_replay_expires', grant.expiresAt);
+        // offline_replay_token_backup intentionally kept in localStorage:
+        // the grant outlives the session (Capacitor can clear sessionStorage
+        // on backgrounding while the IndexedDB queue persists).
         localStorage.setItem('offline_replay_token_backup', grant.token);
         localStorage.setItem('offline_replay_expires_backup', grant.expiresAt);
         sessionStorage.removeItem('offline_grant_failed');

@@ -2089,9 +2089,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // entry with value=undefined; on next mount isLoading is false (cache hit)
   // while user is briefly undefined → without the token guard below, the
   // operator was bounced back to /m/login right after a successful login.
-  const hasAuthTokenInStorage =
-    !!sessionStorage.getItem('access_token') ||
-    !!localStorage.getItem('access_token_backup');
+  const hasAuthTokenInStorage = !!sessionStorage.getItem('access_token');
   if (!authLoading && !user && !hasAuthTokenInStorage) {
     return <Navigate to="/m/login" replace />;
   }

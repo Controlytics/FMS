@@ -171,7 +171,7 @@ export function PmScheduleListPage() {
   const handleDownloadTemplate = async () => {
     try {
       const res = await fetch(`${(window as any).__API_BASE__ ?? ''}/api/pm-schedules/template.csv`, {
-        headers: { Authorization: `Bearer ${sessionStorage.getItem('access_token') ?? localStorage.getItem('access_token_backup') ?? ''}` },
+        headers: { Authorization: `Bearer ${sessionStorage.getItem('access_token') ?? ''}` },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const text = await res.text();
@@ -192,7 +192,7 @@ export function PmScheduleListPage() {
       'UPLOAD_PM_SCHEDULES',
       async (password?: string) => {
         const form = new FormData(); form.append('file', file);
-        const token = sessionStorage.getItem('access_token') ?? localStorage.getItem('access_token_backup') ?? '';
+        const token = sessionStorage.getItem('access_token') ?? '';
         const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
         if (password) headers['x-reauth-password'] = password;
         const res = await fetch('/api/pm-schedules/upload', { method: 'POST', headers, body: form });

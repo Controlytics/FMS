@@ -338,7 +338,7 @@ async function syncTombstones(): Promise<void> {
  * shape that syncPendingOperations expects.
  */
 async function refreshTokenBeforeSync(): Promise<{ ok: boolean; error?: string }> {
-  const token = sessionStorage.getItem('access_token') || localStorage.getItem('access_token_backup');
+  const token = sessionStorage.getItem('access_token');
   if (!token) return { ok: false, error: 'No token in storage' };
   const ok = await apiClient.refreshToken();
   return ok ? { ok: true } : { ok: false, error: 'Token refresh failed' };

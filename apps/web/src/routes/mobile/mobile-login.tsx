@@ -81,6 +81,9 @@ export function MobileLoginPage() {
       );
       sessionStorage.setItem('offline_replay_token', grant.token);
       sessionStorage.setItem('offline_replay_expires', grant.expiresAt);
+      // offline_replay_token_backup intentionally kept in localStorage:
+      // the grant outlives the session (Capacitor can clear sessionStorage
+      // on backgrounding while the IndexedDB queue persists).
       localStorage.setItem('offline_replay_token_backup', grant.token);
       localStorage.setItem('offline_replay_expires_backup', grant.expiresAt);
       sessionStorage.removeItem('offline_grant_failed');
@@ -122,7 +125,6 @@ export function MobileLoginPage() {
         return;
       }
       sessionStorage.setItem('access_token', res.token);
-      localStorage.setItem('access_token_backup', res.token);
       // 2026-05-21: skip mintOfflineGrant when the operator must change their
       // password first. The /api/auth/offline-grant endpoint isn't in the
       // server's PASSWORD_CHANGE_ALLOWED list, so calling it returns 403
@@ -162,7 +164,6 @@ export function MobileLoginPage() {
               return;
             }
             sessionStorage.setItem('access_token', res.token);
-            localStorage.setItem('access_token_backup', res.token);
             // Same forcePasswordChange skip as the main login path above —
             // /api/auth/offline-grant returns 403 for force-change users.
             if (!res.user?.forcePasswordChange) {

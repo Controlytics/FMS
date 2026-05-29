@@ -527,9 +527,7 @@ export function MobileWrapperPage() {
   // token check below, the guard fired during that gap and bounced the
   // operator straight back to /m/login — the "page refresh on 1st login"
   // operators reported.
-  const hasAuthTokenInStorage =
-    !!sessionStorage.getItem('access_token') ||
-    !!localStorage.getItem('access_token_backup');
+  const hasAuthTokenInStorage = !!sessionStorage.getItem('access_token');
   if (!authLoading && !user && !hasAuthTokenInStorage) {
     return <Navigate to="/m/login" replace />;
   }

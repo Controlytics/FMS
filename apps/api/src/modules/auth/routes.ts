@@ -11,6 +11,8 @@ import { signOfflineReplayToken } from '../../lib/offline-replay-token.js';
 export default async function authRoutes(app: FastifyInstance) {
   // POST /api/auth/login
   app.post('/login', {
+    // Audit API-6: tight per-route bodyLimit — 4 KB is plenty for username+password JSON
+    bodyLimit: 4096,
     config: {
       rateLimit: {
         max: 10,
@@ -70,12 +72,7 @@ export default async function authRoutes(app: FastifyInstance) {
           error: err.code, message: err.message, activeSession: (err as any).activeSession,
         });
       }
-      // Special handling for attemptsRemaining field (must be top-level, not in details)
-      if (err instanceof AppError && (err as any).attemptsRemaining !== undefined) {
-        return reply.code(err.statusCode).send({
-          error: err.code, message: err.message, attemptsRemaining: (err as any).attemptsRemaining,
-        });
-      }
+      // Audit API-2: attemptsRemaining block removed — field no longer sent in response
       throw err; // global error handler handles all other AppErrors
     }
   });

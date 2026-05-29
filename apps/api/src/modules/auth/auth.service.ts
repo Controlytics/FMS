@@ -34,8 +34,8 @@ export const authService = {
 
       if (!user) {
         await verifyPassword(password, DUMMY_HASH);
-        const err = new AppError(401, 'USER_NOT_FOUND', 'User ID is incorrect.');
-        throw err;
+        // Audit API-1: unified error — do not reveal whether the user exists
+        throw new AppError(401, 'INVALID_CREDENTIALS', 'Username or password is incorrect.');
       }
     }
 
@@ -78,7 +78,8 @@ export const authService = {
             // Sync attributes from LDAP
             await ldapService.syncUserAttributes(user.id, ldapResult, ldapConfig);
           } else {
-            throw new AppError(401, 'INVALID_PASSWORD', 'Password is incorrect.');
+            // Audit API-1: unified error — do not distinguish LDAP vs local credential failure
+            throw new AppError(401, 'INVALID_CREDENTIALS', 'Username or password is incorrect.');
           }
         }
       } catch (err: any) {
@@ -103,7 +104,8 @@ export const authService = {
           afterValue: { username: user.username, fullName: user.fullName, adminExempt: true },
           ipAddress: ip, userAgent,
         });
-        throw new AppError(401, 'INVALID_PASSWORD', 'Password is incorrect.');
+        // Audit API-1: unified error — internal audit log retains the distinction
+        throw new AppError(401, 'INVALID_CREDENTIALS', 'Username or password is incorrect.');
       }
 
       const loginSecurity = await authRepository.getLoginSecurityConfig();
@@ -162,9 +164,9 @@ export const authService = {
         ipAddress: ip, userAgent,
       });
 
-      const err = new AppError(401, 'INVALID_PASSWORD', 'Password is incorrect.');
-      (err as any).attemptsRemaining = maxAttempts - newAttempts;
-      throw err;
+      // Audit API-1: unified error; Audit API-2: do not expose attemptsRemaining in response
+      // (audit log above already records the attempt count server-side for admin review)
+      throw new AppError(401, 'INVALID_CREDENTIALS', 'Username or password is incorrect.');
     }
 
     // Check password expiry (derived from passwordChangedAt + live policy,

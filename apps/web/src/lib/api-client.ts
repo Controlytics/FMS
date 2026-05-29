@@ -22,7 +22,7 @@ function isHardCutoffBlocked(method: string | undefined, url: string): boolean {
 
 class ApiClient {
   private getToken(): string | null {
-    return sessionStorage.getItem('access_token') || localStorage.getItem('access_token_backup');
+    return sessionStorage.getItem('access_token');
   }
 
   private async request<T>(url: string, options: RequestInit = {}): Promise<T> {
@@ -221,7 +221,6 @@ class ApiClient {
         const data = await this.post<{ token?: string }>('/api/auth/refresh', {});
         if (data?.token) {
           sessionStorage.setItem('access_token', data.token);
-          localStorage.setItem('access_token_backup', data.token);
           return true;
         }
         return false;
