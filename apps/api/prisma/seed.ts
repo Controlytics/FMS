@@ -331,6 +331,22 @@ async function main() {
   }
   console.log('  Created default system configurations');
 
+  // Filter field options — standalone upsert so re-seed never clobbers admin edits
+  await prisma.systemConfig.upsert({
+    where: { configKey: 'filter-field-options' },
+    update: {}, // do not overwrite admin edits on re-seed
+    create: {
+      configKey: 'filter-field-options',
+      configValue: {
+        ahuType: ['Process', 'Non Process'],
+        filterType: [],
+        micronSize: [],
+      },
+      configType: 'filter',
+      requiresReauth: true,
+    },
+  });
+
   // 4. Field ID configurations
   const fieldIds = [
     // User Management
