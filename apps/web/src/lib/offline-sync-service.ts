@@ -74,12 +74,27 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
 
   try {
     // 1. Templates
+    // A-01 Wave 5 carve-out (2026-05-29): cannot migrate to /api/hierarchy/*
+    // because the 'templates' IDB cache is consumed by mobile-operations.tsx
+    // and filter-operations.tsx (both carve-outs) using templateKind
+    // discriminators ('BLOCK', 'FILTER', 'AHU', 'AREA') to tell entity kinds
+    // apart in a mixed instances array. The hierarchy endpoints only serve
+    // one typed kind per endpoint, so they can't rebuild this mixed cache.
+    // Unblocked when those two carve-out files migrate off templateId/templateKind.
     report(steps[currentStep]);
     const templatesRes = await apiClient.get<any>('/api/assets/templates?limit=1000');
     await cacheItem('templates', templatesRes?.data ?? []);
     currentStep++;
 
     // 2. Filter instances
+    // A-01 Wave 5 carve-out (2026-05-29): cannot migrate to /api/hierarchy/filters
+    // because CachedFilter (offline-store.ts) requires `templateId` and the
+    // hierarchy Filter model dropped that column (D-03 fix, 2026-05-25).
+    // filter-operations.tsx also reads `offlineInstances` and uses
+    // `f.templateId === blockTemplateId` to discriminate entity kinds in a
+    // mixed array — that pattern requires ALL entity kinds in one list.
+    // Migration is gated on filter-operations.tsx + mobile-operations.tsx
+    // moving off the templateId discriminator and CachedFilter dropping templateId.
     report(steps[currentStep]);
     const instancesRes = await apiClient.get<any>('/api/assets/instances?limit=500');
     const instances = instancesRes?.data ?? [];
@@ -144,6 +159,10 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
     currentStep++;
 
     // 6. Identifier map (RFID/barcode → filterId+filterName)
+    // A-01 Wave 5 note (2026-05-29): identifiers remain on /api/assets/identifiers.
+    // There is no /api/hierarchy/identifiers endpoint — identifiers are a
+    // cross-cutting concern (one identifier per asset, independent of typed-table
+    // kind). No migration needed here.
     report(steps[currentStep]);
     const identRes = await apiClient.get<any[]>('/api/assets/identifiers?limit=1000');
     const identList = Array.isArray(identRes) ? identRes : [];
