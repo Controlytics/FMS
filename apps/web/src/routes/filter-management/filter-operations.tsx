@@ -59,6 +59,22 @@ export function FilterOperationsPage() {
   const { data: instancesData, error: instancesError } = useSWR<PaginatedResponse<FilterInstance>>('/api/assets/instances?limit=500', { refreshInterval: online ? 30000 : 0 });
   const { data: templatesData, error: templatesError } = useSWR<PaginatedResponse<{ id: string; name: string }>>('/api/assets/templates?limit=1000');
   const { data: identifiersData } = useSWR<any[]>(online ? '/api/assets/identifiers?limit=1000' : null);
+  // A-01 cluster Step 4 (2026-05-29): primary data source is the typed
+  // hierarchy endpoints. Filter rows include the four cycle-state fields
+  // (currentLifecycleState / currentCycleId / filterProfileId / filterSet)
+  // because hierarchy.service.ts.listFilters LEFT JOINs FilterDetails
+  // (Tier 1.6 unblock). The two legacy SWR calls above remain ONLY to feed
+  // useFilterOperationsOfflineCache, which still primes the legacy mixed-kind
+  // `filters` IDB store + offlineInstances/Templates that mobile-wrapper +
+  // mobile-operations consume. Steps 5-6 migrate those consumers; Step 7
+  // drops the legacy SWR + cache entirely.
+  const { data: typedFiltersResp, error: typedFiltersError } = useSWR<PaginatedResponse<any>>(
+    '/api/hierarchy/filters?limit=500',
+    { refreshInterval: online ? 30000 : 0 },
+  );
+  const { data: typedBlocksResp, error: typedBlocksError } = useSWR<PaginatedResponse<any>>(
+    '/api/hierarchy/blocks?limit=500',
+  );
   const { data: reasonsData } = useSWR<any>(online ? '/api/filters/reasons' : null);
   const { data: equipGroupsData } = useSWR<any>(online ? '/api/equipment-groups' : null);
   const isMobile = typeof window !== 'undefined' && !!(window as any).Capacitor?.isNativePlatform?.();
@@ -67,8 +83,11 @@ export function FilterOperationsPage() {
   // effects live in the hook so this file isn't fighting offline-cache
   // bookkeeping in the middle of cycle-write logic.
   const {
-    offlineInstances,
-    offlineTemplates,
+    // A-01 Step 4: offlineInstances/offlineTemplates no longer consumed in
+    // this file's derivations — typed caches replace them. They remain in
+    // the hook for mobile-wrapper + mobile-operations (Steps 5-6).
+    offlineBlocks,
+    offlineFiltersTyped,
     offlineDataLoaded,
     refreshOfflineInstances,
   } = useFilterOperationsOfflineCache({
@@ -177,39 +196,37 @@ export function FilterOperationsPage() {
   // Saved cycle-start payload when equipment dialog is opened before cycle is started (offline flow)
   const [pendingCyclePayload, setPendingCyclePayload] = useState<Record<string, any> | null>(null);
 
-  // If SWR fetch failed (network error), treat as offline — use cached data
-  const swrFailed = !!(instancesError || templatesError);
-  // When online and SWR hasn't failed, wait for server data.
-  // When offline or SWR failed, wait for IndexedDB cache load to complete.
-  const isLoading = (!swrFailed && online) ? (!instancesData || !templatesData) : !offlineDataLoaded;
+  // If SWR fetch failed (network error), treat as offline — use cached data.
+  // A-01 Step 4: include typed-hierarchy errors so the typed source's network
+  // failure cleanly drops to offlineFiltersTyped/offlineBlocks fallback.
+  const swrFailed = !!(instancesError || templatesError || typedFiltersError || typedBlocksError);
+  // Loading gate: prefer typed-hierarchy presence. Legacy SWR no longer
+  // gates render — it stays only as cache-hook input. Offline branch waits
+  // for IDB load (which now includes the typed-kind stores) as before.
+  const isLoading = (!swrFailed && online)
+    ? (!typedFiltersResp || !typedBlocksResp)
+    : !offlineDataLoaded;
 
-  // Include all active filter instances — profile may be assigned directly (filterProfileId)
-  // or via config-based rules (BY_BLOCK, BY_AHU, etc.) which resolve server-side.
-  // When ?ahuId=X is present (deep-link from My Tasks), narrow to filters whose parentId matches.
-  // Use SWR data when online, cached data when offline
-  const instances = (instancesData?.data ?? offlineInstances) as any[];
-  const templates = (templatesData?.data ?? offlineTemplates) as any[];
+  // A-01 Step 4 (2026-05-29): primary source is the typed hierarchy endpoint.
+  // FilterDetails join (Tier 1.6) provides currentLifecycleState, filterSet,
+  // currentCycleId, filterProfileId on each row — the four fields the stage
+  // counter / status drilldown / Set A/B labels / offline cycle-state fallback
+  // depend on. Falls back to offlineFiltersTyped when SWR hasn't responded
+  // (first paint / disconnect). The previous filterTemplateIds Set +
+  // template.templateKind name-substring heuristic is gone: cache_filters_typed
+  // is kind-scoped by design — no discrimination needed (see [[template-kind-
+  // heuristic-bug-class]] memory). Same applies to `blocks` below.
+  const typedFilters = (typedFiltersResp?.data ?? offlineFiltersTyped ?? []) as any[];
+  const typedBlocks  = (typedBlocksResp?.data  ?? offlineBlocks         ?? []) as any[];
 
-  // Match instances against every FILTER-kind template, not just one.
-  // The previous `templates.find(...)?.id` pattern picked an arbitrary single
-  // template and silently dropped filters belonging to any second or third
-  // FILTER-kind template (same shape as the history.tsx bug fixed 2026-05-12).
-  // Using a Set of all FILTER-kind template ids is the systematic fix.
-  const filterTemplateIds = new Set(
-    (templates ?? [])
-      .filter((t: any) => t.templateKind === 'FILTER')
-      .map((t: any) => t.id),
-  );
+  // `instances` alias kept for the offline cycle-state fallback at the
+  // /current-state catch branch (~line 472) which does instances.find(byId).
+  // Shape-compatible with typedFilters per Tier 1.6 join.
+  const instances = typedFilters;
 
-  const allFilters = instances.filter((f: any) => {
-    // Templates-loaded path: Set membership. First-paint fallback: the
-    // instance carries its eager-loaded `template.templateKind` (see
-    // assets/instance.repository.ts:16,37,112). Both branches are
-    // rename-stable — admins can rename "Filter" templates without breaking
-    // operator pages.
-    if (!filterTemplateIds.has(f.templateId) && f.template?.templateKind !== 'FILTER') return false;
+  const allFilters = typedFilters.filter((f: any) => {
     if (f.isActive === false || f.status === 'Retired') return false;
-    if (ahuIdFilter && f.parentId !== ahuIdFilter) return false;
+    if (ahuIdFilter && f.ahuId !== ahuIdFilter) return false;
     return true;
   });
 
@@ -239,11 +256,18 @@ export function FilterOperationsPage() {
   );
 
   const refreshFilters = useCallback(() => {
+    // A-01 Step 4: invalidate typed-hierarchy SWR (primary source) AND the
+    // legacy /api/assets/instances key (still feeds the offline cache hook
+    // for the legacy mixed `filters` IDB store until Step 7).
+    mutate('/api/hierarchy/filters?limit=500');
+    mutate('/api/hierarchy/blocks?limit=500');
     mutate('/api/assets/instances?limit=500');
   }, []);
 
-  const blockTemplateId = templates.find((t: any) => t.templateKind === 'BLOCK')?.id;
-  const blocks = instances.filter((e: any) => e.templateId === blockTemplateId);
+  // A-01 Step 4: blocks come direct from the typed-hierarchy endpoint. The
+  // previous `templates.find(BLOCK)?.id` + instance-template-match heuristic
+  // is gone — cache_blocks is kind-scoped.
+  const blocks = typedBlocks.filter((b: any) => b.isActive !== false);
 
   const handleStageClick = (stage: typeof CLEANING_STAGES[0]) => {
     navigate(`/filters/stage/${stage.key}`);
