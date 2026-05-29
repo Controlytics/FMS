@@ -240,7 +240,11 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
         className={cn(
           // Below md (768 px): fixed overlay, slides in/out via translate.
           // md and above: static in flow, always translated to 0 (always visible).
-          'fixed inset-y-0 left-0 z-50 flex w-64 flex-col transition-transform duration-300 md:static md:translate-x-0',
+          // Audit N-5 polish (2026-05-29): cap at 85vw so the 256 px sidebar
+          // doesn't cover the entire 320 px phone screen; below ~300 px viewport
+          // the sidebar shrinks proportionally, always leaving a backdrop strip
+          // visible for tap-dismiss. md+ ignores the cap.
+          'fixed inset-y-0 left-0 z-50 flex w-64 max-w-[85vw] flex-col transition-transform duration-300 md:static md:max-w-none md:translate-x-0',
           open ? 'translate-x-0' : '-translate-x-full'
         )}
         style={{ background: `linear-gradient(180deg, ${branding.primaryColor} 0%, ${branding.loginBgStart} 100%)` }}
