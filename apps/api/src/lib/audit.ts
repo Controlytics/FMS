@@ -1,6 +1,10 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
-import { computeChainedChecksum } from './hash-chain.js';
+// V-1 write-path migration (audit 2026-05-29): use V2 recursive canonicalizer
+// so new audit rows hash with JSONB-safe canonical form (nested keys sorted
+// recursively, not just top-level). Verifier tries V2 first, falls back to V1
+// for historical rows. See lib/hash-chain.ts for the full versioning story.
+import { computeChainedChecksumV2 } from './hash-chain.js';
 
 export interface AuditEntry {
   userId?: string;
@@ -142,7 +146,7 @@ async function writeAuditRow(
     LIMIT 1
   `;
   const previousChecksum: string | null = prior[0]?.checksum ?? null;
-  const checksum = computeChainedChecksum(baseFields, previousChecksum);
+  const checksum = computeChainedChecksumV2(baseFields, previousChecksum);
 
   // Insert via raw SQL so we can write the new chain columns without
   // depending on a regenerated Prisma client (the dev server may be

@@ -22,7 +22,9 @@ vi.mock('./prisma.js', () => ({
 }));
 
 vi.mock('./hash-chain.js', () => ({
-  computeChainedChecksum: mockComputeChainedChecksum,
+  // V-1 write-path migration (audit 2026-05-29): audit.ts now calls V2.
+  // The mock variable name is unchanged for assertion-call-site stability.
+  computeChainedChecksumV2: mockComputeChainedChecksum,
   computeChecksum: mockComputeChecksum,
 }));
 
