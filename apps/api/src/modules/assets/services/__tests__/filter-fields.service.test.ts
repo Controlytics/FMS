@@ -32,6 +32,9 @@ describe('validateAndBuildFilterAttributes', () => {
     expect((await validateAndBuildFilterAttributes({ lastCleaningDate: '2026-04-15' })).attributes).toEqual({ lastCleaningDate: '2026-04-15' });
     const bad = await validateAndBuildFilterAttributes({ lastCleaningDate: '15/04/2026' });
     expect(bad.errors[0]).toEqual({ field: 'lastCleaningDate', value: '15/04/2026', message: 'must be a date (YYYY-MM-DD) or NA' });
+    const rollover = await validateAndBuildFilterAttributes({ lastCleaningDate: '2026-02-30' });
+    expect(rollover.attributes).toEqual({});
+    expect(rollover.errors[0]).toEqual({ field: 'lastCleaningDate', value: '2026-02-30', message: 'must be a date (YYYY-MM-DD) or NA' });
   });
 
   it('omits empty/blank optional fields without error', async () => {

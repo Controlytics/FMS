@@ -66,9 +66,15 @@ export async function validateAndBuildFilterAttributes(input: FilterFieldInput):
 
   const lcd = (input.lastCleaningDate ?? '').toString().trim();
   if (lcd) {
-    if (lcd.toUpperCase() === 'NA') attributes.lastCleaningDate = 'NA';
-    else if (ISO_DATE.test(lcd) && !Number.isNaN(Date.parse(lcd))) attributes.lastCleaningDate = lcd;
-    else errors.push({ field: 'lastCleaningDate', value: lcd, message: 'must be a date (YYYY-MM-DD) or NA' });
+    if (lcd.toUpperCase() === 'NA') {
+      attributes.lastCleaningDate = 'NA';
+    } else if (ISO_DATE.test(lcd) && new Date(`${lcd}T00:00:00Z`).toISOString().slice(0, 10) === lcd) {
+      // Round-trip guards against calendar-invalid dates (e.g. 2026-02-30,
+      // which Date.parse silently rolls over) — must reject for 21 CFR records.
+      attributes.lastCleaningDate = lcd;
+    } else {
+      errors.push({ field: 'lastCleaningDate', value: lcd, message: 'must be a date (YYYY-MM-DD) or NA' });
+    }
   }
 
   return { attributes, errors };
