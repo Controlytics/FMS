@@ -20,6 +20,8 @@
 import type { FastifyInstance } from 'fastify';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { hierarchyService } from './hierarchy.service.js';
+import { buildContext } from '../../lib/build-context.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 
 // Shared building blocks for response schemas. Block/Area/Ahu share most
 // fields; Filter adds the legacy FilterDetails columns inlined by Step 6.
@@ -291,6 +293,39 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
     const filter = await hierarchyService.getFilter(id);
     if (!filter) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Filter not found' });
     return filter;
+  });
+
+  app.post('/filters', {
+    preHandler: [app.requireAnyPermission('ASSET_CREATE', 'FILTER_CREATE', 'FILTER_HIERARCHY_CREATE')],
+    schema: {
+      tags: ['Hierarchy'],
+      summary: 'Create a filter (typed)',
+      description: 'Create a filter from concrete fields. No templateId/attributes — dropdown values are validated against the live filter-field-options config.',
+      body: {
+        type: 'object',
+        required: ['name', 'ahuId'],
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 255 },
+          ahuId: { type: 'string', format: 'uuid' },
+          filterSet: { type: 'string', enum: ['A', 'B'] },
+          ahuType: { type: 'string' },
+          filterType: { type: 'string' },
+          micronSize: { type: 'string' },
+          lastCleaningDate: { type: 'string' },
+          filterProfileId: { type: 'string', format: 'uuid' },
+        },
+        additionalProperties: false,
+      },
+      response: {
+        201: { type: 'object', properties: { success: { type: 'boolean' }, data: { type: 'object', additionalProperties: true } } },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth(['CREATE_ASSET', 'CREATE_FILTER'], req, reply);
+    if (!ok) return;
+    const data = await hierarchyService.createFilter(req.body as any, buildContext(req));
+    return reply.code(201).send({ success: true, data });
   });
 
   // ─── FULL TREE ──────────────────────────────────────────────────────────

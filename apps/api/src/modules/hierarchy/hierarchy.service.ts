@@ -29,6 +29,10 @@
  */
 
 import { prisma } from '../../lib/prisma.js';
+import { instanceService } from '../assets/services/instance.service.js';
+import { resolveFilterTemplateRef, validateAndBuildFilterAttributes, type FilterFieldInput } from '../assets/services/filter-fields.service.js';
+import { ValidationError } from '../../lib/errors.js';
+import type { RequestContext } from '../../types/context.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 500;
@@ -323,6 +327,41 @@ export const hierarchyService = {
     if (!row) return row;
     const [enriched] = await zipFilterDetails([row as { id: string }]);
     return enriched;
+  },
+
+  // Typed filter create (A-01 Slice 1). Concrete fields only — no templateId,
+  // no generic attributes from the caller. Resolves the FILTER template
+  // internally for the asset_instances FK; the fn_mirror_asset_instance
+  // trigger mirrors the write into the typed `filters` table, and
+  // instanceService.create writes the FilterDetails sidecar (filterSet +
+  // filterProfileId). Field-option values are validated against the live
+  // filter-field-options config and folded into the attributes JSON.
+  async createFilter(
+    input: FilterFieldInput & {
+      name: string;
+      ahuId: string;
+      filterSet?: 'A' | 'B';
+      filterProfileId?: string;
+    },
+    ctx: RequestContext,
+  ) {
+    const tmpl = await resolveFilterTemplateRef();
+    if (!tmpl) throw new ValidationError('No active FILTER template is configured');
+
+    const { attributes, errors } = await validateAndBuildFilterAttributes(input);
+    if (errors.length > 0) throw new ValidationError('One or more filter fields are invalid', errors);
+
+    return instanceService.create(
+      {
+        name: input.name,
+        templateId: tmpl.id,
+        parentId: input.ahuId,
+        ...(input.filterSet ? { filterSet: input.filterSet } : {}),
+        ...(input.filterProfileId ? { filterProfileId: input.filterProfileId } : {}),
+        ...(Object.keys(attributes).length > 0 ? { attributes } : {}),
+      },
+      ctx,
+    );
   },
 
   // ─── FULL TREE ────────────────────────────────────────────────────────
