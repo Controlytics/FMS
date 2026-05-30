@@ -1103,13 +1103,25 @@ export function FilterListPage() {
       const res = await fetch('/api/assets/instances/filter-upload-template.xlsx', {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) { toast.error('Template download failed', `HTTP ${res.status}`); return; }
+      if (!res.ok) {
+        const msg = res.status === 401 ? 'Session expired — please log in again.' : `HTTP ${res.status}`;
+        toast.error('Template download failed', msg);
+        return;
+      }
       const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      a.href = url;
       a.download = 'filter-upload-template.xlsx';
+      a.style.display = 'none';
+      // Anchor MUST be in the DOM for the download to fire in Firefox/some
+      // browsers, and the blob URL must NOT be revoked synchronously after
+      // click() — that cancels the download in real browsers (Playwright
+      // captures it regardless, which hid this). Revoke on a delay.
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(a.href);
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
     } catch (err: any) {
       toast.error('Template download failed', err?.message ?? 'Network error');
     }
