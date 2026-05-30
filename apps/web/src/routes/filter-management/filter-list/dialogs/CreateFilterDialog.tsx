@@ -1,5 +1,5 @@
 import { themeButton } from '@/lib/theme-styles';
-import type { AhuOption, TemplateField, FilterFieldOptions, LastCleaningDateState } from '../types';
+import type { AhuOption, FilterFieldOptions, LastCleaningDateState } from '../types';
 import { FilterFieldOptionsSection } from '../components/FilterFieldOptionsSection';
 
 type Props = {
@@ -7,8 +7,6 @@ type Props = {
   area: string;
   name: string;
   filterSet: 'A' | 'B';
-  attrs: Record<string, any>;
-  schema: TemplateField[];
   ahus: AhuOption[];
   areas: AhuOption[];
   error: string;
@@ -23,7 +21,6 @@ type Props = {
   onAreaChange: (v: string) => void;
   onNameChange: (v: string) => void;
   onFilterSetChange: (v: 'A' | 'B') => void;
-  onAttrChange: (next: (prev: Record<string, any>) => Record<string, any>) => void;
   onAhuTypeChange: (v: string) => void;
   onFilterTypeChange: (v: string) => void;
   onMicronSizeChange: (v: string) => void;
@@ -33,9 +30,9 @@ type Props = {
 };
 
 export function CreateFilterDialog({
-  ahu, area, name, filterSet, attrs, schema, ahus, areas, error, submitting,
+  ahu, area, name, filterSet, ahus, areas, error, submitting,
   fieldOptions, ahuType, filterType, micronSize, lastCleaning,
-  onAhuChange, onAreaChange, onNameChange, onFilterSetChange, onAttrChange,
+  onAhuChange, onAreaChange, onNameChange, onFilterSetChange,
   onAhuTypeChange, onFilterTypeChange, onMicronSizeChange, onLastCleaningChange,
   onClose, onSubmit,
 }: Props) {
@@ -110,61 +107,6 @@ export function CreateFilterDialog({
             onMicronSizeChange={onMicronSizeChange}
             onLastCleaningChange={onLastCleaningChange}
           />
-          {/* Dynamic fields from Filter template attributeSchema. Same renderer
-              pattern as the Block/Area/AHU create dialog above so admins can
-              add new fields once on the template and they show up everywhere. */}
-          {schema.length > 0 && (
-            <div className="space-y-3 pt-1 border-t border-slate-100">
-              <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider pt-2">Filter Attributes</div>
-              {schema.map((field: any) => (
-                <div key={field.fieldName}>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    {field.fieldName.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').trim()}
-                    {field.unit && <span className="text-slate-400 font-normal"> ({field.unit})</span>}
-                    {field.required && <span className="text-red-500"> *</span>}
-                  </label>
-                  {field.dataType === 'DROPDOWN' ? (
-                    <select
-                      value={attrs[field.fieldName] ?? ''}
-                      onChange={e => onAttrChange(p => ({ ...p, [field.fieldName]: e.target.value }))}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                    >
-                      <option value="">Select...</option>
-                      {(field.dropdownOptions ?? []).map((opt: string) => (
-                        <option key={opt} value={opt}>{opt}</option>
-                      ))}
-                    </select>
-                  ) : field.dataType === 'BOOLEAN' ? (
-                    <select
-                      value={attrs[field.fieldName] ?? ''}
-                      onChange={e => onAttrChange(p => ({ ...p, [field.fieldName]: e.target.value }))}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                    >
-                      <option value="">Select...</option>
-                      <option value="true">Yes</option>
-                      <option value="false">No</option>
-                    </select>
-                  ) : field.dataType === 'DATE' ? (
-                    <input
-                      type="date"
-                      value={attrs[field.fieldName] ?? ''}
-                      onChange={e => onAttrChange(p => ({ ...p, [field.fieldName]: e.target.value }))}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                    />
-                  ) : (
-                    <input
-                      type={field.dataType === 'FLOAT' || field.dataType === 'NUMBER' || field.dataType === 'INTEGER' ? 'number' : 'text'}
-                      step={field.dataType === 'FLOAT' ? 'any' : undefined}
-                      value={attrs[field.fieldName] ?? ''}
-                      onChange={e => onAttrChange(p => ({ ...p, [field.fieldName]: e.target.value }))}
-                      placeholder={field.fieldName.replace(/_/g, ' ')}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
         </div>
         <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
           <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>

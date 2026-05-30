@@ -137,7 +137,6 @@ export function FilterListPage() {
   // stays '' so the conditional spread below never fires. Do not delete —
   // re-wire when the dialog grows a filter-profile selector.
   const [createFilterProfile, setCreateFilterProfile] = useState('');
-  const [createFilterAttrs, setCreateFilterAttrs] = useState<Record<string, any>>({});
   const [createFilterSubmitting, setCreateFilterSubmitting] = useState(false);
   const [createFilterError, setCreateFilterError] = useState('');
   const [bulkUploadAhu, setBulkUploadAhu] = useState('');
@@ -182,11 +181,7 @@ export function FilterListPage() {
   //
   // `filterTemplateIds` (Set) is used for "is this instance a filter"
   // membership checks — handles multiple FILTER-kind templates.
-  // `filterTemplateId` (single) is kept for the create-new-filter path,
-  // which still pins to one template per session. Multi-template create
-  // remains a UX-picker problem (tracked separately).
   const blockTemplateId = templates.find((t: any) => t.templateKind === 'BLOCK')?.id;
-  const filterTemplateId = templates.find((t: any) => t.templateKind === 'FILTER')?.id;
   const ahuTemplateId = templates.find((t: any) => t.templateKind === 'AHU')?.id;
   const filterTemplateIds = new Set(
     templates.filter((t: any) => t.templateKind === 'FILTER').map((t: any) => t.id),
@@ -927,15 +922,6 @@ export function FilterListPage() {
   };
 
   // ── Single-filter create helpers ──
-  // Filter template attributeSchema — driven by config so admins can add fields
-  // (memory rule: feedback_dynamic_template_fields.md — create dialogs MUST render
-  // template attributeSchema fields, not just the hard-coded core columns).
-  const filterAttributeSchema: any[] = (() => {
-    const tpl = templates.find((t: any) => t.id === filterTemplateId);
-    const raw = tpl?.attributeSchema;
-    return Array.isArray(raw) ? raw : [];
-  })();
-
   const openCreateFilter = () => {
     setCreateFilterOpen(true);
     // Start with no Area filter so the AHU dropdown shows every AHU in the
@@ -949,7 +935,6 @@ export function FilterListPage() {
     setCreateFilterName('');
     setCreateFilterSet('A');
     setCreateFilterProfile('');
-    setCreateFilterAttrs({});
     setCreateFilterAhuType('');
     setCreateFilterFilterType('');
     setCreateFilterMicronSize('');
@@ -958,59 +943,31 @@ export function FilterListPage() {
   };
 
   const submitCreateFilter = async () => {
-    if (!createFilterAhu || !createFilterName.trim() || !filterTemplateId) {
+    if (!createFilterAhu || !createFilterName.trim()) {
       setCreateFilterError('Please choose an AHU and enter a filter name.');
       return;
     }
-    // Validate required dynamic fields up front so the operator sees one error
-    // instead of a backend rejection deep in the create flow. Helper is shared
-    // with the Block/Area/AHU create path in `handleCreate`.
-    const missingRequired = findMissingRequiredAttributes(createFilterAttrs, filterAttributeSchema);
-    if (missingRequired.length > 0) {
-      setCreateFilterError(`Missing required field(s): ${missingRequired.join(', ')}`);
-      return;
-    }
-    // Build attributes object — coerce numeric and boolean datatypes per schema
-    const attributes: Record<string, any> = {};
-    for (const field of filterAttributeSchema) {
-      const raw = createFilterAttrs[field.fieldName];
-      if (raw === undefined || raw === null || raw === '') continue;
-      if (field.dataType === 'FLOAT' || field.dataType === 'NUMBER' || field.dataType === 'INTEGER') {
-        const n = Number(raw);
-        if (!Number.isFinite(n)) {
-          setCreateFilterError(`${field.fieldName} must be a number`);
-          return;
-        }
-        attributes[field.fieldName] = n;
-      } else if (field.dataType === 'BOOLEAN') {
-        attributes[field.fieldName] = raw === true || raw === 'true';
-      } else {
-        attributes[field.fieldName] = raw;
-      }
-    }
-
-    // Filter Field Options (Task 7) — write into attributes alongside any
-    // template attributeSchema fields.
-    if (createFilterAhuType)    attributes.ahuType    = createFilterAhuType;
-    if (createFilterFilterType) attributes.filterType = createFilterFilterType;
-    if (createFilterMicronSize) attributes.micronSize = createFilterMicronSize;
-    const lastEnc = encodeLastCleaningDate(createFilterLastCleaning);
-    if (lastEnc !== undefined)  attributes.lastCleaningDate = lastEnc;
-
     setCreateFilterSubmitting(true);
     setCreateFilterError('');
     try {
       await reauth.execute('CREATE_FILTER', async (password?: string) => {
+        // Typed create (A-01 Slice 1) — concrete fields only, no templateId,
+        // no generic attributes. Field-option values (ahuType/filterType/
+        // micronSize) are validated server-side against the live
+        // filter-field-options config.
         const body: any = {
           name: createFilterName.trim(),
-          templateId: filterTemplateId,
-          parentId: createFilterAhu,
+          ahuId: createFilterAhu,
           filterSet: createFilterSet,
+          ...(createFilterAhuType && { ahuType: createFilterAhuType }),
+          ...(createFilterFilterType && { filterType: createFilterFilterType }),
+          ...(createFilterMicronSize && { micronSize: createFilterMicronSize }),
           ...(createFilterProfile && { filterProfileId: createFilterProfile }),
-          ...(Object.keys(attributes).length > 0 && { attributes }),
         };
-        if (password) await api.postWithReauth('/api/assets/instances', body, password);
-        else await api.post('/api/assets/instances', body);
+        const lastEnc = encodeLastCleaningDate(createFilterLastCleaning);
+        if (lastEnc !== undefined) body.lastCleaningDate = lastEnc;
+        if (password) await api.postWithReauth('/api/hierarchy/filters', body, password);
+        else await api.post('/api/hierarchy/filters', body);
       }, {
         onSuccess: () => {
           toast.success('Filter Created', `"${createFilterName}" added`);
@@ -1817,8 +1774,6 @@ export function FilterListPage() {
           area={createFilterArea}
           name={createFilterName}
           filterSet={createFilterSet}
-          attrs={createFilterAttrs}
-          schema={filterAttributeSchema}
           ahus={createFilterAhusVisible}
           areas={createFilterAreas}
           error={createFilterError}
@@ -1835,7 +1790,6 @@ export function FilterListPage() {
           onAreaChange={(v) => { setCreateFilterArea(v); setCreateFilterAhu(''); }}
           onNameChange={setCreateFilterName}
           onFilterSetChange={setCreateFilterSet}
-          onAttrChange={setCreateFilterAttrs}
           onAhuTypeChange={setCreateFilterAhuType}
           onFilterTypeChange={setCreateFilterFilterType}
           onMicronSizeChange={setCreateFilterMicronSize}
