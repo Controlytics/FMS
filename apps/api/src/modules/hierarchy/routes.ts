@@ -330,6 +330,57 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
     return reply.code(201).send({ success: true, data });
   });
 
+  app.put('/filters/:id', {
+    preHandler: [app.requireAnyPermission('ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT')],
+    schema: {
+      tags: ['Hierarchy'],
+      summary: 'Update a filter (typed)',
+      description: 'Update a filter\'s name / filterSet / field-option values directly on the typed tables. No templateId/attributes.',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      body: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 255 },
+          filterSet: { type: 'string', enum: ['A', 'B'] },
+          ahuType: { type: 'string' },
+          filterType: { type: 'string' },
+          micronSize: { type: 'string' },
+          lastCleaningDate: { type: 'string' },
+        },
+        additionalProperties: false,
+      },
+      response: {
+        200: { type: 'object', properties: { success: { type: 'boolean' }, data: { type: 'object', additionalProperties: true } } },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth(['UPDATE_ASSET', 'EDIT_FILTER'], req, reply);
+    if (!ok) return;
+    const { id } = req.params as { id: string };
+    const data = await hierarchyService.updateFilter(id, req.body as any, buildContext(req));
+    return reply.send({ success: true, data });
+  });
+
+  app.delete('/filters/:id', {
+    preHandler: [app.requireAnyPermission('ASSET_DELETE', 'FILTER_DELETE', 'FILTER_HIERARCHY_DELETE')],
+    schema: {
+      tags: ['Hierarchy'],
+      summary: 'Soft-delete a filter (typed)',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      response: {
+        200: { type: 'object', properties: { success: { type: 'boolean' } } },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth(['DELETE_ASSET', 'DELETE_FILTER'], req, reply);
+    if (!ok) return;
+    const { id } = req.params as { id: string };
+    await hierarchyService.deleteFilter(id, buildContext(req));
+    return reply.send({ success: true });
+  });
+
   // ─── FULL TREE ──────────────────────────────────────────────────────────
   app.get('/tree', {
     preHandler: [app.requirePermission('ASSET_VIEW')],

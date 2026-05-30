@@ -343,6 +343,15 @@ export const hierarchyService = {
     return filterService.create(input, ctx);
   },
 
+  // Typed-direct filter update / soft-delete (A-01 T2.3).
+  async updateFilter(id: string, input: FilterFieldInput & { name?: string; filterSet?: 'A' | 'B' }, ctx: RequestContext) {
+    return filterService.update(id, input, ctx);
+  },
+
+  async deleteFilter(id: string, ctx: RequestContext) {
+    return filterService.softDelete(id, ctx);
+  },
+
   // ─── FULL TREE ────────────────────────────────────────────────────────
   /**
    * Full nested tree (blocks → areas → ahus → filters) for the FE preview

@@ -876,29 +876,20 @@ export function FilterListPage() {
     setEditFilterError('');
     const id = editFilterDialog.id;
     await reauth.execute('EDIT_FILTER', async (password?: string) => {
-      // Read existing attributes off the current row so we don't blow away
-      // template-schema fields when patching.
-      const current = enrichedFilters.find(x => x.id === id);
-      const attributes: Record<string, any> = {
-        ...(current as any)?._rawAttributes ?? {},
-      };
-      if (editFilterAhuType) attributes.ahuType = editFilterAhuType; else delete attributes.ahuType;
-      if (editFilterFilterType) attributes.filterType = editFilterFilterType; else delete attributes.filterType;
-      if (editFilterMicronSize) attributes.micronSize = editFilterMicronSize; else delete attributes.micronSize;
-      const lastEnc = encodeLastCleaningDate(editFilterLastCleaning);
-      if (lastEnc !== undefined) attributes.lastCleaningDate = lastEnc; else delete attributes.lastCleaningDate;
-
-      // Always send `attributes` — even an empty object is a valid "clear
-      // all attributes" signal that the backend honors. The earlier
-      // conditional-spread variant silently retained the prior values when
-      // the user cleared the last field.
-      const body = {
+      // Typed-direct update (A-01 T2.3) — concrete fields only. Cleared field-
+      // option values are omitted, so filterService rebuilds the attributes
+      // without them (i.e. clearing works). No templateId/generic attributes.
+      const body: any = {
         name: editFilterName.trim(),
         filterSet: editFilterSet,
-        attributes,
+        ...(editFilterAhuType && { ahuType: editFilterAhuType }),
+        ...(editFilterFilterType && { filterType: editFilterFilterType }),
+        ...(editFilterMicronSize && { micronSize: editFilterMicronSize }),
       };
-      if (password) await api.putWithReauth(`/api/assets/instances/${id}`, body, password);
-      else await api.put(`/api/assets/instances/${id}`, body);
+      const lastEnc = encodeLastCleaningDate(editFilterLastCleaning);
+      if (lastEnc !== undefined) body.lastCleaningDate = lastEnc;
+      if (password) await api.putWithReauth(`/api/hierarchy/filters/${id}`, body, password);
+      else await api.put(`/api/hierarchy/filters/${id}`, body);
     }, {
       onSuccess: () => {
         toast.success('Filter Updated', `"${editFilterName}" saved`);
@@ -919,8 +910,8 @@ export function FilterListPage() {
     setDeleteFilterSubmitting(true);
     const { id, name } = deleteFilterDialog;
     await reauth.execute('DELETE_FILTER', async (password?: string) => {
-      if (password) await api.deleteWithReauth(`/api/assets/instances/${id}`, password);
-      else await api.delete(`/api/assets/instances/${id}`);
+      if (password) await api.deleteWithReauth(`/api/hierarchy/filters/${id}`, password);
+      else await api.delete(`/api/hierarchy/filters/${id}`);
     }, {
       onSuccess: () => {
         toast.success('Filter Deleted', `"${name}" removed`);

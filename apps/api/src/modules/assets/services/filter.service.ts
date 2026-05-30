@@ -74,4 +74,64 @@ export const filterService = {
 
     return filter;
   },
+
+  // Typed-direct update (A-01 T2.3). Writes the typed `filters` table + the
+  // FilterDetails sidecar; the reverse-mirror trigger keeps asset_instances in
+  // sync. No asset-template / attributeSchema. Field-option values are
+  // re-validated against the live config and replace the attributes JSON.
+  async update(id: string, input: FilterFieldInput & { name?: string; filterSet?: 'A' | 'B' }, ctx: RequestContext) {
+    const existing = await prisma.filter.findUnique({ where: { id }, select: { id: true } });
+    if (!existing) throw new ValidationError('Filter not found');
+
+    const data: Record<string, unknown> = { updatedBy: ctx.userId };
+    if (input.name !== undefined) {
+      const name = input.name.trim();
+      if (!name) throw new ValidationError('Filter Name is required');
+      const dupe = await prisma.filter.findFirst({ where: { name: { equals: name, mode: 'insensitive' }, isActive: true, id: { not: id } }, select: { id: true } });
+      if (dupe) throw new ValidationError(`A filter with the name "${name}" already exists`);
+      data.name = name;
+    }
+
+    const { attributes, errors } = await validateAndBuildFilterAttributes(input);
+    if (errors.length > 0) throw new ValidationError('One or more filter fields are invalid', errors as any);
+    data.attributes = attributes; // full field-option set the dialog edits — replace
+
+    const filterSetEnum: 'SET_A' | 'SET_B' | undefined =
+      input.filterSet === 'A' ? 'SET_A' : input.filterSet === 'B' ? 'SET_B' : undefined;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const f = await tx.filter.update({ where: { id }, data: data as any });
+      if (filterSetEnum) {
+        await tx.filterDetails.upsert({
+          where: { assetInstanceId: id },
+          create: { assetInstanceId: id, filterSet: filterSetEnum },
+          update: { filterSet: filterSetEnum },
+        });
+      }
+      return f;
+    });
+
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole,
+      action: 'ASSET_UPDATED', targetType: 'asset_instance', targetId: id,
+      afterValue: { name: data.name, filterSet: filterSetEnum, attributes },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+    return updated;
+  },
+
+  // Typed-direct soft delete (A-01 T2.3). Sets filters.isActive=false; the
+  // reverse-mirror trigger flips asset_instances.isActive=false too.
+  async softDelete(id: string, ctx: RequestContext) {
+    const existing = await prisma.filter.findUnique({ where: { id }, select: { id: true, name: true } });
+    if (!existing) throw new ValidationError('Filter not found');
+    const updated = await prisma.filter.update({ where: { id }, data: { isActive: false, updatedBy: ctx.userId } as any });
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole,
+      action: 'ASSET_DELETED', targetType: 'asset_instance', targetId: id,
+      beforeValue: { name: existing.name }, afterValue: { isActive: false },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+    return updated;
+  },
 };
