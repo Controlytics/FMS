@@ -30,6 +30,28 @@ import { DeleteFilterDialog } from './filter-list/dialogs/DeleteFilterDialog';
 import { BulkUploadDialog } from './filter-list/dialogs/BulkUploadDialog';
 import { findMissingRequiredAttributes } from './filter-list/lib/validate-template-attributes';
 
+// A-01 T2.2: flatten the typed /api/hierarchy/tree (blocks → areas → ahus →
+// filters, + direct-under-block ahus) into the legacy flat "instance" shape the
+// page already consumes — each node carries `parentId` + `template.templateKind`
+// so the existing tree-build / discrimination logic works unchanged. Filter
+// nodes carry filterSet / currentLifecycleState / attributes (zipped server-side).
+function flattenTypedTree(blocks: any[]): any[] {
+  const out: any[] = [];
+  const pushAhu = (ahu: any, parentId: string) => {
+    out.push({ ...ahu, parentId, template: { templateKind: 'AHU' } });
+    for (const f of ahu.filters ?? []) out.push({ ...f, parentId: ahu.id, template: { templateKind: 'FILTER' } });
+  };
+  for (const b of blocks ?? []) {
+    out.push({ ...b, parentId: null, template: { templateKind: 'BLOCK' } });
+    for (const a of b.areas ?? []) {
+      out.push({ ...a, parentId: b.id, template: { templateKind: 'AREA' } });
+      for (const ahu of a.ahus ?? []) pushAhu(ahu, a.id);
+    }
+    for (const ahu of b.ahus ?? []) pushAhu(ahu, b.id); // direct-under-block AHUs
+  }
+  return out;
+}
+
 export function FilterListPage() {
   const { formatDate } = useDatetimeFormat();
   const { toast } = useToast();
@@ -167,13 +189,14 @@ export function FilterListPage() {
   const [deletingBlock, setDeletingBlock] = useState(false);
 
   const { data: templatesData } = useSWR('/api/assets/templates?limit=1000');
-  const { data: instancesData, isLoading } = useSWR('/api/assets/instances?limit=500', { refreshInterval: 30000 });
+  const { data: instancesData, isLoading } = useSWR('/api/hierarchy/tree', { refreshInterval: 30000 });
 
   // Fetch all identifiers to show RFID tags on filters
   const { data: identifiersData } = useSWR('/api/assets/identifiers?limit=1000');
 
   const templates = (templatesData?.data ?? []) as any[];
-  const instances = (instancesData?.data ?? []) as any[];
+  // Flattened typed hierarchy (A-01 T2.2) — replaces the legacy flat instance list.
+  const instances = useMemo(() => flattenTypedTree((instancesData ?? []) as any[]), [instancesData]);
 
   // Resolve canonical templates by kind, NOT by name. This decouples the
   // page from human-editable template names — admins can rename "Block" to
@@ -188,8 +211,8 @@ export function FilterListPage() {
   );
 
   const blocks = useMemo(() =>
-    instances.filter((i: any) => i.templateId === blockTemplateId),
-    [instances, blockTemplateId]
+    instances.filter((i: any) => i.template?.templateKind === 'BLOCK'),
+    [instances]
   );
 
   const instanceMap = useMemo(() => {
@@ -229,12 +252,12 @@ export function FilterListPage() {
   const treeData = useMemo(() => {
     return blocks.map((block: any) => {
       const blockChildren = instances.filter((i: any) => i.parentId === block.id && i.isActive !== false && i.status !== 'Retired');
-      const areas = blockChildren.filter((i: any) => i.templateId === areaTemplateId);
-      const directAhus = blockChildren.filter((i: any) => i.templateId === ahuTemplateId);
+      const areas = blockChildren.filter((i: any) => i.template?.templateKind === 'AREA');
+      const directAhus = blockChildren.filter((i: any) => i.template?.templateKind === 'AHU');
 
       const areaNodes = areas.map((area: any) => {
         const areaChildren = instances.filter((i: any) => i.parentId === area.id && i.isActive !== false && i.status !== 'Retired');
-        const ahus = areaChildren.filter((i: any) => i.templateId === ahuTemplateId);
+        const ahus = areaChildren.filter((i: any) => i.template?.templateKind === 'AHU');
         return {
           ...area, type: 'area' as const,
           ahus: ahus.map((ahu: any) => ({
@@ -316,7 +339,7 @@ export function FilterListPage() {
         onSuccess: () => {
           toast.success('Created', `${createDialog.type.toUpperCase()} "${createName.trim()}" created`);
           setCreateDialog(null); setCreateName(''); setCreateAttrs({});
-          mutate('/api/assets/instances?limit=500');
+          mutate('/api/hierarchy/tree');
           setCreating(false);
         },
         onError: (e: any) => {
@@ -339,7 +362,7 @@ export function FilterListPage() {
           toast.success('Deleted', `Block "${deleteBlockDialog.name}" deleted`);
           setDeleteBlockDialog(null);
           if (selectedBlock === deleteBlockDialog.id) setSelectedBlock(null);
-          mutate('/api/assets/instances?limit=500');
+          mutate('/api/hierarchy/tree');
           setDeletingBlock(false);
         },
         onError: (err: unknown) => {
@@ -368,11 +391,11 @@ export function FilterListPage() {
       visited.add(currentId);
       const entity = instanceMap.get(currentId);
       if (!entity) break;
-      if (entity.templateId === ahuTemplateId && !ahuId) {
+      if (entity.template?.templateKind === 'AHU' && !ahuId) {
         ahuId = entity.id;
         ahuName = entity.name;
       }
-      if (entity.templateId === areaTemplateId && !areaId) {
+      if (entity.template?.templateKind === 'AREA' && !areaId) {
         areaId = entity.id;
         areaName = entity.name;
       }
@@ -471,7 +494,7 @@ export function FilterListPage() {
           const label = LIFECYCLE_STATE_OPTIONS.find(o => o.value === statusPanelState)?.label ?? statusPanelState;
           toast.success('Status Updated', `${statusPanelFilter.name} updated to ${label}`);
           closeStatusPanel();
-          mutate('/api/assets/instances?limit=500');
+          mutate('/api/hierarchy/tree');
         },
         onError: (err: any) => {
           toast.error('Update Failed', err.message ?? 'Something went wrong');
@@ -558,7 +581,7 @@ export function FilterListPage() {
             toast.success('Filter Retired', `${panelFilter!.name} has been retired`);
           }
           closePanel();
-          mutate('/api/assets/instances?limit=500');
+          mutate('/api/hierarchy/tree');
         },
         onError: (err: any) => {
           toast.error('Action Failed', err?.message ?? 'Something went wrong');
@@ -642,7 +665,7 @@ export function FilterListPage() {
           toast.success('Bulk Status Update', `${completed} filter(s) updated to ${label}${failed ? `, ${failed} failed` : ''}`);
           closeBulkPanel();
           setSelectedFilterIds(new Set());
-          mutate('/api/assets/instances?limit=500');
+          mutate('/api/hierarchy/tree');
         },
         onError: (err: any) => {
           toast.error('Update Failed', err.message ?? 'Something went wrong');
@@ -688,7 +711,7 @@ export function FilterListPage() {
           );
           closeBulkPanel();
           setSelectedFilterIds(new Set());
-          mutate('/api/assets/instances?limit=500');
+          mutate('/api/hierarchy/tree');
         },
         onError: (err: any) => {
           toast.error('Bulk action failed', err?.message ?? 'Something went wrong');
@@ -798,7 +821,7 @@ export function FilterListPage() {
       onSuccess: () => {
         toast.success('Updated', `"${hierarchyEditName}" saved`);
         setHierarchyEditDialog(null);
-        mutate('/api/assets/instances?limit=500');
+        mutate('/api/hierarchy/tree');
         setHierarchyEditSubmitting(false);
       },
       onError: (err: any) => {
@@ -819,7 +842,7 @@ export function FilterListPage() {
       onSuccess: () => {
         toast.success('Deleted', `${entityType} "${name}" removed`);
         setHierarchyDeleteDialog(null);
-        mutate('/api/assets/instances?limit=500');
+        mutate('/api/hierarchy/tree');
         setHierarchyDeleteSubmitting(false);
       },
       onError: (err: any) => {
@@ -880,7 +903,7 @@ export function FilterListPage() {
       onSuccess: () => {
         toast.success('Filter Updated', `"${editFilterName}" saved`);
         setEditFilterDialog(null);
-        mutate('/api/assets/instances?limit=500');
+        mutate('/api/hierarchy/tree');
         setEditFilterSubmitting(false);
       },
       onError: (err: any) => {
@@ -903,7 +926,7 @@ export function FilterListPage() {
         toast.success('Filter Deleted', `"${name}" removed`);
         setDeleteFilterDialog(null);
         setSelectedFilterIds(prev => { const n = new Set(prev); n.delete(id); return n; });
-        mutate('/api/assets/instances?limit=500');
+        mutate('/api/hierarchy/tree');
         setDeleteFilterSubmitting(false);
       },
       onError: (err: any) => {
@@ -964,7 +987,7 @@ export function FilterListPage() {
         onSuccess: () => {
           toast.success('Filter Created', `"${createFilterName}" added`);
           setCreateFilterOpen(false);
-          mutate('/api/assets/instances?limit=500');
+          mutate('/api/hierarchy/tree');
           setCreateFilterSubmitting(false);
         },
         onError: (err: any) => {
@@ -1080,7 +1103,7 @@ export function FilterListPage() {
         setBulkUploadCreated(data.created || 0);
         setBulkUploadFailed(data.failed || 0);
         setBulkUploadStep('results');
-        if (data.created > 0) mutate('/api/assets/instances?limit=500');
+        if (data.created > 0) mutate('/api/hierarchy/tree');
       },
       {
         onError: (e: any) => {
@@ -1146,7 +1169,7 @@ export function FilterListPage() {
 
   // Summary stats for header
   const totalAhus = useMemo(() => {
-    return instances.filter((i: any) => i.templateId === ahuTemplateId && i.isActive !== false).length;
+    return instances.filter((i: any) => i.template?.templateKind === 'AHU' && i.isActive !== false).length;
   }, [instances, ahuTemplateId]);
 
   return (
