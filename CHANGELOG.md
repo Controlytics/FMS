@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased] — A-01 Slice 1: Filter single-create typed cutover (2026-05-30)
+
+**What**: Filter single-creation moved off the asset-template / `templateId` / generic-`attributes` API surface onto a concrete typed endpoint. The create dialog no longer sends `templateId` or an `attributes` object built from a template `attributeSchema`; its dropdown fields are validated against the live `filter-field-options` config (per A-01 decision **D2=A**).
+
+**New endpoint**: `POST /api/hierarchy/filters` — body is concrete fields only: `name`, `ahuId` (required), plus optional `filterSet` (A/B), `ahuType`, `filterType`, `micronSize`, `lastCleaningDate`, `filterProfileId`. The FILTER-kind template id is resolved **internally** for the unavoidable `asset_instances.template_id` FK (operator never sees it); the `fn_mirror_asset_instance` trigger mirrors the write into the typed `filters` table and `instanceService.create` writes the `FilterDetails` sidecar (`filterSet`/`filterProfileId`). Persistence is otherwise **unchanged** — this is an API-surface + field-source change, not a persistence rewrite.
+
+**Validation (req #6)**: `ahuType`/`filterType`/`micronSize` must match the live config list (case-insensitive, stored canonical); `lastCleaningDate` must be `NA` or a calendar-valid `YYYY-MM-DD` (round-trip guard rejects e.g. `2026-02-30`). Failures return `400 { error: VALIDATION_ERROR, message, details: [{field, value, message}] }`.
+
+**Files**: new `apps/api/src/modules/assets/services/filter-fields.service.ts` (field-options loader + `resolveFilterTemplateRef` + `validateAndBuildFilterAttributes`); `hierarchyService.createFilter` + `POST /filters` route in the hierarchy module; web `submitCreateFilter` repointed and the dead dynamic-`attributeSchema` field block removed from `CreateFilterDialog`. Also sidesteps the stale `name:'Filter'` template lookup (the live resolver uses `templateKind:'FILTER'`).
+
+**Tests**: `filter-fields.service.test.ts` (4) + `create-filter.routes.test.ts` (5) — all green; both apps typecheck clean; web `vite build` green. **Live-verified** against the real DB: create→201 with canonicalized attributes + typed `filters` mirror + `FilterDetails.filter_set=SET_A`; bad dropdown value→400 with field/value detail; test rows cleaned up.
+
+**Scope**: single-create only. Filter **edit** (`EditFilterDialog`) stays on the legacy path (FILTER `attributeSchema` is empty, so no functional divergence). **Bulk upload (Slice 2)** — `.xlsx` template with Excel data-validation dropdowns + server-side validation, reusing `filter-fields.service.ts` — is the planned follow-up (`exceljs` dependency already added). Spec + plan: `docs/superpowers/specs/2026-05-30-bulk-upload-filter-parity-design.md`, `docs/superpowers/plans/2026-05-30-filter-create-typed-cutover.md`.
+
 ## [Unreleased] — M-04: fix asset→typed-table mirror trigger breaking filter writes (2026-05-27)
 
 **Bug**: Commit `97d298c` (2026-05-25) dropped four cycle-state columns (`filter_profile_id`, `current_lifecycle_state`, `current_cycle_id`, `filter_set`) from the `filters` typed-hierarchy table (FilterDetails is their authoritative home). The companion migration `20260525223000` dropped the sibling `fn_mirror_filter_details()` trigger and unblocked the *cycle-write* path — but the Wave-1 `fn_mirror_asset_instance()` trigger (mirrors every `asset_instances` write into `blocks`/`areas`/`ahus`/`filters` by `template_kind`) was left untouched. Its FILTER branch still did `INSERT INTO filters (... filter_profile_id ...)`, so every `asset_instances` write of FILTER kind failed with `column "filter_profile_id" of relation "filters" does not exist` — **breaking filter create / rename / retire / replace and bulk-upload** since 2026-05-25. Confirmed live on 2026-05-27 (columns absent from `filters`; `pg_get_functiondef` still referenced them).

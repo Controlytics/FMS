@@ -6,6 +6,8 @@
 
 > 3 parallel subagents independently reported `DONE_WITH_CONCERNS` on these files this session, identifying the same blocker: the 5 files share an IndexedDB cache contract that can only be evolved atomically. This plan turns that finding into an executable sequence.
 
+> **Related (2026-05-30) — separate WRITE-path slice, not part of this read-path cluster:** Filter single-**create** was cut over off `templateId`/`attributeSchema` onto `POST /api/hierarchy/filters` (concrete fields validated against the live `filter-field-options` config; FILTER template id resolved internally; the `fn_mirror_asset_instance` trigger still mirrors into typed `filters`). See `docs/superpowers/plans/2026-05-30-filter-create-typed-cutover.md`. Follow-ups: filter **edit** path + **bulk upload** (Slice 2, `.xlsx` dropdowns). Does not change the IDB read contract below.
+
 ---
 
 ## The 6 files and their shared contract
