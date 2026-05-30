@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased] — A-01 Slice 2: Bulk Upload .xlsx parity (2026-05-30)
+
+**What**: The Filter Bulk Upload now matches Single Filter Creation — same concrete fields (no templateId / attributeSchema), the same live-master-data dropdowns, and the same typed create path. **CSV is replaced by `.xlsx`** with real Excel Data Validation dropdowns.
+
+- **Template** (`GET /api/assets/instances/filter-upload-template.xlsx`): server-generated via `exceljs` with built-in dropdowns for `filterSet`, `ahuType`, `filterType`, `micronSize` whose values are read **live** from the `filter-field-options` config each download (zero hardcoding — a master-data edit shows up in the next download). Columns: `name, filterSet, ahuType, filterType, micronSize, lastCleaningDate, filterProfileId`.
+- **Validation** (`POST …/bulk-upload-filters/validate`, dry-run): parses the `.xlsx` and returns per-cell `{row, column, value, message}` errors + the parsed rows, with **no DB write**. The dialog uses this to render a preview that flags invalid rows and lists the exact `Row N, column X = "value" — message` before the operator commits.
+- **Upload** (`POST …/bulk-upload-filters`): re-runs the same validation, then creates each clean row through the typed single-create path (`instanceService.create` → FilterDetails + mirror trigger). Partial success supported (valid rows created, invalid rows reported). Fixed the stale `name:'Filter'` template lookup → `templateKind:'FILTER'`.
+- **Frontend**: `BulkUploadDialog` shows the fixed field columns with their live dropdown values, the Area→AHU cascade (matches single-create), an `.xlsx` picker, and the row/column/value validation panel. The client CSV string-builder + `split(',')` parser are gone (binary `.xlsx` can't be parsed client-side).
+
+**Verified**: unit tests (template generator 3, validator 4, create route 5) green; c2 reauth e2e green (6); both apps typecheck + web `vite build` green. **Live round-trip** against the real DB: template download → fill valid + bad-`filterType` rows → `/validate` returns the bad cell as `{row:3, column:'filterType', value:'CARBON', …}` with no write → real upload creates the valid row (typed `filters` + `FilterDetails.filter_set=SET_A`) and rejects the bad one; test rows cleaned up. **Browser-verified**: dialog renders with live dropdown values, template downloads, zero console errors from the feature.
+
+Reuses Slice 1's `filter-fields.service.ts`. Spec + plan: `docs/superpowers/specs/2026-05-30-bulk-upload-filter-parity-design.md`, `docs/superpowers/plans/2026-05-30-filter-create-typed-cutover.md`.
+
 ## [Unreleased] — A-01 Slice 1: Filter single-create typed cutover (2026-05-30)
 
 **What**: Filter single-creation moved off the asset-template / `templateId` / generic-`attributes` API surface onto a concrete typed endpoint. The create dialog no longer sends `templateId` or an `attributes` object built from a template `attributeSchema`; its dropdown fields are validated against the live `filter-field-options` config (per A-01 decision **D2=A**).
