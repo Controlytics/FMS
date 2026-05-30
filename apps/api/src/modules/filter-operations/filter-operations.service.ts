@@ -547,6 +547,7 @@ export class FilterOperationsService {
         filterDetails: { select: { filterSet: true } },
       },
       orderBy: { updatedAt: 'desc' },
+      take: 5000, // defensive cap — preserves the array contract, bounds memory (audit perf)
     });
     const retirements = retirementsRaw.map((r: any) => ({
       ...r,
@@ -599,6 +600,7 @@ export class FilterOperationsService {
       },
       select: { id: true, userId: true, userName: true, timestamp: true, afterValue: true },
       orderBy: { timestamp: 'desc' },
+      take: 5000, // defensive cap — preserves the array contract, bounds memory (audit perf)
     });
 
     const mapped = records.map(r => {

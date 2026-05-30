@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] — Enterprise-audit remediation: security, perf, dead-code (2026-05-30)
+
+Acting on `tasks/ENTERPRISE-AUDIT-2026-05-30.md`. SUPER_ADMIN lockout/expiry/audit-visibility exemptions are **intentionally retained** as documented accepted trade-offs (per CLAUDE.md + memory) and are NOT changed here.
+
+**Security / correctness**
+- **OAuth2 callback XSS** (`notification-delivery/routes.ts`): reflected `error` / `error_description` / message values are now `escapeHtml()`-escaped before being interpolated into the HTML response.
+- **Report path leak** (`reports/routes.ts`): `/:id/pdf` + `/:id/preview` wrap `readFile` in try/catch and return a clean `404 NOT_FOUND` instead of letting a raw `ENOENT` (with the server file path) reach the 500 handler.
+- **Password in audit trail** (`users/user.service.ts`): `USER_UPDATED` audit `afterValue` previously spread the full `data` (including `password`/`passwordHash`). Now stripped before logging.
+- **Auth-cache staleness** (`users/user.service.ts`): wired `invalidateUserAuthCache(id)` into `update` / `enable` / `disable` / `deleteMany` so a role/status/password change takes effect immediately instead of after the 30s TTL (the cache is keyed by user UUID; verified).
+
+**Performance**
+- **Bulk-upload N+1** (`assets/services/filter-fields.service.ts`): `loadFilterFieldOptions()` now has a 10s TTL cache, collapsing a 200-row upload's 400+ identical config reads to one.
+- **Per-request assignment scans** (`assets/routes/instance.routes.ts`): `GET /instances` + `/instances/tree` short-circuit the two `findMany({take:10000})` visibility-scoping queries when no `EntityAssignment`/`TemplateAssignment` rows exist anywhere (the common case), via a 30s cached `isScopingConfigured()` check.
+- **Unbounded lists** (`filter-operations.service.ts`): `getRetirements` / `getReplacements` gained a defensive `take: 5000` cap (array contract preserved — no frontend change).
+
+**Dead code / dependency hygiene**
+- Removed **`reactflow`** + **`@monaco-editor/react`** from `apps/web` (0 imports remained after the 2026-05-17 rule-chain tear-out; pipeline editor uses a custom canvas).
+- Migrated PM-schedule bulk upload (`pm-schedules/routes.ts`) from **`xlsx` (SheetJS — abandoned, CVE-2023-30533 / CVE-2024-22363, no registry fix)** to **`exceljs`** (already a dependency) + a hand-rolled CSV parser; removed the `xlsx` dep. CSV cells now stay strings (reaches `importSchedules`' string branch directly — kills the old Excel-serial TZ-drift footgun); XLSX date cells arrive as `Date`. Round-trip verified: a date cell yields the correct UTC calendar day, quoted-comma fields parse, comment rows preserved.
+- Deleted stale root **`docker-compose.yml`** (referenced retired Redis) and broken **`.github/workflows/ci.yml`** (referenced retired Redis + `turbo` when the repo builds with `nx` + `prisma migrate deploy` against a psql-applied migration set). **Note: this removes the only CI workflow** — a minimal typecheck+test CI could replace it if desired.
+- `.gitignore`: `old/db-backups/*.sql` (local dumps hold bcrypt hashes + audit PII — must never be committed).
+- `.env.example`: dropped the dead Redis block, relabelled MQTT EMQX→Mosquitto, replaced `digilog123` defaults with `CHANGE_ME`, added the required `OFFLINE_REPLAY_SECRET`.
+
+**Flagged, NOT executed** (needs explicit user go-ahead — destructive): git-history purge of `old/` dumps + the credentials/JWT-secret committed in `18a7337` (removed in `1439c33` but still in history). Deferred (with reasons): TSDB backup/DR runbook, god-component refactors, super-admin `paginatedList` per-model `select` + true offset pagination (response-contract risk), 47 empty tables.
+
 ## [Unreleased] — A-01 Tier 2 Phase 2 (partial): Filter reads move to the typed tree (2026-05-30)
 
 **What**: Started migrating the filter pages off the legacy `/api/assets/instances` read onto the typed `/api/hierarchy/tree`, so `asset_instances` can eventually be dropped for filters (T2.4).

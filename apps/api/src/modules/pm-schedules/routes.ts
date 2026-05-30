@@ -2,12 +2,86 @@
  * PM Schedule Routes — CRUD + CSV upload + execution tracking.
  */
 import type { FastifyInstance } from 'fastify';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import { PmScheduleService } from './pm-schedule.service.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { prisma } from '../../lib/prisma.js';
+
+// Normalise one exceljs cell value to the shapes importSchedules() handles
+// (Date | number | string). Rich-text / hyperlink / formula cells collapse to
+// their text/result; null → '' (matches the old SheetJS defval:'').
+function normalizeCell(v: any): any {
+  if (v == null) return '';
+  if (v instanceof Date) return v;            // importSchedules reads getUTC* off it
+  if (typeof v === 'number' || typeof v === 'string') return v;
+  if (typeof v === 'object') {
+    if (Array.isArray(v.richText)) return v.richText.map((t: any) => t.text ?? '').join('');
+    if ('result' in v) return v.result ?? '';
+    if (typeof v.text === 'string') return v.text;
+    return String(v);
+  }
+  return v;
+}
+
+// Quoted-field-aware split of a single CSV line (RFC-4180 doubled-quote escaping).
+function splitCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQ) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; } else inQ = false;
+      } else cur += ch;
+    } else if (ch === '"') inQ = true;
+    else if (ch === ',') { out.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+// Parse an uploaded CSV or XLSX buffer into header-keyed row objects.
+// Replaces SheetJS (xlsx) — abandoned + CVE-2023-30533 / CVE-2024-22363, no
+// registry fix (audit 2026-05-30). CSV stays string-valued so "YYYY-MM-DD"
+// reaches importSchedules' string branch directly instead of being coerced to
+// an Excel serial number (a strict improvement — kills the old TZ-drift footgun).
+async function parseUploadRows(buffer: Buffer, isCsv: boolean): Promise<Record<string, any>[]> {
+  if (isCsv) {
+    const text = buffer.toString('utf8').replace(/^﻿/, '');
+    const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+    if (lines.length === 0) return [];
+    const headers = splitCsvLine(lines[0]).map(h => h.trim());
+    const rows: Record<string, any>[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cells = splitCsvLine(lines[i]);
+      const obj: Record<string, any> = {};
+      headers.forEach((h, idx) => { obj[h] = (cells[idx] ?? '').trim(); });
+      rows.push(obj);
+    }
+    return rows;
+  }
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer as any); // Node Buffer<ArrayBufferLike> vs exceljs's Buffer type
+  const ws = wb.worksheets[0];
+  if (!ws) return [];
+  const headerCols: { col: number; name: string }[] = [];
+  ws.getRow(1).eachCell({ includeEmpty: false }, (cell, col) => {
+    const name = String(normalizeCell(cell.value)).trim();
+    if (name) headerCols.push({ col, name });
+  });
+  const rows: Record<string, any>[] = [];
+  ws.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const obj: Record<string, any> = {};
+    for (const { col, name } of headerCols) obj[name] = normalizeCell(row.getCell(col).value);
+    rows.push(obj);
+  });
+  return rows;
+}
 
 export default async function pmScheduleRoutes(app: FastifyInstance) {
   const service = new PmScheduleService();
@@ -111,29 +185,19 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
         return reply.code(413).send({ error: 'FILE_TOO_LARGE', message: 'File exceeds 5 MB limit' });
       }
 
-      // Parse with SheetJS — handles both CSV and XLSX via the same API.
-      // We deliberately do NOT pass `cellDates: true` or `raw: false`: for CSV
-      // uploads the values arrive as strings (natural), and we want to keep
-      // them as strings so "2026-04-12" is parsed as UTC midnight, not as a
-      // locale-formatted date that gets re-parsed through the server's
-      // timezone and shifted by a day. Users uploading XLSX should format
-      // date cells as text or use the YYYY-MM-DD ISO format.
-      let workbook: XLSX.WorkBook;
+      // Parse CSV / XLSX into header-keyed rows. CSV cells stay strings so a
+      // "YYYY-MM-DD" date reaches importSchedules' string branch as UTC midnight
+      // (no locale re-parse / day-shift); XLSX date cells arrive as Date objects,
+      // which importSchedules reads via getUTC*. See parseUploadRows above.
+      let rawRows: Record<string, any>[];
       try {
-        workbook = XLSX.read(buffer, { type: 'buffer' });
+        rawRows = await parseUploadRows(buffer, isCsv);
       } catch (e: any) {
         return reply.code(400).send({ error: 'PARSE_ERROR', message: `Failed to parse file: ${e.message ?? String(e)}` });
       }
-      const firstSheetName = workbook.SheetNames[0];
-      if (!firstSheetName) {
-        return reply.code(400).send({ error: 'EMPTY_FILE', message: 'File contains no sheets' });
+      if (rawRows.length === 0) {
+        return reply.code(400).send({ error: 'EMPTY_FILE', message: 'File contains no data rows' });
       }
-      const sheet = workbook.Sheets[firstSheetName];
-      // raw:true keeps values in their native SheetJS form. For a CSV that
-      // means strings stay strings EXCEPT that "2026-04-12"-style cells get
-      // auto-parsed as Excel date serial numbers (floats). The service
-      // handles both shapes — Date/number/string.
-      const rawRows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: '', raw: true });
 
       // Skip any row that looks like a comment line (starts with '#' in any column)
       const rows = rawRows.filter(r => {

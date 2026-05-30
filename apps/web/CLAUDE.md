@@ -49,7 +49,9 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 ## Architecture
 - React Router v6 with AppLayout wrapper for auth + session management
 - SWR for data fetching with auto-revalidation
-- ReactFlow for rule chain visual editor and cleaning profile pipeline editor
+- Cleaning-profile pipeline editor uses a custom hand-rolled canvas (the
+  `reactflow` + `@monaco-editor/react` deps were removed 2026-05-30 — 0 imports
+  remained after the 2026-05-17 rule-chain tear-out)
 - Tailwind CSS (no component library) — unified light theme throughout
 - Lazy-loaded heavy pages (assets, UNS, checklists, filter management, etc.)
 - Permission-based route guards via `<RequireRole permissions={[PERMISSIONS.*]}>`
@@ -65,7 +67,7 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 ## Key Features
 - 26 config pages (auto-discovered from registry)
 - Entity tree with drag-and-drop hierarchy
-- Cleaning-profile pipeline editor (STAGE / CHECKLIST nodes via ReactFlow)
+- Cleaning-profile pipeline editor (STAGE / CHECKLIST nodes on a custom canvas)
 - Mobile-optimized checklist at `/checklist/:entityId` (standalone layout, no sidebar)
 - Notification system (email/SMS/Telegram/Slack)
 - Debug trace page for pipeline visibility
@@ -104,7 +106,7 @@ admin-requests, assets (dialogs/tabs/hooks), audit, auth, checklist, checklists,
 - SWR for data fetching with refresh intervals
 - Toast notifications for success/error (not alert())
 - Checklist dialog: no skip, no backdrop dismiss, mandatory submission
-- Pipeline editor uses ReactFlow with custom node types (START, END, STAGE, CHECKLIST)
+- Pipeline editor uses a custom canvas with node types (START, END, STAGE, CHECKLIST)
 - Stage types: WASH_IN, WASH_OUT, DRY_IN, DRY_OUT, STORAGE_IN, STORAGE_OUT
 
 ---

@@ -9,6 +9,9 @@ import { userRepository } from './user.repository.js';
 import { prisma } from '../../lib/prisma.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
+// Drop the per-user auth cache on every mutation so a role/status/password
+// change takes effect immediately instead of after the 30s TTL (audit M-7).
+import { invalidateUserAuthCache } from '../../plugins/auth.js';
 
 export const userService = {
   async list(query: { page: number; limit?: number; role?: string; status?: string; search?: string; callerRole?: string }) {
@@ -182,13 +185,19 @@ export const userService = {
       });
     }
 
+    // Take role/status/password change effect immediately (not after the 30s cache TTL).
+    invalidateUserAuthCache(id);
+
+    // Never let a password reach the (immutable) audit trail. sanitizeStrings
+    // only strips HTML from these keys; it does not remove them.
+    const { password: _pw, passwordHash: _ph, ...auditData } = data;
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,
       action: 'USER_UPDATED',
       targetType: 'user',
       targetId: id,
       beforeValue,
-      afterValue: { ...data, username: user.username, fullName: user.fullName },
+      afterValue: { ...auditData, username: user.username, fullName: user.fullName },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
 
@@ -242,6 +251,7 @@ export const userService = {
     }
 
     await userRepository.deleteMany(validIds);
+    for (const uid of validIds) invalidateUserAuthCache(uid);
     return { deletedCount: validIds.length, deletedUsers: users.map((u: any) => ({ id: u.id, username: u.username })) };
   },
 
@@ -250,6 +260,7 @@ export const userService = {
     if (!user) throw new NotFoundError('User not found');
 
     await userRepository.update(id, { status: 'ENABLED', updatedBy: ctx.userId });
+    invalidateUserAuthCache(id);
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'USER_ENABLED',
@@ -277,6 +288,7 @@ export const userService = {
 
     await userRepository.update(id, { status: 'DISABLED', updatedBy: ctx.userId });
     await userRepository.terminateSessions(id, 'account_disabled');
+    invalidateUserAuthCache(id); // revoke access immediately, not after the 30s TTL
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'USER_DISABLED',

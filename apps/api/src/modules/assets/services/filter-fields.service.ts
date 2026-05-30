@@ -20,16 +20,26 @@ export interface FilterFieldInput {
 export interface FilterFieldError { field: string; value: string; message: string; }
 export interface FilterFieldResult { attributes: Record<string, unknown>; errors: FilterFieldError[]; }
 
+// Short in-memory cache so a 200-row bulk upload (each row validates + each
+// create re-validates) collapses to ONE config query instead of 400+ (audit
+// perf N+1). 10s TTL — longer than any single request, far shorter than the
+// gap between an admin editing field-options and re-downloading a template.
+let _optsCache: { opts: FilterFieldOptions; at: number } | null = null;
+const FIELD_OPTIONS_TTL_MS = 10_000;
+
 // Reads the same config row the web app reads via GET /api/filters/field-options.
 export async function loadFilterFieldOptions(): Promise<FilterFieldOptions> {
+  if (_optsCache && Date.now() - _optsCache.at < FIELD_OPTIONS_TTL_MS) return _optsCache.opts;
   const row = await prisma.systemConfig.findUnique({ where: { configKey: 'filter-field-options' } });
   const stored = row?.configValue as { value?: Record<string, unknown> } | undefined;
   const inner = (stored && typeof stored === 'object' && 'value' in stored ? stored.value : {}) ?? {};
-  return {
+  const opts: FilterFieldOptions = {
     ahuType: Array.isArray((inner as any).ahuType) ? ((inner as any).ahuType as string[]) : ['Process', 'Non Process'],
     filterType: Array.isArray((inner as any).filterType) ? ((inner as any).filterType as string[]) : [],
     micronSize: Array.isArray((inner as any).micronSize) ? ((inner as any).micronSize as string[]) : [],
   };
+  _optsCache = { opts, at: Date.now() };
+  return opts;
 }
 
 // Resolves the FILTER-kind template id/version for the unavoidable

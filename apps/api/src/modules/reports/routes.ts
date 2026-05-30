@@ -60,8 +60,14 @@ export default async function reportRoutes(app: FastifyInstance) {
     const service = await getService();
     const { id } = req.params as { id: string };
     const pdfPath = await service.getPdfPath(id);
-    const { readFile } = await import('node:fs/promises');
-    const buffer = await readFile(pdfPath);
+    let buffer: Buffer;
+    try {
+      const { readFile } = await import('node:fs/promises');
+      buffer = await readFile(pdfPath);
+    } catch {
+      // Don't let a raw ENOENT (with the server file path) reach the 500 handler.
+      return reply.code(404).send({ error: 'NOT_FOUND', message: 'Report PDF not found — it may not have been generated yet.' });
+    }
     const report = await service.getById(buildContext(req), id);
     const filename = `${report.name.replace(/[^a-zA-Z0-9-_ ]/g, '')}.pdf`;
     return reply.header('Content-Type', 'application/pdf').header('Content-Disposition', `attachment; filename="${filename}"`).header('Content-Length', buffer.length).send(buffer);
@@ -73,8 +79,13 @@ export default async function reportRoutes(app: FastifyInstance) {
     const service = await getService();
     const { id } = req.params as { id: string };
     const pdfPath = await service.getPdfPath(id);
-    const { readFile } = await import('node:fs/promises');
-    const buffer = await readFile(pdfPath);
+    let buffer: Buffer;
+    try {
+      const { readFile } = await import('node:fs/promises');
+      buffer = await readFile(pdfPath);
+    } catch {
+      return reply.code(404).send({ error: 'NOT_FOUND', message: 'Report PDF not found — it may not have been generated yet.' });
+    }
     return reply.header('Content-Type', 'application/pdf').header('Content-Disposition', 'inline').header('Content-Length', buffer.length).send(buffer);
   });
 

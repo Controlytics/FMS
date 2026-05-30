@@ -7,6 +7,24 @@ import { instanceService } from '../services/instance.service.js';
 import { bulkUploadFilters } from '../services/bulk-upload-filter.service.js';
 import { buildFilterUploadTemplate } from '../services/filter-upload-template.service.js';
 
+// Opt-in visibility scoping (EntityAssignment / TemplateAssignment) is unused
+// on most installs — both tables are empty. Without this guard every non-admin
+// list/tree request runs two findMany({take:10000}) that always return []. Cache
+// "is scoping configured at all?" for 30s so the common (empty) case is one cheap
+// findFirst per half-minute instead of two full scans per request (audit perf).
+let _scopingCache: { configured: boolean; at: number } | null = null;
+const SCOPING_TTL_MS = 30_000;
+async function isScopingConfigured(prisma: any): Promise<boolean> {
+  if (_scopingCache && Date.now() - _scopingCache.at < SCOPING_TTL_MS) return _scopingCache.configured;
+  const [e, t] = await Promise.all([
+    prisma.entityAssignment.findFirst({ select: { id: true } }),
+    prisma.templateAssignment.findFirst({ select: { id: true } }),
+  ]);
+  const configured = e !== null || t !== null;
+  _scopingCache = { configured, at: Date.now() };
+  return configured;
+}
+
 export default async function instanceRoutes(app: FastifyInstance) {
 
   // 7. GET /instances — List instances with search/filter/pagination
@@ -94,6 +112,9 @@ export default async function instanceRoutes(app: FastifyInstance) {
     if (role !== "SUPER_ADMIN" && role !== "ADMIN") {
       const { prisma } = await import("../../../lib/prisma.js");
 
+      // Skip the per-user scans entirely when no scoping rows exist anywhere.
+      if (!(await isScopingConfigured(prisma))) return instanceService.list(query, undefined);
+
       const entityAssignments = await prisma.entityAssignment.findMany({
         where: {
           OR: [
@@ -177,6 +198,8 @@ export default async function instanceRoutes(app: FastifyInstance) {
     }
 
     const { prisma } = await import("../../../lib/prisma.js");
+    // Same short-circuit as GET /instances — no scoping rows means full tree.
+    if (!(await isScopingConfigured(prisma))) return instanceService.getTree();
     const entityAssignments = await prisma.entityAssignment.findMany({
       where: { OR: [
         { assigneeType: "USER", userId },

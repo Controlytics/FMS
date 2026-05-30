@@ -10,6 +10,12 @@ import { prisma } from '../../lib/prisma.js';
 import { invalidateNotificationConfigCache } from './config-loader.js';
 import { sendNotification, sendTestNotification, testChannel } from './delivery.service.js';
 import { auditLog } from '../../lib/audit.js';
+
+// HTML-escape any value reflected into the OAuth2 callback HTML responses
+// (the provider-controlled error / error_description / token-exchange message
+// are otherwise a reflected-XSS vector — audit H-4).
+const escapeHtml = (s: unknown): string =>
+  String(s ?? '').replace(/[&<>"']/g, (c) => (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string));
 import { enforceReauth } from '../../lib/reauth-check.js';
 
 const MASK = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
@@ -212,7 +218,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     const query = req.query as { code?: string; error?: string; error_description?: string };
 
     if (query.error) {
-      return reply.type('text/html').send(`<html><body><h2>OAuth2 Error</h2><p>${query.error}: ${query.error_description ?? ''}</p><script>window.close();</script></body></html>`);
+      return reply.type('text/html').send(`<html><body><h2>OAuth2 Error</h2><p>${escapeHtml(query.error)}: ${escapeHtml(query.error_description ?? '')}</p><script>window.close();</script></body></html>`);
     }
 
     if (!query.code) {
@@ -271,7 +277,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
 
       if (!tokenRes.ok) {
         const errMsg = String(tokenData.error_description ?? tokenData.error ?? 'Token exchange failed');
-        return reply.type('text/html').send(`<html><body><h2>Token Error</h2><p>${errMsg}</p><script>window.close();</script></body></html>`);
+        return reply.type('text/html').send(`<html><body><h2>Token Error</h2><p>${escapeHtml(errMsg)}</p><script>window.close();</script></body></html>`);
       }
 
       // Save tokens to config
@@ -301,7 +307,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
       </body></html>`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      return reply.type('text/html').send(`<html><body><h2>Error</h2><p>${msg}</p><script>window.close();</script></body></html>`);
+      return reply.type('text/html').send(`<html><body><h2>Error</h2><p>${escapeHtml(msg)}</p><script>window.close();</script></body></html>`);
     }
   });
 
