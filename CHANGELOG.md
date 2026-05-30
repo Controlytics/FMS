@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased] — A-01 Tier 2 Phase 2 (partial): Filter reads move to the typed tree (2026-05-30)
+
+**What**: Started migrating the filter pages off the legacy `/api/assets/instances` read onto the typed `/api/hierarchy/tree`, so `asset_instances` can eventually be dropped for filters (T2.4).
+
+- **Two backend gaps fixed first** (they blocked any reader migration):
+  - `hierarchyService.getTree()` now **zips `FilterDetails`** (filterSet / currentLifecycleState / …) onto every nested filter — the typed `filters` table dropped those columns. Live: 61/61 filters now carry `filterSet`.
+  - Typed `ahus` gained a **`block_id`** column (migration `20260530_ahu_block_id`) so an **AHU parented directly by a block** (no area) is representable — previously the typed model only had `area_id`, so the 1 such AHU + its filters would have vanished. Backfilled; the forward-mirror AHU branch now sets `block_id` when the parent is a BLOCK; `getTree` returns `block.ahus` (direct). Live: the direct AHU now surfaces in `/tree`.
+- **`filter-list.tsx` migrated** (desktop, hosts Bulk Upload): a flatten adapter maps the typed tree into the legacy flat node shape, preserving the existing tree-build + table logic; read + all 13 mutates repointed to `/api/hierarchy/tree`. Browser-verified: table renders AHU Type / Filter Type / Micron / Set A-B / lifecycle / RFID, the direct AHU is preserved, 0 console errors. Writes still hit `/api/assets/instances` (T2.3).
+
+**Still pending (T2.2 remainder + T2.3/T2.4)**: `filter-operations.tsx` (legacy read remains as offline-cache input), the **operator-critical mobile pair** (`mobile-operations.tsx`, `mobile-wrapper.tsx`) + the offline-cache hook — these touch the tablet offline sync and need **on-tablet QA**, so they're deferred to a dedicated session. Then T2.3 (mutations) and T2.4 (drop the reverse mirror + `asset_instances` for filters).
+
 ## [Unreleased] — A-01 Tier 2 Phase 1: Filter create is standalone (2026-05-30)
 
 **What**: Filter **creation** (single + bulk) now writes the typed `filters` table **directly** — no `validateParent`, no `asset_relationships`, no asset-template. This fixes the **"Parent connections reached"** error (the legacy AHU asset-template `maxConnections=10` limit no longer applies to filters) and makes `filters` the write source-of-truth for new filters.
