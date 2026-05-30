@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased] — A-01 Tier 2 Phase 1: Filter create is standalone (2026-05-30)
+
+**What**: Filter **creation** (single + bulk) now writes the typed `filters` table **directly** — no `validateParent`, no `asset_relationships`, no asset-template. This fixes the **"Parent connections reached"** error (the legacy AHU asset-template `maxConnections=10` limit no longer applies to filters) and makes `filters` the write source-of-truth for new filters.
+
+**How (reverse-mirror)**: New `filterService.create()` (`apps/api/src/modules/assets/services/filter.service.ts`) writes `filters` (+ `filter_details`, + RFID via `identifierService`) directly, generating the id in app code (the typed `filters.id` has no DB default). A new **reverse-mirror trigger** `fn_mirror_typed_to_asset_instance` (migration `20260530_filter_reverse_mirror`) back-fills a legacy `asset_instances` row (template_id = active FILTER template, parent_id = ahu_id) so the 7 pages still reading `/api/assets/instances` keep working. Both the new reverse trigger and the existing forward trigger got a `pg_trigger_depth() > 1` guard to prevent reverse↔forward recursion. `hierarchyService.createFilter` and `bulk-upload-filter.service` route through `filterService.create`; `instanceService.create`/`validateParent`/`resolveFilterTemplateRef` are no longer in the filter-create path.
+
+**Verified live**: bulk upload of 3 filters into an AHU that already had **9 children** → all created, **no "Parent connections reached"**; 3 typed `filters` rows (ahu_id set), 3 `asset_instances` mirror rows (reverse trigger, parent_id set), **0 `asset_relationships`**, 3 `filter_details` with filter_set; deleting from `filters` cascaded the mirror + sidecar out. Trigger recursion-safety proven transactionally. Tests: `filter.service.test.ts` (3) + `create-filter.routes.test.ts` (4) + `hierarchy.routes.test.ts` (4) + c2 reauth e2e (6) green; both apps typecheck.
+
+**Scope / still pending** (`docs/superpowers/plans/2026-05-30-filter-standalone-t2.1-plan.md`): this is **Phase 1** (create only). `asset_instances` still holds filters as a reverse-mirror because 7 reader files (`filter-list.tsx`, `filter-operations.tsx`, mobile, etc.) still read `/api/assets/instances`. **T2.2** = migrate those readers to `/api/hierarchy/filters`; **T2.3** = retire/replace/cycle/delete mutations to typed-direct; **T2.4** = drop the reverse mirror + forward FILTER branch + the FILTER asset_template (then `asset_instances` no longer holds filters at all).
+
 ## [Unreleased] — A-01 Slice 2: Bulk Upload .xlsx parity (2026-05-30)
 
 **What**: The Filter Bulk Upload now matches Single Filter Creation — same concrete fields (no templateId / attributeSchema), the same live-master-data dropdowns, and the same typed create path. **CSV is replaced by `.xlsx`** with real Excel Data Validation dropdowns.
