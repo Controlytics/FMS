@@ -351,27 +351,42 @@ export const hierarchyService = {
    * paginated listBlocks + ?expand=areas.ahus.filters path.
    */
   async getTree() {
-    return prisma.block.findMany({
+    const filterInclude = {
+      filters: { where: { isActive: true }, orderBy: { name: 'asc' } },
+    } as const;
+    const blocks = await prisma.block.findMany({
       where: { isActive: true },
       include: {
         areas: {
           where: { isActive: true },
           orderBy: { name: 'asc' },
           include: {
-            ahus: {
-              where: { isActive: true },
-              orderBy: { name: 'asc' },
-              include: {
-                filters: {
-                  where: { isActive: true },
-                  orderBy: { name: 'asc' },
-                },
-              },
-            },
+            ahus: { where: { isActive: true }, orderBy: { name: 'asc' }, include: filterInclude },
           },
         },
+        // A-01 T2.2: AHUs parented directly by the block (no area level). Without
+        // this the 1 direct-under-block AHU + its filters would vanish from the
+        // page when it reads the typed tree.
+        ahus: { where: { isActive: true, areaId: null }, orderBy: { name: 'asc' }, include: filterInclude },
       },
       orderBy: { name: 'asc' },
     } as any);
+
+    // Zip FilterDetails (filterSet / currentLifecycleState / currentCycleId /
+    // filterProfileId) onto every nested filter — the typed `filters` table
+    // dropped those columns (they live in FilterDetails), and the filter table
+    // UI needs the Set + lifecycle state.
+    const allFilters: any[] = [];
+    for (const b of blocks as any[]) {
+      for (const a of b.areas ?? []) for (const h of a.ahus ?? []) for (const f of h.filters ?? []) allFilters.push(f);
+      for (const h of b.ahus ?? []) for (const f of h.filters ?? []) allFilters.push(f);
+    }
+    const byId = new Map((await zipFilterDetails(allFilters)).map((z: any) => [z.id, z]));
+    const remap = (h: any) => { h.filters = (h.filters ?? []).map((f: any) => byId.get(f.id) ?? f); };
+    for (const b of blocks as any[]) {
+      for (const a of b.areas ?? []) for (const h of a.ahus ?? []) remap(h);
+      for (const h of b.ahus ?? []) remap(h);
+    }
+    return blocks;
   },
 };

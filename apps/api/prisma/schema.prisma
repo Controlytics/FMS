@@ -444,6 +444,8 @@ model Block {
   updatedBy        String?  @map("updated_by") @db.VarChar(50)
 
   areas Area[]
+  // A-01 T2.2: AHUs parented directly by a block (no area level).
+  ahus  Ahu[]
 
   @@index([status])
   @@index([name])
@@ -479,6 +481,7 @@ model Area {
 model Ahu {
   id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   areaId           String?  @map("area_id") @db.Uuid
+  blockId          String?  @map("block_id") @db.Uuid
   name             String   @db.VarChar(255)
   description      String?
   status           String   @default("Active") @db.VarChar(50)
@@ -492,9 +495,11 @@ model Ahu {
   updatedBy        String?  @map("updated_by") @db.VarChar(50)
 
   area    Area?    @relation(fields: [areaId], references: [id])
+  block   Block?   @relation(fields: [blockId], references: [id])
   filters Filter[]
 
   @@index([areaId])
+  @@index([blockId])
   @@index([status])
   @@index([name])
   @@index([isActive])

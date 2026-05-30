@@ -79,6 +79,8 @@ const blockSchema = {
   properties: {
     ...commonNodeProps,
     areas: { type: 'array', items: areaSchema },
+    // A-01 T2.2: AHUs parented directly by the block (no area level).
+    ahus: { type: 'array', items: ahuSchema },
   },
   additionalProperties: false,
 };

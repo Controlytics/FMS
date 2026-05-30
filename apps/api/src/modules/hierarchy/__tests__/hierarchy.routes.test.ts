@@ -29,6 +29,8 @@ const { mockPrisma } = vi.hoisted(() => ({
     area:   { findMany: vi.fn(), findFirst: vi.fn(), count: vi.fn() },
     ahu:    { findMany: vi.fn(), findFirst: vi.fn(), count: vi.fn() },
     filter: { findMany: vi.fn(), findFirst: vi.fn(), count: vi.fn() },
+    // getTree() zips FilterDetails onto nested filters (T2.2).
+    filterDetails: { findMany: vi.fn(async () => []) },
   },
 }));
 
