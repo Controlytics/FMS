@@ -32,17 +32,17 @@ type Props = {
 // templateId / attributeSchema). Dropdown columns list their LIVE master-data
 // values so the operator knows what the Excel dropdowns will offer.
 const fieldColumns = (opts: FilterFieldOptions) => [
-  { key: 'name', label: 'name', hint: 'Filter ID / Name (required)' },
+  { key: 'name', label: 'name', hint: 'Filter Name — required, must be unique' },
   { key: 'filterSet', label: 'filterSet', hint: 'A, B (blank → Default Set above)' },
   { key: 'ahuType', label: 'ahuType', hint: opts.ahuType.join(', ') || '—' },
   { key: 'filterType', label: 'filterType', hint: opts.filterType.join(', ') || '—' },
   { key: 'micronSize', label: 'micronSize', hint: (opts.micronSize.join(', ') || '—') + ' (µm)' },
   { key: 'lastCleaningDate', label: 'lastCleaningDate', hint: 'YYYY-MM-DD or NA' },
-  { key: 'filterProfileId', label: 'filterProfileId', hint: 'Optional UUID' },
+  { key: 'rfidTag', label: 'rfidTag', hint: 'Optional RFID tag — must be unique (rejected if already assigned)' },
 ];
 
-// Columns rendered in the preview table (filterProfileId omitted to stay narrow).
-const PREVIEW_KEYS = ['name', 'filterSet', 'ahuType', 'filterType', 'micronSize', 'lastCleaningDate'] as const;
+// Columns rendered in the preview table.
+const PREVIEW_KEYS = ['name', 'filterSet', 'ahuType', 'filterType', 'micronSize', 'lastCleaningDate', 'rfidTag'] as const;
 
 export function BulkUploadDialog({
   step, ahu, area, defaultSet, ahus, areas, file, rows, error, results, created, failed, fieldOptions,

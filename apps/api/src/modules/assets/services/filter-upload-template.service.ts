@@ -25,7 +25,7 @@ export async function buildFilterUploadTemplate(): Promise<Buffer> {
     { key: 'filterType', header: 'filterType', options: opts.filterType },
     { key: 'micronSize', header: 'micronSize', options: opts.micronSize, note: 'Micron size (µm).' },
     { key: 'lastCleaningDate', header: 'lastCleaningDate', note: 'YYYY-MM-DD or NA. Optional.' },
-    { key: 'filterProfileId', header: 'filterProfileId', note: 'Optional cleaning-profile UUID.' },
+    { key: 'rfidTag', header: 'rfidTag', note: 'Optional RFID tag — must be unique. Rejected if already assigned to a filter.' },
   ];
 
   const wb = new ExcelJS.Workbook();

@@ -21,7 +21,7 @@ describe('buildFilterUploadTemplate', () => {
     const ws = wb.getWorksheet('Filters');
     expect(ws).toBeDefined();
     const headers = (ws!.getRow(1).values as any[]).slice(1);
-    expect(headers).toEqual(['name', 'filterSet', 'ahuType', 'filterType', 'micronSize', 'lastCleaningDate', 'filterProfileId']);
+    expect(headers).toEqual(['name', 'filterSet', 'ahuType', 'filterType', 'micronSize', 'lastCleaningDate', 'rfidTag']);
   });
 
   it('applies a list data-validation dropdown on filterSet referencing the hidden _lists sheet', async () => {

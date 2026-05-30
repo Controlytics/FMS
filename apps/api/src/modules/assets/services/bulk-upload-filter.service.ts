@@ -14,6 +14,7 @@ import type { RequestContext } from '../../../types/context.js';
 import { auditLog } from '../../../lib/audit.js';
 import { prisma } from '../../../lib/prisma.js';
 import { instanceService } from './instance.service.js';
+import { identifierService } from './identifier.service.js';
 import { resolveFilterTemplateRef, validateAndBuildFilterAttributes } from './filter-fields.service.js';
 
 export interface BulkResult {
@@ -42,7 +43,7 @@ interface ParsedRow {
   filterType: string;
   micronSize: string;
   lastCleaningDate: string;
-  filterProfileId: string;
+  rfidTag: string;
 }
 
 // Header text → canonical key. Accepts the template headers plus a couple of
@@ -55,7 +56,7 @@ const HEADER_ALIASES: Record<string, keyof Omit<ParsedRow, 'rowNumber'>> = {
   filtertype: 'filterType',
   micronsize: 'micronSize',
   lastcleaningdate: 'lastCleaningDate',
-  filterprofileid: 'filterProfileId',
+  rfidtag: 'rfidTag', rfid: 'rfidTag',
 };
 
 function cellToString(v: unknown): string {
@@ -89,7 +90,7 @@ function parseWorkbook(buffer: Buffer): Promise<{ rows: ParsedRow[]; error?: str
     const rows: ParsedRow[] = [];
     ws.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
-      const r: ParsedRow = { rowNumber, name: '', filterSet: '', ahuType: '', filterType: '', micronSize: '', lastCleaningDate: '', filterProfileId: '' };
+      const r: ParsedRow = { rowNumber, name: '', filterSet: '', ahuType: '', filterType: '', micronSize: '', lastCleaningDate: '', rfidTag: '' };
       let any = false;
       row.eachCell((cell, col) => {
         const key = colKey[col];
@@ -129,11 +130,14 @@ export async function bulkUploadFilters(
   const tmpl = await resolveFilterTemplateRef();
   if (!tmpl) return { results: [{ row: 1, name: '', status: 'error', error: 'No active FILTER template is configured' }], created: 0, failed: 1 };
 
-  const profileIds = [...new Set(rows.map((r) => r.filterProfileId.trim()).filter(Boolean))];
-  const validProfileIds = new Set<string>();
-  if (profileIds.length > 0) {
-    const found = await prisma.filterProfile.findMany({ where: { id: { in: profileIds } }, select: { id: true } });
-    for (const p of found) validProfileIds.add(p.id);
+  // Pre-fetch RFID tags that already exist (globally) so reused tags are
+  // rejected per-row before any create. Exact match — identifierValue is a
+  // case-sensitive @unique column.
+  const rfidTags = [...new Set(rows.map((r) => r.rfidTag.trim()).filter(Boolean))];
+  const existingRfid = new Set<string>();
+  if (rfidTags.length > 0) {
+    const found = await prisma.assetIdentifier.findMany({ where: { identifierValue: { in: rfidTags } }, select: { identifierValue: true } });
+    for (const idr of found) existingRfid.add(idr.identifierValue);
   }
 
   // 3. Existing names (batch, case-insensitive)
@@ -146,7 +150,8 @@ export async function bulkUploadFilters(
   // 4. Validate every row → collect per-cell errors; build the create payload for clean rows.
   const results: BulkResult[] = [];
   const namesInBatch = new Set<string>();
-  const toCreate: Array<{ rowNumber: number; name: string; filterSet?: 'A' | 'B'; filterProfileId?: string; attributes: Record<string, unknown> }> = [];
+  const tagsInBatch = new Set<string>();
+  const toCreate: Array<{ rowNumber: number; name: string; filterSet?: 'A' | 'B'; rfidTag?: string; attributes: Record<string, unknown> }> = [];
 
   for (const r of rows) {
     const rowErrs: BulkResult[] = [];
@@ -169,10 +174,12 @@ export async function bulkUploadFilters(
     });
     for (const fe of fieldErrors) rowErrs.push({ row: r.rowNumber, name, status: 'error', column: fe.field, value: fe.value, error: fe.message });
 
-    // filterProfileId (optional)
-    const fpId = r.filterProfileId.trim();
-    if (fpId && !validProfileIds.has(fpId)) {
-      rowErrs.push({ row: r.rowNumber, name, status: 'error', column: 'filterProfileId', value: fpId, error: 'Filter profile not found' });
+    // rfidTag (optional) — reject reused tags (within the file or already in DB).
+    const tag = r.rfidTag.trim();
+    if (tag) {
+      if (tagsInBatch.has(tag)) rowErrs.push({ row: r.rowNumber, name, status: 'error', column: 'rfidTag', value: tag, error: 'Duplicate RFID tag in file' });
+      else if (existingRfid.has(tag)) rowErrs.push({ row: r.rowNumber, name, status: 'error', column: 'rfidTag', value: tag, error: 'RFID tag already assigned to another filter' });
+      tagsInBatch.add(tag);
     }
 
     // Duplicate within the batch / already in DB
@@ -185,7 +192,7 @@ export async function bulkUploadFilters(
       results.push(...rowErrs);
       continue;
     }
-    toCreate.push({ rowNumber: r.rowNumber, name, filterSet: filterSetWire, filterProfileId: fpId || undefined, attributes });
+    toCreate.push({ rowNumber: r.rowNumber, name, filterSet: filterSetWire, rfidTag: tag || undefined, attributes });
   }
 
   // 5. Dry-run: report would-create rows as success, return parsed rows for the preview.
@@ -196,7 +203,7 @@ export async function bulkUploadFilters(
       results,
       created: 0,
       failed: results.filter((r) => r.status === 'error').length,
-      rows: rows.map((r) => ({ name: r.name, filterSet: r.filterSet, ahuType: r.ahuType, filterType: r.filterType, micronSize: r.micronSize, lastCleaningDate: r.lastCleaningDate, filterProfileId: r.filterProfileId })),
+      rows: rows.map((r) => ({ name: r.name, filterSet: r.filterSet, ahuType: r.ahuType, filterType: r.filterType, micronSize: r.micronSize, lastCleaningDate: r.lastCleaningDate, rfidTag: r.rfidTag })),
     };
   }
 
@@ -210,11 +217,20 @@ export async function bulkUploadFilters(
           templateId: tmpl.id,
           parentId: ahuId,
           ...(c.filterSet ? { filterSet: c.filterSet } : {}),
-          ...(c.filterProfileId ? { filterProfileId: c.filterProfileId } : {}),
           ...(Object.keys(c.attributes).length > 0 ? { attributes: c.attributes } : {}),
         },
         ctx,
       );
+      // Assign the RFID tag if supplied. Uniqueness was pre-validated above;
+      // identifierService re-checks (one-per-entity + global-unique) and audits.
+      if (c.rfidTag) {
+        try {
+          await identifierService.create({ assetId: inst.id, identifierType: 'RFID', identifierValue: c.rfidTag, isPrimary: true }, ctx);
+        } catch (re: any) {
+          results.push({ row: c.rowNumber, name: c.name, status: 'error', id: inst.id, column: 'rfidTag', value: c.rfidTag, error: `Filter created but RFID assign failed: ${re?.message ?? 'tag in use'}` });
+          continue;
+        }
+      }
       results.push({ row: c.rowNumber, name: c.name, status: 'success', id: inst.id });
       createdNames.push(c.name);
     } catch (err: any) {
