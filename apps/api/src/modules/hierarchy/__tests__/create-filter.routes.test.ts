@@ -103,4 +103,18 @@ describe('POST /api/hierarchy/filters', () => {
     expect(res.statusCode).toBe(400);
     await app.close();
   });
+
+  it('passes filterProfileId through and folds lastCleaningDate into attributes', async () => {
+    const app = await buildApp();
+    const PROFILE = '22222222-2222-2222-2222-222222222222';
+    const res = await app.inject({
+      method: 'POST', url: '/api/hierarchy/filters', headers: AUTH,
+      payload: { name: 'F4', ahuId: AHU, filterProfileId: PROFILE, lastCleaningDate: '2026-01-15' },
+    });
+    expect(res.statusCode).toBe(201);
+    const [data] = createMock.mock.calls[0];
+    expect(data.filterProfileId).toBe(PROFILE);
+    expect(data.attributes).toEqual({ lastCleaningDate: '2026-01-15' });
+    await app.close();
+  });
 });

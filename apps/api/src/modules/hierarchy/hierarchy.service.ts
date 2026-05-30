@@ -201,6 +201,13 @@ function paginateMeta(total: number, page: number, limit: number) {
   };
 }
 
+export type CreateFilterInput = FilterFieldInput & {
+  name: string;
+  ahuId: string;
+  filterSet?: 'A' | 'B';
+  filterProfileId?: string;
+};
+
 export const hierarchyService = {
   // ─── BLOCKS ───────────────────────────────────────────────────────────
   async listBlocks(q: BlockListQuery): Promise<PaginatedResult<unknown>> {
@@ -336,15 +343,7 @@ export const hierarchyService = {
   // instanceService.create writes the FilterDetails sidecar (filterSet +
   // filterProfileId). Field-option values are validated against the live
   // filter-field-options config and folded into the attributes JSON.
-  async createFilter(
-    input: FilterFieldInput & {
-      name: string;
-      ahuId: string;
-      filterSet?: 'A' | 'B';
-      filterProfileId?: string;
-    },
-    ctx: RequestContext,
-  ) {
+  async createFilter(input: CreateFilterInput, ctx: RequestContext) {
     const tmpl = await resolveFilterTemplateRef();
     if (!tmpl) throw new ValidationError('No active FILTER template is configured');
 

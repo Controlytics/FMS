@@ -19,7 +19,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { errorResponses } from '../../lib/error-schemas.js';
-import { hierarchyService } from './hierarchy.service.js';
+import { hierarchyService, type CreateFilterInput } from './hierarchy.service.js';
 import { buildContext } from '../../lib/build-context.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 
@@ -324,7 +324,7 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const { ok } = await enforceReauth(['CREATE_ASSET', 'CREATE_FILTER'], req, reply);
     if (!ok) return;
-    const data = await hierarchyService.createFilter(req.body as any, buildContext(req));
+    const data = await hierarchyService.createFilter(req.body as CreateFilterInput, buildContext(req));
     return reply.code(201).send({ success: true, data });
   });
 
