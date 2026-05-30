@@ -5,6 +5,7 @@ import { errorResponses } from '../../../lib/error-schemas.js';
 import { createAssetInstanceSchema, updateAssetInstanceSchema, assetQuerySchema } from '@digilog/shared';
 import { instanceService } from '../services/instance.service.js';
 import { bulkUploadFilters } from '../services/bulk-upload-filter.service.js';
+import { buildFilterUploadTemplate } from '../services/filter-upload-template.service.js';
 
 export default async function instanceRoutes(app: FastifyInstance) {
 
@@ -275,38 +276,60 @@ export default async function instanceRoutes(app: FastifyInstance) {
     return reply.code(201).send({ success: true, data: instance });
   });
 
-  // POST /instances/bulk-upload-filters — Bulk create filters from CSV
+  // GET /instances/filter-upload-template.xlsx — Download the bulk-upload
+  // template (.xlsx with live Excel data-validation dropdowns). Dropdown
+  // values reflect the current filter-field-options master data.
+  app.get('/instances/filter-upload-template.xlsx', {
+    preHandler: [app.requireAnyPermission('ASSET_CREATE', 'FILTER_BULK_UPLOAD')],
+    schema: {
+      tags: ['Entities'],
+      summary: 'Download the filter bulk-upload .xlsx template',
+      description: 'Streams an .xlsx workbook with Excel data-validation dropdowns (filterSet, ahuType, filterType, micronSize) populated from the live master data.',
+    },
+  }, async (_req, reply) => {
+    const buf = await buildFilterUploadTemplate();
+    return reply
+      .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('Content-Disposition', 'attachment; filename="filter-upload-template.xlsx"')
+      .send(buf);
+  });
+
+  // Shared 200 response schema for upload + validate (column/value carry the
+  // per-cell validation detail — they MUST be declared or Fastify strips them).
+  const bulkResultsSchema = {
+    type: 'object' as const,
+    properties: {
+      success: { type: 'boolean' },
+      created: { type: 'integer' },
+      failed: { type: 'integer' },
+      results: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            row: { type: 'integer' },
+            name: { type: 'string' },
+            status: { type: 'string' },
+            id: { type: 'string' },
+            column: { type: 'string' },
+            value: { type: 'string' },
+            error: { type: 'string' },
+          },
+        },
+      },
+      rows: { type: 'array', items: { type: 'object', additionalProperties: true } },
+    },
+  };
+
+  // POST /instances/bulk-upload-filters — Bulk create filters from an .xlsx file
   app.post('/instances/bulk-upload-filters', {
     preHandler: [app.requireAnyPermission('ASSET_CREATE', 'FILTER_BULK_UPLOAD')],
     schema: {
       tags: ['Entities'],
-      summary: 'Bulk upload filters from CSV',
-      description: 'Upload a CSV file to create multiple filter instances under an AHU. CSV columns: name, filterSet (A/B), filterProfileId (optional).',
+      summary: 'Bulk upload filters from .xlsx',
+      description: 'Upload the .xlsx template to create multiple filters under an AHU. Columns: name, filterSet (A/B), ahuType, filterType, micronSize, lastCleaningDate, filterProfileId. Dropdown values validated against the live filter-field-options config.',
       consumes: ['multipart/form-data'],
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            created: { type: 'integer' },
-            failed: { type: 'integer' },
-            results: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  row: { type: 'integer' },
-                  name: { type: 'string' },
-                  status: { type: 'string' },
-                  id: { type: 'string' },
-                  error: { type: 'string' },
-                },
-              },
-            },
-          },
-        },
-        ...errorResponses,
-      },
+      response: { 200: bulkResultsSchema, ...errorResponses },
     },
   }, async (req, reply) => {
     // Reauth must run BEFORE multipart consumption — req.body is undefined for
@@ -317,9 +340,12 @@ export default async function instanceRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     try {
-      let csvBuffer: Buffer | null = null;
+      let fileBuffer: Buffer | null = null;
       let ahuId = '';
       let blockId = '';
+      // 2026-05-22: dialog-level fallback when a CSV row has no `filterSet`
+      // column. Normalized A/B → SET_A/SET_B before forwarding to the service.
+      let defaultFilterSet: 'SET_A' | 'SET_B' | undefined;
 
       const parts = req.parts();
       for await (const part of parts) {
@@ -328,22 +354,28 @@ export default async function instanceRoutes(app: FastifyInstance) {
           for await (const chunk of part.file) {
             chunks.push(chunk);
           }
-          csvBuffer = Buffer.concat(chunks);
+          fileBuffer = Buffer.concat(chunks);
         } else if (part.type === 'field' && part.fieldname === 'ahuId') {
           ahuId = (part.value as string) ?? '';
         } else if (part.type === 'field' && part.fieldname === 'blockId') {
           blockId = (part.value as string) ?? '';
+        } else if (part.type === 'field' && part.fieldname === 'defaultFilterSet') {
+          const raw = ((part.value as string) ?? '').toUpperCase().trim();
+          if (raw === 'A' || raw === 'SET_A') defaultFilterSet = 'SET_A';
+          else if (raw === 'B' || raw === 'SET_B') defaultFilterSet = 'SET_B';
+          // anything else stays undefined — the service falls back to the
+          // per-row hard error so the operator sees what's wrong.
         }
       }
 
-      if (!csvBuffer || csvBuffer.length === 0) {
-        return reply.code(400).send({ error: 'VALIDATION', message: 'CSV file is required' });
+      if (!fileBuffer || fileBuffer.length === 0) {
+        return reply.code(400).send({ error: 'VALIDATION', message: 'An .xlsx file is required' });
       }
       if (!ahuId) {
         return reply.code(400).send({ error: 'VALIDATION', message: 'ahuId is required' });
       }
 
-      const result = await bulkUploadFilters(csvBuffer, ahuId, blockId || undefined, buildContext(req));
+      const result = await bulkUploadFilters(fileBuffer, ahuId, blockId || undefined, defaultFilterSet, buildContext(req));
       return { success: true, ...result };
     } catch (err: any) {
       if (err.statusCode === 415 || err.message?.includes('multipart')) {
@@ -351,6 +383,59 @@ export default async function instanceRoutes(app: FastifyInstance) {
       }
       app.log.error(err);
       return reply.code(500).send({ error: 'UPLOAD_FAILED', message: err.message ?? 'Bulk upload failed' });
+    }
+  });
+
+  // POST /instances/bulk-upload-filters/validate — Dry-run: parse + validate the
+  // .xlsx and return per-cell results + parsed rows for the preview. No DB write.
+  app.post('/instances/bulk-upload-filters/validate', {
+    preHandler: [app.requireAnyPermission('ASSET_CREATE', 'FILTER_BULK_UPLOAD')],
+    schema: {
+      tags: ['Entities'],
+      summary: 'Validate a bulk-upload .xlsx without creating (dry-run)',
+      description: 'Parses + validates the uploaded .xlsx against the live master data and returns row/column/value errors plus the parsed rows for the preview. Creates nothing.',
+      consumes: ['multipart/form-data'],
+      response: { 200: bulkResultsSchema, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    try {
+      let fileBuffer: Buffer | null = null;
+      let ahuId = '';
+      let blockId = '';
+      let defaultFilterSet: 'SET_A' | 'SET_B' | undefined;
+
+      const parts = req.parts();
+      for await (const part of parts) {
+        if (part.type === 'file' && part.fieldname === 'file') {
+          const chunks: Buffer[] = [];
+          for await (const chunk of part.file) chunks.push(chunk);
+          fileBuffer = Buffer.concat(chunks);
+        } else if (part.type === 'field' && part.fieldname === 'ahuId') {
+          ahuId = (part.value as string) ?? '';
+        } else if (part.type === 'field' && part.fieldname === 'blockId') {
+          blockId = (part.value as string) ?? '';
+        } else if (part.type === 'field' && part.fieldname === 'defaultFilterSet') {
+          const raw = ((part.value as string) ?? '').toUpperCase().trim();
+          if (raw === 'A' || raw === 'SET_A') defaultFilterSet = 'SET_A';
+          else if (raw === 'B' || raw === 'SET_B') defaultFilterSet = 'SET_B';
+        }
+      }
+
+      if (!fileBuffer || fileBuffer.length === 0) {
+        return reply.code(400).send({ error: 'VALIDATION', message: 'An .xlsx file is required' });
+      }
+      if (!ahuId) {
+        return reply.code(400).send({ error: 'VALIDATION', message: 'ahuId is required' });
+      }
+
+      const result = await bulkUploadFilters(fileBuffer, ahuId, blockId || undefined, defaultFilterSet, buildContext(req), { validateOnly: true });
+      return { success: true, ...result };
+    } catch (err: any) {
+      if (err.statusCode === 415 || err.message?.includes('multipart')) {
+        return reply.code(400).send({ error: 'INVALID_REQUEST', message: 'Request must be multipart/form-data' });
+      }
+      app.log.error(err);
+      return reply.code(500).send({ error: 'VALIDATION_FAILED', message: err.message ?? 'Validation failed' });
     }
   });
 

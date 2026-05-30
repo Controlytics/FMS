@@ -1,279 +1,238 @@
-import { parse } from 'csv-parse/sync';
+// Bulk filter upload — A-01 Slice 2.
+//
+// Parses an .xlsx workbook (the template produced by
+// filter-upload-template.service.ts) and creates one filter per data row using
+// the SAME typed path single-create uses: the FILTER template is resolved
+// internally, field-option values (ahuType/filterType/micronSize) are validated
+// against the live filter-field-options config (NOT a template attributeSchema),
+// and each row is created via instanceService.create (which writes the
+// FilterDetails sidecar + fires the mirror trigger). No templateId / generic
+// attributes are accepted from the file. Invalid cells are rejected with
+// row + column + value + message.
+import ExcelJS from 'exceljs';
 import type { RequestContext } from '../../../types/context.js';
 import { auditLog } from '../../../lib/audit.js';
 import { prisma } from '../../../lib/prisma.js';
-import { sanitizeStrings } from '../../../lib/sanitize.js';
+import { instanceService } from './instance.service.js';
+import { resolveFilterTemplateRef, validateAndBuildFilterAttributes } from './filter-fields.service.js';
 
-interface TemplateField {
-  fieldName: string;
-  dataType?: string;
-  required?: boolean;
-  dropdownOptions?: string[];
-}
-
-interface BulkResult {
+export interface BulkResult {
   row: number;
   name: string;
   status: 'success' | 'error';
   id?: string;
+  column?: string;
+  value?: string;
   error?: string;
 }
 
-interface ValidRow {
-  idx: number;
+export interface BulkUploadOutcome {
+  results: BulkResult[];
+  created: number;
+  failed: number;
+  // Parsed display rows (dry-run preview). Present for validateOnly calls.
+  rows?: Array<Record<string, string>>;
+}
+
+interface ParsedRow {
+  rowNumber: number; // 1-based spreadsheet row (header is row 1, first data row is 2)
   name: string;
-  filterSet: 'SET_A' | 'SET_B';
-  filterProfileId: string | null;
-  attributes: Record<string, any>;
+  filterSet: string;
+  ahuType: string;
+  filterType: string;
+  micronSize: string;
+  lastCleaningDate: string;
+  filterProfileId: string;
+}
+
+// Header text → canonical key. Accepts the template headers plus a couple of
+// friendly aliases for `name`.
+const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+const HEADER_ALIASES: Record<string, keyof Omit<ParsedRow, 'rowNumber'>> = {
+  name: 'name', filtername: 'name', filterid: 'name',
+  filterset: 'filterSet',
+  ahutype: 'ahuType',
+  filtertype: 'filterType',
+  micronsize: 'micronSize',
+  lastcleaningdate: 'lastCleaningDate',
+  filterprofileid: 'filterProfileId',
+};
+
+function cellToString(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === 'object') {
+    const o = v as any;
+    if (Array.isArray(o.richText)) return o.richText.map((t: any) => t.text).join('').trim();
+    if (typeof o.text === 'string') return o.text.trim();
+    if (o.result !== undefined) return String(o.result).trim();
+  }
+  return String(v).trim();
+}
+
+function parseWorkbook(buffer: Buffer): Promise<{ rows: ParsedRow[]; error?: string }> {
+  const wb = new ExcelJS.Workbook();
+  return wb.xlsx.load(buffer as any).then(() => {
+    const ws = wb.worksheets.find((w) => w.name === 'Filters' && w.state !== 'veryHidden') ?? wb.worksheets[0];
+    if (!ws) return { rows: [], error: 'Workbook has no readable sheet' };
+
+    // Map each column number to a canonical key via the header row.
+    const colKey: Record<number, keyof Omit<ParsedRow, 'rowNumber'>> = {};
+    ws.getRow(1).eachCell((cell, col) => {
+      const key = HEADER_ALIASES[normalize(cellToString(cell.value))];
+      if (key) colKey[col] = key;
+    });
+    if (!Object.values(colKey).includes('name')) {
+      return { rows: [], error: 'Template is missing a "name" column' };
+    }
+
+    const rows: ParsedRow[] = [];
+    ws.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      const r: ParsedRow = { rowNumber, name: '', filterSet: '', ahuType: '', filterType: '', micronSize: '', lastCleaningDate: '', filterProfileId: '' };
+      let any = false;
+      row.eachCell((cell, col) => {
+        const key = colKey[col];
+        if (!key) return;
+        const val = cellToString(cell.value);
+        (r as any)[key] = val;
+        if (val) any = true;
+      });
+      if (any) rows.push(r);
+    });
+    return { rows };
+  }).catch(() => ({ rows: [] as ParsedRow[], error: 'Invalid .xlsx file' }));
 }
 
 export async function bulkUploadFilters(
-  csvBuffer: Buffer,
+  buffer: Buffer,
   ahuId: string,
   blockId: string | undefined,
-  ctx: RequestContext
-): Promise<{ results: BulkResult[]; created: number; failed: number }> {
+  // Dialog-level fallback used when a row's filterSet cell is empty.
+  defaultFilterSet: 'SET_A' | 'SET_B' | undefined,
+  ctx: RequestContext,
+  opts: { validateOnly?: boolean } = {},
+): Promise<BulkUploadOutcome> {
+  const defaultWire: 'A' | 'B' | undefined = defaultFilterSet === 'SET_A' ? 'A' : defaultFilterSet === 'SET_B' ? 'B' : undefined;
 
-  // 1. Parse CSV
-  let rows: Record<string, string>[];
-  try {
-    rows = parse(csvBuffer, {
-      columns: true,
-      skip_empty_lines: true,
-      trim: true,
-      bom: true,
-    });
-  } catch {
-    return { results: [{ row: 1, name: '', status: 'error', error: 'Invalid CSV format' }], created: 0, failed: 1 };
+  // 1. Parse
+  const parsed = await parseWorkbook(buffer);
+  if (parsed.error) return { results: [{ row: 1, name: '', status: 'error', error: parsed.error }], created: 0, failed: 1 };
+  const rows = parsed.rows;
+  if (rows.length === 0) return { results: [{ row: 1, name: '', status: 'error', error: 'No data rows found' }], created: 0, failed: 1 };
+  if (rows.length > 200) return { results: [{ row: 1, name: '', status: 'error', error: 'Maximum 200 filters per upload' }], created: 0, failed: 1 };
+
+  // 2. AHU + template + (optional) block + profile pre-checks
+  const ahu = await prisma.assetInstance.findUnique({ where: { id: ahuId }, select: { id: true, name: true } });
+  if (!ahu) return { results: [{ row: 1, name: '', status: 'error', error: 'AHU not found' }], created: 0, failed: 1 };
+
+  const tmpl = await resolveFilterTemplateRef();
+  if (!tmpl) return { results: [{ row: 1, name: '', status: 'error', error: 'No active FILTER template is configured' }], created: 0, failed: 1 };
+
+  const profileIds = [...new Set(rows.map((r) => r.filterProfileId.trim()).filter(Boolean))];
+  const validProfileIds = new Set<string>();
+  if (profileIds.length > 0) {
+    const found = await prisma.filterProfile.findMany({ where: { id: { in: profileIds } }, select: { id: true } });
+    for (const p of found) validProfileIds.add(p.id);
   }
 
-  if (rows.length === 0) {
-    return { results: [{ row: 1, name: '', status: 'error', error: 'CSV is empty' }], created: 0, failed: 1 };
-  }
-  if (rows.length > 200) {
-    return { results: [{ row: 1, name: '', status: 'error', error: 'Maximum 200 filters per upload' }], created: 0, failed: 1 };
-  }
-
-  // 2. Validate AHU
-  const ahu = await prisma.assetInstance.findUnique({
-    where: { id: ahuId },
-    select: { id: true, name: true, templateId: true },
+  // 3. Existing names (batch, case-insensitive)
+  const existing = await prisma.assetInstance.findMany({
+    where: { name: { in: rows.map((r) => r.name).filter(Boolean), mode: 'insensitive' }, isActive: true },
+    select: { name: true },
   });
-  if (!ahu) {
-    return { results: [{ row: 1, name: '', status: 'error', error: 'AHU not found' }], created: 0, failed: 1 };
-  }
+  const existingNames = new Set(existing.map((e) => e.name.toLowerCase()));
 
-  // 3. Validate Block (optional)
-  if (blockId) {
-    const block = await prisma.assetInstance.findUnique({ where: { id: blockId }, select: { id: true } });
-    if (!block) {
-      return { results: [{ row: 1, name: '', status: 'error', error: 'Block not found' }], created: 0, failed: 1 };
-    }
-  }
-
-  // 4. Find Filter template (include attributeSchema for dynamic CSV columns)
-  const filterTemplate = await prisma.assetTemplate.findFirst({
-    where: { name: { equals: 'Filter', mode: 'insensitive' }, isActive: true },
-    select: { id: true, version: true, attributeSchema: true },
-  });
-  if (!filterTemplate) {
-    return { results: [{ row: 1, name: '', status: 'error', error: 'No "Filter" template found.' }], created: 0, failed: 1 };
-  }
-
-  // 5. Pre-fetch all referenced filter profiles in one query
-  const allFpIds = [...new Set(
-    rows.map(r => (r.filterProfileId ?? '').trim()).filter(Boolean)
-  )];
-  const validFpIds = new Set<string>();
-  if (allFpIds.length > 0) {
-    const foundProfiles = await prisma.filterProfile.findMany({
-      where: { id: { in: allFpIds } },
-      select: { id: true },
-    });
-    for (const fp of foundProfiles) validFpIds.add(fp.id);
-  }
-
-  // 6. Validate rows
+  // 4. Validate every row → collect per-cell errors; build the create payload for clean rows.
   const results: BulkResult[] = [];
-  const validRows: ValidRow[] = [];
   const namesInBatch = new Set<string>();
+  const toCreate: Array<{ rowNumber: number; name: string; filterSet?: 'A' | 'B'; filterProfileId?: string; attributes: Record<string, unknown> }> = [];
 
-  for (let i = 0; i < rows.length; i++) {
-    const row = sanitizeStrings(rows[i]);
-    const rowNum = i + 2;
-    const name = (row.name ?? row.filterName ?? '').trim();
+  for (const r of rows) {
+    const rowErrs: BulkResult[] = [];
+    const name = r.name.trim();
 
-    if (!name) {
-      results.push({ row: rowNum, name: '', status: 'error', error: 'Filter Name is required' });
-      continue;
-    }
+    if (!name) rowErrs.push({ row: r.rowNumber, name: '', status: 'error', column: 'name', value: '', error: 'Filter Name is required' });
 
-    // Filter set
-    const setRaw = (row.filterSet ?? '').toUpperCase().trim();
-    let filterSet: 'SET_A' | 'SET_B';
-    if (setRaw === 'A' || setRaw === 'SET_A') filterSet = 'SET_A';
-    else if (setRaw === 'B' || setRaw === 'SET_B') filterSet = 'SET_B';
-    else {
-      results.push({ row: rowNum, name, status: 'error', error: 'filterSet must be A or B' });
-      continue;
-    }
+    // filterSet: cell wins; else dialog default; else error.
+    let filterSetWire: 'A' | 'B' | undefined;
+    const setRaw = r.filterSet.toUpperCase().trim();
+    if (setRaw === 'A' || setRaw === 'SET_A') filterSetWire = 'A';
+    else if (setRaw === 'B' || setRaw === 'SET_B') filterSetWire = 'B';
+    else if (!setRaw && defaultWire) filterSetWire = defaultWire;
+    else if (setRaw) rowErrs.push({ row: r.rowNumber, name, status: 'error', column: 'filterSet', value: r.filterSet, error: 'filterSet must be A or B' });
+    else rowErrs.push({ row: r.rowNumber, name, status: 'error', column: 'filterSet', value: '', error: 'filterSet is required (set a Default Filter Set in the dialog or fill the column)' });
 
-    // Duplicate in batch
-    const nameKey = name.toLowerCase();
-    if (namesInBatch.has(nameKey)) {
-      results.push({ row: rowNum, name, status: 'error', error: 'Duplicate name in CSV' });
-      continue;
-    }
-    namesInBatch.add(nameKey);
-
-    // Filter profile (optional) — validated against pre-fetched set
-    let fpId: string | null = null;
-    const rawFpId = (row.filterProfileId ?? '').trim();
-    if (rawFpId) {
-      if (!validFpIds.has(rawFpId)) {
-        results.push({ row: rowNum, name, status: 'error', error: `Filter profile not found: ${rawFpId}` });
-        continue;
-      }
-      fpId = rawFpId;
-    }
-
-    // Build attributes dynamically from Filter template attributeSchema
-    const templateFields: TemplateField[] = Array.isArray(filterTemplate.attributeSchema) ? filterTemplate.attributeSchema as unknown as TemplateField[] : [];
-    const attributes: Record<string, any> = {};
-    attributes.filterCode = name;
-
-    // Map CSV columns to template fields (case-insensitive matching)
-    let fieldError = false;
-    for (const field of templateFields) {
-      // Find matching CSV column (case-insensitive, stripped spaces)
-      const fieldKey = field.fieldName.toLowerCase().replace(/\s+/g, '');
-      const csvValue = Object.entries(row).find(([k]) => k.toLowerCase().replace(/\s+/g, '') === fieldKey)?.[1]?.toString().trim() ?? '';
-
-      if (field.required && !csvValue) {
-        results.push({ row: rowNum, name, status: 'error', error: `"${field.fieldName}" is required` });
-        fieldError = true;
-        break;
-      }
-
-      if (!csvValue) continue;
-
-      // Validate dropdown values
-      if (field.dropdownOptions?.length) {
-        const match = field.dropdownOptions.find(o => o.toLowerCase() === csvValue.toLowerCase());
-        if (!match) {
-          results.push({ row: rowNum, name, status: 'error', error: `"${field.fieldName}" must be one of: ${field.dropdownOptions.join(', ')}` });
-          fieldError = true;
-          break;
-        }
-        attributes[field.fieldName] = match;
-      } else if (field.dataType === 'INTEGER') {
-        const num = parseInt(csvValue, 10);
-        if (isNaN(num)) { results.push({ row: rowNum, name, status: 'error', error: `"${field.fieldName}" must be a whole number` }); fieldError = true; break; }
-        attributes[field.fieldName] = num;
-      } else if (field.dataType === 'FLOAT') {
-        const num = parseFloat(csvValue);
-        if (isNaN(num)) { results.push({ row: rowNum, name, status: 'error', error: `"${field.fieldName}" must be a number` }); fieldError = true; break; }
-        attributes[field.fieldName] = num;
-      } else if (field.dataType === 'BOOLEAN') {
-        attributes[field.fieldName] = csvValue.toLowerCase() === 'true' || csvValue === '1';
-      } else {
-        attributes[field.fieldName] = csvValue;
-      }
-    }
-    if (fieldError) continue;
-
-    validRows.push({ idx: i, name, filterSet, filterProfileId: fpId, attributes });
-  }
-
-  // 6. Check existing names
-  if (validRows.length > 0) {
-    const existingNames = await prisma.assetInstance.findMany({
-      where: { name: { in: validRows.map(r => r.name), mode: 'insensitive' }, isActive: true },
-      select: { name: true },
+    // Field-option validation against live config.
+    const { attributes, errors: fieldErrors } = await validateAndBuildFilterAttributes({
+      ahuType: r.ahuType, filterType: r.filterType, micronSize: r.micronSize, lastCleaningDate: r.lastCleaningDate,
     });
-    const existingSet = new Set(existingNames.map(e => e.name.toLowerCase()));
-    const stillValid: ValidRow[] = [];
-    for (const row of validRows) {
-      if (existingSet.has(row.name.toLowerCase())) {
-        results.push({ row: row.idx + 2, name: row.name, status: 'error', error: `"${row.name}" already exists` });
-      } else {
-        stillValid.push(row);
-      }
-    }
-    validRows.length = 0;
-    validRows.push(...stillValid);
-  }
+    for (const fe of fieldErrors) rowErrs.push({ row: r.rowNumber, name, status: 'error', column: fe.field, value: fe.value, error: fe.message });
 
-  if (validRows.length === 0) {
-    return { results, created: 0, failed: results.length };
-  }
-
-  // 7. Create in transaction (re-check name uniqueness inside transaction to prevent races)
-  const createdFilters = await prisma.$transaction(async (tx) => {
-    // Re-check names inside transaction to prevent TOCTOU race condition
-    const existingInTx = await tx.assetInstance.findMany({
-      where: { name: { in: validRows.map(r => r.name), mode: 'insensitive' }, isActive: true },
-      select: { name: true },
-    });
-    if (existingInTx.length > 0) {
-      throw new Error(`Filter names already exist: ${existingInTx.map(e => e.name).join(', ')}`);
+    // filterProfileId (optional)
+    const fpId = r.filterProfileId.trim();
+    if (fpId && !validProfileIds.has(fpId)) {
+      rowErrs.push({ row: r.rowNumber, name, status: 'error', column: 'filterProfileId', value: fpId, error: 'Filter profile not found' });
     }
 
-    const created: { idx: number; name: string; id: string }[] = [];
+    // Duplicate within the batch / already in DB
+    const key = name.toLowerCase();
+    if (name && namesInBatch.has(key)) rowErrs.push({ row: r.rowNumber, name, status: 'error', column: 'name', value: name, error: 'Duplicate name in file' });
+    else if (name && existingNames.has(key)) rowErrs.push({ row: r.rowNumber, name, status: 'error', column: 'name', value: name, error: `"${name}" already exists` });
+    if (name) namesInBatch.add(key);
 
-    for (const row of validRows) {
-      // filterSet + filterProfileId now live on FilterDetails (Step 6).
-      // The bulk-uploaded template is FILTER-kind so we eagerly create the sidecar.
-      const inst = await tx.assetInstance.create({
-        data: {
-          name: row.name,
-          templateId: filterTemplate.id,
-          templateVersion: filterTemplate.version,
+    if (rowErrs.length > 0) {
+      results.push(...rowErrs);
+      continue;
+    }
+    toCreate.push({ rowNumber: r.rowNumber, name, filterSet: filterSetWire, filterProfileId: fpId || undefined, attributes });
+  }
+
+  // 5. Dry-run: report would-create rows as success, return parsed rows for the preview.
+  if (opts.validateOnly) {
+    for (const c of toCreate) results.push({ row: c.rowNumber, name: c.name, status: 'success' });
+    results.sort((a, b) => a.row - b.row);
+    return {
+      results,
+      created: 0,
+      failed: results.filter((r) => r.status === 'error').length,
+      rows: rows.map((r) => ({ name: r.name, filterSet: r.filterSet, ahuType: r.ahuType, filterType: r.filterType, micronSize: r.micronSize, lastCleaningDate: r.lastCleaningDate, filterProfileId: r.filterProfileId })),
+    };
+  }
+
+  // 6. Create the clean rows via the typed single-create path (one tx each).
+  const createdNames: string[] = [];
+  for (const c of toCreate) {
+    try {
+      const inst = await instanceService.create(
+        {
+          name: c.name,
+          templateId: tmpl.id,
           parentId: ahuId,
-          attributes: row.attributes,
-          createdBy: ctx.userId,
-        } as any,
-      });
-      await tx.filterDetails.create({
-        data: {
-          assetInstanceId: inst.id,
-          filterSet: row.filterSet,
-          filterProfileId: row.filterProfileId,
+          ...(c.filterSet ? { filterSet: c.filterSet } : {}),
+          ...(c.filterProfileId ? { filterProfileId: c.filterProfileId } : {}),
+          ...(Object.keys(c.attributes).length > 0 ? { attributes: c.attributes } : {}),
         },
-      });
-
-      // AHU relationships
-      await Promise.all([
-        tx.assetRelationship.create({ data: { sourceAssetId: ahuId, targetAssetId: inst.id, relationshipType: 'CONTAINS', createdBy: ctx.userId } }),
-        tx.assetRelationship.create({ data: { sourceAssetId: inst.id, targetAssetId: ahuId, relationshipType: 'CONTAINED_IN', createdBy: ctx.userId } }),
-      ]);
-
-      // Block relationships (if blockId provided)
-      if (blockId) {
-        await Promise.all([
-          tx.assetRelationship.create({ data: { sourceAssetId: blockId, targetAssetId: inst.id, relationshipType: 'CONTAINS', createdBy: ctx.userId } }),
-          tx.assetRelationship.create({ data: { sourceAssetId: inst.id, targetAssetId: blockId, relationshipType: 'CONTAINED_IN', createdBy: ctx.userId } }),
-        ]);
-      }
-
-      created.push({ idx: row.idx, name: row.name, id: inst.id });
+        ctx,
+      );
+      results.push({ row: c.rowNumber, name: c.name, status: 'success', id: inst.id });
+      createdNames.push(c.name);
+    } catch (err: any) {
+      results.push({ row: c.rowNumber, name: c.name, status: 'error', error: err?.message ?? 'Create failed' });
     }
-    return created;
-  });
-
-  // 8. Results + audit
-  for (const f of createdFilters) {
-    results.push({ row: f.idx + 2, name: f.name, status: 'success', id: f.id });
   }
 
-  await auditLog({
-    userId: ctx.userId, userRole: ctx.userRole,
-    action: 'BULK_FILTER_UPLOAD', targetType: 'asset_instance', targetId: ahuId,
-    afterValue: { ahuName: ahu.name, count: createdFilters.length, filters: createdFilters.map(f => f.name) },
-    reason: `Bulk uploaded ${createdFilters.length} filters into AHU "${ahu.name}"`,
-    ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-  });
+  // 7. Audit (one summary entry for the batch)
+  if (createdNames.length > 0) {
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole,
+      action: 'BULK_FILTER_UPLOAD', targetType: 'asset_instance', targetId: ahuId,
+      afterValue: { ahuName: ahu.name, count: createdNames.length, filters: createdNames },
+      reason: `Bulk uploaded ${createdNames.length} filters into AHU "${ahu.name}"`,
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+  }
 
   results.sort((a, b) => a.row - b.row);
-  return { results, created: createdFilters.length, failed: results.filter(r => r.status === 'error').length };
+  return { results, created: createdNames.length, failed: results.filter((r) => r.status === 'error').length };
 }
