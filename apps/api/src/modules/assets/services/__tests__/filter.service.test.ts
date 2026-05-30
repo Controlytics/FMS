@@ -8,7 +8,7 @@ vi.mock('../../../../lib/prisma.js', () => ({
     filter: { findFirst: vi.fn(), create: vi.fn() },
     filterDetails: { create: vi.fn() },
     $transaction: vi.fn(async (fn: any) => fn({
-      filter: { create: vi.fn(async ({ data }: any) => ({ id: 'f1', ...data })) },
+      filter: { create: vi.fn(async ({ data }: any) => ({ ...data })) },
       filterDetails: { create: vi.fn() },
     })),
   },
@@ -37,9 +37,11 @@ describe('filterService.create', () => {
     await expect(filterService.create({ name: 'Dup', ahuId: 'ahu1' }, ctx)).rejects.toThrow(/exists/);
   });
 
-  it('creates the typed filter with ahuId + attributes and returns it', async () => {
+  it('creates the typed filter with a generated id + ahuId + attributes and returns it', async () => {
     const out = await filterService.create({ name: 'F', ahuId: 'ahu1', filterSet: 'A', ahuType: 'process' }, ctx);
-    expect(out.id).toBe('f1');
+    expect(typeof out.id).toBe('string');      // app-generated UUID (filters.id has no DB default)
+    expect(out.id.length).toBeGreaterThan(10);
+    expect(out.ahuId).toBe('ahu1');
     expect(prisma.$transaction).toHaveBeenCalled();
   });
 });

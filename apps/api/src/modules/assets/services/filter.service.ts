@@ -2,6 +2,7 @@
 // directly (source of truth). NO validateParent, NO asset_relationships, NO
 // asset-template attributeSchema. The reverse-mirror trigger keeps a legacy
 // asset_instances row in sync for un-migrated readers.
+import { randomUUID } from 'node:crypto';
 import type { RequestContext } from '../../../types/context.js';
 import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
@@ -37,6 +38,10 @@ export const filterService = {
     const filter = await prisma.$transaction(async (tx) => {
       const f = await tx.filter.create({
         data: {
+          // The typed `filters.id` column has no DB default (it was built for
+          // the dual-write that always supplies the id). Generate it here so the
+          // filter, its asset_instances mirror, FilterDetails, and RFID all share it.
+          id: randomUUID(),
           ahuId: input.ahuId,
           name,
           status: 'Active',
