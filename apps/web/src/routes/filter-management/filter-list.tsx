@@ -699,14 +699,6 @@ export function FilterListPage() {
   };
 
   // ── Bulk upload helpers ──
-  // Get Filter template attributeSchema for dynamic CSV columns
-  const filterTemplateSchema = useMemo(() => {
-    const tpl = templates.find((t: any) => t.templateKind === 'FILTER');
-    if (!tpl?.attributeSchema) return [];
-    const schema = Array.isArray(tpl.attributeSchema) ? tpl.attributeSchema : [];
-    return schema as { fieldName: string; dataType?: string; required?: boolean; dropdownOptions?: string[]; unit?: string }[];
-  }, [templates]);
-
   // AHUs available for bulk upload — scoped by current diagram filter
   const bulkUploadAhus = useMemo(() => {
     if (!selectedBlock) return [];
@@ -1003,46 +995,40 @@ export function FilterListPage() {
 
   const closeBulkUpload = () => { setBulkUploadOpen(false); };
 
-  const handleBulkUploadFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBulkUploadFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
     setBulkUploadFile(f);
     setBulkUploadError('');
+    setBulkUploadResults([]);
+    if (!bulkUploadAhu) { setBulkUploadError('Select a Target AHU before uploading the file.'); return; }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const text = reader.result as string;
-        const lines = text.split(/\r?\n/).filter(l => l.trim());
-        if (lines.length < 2) { setBulkUploadError('CSV must have a header and at least one data row'); return; }
-        const header = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, ''));
-        const colMap: Record<string, number> = {};
-        header.forEach((h, i) => { colMap[h] = i; });
-        const nameIdx = colMap['name'] ?? colMap['filtername'] ?? colMap['filterid'] ?? -1;
-        const setIdx = colMap['filterset'] ?? -1;
-        if (nameIdx === -1) { setBulkUploadError('CSV must have a "name" column'); return; }
-        if (setIdx === -1) { setBulkUploadError('CSV must have a "filterSet" column'); return; }
-        const getCol = (cols: string[], key: string) => { const idx = colMap[key]; return idx !== undefined && idx < cols.length ? cols[idx].trim() : ''; };
-        const rows: any[] = [];
-        for (let i = 1; i < lines.length; i++) {
-          const cols = lines[i].split(',').map(c => c.trim());
-          const name = cols[nameIdx] || '';
-          if (!name) continue;
-          const row: any = { name, filterSet: cols[setIdx] || '' };
-          // Parse all template fields dynamically
-          for (const f of filterTemplateSchema) {
-            const key = f.fieldName.toLowerCase().replace(/\s+/g, '');
-            row[f.fieldName] = getCol(cols, key);
-          }
-          rows.push(row);
-        }
-        if (rows.length === 0) { setBulkUploadError('No valid rows found'); return; }
-        if (rows.length > 200) { setBulkUploadError('Maximum 200 filters per upload'); return; }
-        setBulkUploadRows(rows);
-        setBulkUploadStep('preview');
-      } catch { setBulkUploadError('Failed to parse CSV file'); }
-    };
-    reader.readAsText(f);
+    // Server-side dry-run: parse + validate the .xlsx against the live master
+    // data and return parsed rows + per-cell row/column/value errors. Binary
+    // .xlsx can't be parsed client-side, and this reuses the exact validation
+    // the real upload runs.
+    try {
+      const formData = new FormData();
+      formData.append('file', f);
+      formData.append('ahuId', bulkUploadAhu);
+      if (selectedBlock) formData.append('blockId', selectedBlock);
+      formData.append('defaultFilterSet', bulkUploadDefaultSet);
+      const token = sessionStorage.getItem('access_token');
+      const res = await fetch('/api/assets/instances/bulk-upload-filters/validate', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok) { setBulkUploadError(data.message || `Could not read file (HTTP ${res.status})`); return; }
+      const rows = data.rows || [];
+      if (rows.length === 0) { setBulkUploadError(data.results?.[0]?.error || 'No data rows found in the file'); return; }
+      setBulkUploadRows(rows);
+      setBulkUploadResults(data.results || []);
+      setBulkUploadStep('preview');
+    } catch (err: any) {
+      setBulkUploadError(err?.message || 'Failed to read the .xlsx file');
+    }
   };
 
   const handleBulkUploadSubmit = async () => {
@@ -1108,26 +1094,25 @@ export function FilterListPage() {
     );
   };
 
-  const downloadBulkTemplate = () => {
-    // Build header: name, filterSet, then all fields from Filter template attributeSchema
-    const extraCols = filterTemplateSchema.map(f => f.fieldName);
-    const header = ['name', 'filterSet', ...extraCols];
-    // Build a sample row with hints
-    const sampleValues: Record<string, string> = { name: 'HEPA-A-001', filterSet: 'A' };
-    for (const f of filterTemplateSchema) {
-      if (f.dropdownOptions?.length) sampleValues[f.fieldName] = f.dropdownOptions[0];
-      else if (f.dataType === 'INTEGER' || f.dataType === 'FLOAT') sampleValues[f.fieldName] = '0';
-      else if (f.dataType === 'BOOLEAN') sampleValues[f.fieldName] = 'true';
-      else if (f.dataType === 'DATE' || f.dataType === 'DATETIME') sampleValues[f.fieldName] = '';
-      else sampleValues[f.fieldName] = '';
+  const downloadBulkTemplate = async () => {
+    // Fetch the server-generated .xlsx — it carries Excel data-validation
+    // dropdowns whose values reflect the CURRENT master data. No hardcoding
+    // and no stale client copy.
+    try {
+      const token = sessionStorage.getItem('access_token');
+      const res = await fetch('/api/assets/instances/filter-upload-template.xlsx', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) { toast.error('Template download failed', `HTTP ${res.status}`); return; }
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'filter-upload-template.xlsx';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (err: any) {
+      toast.error('Template download failed', err?.message ?? 'Network error');
     }
-    const sampleRow = header.map(h => sampleValues[h] ?? '');
-    const csv = header.join(',') + '\n' + sampleRow.join(',') + '\n';
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'filter-upload-template.csv';
-    a.click();
   };
 
   // Navigate from diagram node to filters tab
@@ -1870,7 +1855,7 @@ export function FilterListPage() {
           results={bulkUploadResults}
           created={bulkUploadCreated}
           failed={bulkUploadFailed}
-          schema={filterTemplateSchema}
+          fieldOptions={fieldOptions}
           diagramFilter={diagramFilter}
           selectedBlockName={selectedBlockName}
           onAhuChange={setBulkUploadAhu}
