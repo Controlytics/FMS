@@ -29,9 +29,8 @@
  */
 
 import { prisma } from '../../lib/prisma.js';
-import { instanceService } from '../assets/services/instance.service.js';
-import { resolveFilterTemplateRef, validateAndBuildFilterAttributes, type FilterFieldInput } from '../assets/services/filter-fields.service.js';
-import { ValidationError } from '../../lib/errors.js';
+import { filterService } from '../assets/services/filter.service.js';
+import type { FilterFieldInput } from '../assets/services/filter-fields.service.js';
 import type { RequestContext } from '../../types/context.js';
 
 const DEFAULT_LIMIT = 50;
@@ -336,31 +335,12 @@ export const hierarchyService = {
     return enriched;
   },
 
-  // Typed filter create (A-01 Slice 1). Concrete fields only — no templateId,
-  // no generic attributes from the caller. Resolves the FILTER template
-  // internally for the asset_instances FK; the fn_mirror_asset_instance
-  // trigger mirrors the write into the typed `filters` table, and
-  // instanceService.create writes the FilterDetails sidecar (filterSet +
-  // filterProfileId). Field-option values are validated against the live
-  // filter-field-options config and folded into the attributes JSON.
+  // Typed filter create (A-01 Tier 2). Delegates to the standalone filterService,
+  // which writes the typed `filters` table directly — no templateId, no
+  // asset_relationships, no validateParent. The reverse-mirror trigger keeps a
+  // legacy asset_instances row in sync for un-migrated readers.
   async createFilter(input: CreateFilterInput, ctx: RequestContext) {
-    const tmpl = await resolveFilterTemplateRef();
-    if (!tmpl) throw new ValidationError('No active FILTER template is configured');
-
-    const { attributes, errors } = await validateAndBuildFilterAttributes(input);
-    if (errors.length > 0) throw new ValidationError('One or more filter fields are invalid', errors);
-
-    return instanceService.create(
-      {
-        name: input.name,
-        templateId: tmpl.id,
-        parentId: input.ahuId,
-        ...(input.filterSet ? { filterSet: input.filterSet } : {}),
-        ...(input.filterProfileId ? { filterProfileId: input.filterProfileId } : {}),
-        ...(Object.keys(attributes).length > 0 ? { attributes } : {}),
-      },
-      ctx,
-    );
+    return filterService.create(input, ctx);
   },
 
   // ─── FULL TREE ────────────────────────────────────────────────────────
