@@ -233,6 +233,14 @@ async function authPlugin(app: FastifyInstance) {
         '/api/auth/logout',
         '/api/auth/me',
         '/api/config/password-policy',
+        // The tablet login gate (mobile-login.tsx checkTabletAccess) reads the
+        // operator's OWN allowlist here before deciding whether to admit them.
+        // Without this exemption it returned 403 for any forced-change user, the
+        // fail-closed check read that as "no tablet access", and the operator
+        // was bounced off login and never reached /change-password — i.e. a
+        // temp-password / reset / expired user could not set a new password from
+        // the tablet at all (reported 2026-05-30). Read-only, own-config only.
+        '/api/config/tablet-access/my-features',
       ];
 
       // Check password expiry (server-side enforcement). Derived from

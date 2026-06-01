@@ -38,8 +38,15 @@ export function ChangePasswordPage() {
   const [error, setError] = useState('');
   const [showPasswords, setShowPasswords] = useState({ current: false, new: false, confirm: false });
 
-  // Fetch password policy
-  const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy');
+  // Fetch password policy. Use the PUBLIC `/current` variant, not the bare
+  // `/api/config/password-policy` (which requires UPDATE_PASSWORD_POLICY and
+  // 403s for non-admins). A forced-change OPERATOR/SUPERVISOR hit that 403 and
+  // silently fell back to `defaultPolicy` — so the requirements shown (and the
+  // client-side `isValid` gate) could disagree with the server's real policy,
+  // letting them submit a password the backend then rejects. `/current` is
+  // readable by any authenticated user and is in the forcePasswordChange
+  // allow-list, so it resolves for the temp-password / reset / expiry flow.
+  const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy/current');
   const policy = { ...defaultPolicy, ...policyData };
 
   const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<PasswordChangeInput>({
