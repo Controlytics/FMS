@@ -458,11 +458,13 @@ export function FilterDataManagementPage() {
       // Refresh both the enriched feed (used by the table) and the super-admin
       // feed (used by other tabs that hit the same endpoint).
       if (rowEditDialog.entity === 'cycle') {
-        globalMutate('/api/filters/cycles?page=1&limit=50&includeEvents=true');
-        globalMutate('/api/super-admin/data/cleaning-cycles?limit=50');
+        // Invalidate EVERY cleaning-cycles cache key, not just this tab's exact
+        // one — the user-facing /cleaning-cycles page uses a different key
+        // (its own limit + status/date filters), so an exact-string mutate
+        // never reached it and the edit looked like it "didn't update there".
+        globalMutate((key) => typeof key === 'string' && (key.startsWith('/api/filters/cycles') || key.startsWith('/api/super-admin/data/cleaning-cycles')));
       } else if (rowEditDialog.entity === 'event') {
-        globalMutate('/api/filters/events?page=1&limit=50');
-        globalMutate('/api/super-admin/data/filter-events?limit=50');
+        globalMutate((key) => typeof key === 'string' && (key.startsWith('/api/filters/events') || key.startsWith('/api/super-admin/data/filter-events')));
       } else if (rowEditDialog.entity === 'pm-entry') {
         globalMutate('/api/super-admin/data/pm-entries?limit=100');
       } else if (rowEditDialog.entity === 'notification') {
@@ -500,8 +502,10 @@ export function FilterDataManagementPage() {
       // Invalidate both the super-admin data feed AND the enriched feed used
       // by the dedicated cycles/events tabs so the row disappears immediately.
       globalMutate(`${endpoint}?limit=50`);
-      if (tab === 'cleaning-cycles') globalMutate('/api/filters/cycles?page=1&limit=50&includeEvents=true');
-      if (tab === 'filter-events') globalMutate('/api/filters/events?page=1&limit=50');
+      // Prefix-invalidate so the user-facing pages (which use different SWR keys)
+      // also refresh — see submitRowEdit for the same fix.
+      if (tab === 'cleaning-cycles') globalMutate((key) => typeof key === 'string' && key.startsWith('/api/filters/cycles'));
+      if (tab === 'filter-events') globalMutate((key) => typeof key === 'string' && key.startsWith('/api/filters/events'));
       if (tab === 'pm-entries') globalMutate('/api/super-admin/data/pm-entries?limit=100');
       if (tab === 'audit-trail') globalMutate('/api/audit?page=1&limit=50');
       if (tab === 'notifications') globalMutate('/api/super-admin/data/notifications?limit=100');
