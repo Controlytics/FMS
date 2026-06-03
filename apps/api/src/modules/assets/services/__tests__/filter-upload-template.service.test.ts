@@ -5,7 +5,7 @@ import { prisma } from '../../../../lib/prisma.js';
 
 vi.mock('../../../../lib/prisma.js', () => ({ prisma: { systemConfig: { findUnique: vi.fn() } } }));
 
-const OPTS = { ahuType: ['Process', 'Non Process'], filterType: ['HEPA', 'PRE'], micronSize: ['5', '10'] };
+const OPTS = { ahuType: ['Process', 'Non Process'], filterType: ['HEPA', 'PRE'], micronSize: ['5', '10'], filterSize: ['610×610×292mm', '24×24×12in'] };
 beforeEach(() => { (prisma.systemConfig.findUnique as any).mockResolvedValue({ configValue: { value: OPTS } }); });
 
 async function loadBack() {
@@ -21,7 +21,14 @@ describe('buildFilterUploadTemplate', () => {
     const ws = wb.getWorksheet('Filters');
     expect(ws).toBeDefined();
     const headers = (ws!.getRow(1).values as any[]).slice(1);
-    expect(headers).toEqual(['name', 'filterSet', 'ahuType', 'filterType', 'micronSize', 'lastCleaningDate', 'rfidTag']);
+    expect(headers).toEqual(['name', 'filterSet', 'ahuType', 'filterType', 'micronSize', 'filterSize', 'lastCleaningDate', 'rfidTag']);
+  });
+
+  it('leaves the filterSize column as free text (no data-validation dropdown)', async () => {
+    const wb = await loadBack();
+    const ws = wb.getWorksheet('Filters')!;
+    // Columns: 1 name, 2 filterSet, 3 ahuType, 4 filterType, 5 micronSize, 6 filterSize
+    expect(ws.getCell(2, 6).dataValidation).toBeUndefined();
   });
 
   it('applies a list data-validation dropdown on filterSet referencing the hidden _lists sheet', async () => {

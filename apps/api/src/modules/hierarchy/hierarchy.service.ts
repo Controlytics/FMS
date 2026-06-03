@@ -141,6 +141,82 @@ async function zipFilterDetails<T extends { id: string }>(rows: T[]): Promise<Ar
   });
 }
 
+// Filter-event types that count as cleaning-stage activity. "Last Cleaned"
+// tracks the latest of these — i.e. EVERY cleaning stage (each WASH/DRY/STORAGE
+// advance + each manual status change + bypass + completion), NOT only when the
+// whole cycle finishes (operator request 2026-06-03). STATE_TRANSITION covers
+// both normal stage advances and manual "Edit Filter Status" changes (the
+// latter carry cycleId=null + attributes.manual). CYCLE_STARTED / checklist /
+// terminate are intentionally excluded — they aren't a cleaning stage landing.
+const CLEANING_STAGE_EVENT_TYPES = ['STATE_TRANSITION', 'BYPASS_DEVIATION', 'CYCLE_COMPLETED'] as const;
+
+/**
+ * Attach `lastCleanedAt` (ISO string or null) to each filter row — the SINGLE
+ * source of truth for the "Last Cleaned" column. Both the web Filters page and
+ * the tablet read this, so they cannot disagree (the long-standing bug was the
+ * web page reading the manual `attributes.lastCleaningDate` seed while the
+ * tablet derived live from cycles).
+ *
+ * Effective value = the LATEST of:
+ *   (a) the most recent cleaning-stage FilterEvent's `performedAt` — this is
+ *       what makes the date move on EVERY stage, not just on cycle completion,
+ *   (b) the most recent COMPLETED CleaningCycle's `completedAt` (safety net for
+ *       any legacy completed cycle that lacks events), and
+ *   (c) the manually-entered `attributes.lastCleaningDate` seed
+ *       ('YYYY-MM-DD'; 'NA' / blank / malformed are ignored here).
+ *
+ * (a)+(b) need NO data backfill — historic events/cycles are read live. (c)
+ * preserves the "cleaned before the system existed" seed entered on Create/Edit
+ * Filter. Returns null when no source has a real date (caller may show 'NA').
+ * Two indexed groupBys per call (filter_events [filterId, performedAt desc] +
+ * cleaning_cycles [filterId, status]).
+ */
+async function zipLastCleaned<T extends { id: string; attributes?: any }>(
+  rows: T[],
+): Promise<Array<T & { lastCleanedAt: string | null }>> {
+  if (rows.length === 0) return [] as any;
+  const ids = rows.map((r) => r.id);
+  const [eventAgg, cycleAgg] = await Promise.all([
+    prisma.filterEvent.groupBy({
+      by: ['filterId'],
+      where: { filterId: { in: ids }, eventType: { in: CLEANING_STAGE_EVENT_TYPES as unknown as any[] } },
+      _max: { performedAt: true },
+    }),
+    prisma.cleaningCycle.groupBy({
+      by: ['filterId'],
+      where: { filterId: { in: ids }, status: 'COMPLETED' },
+      _max: { completedAt: true },
+    }),
+  ]);
+  const eventById = new Map<string, Date | null>(eventAgg.map((g) => [g.filterId, g._max.performedAt ?? null]));
+  const cycleById = new Map<string, Date | null>(cycleAgg.map((g) => [g.filterId, g._max.completedAt ?? null]));
+  return rows.map((r) => {
+    // GREATEST over the candidate sources. Each contributes a comparable epoch
+    // `t` and the `iso` to echo if it wins (date seed echoes as-is to avoid a
+    // tz shift; timestamps echo full ISO so the column can show date + time).
+    const candidates: Array<{ t: number; iso: string }> = [];
+    const eventAt = eventById.get(r.id) ?? null;
+    if (eventAt) candidates.push({ t: eventAt.getTime(), iso: eventAt.toISOString() });
+    const cycleAt = cycleById.get(r.id) ?? null;
+    if (cycleAt) candidates.push({ t: cycleAt.getTime(), iso: cycleAt.toISOString() });
+    // User-editable date seed (strict YYYY-MM-DD; 'NA' / '' / malformed ignored).
+    const dateRaw = r.attributes?.lastCleaningDate;
+    if (typeof dateRaw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) {
+      const d = new Date(`${dateRaw}T00:00:00.000Z`);
+      if (!Number.isNaN(d.getTime())) candidates.push({ t: d.getTime(), iso: dateRaw });
+    }
+    const best = candidates.length
+      ? candidates.reduce((a, b) => (b.t > a.t ? b : a))
+      : null;
+    return { ...r, lastCleanedAt: best ? best.iso : null };
+  });
+}
+
+/** Flatten FilterDetails cycle-state AND the derived lastCleanedAt onto rows. */
+async function enrichFilterRows<T extends { id: string; attributes?: any }>(rows: T[]) {
+  return zipLastCleaned(await zipFilterDetails(rows));
+}
+
 /** Build a nested Prisma `include` for the blocks query. */
 function buildBlockInclude(depth: ExpandLevel): Record<string, unknown> | undefined {
   if (depth === 0) return undefined;
@@ -324,14 +400,14 @@ export const hierarchyService = {
       } as any),
       prisma.filter.count({ where }),
     ]);
-    const enriched = await zipFilterDetails(rows as Array<{ id: string }>);
+    const enriched = await enrichFilterRows(rows as Array<{ id: string; attributes?: any }>);
     return { data: enriched as unknown[], ...paginateMeta(total, page, limit) };
   },
 
   async getFilter(id: string) {
     const row = await prisma.filter.findFirst({ where: { id, isActive: true } } as any);
     if (!row) return row;
-    const [enriched] = await zipFilterDetails([row as { id: string }]);
+    const [enriched] = await enrichFilterRows([row as { id: string; attributes?: any }]);
     return enriched;
   },
 
@@ -390,7 +466,7 @@ export const hierarchyService = {
       for (const a of b.areas ?? []) for (const h of a.ahus ?? []) for (const f of h.filters ?? []) allFilters.push(f);
       for (const h of b.ahus ?? []) for (const f of h.filters ?? []) allFilters.push(f);
     }
-    const byId = new Map((await zipFilterDetails(allFilters)).map((z: any) => [z.id, z]));
+    const byId = new Map((await enrichFilterRows(allFilters)).map((z: any) => [z.id, z]));
     const remap = (h: any) => { h.filters = (h.filters ?? []).map((f: any) => byId.get(f.id) ?? f); };
     for (const b of blocks as any[]) {
       for (const a of b.areas ?? []) for (const h of a.ahus ?? []) remap(h);

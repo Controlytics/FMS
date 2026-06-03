@@ -4,6 +4,7 @@ export type FilterFieldOptions = {
   ahuType: string[];
   filterType: string[];
   micronSize: string[];
+  filterSize: string[];
 };
 
 type Props = {
@@ -11,16 +12,18 @@ type Props = {
   ahuType: string;
   filterType: string;
   micronSize: string;
+  filterSize: string;
   lastCleaning: LastCleaningDateState;
   onAhuTypeChange: (v: string) => void;
   onFilterTypeChange: (v: string) => void;
   onMicronSizeChange: (v: string) => void;
+  onFilterSizeChange: (v: string) => void;
   onLastCleaningChange: (next: LastCleaningDateState) => void;
 };
 
 export function FilterFieldOptionsSection({
-  options, ahuType, filterType, micronSize, lastCleaning,
-  onAhuTypeChange, onFilterTypeChange, onMicronSizeChange, onLastCleaningChange,
+  options, ahuType, filterType, micronSize, filterSize, lastCleaning,
+  onAhuTypeChange, onFilterTypeChange, onMicronSizeChange, onFilterSizeChange, onLastCleaningChange,
 }: Props) {
   const select = (value: string, list: string[], onChange: (v: string) => void, emptyHint: string) => (
     <select value={value} onChange={e => onChange(e.target.value)}
@@ -47,6 +50,13 @@ export function FilterFieldOptionsSection({
       <div>
         <label className="block text-sm font-medium text-slate-700 mb-1">Micron Size <span className="text-slate-400 font-normal">(µm)</span></label>
         {select(micronSize, options.micronSize, onMicronSizeChange, 'No options — configure in Settings')}
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Filter Size <span className="text-slate-400 font-normal">(dimensions)</span></label>
+        <input type="text" value={filterSize} onChange={e => onFilterSizeChange(e.target.value)}
+          placeholder="e.g. 610×610×292mm"
+          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
       </div>
 
       <div>

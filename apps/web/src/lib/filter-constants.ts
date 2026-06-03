@@ -59,5 +59,6 @@ export const FILTER_STATE_COLORS: Record<string, string> = {
   STORAGE_IN: 'bg-slate-400',
   STORAGE_OUT: 'bg-slate-300',
   IN_USE: 'bg-emerald-500',
+  CLEANING_CYCLE_COMPLETED: 'bg-green-500',
   RETIRED: 'bg-red-500',
 };

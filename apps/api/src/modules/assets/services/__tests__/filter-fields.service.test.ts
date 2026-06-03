@@ -6,7 +6,7 @@ vi.mock('../../../../lib/prisma.js', () => ({
   prisma: { systemConfig: { findUnique: vi.fn() } },
 }));
 
-const OPTS = { ahuType: ['Process', 'Non Process'], filterType: ['HEPA', 'PRE'], micronSize: ['5', '10'] };
+const OPTS = { ahuType: ['Process', 'Non Process'], filterType: ['HEPA', 'PRE'], micronSize: ['5', '10'], filterSize: ['610×610×292mm', '24×24×12in'] };
 
 beforeEach(() => {
   (prisma.systemConfig.findUnique as any).mockResolvedValue({ configValue: { value: OPTS } });
@@ -17,6 +17,22 @@ describe('validateAndBuildFilterAttributes', () => {
     const r = await validateAndBuildFilterAttributes({ ahuType: 'process', filterType: 'HEPA', micronSize: '5' });
     expect(r.errors).toEqual([]);
     expect(r.attributes).toEqual({ ahuType: 'Process', filterType: 'HEPA', micronSize: '5' });
+  });
+
+  it('stores filterSize as FREE TEXT (no list validation, any non-empty value accepted)', async () => {
+    // Not in the OPTS.filterSize list — free text must still be accepted, no error.
+    const r = await validateAndBuildFilterAttributes({ filterSize: '999×999×40mm custom' });
+    expect(r.errors).toEqual([]);
+    expect(r.attributes).toEqual({ filterSize: '999×999×40mm custom' });
+    // Blank filterSize is simply omitted.
+    const blank = await validateAndBuildFilterAttributes({ filterSize: '   ' });
+    expect(blank.attributes).toEqual({});
+  });
+
+  it('keeps micronSize (list-validated) and filterSize (free text) independent', async () => {
+    const r = await validateAndBuildFilterAttributes({ micronSize: '5', filterSize: '24×24×12in' });
+    expect(r.errors).toEqual([]);
+    expect(r.attributes).toEqual({ micronSize: '5', filterSize: '24×24×12in' });
   });
 
   it('rejects an out-of-list value with field/value/message', async () => {

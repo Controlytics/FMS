@@ -79,6 +79,7 @@ const AhuDashboardPage = lazy(() => import("./routes/filter-management/ahu-dashb
 const FilterTraceabilityPage = lazy(() => import("./routes/filter-management/filter-traceability").then(m => ({ default: m.FilterTraceabilityPage })));
 const CleaningProfileEditorPage2 = lazy(() => import("./routes/filter-management/cleaning-profile-editor").then(m => ({ default: m.CleaningProfileEditorPage })));
 const FilterListPage = lazy(() => import("./routes/filter-management/filter-list").then(m => ({ default: m.FilterListPage })));
+const ReplacementSchedulePage = lazy(() => import("./routes/filter-management/replacement-schedule").then(m => ({ default: m.ReplacementSchedulePage })));
 const RetirementListPage = lazy(() => import("./routes/filter-management/retirement-list").then(m => ({ default: m.RetirementListPage })));
 const AdminRequestsPage = lazy(() => import("./routes/admin-requests/index").then(m => ({ default: m.AdminRequestsPage })));
 const ReplacementListPage = lazy(() => import("./routes/filter-management/replacement-list").then(m => ({ default: m.ReplacementListPage })));
@@ -217,6 +218,7 @@ createRoot(document.getElementById('root')!).render(
 
             {/* Phase 2: Digital Filter Management System */}
             <Route path="/filter-list" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW, PERMISSIONS.FILTER_HIERARCHY_CREATE, PERMISSIONS.FILTER_HIERARCHY_EDIT, PERMISSIONS.FILTER_HIERARCHY_DELETE, PERMISSIONS.FILTER_CREATE, PERMISSIONS.FILTER_EDIT, PERMISSIONS.FILTER_DELETE, PERMISSIONS.FILTER_RETIRE, PERMISSIONS.FILTER_REPLACE, PERMISSIONS.FILTER_BULK_UPLOAD, PERMISSIONS.FILTER_RFID_MANAGE, PERMISSIONS.FILTER_STATUS_UPDATE]}><Suspense fallback={<LazyFallback />}><FilterListPage /></Suspense></RequireRole>} />
+            <Route path="/replacement-schedule" element={<RequireRole permissions={[PERMISSIONS.REPLACEMENT_SCHEDULE_VIEW, PERMISSIONS.REPLACEMENT_SCHEDULE_UPLOAD]}><Suspense fallback={<LazyFallback />}><ReplacementSchedulePage /></Suspense></RequireRole>} />
             <Route path="/filter-retirements" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW, PERMISSIONS.FILTER_RETIRE]}><Suspense fallback={<LazyFallback />}><RetirementListPage /></Suspense></RequireRole>} />
             <Route path="/filter-replacements" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW, PERMISSIONS.FILTER_REPLACE]}><Suspense fallback={<LazyFallback />}><ReplacementListPage /></Suspense></RequireRole>} />
             <Route path="/config/filter-data-management" element={<RequireRole permissions={[PERMISSIONS.CONFIG_UPDATE, PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><FilterDataManagementPage /></Suspense></RequireRole>} />

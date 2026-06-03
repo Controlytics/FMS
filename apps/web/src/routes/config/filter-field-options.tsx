@@ -6,6 +6,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 
+// Filter Size is NOT managed here — it's a free-text field on the add/edit
+// dialogs (no dropdown), so this page only manages the three list-backed fields.
 type ListKey = 'ahuType' | 'filterType' | 'micronSize';
 type FieldOptions = { ahuType: string[]; filterType: string[]; micronSize: string[] };
 

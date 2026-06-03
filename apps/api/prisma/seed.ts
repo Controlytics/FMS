@@ -341,6 +341,7 @@ async function main() {
         ahuType: ['Process', 'Non Process'],
         filterType: [],
         micronSize: [],
+        filterSize: [],
       },
       configType: 'filter',
       requiresReauth: true,

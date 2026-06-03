@@ -8,6 +8,7 @@ import { useReauth } from '@/hooks/use-reauth';
 import { useAuth } from '@/hooks/use-auth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { api } from '@/lib/api-client';
+import { retireOrReplaceFilter } from '@/lib/filter-lifecycle-actions';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import { themeGradientBr, themeButton } from '@/lib/theme-styles';
 
@@ -53,7 +54,7 @@ function flattenTypedTree(blocks: any[]): any[] {
 }
 
 export function FilterListPage() {
-  const { formatDate } = useDatetimeFormat();
+  const { formatDate, formatDateTime } = useDatetimeFormat();
   const { toast } = useToast();
   const reauth = useReauth();
   const { user } = useAuth();
@@ -128,6 +129,7 @@ export function FilterListPage() {
       ahuType: Array.isArray(v?.ahuType) ? v!.ahuType : ['Process', 'Non Process'],
       filterType: Array.isArray(v?.filterType) ? v!.filterType : [],
       micronSize: Array.isArray(v?.micronSize) ? v!.micronSize : [],
+      filterSize: Array.isArray(v?.filterSize) ? v!.filterSize : [],
     };
   })();
 
@@ -135,12 +137,14 @@ export function FilterListPage() {
   const [createFilterAhuType, setCreateFilterAhuType] = useState('');
   const [createFilterFilterType, setCreateFilterFilterType] = useState('');
   const [createFilterMicronSize, setCreateFilterMicronSize] = useState('');
+  const [createFilterFilterSize, setCreateFilterFilterSize] = useState('');
   const [createFilterLastCleaning, setCreateFilterLastCleaning] = useState<LastCleaningDateState>({ date: '', na: false });
 
   // Edit-filter state additions
   const [editFilterAhuType, setEditFilterAhuType] = useState('');
   const [editFilterFilterType, setEditFilterFilterType] = useState('');
   const [editFilterMicronSize, setEditFilterMicronSize] = useState('');
+  const [editFilterFilterSize, setEditFilterFilterSize] = useState('');
   const [editFilterLastCleaning, setEditFilterLastCleaning] = useState<LastCleaningDateState>({ date: '', na: false });
   // Delete filter dialog
   const [deleteFilterDialog, setDeleteFilterDialog] = useState<FilterRef | null>(null);
@@ -419,7 +423,13 @@ export function FilterListPage() {
         filterType: f.attributes?.filterType ?? '-',
         ahuType: f.attributes?.ahuType ?? '-',
         micronSize: f.attributes?.micronSize ?? '-',
+        filterSize: f.attributes?.filterSize ?? '-',
+        // Manual seed kept for the Edit dialog + the 'NA' fallback below.
         lastCleaningDate: f.attributes?.lastCleaningDate ?? null,
+        // Server-derived effective last-cleaned (GREATEST of latest completed
+        // cycle + manual seed) — the value actually shown in the column. This
+        // is what fixes "cleaned on Tab but Last Cleaned didn't update on Web".
+        lastCleanedAt: f.lastCleanedAt ?? null,
         _rawAttributes: f.attributes ?? {},
       };
     });
@@ -461,7 +471,15 @@ export function FilterListPage() {
     // invoked from event handlers, so the temporal dead zone never trips.
     closePanel(); // close retire panel if open
     setStatusPanelFilter(filter);
-    setStatusPanelState(filter.currentState ?? 'INSTALLED');
+    // Default to the current state when it's still a selectable option; otherwise
+    // (null / INSTALLED / IN_USE — none of which the dropdown offers) fall back to
+    // the first option so the <select> shows a valid value.
+    const validStates = LIFECYCLE_STATE_OPTIONS.map(o => o.value);
+    setStatusPanelState(
+      filter.currentState && validStates.includes(filter.currentState)
+        ? filter.currentState
+        : LIFECYCLE_STATE_OPTIONS[0].value,
+    );
     setStatusPanelRemarks('');
   };
 
@@ -495,6 +513,10 @@ export function FilterListPage() {
           toast.success('Status Updated', `${statusPanelFilter.name} updated to ${label}`);
           closeStatusPanel();
           mutate('/api/hierarchy/tree');
+          // A "Cleaning Cycle Completed" status can force-complete an active cycle
+          // server-side — revalidate the cycles/events caches so the Cleaning
+          // Cycles view doesn't keep showing the old "In Progress" row.
+          mutate((key) => typeof key === 'string' && (key.startsWith('/api/filters/cycles') || key.startsWith('/api/filters/events')));
         },
         onError: (err: any) => {
           toast.error('Update Failed', err.message ?? 'Something went wrong');
@@ -561,34 +583,21 @@ export function FilterListPage() {
     if (!panelFilter || !panelRemarks.trim()) return;
     setPanelSubmitting(true);
     const action = panelAction;
-    const endpoint = action === 'retire'
-      ? `/api/filters/${panelFilter.id}/retire`
-      : `/api/filters/${panelFilter.id}/replace`;
-    const reauthAction = action === 'retire' ? 'RETIRE_FILTER' : 'REPLACE_FILTER';
-    let result: any = null;
-    await reauth.execute(
-      reauthAction,
-      async (password?: string) => {
-        const body = { remarks: panelRemarks.trim() };
-        if (password) result = await api.postWithReauth<any>(endpoint, body, password);
-        else result = await api.post<any>(endpoint, body);
+    await retireOrReplaceFilter(reauth, action, panelFilter.id, panelRemarks, {
+      onSuccess: (result) => {
+        if (action === 'replace' && result?.newFilterName) {
+          toast.success('Filter Replaced', `New filter created: ${result.newFilterName}`);
+        } else {
+          toast.success('Filter Retired', `${panelFilter!.name} has been retired`);
+        }
+        closePanel();
+        mutate('/api/hierarchy/tree');
       },
-      {
-        onSuccess: () => {
-          if (action === 'replace' && result?.newFilterName) {
-            toast.success('Filter Replaced', `New filter created: ${result.newFilterName}`);
-          } else {
-            toast.success('Filter Retired', `${panelFilter!.name} has been retired`);
-          }
-          closePanel();
-          mutate('/api/hierarchy/tree');
-        },
-        onError: (err: any) => {
-          toast.error('Action Failed', err?.message ?? 'Something went wrong');
-          setPanelSubmitting(false);
-        },
+      onError: (err: any) => {
+        toast.error('Action Failed', err?.message ?? 'Something went wrong');
+        setPanelSubmitting(false);
       },
-    );
+    });
   };
 
   // ── Multi-select helpers ──
@@ -615,7 +624,7 @@ export function FilterListPage() {
     if (selectedFilterIds.size === 0) return;
     closePanel(); closeRfidPanel();
     setBulkAction('status');
-    setStatusPanelState('INSTALLED');
+    setStatusPanelState(LIFECYCLE_STATE_OPTIONS[0].value);
     setStatusPanelRemarks('');
   };
 
@@ -666,6 +675,7 @@ export function FilterListPage() {
           closeBulkPanel();
           setSelectedFilterIds(new Set());
           mutate('/api/hierarchy/tree');
+          mutate((key) => typeof key === 'string' && (key.startsWith('/api/filters/cycles') || key.startsWith('/api/filters/events')));
         },
         onError: (err: any) => {
           toast.error('Update Failed', err.message ?? 'Something went wrong');
@@ -855,7 +865,7 @@ export function FilterListPage() {
   // ── Edit filter helpers ──
   const openEditFilter = (f: {
     id: string; name: string; filterSet?: string;
-    ahuType?: string; filterType?: string; micronSize?: string; lastCleaningDate?: string | null;
+    ahuType?: string; filterType?: string; micronSize?: string; filterSize?: string; lastCleaningDate?: string | null;
   }) => {
     setEditFilterDialog(f);
     setEditFilterName(f.name);
@@ -863,6 +873,7 @@ export function FilterListPage() {
     setEditFilterAhuType(f.ahuType && f.ahuType !== '-' ? f.ahuType : '');
     setEditFilterFilterType(f.filterType && f.filterType !== '-' ? f.filterType : '');
     setEditFilterMicronSize(f.micronSize && f.micronSize !== '-' ? f.micronSize : '');
+    setEditFilterFilterSize(f.filterSize && f.filterSize !== '-' ? f.filterSize : '');
     setEditFilterLastCleaning(decodeLastCleaningDate(f.lastCleaningDate ?? null));
     setEditFilterError('');
   };
@@ -885,6 +896,7 @@ export function FilterListPage() {
         ...(editFilterAhuType && { ahuType: editFilterAhuType }),
         ...(editFilterFilterType && { filterType: editFilterFilterType }),
         ...(editFilterMicronSize && { micronSize: editFilterMicronSize }),
+        ...(editFilterFilterSize && { filterSize: editFilterFilterSize }),
       };
       const lastEnc = encodeLastCleaningDate(editFilterLastCleaning);
       if (lastEnc !== undefined) body.lastCleaningDate = lastEnc;
@@ -944,6 +956,7 @@ export function FilterListPage() {
     setCreateFilterAhuType('');
     setCreateFilterFilterType('');
     setCreateFilterMicronSize('');
+    setCreateFilterFilterSize('');
     setCreateFilterLastCleaning({ date: '', na: false });
     setCreateFilterError('');
   };
@@ -968,6 +981,7 @@ export function FilterListPage() {
           ...(createFilterAhuType && { ahuType: createFilterAhuType }),
           ...(createFilterFilterType && { filterType: createFilterFilterType }),
           ...(createFilterMicronSize && { micronSize: createFilterMicronSize }),
+          ...(createFilterFilterSize && { filterSize: createFilterFilterSize }),
           ...(createFilterProfile && { filterProfileId: createFilterProfile }),
         };
         const lastEnc = encodeLastCleaningDate(createFilterLastCleaning);
@@ -1141,6 +1155,55 @@ export function FilterListPage() {
     }
   };
 
+  // Export the currently-listed filters (the full filtered set for the block,
+  // respecting the active diagram scope — NOT just the visible page) to CSV.
+  // Client-side generation; mirrors the column set of the on-screen grid.
+  const exportFiltersCsv = () => {
+    if (blockFilters.length === 0) return;
+    const esc = (v: unknown) => {
+      const s = v === null || v === undefined ? '' : String(v);
+      return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const headers = ['S.No', 'Area', 'AHU', 'AHU Type', 'Filter', 'Filter Type', 'Micron Size', 'Filter Size', 'Set', 'Last Cleaned', 'Status', 'RFID'];
+    const dash = (v: string | null | undefined) => (v && v !== '-' ? v : '');
+    const body = blockFilters.map((f, idx) => {
+      const stateLabel = STATUS_LABELS[f.currentState ?? '']?.label ?? (f.currentState?.replace(/_/g, ' ') ?? 'Idle');
+      const rfid = (identifiersByAsset.get(f.id) ?? [])
+        .filter((i: any) => i.identifierType === 'RFID')
+        .map((i: any) => i.identifierValue)
+        .join(' ');
+      const setLabel = f.filterSet === 'SET_A' ? 'Set A' : f.filterSet === 'SET_B' ? 'Set B' : '';
+      const lastClean = f.lastCleanedAt ? formatDate(f.lastCleanedAt) : f.lastCleaningDate === 'NA' ? 'NA' : '';
+      return [
+        idx + 1,
+        f.areaId ? dash(f.areaName) : '',
+        dash(f.ahuName),
+        dash(f.ahuType),
+        f.name,
+        dash(f.filterType),
+        dash(f.micronSize),
+        dash(f.filterSize),
+        setLabel,
+        lastClean,
+        stateLabel,
+        rfid,
+      ];
+    });
+    const BOM = String.fromCharCode(0xfeff); // makes Excel read the file as UTF-8 (µm / ×)
+    const csv = BOM + [headers, ...body].map(r => r.map(esc).join(',')).join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const safeName = (selectedBlockName || 'filters').replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'filters';
+    a.download = `${safeName}-filters.csv`;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  };
+
   // Navigate from diagram node to filters tab
   const navigateFromDiagram = (type: 'block' | 'area' | 'ahu' | 'filter', id: string, name: string) => {
     setDiagramFilter({ type, id, name });
@@ -1164,7 +1227,10 @@ export function FilterListPage() {
   }, [instances, ahuTemplateId]);
 
   return (
-    <div className="p-6 space-y-6">
+    // Full-bleed: cancel AppLayout's <main> padding (p-3 sm:p-4 lg:p-6) with
+    // matching negative margins, then apply a slim gutter — so the Filters grid
+    // uses the full content-area width instead of sitting in doubled padding.
+    <div className="py-6 space-y-6 -mx-3 sm:-mx-4 lg:-mx-6 px-3 sm:px-4">
 
       {/* ── Page Header ── */}
       <div className="flex items-center justify-between">
@@ -1378,21 +1444,31 @@ export function FilterListPage() {
                 </div>
               )}
             </div>
-            {canCreateFilter && bulkUploadAhus.length > 0 && (
-              <button onClick={openCreateFilter}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-sm transition-all">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                Create Filter
-              </button>
-            )}
-            {canBulkUpload && (
-              <button onClick={openBulkUpload}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-white rounded-lg text-xs font-semibold shadow-sm hover:shadow-md transition-all"
-                style={themeButton}>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-                Bulk Upload
-              </button>
-            )}
+            {/* Action group — Export · Create Filter · Bulk Upload kept adjacent */}
+            <div className="flex items-center gap-2">
+              {blockFilters.length > 0 && (
+                <button onClick={exportFiltersCsv} title="Export the listed filters to CSV"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-sm transition-all">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" /></svg>
+                  Export
+                </button>
+              )}
+              {canCreateFilter && bulkUploadAhus.length > 0 && (
+                <button onClick={openCreateFilter}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-sm transition-all">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                  Create Filter
+                </button>
+              )}
+              {canBulkUpload && (
+                <button onClick={openBulkUpload}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-white rounded-lg text-xs font-semibold shadow-sm hover:shadow-md transition-all"
+                  style={themeButton}>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                  Bulk Upload
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Bulk action bar */}
@@ -1403,7 +1479,7 @@ export function FilterListPage() {
                 {canStatusUpdate && (
                   <button onClick={openBulkStatusPanel}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 13.5V3.75m0 9.75a1.5 1.5 0 010 3m0-3a1.5 1.5 0 000 3m0 3.75V16.5m12-3V3.75m0 9.75a1.5 1.5 0 010 3m0-3a1.5 1.5 0 000 3m0 3.75V16.5m-6-9V3.75m0 3.75a1.5 1.5 0 010 3m0-3a1.5 1.5 0 000 3m0 9.75V10.5" /></svg>
                     Update Status
                   </button>
                 )}
@@ -1439,7 +1515,11 @@ export function FilterListPage() {
             </div>
           ) : (
             <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-              <div className="overflow-x-auto">
+              {/* Bounded-height scroll box (Option 1): the table scrolls BOTH ways
+                  INSIDE this box, so the horizontal scrollbar sits at the bottom of
+                  the visible table area — reachable without scrolling the whole page
+                  to the bottom. Header is sticky; drag-to-scroll + Shift-wheel also work. */}
+              <div className="overflow-auto max-h-[calc(100vh-16rem)]">
                 {(() => {
                   // Column visibility follows the hierarchy-diagram scope:
                   // - no scope / Block clicked  → show Area + AHU (broadest view, needs both ancestors)
@@ -1450,30 +1530,31 @@ export function FilterListPage() {
                   const showAhuColumn  = scope === null || scope === 'block' || scope === 'area';
                   return (
                 <table className="w-full">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200">
-                      <th className="w-10 px-3 py-3">
+                  <thead className="sticky top-0 z-20">
+                    <tr className="bg-slate-50 border-b border-slate-200 [&>th]:bg-slate-50 [&>th]:whitespace-nowrap [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-slate-500 [&>th]:uppercase [&>th]:tracking-wider">
+                      <th className="w-10 px-2 py-2">
                         <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
                           className="w-4 h-4 rounded border-slate-300 text-[var(--theme-primary)] focus:ring-[var(--theme-focus-ring)] cursor-pointer" />
                       </th>
-                      <th className="w-14 text-center px-2 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">S.No</th>
+                      <th className="w-12 text-center px-2 py-2.5">S.No</th>
                       {showAreaColumn && (
-                        <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Area</th>
+                        <th className="text-left px-2 py-2">Area</th>
                       )}
                       {showAhuColumn && (
                         <>
-                          <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">AHU</th>
-                          <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">AHU Type</th>
+                          <th className="text-left px-2 py-2">AHU</th>
+                          <th className="text-left px-2 py-2">AHU Type</th>
                         </>
                       )}
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Filter</th>
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Filter Type</th>
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Micron Size</th>
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Set</th>
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Last Cleaned</th>
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                      <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">RFID</th>
-                      <th className="text-right px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+                      <th className="text-left px-2 py-2">Filter</th>
+                      <th className="text-left px-2 py-2">Filter Type</th>
+                      <th className="text-left px-2 py-2">Micron Size</th>
+                      <th className="text-left px-2 py-2">Filter Size</th>
+                      <th className="text-left px-2 py-2">Set</th>
+                      <th className="text-left px-2 py-2">Last Cleaned</th>
+                      <th className="text-left px-2 py-2">Status</th>
+                      <th className="text-left px-2 py-2">RFID</th>
+                      <th className="text-right px-2 py-2">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1483,18 +1564,18 @@ export function FilterListPage() {
                       const isSelected = selectedFilterIds.has(f.id);
                       const isRetired = f.currentState === 'RETIRED';
                       return (
-                        <tr key={f.id} className={`transition-colors ${isSelected ? 'bg-[var(--theme-primary-light)]' : 'hover:bg-slate-50/50'}`}>
-                          <td className="w-10 px-3 py-3.5">
+                        <tr key={f.id} className={`transition-colors [&>td]:whitespace-nowrap ${isSelected ? 'bg-[var(--theme-primary-light)]' : 'hover:bg-slate-50/50'}`}>
+                          <td className="w-10 px-2 py-2">
                             {!isRetired ? (
                               <input type="checkbox" checked={isSelected} onChange={() => toggleFilterSelect(f.id)}
                                 className="w-4 h-4 rounded border-slate-300 text-[var(--theme-primary)] focus:ring-[var(--theme-focus-ring)] cursor-pointer" />
                             ) : <div className="w-4 h-4" />}
                           </td>
-                          <td className="w-14 text-center px-2 py-3.5 text-sm text-slate-400 font-medium">{(page - 1) * perPage + idx + 1}</td>
+                          <td className="w-12 text-center px-2 py-2.5 text-sm text-slate-400 font-medium">{(page - 1) * perPage + idx + 1}</td>
                           {showAreaColumn && (
-                            <td className="px-5 py-3.5">
+                            <td className="px-2 py-2">
                               {f.areaId ? (
-                                <span className="text-sm font-medium text-purple-700">{f.areaName ?? '--'}</span>
+                                <span className="block truncate max-w-[110px] text-sm font-medium text-purple-700" title={f.areaName ?? undefined}>{f.areaName ?? '--'}</span>
                               ) : (
                                 <span className="text-sm text-slate-400">--</span>
                               )}
@@ -1502,51 +1583,64 @@ export function FilterListPage() {
                           )}
                           {showAhuColumn && (
                             <>
-                              <td className="px-5 py-3.5">
+                              <td className="px-2 py-2">
                                 {f.ahuId ? (
-                                  <Link to={`/ahus/${f.ahuId}`} className="text-sm hover:opacity-80 font-medium text-theme-primary">{f.ahuName}</Link>
+                                  <Link to={`/ahus/${f.ahuId}`} className="block truncate max-w-[110px] text-sm hover:opacity-80 font-medium text-theme-primary" title={f.ahuName}>{f.ahuName}</Link>
                                 ) : (
                                   <span className="text-sm text-slate-400">--</span>
                                 )}
                               </td>
-                              <td className="px-5 py-3.5 text-sm text-slate-500">{f.ahuType !== '-' ? f.ahuType : '--'}</td>
+                              <td className="px-2 py-2 text-xs text-slate-500">{f.ahuType !== '-' ? f.ahuType : '--'}</td>
                             </>
                           )}
-                          <td className="px-5 py-3.5">
-                            <div className="flex items-center gap-2.5">
+                          <td className="px-2 py-2">
+                            <div className="flex items-center gap-2 max-w-[170px]">
                               <div className={`w-2 h-2 rounded-full shrink-0 ${FILTER_STATE_COLORS[f.currentState ?? ''] ?? 'bg-gray-400'}`} />
-                              <span className="text-sm font-medium text-slate-800">{f.name}</span>
+                              <span className="flex-1 min-w-0 truncate text-sm font-medium text-slate-800" title={f.name}>{f.name}</span>
                             </div>
                           </td>
-                          <td className="px-5 py-3.5 text-sm text-slate-500">{f.filterType}</td>
-                          <td className="px-5 py-3.5 text-sm text-slate-500">
+                          <td className="px-2 py-2 text-xs text-slate-500">
+                            {f.filterType !== '-'
+                              ? <span className="block truncate max-w-[100px]" title={f.filterType}>{f.filterType}</span>
+                              : '--'}
+                          </td>
+                          <td className="px-2 py-2 text-xs text-slate-500">
                             {f.micronSize !== '-' ? <>{f.micronSize} <span className="text-slate-400">µm</span></> : '--'}
                           </td>
-                          <td className="px-5 py-3.5">
+                          <td className="px-2 py-2 text-xs text-slate-500">
+                            {f.filterSize !== '-'
+                              ? <span className="block truncate max-w-[110px]" title={f.filterSize}>{f.filterSize}</span>
+                              : '--'}
+                          </td>
+                          <td className="px-2 py-2">
                             {f.filterSet ? (
                               <span className={`text-[11px] px-2 py-0.5 rounded-md font-medium ${f.filterSet === 'SET_A' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
                                 {f.filterSet === 'SET_A' ? 'Set A' : 'Set B'}
                               </span>
                             ) : <span className="text-sm text-slate-300">--</span>}
                           </td>
-                          <td className="px-5 py-3.5 text-sm text-slate-500">
-                            {f.lastCleaningDate === 'NA'
-                              ? <span className="text-slate-400 italic">NA</span>
-                              : f.lastCleaningDate
-                                ? formatDate(f.lastCleaningDate)
+                          <td className="px-2 py-2 text-xs text-slate-500"
+                              title={f.lastCleanedAt ? `Last cleaned: ${formatDateTime(f.lastCleanedAt)}` : undefined}>
+                            {/* Prefer the server-derived effective date (covers
+                                cleaning done from Tab or Web); hover shows the
+                                exact time. Fall back to manual 'NA' seed, then em-dash. */}
+                            {f.lastCleanedAt
+                              ? formatDate(f.lastCleanedAt)
+                              : f.lastCleaningDate === 'NA'
+                                ? <span className="text-slate-400 italic">NA</span>
                                 : '--'}
                           </td>
-                          <td className="px-5 py-3.5">
+                          <td className="px-2 py-2">
                             <span className={`text-[11px] px-2.5 py-1 rounded-full border font-medium ${stateInfo.color}`}>{stateInfo.label}</span>
                           </td>
-                          <td className="px-5 py-3.5">
+                          <td className="px-2 py-2">
                             {tags.length > 0 ? (
-                              <span className="text-[11px] font-mono px-2 py-0.5 rounded-md" style={{ color: 'var(--theme-primary-dark)', backgroundColor: 'var(--theme-primary-light)', border: '1px solid var(--theme-primary)' }}>{tags[0].identifierValue}</span>
+                              <span className="text-[11px] font-mono px-2 py-0.5 rounded-md" style={{ color: 'var(--theme-primary-dark)', backgroundColor: 'var(--theme-primary-light)', border: '1px solid var(--theme-primary)' }} title={tags[0].identifierValue}>{tags[0].identifierValue}</span>
                             ) : (
                               <span className="text-sm text-slate-300">--</span>
                             )}
                           </td>
-                          <td className="px-5 py-3.5">
+                          <td className="px-2 py-2">
                             <div className="flex items-center justify-end gap-0.5">
                               <Link to={`/filters/${f.id}/trace`}
                                 className="p-1.5 rounded-lg text-slate-400 hover:text-[var(--theme-primary)] hover:bg-[var(--theme-primary-light)] transition-colors" title="History">
@@ -1557,7 +1651,7 @@ export function FilterListPage() {
                               {!isRetired && (
                                 <>
                                   {canEditFilter && (
-                                    <button onClick={() => openEditFilter({ id: f.id, name: f.name, filterSet: f.filterSet, ahuType: f.ahuType, filterType: f.filterType, micronSize: f.micronSize, lastCleaningDate: f.lastCleaningDate })}
+                                    <button onClick={() => openEditFilter({ id: f.id, name: f.name, filterSet: f.filterSet, ahuType: f.ahuType, filterType: f.filterType, micronSize: f.micronSize, filterSize: f.filterSize, lastCleaningDate: f.lastCleaningDate })}
                                       className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors" title="Edit Filter">
                                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -1575,8 +1669,9 @@ export function FilterListPage() {
                                   {canStatusUpdate && (
                                     <button onClick={() => openStatusPanel({ id: f.id, name: f.name, currentState: f.currentState })}
                                       className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors" title="Update Status">
+                                      {/* Adjustments/sliders glyph — visually distinct from the Edit pencil */}
                                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 13.5V3.75m0 9.75a1.5 1.5 0 010 3m0-3a1.5 1.5 0 000 3m0 3.75V16.5m12-3V3.75m0 9.75a1.5 1.5 0 010 3m0-3a1.5 1.5 0 000 3m0 3.75V16.5m-6-9V3.75m0 3.75a1.5 1.5 0 010 3m0-3a1.5 1.5 0 000 3m0 9.75V10.5" />
                                       </svg>
                                     </button>
                                   )}
@@ -1793,6 +1888,7 @@ export function FilterListPage() {
           ahuType={createFilterAhuType}
           filterType={createFilterFilterType}
           micronSize={createFilterMicronSize}
+          filterSize={createFilterFilterSize}
           lastCleaning={createFilterLastCleaning}
           onAhuChange={setCreateFilterAhu}
           // When the operator changes the Area selector the previously-picked
@@ -1804,6 +1900,7 @@ export function FilterListPage() {
           onAhuTypeChange={setCreateFilterAhuType}
           onFilterTypeChange={setCreateFilterFilterType}
           onMicronSizeChange={setCreateFilterMicronSize}
+          onFilterSizeChange={setCreateFilterFilterSize}
           onLastCleaningChange={setCreateFilterLastCleaning}
           onClose={() => setCreateFilterOpen(false)}
           onSubmit={submitCreateFilter}
@@ -1844,12 +1941,14 @@ export function FilterListPage() {
           ahuType={editFilterAhuType}
           filterType={editFilterFilterType}
           micronSize={editFilterMicronSize}
+          filterSize={editFilterFilterSize}
           lastCleaning={editFilterLastCleaning}
           onNameChange={setEditFilterName}
           onFilterSetChange={setEditFilterSet}
           onAhuTypeChange={setEditFilterAhuType}
           onFilterTypeChange={setEditFilterFilterType}
           onMicronSizeChange={setEditFilterMicronSize}
+          onFilterSizeChange={setEditFilterFilterSize}
           onLastCleaningChange={setEditFilterLastCleaning}
           onClose={() => setEditFilterDialog(null)}
           onSubmit={submitEditFilter}

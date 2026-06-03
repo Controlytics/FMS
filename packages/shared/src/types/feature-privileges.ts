@@ -68,6 +68,8 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'filters.status_update', label: 'Update Filter Status', category: 'Filters Page Controls', icon: 'edit' },
   { id: 'filters.hierarchy_create', label: 'Create Block / Area / AHU', category: 'Filters Page Controls', icon: 'plus' },
   { id: 'filters.rfid_manage', label: 'Assign / Unassign RFID Tags', category: 'Filters Page Controls', icon: 'wifi' },
+  { id: 'replacement_schedule.view', label: 'View Replacement Schedule', category: 'Filters Page Controls', icon: 'calendar' },
+  { id: 'replacement_schedule.upload', label: 'Upload Replacement Schedule', category: 'Filters Page Controls', icon: 'upload' },
 
   // Block Change
   { id: 'block_change.request', label: 'Request Block Change', category: 'Filter Management', icon: 'refresh' },
@@ -233,6 +235,8 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'filters.status_update': ['FILTER_STATUS_UPDATE', 'ASSET_UPDATE', 'ASSET_READ'],
   'filters.hierarchy_create': ['FILTER_HIERARCHY_CREATE', 'ASSET_CREATE', 'ASSET_READ'],
   'filters.rfid_manage': ['FILTER_RFID_MANAGE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_READ'],
+  'replacement_schedule.view': ['REPLACEMENT_SCHEDULE_VIEW', 'REPLACEMENT_SCHEDULE_UPLOAD'],
+  'replacement_schedule.upload': ['REPLACEMENT_SCHEDULE_UPLOAD'],
 
   // Block Change
   'block_change.request': ['BLOCK_CHANGE_REQUEST'],

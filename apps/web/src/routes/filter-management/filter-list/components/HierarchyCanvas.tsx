@@ -238,6 +238,7 @@ export function HierarchyCanvas({
             - vertical scroll enabled too so deep trees don't push the viewport. */}
         <div
           ref={scrollRef}
+          data-no-drag-pan
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
           onMouseUp={endPan}

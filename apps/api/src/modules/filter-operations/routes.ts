@@ -411,6 +411,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
             oldFilterId: { type: 'string' },
             newFilterId: { type: 'string' },
             newFilterName: { type: 'string' },
+            identifiersMoved: { type: 'integer' },
           },
         },
         ...errorResponses,

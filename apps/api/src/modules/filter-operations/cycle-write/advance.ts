@@ -359,15 +359,26 @@ export async function advanceImpl(
     });
 
     if (leadsToEnd && !hasMoreStages && !hasPendingChecklistAfterTarget) {
+      const completedAt = offlineTime ?? new Date();
       await tx.cleaningCycle.update({
         where: { id: cycle.id },
-        data: { status: 'COMPLETED', completedAt: offlineTime ?? new Date() },
+        data: { status: 'COMPLETED', completedAt },
       });
-      // currentCycleId + currentLifecycleState moved to FilterDetails (Step 6).
+      // 2026-06-02: completion now leaves the filter in the terminal
+      // CLEANING_CYCLE_COMPLETED state (was null/Idle). currentCycleId is still
+      // cleared, so getCurrentState/start-cycle treat the filter as available
+      // (both key off currentCycleId, not the lifecycle label).
       await tx.filterDetails.update({
         where: { assetInstanceId: filterId },
-        data: { currentCycleId: null, currentLifecycleState: null },
+        data: { currentCycleId: null, currentLifecycleState: 'CLEANING_CYCLE_COMPLETED' },
       });
+      // Stamp the typed filter's lastCleaningDate to the completion day so the
+      // "Last Cleaned" column reflects the just-finished cycle. Uses offlineTime
+      // (not server-now) for offline replay, per the dryer-anchor rule. jsonb_set
+      // merges — other field-option attributes are preserved. The filters→
+      // asset_instances mirror trigger keeps the legacy row in sync.
+      const cleanDate = completedAt.toISOString().slice(0, 10);
+      await tx.$executeRaw`UPDATE filters SET attributes = jsonb_set(COALESCE(attributes, '{}'::jsonb), '{lastCleaningDate}', to_jsonb(${cleanDate}::text), true) WHERE id = ${filterId}::uuid`;
 
       const completeEvent = {
         filterId, cycleId: cycle.id, eventType: 'CYCLE_COMPLETED' as const,

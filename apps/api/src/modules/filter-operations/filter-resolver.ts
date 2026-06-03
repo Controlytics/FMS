@@ -184,11 +184,13 @@ export async function resolveFilterProfile(filter: { id: string; filterProfileId
 
   switch (config.mode) {
     case 'BY_FILTER_SIZE': {
-      // 2026-05-29 bug fix #2: the only UI that writes filter size data is
-      // the Filter Field Options config page, which stores under the
-      // `micronSize` key (not `filterSize`). The previous read of
-      // attrs.filterSize never matched any filter and every BY_FILTER_SIZE
-      // rule fell through to the default profile.
+      // 2026-05-29 bug fix #2: historically the only UI that wrote filter-size
+      // data stored it under the `micronSize` key, so this matched micronSize.
+      // 2026-06-02: `filterSize` is now a real, distinct field-option. We still
+      // prefer `micronSize` here for BACKWARD-COMPAT — existing BY_FILTER_SIZE
+      // rules have their matchValue configured against micron values, and no
+      // existing filter carries a real `filterSize` yet. Flip the precedence to
+      // `filterSize ?? micronSize` only after deciding how legacy rules migrate.
       const filterSize = String(attrs.micronSize ?? attrs.filterSize ?? '');
       const rule = config.rules.find(r => String(r.matchValue) === filterSize);
       if (rule?.profileId) return rule.profileId;

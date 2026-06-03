@@ -51,13 +51,14 @@ describe('POST /api/hierarchy/filters', () => {
     const app = await buildApp();
     const res = await app.inject({
       method: 'POST', url: '/api/hierarchy/filters', headers: AUTH,
-      payload: { name: 'F1', ahuId: AHU, filterSet: 'A', ahuType: 'process', filterType: 'HEPA', micronSize: '5' },
+      payload: { name: 'F1', ahuId: AHU, filterSet: 'A', ahuType: 'process', filterType: 'HEPA', micronSize: '5', filterSize: '610×610×292mm' },
     });
     expect(res.statusCode).toBe(201);
     expect(res.json()).toEqual({ success: true, data: { id: 'filter-1', name: 'F1' } });
     expect(createMock).toHaveBeenCalledTimes(1);
     const [data] = createMock.mock.calls[0];
-    expect(data).toMatchObject({ name: 'F1', ahuId: AHU, filterSet: 'A', ahuType: 'process', filterType: 'HEPA', micronSize: '5' });
+    // filterSize must survive the body schema (additionalProperties:false would strip an undeclared key).
+    expect(data).toMatchObject({ name: 'F1', ahuId: AHU, filterSet: 'A', ahuType: 'process', filterType: 'HEPA', micronSize: '5', filterSize: '610×610×292mm' });
     await app.close();
   });
 

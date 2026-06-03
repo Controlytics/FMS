@@ -37,12 +37,13 @@ const fieldColumns = (opts: FilterFieldOptions) => [
   { key: 'ahuType', label: 'ahuType', hint: opts.ahuType.join(', ') || '—' },
   { key: 'filterType', label: 'filterType', hint: opts.filterType.join(', ') || '—' },
   { key: 'micronSize', label: 'micronSize', hint: (opts.micronSize.join(', ') || '—') + ' (µm)' },
+  { key: 'filterSize', label: 'filterSize', hint: 'Free text — physical dimensions (e.g. 610×610×292mm)' },
   { key: 'lastCleaningDate', label: 'lastCleaningDate', hint: 'YYYY-MM-DD or NA' },
   { key: 'rfidTag', label: 'rfidTag', hint: 'Optional RFID tag — must be unique (rejected if already assigned)' },
 ];
 
 // Columns rendered in the preview table.
-const PREVIEW_KEYS = ['name', 'filterSet', 'ahuType', 'filterType', 'micronSize', 'lastCleaningDate', 'rfidTag'] as const;
+const PREVIEW_KEYS = ['name', 'filterSet', 'ahuType', 'filterType', 'micronSize', 'filterSize', 'lastCleaningDate', 'rfidTag'] as const;
 
 export function BulkUploadDialog({
   step, ahu, area, defaultSet, ahus, areas, file, rows, error, results, created, failed, fieldOptions,

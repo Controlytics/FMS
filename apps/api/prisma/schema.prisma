@@ -1309,6 +1309,83 @@ model PmExecution {
   @@map("pm_executions")
 }
 
+// ─── Filter Replacement Schedule (upload-driven, 2026-06-02) ───────────────
+// Additive feature: a user uploads a schedule (one ReplacementSchedule batch);
+// each row becomes a ReplacementScheduleEntry (AHU + filter spec + qty + date +
+// ± tolerance window). Due entries surface as tablet My-Tasks; each filter
+// actually replaced is logged as a ReplacementExecution (qty tracking + audit).
+// AHU is a soft ref (no FK) to avoid coupling to the asset/typed-filter tables.
+// The execute step WRAPS the existing replace action — it does not change it.
+enum ReplacementEntryStatus {
+  PENDING
+  DUE
+  IN_PROGRESS
+  COMPLETED
+  MISSED
+
+  @@map("replacement_entry_status")
+}
+
+model ReplacementSchedule {
+  id             String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fileName       String?                    @map("file_name") @db.VarChar(255)
+  status         String                     @default("ACTIVE") @db.VarChar(20) // ACTIVE | ARCHIVED
+  notes          String?
+  uploadedBy     String                     @map("uploaded_by") @db.Uuid
+  uploadedByName String?                    @map("uploaded_by_name") @db.VarChar(255)
+  createdAt      DateTime                   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime                   @updatedAt @map("updated_at") @db.Timestamptz
+
+  entries        ReplacementScheduleEntry[]
+
+  @@index([status])
+  @@map("replacement_schedules")
+}
+
+model ReplacementScheduleEntry {
+  id            String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scheduleId    String                 @map("schedule_id") @db.Uuid
+  slNo          Int?                   @map("sl_no")
+  ahuId         String                 @map("ahu_id") @db.Uuid
+  ahuName       String                 @map("ahu_name") @db.VarChar(255)
+  filterMicron  String?                @map("filter_micron") @db.VarChar(100)
+  filterSize    String?                @map("filter_size") @db.VarChar(100)
+  qty           Int
+  qtyReplaced   Int                    @default(0) @map("qty_replaced")
+  scheduleDate  DateTime               @map("schedule_date") @db.Date
+  toleranceDays Int                    @default(0) @map("tolerance_days")
+  windowStart   DateTime               @map("window_start") @db.Date
+  windowEnd     DateTime               @map("window_end") @db.Date
+  status        ReplacementEntryStatus @default(PENDING)
+  notes         String?
+
+  schedule      ReplacementSchedule    @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  executions    ReplacementExecution[]
+
+  @@index([scheduleId])
+  @@index([ahuId])
+  @@index([windowStart, windowEnd])
+  @@index([status])
+  @@map("replacement_schedule_entries")
+}
+
+model ReplacementExecution {
+  id              String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entryId         String                   @map("entry_id") @db.Uuid
+  oldFilterId     String                   @map("old_filter_id") @db.Uuid
+  newFilterId     String?                  @map("new_filter_id") @db.Uuid
+  performedBy     String                   @map("performed_by") @db.Uuid
+  performedByName String?                  @map("performed_by_name") @db.VarChar(255)
+  isWithinWindow  Boolean                  @default(true) @map("is_within_window")
+  remarks         String?
+  performedAt     DateTime                 @default(now()) @map("performed_at") @db.Timestamptz
+
+  entry           ReplacementScheduleEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@index([entryId])
+  @@map("replacement_executions")
+}
+
 model FilterCleaningProfile {
   id                   String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   lineageId            String                @map("lineage_id") @db.Uuid

@@ -4,9 +4,6 @@ import swaggerUi from '@fastify/swagger-ui';
 import { verifyToken } from './jwt.js';
 
 export async function registerSwagger(app: FastifyInstance) {
-  const port = process.env.PORT ?? process.env.API_PORT ?? '3000';
-  const host = process.env.API_HOST === '0.0.0.0' ? 'localhost' : (process.env.API_HOST ?? 'localhost');
-
   await app.register(swagger, {
     openapi: {
       openapi: '3.0.3',
@@ -37,14 +34,13 @@ export async function registerSwagger(app: FastifyInstance) {
           name: 'DigiLog Support',
         },
       },
+      // Relative URL: "Try it out" calls the SAME origin that served /docs.
+      // Works for localhost (host) and LAN IP (remote laptop) without hardcoding
+      // scheme/host — and avoids the mixed-content block when API_HTTPS=true.
       servers: [
         {
-          url: process.env.ALLOWED_ORIGINS?.split(',')[0] || 'http://localhost:3000',
-          description: 'Server',
-        },
-        {
-          url: `http://${host}:${port}`,
-          description: 'Local Development',
+          url: '/',
+          description: 'This server (same origin as the docs page)',
         },
       ],
       tags: [

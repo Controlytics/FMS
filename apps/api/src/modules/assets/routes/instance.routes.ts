@@ -1,4 +1,5 @@
-import type { FastifyInstance } from 'fastify';
+ 
+ import type { FastifyInstance } from 'fastify';
 import { enforceReauth } from '../../../lib/reauth-check.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { errorResponses } from '../../../lib/error-schemas.js';
@@ -307,7 +308,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Entities'],
       summary: 'Download the filter bulk-upload .xlsx template',
-      description: 'Streams an .xlsx workbook with Excel data-validation dropdowns (filterSet, ahuType, filterType, micronSize) populated from the live master data.',
+      description: 'Streams an .xlsx workbook with Excel data-validation dropdowns (filterSet, ahuType, filterType, micronSize, filterSize) populated from the live master data.',
     },
   }, async (_req, reply) => {
     const buf = await buildFilterUploadTemplate();
@@ -350,7 +351,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Entities'],
       summary: 'Bulk upload filters from .xlsx',
-      description: 'Upload the .xlsx template to create multiple filters under an AHU. Columns: name, filterSet (A/B), ahuType, filterType, micronSize, lastCleaningDate, filterProfileId. Dropdown values validated against the live filter-field-options config.',
+      description: 'Upload the .xlsx template to create multiple filters under an AHU. Columns: name, filterSet (A/B), ahuType, filterType, micronSize, filterSize, lastCleaningDate, filterProfileId. Dropdown values validated against the live filter-field-options config.',
       consumes: ['multipart/form-data'],
       response: { 200: bulkResultsSchema, ...errorResponses },
     },
@@ -570,7 +571,10 @@ export default async function instanceRoutes(app: FastifyInstance) {
         properties: {
           lifecycleState: {
             type: 'string',
-            enum: ['INSTALLED', 'WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN', 'STORAGE_OUT', 'IN_USE'],
+            // INSTALLED + IN_USE remain valid (system-set / historic), but the
+            // manual UI dropdown no longer offers them. CLEANING_CYCLE_COMPLETED
+            // (2026-06-02) is the terminal state a finished cleaning cycle sets.
+            enum: ['INSTALLED', 'WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN', 'STORAGE_OUT', 'IN_USE', 'CLEANING_CYCLE_COMPLETED'],
             description: 'New lifecycle state',
           },
           remarks: { type: 'string', minLength: 1, description: 'Reason for manual state change' },

@@ -3,17 +3,20 @@
 // `filter-field-options` config — NOT the asset-template attributeSchema.
 // Used by single-create (Slice 1) and bulk upload (Slice 2).
 import { prisma } from '../../../lib/prisma.js';
+import { stripHtml } from '../../../lib/sanitize.js';
 
 export interface FilterFieldOptions {
   ahuType: string[];
   filterType: string[];
   micronSize: string[];
+  filterSize: string[];
 }
 
 export interface FilterFieldInput {
   ahuType?: string | null;
   filterType?: string | null;
   micronSize?: string | null;
+  filterSize?: string | null; // physical dimensions, e.g. 610×610×292mm — distinct from micronSize
   lastCleaningDate?: string | null; // 'NA' | 'YYYY-MM-DD' | '' | null
 }
 
@@ -37,6 +40,7 @@ export async function loadFilterFieldOptions(): Promise<FilterFieldOptions> {
     ahuType: Array.isArray((inner as any).ahuType) ? ((inner as any).ahuType as string[]) : ['Process', 'Non Process'],
     filterType: Array.isArray((inner as any).filterType) ? ((inner as any).filterType as string[]) : [],
     micronSize: Array.isArray((inner as any).micronSize) ? ((inner as any).micronSize as string[]) : [],
+    filterSize: Array.isArray((inner as any).filterSize) ? ((inner as any).filterSize as string[]) : [],
   };
   _optsCache = { opts, at: Date.now() };
   return opts;
@@ -73,6 +77,11 @@ export async function validateAndBuildFilterAttributes(input: FilterFieldInput):
   checkList('ahuType', opts.ahuType);
   checkList('filterType', opts.filterType);
   checkList('micronSize', opts.micronSize);
+
+  // filterSize is FREE TEXT (physical dimensions, e.g. "610×610×292mm") — NOT a
+  // dropdown. Trim + strip HTML and store if non-empty; no master-data validation.
+  const fsizeRaw = stripHtml((input.filterSize ?? '').toString()).trim();
+  if (fsizeRaw) attributes.filterSize = fsizeRaw;
 
   const lcd = (input.lastCleaningDate ?? '').toString().trim();
   if (lcd) {

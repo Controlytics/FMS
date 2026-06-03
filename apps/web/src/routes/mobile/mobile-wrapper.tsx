@@ -6,6 +6,7 @@ import { useAuth } from '../../hooks/use-auth';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { useOffline } from '../../hooks/use-offline';
 import { useReauth } from '@/hooks/use-reauth';
+import { retireOrReplaceFilter } from '@/lib/filter-lifecycle-actions';
 import { useRfidScanField } from '@/hooks/use-rfid-scan-field';
 import { useBlockChangeApproval } from '@/hooks/use-block-change-approval';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -18,9 +19,39 @@ import { triggerSync, startSyncPolling } from '../../lib/sync-since';
 import { MobileOperationsPage } from './mobile-operations';
 import { CLEANING_STAGES_MOBILE as STAGES } from '../../lib/filter-constants';
 
-type View = 'home' | 'status' | 'my-tasks' | 'approvals' | 'operations' | 'rfid-assign' | 'cycles' | 'cycle-detail';
+type View = 'home' | 'status' | 'my-tasks' | 'approvals' | 'operations' | 'rfid-assign' | 'replace' | 'cycles' | 'cycle-detail' | 'replacement-tasks';
 
 // Build identifier->filter map from identifiers list
+// Cleaning-stage filter-event types — mirrors the server's
+// CLEANING_STAGE_EVENT_TYPES (hierarchy.service.ts). "Last Cleaned" tracks the
+// latest of these, so the tablet's date moves on EVERY stage (each WASH/DRY/
+// STORAGE advance + bypass + completion), not only on full-cycle completion.
+const CLEANING_STAGE_EVENTS = new Set(['STATE_TRANSITION', 'BYPASS_DEVIATION', 'CYCLE_COMPLETED']);
+
+// Latest cleaning-stage event time for a filter across the given cycles (each
+// cycle carries `events` when fetched with includeEvents=true).
+function latestStageEventAt(cycles: any[], filterId: string): string | null {
+  let latest: string | null = null;
+  for (const c of cycles) {
+    if (c.filterId !== filterId) continue;
+    for (const ev of (c.events ?? [])) {
+      if (!CLEANING_STAGE_EVENTS.has(ev.eventType) || !ev.performedAt) continue;
+      if (!latest || ev.performedAt > latest) latest = ev.performedAt;
+    }
+  }
+  return latest;
+}
+
+// Effective "Last Cleaned" for the tablet — mirrors the server's zipLastCleaned:
+// prefer the latest cleaning-stage event timestamp, else fall back to the manual
+// attributes.lastCleaningDate seed (strict YYYY-MM-DD; 'NA' / blank ignored).
+// Keeps the tablet consistent with the Web Filters page.
+function effectiveLastCleaned(cycleAt: string | undefined | null, attrs: any): string | null {
+  if (cycleAt) return cycleAt;
+  const raw = attrs?.lastCleaningDate;
+  return typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+}
+
 function buildIdentifierMap(identifiers: any[]): Record<string, { filterId: string; filterName: string }> {
   const list = Array.isArray(identifiers) ? identifiers : [];
   const map: Record<string, { filterId: string; filterName: string }> = {};
@@ -282,6 +313,36 @@ export function MobileWrapperPage() {
   const [rfidAhuId, setRfidAhuId] = useState<string>('all');
   const [rfidFilterId, setRfidFilterId] = useState<string>('all');
 
+  // Replace-filter view: same Block → Area → AHU → Filter cascade as RFID
+  // Assign, then a remarks-gated confirm. Online-only for v1 (replace creates
+  // a new server-side AssetInstance + relationships — can't be queued offline).
+  const [replaceBlockId, setReplaceBlockId] = useState<string>('all');
+  const [replaceAreaId, setReplaceAreaId] = useState<string>('all');
+  const [replaceAhuId, setReplaceAhuId] = useState<string>('all');
+  const [replaceFilterId, setReplaceFilterId] = useState<string>('all');
+  const [replaceSearch, setReplaceSearch] = useState('');
+  const [replaceSelectedFilter, setReplaceSelectedFilter] = useState<{ id: string; name: string } | null>(null);
+  const [replaceRemarks, setReplaceRemarks] = useState('');
+  const [replaceSubmitting, setReplaceSubmitting] = useState(false);
+  const [replaceError, setReplaceError] = useState('');
+  const [replaceSuccess, setReplaceSuccess] = useState('');
+  // Scan-to-select for replacement (ADDITIVE — the Block→Area→AHU→Filter cascade
+  // + name search below are unchanged). Scanning a filter's RFID/QR tag resolves
+  // it via the identifier→filter map and pre-selects it for the confirm step.
+  const replaceScan = useRfidScanField();
+  const [replaceScanError, setReplaceScanError] = useState('');
+
+  // ── Replacement Schedule tasks (separate tile → own page, online-only) ──
+  const { data: replDueData, mutate: mutateReplDue } = useSWR(online ? '/api/replacement-schedules/due' : null, { refreshInterval: 30000 });
+  const replDueTasks = ((replDueData as any)?.data ?? []) as any[];
+  const canReplacementTasks = user?.role === 'SUPER_ADMIN'
+    || (user?.permissions ?? []).includes('REPLACEMENT_SCHEDULE_VIEW')
+    || (user?.permissions ?? []).includes('REPLACEMENT_SCHEDULE_EXECUTE');
+  const [activeReplTask, setActiveReplTask] = useState<any | null>(null);
+  const replTaskScan = useRfidScanField();
+  const [replTaskError, setReplTaskError] = useState('');
+  const [replTaskSubmitting, setReplTaskSubmitting] = useState(false);
+
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
   const [processingApproval, setProcessingApproval] = useState<string | null>(null);
   const [approvalComment, setApprovalComment] = useState('');
@@ -480,6 +541,99 @@ export function MobileWrapperPage() {
         },
       },
     );
+  };
+
+  // ─── Replace-filter handler ───
+  // Backend gates POST /:id/replace with requireAnyPermission(FILTER_OPERATE,
+  // FILTER_REPLACE); mirror that here so the tile/view only appear for roles
+  // the server will actually accept. SUPER_ADMIN bypasses (project rule).
+  const replacePerms = user?.permissions ?? [];
+  const canReplace = user?.role === 'SUPER_ADMIN'
+    || replacePerms.includes('FILTER_REPLACE')
+    || replacePerms.includes('FILTER_OPERATE');
+
+  const closeReplace = () => {
+    setReplaceSelectedFilter(null);
+    setReplaceRemarks('');
+    setReplaceError('');
+    setReplaceSuccess('');
+    setReplaceSubmitting(false);
+    replaceScan.setValue('');
+    setReplaceScanError('');
+  };
+
+  // Resolve a scanned tag → filter and pre-select it for replacement. Reuses the
+  // same identifier→filter map as the Status "Scan RFID" lookup and the cleaning
+  // scan flow, so a tag scanned here behaves identically to one scanned elsewhere.
+  const resolveReplaceScan = () => {
+    const raw = replaceScan.value.trim();
+    if (!raw) return;
+    const map = buildIdentifierMap(allIdentifiers);
+    const hit = map[raw] ?? map[raw.toUpperCase()] ?? map[raw.toLowerCase()];
+    if (!hit) {
+      setReplaceScanError(`No filter found for tag "${raw}". Check the tag is assigned, or pick the filter manually below.`);
+      replaceScan.setValue('');
+      return;
+    }
+    setReplaceSelectedFilter({ id: hit.filterId, name: hit.filterName });
+    setReplaceRemarks(''); setReplaceError(''); setReplaceSuccess(''); setReplaceScanError('');
+    replaceScan.setValue('');
+  };
+
+  // ── Replacement-task: scan the old filter → replace it against the task entry ──
+  // Wraps the existing replace action via the schedule execute endpoint (which
+  // increments qty + logs the execution). REPLACE_FILTER reauth gates it.
+  const resolveAndExecuteReplTask = () => {
+    if (!activeReplTask) return;
+    const raw = replTaskScan.value.trim();
+    if (!raw) { setReplTaskError('Scan a filter tag to replace.'); return; }
+    const map = buildIdentifierMap(allIdentifiers);
+    const hit = map[raw] ?? map[raw.toUpperCase()] ?? map[raw.toLowerCase()];
+    if (!hit) { setReplTaskError(`No filter found for tag "${raw}".`); replTaskScan.setValue(''); return; }
+    setReplTaskSubmitting(true); setReplTaskError('');
+    const taskId = activeReplTask.id;
+    const ahuName = activeReplTask.ahuName;
+    reauth.execute('REPLACE_FILTER', async (password?: string) => {
+      const body = { oldFilterId: hit.filterId, remarks: `Replaced via schedule task (AHU ${ahuName})` };
+      if (password) await api.postWithReauth(`/api/replacement-schedules/entries/${taskId}/execute`, body, password);
+      else await api.post(`/api/replacement-schedules/entries/${taskId}/execute`, body);
+    }, {
+      onSuccess: async () => {
+        // Feedback = the task list refreshes (qty decrements / task clears).
+        replTaskScan.setValue(''); setReplTaskSubmitting(false); setActiveReplTask(null);
+        await mutateReplDue();
+        if (online) { await mutate('/api/assets/instances?limit=500'); await mutateIdentifiers(); }
+      },
+      onError: (e: any) => { setReplTaskError(e?.message ?? 'Failed to replace filter'); setReplTaskSubmitting(false); },
+    });
+  };
+
+  const handleReplaceSubmit = () => {
+    if (!replaceSelectedFilter || !replaceRemarks.trim()) return;
+    const target = replaceSelectedFilter;
+    setReplaceSubmitting(true);
+    setReplaceError('');
+    setReplaceSuccess('');
+    // ONE shared reauth+network path with the web filter-list panel
+    // (filter-lifecycle-actions.ts) so the two can never drift. The new filter
+    // keeps the same RFID tag — replace() moves the identifier old → new.
+    retireOrReplaceFilter(reauth, 'replace', target.id, replaceRemarks, {
+      onSuccess: async (result) => {
+        const newName = result?.newFilterName ?? 'new filter';
+        const tagNote = result?.identifiersMoved ? ' · tag carried over' : '';
+        setReplaceSuccess(`"${target.name}" replaced → ${newName}${tagNote}`);
+        setReplaceSelectedFilter(null);
+        setReplaceRemarks('');
+        setReplaceSubmitting(false);
+        // Refresh the master data so the retired filter drops out and the new
+        // one appears with its carried-over tag.
+        if (online) { await mutate('/api/assets/instances?limit=500'); await mutateIdentifiers(); }
+      },
+      onError: (err: any) => {
+        setReplaceError(err?.message ?? 'Failed to replace filter');
+        setReplaceSubmitting(false);
+      },
+    });
   };
 
   // ---- My Tasks handlers ----
@@ -685,6 +839,65 @@ export function MobileWrapperPage() {
                 </div>}
               </div>
 
+              {/* === Replace Filter — its own row (online-only) === */}
+              {canReplace && (
+                <div className="animate-rise" style={{ animationDelay: '390ms' }}>
+                  {online ? (
+                    <button onClick={() => { closeReplace(); setReplaceBlockId('all'); setReplaceAreaId('all'); setReplaceAhuId('all'); setReplaceFilterId('all'); setReplaceSearch(''); setView('replace'); }}
+                      className="tile-lift w-full bg-white rounded-2xl border border-slate-200 px-4 py-3 flex items-center gap-2.5 text-left">
+                      <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 grid place-items-center text-white shrink-0">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-display text-[13px] font-semibold text-slate-900 leading-tight">Replace Filter</div>
+                        <div className="text-[10px] text-slate-400 truncate">retire old &middot; create new &middot; same tag</div>
+                      </div>
+                    </button>
+                  ) : (
+                    <div className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 flex items-center gap-2.5 opacity-60">
+                      <div className="w-8 h-8 rounded-lg bg-slate-200 grid place-items-center text-slate-400 shrink-0">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-display text-[13px] font-semibold text-slate-400 leading-tight">Replace Filter</div>
+                        <div className="text-[10px] text-slate-400 truncate">offline — needs connection</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* === Replacement Tasks — separate tile → own page (online-only) === */}
+              {canReplacementTasks && (
+                <div className="animate-rise" style={{ animationDelay: '405ms' }}>
+                  {online ? (
+                    <button onClick={() => { setActiveReplTask(null); replTaskScan.setValue(''); setReplTaskError(''); setView('replacement-tasks'); }}
+                      className="tile-lift w-full bg-white rounded-2xl border border-slate-200 px-4 py-3 flex items-center gap-2.5 text-left">
+                      <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-rose-500 to-pink-600 grid place-items-center text-white shrink-0">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-display text-[13px] font-semibold text-slate-900 leading-tight">Replacement Tasks</div>
+                        <div className="text-[10px] text-slate-400 truncate">scheduled filter replacements due</div>
+                      </div>
+                      {replDueTasks.length > 0 && (
+                        <span className="text-[11px] font-bold text-white bg-rose-500 rounded-full px-2 py-0.5 shrink-0">{replDueTasks.length}</span>
+                      )}
+                    </button>
+                  ) : (
+                    <div className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 flex items-center gap-2.5 opacity-60">
+                      <div className="w-8 h-8 rounded-lg bg-slate-200 grid place-items-center text-slate-400 shrink-0">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-display text-[13px] font-semibold text-slate-400 leading-tight">Replacement Tasks</div>
+                        <div className="text-[10px] text-slate-400 truncate">offline — needs connection</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* === Logout — its own row === */}
               {hasFeature('logout') && (
                 <button onClick={logout} className="animate-rise tile-lift w-full bg-white rounded-2xl border border-rose-200 px-4 py-3.5 flex items-center justify-center gap-2.5 text-rose-600 font-display text-[13px] font-semibold active:bg-rose-50" style={{ animationDelay: '420ms' }}>
@@ -711,15 +924,19 @@ export function MobileWrapperPage() {
           //
           // For each filter we look up:
           //   - AHU name via instances.find(parentId)
-          //   - Last cleaned timestamp via the most recent COMPLETED cycle
-          //     from cyclesData (loaded when view==='status', see useSWR
-          //     conditional above)
+          //   - Last cleaned timestamp via the most recent cleaning-stage EVENT
+          //     across the filter's cycles (loaded with includeEvents when
+          //     view==='status'), so it moves on every stage — not just on
+          //     full-cycle completion.
           const cycles: any[] = (cyclesData?.data ?? []) as any[];
           const lastCleanedByFilter = new Map<string, string>();
           for (const c of cycles) {
-            if (c.status !== 'COMPLETED' || !c.completedAt || !c.filterId) continue;
-            const prev = lastCleanedByFilter.get(c.filterId);
-            if (!prev || c.completedAt > prev) lastCleanedByFilter.set(c.filterId, c.completedAt);
+            if (!c.filterId) continue;
+            for (const ev of (c.events ?? [])) {
+              if (!CLEANING_STAGE_EVENTS.has(ev.eventType) || !ev.performedAt) continue;
+              const prev = lastCleanedByFilter.get(c.filterId);
+              if (!prev || ev.performedAt > prev) lastCleanedByFilter.set(c.filterId, ev.performedAt);
+            }
           }
           // 2026-05-21: walk the hierarchy filter→AHU→Area→Block. Each instance
           // row carries `parentId`; we use that to build per-filter ancestry,
@@ -939,7 +1156,7 @@ export function MobileWrapperPage() {
               {visibleFilters.map((f: any) => {
                 const stageInfo = STAGES.find(s => s.key === f.currentLifecycleState);
                 const ahu = ahuById.get(f.parentId);
-                const lastCleaned = lastCleanedByFilter.get(f.id);
+                const lastCleaned = effectiveLastCleaned(lastCleanedByFilter.get(f.id), f.attributes);
                 return (
                   <div key={f.id} className="bg-white border border-slate-200 rounded-xl px-4 py-3">
                     <div className="flex items-start justify-between gap-3">
@@ -1913,6 +2130,214 @@ export function MobileWrapperPage() {
           </div>
           );
         })()}
+
+        {/* === REPLACE FILTER VIEW (online-only) === */}
+        {view === 'replace' && (() => {
+          // Self-contained Block → Area → AHU → Filter cascade, same pattern as
+          // the RFID Assign view above. Selecting a filter opens a remarks-gated
+          // confirm; submit runs the shared replace path (tag carries over).
+          const repInstById = new Map((instances as any[]).map((i: any) => [i.id, i] as [string, any]));
+          const repAncestors = new Map<string, { ahuId: string | null; areaId: string | null; blockId: string | null }>();
+          for (const f of (allFilters as any[])) {
+            const ahu = f.parentId ? repInstById.get(f.parentId) : null;
+            const area = ahu?.parentId ? repInstById.get(ahu.parentId) : null;
+            const block = area?.parentId ? repInstById.get(area.parentId) : null;
+            repAncestors.set(f.id, { ahuId: ahu?.id ?? null, areaId: area?.id ?? null, blockId: block?.id ?? null });
+          }
+          const repBlockIds = new Set<string>(); const repAreaIds = new Set<string>(); const repAhuIds = new Set<string>();
+          for (const a of repAncestors.values()) { if (a.blockId) repBlockIds.add(a.blockId); if (a.areaId) repAreaIds.add(a.areaId); if (a.ahuId) repAhuIds.add(a.ahuId); }
+          const byName = (a: any, b: any) => String(a.name ?? '').localeCompare(String(b.name ?? ''));
+          const repBlockOptions = [...repBlockIds].map(id => repInstById.get(id)).filter(Boolean).sort(byName);
+          const repAreaOptions = [...repAreaIds].map(id => repInstById.get(id)).filter(Boolean)
+            .filter((area: any) => replaceBlockId === 'all' || area.parentId === replaceBlockId).sort(byName);
+          const repAhuOptions = [...repAhuIds].map(id => repInstById.get(id)).filter(Boolean)
+            .filter((ahu: any) => {
+              if (replaceAreaId !== 'all' && ahu.parentId !== replaceAreaId) return false;
+              if (replaceBlockId !== 'all') { const area = ahu.parentId ? repInstById.get(ahu.parentId) : null; if (!area || area.parentId !== replaceBlockId) return false; }
+              return true;
+            }).sort(byName);
+          const matchesCascade = (f: any) => {
+            const a = repAncestors.get(f.id); if (!a) return false;
+            if (replaceBlockId !== 'all' && a.blockId !== replaceBlockId) return false;
+            if (replaceAreaId !== 'all' && a.areaId !== replaceAreaId) return false;
+            if (replaceAhuId !== 'all' && a.ahuId !== replaceAhuId) return false;
+            return true;
+          };
+          const repFilterOptions = (allFilters as any[]).filter(matchesCascade).slice().sort(byName);
+          const repVisibleFilters = (allFilters as any[]).filter((f: any) => {
+            if (!matchesCascade(f)) return false;
+            if (replaceFilterId !== 'all' && f.id !== replaceFilterId) return false;
+            if (replaceSearch && !f.name?.toLowerCase().includes(replaceSearch.toLowerCase())) return false;
+            return true;
+          });
+          const repCascadeActive = replaceBlockId !== 'all' || replaceAreaId !== 'all' || replaceAhuId !== 'all' || replaceFilterId !== 'all';
+          const selTags = replaceSelectedFilter ? (rfidTagsByFilter.get(replaceSelectedFilter.id) ?? []) : [];
+          return (
+          <div className="p-4 space-y-4 max-w-2xl mx-auto">
+            {replaceSuccess && (
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl px-4 py-3 text-sm font-medium">{replaceSuccess}</div>
+            )}
+            {replaceError && (
+              <div className="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl px-4 py-3 text-sm font-medium">{replaceError}</div>
+            )}
+            {!replaceSelectedFilter ? (
+              <>
+                <div className="flex items-baseline justify-between">
+                  <h2 className="font-display text-[20px] font-semibold text-slate-900">Replace — select filter</h2>
+                  {repCascadeActive && (
+                    <button
+                      onClick={() => { setReplaceBlockId('all'); setReplaceAreaId('all'); setReplaceAhuId('all'); setReplaceFilterId('all'); }}
+                      className="text-[11px] text-amber-600 font-medium underline active:text-amber-700"
+                    >clear</button>
+                  )}
+                </div>
+
+                {/* ── Scan-to-select (additive; manual cascade/search remain below) ── */}
+                <div className="bg-white rounded-2xl border border-amber-200 p-3">
+                  <label className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] text-amber-600 font-semibold mb-1.5">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v1m0 14v1m8-8h-1M5 12H4m12.95 4.95l-.7-.7M7.05 7.05l-.7-.7m12.6 0l-.7.7M7.05 16.95l-.7.7M9 9h6v6H9z" /></svg>
+                    Scan filter tag
+                  </label>
+                  <input
+                    data-rfid="true"
+                    type="text"
+                    value={replaceScan.value}
+                    onKeyDown={(e) => {
+                      replaceScan.onKeyDown(e);
+                      if (e.key === 'Enter') { e.preventDefault(); resolveReplaceScan(); }
+                    }}
+                    onChange={replaceScan.onChange}
+                    placeholder="Scan or type RFID/QR tag, then Enter"
+                    autoFocus
+                    className="w-full px-3 py-3 border border-amber-200 rounded-xl text-base font-mono bg-amber-50/40 focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                  />
+                  {replaceScanError && <div className="text-[11px] text-rose-600 mt-1.5 font-medium">{replaceScanError}</div>}
+                  <div className="text-[10.5px] text-slate-400 mt-1.5">Scan the filter's tag to select it instantly — or pick it manually below.</div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-slate-200 p-2 grid grid-cols-4 gap-1.5">
+                  <div>
+                    <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Block</label>
+                    <select value={replaceBlockId}
+                      onChange={(e) => { setReplaceBlockId(e.target.value); setReplaceAreaId('all'); setReplaceAhuId('all'); setReplaceFilterId('all'); }}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-amber-500 focus:bg-white truncate">
+                      <option value="all">All</option>
+                      {repBlockOptions.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Area</label>
+                    <select value={replaceAreaId}
+                      onChange={(e) => { setReplaceAreaId(e.target.value); setReplaceAhuId('all'); setReplaceFilterId('all'); }}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-amber-500 focus:bg-white truncate">
+                      <option value="all">All</option>
+                      {repAreaOptions.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">AHU</label>
+                    <select value={replaceAhuId}
+                      onChange={(e) => { setReplaceAhuId(e.target.value); setReplaceFilterId('all'); }}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-amber-500 focus:bg-white truncate">
+                      <option value="all">All</option>
+                      {repAhuOptions.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Filter</label>
+                    <select value={replaceFilterId}
+                      onChange={(e) => setReplaceFilterId(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-amber-500 focus:bg-white truncate">
+                      <option value="all">All</option>
+                      {repFilterOptions.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">Search by name</label>
+                  <input type="text" value={replaceSearch} onChange={e => setReplaceSearch(e.target.value)}
+                    placeholder="Type to narrow…"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-amber-500 focus:border-amber-500" />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-[11px] text-slate-500 font-mono-tab px-1">
+                    showing <span className="text-slate-800 font-semibold">{Math.min(repVisibleFilters.length, 60)}</span> of {repVisibleFilters.length}
+                  </div>
+                  {repVisibleFilters.length === 0 && (
+                    <div className="bg-white border border-slate-200 rounded-xl p-6 text-center text-sm text-slate-500">No filters match.</div>
+                  )}
+                  {repVisibleFilters.slice(0, 60).map((f: any) => {
+                    const tags = rfidTagsByFilter.get(f.id) ?? [];
+                    const firstTag = tags[0]?.identifierValue ?? '';
+                    return (
+                      <button key={f.id} onClick={() => { setReplaceSelectedFilter({ id: f.id, name: f.name }); setReplaceRemarks(''); setReplaceError(''); setReplaceSuccess(''); }}
+                        className="tile-lift w-full rounded-xl border border-slate-200 bg-white p-3 text-left flex items-center justify-between active:bg-slate-50 transition-colors">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-display text-[13px] font-semibold text-slate-900 truncate leading-tight">{f.name}</div>
+                          <div className="text-[10.5px] text-slate-400 mt-0.5 truncate">
+                            {firstTag ? <>tag <span className="font-mono-tab text-slate-600">{firstTag}</span>{tags.length > 1 ? ` +${tags.length - 1}` : ''}</> : 'no tag'}
+                          </div>
+                        </div>
+                        <svg className="w-4 h-4 text-slate-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              /* ── Confirm panel for the chosen filter ── */
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <button onClick={() => { setReplaceSelectedFilter(null); setReplaceError(''); }}
+                    className="text-[12px] text-slate-500 font-medium active:text-slate-700 flex items-center gap-1">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.4}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                    back to list
+                  </button>
+                </div>
+                <h2 className="font-display text-[20px] font-semibold text-slate-900">Replace filter</h2>
+
+                <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">Filter ID</label>
+                    <div className="font-display text-[15px] font-semibold text-slate-900">{replaceSelectedFilter.name}</div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">RFID tag (carries over)</label>
+                    <div className="font-mono-tab text-[13px] text-slate-700">
+                      {selTags.length > 0 ? selTags.map((t: any) => t.identifierValue).join(', ') : <span className="text-slate-400">none assigned</span>}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 text-xs">
+                  This retires the current filter and creates a new replacement with the same details, RFID tag, and an incremented ID suffix. The action is permanent.
+                </div>
+
+                <div>
+                  <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">Remarks <span className="text-rose-500">*</span></label>
+                  <textarea value={replaceRemarks} onChange={e => setReplaceRemarks(e.target.value)} rows={3}
+                    placeholder="Reason for replacement…"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white resize-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500" />
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button onClick={() => { setReplaceSelectedFilter(null); setReplaceRemarks(''); setReplaceError(''); }}
+                    className="flex-1 px-4 py-3 border border-slate-300 rounded-xl text-sm font-semibold text-slate-600 active:bg-slate-100">
+                    Cancel
+                  </button>
+                  <button onClick={handleReplaceSubmit} disabled={!replaceRemarks.trim() || replaceSubmitting || !online}
+                    className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold text-white bg-amber-600 active:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                    {replaceSubmitting ? 'Replacing…' : 'Replace Filter'}
+                  </button>
+                </div>
+                {!online && <div className="text-[11px] text-rose-500 text-center">Offline — replacement needs a connection.</div>}
+              </div>
+            )}
+          </div>
+          );
+        })()}
       </div>
 
       {/* 2026-05-26: Filter Status → Scan RFID lookup modal.
@@ -1961,13 +2386,9 @@ export function MobileWrapperPage() {
               const ahu = filter.parentId ? instByIdLookup.get(filter.parentId) : null;
               const area = ahu?.parentId ? instByIdLookup.get(ahu.parentId) : null;
               const block = area?.parentId ? instByIdLookup.get(area.parentId) : null;
-              // Reuse the same last-cleaned map the Status view builds.
+              // Latest cleaning-stage event (every stage, not just completion).
               const cycles: any[] = (cyclesData?.data ?? []) as any[];
-              let lastCleaned: string | null = null;
-              for (const c of cycles) {
-                if (c.status !== 'COMPLETED' || !c.completedAt || c.filterId !== filter.id) continue;
-                if (!lastCleaned || c.completedAt > lastCleaned) lastCleaned = c.completedAt;
-              }
+              const lastCleaned = effectiveLastCleaned(latestStageEventAt(cycles, filter.id), filter.attributes);
               result = { kind: 'ok', tag, filter, ahu, area, block, lastCleaned };
             }
           }
@@ -2191,6 +2612,62 @@ export function MobileWrapperPage() {
         );
       })()}
 
+      {/* === Replacement Tasks (separate page) === */}
+      {view === 'replacement-tasks' && (
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-4 space-y-4 max-w-2xl mx-auto">
+            <button onClick={() => { setActiveReplTask(null); setView('home'); }} className="text-[12px] text-slate-500 font-medium active:text-slate-700 flex items-center gap-1">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.4}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg> Home
+            </button>
+            <h2 className="font-display text-[20px] font-semibold text-slate-900">Replacement Tasks</h2>
+
+            {!activeReplTask ? (
+              replDueTasks.length === 0 ? (
+                <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-sm text-slate-500">No replacement tasks due right now.</div>
+              ) : (
+                <div className="space-y-2">
+                  {replDueTasks.map((t: any) => (
+                    <button key={t.id} onClick={() => { setActiveReplTask(t); replTaskScan.setValue(''); setReplTaskError(''); }}
+                      className="tile-lift w-full rounded-xl border border-slate-200 bg-white p-3 text-left flex items-center justify-between active:bg-slate-50">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-display text-[14px] font-semibold text-slate-900 truncate">{t.ahuName}</div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">{t.filterMicron ? `micron ${t.filterMicron}` : ''}{t.filterMicron && t.filterSize ? ' · ' : ''}{t.filterSize ? `size ${t.filterSize}` : ''}</div>
+                        <div className="text-[10.5px] text-slate-400 mt-0.5">due by {t.windowEnd ? new Date(t.windowEnd).toLocaleDateString() : '—'}</div>
+                      </div>
+                      <span className="text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-full px-2.5 py-1 shrink-0">{t.qtyRemaining} of {t.qty} left</span>
+                    </button>
+                  ))}
+                </div>
+              )
+            ) : (
+              <div className="space-y-4">
+                <button onClick={() => { setActiveReplTask(null); replTaskScan.setValue(''); setReplTaskError(''); }} className="text-[12px] text-slate-500 font-medium flex items-center gap-1">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.4}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg> back to tasks
+                </button>
+                <div className="bg-white border border-slate-200 rounded-2xl p-4">
+                  <div className="font-display text-[15px] font-semibold text-slate-900">{activeReplTask.ahuName}</div>
+                  <div className="text-[12px] text-slate-500 mt-0.5">{activeReplTask.filterMicron ? `micron ${activeReplTask.filterMicron}` : ''}{activeReplTask.filterMicron && activeReplTask.filterSize ? ' · ' : ''}{activeReplTask.filterSize ? `size ${activeReplTask.filterSize}` : ''}</div>
+                  <div className="text-[12px] text-rose-600 font-medium mt-1">{activeReplTask.qtyRemaining} of {activeReplTask.qty} still to replace</div>
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase tracking-[0.15em] text-rose-600 font-semibold mb-1.5">Scan filter to replace</label>
+                  <input data-rfid="true" type="text" value={replTaskScan.value}
+                    onKeyDown={(e) => { replTaskScan.onKeyDown(e); if (e.key === 'Enter' && !replTaskSubmitting) { e.preventDefault(); resolveAndExecuteReplTask(); } }}
+                    onChange={replTaskScan.onChange} placeholder="Scan or type the old filter's tag, then Enter" autoFocus
+                    className="w-full px-3 py-3 border border-rose-200 rounded-xl text-base font-mono bg-rose-50/40 focus:ring-2 focus:ring-rose-500 focus:border-rose-500" />
+                  {replTaskError && <div className="text-[12px] text-rose-700 mt-1.5 font-medium">{replTaskError}</div>}
+                  <div className="text-[10.5px] text-slate-400 mt-1.5">Replaces that filter (retire old → new, tag carries over) and ticks this task down by one.</div>
+                </div>
+                <button onClick={resolveAndExecuteReplTask} disabled={replTaskSubmitting || !replTaskScan.value.trim()}
+                  className="w-full py-3 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-rose-500 to-pink-600 shadow-lg active:shadow-none disabled:opacity-50">
+                  {replTaskSubmitting ? 'Replacing…' : 'Replace scanned filter'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* --- BOTTOM NAVIGATION --- */}
       {view !== 'operations' && (
         <div className="bg-white/90 backdrop-blur-lg border-t border-slate-200/60 px-2 py-2 flex items-center justify-around shrink-0 z-10">
@@ -2229,7 +2706,7 @@ export function MobileWrapperPage() {
         isVerifying={reauth.isVerifying}
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
-        onCancel={() => { reauth.cancel(); setRfidSubmitting(false); }}
+        onCancel={() => { reauth.cancel(); setRfidSubmitting(false); setReplaceSubmitting(false); }}
         actionLabel="RFID Tag"
       />
       <ReauthDialog

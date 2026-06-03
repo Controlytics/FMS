@@ -41,6 +41,7 @@ interface ParsedRow {
   ahuType: string;
   filterType: string;
   micronSize: string;
+  filterSize: string;
   lastCleaningDate: string;
   rfidTag: string;
 }
@@ -54,6 +55,7 @@ const HEADER_ALIASES: Record<string, keyof Omit<ParsedRow, 'rowNumber'>> = {
   ahutype: 'ahuType',
   filtertype: 'filterType',
   micronsize: 'micronSize',
+  filtersize: 'filterSize',
   lastcleaningdate: 'lastCleaningDate',
   rfidtag: 'rfidTag', rfid: 'rfidTag',
 };
@@ -89,7 +91,7 @@ function parseWorkbook(buffer: Buffer): Promise<{ rows: ParsedRow[]; error?: str
     const rows: ParsedRow[] = [];
     ws.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
-      const r: ParsedRow = { rowNumber, name: '', filterSet: '', ahuType: '', filterType: '', micronSize: '', lastCleaningDate: '', rfidTag: '' };
+      const r: ParsedRow = { rowNumber, name: '', filterSet: '', ahuType: '', filterType: '', micronSize: '', filterSize: '', lastCleaningDate: '', rfidTag: '' };
       let any = false;
       row.eachCell((cell, col) => {
         const key = colKey[col];
@@ -147,7 +149,7 @@ export async function bulkUploadFilters(
   const results: BulkResult[] = [];
   const namesInBatch = new Set<string>();
   const tagsInBatch = new Set<string>();
-  const toCreate: Array<{ rowNumber: number; name: string; filterSet?: 'A' | 'B'; rfidTag?: string; ahuType: string; filterType: string; micronSize: string; lastCleaningDate: string }> = [];
+  const toCreate: Array<{ rowNumber: number; name: string; filterSet?: 'A' | 'B'; rfidTag?: string; ahuType: string; filterType: string; micronSize: string; filterSize: string; lastCleaningDate: string }> = [];
 
   for (const r of rows) {
     const rowErrs: BulkResult[] = [];
@@ -168,7 +170,7 @@ export async function bulkUploadFilters(
     // attributes from the raw values at create time; here we only collect errors
     // for the per-cell dry-run feedback).
     const { errors: fieldErrors } = await validateAndBuildFilterAttributes({
-      ahuType: r.ahuType, filterType: r.filterType, micronSize: r.micronSize, lastCleaningDate: r.lastCleaningDate,
+      ahuType: r.ahuType, filterType: r.filterType, micronSize: r.micronSize, filterSize: r.filterSize, lastCleaningDate: r.lastCleaningDate,
     });
     for (const fe of fieldErrors) rowErrs.push({ row: r.rowNumber, name, status: 'error', column: fe.field, value: fe.value, error: fe.message });
 
@@ -190,7 +192,7 @@ export async function bulkUploadFilters(
       results.push(...rowErrs);
       continue;
     }
-    toCreate.push({ rowNumber: r.rowNumber, name, filterSet: filterSetWire, rfidTag: tag || undefined, ahuType: r.ahuType, filterType: r.filterType, micronSize: r.micronSize, lastCleaningDate: r.lastCleaningDate });
+    toCreate.push({ rowNumber: r.rowNumber, name, filterSet: filterSetWire, rfidTag: tag || undefined, ahuType: r.ahuType, filterType: r.filterType, micronSize: r.micronSize, filterSize: r.filterSize, lastCleaningDate: r.lastCleaningDate });
   }
 
   // 5. Dry-run: report would-create rows as success, return parsed rows for the preview.
@@ -201,7 +203,7 @@ export async function bulkUploadFilters(
       results,
       created: 0,
       failed: results.filter((r) => r.status === 'error').length,
-      rows: rows.map((r) => ({ name: r.name, filterSet: r.filterSet, ahuType: r.ahuType, filterType: r.filterType, micronSize: r.micronSize, lastCleaningDate: r.lastCleaningDate, rfidTag: r.rfidTag })),
+      rows: rows.map((r) => ({ name: r.name, filterSet: r.filterSet, ahuType: r.ahuType, filterType: r.filterType, micronSize: r.micronSize, filterSize: r.filterSize, lastCleaningDate: r.lastCleaningDate, rfidTag: r.rfidTag })),
     };
   }
 
@@ -217,7 +219,7 @@ export async function bulkUploadFilters(
         ahuId,
         ...(c.filterSet ? { filterSet: c.filterSet } : {}),
         ...(c.rfidTag ? { rfidTag: c.rfidTag } : {}),
-        ahuType: c.ahuType, filterType: c.filterType, micronSize: c.micronSize, lastCleaningDate: c.lastCleaningDate,
+        ahuType: c.ahuType, filterType: c.filterType, micronSize: c.micronSize, filterSize: c.filterSize, lastCleaningDate: c.lastCleaningDate,
       }, ctx);
       results.push({ row: c.rowNumber, name: c.name, status: 'success', id: f.id });
       createdNames.push(c.name);

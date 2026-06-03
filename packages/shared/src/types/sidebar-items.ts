@@ -23,6 +23,7 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'filter-list', label: 'Filters', icon: '\u{1F50D}', description: 'Filter inventory by block' },
   { id: 'filter-retirements', label: 'Retirement List', icon: '\u{1F6AB}', description: 'Retired filter inventory' },
   { id: 'filter-replacements', label: 'Replacement List', icon: '\u{1F504}', description: 'Filter replacement history' },
+  { id: 'replacement-schedule', label: 'Replacement Schedule', icon: '\u{1F4C5}', description: 'Upload-driven filter replacement schedule' },
   { id: 'filter-operations', label: 'Filter Operations', icon: '\u{1F527}', description: 'Filter cleaning operations' },
   { id: 'cleaning-cycles', label: 'Cleaning Cycles', icon: '\u{1F504}', description: 'Cleaning cycle history and timeline' },
   { id: 'checklists', label: 'Checklists', icon: '\u{1F4CB}', description: 'Checklist profile management' },

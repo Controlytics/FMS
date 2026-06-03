@@ -16,6 +16,7 @@ type Props = {
   ahuType: string;
   filterType: string;
   micronSize: string;
+  filterSize: string;
   lastCleaning: LastCleaningDateState;
   onAhuChange: (v: string) => void;
   onAreaChange: (v: string) => void;
@@ -24,6 +25,7 @@ type Props = {
   onAhuTypeChange: (v: string) => void;
   onFilterTypeChange: (v: string) => void;
   onMicronSizeChange: (v: string) => void;
+  onFilterSizeChange: (v: string) => void;
   onLastCleaningChange: (s: LastCleaningDateState) => void;
   onClose: () => void;
   onSubmit: () => void;
@@ -31,9 +33,9 @@ type Props = {
 
 export function CreateFilterDialog({
   ahu, area, name, filterSet, ahus, areas, error, submitting,
-  fieldOptions, ahuType, filterType, micronSize, lastCleaning,
+  fieldOptions, ahuType, filterType, micronSize, filterSize, lastCleaning,
   onAhuChange, onAreaChange, onNameChange, onFilterSetChange,
-  onAhuTypeChange, onFilterTypeChange, onMicronSizeChange, onLastCleaningChange,
+  onAhuTypeChange, onFilterTypeChange, onMicronSizeChange, onFilterSizeChange, onLastCleaningChange,
   onClose, onSubmit,
 }: Props) {
   return (
@@ -101,10 +103,12 @@ export function CreateFilterDialog({
             ahuType={ahuType}
             filterType={filterType}
             micronSize={micronSize}
+            filterSize={filterSize}
             lastCleaning={lastCleaning}
             onAhuTypeChange={onAhuTypeChange}
             onFilterTypeChange={onFilterTypeChange}
             onMicronSizeChange={onMicronSizeChange}
+            onFilterSizeChange={onFilterSizeChange}
             onLastCleaningChange={onLastCleaningChange}
           />
         </div>

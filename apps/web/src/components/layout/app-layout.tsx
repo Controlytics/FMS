@@ -6,6 +6,7 @@ import { useSingleTab } from '@/hooks/use-single-tab';
 import { useBranding } from '@/hooks/use-branding';
 import { useRfidGuard } from '@/hooks/use-rfid-guard';
 import { useOfflineConfig } from '@/hooks/use-offline-config';
+import { useDragScroll } from '@/hooks/use-drag-scroll';
 import { HardCutoffBlocker } from '@/components/hard-cutoff-blocker';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
@@ -16,6 +17,7 @@ import { triggerSync, startSyncPolling } from '@/lib/sync-since';
 
 export function AppLayout() {
   useRfidGuard(); // Block RFID UKB input from going into random fields
+  useDragScroll(); // App-wide click-drag horizontal panning for wide tables/grids
   // W2: read the SUPER_ADMIN-tuned offline-cache config and push the staleness
   // value into offline-store. Also exposes cacheHardCutoffHours for W4's
   // read-only blocker (consumed by a child component to be added in W4).

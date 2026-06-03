@@ -98,6 +98,13 @@ export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
     privilegeIds: ["assets.view"],
   },
   {
+    sidebarId: "replacement-schedule",
+    label: "Replacement Schedule",
+    icon: "\u{1F4C5}",
+    description: "Upload-driven filter replacement schedule",
+    privilegeIds: ["replacement_schedule.view"],
+  },
+  {
     sidebarId: "filter-operations",
     label: "Filter Operations",
     icon: "\u{1F527}",

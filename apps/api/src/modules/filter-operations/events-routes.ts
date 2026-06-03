@@ -60,6 +60,29 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
     return service.getCycles(ctx, req.query);
   });
 
+  app.get('/manual-status-changes', {
+    preHandler: [app.requirePermission('CYCLE_READ')],
+    schema: {
+      tags: ['Cleaning Cycles'],
+      summary: 'List manual filter status changes (Edit Filter Status)',
+      description: 'STATE_TRANSITION events recorded by manual status updates (cycleId null, attributes.manual=true). Powers the Manual Status Updates tab — these are not cleaning cycles.',
+      querystring: {
+        type: 'object',
+        properties: {
+          filterId: { type: 'string', format: 'uuid' },
+          from: { type: 'string', format: 'date-time' },
+          to: { type: 'string', format: 'date-time' },
+          page: { type: 'integer', default: 1 },
+          limit: { type: 'integer', default: 20 },
+        },
+      },
+      response: { 200: { type: 'object', properties: { data: { type: 'array' }, total: { type: 'integer' }, page: { type: 'integer' }, limit: { type: 'integer' }, totalPages: { type: 'integer' } } }, ...errorResponses },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    return service.getManualStatusChanges(ctx, req.query);
+  });
+
   app.get('/cycles/:id', {
     preHandler: [app.requirePermission('CYCLE_READ')],
     schema: {
@@ -132,6 +155,7 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
                 ahuType: { type: 'array', items: { type: 'string' } },
                 filterType: { type: 'array', items: { type: 'string' } },
                 micronSize: { type: 'array', items: { type: 'string' } },
+                filterSize: { type: 'array', items: { type: 'string' } },
               },
               additionalProperties: false,
             },
@@ -159,6 +183,7 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
         ahuType: Array.isArray((inner as any).ahuType) ? (inner as any).ahuType as string[] : ['Process', 'Non Process'],
         filterType: Array.isArray((inner as any).filterType) ? (inner as any).filterType as string[] : [],
         micronSize: Array.isArray((inner as any).micronSize) ? (inner as any).micronSize as string[] : [],
+        filterSize: Array.isArray((inner as any).filterSize) ? (inner as any).filterSize as string[] : [],
       },
     };
   });

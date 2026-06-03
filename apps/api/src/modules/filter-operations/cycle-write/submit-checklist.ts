@@ -213,15 +213,20 @@ export async function submitChecklistImpl(
     });
 
     if (shouldComplete) {
+      const completedAt = offlineTime ?? new Date();
       await tx.cleaningCycle.update({
         where: { id: cycle.id },
-        data: { status: 'COMPLETED', completedAt: offlineTime ?? new Date() },
+        data: { status: 'COMPLETED', completedAt },
       });
-      // currentCycleId + currentLifecycleState moved to FilterDetails (Step 6).
+      // 2026-06-02: completion (checklist-as-final-stage path) mirrors advance.ts
+      // — terminal CLEANING_CYCLE_COMPLETED state + lastCleaningDate stamp.
+      // currentCycleId stays cleared so the filter is available for a new cycle.
       await tx.filterDetails.update({
         where: { assetInstanceId: filterId },
-        data: { currentCycleId: null, currentLifecycleState: null },
+        data: { currentCycleId: null, currentLifecycleState: 'CLEANING_CYCLE_COMPLETED' },
       });
+      const cleanDate = completedAt.toISOString().slice(0, 10);
+      await tx.$executeRaw`UPDATE filters SET attributes = jsonb_set(COALESCE(attributes, '{}'::jsonb), '{lastCleaningDate}', to_jsonb(${cleanDate}::text), true) WHERE id = ${filterId}::uuid`;
       const completeEvent = {
         filterId, cycleId: cycle.id, eventType: 'CYCLE_COMPLETED' as const,
         performedBy: ctx.userSub, attributes: withClientOpId({ sequenceNumber: cycle.sequenceNumber }, clientOpId),

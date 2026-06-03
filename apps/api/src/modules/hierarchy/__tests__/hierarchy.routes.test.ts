@@ -31,6 +31,10 @@ const { mockPrisma } = vi.hoisted(() => ({
     filter: { findMany: vi.fn(), findFirst: vi.fn(), count: vi.fn() },
     // getTree() zips FilterDetails onto nested filters (T2.2).
     filterDetails: { findMany: vi.fn(async () => []) },
+    // getTree()/listFilters()/getFilter() derive lastCleanedAt via groupBys over
+    // cleaning-stage filter events + completed cycles (zipLastCleaned). Default: none.
+    cleaningCycle: { groupBy: vi.fn(async () => []) },
+    filterEvent: { groupBy: vi.fn(async () => []) },
   },
 }));
 

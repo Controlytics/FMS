@@ -63,6 +63,10 @@ export function CleaningProfileEditorPage() {
   // Dragging state
   const [draggingNode, setDraggingNode] = useState<number | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  // Empty-canvas pan state (drag blank space to scroll the canvas). A ref, not
+  // state, so panning doesn't re-render on every mousemove. Node/port mousedowns
+  // stopPropagation, so this only starts on genuinely empty canvas space.
+  const panRef = useRef<{ x: number; y: number; sl: number; st: number } | null>(null);
 
   // Wire-dragging state (from output port)
   const [wireFrom, setWireFrom] = useState<number | null>(null);
@@ -98,7 +102,26 @@ export function CleaningProfileEditorPage() {
     return { x: e.clientX - rect.left + el.scrollLeft, y: e.clientY - rect.top + el.scrollTop };
   }, []);
 
+  // Start an empty-canvas pan. Only fires on blank canvas / grid / SVG backdrop —
+  // node + port mousedowns call stopPropagation, so they never reach here.
+  const onCanvasMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const el = canvasRef.current;
+    if (!el) return;
+    panRef.current = { x: e.clientX, y: e.clientY, sl: el.scrollLeft, st: el.scrollTop };
+    el.style.cursor = 'grabbing';
+  }, []);
+
   const onCanvasMouseMove = useCallback((e: React.MouseEvent) => {
+    // Pan takes priority and is mutually exclusive with node/wire drags.
+    if (panRef.current) {
+      const el = canvasRef.current;
+      if (el) {
+        el.scrollLeft = panRef.current.sl - (e.clientX - panRef.current.x);
+        el.scrollTop = panRef.current.st - (e.clientY - panRef.current.y);
+      }
+      return;
+    }
     if (draggingNode !== null) {
       const p = canvasXY(e);
       setNodes(prev => prev.map((n, i) => i === draggingNode ? { ...n, positionX: Math.max(0, p.x - dragOffset.x), positionY: Math.max(0, p.y - dragOffset.y) } : n));
@@ -109,6 +132,10 @@ export function CleaningProfileEditorPage() {
   }, [draggingNode, wireFrom, dragOffset, canvasXY]);
 
   const onCanvasMouseUp = useCallback(() => {
+    if (panRef.current) {
+      panRef.current = null;
+      if (canvasRef.current) canvasRef.current.style.cursor = '';
+    }
     setDraggingNode(null);
     if (wireFrom !== null) setWireFrom(null);
   }, [wireFrom]);
@@ -300,8 +327,10 @@ export function CleaningProfileEditorPage() {
 
         {/* ── Canvas ── */}
         <div ref={canvasRef}
-          className="flex-1 overflow-auto relative select-none"
+          data-no-drag-pan
+          className="flex-1 overflow-auto relative select-none cursor-grab"
           style={{ background: 'radial-gradient(circle, #cbd5e1 1px, transparent 1px)', backgroundSize: '24px 24px', backgroundColor: '#f8fafc' }}
+          onMouseDown={onCanvasMouseDown}
           onMouseMove={onCanvasMouseMove}
           onMouseUp={onCanvasMouseUp}
           onMouseLeave={onCanvasMouseUp}

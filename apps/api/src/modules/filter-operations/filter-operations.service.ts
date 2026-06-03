@@ -115,6 +115,58 @@ export class FilterOperationsService {
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
+  /**
+   * Manual status-change log for the "Manual Status Updates" tab on the
+   * Cleaning Cycles page. Returns STATE_TRANSITION events that were recorded by
+   * a manual "Edit Filter Status" action (cycleId IS NULL + attributes.manual =
+   * true), enriched with filter + performer names. These are NOT cleaning
+   * cycles — per the 21 CFR decision we never fabricate a cycle row — but they
+   * carry the exact who/when/from→to so the change is visible alongside cycles.
+   */
+  async getManualStatusChanges(ctx: RequestContext, query: any) {
+    if (query.filterId) {
+      await getFilter(query.filterId, ctx);
+    }
+    const page = query.page ?? 1;
+    const limit = Math.min(query.limit ?? 20, 100);
+    const where: any = {
+      eventType: 'STATE_TRANSITION',
+      cycleId: null,
+      attributes: { path: ['manual'], equals: true },
+    };
+    if (query.filterId) where.filterId = query.filterId;
+    if (query.from || query.to) {
+      where.performedAt = {};
+      if (query.from) where.performedAt.gte = new Date(query.from);
+      if (query.to) where.performedAt.lte = new Date(query.to);
+    }
+
+    const [data, total] = await Promise.all([
+      prisma.filterEvent.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { performedAt: 'desc' } }),
+      prisma.filterEvent.count({ where }),
+    ]);
+
+    const filterIds = [...new Set(data.map((e) => e.filterId))];
+    const performerIds = [...new Set(data.map((e) => e.performedBy).filter(Boolean))] as string[];
+    const [filters, performers] = await Promise.all([
+      filterIds.length ? prisma.assetInstance.findMany({ where: { id: { in: filterIds } }, select: { id: true, name: true } }) : [],
+      performerIds.length ? prisma.user.findMany({ where: { id: { in: performerIds } }, select: { id: true, username: true, fullName: true } }) : [],
+    ]);
+    const fmap = new Map(filters.map((f) => [f.id, f.name]));
+    const umap = new Map(performers.map((u) => [u.id, { fullName: u.fullName || u.username, username: u.username }]));
+
+    const enriched = data.map((e) => {
+      const u = e.performedBy ? umap.get(e.performedBy) : null;
+      return {
+        ...e,
+        filterName: fmap.get(e.filterId) ?? null,
+        performedByName: u?.fullName ?? null,
+        performedByUsername: u?.username ?? null,
+      };
+    });
+    return { data: enriched, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
   async getDashboardStats(_ctx: RequestContext) {
     // May 16 H20 fix (2026-05-20): 7 independent queries now run in parallel
     // via Promise.all instead of sequentially. Dashboard load drops from
@@ -452,6 +504,7 @@ export class FilterOperationsService {
     // Create replacement filter + relationships in a transaction (rollback on failure).
     // FilterDetails (filterSet, filterProfileId) live in the sidecar (Step 6).
     let newFilter: any;
+    let movedTagCount = 0;
     try {
       newFilter = await prisma.$transaction(async (tx) => {
         const created = await tx.assetInstance.create({
@@ -496,6 +549,17 @@ export class FilterOperationsService {
           });
         }
 
+        // Carry the physical tag(s) over to the replacement filter. A swapped
+        // filter keeps the SAME RFID/QR tag — only the filter ID changes. Since
+        // identifier_value is globally unique we MOVE the rows (re-point assetId)
+        // rather than copy. retire() above never touches identifiers, so they're
+        // still attached to the old filter at this point and re-point cleanly.
+        const moved = await tx.assetIdentifier.updateMany({
+          where: { assetId: filterId },
+          data: { assetId: created.id, updatedBy: ctx.userId ?? ctx.userSub ?? null },
+        });
+        movedTagCount = moved.count;
+
         return created;
       });
     } catch (err) {
@@ -521,6 +585,7 @@ export class FilterOperationsService {
         oldFilterName: oldName,
         newFilterId: newFilter.id,
         newFilterName: newName,
+        identifiersMoved: movedTagCount,
         remarks,
       },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
@@ -531,6 +596,7 @@ export class FilterOperationsService {
       oldFilterId: filterId,
       newFilterId: newFilter.id,
       newFilterName: newName,
+      identifiersMoved: movedTagCount,
     };
   }
 

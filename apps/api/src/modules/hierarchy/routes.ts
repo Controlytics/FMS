@@ -46,6 +46,10 @@ const filterExtraProps = {
   currentLifecycleState: { type: ['string', 'null'], nullable: true },
   currentCycleId: { type: ['string', 'null'], nullable: true },
   filterSet: { type: ['string', 'null'], nullable: true },
+  // Server-derived effective "last cleaned" date — GREATEST(latest completed
+  // cycle, manual lastCleaningDate seed). Single source of truth so the web
+  // Filters page and the tablet can never disagree. See zipLastCleaned().
+  lastCleanedAt: { type: ['string', 'null'], nullable: true },
 } as const;
 
 const filterSchema = {
@@ -313,6 +317,7 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
           ahuType: { type: 'string' },
           filterType: { type: 'string' },
           micronSize: { type: 'string' },
+          filterSize: { type: 'string' },
           lastCleaningDate: { type: 'string' },
           filterProfileId: { type: 'string', format: 'uuid' },
         },
@@ -345,6 +350,7 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
           ahuType: { type: 'string' },
           filterType: { type: 'string' },
           micronSize: { type: 'string' },
+          filterSize: { type: 'string' },
           lastCleaningDate: { type: 'string' },
         },
         additionalProperties: false,

@@ -208,9 +208,12 @@ export async function startCycleImpl(
     });
 
     // currentCycleId moved to FilterDetails (Step 6).
+    // Reset currentLifecycleState too: a prior cycle may have left it in the
+    // terminal CLEANING_CYCLE_COMPLETED state (2026-06-02), which would
+    // otherwise display until the first advance sets the real first stage.
     await tx.filterDetails.upsert({
       where: { assetInstanceId: filterId },
-      update: { currentCycleId: newCycle.id },
+      update: { currentCycleId: newCycle.id, currentLifecycleState: null },
       create: { assetInstanceId: filterId, currentCycleId: newCycle.id },
     });
 

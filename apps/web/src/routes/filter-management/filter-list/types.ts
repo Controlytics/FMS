@@ -12,6 +12,7 @@ export type EditFilterRef = {
   ahuType?: string;
   filterType?: string;
   micronSize?: string;
+  filterSize?: string;
   lastCleaningDate?: string | null;
 };
 export type HierarchyNode = { id: string; name: string; entityType: string };
