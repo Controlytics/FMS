@@ -197,13 +197,26 @@ describe('authService', () => {
 
   // ── logout ──
   describe('logout', () => {
-    it('terminates session and logs audit', async () => {
+    it('terminates session and logs audit (default reason manual)', async () => {
       mockRepo.terminateSession.mockResolvedValue({});
 
       await authService.logout('sess-1', 'admin', 'ADMIN', '127.0.0.1', 'agent');
 
-      expect(mockRepo.terminateSession).toHaveBeenCalledWith('sess-1', 'logout');
-      expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'LOGOUT' }));
+      expect(mockRepo.terminateSession).toHaveBeenCalledWith('sess-1', 'manual');
+      expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'LOGOUT', afterValue: expect.objectContaining({ reason: 'manual' }),
+      }));
+    });
+
+    it('records the idle_timeout reason when passed', async () => {
+      mockRepo.terminateSession.mockResolvedValue({});
+
+      await authService.logout('sess-2', 'op', 'OPERATOR', '127.0.0.1', 'agent', 'idle_timeout');
+
+      expect(mockRepo.terminateSession).toHaveBeenCalledWith('sess-2', 'idle_timeout');
+      expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'LOGOUT', afterValue: expect.objectContaining({ reason: 'idle_timeout' }),
+      }));
     });
   });
 

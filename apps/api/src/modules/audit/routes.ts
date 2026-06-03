@@ -70,7 +70,15 @@ export default async function auditRoutes(app: FastifyInstance) {
     const query = auditQuerySchema.parse(req.query);
     const where: Record<string, unknown> = {
       AND: [
-        { OR: [{ userRole: { not: 'SUPER_ADMIN' } }, { userRole: null }] },
+        // A SUPER_ADMIN viewer sees SUPER_ADMIN actions too (incl. their own
+        // login/logout) — a complete 21 CFR §11 audit trail. Lower roles still
+        // never see SUPER_ADMIN rows. (Previously unconditional → SUPER_ADMIN
+        // actions were hidden from everyone, so superadmin's own logout looked
+        // "unrecorded" even though it was. Same pattern fixed in the single-row
+        // fetch below.)
+        ...(req.user.role === 'SUPER_ADMIN'
+          ? []
+          : [{ OR: [{ userRole: { not: 'SUPER_ADMIN' } }, { userRole: null }] }]),
       ],
     };
 
@@ -301,15 +309,15 @@ export default async function auditRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    // SUPER_ADMIN actions are excluded from the audit list by design (see line 73).
-    // The detail endpoint must apply the same filter, otherwise any user with
-    // AUDIT_READ who knows a UUID could fetch a SUPER_ADMIN row directly —
-    // contradicting the list-level policy and leaking the very rows the policy
-    // hides. Use findFirst with the same shape as the list query.
+    // Mirror the list policy: a SUPER_ADMIN viewer may fetch SUPER_ADMIN rows;
+    // lower roles cannot (so a non-SUPER_ADMIN with AUDIT_READ who knows a UUID
+    // still can't pull a SUPER_ADMIN row directly).
     const record = await prisma.auditTrail.findFirst({
       where: {
         id,
-        OR: [{ userRole: { not: 'SUPER_ADMIN' } }, { userRole: null }],
+        ...(req.user.role === 'SUPER_ADMIN'
+          ? {}
+          : { OR: [{ userRole: { not: 'SUPER_ADMIN' } }, { userRole: null }] }),
       },
     });
     if (!record) return reply.code(404).send({ error: 'Audit record not found' });

@@ -260,12 +260,16 @@ export const authService = {
     };
   },
 
-  async logout(sessionId: string, username: string, role: string, ip: string, userAgent: string | undefined) {
-    await authRepository.terminateSession(sessionId, 'logout');
+  async logout(sessionId: string, username: string, role: string, ip: string, userAgent: string | undefined, reason: 'manual' | 'idle_timeout' = 'manual') {
+    await authRepository.terminateSession(sessionId, reason);
     await auditLog({
       userId: username, userRole: role, action: 'LOGOUT',
       targetType: 'session', targetId: sessionId,
-      afterValue: { username }, ipAddress: ip, userAgent, sessionId,
+      afterValue: { username, reason },
+      signatureMeaning: reason === 'idle_timeout'
+        ? `Session ended by idle auto-logout for "${username}"`
+        : `User "${username}" logged out`,
+      ipAddress: ip, userAgent, sessionId,
     });
   },
 

@@ -82,11 +82,17 @@ export default async function authRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Auth'],
       summary: 'Logout',
-      description: 'Terminate the current session',
+      description: 'Terminate the current session. Optional body { reason } distinguishes a manual logout from an idle auto-logout in the audit trail.',
+      body: {
+        type: 'object',
+        properties: { reason: { type: 'string', enum: ['manual', 'idle_timeout'] } },
+        additionalProperties: false,
+      },
       response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } } },
     },
   }, async (req) => {
-    await authService.logout(req.user.sessionId, req.user.username, req.user.role, req.ip, req.headers['user-agent']);
+    const reason = (req.body as { reason?: string } | undefined)?.reason === 'idle_timeout' ? 'idle_timeout' : 'manual';
+    await authService.logout(req.user.sessionId, req.user.username, req.user.role, req.ip, req.headers['user-agent'], reason);
     return { success: true };
   });
 

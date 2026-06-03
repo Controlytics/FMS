@@ -142,9 +142,9 @@ export function useAuth() {
     return res;
   };
 
-  const logout = async () => {
+  const logout = async (reason: 'manual' | 'idle_timeout' = 'manual') => {
     try {
-      await apiClient.post('/api/auth/logout', {});
+      await apiClient.post('/api/auth/logout', { reason });
     } catch {
       // ignore
     }
