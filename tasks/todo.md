@@ -1546,3 +1546,60 @@ None. No DB mutated (Agent C used a transient shadow DB and dropped it). No prod
 ### Time spent
 
 ~3 hours (parallel 9-agent dispatch ran ~1.5 hours wall clock, commits + integration + verification + docs took the rest).
+
+---
+
+## [PLAN] Cleaning Workflow Unification (Tab ⇄ Web Manual) + RFID Track Record Report — 2026-06-03
+
+Spec from user: web manual "Edit Filter Status" must follow the SAME cleaning-profile
+rules as tablet cleaning; both must update Cleaning Cycles via common logic; backward
+moves break the cycle; missing profile stages show NA; plus a new RFID Track Record report.
+
+### Research map (done, 3 Explore agents)
+- **advance.ts** (cycle-write/) is the tablet stage engine: current stage from
+  `FilterDetails.currentLifecycleState`; valid next stage via `@digilog/shared`
+  `findReachable(fromNode, stages, connections)`; writes STATE_TRANSITION events
+  (stage times DERIVED from events, no per-stage columns except dryer*), updates
+  cycle/FilterDetails, checklist gate, auto-complete on END.
+- **Profile sequence**: `FilterCleaningProfile.stages` (FilterPipelineStage, `stateKey`,
+  sortOrder) + `connections`. Same `findReachable` usable from web.
+- **CleaningCycleStatus enum**: IN_PROGRESS / COMPLETED / TERMINATED only — NO "broken".
+- **terminate-cycle.ts**: sets TERMINATED + clears FilterDetails; pattern reusable to "break".
+- **changeLifecycleState** (instance.service.ts): already (2026-06-03) attaches manual
+  STATE_TRANSITION events to an active cycle; MISSING profile-sequence validation.
+- **Edit Filter Status UI**: StatusUpdatePanel.tsx → PATCH /api/assets/instances/:id/
+  lifecycle-state; ALREADY wrapped in reauth('UPDATE_FILTER_LIFECYCLE') + server enforce.
+- **RFID report**: buildable from audit_trail (ASSET_IDENTIFIER_CREATED/DELETED + joins);
+  removal "reason" NOT captured today; PDF engine exists, NO Excel/xlsx lib yet.
+
+### Architecture decision (low-risk): SHARED HELPERS, do NOT rewrite advance.ts
+- New `stage-rules.ts` (pure): `getValidMoves(pipeline, currentStage)` via findReachable →
+  {orderedStages, forward[], backward[]}. Used by (a) new valid-stages endpoint for the
+  dialog, (b) server-side manual-move validation. advance() keeps its own guards (dryer/
+  instruments/offline) — those don't apply to manual web moves; rule parity comes from
+  reusing findReachable + the same STATE_TRANSITION event shape.
+
+### Phases
+- [x] **P1 — Profile-sequence validation on web manual move** (DONE 2026-06-03, verified API+UI) (items 1,2,6). stage-rules.ts;
+      GET valid-next-stages endpoint; StatusUpdatePanel constrains options + "Invalid stage
+      movement…" message + "Moving filter manually. Continue?" + password (reauth exists);
+      server validates target reachable, rejects invalid; records source=Manual/Web.
+- [x] **P2 — Missing profile stage = NA** (DONE 2026-06-03, verified API+UI) (item 5). Cleaning Cycles columns show NA for
+      stages not in the filter's profile (vs blank); driven by the profile stage set.
+- [ ] **P3 — Backward move breaks cycle + new cycle** (item 4). Close current cycle as
+      broken; start new cycle from target stage. NEEDS: D1 (broken status) + D2 (reason).
+- [ ] **P4 — RFID Track Record Report** (item 7). Service over audit_trail + joins; new
+      report page; filters (date/RFID/filter/AHU/user); PDF (exists) + Excel (D3); add
+      reason capture on RFID removal.
+
+### Open decisions (blocking P3/P4 only — P1/P2 can start now)
+- **D1** broken-cycle status: add enum `INTERRUPTED` (migration) vs reuse `TERMINATED`+reason marker.
+- **D2** new-cycle reason: prompt operator vs auto "Manual entry".
+- **D3** RFID report: capture removal reason? + Excel export (new xlsx lib) vs PDF-only.
+- **D4** build order / priority.
+
+### DECISIONS (2026-06-03, user)
+- D4 = **P1+P2 first → P3 → P4**.
+- D1 = **Reuse TERMINATED + reason** (no migration; broken cycle = TERMINATED w/ reason marker).
+- D2 = **Prompt operator for reason** when a manual move starts a new cycle.
+- D3 = **PDF only + capture removal reason** (no Excel/xlsx; add reason to RFID remove flow).

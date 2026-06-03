@@ -12,6 +12,7 @@ import {
   getProfilePipeline,
   getCleaningReasons,
 } from './filter-resolver.js';
+import { getProfileOrderedStages } from './stage-rules.js';
 import { terminateCycleImpl } from './cycle-write/terminate-cycle.js';
 import { bypassImpl } from './cycle-write/bypass.js';
 import { submitChecklistImpl } from './cycle-write/submit-checklist.js';
@@ -274,11 +275,21 @@ export class FilterOperationsService {
     // operator request; desktop continues to show fullName.
     const userMap = new Map(performers.map(u => [u.id, { fullName: u.fullName || u.username, username: u.username }]));
 
+    // P2 (2026-06-03): resolve each cycle's profile stage set so the Cleaning
+    // Cycles view can show "NA" for stages the profile doesn't configure (vs "-"
+    // for an in-profile stage not yet reached). Batched by distinct profileId.
+    const distinctProfileIds = [...new Set(data.map((c: any) => c.profileId).filter(Boolean))] as string[];
+    const profileStageMap = new Map<string, string[]>();
+    await Promise.all(distinctProfileIds.map(async (pid) => {
+      profileStageMap.set(pid, await getProfileOrderedStages(pid));
+    }));
+
     const enriched = data.map(c => ({
       ...c,
       filterName: assetMap.get(c.filterId)?.name ?? null,
       filterSet: assetMap.get(c.filterId)?.filterSet ?? null,
       cleaningAreaName: c.cleaningAreaId ? (assetMap.get(c.cleaningAreaId)?.name ?? null) : null,
+      profileStages: c.profileId ? (profileStageMap.get(c.profileId) ?? []) : [],
       ...((c as any).events ? {
         events: (c as any).events.map((e: any) => {
           const u = e.performedBy ? userMap.get(e.performedBy) : null;

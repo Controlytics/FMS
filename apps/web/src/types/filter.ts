@@ -82,6 +82,9 @@ export interface CleaningCycle {
   equipmentGroupId?: string | null;
   equipmentGroupVersionPin?: number | null; // P1 (2026-05-02)
   checklistVersionPins?: Record<string, number>; // Phase A.1 — { [checklistProfileId]: versionNumber }
+  // P2 (2026-06-03): ordered STAGE stateKeys this cycle's profile configures.
+  // Cleaning Cycles renders "NA" for a column whose stage is not in this list.
+  profileStages?: string[];
 }
 
 export interface FilterEvent {

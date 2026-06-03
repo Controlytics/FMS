@@ -471,15 +471,10 @@ export function FilterListPage() {
     // invoked from event handlers, so the temporal dead zone never trips.
     closePanel(); // close retire panel if open
     setStatusPanelFilter(filter);
-    // Default to the current state when it's still a selectable option; otherwise
-    // (null / INSTALLED / IN_USE — none of which the dropdown offers) fall back to
-    // the first option so the <select> shows a valid value.
-    const validStates = LIFECYCLE_STATE_OPTIONS.map(o => o.value);
-    setStatusPanelState(
-      filter.currentState && validStates.includes(filter.currentState)
-        ? filter.currentState
-        : LIFECYCLE_STATE_OPTIONS[0].value,
-    );
+    // Start blank ("Select status…") so the operator must actively choose a
+    // valid next stage. The panel constrains the options to the filter's
+    // cleaning-profile sequence and blocks out-of-sequence (skip) moves.
+    setStatusPanelState('');
     setStatusPanelRemarks('');
   };
 

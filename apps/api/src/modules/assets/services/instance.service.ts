@@ -14,6 +14,7 @@ import { upsertFilterDetails } from '../../../lib/filter-details.js';
 // CYCLE_COMPLETED event when a manual "Cleaning Cycle Completed" force-completes
 // an active cycle. No circular dependency (helpers.ts imports only prisma + crypto).
 import { computeChecksum } from '../../filter-operations/helpers.js';
+import { getFilterStageRules, classifyMove, INVALID_STAGE_MOVE_MESSAGE } from '../../filter-operations/stage-rules.js';
 import { randomBytes } from 'node:crypto';
 import { provisionUnsMapping } from '../../uns/uns.service.js';
 import { getEntityUnsPath } from '../../../lib/uns-path.js';
@@ -398,6 +399,18 @@ export const instanceService = {
     const beforeState = (existing as any).currentLifecycleState ?? null;
     const newState = lifecycleState.trim();
 
+    // P1 (2026-06-03): manual web moves obey the SAME cleaning-profile sequence
+    // the tablet enforces. classifyMove() reuses the shared findReachable() so
+    // the rules are identical. Block a forward SKIP (e.g. Dirty → Storage Out).
+    // BACKWARD is allowed today as a plain move (P3 upgrades it to break-cycle-
+    // and-restart); NON_CLEANING operational states (INSTALLED / IN_USE) and
+    // COMPLETE carry no sequence rule. Only enforced when the filter resolves to
+    // a cleaning profile with a pipeline (rules.hasProfile).
+    const stageRules = await getFilterStageRules(id);
+    if (stageRules.hasProfile && classifyMove(stageRules, newState) === 'SKIP') {
+      throw new ValidationError(INVALID_STAGE_MOVE_MESSAGE);
+    }
+
     let forceCompletedCycle = false;
     const isCompletion = newState === 'CLEANING_CYCLE_COMPLETED';
     // Single timestamp for the whole change — the manual event's performedAt and
@@ -409,40 +422,42 @@ export const instanceService = {
     // only set from the Create/Edit Filter dialog.
     const changedAt = new Date();
 
-    // Every manual status change is recorded as a STATE_TRANSITION FilterEvent
-    // with cycleId=null and attributes.manual=true. This is what powers the
-    // "Manual Status Updates" tab on the Cleaning Cycles page — a queryable,
-    // checksum'd record of who changed status when, WITHOUT fabricating a fake
-    // cleaning_cycles row (per the 21 CFR decision). The audit_trail row below
-    // remains the compliance source of truth; this is the operational view.
-    const manualEvent = {
-      filterId: id, cycleId: null as string | null, eventType: 'STATE_TRANSITION' as const,
-      fromState: beforeState, toState: newState,
-      performedBy: ctx.userSub,
-      attributes: { manual: true, source: 'MANUAL', remarks: remarks?.trim() ?? '' },
-    };
-
+    // Manual status changes are recorded as a STATE_TRANSITION FilterEvent with
+    // attributes.manual=true. SYNC RULE (2026-06-03): when the filter has an
+    // active in-progress cleaning cycle, the change is attached to THAT cycle
+    // (cycleId set) so it lands in the cycle's stage columns on the Cleaning
+    // Cycles page — manual Filters-page edits and tablet cleaning now drive the
+    // same cycle record. attributes.manual stays true so the audit trail shows
+    // the stage was set by a manual override (no checklist/readings enforcement
+    // like advance() does) rather than a normal advance. When there is NO active
+    // cycle the event keeps cycleId=null and surfaces in the "Manual Status
+    // Updates" tab — a queryable, checksum'd record without fabricating a fake
+    // cleaning_cycles row (per the 2026-06-02 21 CFR decision). This event's
+    // performedAt is what "Last Cleaned" reads (hierarchy.service.zipLastCleaned);
+    // it does NOT write the user-editable lastCleaningDate seed.
     await prisma.$transaction(async (tx) => {
-      if (isCompletion) {
+      // Look up the active in-progress cycle once (all target states need it):
+      // it's both the cycle to force-complete on completion AND the cycle the
+      // manual stage event attaches to so it shows in the cycle's stage data.
+      const fd = await tx.filterDetails.findUnique({ where: { assetInstanceId: id }, select: { currentCycleId: true } });
+      const activeCycle = fd?.currentCycleId
+        ? await tx.cleaningCycle.findFirst({ where: { id: fd.currentCycleId, status: 'IN_PROGRESS' }, select: { id: true, sequenceNumber: true } })
+        : null;
+
+      if (isCompletion && activeCycle) {
         // Force-complete (2026-06-02, per user decision): manually setting
-        // "Cleaning Cycle Completed" also FINISHES any active in-progress cycle,
+        // "Cleaning Cycle Completed" also FINISHES the active in-progress cycle,
         // so the Cleaning Cycles view + the filter status no longer disagree.
-        const fd = await tx.filterDetails.findUnique({ where: { assetInstanceId: id }, select: { currentCycleId: true } });
-        const activeCycle = fd?.currentCycleId
-          ? await tx.cleaningCycle.findFirst({ where: { id: fd.currentCycleId, status: 'IN_PROGRESS' } })
-          : null;
-        if (activeCycle) {
-          forceCompletedCycle = true;
-          await tx.cleaningCycle.update({ where: { id: activeCycle.id }, data: { status: 'COMPLETED', completedAt: changedAt } });
-          const completeEvent = {
-            filterId: id, cycleId: activeCycle.id, eventType: 'CYCLE_COMPLETED' as const,
-            performedBy: ctx.userSub,
-            attributes: { sequenceNumber: activeCycle.sequenceNumber, manualForceComplete: true, remarks: remarks?.trim() ?? '' },
-          };
-          await tx.filterEvent.create({
-            data: { ...completeEvent, performedAt: changedAt, checksum: computeChecksum(completeEvent), ipAddress: ctx.ipAddress, telemetrySnapshot: {} },
-          });
-        }
+        forceCompletedCycle = true;
+        await tx.cleaningCycle.update({ where: { id: activeCycle.id }, data: { status: 'COMPLETED', completedAt: changedAt } });
+        const completeEvent = {
+          filterId: id, cycleId: activeCycle.id, eventType: 'CYCLE_COMPLETED' as const,
+          performedBy: ctx.userSub,
+          attributes: { sequenceNumber: activeCycle.sequenceNumber, manualForceComplete: true, remarks: remarks?.trim() ?? '' },
+        };
+        await tx.filterEvent.create({
+          data: { ...completeEvent, performedAt: changedAt, checksum: computeChecksum(completeEvent), ipAddress: ctx.ipAddress, telemetrySnapshot: {} },
+        });
       }
 
       await tx.filterDetails.upsert({
@@ -451,11 +466,17 @@ export const instanceService = {
         create: { assetInstanceId: id, currentLifecycleState: newState },
       });
 
-      // Record the manual status change as a filter event (all states). Its
-      // performedAt = changedAt is the EXACT date+time, and it's what the
-      // "Last Cleaned" derivation reads — so a manual change to ANY cleaning
-      // stage (not just "Completed") moves the Last Cleaned timestamp. No
-      // separate attribute stamp is needed.
+      // Record the manual status change as a filter event (all states), attached
+      // to the active cycle when one exists. performedAt = changedAt is the EXACT
+      // date+time, and it's what the "Last Cleaned" derivation reads — so a manual
+      // change to ANY cleaning stage (not just "Completed") moves Last Cleaned and,
+      // when a cycle is active, populates that stage's column in Cleaning Cycles.
+      const manualEvent = {
+        filterId: id, cycleId: activeCycle?.id ?? null, eventType: 'STATE_TRANSITION' as const,
+        fromState: beforeState, toState: newState,
+        performedBy: ctx.userSub,
+        attributes: { manual: true, source: 'MANUAL', remarks: remarks?.trim() ?? '' },
+      };
       await tx.filterEvent.create({
         data: {
           ...manualEvent,

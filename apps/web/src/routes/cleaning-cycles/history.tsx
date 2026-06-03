@@ -100,7 +100,13 @@ export function CleaningCycleHistoryPage() {
     // the fallback to stageEvents[0] still makes sense there.
     const requireReadings = stage === 'DRY_IN';
     const evWithReadings = stageEvents.find((e) => (e.attributes as any)?.instrumentReadings?.length > 0);
-    const ev = evWithReadings ?? (requireReadings ? null : stageEvents[0]);
+    // A manual Edit-Filter-Status change carries no instrumentReadings, so for
+    // DRY_IN (which normally requires the readings event) fall back to the manual
+    // event's time — otherwise a manually-driven cycle would show a blank Dry In
+    // column. Real tablet cycles still require the readings event (mid-dryer with
+    // no temperature recorded stays intentionally blank).
+    const manualStageEvent = stageEvents.find((e) => (e.attributes as any)?.manual);
+    const ev = evWithReadings ?? manualStageEvent ?? (requireReadings ? null : stageEvents[0]);
     if (!ev) return null;
     return { time: ev.performedAt, performedBy: ev.performedByName ?? ev.performedBy?.substring(0, 8) ?? '-', readings: (ev.attributes as any)?.instrumentReadings ?? [] };
   };
@@ -147,13 +153,18 @@ export function CleaningCycleHistoryPage() {
         const dryOut = getStageInfo(c.events ?? [], 'DRY_OUT');
         const washReadings = washIn?.readings ?? [];
         const dryReadings = (dryIn?.readings?.length ? dryIn.readings : null) ?? (dryOut?.readings?.length ? dryOut.readings : null) ?? [];
+        // P2: missing profile stage → "NA" (string form for the PDF rows).
+        const pStages: string[] = c.profileStages ?? [];
+        const naCell = (stage: string, v: string | null) =>
+          v != null ? v : pStages.length > 0 && !pStages.includes(stage) ? 'NA' : '-';
+        const dryerTempStr = getReading(dryReadings, 'dryer') !== '-' ? getReading(dryReadings, 'dryer') : getReading(dryReadings, 'temperature');
         return [
           String(idx + 1), c.filterName ?? '-', attrs.filterSize ?? '-',
           getReading(washReadings, 'air pressure'), getReading(washReadings, 'ro water'),
-          washIn ? formatDateTime(washIn.time) : '-', washOut ? formatDateTime(washOut.time) : '-',
+          naCell('WASH_IN', washIn ? formatDateTime(washIn.time) : null), naCell('WASH_OUT', washOut ? formatDateTime(washOut.time) : null),
           washIn?.performedBy ?? washOut?.performedBy ?? '-',
-          getReading(dryReadings, 'dryer') !== '-' ? getReading(dryReadings, 'dryer') : getReading(dryReadings, 'temperature'),
-          dryIn ? formatDateTime(dryIn.time) : '-', dryOut ? formatDateTime(dryOut.time) : '-',
+          naCell('DRY_IN', dryerTempStr !== '-' ? dryerTempStr : null),
+          naCell('DRY_IN', dryIn ? formatDateTime(dryIn.time) : null), naCell('DRY_OUT', dryOut ? formatDateTime(dryOut.time) : null),
           dryIn?.performedBy ?? dryOut?.performedBy ?? '-',
           getDuration(c) ?? '-', c.status,
         ];
@@ -358,6 +369,15 @@ export function CleaningCycleHistoryPage() {
                 const dryerTemp = getReading(dryReadings, 'dryer') !== '-' ? getReading(dryReadings, 'dryer') : getReading(dryReadings, 'temperature');
                 const duration = getDuration(c);
                 const sc = STATUS_CONFIG[c.status];
+                // P2 (2026-06-03): a stage the cycle's profile does NOT configure
+                // shows "NA"; an in-profile stage not yet reached shows "-".
+                // profileStages comes from the cycles API (empty ⇒ unknown ⇒ keep "-").
+                const profileStages: string[] = c.profileStages ?? [];
+                const stageCell = (stage: string, value: string | null) =>
+                  value != null ? value
+                    : profileStages.length > 0 && !profileStages.includes(stage)
+                      ? <span className="text-slate-400 italic">NA</span>
+                      : '-';
 
                 return (
                   <tr key={c.id} className="hover:bg-cyan-50/30 transition-colors group">
@@ -373,12 +393,12 @@ export function CleaningCycleHistoryPage() {
                     <td className="px-4 py-3 text-[13px] text-slate-600">{attrs.filterSize ?? '-'}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600 font-mono tabular-nums">{getReading(washReadings, 'air pressure')}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600 font-mono tabular-nums">{getReading(washReadings, 'ro water')}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{washIn ? formatDateTime(washIn.time) : '-'}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{washOut ? formatDateTime(washOut.time) : '-'}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('WASH_IN', washIn ? formatDateTime(washIn.time) : null)}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('WASH_OUT', washOut ? formatDateTime(washOut.time) : null)}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-800 font-medium">{washIn?.performedBy ?? washOut?.performedBy ?? '-'}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 font-mono tabular-nums">{dryerTemp}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{dryIn ? formatDateTime(dryIn.time) : '-'}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{dryOut ? formatDateTime(dryOut.time) : '-'}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-600 font-mono tabular-nums">{stageCell('DRY_IN', dryerTemp !== '-' ? dryerTemp : null)}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('DRY_IN', dryIn ? formatDateTime(dryIn.time) : null)}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('DRY_OUT', dryOut ? formatDateTime(dryOut.time) : null)}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-800 font-medium">{dryIn?.performedBy ?? dryOut?.performedBy ?? '-'}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{duration ?? '-'}</td>
                     <td className="px-4 py-3">

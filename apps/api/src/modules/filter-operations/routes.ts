@@ -6,9 +6,61 @@ import { FilterOperationsService } from './filter-operations.service.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
+import { getFilterStageRules, buildStageOptions } from './stage-rules.js';
 
 export default async function filterOperationsRoutes(app: FastifyInstance) {
   const service = new FilterOperationsService();
+
+  // P1 (2026-06-03): valid cleaning-profile stage options for the web
+  // "Edit Filter Status" dialog. Returns the profile's ordered stages + a
+  // per-stage classification so the dialog only offers legal moves and can
+  // show "Invalid stage movement…" for skips. Works with or without an active
+  // cycle. Reuses getFilterStageRules → the SAME findReachable() the tablet
+  // uses, so manual web moves run identical sequence rules to tablet cleaning.
+  app.get('/:id/stage-options', {
+    preHandler: [app.requirePermission('ASSET_READ')],
+    schema: {
+      tags: ['Filter Operations'],
+      summary: 'Valid next cleaning stages for a filter (web manual status update)',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            hasProfile: { type: 'boolean' },
+            profileName: { type: 'string', nullable: true },
+            currentStage: { type: 'string', nullable: true },
+            orderedStages: { type: 'array', items: { type: 'string' } },
+            immediateNext: { type: 'array', items: { type: 'string' } },
+            options: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  state: { type: 'string' },
+                  classification: { type: 'string' },
+                  allowed: { type: 'boolean' },
+                  isCurrent: { type: 'boolean' },
+                },
+              },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const { id } = req.params as { id: string };
+    const rules = await getFilterStageRules(id);
+    return {
+      hasProfile: rules.hasProfile,
+      profileName: rules.profileName,
+      currentStage: rules.currentStage,
+      orderedStages: rules.orderedStages,
+      immediateNext: rules.immediateNext,
+      options: buildStageOptions(rules),
+    };
+  });
 
   app.get('/:id/current-state', {
     preHandler: [app.requirePermission('ASSET_READ')],
