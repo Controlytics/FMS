@@ -70,17 +70,47 @@ export async function getDueTasks(_ctx: RequestContext) {
   const ahuById = new Map(ahus.map(a => [a.id, a]));
 
   // Resolve the AHU → Area → Block hierarchy for the My Tasks block/area
-  // filters. Two cheap lookups: areas are the AHUs' parents, blocks the areas'.
-  const areaIds = Array.from(new Set(ahus.map(a => a.parentId).filter(Boolean))) as string[];
-  const areas = areaIds.length
-    ? await prisma.assetInstance.findMany({ where: { id: { in: areaIds } }, select: { id: true, name: true, parentId: true } })
-    : [];
-  const areaById = new Map(areas.map(a => [a.id, a]));
-  const blockIds = Array.from(new Set(areas.map(a => a.parentId).filter(Boolean))) as string[];
-  const blocks = blockIds.length
-    ? await prisma.assetInstance.findMany({ where: { id: { in: blockIds } }, select: { id: true, name: true } })
-    : [];
-  const blockById = new Map(blocks.map(b => [b.id, b]));
+  // filters. Depth VARIES — some AHUs sit directly under a BLOCK (no AREA),
+  // others under an AREA under a BLOCK — so walk the full parent chain and
+  // classify each ancestor by template kind rather than assuming a fixed depth.
+  // (A fixed 2-level walk dropped the block for every directly-parented AHU,
+  // which is why some blocks were missing from the filter.) BLOCK entities are
+  // always top-level; AREA sits between.
+  type Anc = { id: string; name: string; parentId: string | null; kind: string | null };
+  const ancestors = new Map<string, Anc>();
+  let frontier = ahus.map(a => a.parentId).filter((p): p is string => !!p);
+  let guard = 0;
+  while (frontier.length && guard++ < 10) {
+    const ids = [...new Set(frontier.filter(id => !ancestors.has(id)))];
+    if (ids.length === 0) break;
+    const rows = await prisma.assetInstance.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true, parentId: true, template: { select: { templateKind: true } } },
+    });
+    for (const r of rows) {
+      ancestors.set(r.id, { id: r.id, name: r.name, parentId: r.parentId, kind: r.template?.templateKind ?? null });
+    }
+    frontier = rows.map(r => r.parentId).filter((p): p is string => !!p);
+  }
+
+  const resolveBlockArea = (ahuParentId: string | null) => {
+    let block: { id: string; name: string } | null = null;
+    let area: { id: string; name: string } | null = null;
+    let topmost: Anc | null = null;
+    let cur = ahuParentId ? ancestors.get(ahuParentId) : undefined;
+    const seen = new Set<string>();
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      topmost = cur;
+      if (cur.kind === 'BLOCK' && !block) block = { id: cur.id, name: cur.name };
+      else if (cur.kind === 'AREA' && !area) area = { id: cur.id, name: cur.name };
+      cur = cur.parentId ? ancestors.get(cur.parentId) : undefined;
+    }
+    // Fallback: no explicit BLOCK kind in the chain → treat the topmost ancestor
+    // as the block so every task still groups under something.
+    if (!block && topmost) block = { id: topmost.id, name: topmost.name };
+    return { block, area };
+  };
 
   // Bulk-fetch all child filters for all AHUs in one query.
   // filterSet lives on FilterDetails (Step 6) — include + flatten.
@@ -191,8 +221,7 @@ export async function getDueTasks(_ctx: RequestContext) {
       overallStatus = 'overdue';
     }
 
-    const area = ahu.parentId ? areaById.get(ahu.parentId) : null;
-    const block = area?.parentId ? blockById.get(area.parentId) : null;
+    const { block, area } = resolveBlockArea(ahu.parentId);
 
     const row: DueTaskRow = {
       entryId: entry.id,
