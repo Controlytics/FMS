@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased] — Configurable report labels (titles / subtitles / column headers) (2026-06-03)
+
+Commit on `RFID`: `95f8271`.
+
+Admins can now rename every report's **title, subtitle, and table column headers** from **Configuration → Report Labels**, applied to BOTH the on-screen view AND the PDF export. Blank fields fall back to the built-in labels. **Logo + company name are unchanged** — they remain in the existing **Branding** config and already render on every report PDF + on-screen header (so they are intentionally *not* duplicated here).
+
+- **Single source of truth**: `apps/web/src/lib/report-labels.ts` — `REPORT_DEFS` registry (per report: key, default title, ordered column keys + default labels) + `resolveReportLabels(key, cfg)` that merges admin overrides over defaults (blank ⇒ default). Hook `apps/web/src/hooks/use-report-labels.ts` reads `/api/config/report-labels/current` and returns `labelsFor(reportKey)` → `{ title, subtitle, columns, orderedLabels }`.
+- **Backend config**: new `defs/report-labels.def.ts` (config card, CONFIG_READ/UPDATE, `/config/report-labels`) + `static-routes/report-labels.routes.ts` (`GET /report-labels/current`, `PUT /report-labels` → `systemConfig` key `report-labels`, audited `CONFIG_CHANGED`). Registered in `config-discovery.ts` + `config/routes.ts`. Display config ⇒ no reauth (matches report-settings).
+- **Config page**: new `routes/config/report-labels.tsx` — per-report Title + Subtitle (blank = auto period/totals) + an input per column header (placeholders show the defaults), Save + Reset-to-defaults, gated on `CONFIG_UPDATE`. Route added to `main.tsx`; card added to `config/index.tsx`.
+- **Reports wired** (each reads its title/subtitle/columns from the config — on-screen `<th>` headers, PDF `addTable` head, `ReportPageWrapper` title, and the PDF title/subtitle — with the current strings as defaults): **Audit Trail**, **Cleaning Cycles** (the cycles table *and* the Manual Status Updates table on the same page), **Filter Traceability**, **RFID Track Record**.
+- **Verified** (Playwright + curl): config GET/PUT persist; the page renders all 5 report sections and loads/saves overrides; renaming the RFID report's title → "RFID Lifecycle Log" and Reason column → "Removal Reason" showed on the on-screen view AND was found inside the downloaded PDF's content streams; reset to defaults afterward; no console errors. API + web `tsc` clean.
+
 ## [Unreleased] — Tab⇄Web cleaning unification + RFID Track Record + audit fixes (2026-06-03)
 
 Commits on `RFID`: `cda4bd9` `abebe4e` `01c50fb` `3a400d7` `3b2d4f4` `38fa872` `1758e73`.
