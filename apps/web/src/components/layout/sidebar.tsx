@@ -120,6 +120,12 @@ const allNavItems: NavItem[] = [
     icon: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>),
   },
   {
+    id: "rfid-track-record",
+    label: "RFID Track Record",
+    href: "/rfid-track-record",
+    icon: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.111 16.404a5.5 5.5 0 010-7.778m7.778 0a5.5 5.5 0 010 7.778M5.282 19.232a9.5 9.5 0 010-13.464m13.436 0a9.5 9.5 0 010 13.464M12 12h.01" /></svg>),
+  },
+  {
     id: "filter-operations",
     label: "Filter Operations",
     href: "/filters",

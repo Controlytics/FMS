@@ -46,6 +46,43 @@ export default async function identifierRoutes(app: FastifyInstance) {
     return identifierService.list({ assetId, type });
   });
 
+  // 18b. GET /identifiers/track-record — RFID Track Record report (P4)
+  app.get('/identifiers/track-record', {
+    preHandler: [app.requireAnyPermission('ASSET_VIEW', 'FILTER_RFID_MANAGE')],
+    schema: {
+      tags: ['Entity Identifiers'],
+      summary: 'RFID Track Record — full assign/remove lifecycle history',
+      querystring: {
+        type: 'object',
+        properties: {
+          from: { type: 'string', description: 'ISO date — start of range' },
+          to: { type: 'string', description: 'ISO date — end of range' },
+          rfid: { type: 'string', description: 'Filter by RFID number (substring)' },
+          filterName: { type: 'string', description: 'Filter by filter name (substring)' },
+          ahu: { type: 'string', description: 'Filter by AHU name (substring)' },
+          user: { type: 'string', description: 'Filter by user (substring)' },
+          page: { type: 'integer', minimum: 1 },
+          limit: { type: 'integer', minimum: 1, maximum: 500 },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            data: { type: 'array', items: { type: 'object', additionalProperties: true } },
+            total: { type: 'integer' },
+            page: { type: 'integer' },
+            limit: { type: 'integer' },
+            totalPages: { type: 'integer' },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    return identifierService.getRfidTrackRecord(req.query as any);
+  });
+
   // 19. GET /identifiers/lookup/:value — Lookup asset by identifier value
   app.get('/identifiers/lookup/:value', {
     preHandler: [app.requirePermission('ASSET_VIEW')],
@@ -122,6 +159,17 @@ export default async function identifierRoutes(app: FastifyInstance) {
         required: ['id'],
         properties: { id: { type: 'string', format: 'uuid' } },
       },
+      // P4: optional removal reason (body or query) captured into the audit
+      // trail so the RFID Track Record report can show why a tag was removed.
+      querystring: {
+        type: 'object',
+        properties: { reason: { type: 'string' } },
+      },
+      body: {
+        type: 'object',
+        properties: { reason: { type: 'string' } },
+        additionalProperties: true,
+      },
       response: {
         200: {
           type: 'object',
@@ -135,7 +183,10 @@ export default async function identifierRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     const { id } = req.params as { id: string };
-    await identifierService.delete(id, buildContext(req));
+    const reason = (req.body as { reason?: string } | undefined)?.reason
+      ?? (req.query as { reason?: string } | undefined)?.reason
+      ?? null;
+    await identifierService.delete(id, buildContext(req), reason);
     return { success: true };
   });
 }

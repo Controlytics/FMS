@@ -91,6 +91,13 @@ export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
     privilegeIds: ["assets.view"],
   },
   {
+    sidebarId: "rfid-track-record",
+    label: "RFID Track Record",
+    icon: "\u{1F4E1}",
+    description: "RFID assign / remove lifecycle history",
+    privilegeIds: ["assets.view", "filters.rfid_manage"],
+  },
+  {
     sidebarId: "filter-replacements",
     label: "Replacement List",
     icon: "\u{1F504}",
