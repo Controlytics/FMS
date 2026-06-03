@@ -22,6 +22,7 @@ import { accessMatrixRoutes } from './static-routes/access-matrix.routes.js';
 import { rolesConfigRoutes } from './static-routes/roles.routes.js';
 import { cleaningProfileAssignmentRoutes } from './static-routes/cleaning-profile-assignment.routes.js';
 import { reportSettingsRoutes } from './static-routes/report-settings.routes.js';
+import { reportLabelsRoutes } from './static-routes/report-labels.routes.js';
 import { offlineCacheRoutes } from './static-routes/offline-cache.routes.js';
 
 // Map config keys to reauth action names (consumed by the generic configEndpoint factory).
@@ -45,6 +46,7 @@ export default async function configRoutes(app: FastifyInstance) {
   await rolesConfigRoutes(app);
   await cleaningProfileAssignmentRoutes(app);
   await reportSettingsRoutes(app);
+  await reportLabelsRoutes(app);
   await offlineCacheRoutes(app);
 
   // Generic CRUD factory for configs whose only work is get/update a typed blob.

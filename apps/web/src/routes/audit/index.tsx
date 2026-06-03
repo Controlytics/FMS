@@ -18,6 +18,9 @@ import { AuditDetailModal } from './components/audit-detail-modal';
 import { AuditPagination } from './components/audit-pagination';
 import { AuditDeleteDialog } from './components/audit-delete-dialog';
 import { createReport } from '../../lib/pdf-report';
+import { useReportLabels } from '../../hooks/use-report-labels';
+
+const AUDIT_COLS = ['timestamp', 'action', 'user', 'role', 'targetType', 'description', 'ipAddress'];
 
 export function AuditTrailPage() {
   const { user } = useAuth();
@@ -25,6 +28,9 @@ export function AuditTrailPage() {
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
   const paginationOptions = usePaginationConfig();
   const { config: reportConfig } = useReportConfig();
+  const { labelsFor } = useReportLabels();
+  const auditL = labelsFor('audit-trail');
+  const auditHead = AUDIT_COLS.map((k) => auditL.columns[k]);
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const perms = user?.permissions ?? [];
   // AUDIT_EXPORT was previously a no-op FE flag (server-side PDF generation
@@ -188,8 +194,8 @@ export function AuditTrailPage() {
         : 'All Time';
 
       const report = await createReport({
-        title: 'Audit Trail Report',
-        subtitle: `Period: ${period}${search ? `  |  Search: "${search}"` : ''}  |  Total: ${records.length} record(s)  |  21 CFR Part 11 Compliant`,
+        title: auditL.title,
+        subtitle: auditL.subtitle || `Period: ${period}${search ? `  |  Search: "${search}"` : ''}  |  Total: ${records.length} record(s)  |  21 CFR Part 11 Compliant`,
         orientation: 'landscape',
         formatDateTime,
       });
@@ -205,7 +211,7 @@ export function AuditTrailPage() {
       ]);
 
       report.addTable({
-        head: ['Timestamp', 'Action', 'User', 'Role', 'Target Type', 'Description', 'IP Address'],
+        head: auditHead,
         body: tableRows,
         columnStyles: { 0: { cellWidth: 35 }, 5: { cellWidth: 65 } },
       });
@@ -227,7 +233,7 @@ export function AuditTrailPage() {
             </svg>
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">Audit Trail</h1>
+            <h1 className="text-2xl font-bold text-slate-800">{auditL.title}</h1>
             <p className="text-sm text-slate-500">21 CFR Part 11 Compliant Activity Log</p>
           </div>
         </div>
@@ -293,7 +299,7 @@ export function AuditTrailPage() {
 
       {/* Table Card */}
       <ReportPageWrapper
-        title="Audit Trail"
+        title={auditL.title}
         totalRecords={data?.total ?? 0}
         page={page}
         totalPages={data?.totalPages ?? 1}

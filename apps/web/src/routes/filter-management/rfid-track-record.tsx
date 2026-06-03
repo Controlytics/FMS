@@ -4,6 +4,9 @@ import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { createReport } from '../../lib/pdf-report';
 import { api } from '../../lib/api-client';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
+import { useReportLabels } from '../../hooks/use-report-labels';
+
+const RFID_COLS = ['sNo', 'dateTime', 'event', 'rfid', 'filter', 'ahu', 'user', 'reason'];
 
 type TrackRow = {
   timestamp: string;
@@ -20,6 +23,9 @@ const PER_PAGE = 50;
 
 export function RfidTrackRecordPage() {
   const { formatDateTime } = useDatetimeFormat();
+  const { labelsFor } = useReportLabels();
+  const L = labelsFor('rfid-track-record');
+  const headLabels = RFID_COLS.map((k) => L.columns[k]);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [rfid, setRfid] = useState('');
@@ -57,13 +63,13 @@ export function RfidTrackRecordPage() {
         ? `${from ? formatDateTime(from) : 'Start'} to ${to ? formatDateTime(`${to}T23:59:59`) : 'Now'}`
         : 'All Time';
       const report = await createReport({
-        title: 'RFID Track Record Report',
-        subtitle: `Period: ${period}  |  Total: ${all.total} event(s)`,
+        title: L.title,
+        subtitle: L.subtitle || `Period: ${period}  |  Total: ${all.total} event(s)`,
         orientation: 'landscape',
         formatDateTime,
       });
       report.addTable({
-        head: ['S.No', 'Date / Time', 'Event', 'RFID Number', 'Filter', 'AHU', 'User', 'Reason'],
+        head: headLabels,
         body: all.data.map((r, i) => [
           String(i + 1),
           formatDateTime(r.timestamp),
@@ -84,13 +90,13 @@ export function RfidTrackRecordPage() {
   const inputCls = 'px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
 
   return (
-    <ReportPageWrapper title="RFID Track Record" totalRecords={total} page={page} totalPages={totalPages}>
+    <ReportPageWrapper title={L.title} totalRecords={total} page={page} totalPages={totalPages}>
       <div className="flex flex-col h-full">
         <div className="px-6 py-4 border-b border-slate-200 bg-white shrink-0">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
-              <h1 className="text-xl font-bold text-slate-800">RFID Track Record</h1>
-              <p className="text-[13px] text-slate-500">Complete assign / remove lifecycle history of RFID tags</p>
+              <h1 className="text-xl font-bold text-slate-800">{L.title}</h1>
+              <p className="text-[13px] text-slate-500">{L.subtitle || 'Complete assign / remove lifecycle history of RFID tags'}</p>
             </div>
             <button
               onClick={handleDownloadPDF}
@@ -132,7 +138,7 @@ export function RfidTrackRecordPage() {
             <table className="w-full">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-slate-50 border-b border-slate-200">
-                  {['S.No', 'Date / Time', 'Event', 'RFID Number', 'Filter', 'AHU', 'User', 'Reason'].map((h, i) => (
+                  {headLabels.map((h, i) => (
                     <th key={i} className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
                   ))}
                 </tr>

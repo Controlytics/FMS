@@ -3,13 +3,19 @@ import { useParams } from 'react-router-dom';
 import useSWR from 'swr';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { useReportConfig } from '@/hooks/use-report-config';
+import { useReportLabels } from '../../hooks/use-report-labels';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import type { CleaningCycle, FilterEvent, PaginatedResponse } from '../../types/filter';
+
+const TRACE_COLS = ['code', 'reason', 'status', 'started', 'completed', 'seq'];
 
 export function FilterTraceabilityPage() {
   const { id } = useParams<{ id: string }>();
   const { formatDateTime, formatDate, formatTime } = useDatetimeFormat();
   const { config: reportConfig } = useReportConfig();
+  const { labelsFor } = useReportLabels();
+  const L = labelsFor('filter-traceability');
+  const traceHead = TRACE_COLS.map((k) => L.columns[k]);
   const [tab, setTab] = useState<'events' | 'cycles' | 'deviations'>('events');
   const [page, setPage] = useState(1);
   const perPage = reportConfig.recordsPerPage;
@@ -25,7 +31,7 @@ export function FilterTraceabilityPage() {
     <div className="p-6 space-y-6">
       {/* Header */}
       <div className="bg-white border border-slate-200 rounded-xl p-5">
-        <h1 className="text-2xl font-bold text-slate-800 mb-2">{filterState?.filterName ?? 'Filter'} — Traceability</h1>
+        <h1 className="text-2xl font-bold text-slate-800 mb-2">{filterState?.filterName ?? 'Filter'} — {L.title}</h1>
         <div className="flex gap-4 text-sm text-slate-500">
           {filterState?.currentState && (
             <span>State: <span className="text-cyan-600">{filterState.currentState.replace(/_/g, ' ')}</span></span>
@@ -47,7 +53,7 @@ export function FilterTraceabilityPage() {
 
       {/* Content */}
       <ReportPageWrapper
-        title="Filter Events"
+        title={L.title}
         totalRecords={currentData?.total ?? 0}
         page={page}
         totalPages={currentData?.totalPages ?? 1}
@@ -78,12 +84,9 @@ export function FilterTraceabilityPage() {
           <table className="w-full text-left">
             <thead>
               <tr className="border-b border-slate-200 text-slate-500 text-sm">
-                <th className="py-3 px-4">Code</th>
-                <th className="py-3 px-4">Reason</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Started</th>
-                <th className="py-3 px-4">Completed</th>
-                <th className="py-3 px-4">#</th>
+                {traceHead.map((h, i) => (
+                  <th key={i} className="py-3 px-4">{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody>

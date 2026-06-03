@@ -1603,3 +1603,40 @@ moves break the cycle; missing profile stages show NA; plus a new RFID Track Rec
 - D1 = **Reuse TERMINATED + reason** (no migration; broken cycle = TERMINATED w/ reason marker).
 - D2 = **Prompt operator for reason** when a manual move starts a new cycle.
 - D3 = **PDF only + capture removal reason** (no Excel/xlsx; add reason to RFID remove flow).
+
+---
+
+## [PLAN] Configurable report labels (titles + column headers) — 2026-06-03
+
+User: "all reports view + pdfs — logo, company name, all headings incl. table column
+names should be configurable in Configurations."
+
+### Current state (research)
+- **Logo + company name**: ALREADY configurable via Branding config (companyName + logo
+  upload); createReport (pdf-report.ts) renders them on every PDF; ReportPageWrapper
+  shows them on-screen. → largely done.
+- **Report titles + column headers**: HARDCODED in each page. Reports:
+  - Audit Trail (routes/audit) — PDF "Audit Trail Report"
+  - Cleaning Cycle History (cleaning-cycles/history.tsx) — Cycles table cols (line ~350)
+    + Manual Status Updates table cols (line ~315); PDF "Cleaning Cycle Report"
+  - Filter Traceability (filter-traceability.tsx) — cycles table cols (line ~81)
+  - RFID Track Record (rfid-track-record.tsx) — cols (S.No/Date/Event/RFID/Filter/AHU/User/Reason)
+
+### Config plumbing (verified)
+- def: defs/report-labels.def.ts (hasCustomPage, /config/report-labels, CONFIG_READ/UPDATE).
+- store: systemConfig key 'report-labels' (JSON). Template route:
+  static-routes/cleaning-profile-assignment.routes.ts (GET /current + PUT upsert).
+- register route in config/routes.ts import+loop; add card to config/index.tsx (manual,
+  per [[feedback_config_discovery]]); page routes/config/report-labels.tsx; route in main.tsx.
+
+### Design
+- Config shape: { [reportKey]: { title, subtitle?, columns: { [colKey]: label } } }.
+- Defaults shipped in a shared REPORT_LABEL_DEFAULTS map (current strings) so the config
+  is optional/override-only; useReportLabels(reportKey) merges config over defaults.
+- Each report: title + column header arrays sourced from labels (view) AND passed to
+  createReport addTable head (PDF). createReport gets the resolved title/columns from caller.
+- Logo/company: stay in Branding (already wired); no new control needed.
+
+### Phases
+- [x] R1 — config def + route + page + hook + defaults registry. DONE+verified.
+- [x] R2 — wire each report's title + columns through useReportLabels (view + PDF).

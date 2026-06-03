@@ -5,10 +5,14 @@ import { useAuth } from '../../hooks/use-auth';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { usePaginationDefaults } from '../../hooks/use-pagination-config';
 import { useReportConfig } from '@/hooks/use-report-config';
+import { useReportLabels } from '../../hooks/use-report-labels';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { createReport } from '../../lib/pdf-report';
 import type { CleaningCycle, FilterEvent, FilterInstance, PaginatedResponse } from '../../types/filter';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
+
+const CC_COLS = ['sNo', 'filter', 'size', 'airPressure', 'roWater', 'washIn', 'washOut', 'washBy', 'dryerTemp', 'dryIn', 'dryOut', 'dryBy', 'duration', 'status'];
+const MSU_COLS = ['sNo', 'filter', 'statusChange', 'dateTime', 'updatedBy', 'remarks'];
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; dot: string; border: string }> = {
   IN_PROGRESS: { label: 'In Progress', bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-400 animate-pulse', border: 'border-blue-200' },
@@ -19,6 +23,11 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; d
 export function CleaningCycleHistoryPage() {
   const navigate = useNavigate();
   const { formatDateTime } = useDatetimeFormat();
+  const { labelsFor } = useReportLabels();
+  const ccL = labelsFor('cleaning-cycles');
+  const msuL = labelsFor('manual-status-updates');
+  const ccHead = CC_COLS.map((k) => ccL.columns[k]);
+  const msuHead = MSU_COLS.map((k) => msuL.columns[k]);
   // 2026-05-26 audit fix (PA-CLEANUP-1): gate PDF export on
   // REPORT_EXPORT — pre-fix any CYCLE_READ user could PDF the history.
   const { user } = useAuth();
@@ -139,8 +148,8 @@ export function CleaningCycleHistoryPage() {
         : 'All Time';
 
       const report = await createReport({
-        title: 'Cleaning Cycle Report',
-        subtitle: `Filter: ${selectedFilterName}  |  Status: ${status || 'All'}  |  Period: ${period}  |  Total: ${total} cycle(s)`,
+        title: ccL.title,
+        subtitle: ccL.subtitle || `Filter: ${selectedFilterName}  |  Status: ${status || 'All'}  |  Period: ${period}  |  Total: ${total} cycle(s)`,
         orientation: 'landscape',
         formatDateTime,
       });
@@ -171,7 +180,7 @@ export function CleaningCycleHistoryPage() {
       });
 
       report.addTable({
-        head: ['S.No', 'Filter ID', 'Size', 'Air Press.', 'RO Water', 'Wash In', 'Wash Out', 'Wash By', 'Dryer Temp', 'Dry In', 'Dry Out', 'Dry By', 'Duration', 'Status'],
+        head: ccHead,
         body: tableRows,
         columnStyles: { 0: { halign: 'center', cellWidth: 10 } },
       });
@@ -208,7 +217,7 @@ export function CleaningCycleHistoryPage() {
               </svg>
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-800 tracking-tight">Cleaning Cycles</h1>
+              <h1 className="text-xl font-bold text-slate-800 tracking-tight">{view === 'cycles' ? ccL.title : msuL.title}</h1>
               <p className="text-[13px] text-slate-400 mt-0.5">
                 {total.toLocaleString()} {view === 'cycles' ? `total cycle${total !== 1 ? 's' : ''}` : `manual update${total !== 1 ? 's' : ''}`}
               </p>
@@ -232,7 +241,7 @@ export function CleaningCycleHistoryPage() {
 
         {/* View toggle: Cleaning Cycles | Manual Status Updates */}
         <div className="flex gap-2 mb-4">
-          {([['cycles', 'Cleaning Cycles'], ['manual', 'Manual Status Updates']] as const).map(([key, label]) => (
+          {([['cycles', ccL.title], ['manual', msuL.title]] as const).map(([key, label]) => (
             <button key={key} onClick={() => { setView(key); setPage(1); }}
               className={`px-4 py-1.5 rounded-lg text-[13px] font-semibold transition-all ${view === key ? 'bg-cyan-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
               {label}
@@ -286,7 +295,7 @@ export function CleaningCycleHistoryPage() {
 
       {/* Table — fills remaining space */}
       <ReportPageWrapper
-        title="Cleaning Cycle History"
+        title={view === 'cycles' ? ccL.title : msuL.title}
         totalRecords={total}
         page={page}
         totalPages={totalPages}
@@ -312,7 +321,7 @@ export function CleaningCycleHistoryPage() {
             <table className="w-full">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-slate-50 border-b border-slate-200">
-                  {['S.No', 'Filter', 'Status Change', 'Date & Time', 'Updated By', 'Remarks'].map((h, i) => (
+                  {msuHead.map((h, i) => (
                     <th key={i} className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
                   ))}
                 </tr>
@@ -352,7 +361,7 @@ export function CleaningCycleHistoryPage() {
           <table className="w-full">
             <thead className="sticky top-0 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
-                {['S.No', 'Filter', 'Size', 'Air Pressure', 'RO Water', 'Wash In', 'Wash Out', 'Wash By', 'Dryer Temp', 'Dry In', 'Dry Out', 'Dry By', 'Duration', 'Status', ''].map((h, i) => (
+                {[...ccHead, ''].map((h, i) => (
                   <th key={i} className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
                 ))}
               </tr>
