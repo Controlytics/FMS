@@ -45,6 +45,12 @@ interface DueResponse {
   settings: { showOverdueSeparately: boolean };
 }
 
+interface HierarchyNode {
+  id: string;
+  name: string;
+  blockId?: string; // present on areas — links the area to its block
+}
+
 const STATUS_META: Record<TaskRow['overallStatus'], { label: string; bg: string; text: string; dot: string; border: string }> = {
   pending:     { label: 'Pending',     bg: 'bg-amber-50',    text: 'text-amber-700',    dot: 'bg-amber-500',    border: 'border-amber-200' },
   in_progress: { label: 'In Progress', bg: 'bg-cyan-50',     text: 'text-cyan-700',     dot: 'bg-cyan-500',     border: 'border-cyan-200' },
@@ -62,10 +68,17 @@ export function MyTasksPage() {
   const navigate = useNavigate();
   const { formatDate } = useDatetimeFormat();
   const { data, error, isLoading } = useSWR<DueResponse>('/api/pm-schedules/due', { refreshInterval: 30000 });
+  // Block / Area dropdowns list ALL active blocks/areas (not just those with a
+  // due task), so the operator always sees the full set. /areas carries blockId
+  // for the cascade. Tasks are still filtered by id against these.
+  const { data: blocksData } = useSWR<{ data: HierarchyNode[] }>('/api/hierarchy/blocks?limit=500');
+  const { data: areasData } = useSWR<{ data: HierarchyNode[] }>('/api/hierarchy/areas?limit=1000');
+  const allBlocks = blocksData?.data ?? [];
+  const allAreas = areasData?.data ?? [];
 
   const [search, setSearch] = useState('');
-  const [blockFilter, setBlockFilter] = useState('');
-  const [areaFilter, setAreaFilter] = useState('');
+  const [blockFilter, setBlockFilter] = useState(''); // block id
+  const [areaFilter, setAreaFilter] = useState('');   // area id
   const [statusFilter, setStatusFilter] = useState<'' | TaskRow['overallStatus']>('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // Overdue acknowledge (password) dialog state.
@@ -77,23 +90,19 @@ export function MyTasksPage() {
   const tasks = data?.tasks ?? [];
   const overdueTasks = data?.overdue ?? [];
 
-  // Block / Area dropdown options derived from the full dataset. Areas narrow to
-  // the selected block so the two dropdowns stay coherent.
-  const blockOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const t of [...tasks, ...overdueTasks]) if (t.blockName) set.add(t.blockName);
-    return Array.from(set).sort();
-  }, [tasks, overdueTasks]);
-
-  const areaOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const t of [...tasks, ...overdueTasks]) {
-      if (!t.areaName) continue;
-      if (blockFilter && t.blockName !== blockFilter) continue;
-      set.add(t.areaName);
-    }
-    return Array.from(set).sort();
-  }, [tasks, overdueTasks, blockFilter]);
+  // Dropdown options: ALL active blocks; areas narrow to the selected block via
+  // their blockId so the two dropdowns stay coherent. {value:id, label:name}.
+  const blockOptions = useMemo(
+    () => [...allBlocks].sort((a, b) => a.name.localeCompare(b.name)).map(b => ({ value: b.id, label: b.name })),
+    [allBlocks],
+  );
+  const areaOptions = useMemo(
+    () => allAreas
+      .filter(a => !blockFilter || a.blockId === blockFilter)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(a => ({ value: a.id, label: a.name })),
+    [allAreas, blockFilter],
+  );
 
   const applyFilters = (rows: TaskRow[]) => {
     const q = search.trim().toLowerCase();
@@ -101,8 +110,8 @@ export function MyTasksPage() {
       if (q && !(t.ahuName.toLowerCase().includes(q)
         || (t.blockName ?? '').toLowerCase().includes(q)
         || (t.areaName ?? '').toLowerCase().includes(q))) return false;
-      if (blockFilter && t.blockName !== blockFilter) return false;
-      if (areaFilter && t.areaName !== areaFilter) return false;
+      if (blockFilter && t.blockId !== blockFilter) return false;
+      if (areaFilter && t.areaId !== areaFilter) return false;
       if (statusFilter && t.overallStatus !== statusFilter) return false;
       return true;
     });
@@ -530,7 +539,7 @@ function TaskCard({ task, expanded, onToggle, onPerform, formatDate }: {
 // ─── Filter dropdown helper ──────────────────────────────
 
 function FilterSelect({ label, value, options, allLabel, onChange }: {
-  label: string; value: string; options: string[]; allLabel: string; onChange: (v: string) => void;
+  label: string; value: string; options: { value: string; label: string }[]; allLabel: string; onChange: (v: string) => void;
 }) {
   return (
     <div className="flex flex-col gap-1 min-w-[160px]">
@@ -538,7 +547,7 @@ function FilterSelect({ label, value, options, allLabel, onChange }: {
       <select value={value} onChange={e => onChange(e.target.value)}
         className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 focus:bg-white outline-none transition-all">
         <option value="">{allLabel}</option>
-        {options.map(o => <option key={o} value={o}>{o}</option>)}
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
     </div>
   );
