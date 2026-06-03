@@ -1586,7 +1586,7 @@ moves break the cycle; missing profile stages show NA; plus a new RFID Track Rec
       server validates target reachable, rejects invalid; records source=Manual/Web.
 - [x] **P2 — Missing profile stage = NA** (DONE 2026-06-03, verified API+UI) (item 5). Cleaning Cycles columns show NA for
       stages not in the filter's profile (vs blank); driven by the profile stage set.
-- [ ] **P3 — Backward move breaks cycle + new cycle** (item 4). Close current cycle as
+- [x] **P3 — Backward move breaks cycle + new cycle** (DONE 2026-06-03, verified API+UI) (item 4). Close current cycle as
       broken; start new cycle from target stage. NEEDS: D1 (broken status) + D2 (reason).
 - [ ] **P4 — RFID Track Record Report** (item 7). Service over audit_trail + joins; new
       report page; filters (date/RFID/filter/AHU/user); PDF (exists) + Excel (D3); add

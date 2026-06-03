@@ -484,7 +484,7 @@ export function FilterListPage() {
     setStatusPanelSubmitting(false);
   };
 
-  const handleStatusSubmit = () => {
+  const handleStatusSubmit = (extra?: { cleaningReasonKey?: string; cleaningJustification?: string }) => {
     if (!statusPanelFilter || !statusPanelRemarks.trim() || !statusPanelState) return;
     if (statusPanelState === (statusPanelFilter.currentState ?? '')) return;
     setStatusPanelSubmitting(true);
@@ -495,7 +495,14 @@ export function FilterListPage() {
     reauth.execute(
       'UPDATE_FILTER_LIFECYCLE',
       async (password?: string) => {
-        const body = { lifecycleState: statusPanelState, remarks: statusPanelRemarks.trim() };
+        // P3: when the move starts/restarts a cycle the panel passes the chosen
+        // cleaning reason (+ justification); the server requires it.
+        const body = {
+          lifecycleState: statusPanelState,
+          remarks: statusPanelRemarks.trim(),
+          ...(extra?.cleaningReasonKey ? { cleaningReasonKey: extra.cleaningReasonKey } : {}),
+          ...(extra?.cleaningJustification ? { cleaningJustification: extra.cleaningJustification } : {}),
+        };
         if (password) {
           await api.patchWithReauth(`/api/assets/instances/${statusPanelFilter.id}/lifecycle-state`, body, password);
         } else {

@@ -7,6 +7,7 @@ import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { getFilterStageRules, buildStageOptions } from './stage-rules.js';
+import { getCleaningReasons } from './filter-resolver.js';
 
 export default async function filterOperationsRoutes(app: FastifyInstance) {
   const service = new FilterOperationsService();
@@ -28,6 +29,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           type: 'object',
           properties: {
             hasProfile: { type: 'boolean' },
+            hasActiveCycle: { type: 'boolean' },
             profileName: { type: 'string', nullable: true },
             currentStage: { type: 'string', nullable: true },
             orderedStages: { type: 'array', items: { type: 'string' } },
@@ -41,8 +43,15 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
                   classification: { type: 'string' },
                   allowed: { type: 'boolean' },
                   isCurrent: { type: 'boolean' },
+                  startsCycle: { type: 'boolean' },
                 },
               },
+            },
+            // P3: cleaning reasons for the move that starts a cycle. The dialog
+            // shows this picker when the selected option has startsCycle=true.
+            cleaningReasons: {
+              type: 'array',
+              items: { type: 'object', additionalProperties: true },
             },
           },
         },
@@ -52,13 +61,18 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
   }, async (req) => {
     const { id } = req.params as { id: string };
     const rules = await getFilterStageRules(id);
+    const cleaningReasons = rules.hasProfile && rules.profileId
+      ? await getCleaningReasons(rules.profileId)
+      : [];
     return {
       hasProfile: rules.hasProfile,
+      hasActiveCycle: rules.hasActiveCycle,
       profileName: rules.profileName,
       currentStage: rules.currentStage,
       orderedStages: rules.orderedStages,
       immediateNext: rules.immediateNext,
       options: buildStageOptions(rules),
+      cleaningReasons,
     };
   });
 

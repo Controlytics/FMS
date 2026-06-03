@@ -14,7 +14,8 @@ import { upsertFilterDetails } from '../../../lib/filter-details.js';
 // CYCLE_COMPLETED event when a manual "Cleaning Cycle Completed" force-completes
 // an active cycle. No circular dependency (helpers.ts imports only prisma + crypto).
 import { computeChecksum } from '../../filter-operations/helpers.js';
-import { getFilterStageRules, classifyMove, INVALID_STAGE_MOVE_MESSAGE } from '../../filter-operations/stage-rules.js';
+import { getFilterStageRules, classifyMove, moveStartsCycle, INVALID_STAGE_MOVE_MESSAGE } from '../../filter-operations/stage-rules.js';
+import { resolveManualCycleReason, breakActiveCycleTx, startManualCycleTx } from '../../filter-operations/manual-cycle.js';
 import { randomBytes } from 'node:crypto';
 import { provisionUnsMapping } from '../../uns/uns.service.js';
 import { getEntityUnsPath } from '../../../lib/uns-path.js';
@@ -393,7 +394,13 @@ export const instanceService = {
     return instance;
   },
 
-  async changeLifecycleState(id: string, lifecycleState: string, ctx: RequestContext, remarks: string) {
+  async changeLifecycleState(
+    id: string,
+    lifecycleState: string,
+    ctx: RequestContext,
+    remarks: string,
+    cycleOpts: { cleaningReasonKey?: string | null; cleaningJustification?: string | null } = {},
+  ) {
     const existing = await instanceRepository.findByIdSimple(id);
     if (!existing) throw new NotFoundError('Entity instance not found');
     const beforeState = (existing as any).currentLifecycleState ?? null;
@@ -402,16 +409,24 @@ export const instanceService = {
     // P1 (2026-06-03): manual web moves obey the SAME cleaning-profile sequence
     // the tablet enforces. classifyMove() reuses the shared findReachable() so
     // the rules are identical. Block a forward SKIP (e.g. Dirty → Storage Out).
-    // BACKWARD is allowed today as a plain move (P3 upgrades it to break-cycle-
-    // and-restart); NON_CLEANING operational states (INSTALLED / IN_USE) and
-    // COMPLETE carry no sequence rule. Only enforced when the filter resolves to
-    // a cleaning profile with a pipeline (rules.hasProfile).
+    // NON_CLEANING operational states (INSTALLED / IN_USE) and COMPLETE carry no
+    // sequence rule. Only enforced when the filter resolves to a profile.
     const stageRules = await getFilterStageRules(id);
     if (stageRules.hasProfile && classifyMove(stageRules, newState) === 'SKIP') {
       throw new ValidationError(INVALID_STAGE_MOVE_MESSAGE);
     }
 
+    // P3 (2026-06-03): does this move start/restart a cleaning cycle? A BACKWARD
+    // move with an active cycle breaks it and starts fresh; a cleaning-stage move
+    // with no active cycle starts a new cycle. Both need a cleaning reason —
+    // validate it against the profile up-front so we fail before the transaction.
+    const willStartCycle = stageRules.hasProfile && stageRules.profileId != null && moveStartsCycle(stageRules, newState);
+    const resolvedReason = willStartCycle
+      ? await resolveManualCycleReason(stageRules.profileId as string, cycleOpts)
+      : null;
+
     let forceCompletedCycle = false;
+    let restartedCycle = false;
     const isCompletion = newState === 'CLEANING_CYCLE_COMPLETED';
     // Single timestamp for the whole change — the manual event's performedAt and
     // any force-completed cycle's completedAt share it so the records agree to
@@ -444,35 +459,64 @@ export const instanceService = {
         ? await tx.cleaningCycle.findFirst({ where: { id: fd.currentCycleId, status: 'IN_PROGRESS' }, select: { id: true, sequenceNumber: true } })
         : null;
 
-      if (isCompletion && activeCycle) {
-        // Force-complete (2026-06-02, per user decision): manually setting
-        // "Cleaning Cycle Completed" also FINISHES the active in-progress cycle,
-        // so the Cleaning Cycles view + the filter status no longer disagree.
-        forceCompletedCycle = true;
-        await tx.cleaningCycle.update({ where: { id: activeCycle.id }, data: { status: 'COMPLETED', completedAt: changedAt } });
-        const completeEvent = {
-          filterId: id, cycleId: activeCycle.id, eventType: 'CYCLE_COMPLETED' as const,
-          performedBy: ctx.userSub,
-          attributes: { sequenceNumber: activeCycle.sequenceNumber, manualForceComplete: true, remarks: remarks?.trim() ?? '' },
-        };
-        await tx.filterEvent.create({
-          data: { ...completeEvent, performedAt: changedAt, checksum: computeChecksum(completeEvent), ipAddress: ctx.ipAddress, telemetrySnapshot: {} },
+      // The cycle the manual STATE_TRANSITION event attaches to (so the target
+      // stage populates that cycle's column on the Cleaning Cycles page).
+      let eventCycleId: string | null = activeCycle?.id ?? null;
+
+      if (willStartCycle && resolvedReason) {
+        // P3: BACKWARD with an active cycle → break (TERMINATED) it first;
+        // then (or, with no active cycle, directly) start a fresh manual cycle
+        // from the target stage. Maintains full history: Cycle 1 broken,
+        // Cycle 2 begins here.
+        if (activeCycle) {
+          restartedCycle = true;
+          await breakActiveCycleTx(tx, {
+            filterId: id, cycleId: activeCycle.id, sequenceNumber: activeCycle.sequenceNumber,
+            performedBy: ctx.userSub, ipAddress: ctx.ipAddress, at: changedAt,
+            reason: `Interrupted by backward manual move to ${newState}`,
+          });
+        }
+        const newCycleId = await startManualCycleTx(tx, {
+          filterId: id, filterName: (existing as any).name ?? null, profileId: stageRules.profileId as string,
+          reason: resolvedReason, performedBy: ctx.userSub, ipAddress: ctx.ipAddress, at: changedAt,
+        });
+        eventCycleId = newCycleId;
+        await tx.filterDetails.upsert({
+          where: { assetInstanceId: id },
+          update: { currentCycleId: newCycleId, currentLifecycleState: newState },
+          create: { assetInstanceId: id, currentCycleId: newCycleId, currentLifecycleState: newState },
+        });
+      } else {
+        if (isCompletion && activeCycle) {
+          // Force-complete (2026-06-02, per user decision): manually setting
+          // "Cleaning Cycle Completed" also FINISHES the active in-progress cycle,
+          // so the Cleaning Cycles view + the filter status no longer disagree.
+          forceCompletedCycle = true;
+          await tx.cleaningCycle.update({ where: { id: activeCycle.id }, data: { status: 'COMPLETED', completedAt: changedAt } });
+          const completeEvent = {
+            filterId: id, cycleId: activeCycle.id, eventType: 'CYCLE_COMPLETED' as const,
+            performedBy: ctx.userSub,
+            attributes: { sequenceNumber: activeCycle.sequenceNumber, manualForceComplete: true, remarks: remarks?.trim() ?? '' },
+          };
+          await tx.filterEvent.create({
+            data: { ...completeEvent, performedAt: changedAt, checksum: computeChecksum(completeEvent), ipAddress: ctx.ipAddress, telemetrySnapshot: {} },
+          });
+        }
+
+        await tx.filterDetails.upsert({
+          where: { assetInstanceId: id },
+          update: { currentLifecycleState: newState, ...(isCompletion ? { currentCycleId: null } : {}) },
+          create: { assetInstanceId: id, currentLifecycleState: newState },
         });
       }
 
-      await tx.filterDetails.upsert({
-        where: { assetInstanceId: id },
-        update: { currentLifecycleState: newState, ...(isCompletion ? { currentCycleId: null } : {}) },
-        create: { assetInstanceId: id, currentLifecycleState: newState },
-      });
-
       // Record the manual status change as a filter event (all states), attached
-      // to the active cycle when one exists. performedAt = changedAt is the EXACT
-      // date+time, and it's what the "Last Cleaned" derivation reads — so a manual
-      // change to ANY cleaning stage (not just "Completed") moves Last Cleaned and,
-      // when a cycle is active, populates that stage's column in Cleaning Cycles.
+      // to the active/new cycle when one exists. performedAt = changedAt is the
+      // EXACT date+time, and it's what the "Last Cleaned" derivation reads — so a
+      // manual change to ANY cleaning stage moves Last Cleaned and populates that
+      // stage's column in Cleaning Cycles.
       const manualEvent = {
-        filterId: id, cycleId: activeCycle?.id ?? null, eventType: 'STATE_TRANSITION' as const,
+        filterId: id, cycleId: eventCycleId, eventType: 'STATE_TRANSITION' as const,
         fromState: beforeState, toState: newState,
         performedBy: ctx.userSub,
         attributes: { manual: true, source: 'MANUAL', remarks: remarks?.trim() ?? '' },
@@ -498,9 +542,14 @@ export const instanceService = {
       action: 'FILTER_LIFECYCLE_STATE_CHANGED',
       targetType: 'asset_instance', targetId: id,
       beforeValue: { currentLifecycleState: beforeState },
-      afterValue: { currentLifecycleState: newState, ...(forceCompletedCycle ? { cycleForceCompleted: true } : {}) },
-      reason: `Lifecycle state: "${beforeState ?? 'None'}" → "${newState}"${forceCompletedCycle ? ' (active cleaning cycle force-completed)' : ''} — ${remarks}`,
-      signatureMeaning: `Filter "${(instance as any)?.name}" lifecycle state manually changed from "${beforeState ?? 'None'}" to "${newState}"${forceCompletedCycle ? ' and its active cleaning cycle was force-completed' : ''}`,
+      afterValue: {
+        currentLifecycleState: newState,
+        ...(forceCompletedCycle ? { cycleForceCompleted: true } : {}),
+        ...(restartedCycle ? { cycleBrokenAndRestarted: true } : {}),
+        ...(resolvedReason ? { newCycleReason: resolvedReason.key } : {}),
+      },
+      reason: `Lifecycle state: "${beforeState ?? 'None'}" → "${newState}"${forceCompletedCycle ? ' (active cleaning cycle force-completed)' : ''}${restartedCycle ? ' (active cleaning cycle interrupted/broken; new cycle started)' : resolvedReason ? ' (new cleaning cycle started)' : ''} — ${remarks}`,
+      signatureMeaning: `Filter "${(instance as any)?.name}" lifecycle state manually changed from "${beforeState ?? 'None'}" to "${newState}"${forceCompletedCycle ? ' and its active cleaning cycle was force-completed' : ''}${restartedCycle ? ' — its in-progress cleaning cycle was interrupted (broken) and a new cycle was started' : resolvedReason ? ' — a new cleaning cycle was started' : ''}`,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
 

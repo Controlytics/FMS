@@ -31,6 +31,10 @@ export interface FilterStageRules {
   /** The filter's current lifecycle state (may be null, or a non-cleaning
    *  operational state like INSTALLED / IN_USE). */
   currentStage: string | null;
+  /** Whether the filter currently has an IN_PROGRESS cleaning cycle. Drives P3:
+   *  a backward move with an active cycle breaks+restarts it; a cleaning move
+   *  with no active cycle starts a fresh one. */
+  hasActiveCycle: boolean;
   /** Valid immediate forward stage(s) from the current stage (one graph hop,
    *  through any CHECKLIST nodes). */
   immediateNext: string[];
@@ -57,13 +61,20 @@ export async function getFilterStageRules(filterId: string): Promise<FilterStage
     select: {
       id: true,
       name: true,
-      filterDetails: { select: { filterProfileId: true, filterSet: true, currentLifecycleState: true } },
+      filterDetails: { select: { filterProfileId: true, filterSet: true, currentLifecycleState: true, currentCycleId: true } },
     },
   });
   const currentStage = filter?.filterDetails?.currentLifecycleState ?? null;
+  // An "active" cycle is the pinned currentCycleId AND still IN_PROGRESS.
+  let hasActiveCycle = false;
+  const activeCycleId = filter?.filterDetails?.currentCycleId ?? null;
+  if (activeCycleId) {
+    const c = await prisma.cleaningCycle.findFirst({ where: { id: activeCycleId, status: 'IN_PROGRESS' }, select: { id: true } });
+    hasActiveCycle = !!c;
+  }
   const empty: FilterStageRules = {
     hasProfile: false, profileId: null, profileName: null,
-    orderedStages: [], currentStage, immediateNext: [], leadsToEnd: false,
+    orderedStages: [], currentStage, hasActiveCycle, immediateNext: [], leadsToEnd: false,
   };
   if (!filter) return empty;
 
@@ -99,9 +110,25 @@ export async function getFilterStageRules(filterId: string): Promise<FilterStage
     profileName: (cp as any).name ?? null,
     orderedStages,
     currentStage,
+    hasActiveCycle,
     immediateNext: [...new Set(reach.reachableStages)],
     leadsToEnd: reach.hasEndNext,
   };
+}
+
+/**
+ * Does moving this filter to `target` start (or restart) a cleaning cycle?
+ *   - With an active cycle: only a BACKWARD move (breaks current + starts new).
+ *   - With no active cycle: any allowed cleaning-stage move (starts fresh).
+ * COMPLETE, SKIP, SAME and non-cleaning operational states never start a cycle.
+ * When true, the caller must supply a cleaning reason (D2: prompt operator).
+ */
+export function moveStartsCycle(rules: FilterStageRules, target: string): boolean {
+  if (target === COMPLETED_STATE) return false;
+  if (!rules.orderedStages.includes(target)) return false;
+  const cls = classifyMove(rules, target);
+  if (cls === 'SKIP' || cls === 'SAME') return false;
+  return rules.hasActiveCycle ? cls === 'BACKWARD' : true;
 }
 
 /**
@@ -173,6 +200,9 @@ export interface StageOption {
   allowed: boolean;
   /** True for the filter's current stage (rendered as current, not selectable). */
   isCurrent: boolean;
+  /** True when picking this will start/restart a cleaning cycle — the dialog
+   *  must then collect a cleaning reason (P3 / D2). */
+  startsCycle: boolean;
 }
 
 /**
@@ -190,6 +220,7 @@ export function buildStageOptions(rules: FilterStageRules): StageOption[] {
       classification,
       allowed: classification !== 'SKIP',
       isCurrent: state === rules.currentStage,
+      startsCycle: moveStartsCycle(rules, state),
     };
   });
 }

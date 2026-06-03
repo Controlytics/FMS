@@ -578,6 +578,11 @@ export default async function instanceRoutes(app: FastifyInstance) {
             description: 'New lifecycle state',
           },
           remarks: { type: 'string', minLength: 1, description: 'Reason for manual state change' },
+          // P3 (2026-06-03): when a manual move starts/restarts a cleaning cycle
+          // (backward move with an active cycle, or any cleaning-stage move with
+          // no active cycle), a cleaning reason is required. Ignored otherwise.
+          cleaningReasonKey: { type: 'string', description: 'Cleaning reason key (required when the move starts a cycle)' },
+          cleaningJustification: { type: 'string', description: 'Justification (when the chosen reason requires it)' },
         },
       },
       response: {
@@ -600,8 +605,11 @@ export default async function instanceRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     const { id } = req.params as { id: string };
-    const body = req.body as { lifecycleState: string; remarks: string };
-    const instance = await instanceService.changeLifecycleState(id, body.lifecycleState, buildContext(req), body.remarks);
+    const body = req.body as { lifecycleState: string; remarks: string; cleaningReasonKey?: string; cleaningJustification?: string };
+    const instance = await instanceService.changeLifecycleState(id, body.lifecycleState, buildContext(req), body.remarks, {
+      cleaningReasonKey: body.cleaningReasonKey ?? null,
+      cleaningJustification: body.cleaningJustification ?? null,
+    });
     return { success: true, data: instance };
   });
 

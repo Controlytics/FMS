@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import useSWR from 'swr';
 import { STATUS_LABELS, LIFECYCLE_STATE_OPTIONS } from '../constants';
 import type { StatusPanelFilter } from '../types';
@@ -10,7 +11,7 @@ type Props = {
   onStateChange: (v: string) => void;
   onRemarksChange: (v: string) => void;
   onClose: () => void;
-  onSubmit: () => void;
+  onSubmit: (extra?: { cleaningReasonKey?: string; cleaningJustification?: string }) => void;
 };
 
 type StageOption = {
@@ -18,14 +19,18 @@ type StageOption = {
   classification: 'SAME' | 'COMPLETE' | 'NON_CLEANING' | 'START' | 'FORWARD' | 'BACKWARD' | 'SKIP';
   allowed: boolean;
   isCurrent: boolean;
+  startsCycle: boolean;
 };
+type CleaningReason = { key: string; name: string; requiresJustification?: boolean };
 type StageOptionsResp = {
   hasProfile: boolean;
+  hasActiveCycle: boolean;
   profileName: string | null;
   currentStage: string | null;
   orderedStages: string[];
   immediateNext: string[];
   options: StageOption[];
+  cleaningReasons: CleaningReason[];
 };
 
 const labelFor = (value: string) =>
@@ -37,23 +42,32 @@ export function StatusUpdatePanel({
   filter, state, remarks, submitting,
   onStateChange, onRemarksChange, onClose, onSubmit,
 }: Props) {
-  // P1 (2026-06-03): constrain the manual status move to the filter's cleaning
-  // profile sequence — same rules the tablet enforces. The server validates too
-  // (this is UX; the PATCH rejects a SKIP regardless).
+  // P1: constrain the manual status move to the filter's cleaning-profile
+  // sequence — same rules the tablet enforces. The server validates too.
   const { data: stageOpts } = useSWR<StageOptionsResp>(
     filter.id ? `/api/filters/${filter.id}/stage-options` : null,
   );
 
-  // Build the selectable option list. With a profile: the profile's ordered
-  // stages + Completed (skips kept but flagged). Without a profile: fall back to
-  // the legacy flat list so non-cleaning filters still work.
+  // P3: when the chosen move starts/restarts a cleaning cycle, the operator must
+  // pick a cleaning reason (and a justification if that reason requires one).
+  const [reasonKey, setReasonKey] = useState('');
+  const [justification, setJustification] = useState('');
+  // Reset reason inputs whenever the target state changes.
+  useEffect(() => { setReasonKey(''); setJustification(''); }, [state]);
+
   const profileOptions = stageOpts?.hasProfile ? stageOpts.options : null;
   const selectedOpt = profileOptions?.find((o) => o.state === state) ?? null;
   const isSkip = selectedOpt?.classification === 'SKIP';
   const isBackward = selectedOpt?.classification === 'BACKWARD';
+  const startsCycle = selectedOpt?.startsCycle ?? false;
   const sameAsCurrent = state === (filter.currentState ?? '');
 
-  const submitDisabled = !remarks.trim() || sameAsCurrent || submitting || isSkip;
+  const reasons = stageOpts?.cleaningReasons ?? [];
+  const chosenReason = reasons.find((r) => r.key === reasonKey) ?? null;
+  const needsJustification = !!chosenReason?.requiresJustification;
+  const reasonIncomplete = startsCycle && (!reasonKey || (needsJustification && justification.trim().length < 10));
+
+  const submitDisabled = !remarks.trim() || sameAsCurrent || submitting || isSkip || reasonIncomplete;
 
   return (
     <>
@@ -112,15 +126,54 @@ export function StatusUpdatePanel({
               Invalid stage movement. Please follow the configured cleaning profile sequence.
             </div>
           )}
-          {isBackward && (
+          {isBackward && stageOpts?.hasActiveCycle && (
             <div className="rounded-lg p-3 text-xs bg-amber-50 text-amber-700 border border-amber-200">
-              This moves the filter <strong>backward</strong> in the cleaning sequence.
+              Moving <strong>backward</strong> will close the current cleaning cycle as <strong>interrupted</strong> and start a new cycle from this stage.
+            </div>
+          )}
+          {startsCycle && !(isBackward && stageOpts?.hasActiveCycle) && (
+            <div className="rounded-lg p-3 text-xs bg-amber-50 text-amber-700 border border-amber-200">
+              This will start a new cleaning cycle.
             </div>
           )}
           {sameAsCurrent && state !== '' && (
             <div className="rounded-lg p-3 text-xs bg-amber-50 text-amber-700 border border-amber-200">
               Please select a different status from the current one.
             </div>
+          )}
+
+          {startsCycle && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">
+                  Cleaning Reason <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={reasonKey}
+                  onChange={e => setReasonKey(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="" disabled>Select reason…</option>
+                  {reasons.map(r => (
+                    <option key={r.key} value={r.key}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+              {needsJustification && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">
+                    Justification <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={justification}
+                    onChange={e => setJustification(e.target.value)}
+                    placeholder="Min 10 characters…"
+                    rows={3}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              )}
+            </>
           )}
 
           <div>
@@ -148,7 +201,7 @@ export function StatusUpdatePanel({
             Cancel
           </button>
           <button
-            onClick={onSubmit}
+            onClick={() => onSubmit(startsCycle ? { cleaningReasonKey: reasonKey, cleaningJustification: justification.trim() || undefined } : undefined)}
             disabled={submitDisabled}
             className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
