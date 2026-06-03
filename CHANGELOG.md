@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] — Tab⇄Web cleaning unification + RFID Track Record + audit fixes (2026-06-03)
+
+Commits on `RFID`: `cda4bd9` `abebe4e` `01c50fb` `3a400d7` `3b2d4f4` `38fa872` `1758e73`.
+
+### Cleaning workflow unification — manual web moves now follow the cleaning profile (P1–P3)
+Goal: web **Edit Filter Status** behaves like tablet cleaning — same profile rules, same cycle records. **Architecture:** no rewrite of the tablet `advance()` engine; a new shared helper reuses the *same* `@digilog/shared` `findReachable()` the tablet uses, so the rules are provably identical.
+- **P1 — profile-sequence validation** (`3b2d4f4`). New `filter-operations/stage-rules.ts` (`getFilterStageRules` / `classifyMove` → FORWARD/BACKWARD/SKIP/COMPLETE/NON_CLEANING/START / `buildStageOptions` / `getProfileOrderedStages`). New `GET /api/filters/:id/stage-options` (profile-aware option list, works with or without a cycle). `changeLifecycleState` rejects an out-of-sequence **SKIP** with *"Invalid stage movement. Please follow the configured cleaning profile sequence."* `StatusUpdatePanel` constrains the dropdown to the profile (omits stages it doesn't define), flags skips, marks backward/current, shows the profile name + a "Moving filter manually…" banner. Manual moves attach the `STATE_TRANSITION` event to the active cycle (so they populate that cycle's stage columns).
+- **P2 — missing profile stage = NA** (`3b2d4f4`). `getCycles` attaches `profileStages[]` per cycle (batched by profile); Cleaning Cycles table + PDF show **NA** for a stage the cycle's profile doesn't configure, vs `-` for an in-profile stage not yet reached.
+- **P3 — backward move breaks the cycle** (`38fa872`). New `filter-operations/manual-cycle.ts` (`breakActiveCycleTx` → TERMINATED + `broken` marker; `resolveManualCycleReason` → 400 `REASON_REQUIRED`/`JUSTIFICATION_REQUIRED`; `startManualCycleTx` → manual-origin cycle, `-M` cycle code). A backward manual move closes the in-flight cycle (reuses **TERMINATED** + reason — no schema migration) and starts a fresh one from the target stage; a cleaning move on a filter with no active cycle starts one too. Both **prompt the operator for a cleaning reason** (+ justification when required) — `lifecycle-state` route accepts `cleaningReasonKey`/`cleaningJustification`; the dialog shows the reason picker + conditional justification and gates submit.
+
+### RFID Track Record report (P4, `1758e73`)
+New report: full assign/remove/reassign lifecycle of every RFID tag, **built from `audit_trail`** (no new table).
+- `identifier.service.getRfidTrackRecord` reconstructs the timeline (`ASSET_IDENTIFIER_CREATED`=assign / `…_DELETED`=remove, RFID-only) joining filter/AHU/user; filters: date range / RFID / filter / AHU / user + pagination. (Guard: audit `userId` is varchar — only UUID-shaped ids hit `User`, else fall back to the raw value.)
+- **Removal reason capture:** `DELETE /identifiers/:id` now accepts a `reason` (body or query) → `audit_trail.reason`, so the report can show *why* a tag was removed.
+- New `GET /api/assets/identifiers/track-record` (ASSET_VIEW or FILTER_RFID_MANAGE). New web `/rfid-track-record` page (filter bar + timeline table + **Download PDF** via the jsPDF `createReport` helper — PDF only). Sidebar item + route + `SIDEBAR_PRIVILEGE_MAP` entry (reuses `assets.view`/`filters.rfid_manage` — no new permission).
+
+### Same-day fixes
+- **Logout audit** (`cda4bd9`): `logout(reason)` + a `session_sweep` worker (cron */5) that terminates idle/expired sessions and writes a `LOGOUT` audit — captures tablet app-close / window-close / crash logouts that never hit `/logout`. Fixes the SUPER_ADMIN-hides-from-self audit filter so superadmin sees its own rows.
+- **Last Cleaned rule** (`abebe4e`): `lastCleanedAt` = latest cleaning-stage event time (real cycle OR manual Edit-Filter-Status); Filters page shows **NA** (not `--`) when never cleaned.
+- **Retirement Remarks** (`01c50fb`): retirement list now shows the reason (joined from the `FILTER_RETIRED` audit) + retiredBy/retiredAt.
+- **FDM console cross-page refresh** (`3a400d7`): editing a cycle/event status in the Filter Data Management console now refreshes the Cleaning Cycles page (SWR prefix-mutate; was an exact-key mismatch).
+
+**Verification:** every item exercised live (curl + Playwright) — SKIP→400/state-unchanged, FORWARD→200/event-attached, backward→cycle-1-TERMINATED + cycle-2-IN_PROGRESS, REASON/JUSTIFICATION 400s, NA rendering, RFID timeline + removal reason + valid `%PDF`. API + web `tsc` clean; shared rebuilt. Plan/decisions: `tasks/todo.md` "Cleaning Workflow Unification".
+
 ## [Unreleased] — Filter Replacement Schedule, Phase 1 (2026-06-02)
 
 New **upload-driven** feature (additive — no existing functionality changed). Design: `tasks/REPLACEMENT-SCHEDULE-SCOPE.md`; plan/status: `tasks/REPLACEMENT-SCHEDULE-TODO.md`.
