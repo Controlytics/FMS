@@ -65,9 +65,22 @@ export async function getDueTasks(_ctx: RequestContext) {
   const ahuIds = Array.from(new Set(entries.map(e => e.schedule.entityId)));
   const ahus = await prisma.assetInstance.findMany({
     where: { id: { in: ahuIds } },
-    select: { id: true, name: true, customAttributes: true },
+    select: { id: true, name: true, customAttributes: true, parentId: true },
   });
   const ahuById = new Map(ahus.map(a => [a.id, a]));
+
+  // Resolve the AHU → Area → Block hierarchy for the My Tasks block/area
+  // filters. Two cheap lookups: areas are the AHUs' parents, blocks the areas'.
+  const areaIds = Array.from(new Set(ahus.map(a => a.parentId).filter(Boolean))) as string[];
+  const areas = areaIds.length
+    ? await prisma.assetInstance.findMany({ where: { id: { in: areaIds } }, select: { id: true, name: true, parentId: true } })
+    : [];
+  const areaById = new Map(areas.map(a => [a.id, a]));
+  const blockIds = Array.from(new Set(areas.map(a => a.parentId).filter(Boolean))) as string[];
+  const blocks = blockIds.length
+    ? await prisma.assetInstance.findMany({ where: { id: { in: blockIds } }, select: { id: true, name: true } })
+    : [];
+  const blockById = new Map(blocks.map(b => [b.id, b]));
 
   // Bulk-fetch all child filters for all AHUs in one query.
   // filterSet lives on FilterDetails (Step 6) — include + flatten.
@@ -178,10 +191,17 @@ export async function getDueTasks(_ctx: RequestContext) {
       overallStatus = 'overdue';
     }
 
+    const area = ahu.parentId ? areaById.get(ahu.parentId) : null;
+    const block = area?.parentId ? blockById.get(area.parentId) : null;
+
     const row: DueTaskRow = {
       entryId: entry.id,
       ahuId: ahu.id,
       ahuName: ahu.name,
+      areaId: area?.id ?? null,
+      areaName: area?.name ?? null,
+      blockId: block?.id ?? null,
+      blockName: block?.name ?? null,
       plannedDate: entry.plannedDate,
       toleranceDays: entry.toleranceDays,
       windowStart: entry.windowStart,

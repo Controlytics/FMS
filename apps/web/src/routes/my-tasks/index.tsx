@@ -24,6 +24,10 @@ interface TaskRow {
   entryId: string;
   ahuId: string;
   ahuName: string;
+  areaId: string | null;
+  areaName: string | null;
+  blockId: string | null;
+  blockName: string | null;
   plannedDate: string;
   toleranceDays: number;
   windowStart: string;
@@ -60,6 +64,9 @@ export function MyTasksPage() {
   const { data, error, isLoading } = useSWR<DueResponse>('/api/pm-schedules/due', { refreshInterval: 30000 });
 
   const [search, setSearch] = useState('');
+  const [blockFilter, setBlockFilter] = useState('');
+  const [areaFilter, setAreaFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'' | TaskRow['overallStatus']>('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // Overdue acknowledge (password) dialog state.
   const [ackTask, setAckTask] = useState<TaskRow | null>(null);
@@ -70,17 +77,42 @@ export function MyTasksPage() {
   const tasks = data?.tasks ?? [];
   const overdueTasks = data?.overdue ?? [];
 
-  const filteredTasks = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return tasks;
-    return tasks.filter(t => t.ahuName.toLowerCase().includes(q));
-  }, [tasks, search]);
+  // Block / Area dropdown options derived from the full dataset. Areas narrow to
+  // the selected block so the two dropdowns stay coherent.
+  const blockOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of [...tasks, ...overdueTasks]) if (t.blockName) set.add(t.blockName);
+    return Array.from(set).sort();
+  }, [tasks, overdueTasks]);
 
-  const filteredOverdue = useMemo(() => {
+  const areaOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of [...tasks, ...overdueTasks]) {
+      if (!t.areaName) continue;
+      if (blockFilter && t.blockName !== blockFilter) continue;
+      set.add(t.areaName);
+    }
+    return Array.from(set).sort();
+  }, [tasks, overdueTasks, blockFilter]);
+
+  const applyFilters = (rows: TaskRow[]) => {
     const q = search.trim().toLowerCase();
-    if (!q) return overdueTasks;
-    return overdueTasks.filter(t => t.ahuName.toLowerCase().includes(q));
-  }, [overdueTasks, search]);
+    return rows.filter(t => {
+      if (q && !(t.ahuName.toLowerCase().includes(q)
+        || (t.blockName ?? '').toLowerCase().includes(q)
+        || (t.areaName ?? '').toLowerCase().includes(q))) return false;
+      if (blockFilter && t.blockName !== blockFilter) return false;
+      if (areaFilter && t.areaName !== areaFilter) return false;
+      if (statusFilter && t.overallStatus !== statusFilter) return false;
+      return true;
+    });
+  };
+
+  const filteredTasks = useMemo(() => applyFilters(tasks), [tasks, search, blockFilter, areaFilter, statusFilter]);
+  const filteredOverdue = useMemo(() => applyFilters(overdueTasks), [overdueTasks, search, blockFilter, areaFilter, statusFilter]);
+
+  const hasActiveFilters = !!(search || blockFilter || areaFilter || statusFilter);
+  const clearFilters = () => { setSearch(''); setBlockFilter(''); setAreaFilter(''); setStatusFilter(''); };
 
   // Stats are computed from the full dataset (not the search-filtered view)
   const stats = useMemo(() => {
@@ -179,19 +211,53 @@ export function MyTasksPage() {
         } />
       </div>
 
-      {/* ─── Search ─── */}
-      <div className="flex gap-3">
-        <div className="relative flex-1 max-w-md">
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search AHU name..."
-            className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none transition-all"
-          />
+      {/* ─── Filter toolbar ─── */}
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-1 flex-1 min-w-[220px]">
+            <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Search</label>
+            <div className="relative">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="AHU, block or area…"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 focus:bg-white outline-none transition-all"
+              />
+            </div>
+          </div>
+
+          <FilterSelect label="Block" value={blockFilter} options={blockOptions} allLabel="All blocks"
+            onChange={(v) => { setBlockFilter(v); setAreaFilter(''); }} />
+          <FilterSelect label="Area" value={areaFilter} options={areaOptions} allLabel="All areas"
+            onChange={setAreaFilter} />
+
+          <div className="flex flex-col gap-1 min-w-[150px]">
+            <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Status</label>
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)}
+              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 focus:bg-white outline-none transition-all">
+              <option value="">All statuses</option>
+              <option value="pending">Pending</option>
+              <option value="in_progress">In Progress</option>
+              <option value="complete">Complete</option>
+              <option value="overdue">Overdue</option>
+            </select>
+          </div>
+
+          {hasActiveFilters && (
+            <button onClick={clearFilters}
+              className="px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-500 border border-slate-200 hover:bg-slate-50 transition-colors">
+              Clear
+            </button>
+          )}
+        </div>
+        <div className="mt-3 text-xs text-slate-400">
+          Showing <span className="font-semibold text-slate-600">{filteredTasks.length + filteredOverdue.length}</span>
+          {' '}of {tasks.length + overdueTasks.length} task{tasks.length + overdueTasks.length === 1 ? '' : 's'}
+          {hasActiveFilters && <span className="text-cyan-600"> · filtered</span>}
         </div>
       </div>
 
@@ -232,10 +298,10 @@ export function MyTasksPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <p className="text-slate-700 font-semibold">{search ? 'No matching tasks' : 'Nothing due right now'}</p>
+            <p className="text-slate-700 font-semibold">{hasActiveFilters ? 'No matching tasks' : 'Nothing due right now'}</p>
             <p className="text-sm text-slate-400 mt-1">
-              {search
-                ? 'Try a different search term'
+              {hasActiveFilters
+                ? 'Try adjusting or clearing the filters'
                 : 'Tasks will appear here when today falls inside a scheduled tolerance window'}
             </p>
           </div>
@@ -356,6 +422,13 @@ function TaskCard({ task, expanded, onToggle, onPerform, formatDate }: {
               </svg>
             </div>
             <div className="min-w-0 flex-1">
+              {(task.blockName || task.areaName) && (
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 mb-0.5 truncate">
+                  {task.blockName && <span className="text-cyan-600">{task.blockName}</span>}
+                  {task.blockName && task.areaName && <span className="text-slate-300">/</span>}
+                  {task.areaName && <span>{task.areaName}</span>}
+                </div>
+              )}
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-base font-bold text-slate-800 truncate">{task.ahuName}</h3>
                 <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-0.5 rounded-full font-semibold ${meta.bg} ${meta.text} border ${meta.border}`}>
@@ -450,6 +523,23 @@ function TaskCard({ task, expanded, onToggle, onPerform, formatDate }: {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Filter dropdown helper ──────────────────────────────
+
+function FilterSelect({ label, value, options, allLabel, onChange }: {
+  label: string; value: string; options: string[]; allLabel: string; onChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1 min-w-[160px]">
+      <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">{label}</label>
+      <select value={value} onChange={e => onChange(e.target.value)}
+        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 focus:bg-white outline-none transition-all">
+        <option value="">{allLabel}</option>
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
     </div>
   );
 }

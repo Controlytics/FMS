@@ -27,6 +27,11 @@ export interface DueTaskRow {
   entryId: string;
   ahuId: string;
   ahuName: string;
+  // Hierarchy context (AHU → Area → Block) for the My Tasks block/area filters.
+  areaId: string | null;
+  areaName: string | null;
+  blockId: string | null;
+  blockName: string | null;
   plannedDate: Date;
   toleranceDays: number;
   windowStart: Date;
