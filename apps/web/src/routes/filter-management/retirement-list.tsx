@@ -134,6 +134,7 @@ export function RetirementListPage() {
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Filter</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Set</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Retired On</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Remarks</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
                 </tr>
               </thead>
@@ -161,7 +162,12 @@ export function RetirementListPage() {
                         </span>
                       ) : <span className="text-xs text-slate-300">—</span>}
                     </td>
-                    <td className="px-5 py-3.5 text-sm text-slate-600">{r.updatedAt ? formatDate(r.updatedAt) : '—'}</td>
+                    <td className="px-5 py-3.5 text-sm text-slate-600">{(r.retiredAt ?? r.updatedAt) ? formatDate(r.retiredAt ?? r.updatedAt) : '—'}</td>
+                    <td className="px-5 py-3.5 text-sm text-slate-600 max-w-xs">
+                      {r.remarks
+                        ? <span className="block truncate" title={`${r.remarks}${r.retiredBy ? ` — by ${r.retiredBy}` : ''}`}>{r.remarks}</span>
+                        : <span className="text-slate-300">—</span>}
+                    </td>
                     <td className="px-5 py-3.5">
                       <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-semibold bg-rose-50 text-rose-700 border border-rose-100">
                         <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />

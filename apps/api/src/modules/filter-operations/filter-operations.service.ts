@@ -629,13 +629,38 @@ export class FilterOperationsService {
       : [];
     const parentMap = new Map(parents.map(p => [p.id, p.name]));
 
+    // Retirement remarks + performer live in the FILTER_RETIRED audit (the asset
+    // row doesn't store them). Join the latest FILTER_RETIRED record per filter.
+    const retiredIds = retirements.map((r: any) => r.id);
+    const retireAudits = retiredIds.length > 0
+      ? await prisma.auditTrail.findMany({
+          where: { action: 'FILTER_RETIRED', targetId: { in: retiredIds } },
+          select: { targetId: true, afterValue: true, timestamp: true, userName: true, userId: true },
+          orderBy: { timestamp: 'desc' },
+        })
+      : [];
+    const retireByFilter = new Map<string, { remarks: string | null; retiredBy: string | null; retiredAt: Date }>();
+    for (const a of retireAudits) {
+      if (!a.targetId || retireByFilter.has(a.targetId)) continue; // desc order → first seen is the most recent
+      const v = (a.afterValue as any) ?? {};
+      retireByFilter.set(a.targetId, {
+        remarks: v.remarks ?? null,
+        retiredBy: a.userName ?? a.userId ?? null,
+        retiredAt: a.timestamp,
+      });
+    }
+
     return retirements.map((r: any) => {
       const preRetireParentId = (r.customAttributes as any)?._preRetireParentId ?? null;
+      const audit = retireByFilter.get(r.id);
       return {
         id: r.id, name: r.name, updatedAt: r.updatedAt,
         attributes: r.attributes, filterSet: r.filterSet, parentId: r.parentId,
         preRetireParentId,
         preRetireParentName: preRetireParentId ? parentMap.get(preRetireParentId) ?? null : null,
+        remarks: audit?.remarks ?? null,
+        retiredBy: audit?.retiredBy ?? null,
+        retiredAt: audit?.retiredAt ?? r.updatedAt,
       };
     });
   }
