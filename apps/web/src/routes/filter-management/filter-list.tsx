@@ -1173,7 +1173,7 @@ export function FilterListPage() {
         .map((i: any) => i.identifierValue)
         .join(' ');
       const setLabel = f.filterSet === 'SET_A' ? 'Set A' : f.filterSet === 'SET_B' ? 'Set B' : '';
-      const lastClean = f.lastCleanedAt ? formatDate(f.lastCleanedAt) : f.lastCleaningDate === 'NA' ? 'NA' : '';
+      const lastClean = f.lastCleanedAt ? formatDate(f.lastCleanedAt) : 'NA';
       return [
         idx + 1,
         f.areaId ? dash(f.areaName) : '',
@@ -1621,14 +1621,12 @@ export function FilterListPage() {
                           </td>
                           <td className="px-2 py-2 text-xs text-slate-500"
                               title={f.lastCleanedAt ? `Last cleaned: ${formatDateTime(f.lastCleanedAt)}` : undefined}>
-                            {/* Prefer the server-derived effective date (covers
-                                cleaning done from Tab or Web); hover shows the
-                                exact time. Fall back to manual 'NA' seed, then em-dash. */}
+                            {/* Server-derived effective date (covers Tab or Web
+                                cleaning); hover shows exact time. No date (never
+                                cleaned / NA) → show 'NA'. */}
                             {f.lastCleanedAt
                               ? formatDate(f.lastCleanedAt)
-                              : f.lastCleaningDate === 'NA'
-                                ? <span className="text-slate-400 italic">NA</span>
-                                : '--'}
+                              : <span className="text-slate-400 italic">NA</span>}
                           </td>
                           <td className="px-2 py-2">
                             <span className={`text-[11px] px-2.5 py-1 rounded-full border font-medium ${stateInfo.color}`}>{stateInfo.label}</span>

@@ -142,12 +142,19 @@ async function zipFilterDetails<T extends { id: string }>(rows: T[]): Promise<Ar
 }
 
 // Filter-event types that count as cleaning-stage activity. "Last Cleaned"
-// tracks the latest of these — i.e. EVERY cleaning stage (each WASH/DRY/STORAGE
-// advance + each manual status change + bypass + completion), NOT only when the
-// whole cycle finishes (operator request 2026-06-03). STATE_TRANSITION covers
-// both normal stage advances and manual "Edit Filter Status" changes (the
-// latter carry cycleId=null + attributes.manual). CYCLE_STARTED / checklist /
-// terminate are intentionally excluded — they aren't a cleaning stage landing.
+// tracks the latest of these — EVERY cleaning stage the filter has reached,
+// whether from a real cleaning cycle (advance/bypass/completion) OR a manual
+// "Edit Filter Status" change to a cleaning stage (which the operator uses to
+// track cleaning). CYCLE_STARTED / checklist / terminate are excluded — not a
+// cleaning stage landing.
+//
+// 2026-06-03 (operator): the Filters page must be coherent — if a filter shows a
+// cleaning stage (Wash In / Dry In / Cleaning Cycle Completed / ...), Last
+// Cleaned must show when it entered that stage. So manual STATE_TRANSITION events
+// (cycleId=null) ARE counted here. A filter that was NEVER put into any cleaning
+// stage has no such event, so it shows no date — unless an admin typed one at
+// creation (the lastCleaningDate seed). (An earlier attempt to exclude manual
+// events left "status shown but date empty" rows — the opposite complaint.)
 const CLEANING_STAGE_EVENT_TYPES = ['STATE_TRANSITION', 'BYPASS_DEVIATION', 'CYCLE_COMPLETED'] as const;
 
 /**
@@ -179,7 +186,12 @@ async function zipLastCleaned<T extends { id: string; attributes?: any }>(
   const [eventAgg, cycleAgg] = await Promise.all([
     prisma.filterEvent.groupBy({
       by: ['filterId'],
-      where: { filterId: { in: ids }, eventType: { in: CLEANING_STAGE_EVENT_TYPES as unknown as any[] } },
+      where: {
+        filterId: { in: ids },
+        eventType: { in: CLEANING_STAGE_EVENT_TYPES as unknown as any[] },
+        // Both real cycle stage events AND manual "Edit Filter Status" stage
+        // changes count — so a filter shown in a stage always has a date.
+      },
       _max: { performedAt: true },
     }),
     prisma.cleaningCycle.groupBy({

@@ -400,9 +400,13 @@ export const instanceService = {
 
     let forceCompletedCycle = false;
     const isCompletion = newState === 'CLEANING_CYCLE_COMPLETED';
-    // Single timestamp for the whole change — the manual event's performedAt,
-    // the force-completed cycle's completedAt, and the lastCleanedTs stamp all
-    // share it so the records agree to the millisecond.
+    // Single timestamp for the whole change — the manual event's performedAt and
+    // any force-completed cycle's completedAt share it so the records agree to
+    // the millisecond. The manual STATE_TRANSITION event (written below) is what
+    // moves "Last Cleaned" for a manually-staged filter (so a filter shown in a
+    // cleaning stage always has a date — see hierarchy.service.zipLastCleaned).
+    // It does NOT write the user-editable lastCleaningDate seed — that field is
+    // only set from the Create/Edit Filter dialog.
     const changedAt = new Date();
 
     // Every manual status change is recorded as a STATE_TRANSITION FilterEvent
