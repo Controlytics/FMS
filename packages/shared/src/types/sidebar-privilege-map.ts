@@ -154,6 +154,13 @@ export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
     privilegeIds: ["pm.view", "pm.execute"],
   },
   {
+    sidebarId: "deviations",
+    label: "Deviations",
+    icon: "\u{26A0}",
+    description: "Overdue PM cleaning deviations + audit trail",
+    privilegeIds: ["pm.view", "pm.approve"],
+  },
+  {
     sidebarId: "approvals",
     label: "Approvals",
     icon: "\u2705",

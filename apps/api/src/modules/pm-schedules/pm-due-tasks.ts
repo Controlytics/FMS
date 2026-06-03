@@ -13,6 +13,7 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { checkPmEnabled } from './pm-shared.js';
+import { getDeviationContextForEntries } from './pm-deviations.js';
 import type { DueFilterRow, DueFilterStatus, DueOverallStatus, DueTaskRow } from './pm-types.js';
 
 export async function getDueTasks(_ctx: RequestContext) {
@@ -193,6 +194,16 @@ export async function getDueTasks(_ctx: RequestContext) {
 
     if (overallStatus === 'overdue') overdue.push(row);
     else active.push(row);
+  }
+
+  // Read-only join: attach the open deviation (if any) for each entry so My
+  // Tasks can render "overdue by N days" + the acknowledged state + the
+  // deviation id to acknowledge against. No writes here — the sweep (cron /
+  // manual endpoint) is the only thing that creates/mutates deviations.
+  const allRows = [...active, ...overdue];
+  if (allRows.length) {
+    const ctxMap = await getDeviationContextForEntries(allRows.map((r) => r.entryId));
+    for (const r of allRows) r.deviation = ctxMap.get(r.entryId) ?? null;
   }
 
   return {

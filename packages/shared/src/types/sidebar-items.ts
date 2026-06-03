@@ -31,6 +31,7 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'equipment-groups', label: 'Equipment Groups', icon: '\u2699\uFE0F', description: 'Equipment group configuration' },
   { id: 'pm-schedules', label: 'PM Schedules', icon: '\u{1F4C5}', description: 'Preventive maintenance scheduling' },
   { id: 'my-tasks', label: 'My Tasks', icon: '\u{1F3AF}', description: 'Filters due for cleaning based on PM schedules' },
+  { id: 'deviations', label: 'Deviations', icon: '⚠', description: 'Overdue PM cleaning deviations + audit trail' },
   { id: 'approvals', label: 'Approvals', icon: '\u2705', description: 'Block change approval requests' },
   { id: 'report-templates', label: 'Report Templates', icon: '\u{1F4C4}', description: 'Report template management' },
   { id: 'reports', label: 'Reports', icon: '\u{1F4CA}', description: 'Generated reports and PDF export' },

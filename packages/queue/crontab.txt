@@ -19,3 +19,6 @@
 * * * * * dlq_check ?id=dlq_check&max=1&fill=0s
 * * * * * connectivity_check ?id=connectivity_check&max=1&fill=0s
 0 2 * * * retention_cleanup
+# PM overdue deviation sweep — daily 03:00. Opens deviations for newly overdue
+# AHU cleaning tasks + closes those since cleaned. Idempotent (no daily dupes).
+0 3 * * * pm_overdue_check ?id=pm_overdue_check&max=1&fill=0s

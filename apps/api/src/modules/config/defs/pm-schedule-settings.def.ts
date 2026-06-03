@@ -63,5 +63,17 @@ export const pmScheduleSettingsDef: ModuleConfigDefinition = {
       group: 'Visibility',
       default: true,
     },
+    {
+      // Consumed by the overdue-deviation sweep (pm-deviations.ts → readNotifyRoles).
+      // Both the overdue and completion notifications are sent to forRole = each
+      // role in this list. Empty → defaults to ADMIN.
+      key: 'overdueNotificationRoles',
+      type: 'multiselect',
+      label: 'Overdue Notification Roles',
+      description: 'Which role(s) receive overdue + completion notifications when AHU filter cleaning tasks pass their tolerance window. Defaults to ADMIN.',
+      group: 'Notifications',
+      default: ['ADMIN'],
+      dynamicOptionsSource: '/api/roles/active',
+    },
   ],
 };

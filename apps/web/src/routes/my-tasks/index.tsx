@@ -1,13 +1,23 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import useSWR from 'swr';
+import useSWR, { mutate } from 'swr';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { api } from '@/lib/api-client';
 
 interface FilterRow {
   filterId: string;
   filterName: string;
   status: 'pending' | 'cleaned_in_window' | 'in_progress';
   lastCycleCompletedAt: string | null;
+}
+
+interface DeviationContext {
+  deviationId: string;
+  deviationNumber: string;
+  status: 'OPEN' | 'ACKNOWLEDGED' | 'CLOSED';
+  overdueDays: number;
+  acknowledged: boolean;
+  acknowledgedByName: string | null;
 }
 
 interface TaskRow {
@@ -22,6 +32,7 @@ interface TaskRow {
   cleanedCount: number;
   overallStatus: 'pending' | 'in_progress' | 'complete' | 'overdue';
   filters: FilterRow[];
+  deviation?: DeviationContext | null;
 }
 
 interface DueResponse {
@@ -50,6 +61,11 @@ export function MyTasksPage() {
 
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Overdue acknowledge (password) dialog state.
+  const [ackTask, setAckTask] = useState<TaskRow | null>(null);
+  const [ackPassword, setAckPassword] = useState('');
+  const [ackSubmitting, setAckSubmitting] = useState(false);
+  const [ackError, setAckError] = useState('');
 
   const tasks = data?.tasks ?? [];
   const overdueTasks = data?.overdue ?? [];
@@ -90,8 +106,43 @@ export function MyTasksPage() {
     });
   };
 
-  const onPerform = (task: TaskRow) => {
+  const goToOps = (task: TaskRow) => {
     navigate(`/filters?ahuId=${encodeURIComponent(task.ahuId)}`);
+  };
+
+  const onPerform = (task: TaskRow) => {
+    // Overdue + a still-unacknowledged deviation → require password confirmation
+    // before letting the operator proceed to cleaning. Otherwise go straight.
+    const dev = task.deviation;
+    if (task.overallStatus === 'overdue' && dev && dev.status !== 'CLOSED' && !dev.acknowledged) {
+      setAckPassword('');
+      setAckError('');
+      setAckTask(task);
+      return;
+    }
+    goToOps(task);
+  };
+
+  const closeAck = () => { setAckTask(null); setAckPassword(''); setAckError(''); setAckSubmitting(false); };
+
+  const handleAckConfirm = async () => {
+    if (!ackTask?.deviation || !ackPassword.trim()) return;
+    setAckSubmitting(true);
+    setAckError('');
+    try {
+      await api.postWithReauth(`/api/pm-schedules/deviations/${ackTask.deviation.deviationId}/acknowledge`, {}, ackPassword);
+      await mutate('/api/pm-schedules/due');
+      const task = ackTask;
+      closeAck();
+      goToOps(task);
+    } catch (e: any) {
+      const code = e?.error ?? e?.code;
+      setAckError(
+        code === 'REAUTH_FAILED' ? 'Incorrect password. Please try again.'
+        : e?.message ?? 'Could not confirm — please try again.',
+      );
+      setAckSubmitting(false);
+    }
   };
 
   return (
@@ -230,6 +281,49 @@ export function MyTasksPage() {
           ))}
         </div>
       )}
+
+      {/* ─── Overdue acknowledge (password) dialog ─── */}
+      {ackTask && ackTask.deviation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4"
+          onMouseDown={(e) => { if (e.target === e.currentTarget && !ackSubmitting) closeAck(); }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="px-6 py-4 bg-gradient-to-r from-rose-500 to-rose-600 flex items-center gap-3">
+              <svg className="w-6 h-6 text-white shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <h3 className="text-white font-bold text-base">Overdue Cleaning — Confirmation Required</h3>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-700">
+                These <strong>{ackTask.ahuName}</strong> filters are already overdue by{' '}
+                <strong className="text-rose-600">{ackTask.deviation.overdueDays} day{ackTask.deviation.overdueDays === 1 ? '' : 's'}</strong>{' '}
+                ({ackTask.totalFilters} filter{ackTask.totalFilters === 1 ? '' : 's'}). Please confirm with your password to continue.
+              </p>
+              <div className="text-[11px] text-slate-400">Deviation {ackTask.deviation.deviationNumber}</div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Password</label>
+                <input
+                  type="password" autoFocus value={ackPassword}
+                  onChange={(e) => { setAckPassword(e.target.value); setAckError(''); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && ackPassword.trim() && !ackSubmitting) handleAckConfirm(); }}
+                  placeholder="Enter your password"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-700 focus:border-rose-400 focus:ring-2 focus:ring-rose-100 outline-none"
+                />
+                {ackError && <p className="text-xs text-rose-600 mt-1.5">{ackError}</p>}
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 flex justify-end gap-2">
+              <button onClick={closeAck} disabled={ackSubmitting}
+                className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40">Cancel</button>
+              <button onClick={handleAckConfirm} disabled={ackSubmitting || !ackPassword.trim()}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-40 inline-flex items-center gap-2">
+                {ackSubmitting && <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
+                Confirm &amp; Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -268,6 +362,19 @@ function TaskCard({ task, expanded, onToggle, onPerform, formatDate }: {
                   <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
                   {meta.label}
                 </span>
+                {task.deviation && task.deviation.status !== 'CLOSED' && (
+                  <span className="inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full font-semibold bg-rose-50 text-rose-700 border border-rose-200"
+                    title={`Deviation ${task.deviation.deviationNumber}`}>
+                    Overdue by {task.deviation.overdueDays} day{task.deviation.overdueDays === 1 ? '' : 's'}
+                  </span>
+                )}
+                {task.deviation?.acknowledged && (
+                  <span className="inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full font-semibold bg-amber-50 text-amber-700 border border-amber-200"
+                    title={task.deviation.acknowledgedByName ? `Acknowledged by ${task.deviation.acknowledgedByName}` : 'Acknowledged'}>
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    Acknowledged
+                  </span>
+                )}
               </div>
               <div className="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span>Scheduled: <strong className="text-slate-700">{formatDate(task.plannedDate)}</strong></span>

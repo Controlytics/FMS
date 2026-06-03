@@ -19,7 +19,7 @@ import { triggerSync, startSyncPolling } from '../../lib/sync-since';
 import { MobileOperationsPage } from './mobile-operations';
 import { CLEANING_STAGES_MOBILE as STAGES } from '../../lib/filter-constants';
 
-type View = 'home' | 'status' | 'my-tasks' | 'approvals' | 'operations' | 'rfid-assign' | 'replace' | 'cycles' | 'cycle-detail' | 'replacement-tasks';
+type View = 'home' | 'status' | 'my-tasks' | 'approvals' | 'operations' | 'rfid-assign' | 'replace' | 'cycles' | 'cycle-detail' | 'replacement-tasks' | 'notifications';
 
 // Build identifier->filter map from identifiers list
 // Cleaning-stage filter-event types — mirrors the server's
@@ -217,6 +217,19 @@ export function MobileWrapperPage() {
   // My Tasks + Approvals
   const { data: dueTasksData, mutate: mutateDueTasks, isLoading: dueTasksLoading } =
     useSWR(online ? '/api/pm-schedules/due' : null, { refreshInterval: view === 'my-tasks' ? 30000 : 120000 });
+
+  // Notifications (overdue deviations etc.) — bell badge + center view.
+  const { data: notifData, mutate: mutateNotifs } =
+    useSWR<any>(online ? '/api/notifications?limit=50' : null, { refreshInterval: view === 'notifications' ? 15000 : 60000 });
+  const notifications: any[] = notifData?.data ?? [];
+  const unreadCount: number = notifData?.unreadCount ?? 0;
+  const markNotifRead = async (n: any) => {
+    if (n.isRead) return;
+    try { await apiClient.put(`/api/notifications/${n.id}/read`, {}); mutateNotifs(); } catch { /* ignore */ }
+  };
+  const markAllNotifsRead = async () => {
+    try { await apiClient.put('/api/notifications/mark-all-read', {}); mutateNotifs(); } catch { /* ignore */ }
+  };
 
   const isApprover = user?.role === 'SUPER_ADMIN' || (user?.permissions ?? []).includes('BLOCK_CHANGE_APPROVE');
   const [approvalsFilter, setApprovalsFilter] = useState<'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL'>(isApprover ? 'PENDING' : 'ALL');
@@ -707,6 +720,19 @@ export function MobileWrapperPage() {
           <div className="font-display text-sm font-semibold text-slate-800 leading-tight">DigiLog</div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Notification bell + unread badge */}
+          <button onClick={() => setView('notifications')}
+            className="relative w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center active:bg-slate-200"
+            aria-label="Notifications">
+            <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+          </button>
           <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium ${online ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
             <div className={`w-1.5 h-1.5 rounded-full ${online ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`} />
             {online ? 'Online' : 'Offline'}
@@ -1487,6 +1513,51 @@ export function MobileWrapperPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* === NOTIFICATIONS VIEW === */}
+        {view === 'notifications' && (
+          <div className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-slate-800">Notifications</h2>
+              {unreadCount > 0 && (
+                <button onClick={markAllNotifsRead} className="text-[12px] text-cyan-600 font-semibold active:text-cyan-700">Mark all read</button>
+              )}
+            </div>
+            {!online ? (
+              <div className="text-center py-16 text-[13px] text-slate-400">Notifications need a connection.</div>
+            ) : notifications.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-2">
+                <svg className="w-12 h-12 text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                <span className="text-[13px] text-slate-400 font-medium">No notifications</span>
+              </div>
+            ) : (
+              notifications.map((n: any) => {
+                const isOverdue = n.type === 'PM_OVERDUE';
+                const isDone = n.type === 'PM_OVERDUE_COMPLETED';
+                return (
+                  <button key={n.id} onClick={() => markNotifRead(n)}
+                    className={`w-full text-left rounded-2xl border px-4 py-3 active:opacity-80 transition-opacity ${n.isRead ? 'bg-white border-slate-200' : 'bg-cyan-50/40 border-cyan-200'}`}>
+                    <div className="flex items-start gap-2.5">
+                      {!n.isRead && <span className="w-2 h-2 rounded-full bg-cyan-500 mt-1.5 shrink-0" />}
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${isOverdue ? 'bg-rose-50 text-rose-600' : isDone ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          {isDone
+                            ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />}
+                        </svg>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[13px] font-semibold text-slate-800">{n.title}</div>
+                        <div className="text-[12px] text-slate-600 mt-0.5 leading-snug">{n.message}</div>
+                        <div className="text-[10px] text-slate-400 mt-1">{formatDateTime(n.createdAt)}</div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })
+            )}
           </div>
         )}
 

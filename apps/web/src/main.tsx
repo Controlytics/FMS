@@ -75,6 +75,7 @@ const ReportSettingsPage = lazy(() => import("./routes/config/report-settings").
 const PmScheduleListPage = lazy(() => import("./routes/pm-schedules/index").then(m => ({ default: m.PmScheduleListPage })));
 const PmScheduleDetailPage = lazy(() => import("./routes/pm-schedules/detail").then(m => ({ default: m.PmScheduleDetailPage })));
 const MyTasksPage = lazy(() => import("./routes/my-tasks/index").then(m => ({ default: m.MyTasksPage })));
+const DeviationsPage = lazy(() => import("./routes/deviations/index").then(m => ({ default: m.DeviationsPage })));
 const AhuDashboardPage = lazy(() => import("./routes/filter-management/ahu-dashboard").then(m => ({ default: m.AhuDashboardPage })));
 const FilterTraceabilityPage = lazy(() => import("./routes/filter-management/filter-traceability").then(m => ({ default: m.FilterTraceabilityPage })));
 const CleaningProfileEditorPage2 = lazy(() => import("./routes/filter-management/cleaning-profile-editor").then(m => ({ default: m.CleaningProfileEditorPage })));
@@ -242,6 +243,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/pm-schedules" element={<RequireRole permissions={[PERMISSIONS.PM_READ, PERMISSIONS.PM_CREATE, PERMISSIONS.PM_UPDATE, PERMISSIONS.PM_DELETE, PERMISSIONS.PM_EXECUTE, PERMISSIONS.PM_APPROVE]}><Suspense fallback={<LazyFallback />}><PmScheduleListPage /></Suspense></RequireRole>} />
             <Route path="/pm-schedules/:entityId" element={<RequireRole permissions={[PERMISSIONS.PM_READ, PERMISSIONS.PM_CREATE, PERMISSIONS.PM_UPDATE, PERMISSIONS.PM_DELETE, PERMISSIONS.PM_EXECUTE, PERMISSIONS.PM_APPROVE]}><Suspense fallback={<LazyFallback />}><PmScheduleDetailPage /></Suspense></RequireRole>} />
             <Route path="/my-tasks" element={<RequireRole permissions={[PERMISSIONS.PM_READ, PERMISSIONS.PM_EXECUTE, PERMISSIONS.PM_APPROVE]}><Suspense fallback={<LazyFallback />}><MyTasksPage /></Suspense></RequireRole>} />
+            <Route path="/deviations" element={<RequireRole permissions={[PERMISSIONS.PM_READ, PERMISSIONS.PM_APPROVE]}><Suspense fallback={<LazyFallback />}><DeviationsPage /></Suspense></RequireRole>} />
             <Route path="/ahus/:id" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AhuDashboardPage /></Suspense></RequireRole>} />
             <Route path="/audit" element={<RequireRole permissions={[PERMISSIONS.AUDIT_READ]}><AuditTrailPage /></RequireRole>} />
             <Route path="/admin-requests" element={<RequireRole permissions={[PERMISSIONS.ADMIN_REQUEST_REVIEW]}><Suspense fallback={<LazyFallback />}><AdminRequestsPage /></Suspense></RequireRole>} />

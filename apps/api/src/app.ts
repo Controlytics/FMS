@@ -51,6 +51,7 @@ import {
   connectivityCheckTask,
   retentionCleanupTask,
 } from './workers/maintenance.worker.js';
+import { pmOverdueCheckTask } from './workers/pm-overdue.worker.js';
 import { startJobRunner, stopJobRunner } from '@digilog/queue';
 import { getTsdbPool, initTelemetryBatcher, closeTelemetryBatcher } from '@digilog/db';
 import { AppError } from './lib/errors.js';
@@ -404,6 +405,7 @@ try {
         dlq_check: dlqCheckTask,
         connectivity_check: connectivityCheckTask,
         retention_cleanup: retentionCleanupTask,
+        pm_overdue_check: pmOverdueCheckTask,
       },
       crontabPath,
     });

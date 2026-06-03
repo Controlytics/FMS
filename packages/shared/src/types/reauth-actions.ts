@@ -162,6 +162,7 @@ export const REAUTH_ACTIONS = {
   UPLOAD_PM_SCHEDULES: { label: 'Bulk Upload PM Schedules', category: 'PM Schedules' },
   START_PM_TASK: { label: 'Start PM Task', category: 'PM Schedules' },
   RESUBMIT_PM_ENTRY: { label: 'Resubmit PM Entry', category: 'PM Schedules' },
+  ACKNOWLEDGE_PM_OVERDUE: { label: 'Acknowledge Overdue PM Task', category: 'PM Schedules' },
   CREATE_EQUIPMENT_GROUP: { label: 'Create Equipment Group', category: 'Equipment Groups' },
   UPDATE_EQUIPMENT_GROUP: { label: 'Update Equipment Group', category: 'Equipment Groups' },
   DELETE_EQUIPMENT_GROUP: { label: 'Delete Equipment Group', category: 'Equipment Groups' },

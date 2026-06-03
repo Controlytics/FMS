@@ -43,6 +43,8 @@ const SYSTEM_AUDIT_ACTIONS = new Set<string>([
   'NOTIFICATION_DISPATCH',      // worker-emitted delivery audit
   'BACKUP_RETENTION_PRUNE',     // retention sweep
   'DLQ_OVERFLOW',               // dead-letter overflow
+  'DEVIATION_OPENED',           // PM overdue sweep — auto-opens a deviation (no user when cron-fired)
+  'DEVIATION_CLOSED',           // PM overdue sweep — auto-closes when filters cleaned (no user when cron-fired)
 ]);
 
 /**

@@ -4,9 +4,10 @@
 import type { FastifyInstance } from 'fastify';
 import ExcelJS from 'exceljs';
 import { PmScheduleService } from './pm-schedule.service.js';
+import { sweepOverdueDeviations, listDeviations, acknowledgeDeviation } from './pm-deviations.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { prisma } from '../../lib/prisma.js';
 
 // Normalise one exceljs cell value to the shapes importSchedules() handles
@@ -396,6 +397,57 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const body = req.body as { plannedDate: string; toleranceDays?: number };
     return service.editApprovedEntry(ctx, id, body);
+  });
+
+  // ─── Overdue deviations ───
+  // Literal /deviations* paths — registered before the parametric /:entityId.
+  app.post('/deviations/sweep', {
+    preHandler: [app.requirePermission('PM_UPDATE')],
+    schema: {
+      tags: ['PM Schedules'],
+      summary: 'Run the overdue-deviation sweep now (open new + close resolved)',
+      description: 'Manual trigger for the same idempotent sweep the daily cron runs. Opens deviations for newly-overdue AHU cleaning tasks and closes those whose filters have since been cleaned.',
+      response: { 200: { type: 'object', properties: { opened: { type: 'integer' }, closed: { type: 'integer' } }, additionalProperties: false }, ...errorResponses },
+    },
+  }, async (req) => {
+    return sweepOverdueDeviations(buildContext(req));
+  });
+
+  app.get('/deviations', {
+    preHandler: [app.requirePermission('PM_READ')],
+    schema: {
+      tags: ['PM Schedules'],
+      summary: 'List overdue deviations (full audit record)',
+      querystring: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', enum: ['ALL', 'OPEN', 'ACKNOWLEDGED', 'CLOSED'] },
+          ahuId: { type: 'string', format: 'uuid' },
+          page: { type: 'integer', minimum: 1 },
+          limit: { type: 'integer', minimum: 1, maximum: 200 },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req) => {
+    return listDeviations(req.query as any);
+  });
+
+  app.post('/deviations/:id/acknowledge', {
+    preHandler: [app.requirePermission('PM_READ')],
+    schema: {
+      tags: ['PM Schedules'],
+      summary: 'Acknowledge an overdue task before completing it (password re-auth)',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    // ALWAYS require the password — confirming an overdue task before completion
+    // is a compliance gate, not an admin-toggleable reauth policy.
+    const { ok } = await enforceReauthAlways('ACKNOWLEDGE_PM_OVERDUE', req, reply);
+    if (!ok) return;
+    const { id } = req.params as { id: string };
+    return acknowledgeDeviation(buildContext(req), id);
   });
 
   // ─── My Tasks: list due entries ───

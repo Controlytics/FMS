@@ -14,6 +14,15 @@ export interface DueFilterRow {
   lastCycleCompletedAt: Date | null;
 }
 
+export interface DueDeviationContext {
+  deviationId: string;
+  deviationNumber: string;
+  status: 'OPEN' | 'ACKNOWLEDGED' | 'CLOSED';
+  overdueDays: number;
+  acknowledged: boolean;
+  acknowledgedByName: string | null;
+}
+
 export interface DueTaskRow {
   entryId: string;
   ahuId: string;
@@ -26,6 +35,8 @@ export interface DueTaskRow {
   cleanedCount: number;
   overallStatus: DueOverallStatus;
   filters: DueFilterRow[];
+  // Read-only deviation context (null unless an overdue deviation exists).
+  deviation?: DueDeviationContext | null;
 }
 
 export interface DueTasksResponse {

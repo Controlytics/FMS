@@ -335,6 +335,9 @@ enum NotificationType {
   CHECKLIST_APPROVED
   CHECKLIST_REJECTED
   SYSTEM_ERROR
+  // PM overdue deviation workflow (2026-06-03)
+  PM_OVERDUE
+  PM_OVERDUE_COMPLETED
 }
 
 model Notification {
@@ -1384,6 +1387,57 @@ model ReplacementExecution {
 
   @@index([entryId])
   @@map("replacement_executions")
+}
+
+// ─── PM Overdue Deviations (2026-06-03) ───────────────────────────────────
+// When a PM cleaning task (PmScheduleEntry) passes its tolerance window without
+// all of the AHU's counted filters cleaned, the overdue sweep opens ONE
+// Deviation per entry (UNIQUE pm_schedule_entry_id → no daily duplicates). The
+// ROW IS THE STATE MACHINE: OPEN → ACKNOWLEDGED (operator confirms with password
+// on My Tasks) → CLOSED (all filters cleaned afterwards). Notifications fire once
+// per transition, guarded by notified_at / completion_notified_at. Soft refs (no
+// FK) — like ReplacementSchedule — so the deviation audit record survives
+// schedule/entry deletion (21 CFR). Created via psql DDL (db push blocked).
+enum DeviationStatus {
+  OPEN
+  ACKNOWLEDGED
+  CLOSED
+
+  @@map("deviation_status")
+}
+
+model Deviation {
+  id                   String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  deviationNumber      String          @unique @default(dbgenerated("('DEV-' || lpad((nextval('deviation_number_seq'))::text, 6, '0'))")) @map("deviation_number") @db.VarChar(40)
+  pmScheduleEntryId    String          @unique @map("pm_schedule_entry_id") @db.Uuid // soft ref → PmScheduleEntry (the "task")
+  ahuId                String          @map("ahu_id") @db.Uuid
+  ahuName              String          @map("ahu_name") @db.VarChar(255)
+  filterIds            Json            @default("[]") @map("filter_ids") @db.JsonB // string[] of filter ids counted at open
+  filterCount          Int             @default(0) @map("filter_count")
+  scheduledDate        DateTime        @map("scheduled_date") @db.Date
+  windowStart          DateTime?       @map("window_start") @db.Date // tolerance window open (for self-contained closure predicate)
+  windowEnd            DateTime        @map("window_end") @db.Date
+  overdueDaysAtOpen    Int             @map("overdue_days_at_open") // now − scheduledDate at the moment the deviation opened
+  assignedUserId       String?         @map("assigned_user_id") @db.Uuid
+  status               DeviationStatus @default(OPEN)
+  acknowledgedBy       String?         @map("acknowledged_by") @db.Uuid
+  acknowledgedByName   String?         @map("acknowledged_by_name") @db.VarChar(255)
+  acknowledgedAt       DateTime?       @map("acknowledged_at") @db.Timestamptz
+  passwordVerified     Boolean         @default(false) @map("password_verified")
+  notifiedAt           DateTime?       @map("notified_at") @db.Timestamptz // overdue-notification guard (fire once)
+  completedBy          String?         @map("completed_by") @db.Uuid
+  completedByName      String?         @map("completed_by_name") @db.VarChar(255)
+  completedAt          DateTime?       @map("completed_at") @db.Timestamptz
+  delayDays            Int?            @map("delay_days") // completedAt − scheduledDate
+  closedAt             DateTime?       @map("closed_at") @db.Timestamptz
+  completionNotifiedAt DateTime?       @map("completion_notified_at") @db.Timestamptz // completion-notification guard
+  createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([status])
+  @@index([ahuId])
+  @@index([createdAt(sort: Desc)])
+  @@map("deviations")
 }
 
 model FilterCleaningProfile {

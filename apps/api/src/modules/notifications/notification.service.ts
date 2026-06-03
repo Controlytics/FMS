@@ -162,7 +162,7 @@ function assertNotificationVisible(notif: any, userRole: string, username: strin
 
 // Exported for use by other modules (auth.service.ts, user.service.ts)
 export async function createNotification(data: {
-  type: 'ACCOUNT_LOCKED' | 'ACCOUNT_DISABLED' | 'ACCOUNT_ENABLED' | 'PASSWORD_RESET_REQUEST' | 'PASSWORD_RESET_APPROVED' | 'PASSWORD_RESET_REJECTED' | 'USER_CREATED' | 'USER_UPDATED' | 'ROLE_CHANGED' | 'BLOCK_CHANGE_REQUESTED' | 'BLOCK_CHANGE_APPROVED' | 'BLOCK_CHANGE_REJECTED';
+  type: 'ACCOUNT_LOCKED' | 'ACCOUNT_DISABLED' | 'ACCOUNT_ENABLED' | 'PASSWORD_RESET_REQUEST' | 'PASSWORD_RESET_APPROVED' | 'PASSWORD_RESET_REJECTED' | 'USER_CREATED' | 'USER_UPDATED' | 'ROLE_CHANGED' | 'BLOCK_CHANGE_REQUESTED' | 'BLOCK_CHANGE_APPROVED' | 'BLOCK_CHANGE_REJECTED' | 'PM_OVERDUE' | 'PM_OVERDUE_COMPLETED';
   title: string;
   message: string;
   targetUserId?: string;

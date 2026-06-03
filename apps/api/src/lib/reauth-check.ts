@@ -148,3 +148,37 @@ export async function enforceReauth(
 
   return { ok: true };
 }
+
+/**
+ * ALWAYS-ON reauth for compliance-mandated gates (e.g. acknowledging an overdue
+ * PM cleaning task before completion). Identical password verification to
+ * `enforceReauth`, but NOT gated on the admin-managed action-reauth config — the
+ * password confirmation is intrinsic to the action, not an opt-in policy, so it
+ * cannot be turned off. Still honors a verified offline-replay grant.
+ */
+export async function enforceReauthAlways(
+  action: string,
+  req: FastifyRequest,
+  reply: FastifyReply,
+): Promise<{ ok: boolean }> {
+  if (req.offlineReplayVerified === true) return { ok: true };
+  const body = req.body as Record<string, unknown> | undefined;
+  const password = (body?._currentPassword as string) ?? (req.headers['x-reauth-password'] as string);
+  if (!password) {
+    reply.code(401).send({ error: 'REAUTH_REQUIRED', message: 'This action requires password re-authentication.', action });
+    return { ok: false };
+  }
+  const user = await prisma.user.findUnique({ where: { id: req.user.sub } });
+  if (!user) {
+    reply.code(401).send({ error: 'REAUTH_FAILED', message: 'User not found.' });
+    return { ok: false };
+  }
+  const valid = await verifyPassword(password, user.passwordHash);
+  if (!valid) {
+    reply.code(401).send({ error: 'REAUTH_FAILED', message: 'Incorrect password. Please try again.' });
+    return { ok: false };
+  }
+  if (body?._currentPassword) delete body._currentPassword;
+  (req as any)._reauthVerified = true;
+  return { ok: true };
+}
