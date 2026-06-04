@@ -21,6 +21,13 @@ import { CLEANING_STAGES_MOBILE as STAGES } from '../../lib/filter-constants';
 
 type View = 'home' | 'status' | 'my-tasks' | 'approvals' | 'operations' | 'rfid-assign' | 'replace' | 'cycles' | 'cycle-detail' | 'replacement-tasks' | 'notifications';
 
+// Show "NA" when a replacement-schedule value wasn't entered (null/empty) or was
+// a stray "[object Object]" from a non-text spreadsheet cell.
+const naText = (v: unknown): string => {
+  const s = (v ?? '').toString().trim();
+  return !s || s === '[object Object]' ? 'NA' : s;
+};
+
 // Build identifier->filter map from identifiers list
 // Cleaning-stage filter-event types — mirrors the server's
 // CLEANING_STAGE_EVENT_TYPES (hierarchy.service.ts). "Last Cleaned" tracks the
@@ -2702,7 +2709,7 @@ export function MobileWrapperPage() {
                       className="tile-lift w-full rounded-xl border border-slate-200 bg-white p-3 text-left flex items-center justify-between active:bg-slate-50">
                       <div className="min-w-0 flex-1">
                         <div className="font-display text-[14px] font-semibold text-slate-900 truncate">{t.ahuName}</div>
-                        <div className="text-[11px] text-slate-500 mt-0.5">{t.filterMicron ? `micron ${t.filterMicron}` : ''}{t.filterMicron && t.filterSize ? ' · ' : ''}{t.filterSize ? `size ${t.filterSize}` : ''}</div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">micron {naText(t.filterMicron)} · size {naText(t.filterSize)}</div>
                         <div className="text-[10.5px] text-slate-400 mt-0.5">due by {t.windowEnd ? new Date(t.windowEnd).toLocaleDateString() : '—'}</div>
                       </div>
                       <span className="text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-full px-2.5 py-1 shrink-0">{t.qtyRemaining} of {t.qty} left</span>
@@ -2717,7 +2724,7 @@ export function MobileWrapperPage() {
                 </button>
                 <div className="bg-white border border-slate-200 rounded-2xl p-4">
                   <div className="font-display text-[15px] font-semibold text-slate-900">{activeReplTask.ahuName}</div>
-                  <div className="text-[12px] text-slate-500 mt-0.5">{activeReplTask.filterMicron ? `micron ${activeReplTask.filterMicron}` : ''}{activeReplTask.filterMicron && activeReplTask.filterSize ? ' · ' : ''}{activeReplTask.filterSize ? `size ${activeReplTask.filterSize}` : ''}</div>
+                  <div className="text-[12px] text-slate-500 mt-0.5">micron {naText(activeReplTask.filterMicron)} · size {naText(activeReplTask.filterSize)}</div>
                   <div className="text-[12px] text-rose-600 font-medium mt-1">{activeReplTask.qtyRemaining} of {activeReplTask.qty} still to replace</div>
                 </div>
                 <div>

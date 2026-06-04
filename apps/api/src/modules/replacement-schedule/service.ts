@@ -50,6 +50,10 @@ function cellToString(v: unknown): string {
     if (Array.isArray(o.richText)) return o.richText.map((t: any) => t.text).join('').trim();
     if (typeof o.text === 'string') return o.text.trim();
     if (o.result !== undefined) return String(o.result).trim();
+    // Any other ExcelJS object shape (hyperlink-only, error, formula w/o result,
+    // shared value, etc.) — treat as empty rather than letting String(v) stringify
+    // it to the literal "[object Object]" and persist that as the filter size.
+    return '';
   }
   return String(v).trim();
 }

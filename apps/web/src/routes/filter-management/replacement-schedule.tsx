@@ -5,6 +5,13 @@ import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { themeButton } from '@/lib/theme-styles';
 
+// Show "NA" when a value wasn't entered (null/empty/whitespace) or was a stray
+// "[object Object]" from a non-text spreadsheet cell.
+const naText = (v: unknown): string => {
+  const s = (v ?? '').toString().trim();
+  return !s || s === '[object Object]' ? 'NA' : s;
+};
+
 // Status chip colours
 const STATUS_CHIP: Record<string, string> = {
   PENDING: 'bg-slate-100 text-slate-500 border-slate-200',
@@ -144,8 +151,8 @@ export function ReplacementSchedulePage() {
                       <tr key={e.id} className="[&>td]:whitespace-nowrap [&>td]:px-3 [&>td]:py-2 [&>td]:text-sm hover:bg-slate-50/50">
                         <td className="text-center text-slate-400">{e.slNo ?? idx + 1}</td>
                         <td className="font-medium text-slate-800 max-w-[180px] truncate" title={e.ahuName}>{e.ahuName}</td>
-                        <td className="text-slate-500">{e.filterMicron ?? '—'}</td>
-                        <td className="text-slate-500 max-w-[140px] truncate" title={e.filterSize ?? undefined}>{e.filterSize ?? '—'}</td>
+                        <td className="text-slate-500">{naText(e.filterMicron)}</td>
+                        <td className="text-slate-500 max-w-[140px] truncate" title={naText(e.filterSize)}>{naText(e.filterSize)}</td>
                         <td className="text-center text-slate-700">{e.qty}</td>
                         <td className="text-center text-slate-700">{e.qtyReplaced}</td>
                         <td className="text-slate-600">{formatDate(e.scheduleDate)}</td>
