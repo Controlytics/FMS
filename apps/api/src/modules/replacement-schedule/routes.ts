@@ -87,19 +87,21 @@ export default async function replacementScheduleRoutes(app: FastifyInstance) {
   });
 
   // Entries whose window is active right now (drives tablet tasks + dashboard).
+  // 2026-06-04 (per user): replacement TASKS are open to any authenticated role
+  // on the tablet — no permission rule. (Web VIEW/UPLOAD of the schedule above
+  // stays role-gated; only these two task endpoints are opened.) Auth is still
+  // enforced by the global onRequest hook.
   app.get('/due', {
-    preHandler: [app.requirePermission('REPLACEMENT_SCHEDULE_VIEW')],
-    schema: { tags: ['Replacement Schedule'], summary: 'List currently-due replacement entries', response: { 200: { type: 'object', properties: { data: { type: 'array', items: { type: 'object', additionalProperties: true } } } }, ...errorResponses } },
+    schema: { tags: ['Replacement Schedule'], summary: 'List currently-due replacement entries (any role)', response: { 200: { type: 'object', properties: { data: { type: 'array', items: { type: 'object', additionalProperties: true } } } }, ...errorResponses } },
   }, async () => {
     const data = await listDueEntries();
     return { data };
   });
 
-  // Replace one filter against a due entry (from the tablet task). Reuses the
-  // existing REPLACE_FILTER reauth so the replacement stays gated; then wraps the
-  // existing replace action + increments qty. Body: { oldFilterId, remarks }.
+  // Replace one filter against a due entry (from the tablet task). Open to any
+  // authenticated role (2026-06-04) but STILL requires REPLACE_FILTER reauth —
+  // so the action carries the operator's 21 CFR electronic signature + audit.
   app.post('/entries/:id/execute', {
-    preHandler: [app.requirePermission('REPLACEMENT_SCHEDULE_EXECUTE')],
     schema: {
       tags: ['Replacement Schedule'],
       summary: 'Replace one filter against a schedule entry',

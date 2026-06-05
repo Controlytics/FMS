@@ -355,13 +355,20 @@ export function MobileWrapperPage() {
   // ── Replacement Schedule tasks (separate tile → own page, online-only) ──
   const { data: replDueData, mutate: mutateReplDue } = useSWR(online ? '/api/replacement-schedules/due' : null, { refreshInterval: 30000 });
   const replDueTasks = ((replDueData as any)?.data ?? []) as any[];
-  const canReplacementTasks = user?.role === 'SUPER_ADMIN'
-    || (user?.permissions ?? []).includes('REPLACEMENT_SCHEDULE_VIEW')
-    || (user?.permissions ?? []).includes('REPLACEMENT_SCHEDULE_EXECUTE');
+  // 2026-06-04 (per user): Replacement Tasks are open to ANY role on the tablet
+  // — operators run scheduled replacements from the tablet and shouldn't need a
+  // special permission. (Web view/upload stays role-gated; the execute still
+  // requires REPLACE_FILTER reauth, so the 21 CFR signature + audit is kept.)
+  const canReplacementTasks = true;
   const [activeReplTask, setActiveReplTask] = useState<any | null>(null);
   const replTaskScan = useRfidScanField();
   const [replTaskError, setReplTaskError] = useState('');
   const [replTaskSubmitting, setReplTaskSubmitting] = useState(false);
+  // Pick-from-list selection for the active replacement task (multi-select,
+  // capped at qtyRemaining). Additive to the scan box above it.
+  const [replTaskSelected, setReplTaskSelected] = useState<Set<string>>(new Set());
+  const [replTaskSearch, setReplTaskSearch] = useState('');
+  const replBatchResultRef = useRef<{ done: number; failed: string[] } | null>(null);
 
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
   const [processingApproval, setProcessingApproval] = useState<string | null>(null);
@@ -625,6 +632,55 @@ export function MobileWrapperPage() {
         if (online) { await mutate('/api/assets/instances?limit=500'); await mutateIdentifiers(); }
       },
       onError: (e: any) => { setReplTaskError(e?.message ?? 'Failed to replace filter'); setReplTaskSubmitting(false); },
+    });
+  };
+
+  // ── Replacement-task: replace the picked filters (multi-select) in one batch ──
+  // Same endpoint + REPLACE_FILTER reauth as the scan path — just loops over the
+  // selected filter ids. One reauth covers the whole batch (the in-memory reauth
+  // cache keeps subsequent calls signed). Per-filter errors are collected so one
+  // bad row doesn't abort the rest; REAUTH errors are re-thrown so the dialog
+  // (not a generic popup) handles them.
+  const executeBatchReplTask = () => {
+    if (!activeReplTask || replTaskSelected.size === 0) return;
+    const ids = [...replTaskSelected];
+    const taskId = activeReplTask.id;
+    const ahuName = activeReplTask.ahuName;
+    setReplTaskSubmitting(true); setReplTaskError('');
+    reauth.execute('REPLACE_FILTER', async (password?: string) => {
+      let done = 0; const failed: string[] = [];
+      for (const fid of ids) {
+        try {
+          const body = { oldFilterId: fid, remarks: `Replaced via schedule task (AHU ${ahuName})` };
+          if (password) await api.postWithReauth(`/api/replacement-schedules/entries/${taskId}/execute`, body, password);
+          else await api.post(`/api/replacement-schedules/entries/${taskId}/execute`, body);
+          done++;
+        } catch (e: any) {
+          const code = e?.error ?? e?.code;
+          // Let the reauth flow handle its own errors (open/keep the dialog).
+          if (code === 'REAUTH_FAILED' || code === 'REAUTH_REQUIRED') throw e;
+          const fname = (allFilters as any[]).find((f: any) => f.id === fid)?.name ?? 'a filter';
+          failed.push(`${fname}: ${e?.message ?? 'failed'}`);
+        }
+      }
+      replBatchResultRef.current = { done, failed };
+    }, {
+      onSuccess: async () => {
+        setReplTaskSubmitting(false);
+        replTaskScan.setValue('');
+        setReplTaskSelected(new Set());
+        const res = replBatchResultRef.current;
+        await mutateReplDue();
+        if (online) { await mutate('/api/assets/instances?limit=500'); await mutateIdentifiers(); }
+        if (res && res.failed.length > 0) {
+          // Stay on the task so the operator can retry the failed ones.
+          setReplTaskError(`Replaced ${res.done}, ${res.failed.length} failed — ${res.failed.join('; ')}`);
+        } else {
+          setActiveReplTask(null);
+        }
+        replBatchResultRef.current = null;
+      },
+      onError: (e: any) => { setReplTaskError(e?.message ?? 'Failed to replace filters'); setReplTaskSubmitting(false); },
     });
   };
 
@@ -2705,7 +2761,7 @@ export function MobileWrapperPage() {
               ) : (
                 <div className="space-y-2">
                   {replDueTasks.map((t: any) => (
-                    <button key={t.id} onClick={() => { setActiveReplTask(t); replTaskScan.setValue(''); setReplTaskError(''); }}
+                    <button key={t.id} onClick={() => { setActiveReplTask(t); replTaskScan.setValue(''); setReplTaskError(''); setReplTaskSelected(new Set()); setReplTaskSearch(''); }}
                       className="tile-lift w-full rounded-xl border border-slate-200 bg-white p-3 text-left flex items-center justify-between active:bg-slate-50">
                       <div className="min-w-0 flex-1">
                         <div className="font-display text-[14px] font-semibold text-slate-900 truncate">{t.ahuName}</div>
@@ -2717,15 +2773,45 @@ export function MobileWrapperPage() {
                   ))}
                 </div>
               )
-            ) : (
+            ) : (() => {
+              // ── Pick-from-list candidates: active filters directly under this
+              // task's AHU, matched against the task's micron + size. If none
+              // match (filter attributes blank/mismatched), fall back to ALL
+              // active filters under the AHU so the operator can still pick.
+              const norm = (v: unknown) => {
+                const s = String(v ?? '').trim().toLowerCase();
+                return !s || s === '[object object]' || s === 'na' || s === '-' ? '' : s;
+              };
+              const taskMicron = norm(activeReplTask.filterMicron);
+              const taskSize = norm(activeReplTask.filterSize);
+              const ahuFilters = (allFilters as any[]).filter((f: any) => f.parentId === activeReplTask.ahuId);
+              const matched = ahuFilters.filter((f: any) => {
+                const micronOk = !taskMicron || norm(f.attributes?.micronSize) === taskMicron;
+                const sizeOk = !taskSize || norm(f.attributes?.filterSize) === taskSize;
+                return micronOk && sizeOk;
+              });
+              const usingFallback = matched.length === 0 && ahuFilters.length > 0;
+              const baseList = usingFallback ? ahuFilters : matched;
+              const q = replTaskSearch.trim().toLowerCase();
+              const candidates = (q ? baseList.filter((f: any) => (f.name ?? '').toLowerCase().includes(q)) : baseList)
+                .slice().sort((a: any, b: any) => String(a.name ?? '').localeCompare(String(b.name ?? '')));
+              const remaining = activeReplTask.qtyRemaining ?? activeReplTask.qty ?? 0;
+              const atCap = replTaskSelected.size >= remaining;
+              const toggleSel = (fid: string) => setReplTaskSelected(prev => {
+                const next = new Set(prev);
+                if (next.has(fid)) next.delete(fid);
+                else { if (next.size >= remaining) return prev; next.add(fid); }
+                return next;
+              });
+              return (
               <div className="space-y-4">
-                <button onClick={() => { setActiveReplTask(null); replTaskScan.setValue(''); setReplTaskError(''); }} className="text-[12px] text-slate-500 font-medium flex items-center gap-1">
+                <button onClick={() => { setActiveReplTask(null); replTaskScan.setValue(''); setReplTaskError(''); setReplTaskSelected(new Set()); setReplTaskSearch(''); }} className="text-[12px] text-slate-500 font-medium flex items-center gap-1">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.4}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg> back to tasks
                 </button>
                 <div className="bg-white border border-slate-200 rounded-2xl p-4">
                   <div className="font-display text-[15px] font-semibold text-slate-900">{activeReplTask.ahuName}</div>
                   <div className="text-[12px] text-slate-500 mt-0.5">micron {naText(activeReplTask.filterMicron)} · size {naText(activeReplTask.filterSize)}</div>
-                  <div className="text-[12px] text-rose-600 font-medium mt-1">{activeReplTask.qtyRemaining} of {activeReplTask.qty} still to replace</div>
+                  <div className="text-[12px] text-rose-600 font-medium mt-1">{remaining} of {activeReplTask.qty} still to replace</div>
                 </div>
                 <div>
                   <label className="block text-[10px] uppercase tracking-[0.15em] text-rose-600 font-semibold mb-1.5">Scan filter to replace</label>
@@ -2733,15 +2819,74 @@ export function MobileWrapperPage() {
                     onKeyDown={(e) => { replTaskScan.onKeyDown(e); if (e.key === 'Enter' && !replTaskSubmitting) { e.preventDefault(); resolveAndExecuteReplTask(); } }}
                     onChange={replTaskScan.onChange} placeholder="Scan or type the old filter's tag, then Enter" autoFocus
                     className="w-full px-3 py-3 border border-rose-200 rounded-xl text-base font-mono bg-rose-50/40 focus:ring-2 focus:ring-rose-500 focus:border-rose-500" />
-                  {replTaskError && <div className="text-[12px] text-rose-700 mt-1.5 font-medium">{replTaskError}</div>}
-                  <div className="text-[10.5px] text-slate-400 mt-1.5">Replaces that filter (retire old → new, tag carries over) and ticks this task down by one.</div>
+                  <div className="text-[10.5px] text-slate-400 mt-1.5">Scan replaces one filter instantly — or pick from the list below.</div>
                 </div>
-                <button onClick={resolveAndExecuteReplTask} disabled={replTaskSubmitting || !replTaskScan.value.trim()}
+
+                {/* ── Pick from the AHU's filters (multi-select up to qty) ── */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-500 font-semibold">
+                      Filters in {activeReplTask.ahuName}
+                    </label>
+                    <span className="text-[10.5px] text-slate-400">select up to {remaining}</span>
+                  </div>
+                  {usingFallback && (
+                    <div className="text-[10.5px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                      No filters in this AHU match micron {naText(activeReplTask.filterMicron)} · size {naText(activeReplTask.filterSize)} — showing all {ahuFilters.length} active filter(s) instead.
+                    </div>
+                  )}
+                  <input type="text" value={replTaskSearch} onChange={e => setReplTaskSearch(e.target.value)}
+                    placeholder="Search by filter name…"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-rose-500 focus:border-rose-500" />
+                  {candidates.length === 0 ? (
+                    <div className="bg-white border border-slate-200 rounded-xl p-6 text-center text-sm text-slate-500">
+                      {ahuFilters.length === 0 ? 'No active filters found under this AHU.' : 'No filters match your search.'}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {candidates.slice(0, 80).map((f: any) => {
+                        const tags = rfidTagsByFilter.get(f.id) ?? [];
+                        const firstTag = tags[0]?.identifierValue ?? '';
+                        const selected = replTaskSelected.has(f.id);
+                        const disabled = !selected && atCap;
+                        return (
+                          <button key={f.id} onClick={() => toggleSel(f.id)} disabled={disabled}
+                            className={`tile-lift w-full rounded-xl border p-3 text-left flex items-center gap-3 transition-colors ${
+                              selected ? 'border-rose-300 bg-rose-50' : 'border-slate-200 bg-white active:bg-slate-50'
+                            } ${disabled ? 'opacity-40' : ''}`}>
+                            <span className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 ${
+                              selected ? 'bg-rose-500 border-rose-500' : 'border-slate-300 bg-white'
+                            }`}>
+                              {selected && <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="font-display text-[13px] font-semibold text-slate-900 truncate leading-tight">{f.name}</div>
+                              <div className="text-[10.5px] text-slate-400 mt-0.5 truncate">
+                                micron {naText(f.attributes?.micronSize)} · size {naText(f.attributes?.filterSize)}
+                                {firstTag ? <> · tag <span className="font-mono-tab text-slate-600">{firstTag}</span></> : ' · no tag'}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                      {candidates.length > 80 && (
+                        <div className="text-[10.5px] text-slate-400 text-center">Showing first 80 — search to narrow.</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {replTaskError && <div className="text-[12px] text-rose-700 font-medium">{replTaskError}</div>}
+
+                <button onClick={executeBatchReplTask} disabled={replTaskSubmitting || replTaskSelected.size === 0}
                   className="w-full py-3 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-rose-500 to-pink-600 shadow-lg active:shadow-none disabled:opacity-50">
-                  {replTaskSubmitting ? 'Replacing…' : 'Replace scanned filter'}
+                  {replTaskSubmitting
+                    ? 'Replacing…'
+                    : replTaskSelected.size === 0 ? 'Select filters to replace' : `Replace ${replTaskSelected.size} selected filter${replTaskSelected.size === 1 ? '' : 's'}`}
                 </button>
               </div>
-            )}
+              );
+            })()}
           </div>
         </div>
       )}
@@ -2784,7 +2929,7 @@ export function MobileWrapperPage() {
         isVerifying={reauth.isVerifying}
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
-        onCancel={() => { reauth.cancel(); setRfidSubmitting(false); setReplaceSubmitting(false); }}
+        onCancel={() => { reauth.cancel(); setRfidSubmitting(false); setReplaceSubmitting(false); setReplTaskSubmitting(false); }}
         actionLabel="RFID Tag"
       />
       <ReauthDialog

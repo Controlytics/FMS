@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased] — Replacement Tasks: pick filters from the AHU (tablet) (2026-06-05)
+
+Commit on `RFID`.
+
+On the tablet's **Replacement Tasks** page, after opening a task (AHU + micron + size), the operator can now **pick the filters to replace from a list** instead of only scanning each tag. The existing RFID scan box stays (additive).
+
+- **Pick-from-list** (`apps/web/src/routes/mobile/mobile-wrapper.tsx`): after selecting a task, the view lists the **active filters directly under that AHU**, matched against the task's micron + size (`attributes.micronSize` ↔ `filterMicron`, `attributes.filterSize` ↔ `filterSize`, normalised case/whitespace, `NA`/`-`/blank ignored). **Matching-first with all-as-fallback**: if no filter matches (attributes blank/mismatched) it shows every active filter under the AHU with an amber note. Each row shows the filter's own micron · size · RFID tag, plus a name **search** box (first 80 rendered).
+- **Multi-select batch**: tick filters up to the task's `qtyRemaining` (the rest grey out at the cap); **"Replace N selected filters"** runs them in one loop through the **same** `POST /api/replacement-schedules/entries/:id/execute` endpoint + `REPLACE_FILTER` reauth + audit the scan path already uses — one password covers the batch. Per-filter errors are collected (one bad filter doesn't abort the rest); `REAUTH_FAILED`/`REAUTH_REQUIRED` re-throw to the reauth dialog. On partial failure the task stays open with a "Replaced X, N failed" message; on full success it returns to the task list (which refreshes the decremented qty).
+- **Tablet task endpoints opened to any role** (`apps/api/src/modules/replacement-schedule/routes.ts`, 2026-06-04 per user): `GET /due` and `POST /entries/:id/execute` dropped their `REPLACEMENT_SCHEDULE_VIEW` / `REPLACEMENT_SCHEDULE_EXECUTE` preHandlers so any authenticated operator can run scheduled replacements from the tablet. **Web view/upload of the schedule stays role-gated**, and execute **still requires `REPLACE_FILTER` reauth**, so the 21 CFR electronic signature + audit are preserved.
+- **Bug fixed along the way**: cancelling the reauth dialog left `replTaskSubmitting` stuck (froze the task's submit button) — now reset in the dialog's `onCancel`.
+- **Verified**: `vite build` clean; logic validated against the live DB (AHU-0A's micron-20/100x110x120 qty-2 entry maps to exactly `F2/AHU-0A/SA/011` + `/012`; micron-15/150x160x170 → `/013`); operator-confirmed working on the tablet. APK rebuilt (`DigiLog-FilterOps.apk`).
+
 ## [Unreleased] — Configurable report labels (titles / subtitles / column headers) (2026-06-03)
 
 Commit on `RFID`: `95f8271`.
