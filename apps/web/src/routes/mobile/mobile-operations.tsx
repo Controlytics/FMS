@@ -2264,7 +2264,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center mb-3 shadow-lg shadow-indigo-500/20">
                   <span className="text-2xl">📋</span>
                 </div>
-                <div className="text-sm font-bold text-slate-800">Cleaning Cycles</div>
+                <div className="text-sm font-bold text-slate-800">Filter Cleaning Record</div>
                 <div className="text-xs text-slate-400 mt-0.5">Recent cycle history</div>
               </button>
             </div>
@@ -2657,7 +2657,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         {view === 'cycles' && (
           <div className="p-4 space-y-3">
             <div>
-              <h2 className="text-lg font-bold text-slate-800">Cleaning Cycles</h2>
+              <h2 className="text-lg font-bold text-slate-800">Filter Cleaning Record</h2>
               <p className="text-xs text-slate-500 mt-0.5">Recent cycles · {cyclesList.length}</p>
             </div>
             {!online && (

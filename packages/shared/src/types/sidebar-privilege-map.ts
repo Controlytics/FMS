@@ -120,9 +120,16 @@ export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
   },
   {
     sidebarId: "cleaning-cycles",
-    label: "Cleaning Cycles",
+    label: "Filter Cleaning Record",
     icon: "\u{1F504}",
     description: "Cleaning cycle history and timeline",
+    privilegeIds: ["cycles.view"],
+  },
+  {
+    sidebarId: "filter-lifecycle-report",
+    label: "Filter Lifecycle Report",
+    icon: "\u{1F4CA}",
+    description: "Per-filter cleaning lifecycle, cycle by cycle",
     privilegeIds: ["cycles.view"],
   },
   {

@@ -1,0 +1,87 @@
+// Shared, pure helpers for rendering cleaning-cycle records cycle-wise.
+// Single source of truth used by BOTH the Filter Cleaning Record list
+// (routes/cleaning-cycles/history.tsx) and the Filter Lifecycle Report
+// (routes/cleaning-cycles/filter-lifecycle.tsx) so the column meanings can
+// never drift between the two pages.
+import type { FilterEvent } from '../types/filter';
+import { formatByLeastCount } from './format-by-least-count';
+
+/**
+ * Column order/keys for the cleaning-cycle record tables (2026-06-08):
+ *  - `duration` = the dryer duration the operator selected at DRY_IN
+ *    (cycle.dryerDurationMinutes), NOT the full cycle duration.
+ *  - `dryIn` time = when the operator submitted the dryer-duration record
+ *    (cycle.dryerStartedAt), not the temperature-submission time.
+ * 'Dry By' and the old cycle-duration column were dropped per operator request.
+ */
+export const CC_COL_KEYS = [
+  'sNo', 'filter', 'size', 'airPressure', 'roWater',
+  'washIn', 'washOut', 'washBy', 'duration', 'dryIn', 'dryerTemp', 'dryOut', 'status',
+] as const;
+
+/**
+ * Resolve the canonical STATE_TRANSITION event for a stage.
+ * DRY_IN is special: two transitions land on DRY_IN (SET_DURATION with no
+ * readings, then SUBMIT_READINGS with the temperature). For DRY_IN we want the
+ * readings-bearing event (for the temperature); a manual Edit-Filter-Status
+ * change carries no readings, so fall back to it; otherwise the column is blank
+ * (cycle mid-dryer, no temperature yet). Every other stage emits a single
+ * readings-bearing transition, so the fallback to stageEvents[0] is correct.
+ */
+export function getStageInfo(events: FilterEvent[], stage: string) {
+  const stageEvents = (events ?? []).filter((e) => e.eventType === 'STATE_TRANSITION' && e.toState === stage);
+  const requireReadings = stage === 'DRY_IN';
+  const evWithReadings = stageEvents.find((e) => (e.attributes as any)?.instrumentReadings?.length > 0);
+  const manualStageEvent = stageEvents.find((e) => (e.attributes as any)?.manual);
+  const ev = evWithReadings ?? manualStageEvent ?? (requireReadings ? null : stageEvents[0]);
+  if (!ev) return null;
+  return {
+    time: ev.performedAt,
+    performedBy: ev.performedByName ?? ev.performedBy?.substring(0, 8) ?? '-',
+    readings: (ev.attributes as any)?.instrumentReadings ?? [],
+  };
+}
+
+/** Find an instrument reading by description substring and format it with its UOM. */
+export function getReading(readings: any[], desc: string) {
+  const r = (readings ?? []).find((r: any) => r.description?.toLowerCase().includes(desc.toLowerCase()));
+  if (!r) return '-';
+  const formatted = r.leastCount !== undefined && r.leastCount !== null
+    ? formatByLeastCount(r.value, r.leastCount)
+    : String(r.value);
+  return `${formatted} ${r.uom ?? ''}`.trim();
+}
+
+/** Format a minute count as a human duration ("45m", "1h 30m", "2h"). */
+export function fmtMinutes(mins: number | null | undefined) {
+  if (mins == null) return null;
+  const m = Math.round(mins);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
+}
+
+/**
+ * Dryer duration the operator SELECTED at DRY_IN + the time they submitted it.
+ * Authoritative source is the cycle row (advance.ts persists
+ * dryerDurationMinutes / dryerStartedAt on SET_DURATION). Falls back to the
+ * DRYER_STARTED DRY_IN event for legacy cycles written before those columns.
+ */
+export function getDryerStart(cycle: any, events: FilterEvent[]) {
+  let minutes: number | null = cycle?.dryerDurationMinutes ?? null;
+  let time: string | null = cycle?.dryerStartedAt ?? null;
+  if (minutes == null || time == null) {
+    const ev = (events ?? []).find((e) =>
+      e.eventType === 'STATE_TRANSITION' && e.toState === 'DRY_IN' &&
+      ((e.attributes as any)?.action === 'DRYER_STARTED' || (e.attributes as any)?.dryerDurationMinutes != null));
+    minutes = minutes ?? ((ev?.attributes as any)?.dryerDurationMinutes ?? null);
+    time = time ?? ((ev?.attributes as any)?.dryerStartedAt ?? ev?.performedAt ?? null);
+  }
+  return { minutes, time };
+}
+
+/** Dryer temperature reading from the DRY_IN (or DRY_OUT fallback) readings. */
+export function getDryerTemp(dryReadings: any[]) {
+  const dryer = getReading(dryReadings, 'dryer');
+  return dryer !== '-' ? dryer : getReading(dryReadings, 'temperature');
+}

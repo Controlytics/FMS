@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import useSWR from 'swr';
 import { cn } from '@/lib/cn';
@@ -133,9 +134,15 @@ const allNavItems: NavItem[] = [
   },
   {
     id: "cleaning-cycles",
-    label: "Cleaning Cycles",
+    label: "Filter Cleaning Record",
     href: "/cleaning-cycles",
     icon: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>),
+  },
+  {
+    id: "filter-lifecycle-report",
+    label: "Filter Lifecycle Report",
+    href: "/filter-lifecycle-report",
+    icon: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-6m4 6V7m4 10v-3M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>),
   },
   {
     id: "checklists",
@@ -201,6 +208,21 @@ const allNavItems: NavItem[] = [
   },
 ];
 
+// Collapsible "Reports" group. Children are existing nav items (matched by id
+// against allNavItems / filteredItems) — they are rendered nested under this
+// group instead of in the flat list. Order here is the display order inside
+// the expanded group.
+const REPORTS_GROUP = {
+  id: 'reports-group',
+  label: 'Reports',
+  childIds: ['rfid-track-record', 'cleaning-cycles', 'filter-lifecycle-report'] as const,
+  icon: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-6m4 6V7m4 10v-3M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" />
+    </svg>
+  ),
+};
+
 interface SidebarProps {
   userRole: string;
 }
@@ -245,6 +267,20 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
 
     return true;
   });
+
+  // Reports group: pull the group's children out of the flat list and render
+  // them nested under a collapsible "Reports" parent. Permission/config
+  // filtering already happened in filteredItems, so the group simply hides any
+  // child the user can't see — and hides itself entirely when none remain.
+  const reportsChildren = REPORTS_GROUP.childIds
+    .map((id) => filteredItems.find((i) => i.id === id))
+    .filter((i): i is NavItem => Boolean(i));
+  const anyReportActive = reportsChildren.some((c) => location.pathname.startsWith(c.href));
+  const [reportsOpen, setReportsOpen] = useState(false);
+  // Auto-expand the group whenever one of its routes becomes active.
+  useEffect(() => {
+    if (anyReportActive) setReportsOpen(true);
+  }, [anyReportActive]);
 
   return (
     <>
@@ -291,38 +327,110 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
       {/* Navigation */}
       <nav className="flex-1 space-y-1 p-4 overflow-y-auto">
         <p className="px-3 mb-3 text-xs font-semibold text-white/40 uppercase tracking-wider">Menu</p>
-        {filteredItems.map((item) => {
-          const active = item.href === '/'
-            ? location.pathname === '/'
-            : item.href === '/assets'
-              ? location.pathname === '/assets'
-              : location.pathname.startsWith(item.href);
+        {(() => {
+          const renderFlatLink = (item: NavItem) => {
+            const active = item.href === '/'
+              ? location.pathname === '/'
+              : item.href === '/assets'
+                ? location.pathname === '/assets'
+                : location.pathname.startsWith(item.href);
 
-          return (
-            <Link
-              key={item.href}
-              to={item.href}
-              onClick={onClose}
-              className={cn(
-                'flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200',
-                active
-                  ? 'bg-white/15 text-white shadow-lg backdrop-blur-sm'
-                  : 'text-white/70 hover:bg-white/10 hover:text-white',
-              )}
-            >
-              <span className={cn(
-                'transition-colors',
-                active ? 'text-white' : 'text-white/60'
-              )}>
-                {item.icon}
-              </span>
-              {item.label}
-              {active && (
-                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white" />
-              )}
-            </Link>
-          );
-        })}
+            return (
+              <Link
+                key={item.href}
+                to={item.href}
+                onClick={onClose}
+                className={cn(
+                  'flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200',
+                  active
+                    ? 'bg-white/15 text-white shadow-lg backdrop-blur-sm'
+                    : 'text-white/70 hover:bg-white/10 hover:text-white',
+                )}
+              >
+                <span className={cn(
+                  'transition-colors',
+                  active ? 'text-white' : 'text-white/60'
+                )}>
+                  {item.icon}
+                </span>
+                {item.label}
+                {active && (
+                  <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white" />
+                )}
+              </Link>
+            );
+          };
+
+          const reportsChildIds: readonly string[] = REPORTS_GROUP.childIds;
+          const nodes: React.ReactNode[] = [];
+          let groupInserted = false;
+
+          for (const item of filteredItems) {
+            if (reportsChildIds.includes(item.id)) {
+              // Insert the whole Reports group at the position of its first
+              // visible child, then skip the rest (they render nested).
+              if (!groupInserted && reportsChildren.length > 0) {
+                groupInserted = true;
+                nodes.push(
+                  <div key="reports-group">
+                    <button
+                      type="button"
+                      onClick={() => setReportsOpen((o) => !o)}
+                      aria-expanded={reportsOpen}
+                      className={cn(
+                        'w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200',
+                        anyReportActive
+                          ? 'bg-white/15 text-white shadow-lg backdrop-blur-sm'
+                          : 'text-white/70 hover:bg-white/10 hover:text-white',
+                      )}
+                    >
+                      <span className={cn('transition-colors', anyReportActive ? 'text-white' : 'text-white/60')}>
+                        {REPORTS_GROUP.icon}
+                      </span>
+                      {REPORTS_GROUP.label}
+                      <svg
+                        className={cn('ml-auto w-4 h-4 transition-transform duration-200', reportsOpen ? 'rotate-180' : '')}
+                        fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                    {reportsOpen && (
+                      <div className="mt-1 ml-4 pl-3 border-l border-white/10 space-y-1">
+                        {reportsChildren.map((child) => {
+                          const active = location.pathname.startsWith(child.href);
+                          return (
+                            <Link
+                              key={child.href}
+                              to={child.href}
+                              onClick={onClose}
+                              className={cn(
+                                'flex items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200',
+                                active
+                                  ? 'bg-white/15 text-white shadow-lg backdrop-blur-sm'
+                                  : 'text-white/70 hover:bg-white/10 hover:text-white',
+                              )}
+                            >
+                              <span className={cn('transition-colors', active ? 'text-white' : 'text-white/60')}>
+                                {child.icon}
+                              </span>
+                              {child.label}
+                              {active && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white" />}
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+              continue;
+            }
+            nodes.push(renderFlatLink(item));
+          }
+
+          return nodes;
+        })()}
       </nav>
 
       {/* Footer */}

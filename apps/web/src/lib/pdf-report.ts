@@ -80,6 +80,8 @@ export interface ReportDoc {
   addSectionTitle: (text: string) => void;
   addKeyValue: (pairs: [string, string][], columns?: number) => void;
   checkPageBreak: (needed: number) => void;
+  /** Force a fresh page and reset the cursor to the top margin. */
+  newPage: () => void;
   save: (filename: string) => void;
 }
 
@@ -159,6 +161,10 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     if (y + needed > ph - 18) { doc.addPage(); y = 14; }
   };
 
+  // Always start a fresh page (used to keep each cleaning cycle on its own
+  // page in the lifecycle report).
+  const newPage = () => { doc.addPage(); y = 14; };
+
   const addSectionTitle = (text: string) => {
     checkPageBreak(10);
     doc.setFillColor(...COLORS.headerBg);
@@ -203,7 +209,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   return {
     doc, get y() { return y; }, set y(v) { y = v; },
     pw, ph, colors: COLORS,
-    addTable, addSectionTitle, addKeyValue, checkPageBreak,
+    addTable, addSectionTitle, addKeyValue, checkPageBreak, newPage,
     save: (filename: string) => { addFooters(); doc.save(filename); },
   };
 }

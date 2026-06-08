@@ -8,10 +8,12 @@ import { useReportConfig } from '@/hooks/use-report-config';
 import { useReportLabels } from '../../hooks/use-report-labels';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { createReport } from '../../lib/pdf-report';
-import type { CleaningCycle, FilterEvent, FilterInstance, PaginatedResponse } from '../../types/filter';
-import { formatByLeastCount } from '@/lib/format-by-least-count';
-
-const CC_COLS = ['sNo', 'filter', 'size', 'airPressure', 'roWater', 'washIn', 'washOut', 'washBy', 'dryerTemp', 'dryIn', 'dryOut', 'dryBy', 'duration', 'status'];
+import type { CleaningCycle, FilterInstance, PaginatedResponse } from '../../types/filter';
+// Stage/dryer logic + column order live in a shared module so this list and the
+// Filter Lifecycle Report (filter-lifecycle.tsx) can never drift. See that file
+// for the 2026-06-08 column redefinition (Duration = dryer duration; Dry In =
+// dryer-duration submission time; 'Dry By' + cycle-duration dropped).
+import { CC_COL_KEYS as CC_COLS, getStageInfo, getReading, fmtMinutes, getDryerStart } from '@/lib/cleaning-cycle-report';
 const MSU_COLS = ['sNo', 'filter', 'statusChange', 'dateTime', 'updatedBy', 'remarks'];
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; dot: string; border: string }> = {
@@ -96,48 +98,8 @@ export function CleaningCycleHistoryPage() {
     filterAttrMap.set(i.id, i.attributes ?? {});
   });
 
-  const getStageInfo = (events: FilterEvent[], stage: string) => {
-    const stageEvents = (events ?? []).filter((e) => e.eventType === 'STATE_TRANSITION' && e.toState === stage);
-    // For DRY_IN specifically, two STATE_TRANSITION events land with toState=DRY_IN:
-    //   1. SET_DURATION (entering DRY_IN, dryer started, NO instrumentReadings)
-    //   2. SUBMIT_READINGS (later, when operator records the dryer temperature)
-    // Per operator request 2026-05-25, the DRY_IN time column must reflect the
-    // temperature-submission time, NOT the duration-set time. So for DRY_IN
-    // we require the readings event — if it doesn't exist yet, the column is
-    // intentionally blank (cycle is mid-dryer, no temperature recorded yet).
-    // Every other stage emits a single readings-bearing STATE_TRANSITION so
-    // the fallback to stageEvents[0] still makes sense there.
-    const requireReadings = stage === 'DRY_IN';
-    const evWithReadings = stageEvents.find((e) => (e.attributes as any)?.instrumentReadings?.length > 0);
-    // A manual Edit-Filter-Status change carries no instrumentReadings, so for
-    // DRY_IN (which normally requires the readings event) fall back to the manual
-    // event's time — otherwise a manually-driven cycle would show a blank Dry In
-    // column. Real tablet cycles still require the readings event (mid-dryer with
-    // no temperature recorded stays intentionally blank).
-    const manualStageEvent = stageEvents.find((e) => (e.attributes as any)?.manual);
-    const ev = evWithReadings ?? manualStageEvent ?? (requireReadings ? null : stageEvents[0]);
-    if (!ev) return null;
-    return { time: ev.performedAt, performedBy: ev.performedByName ?? ev.performedBy?.substring(0, 8) ?? '-', readings: (ev.attributes as any)?.instrumentReadings ?? [] };
-  };
-
-  const getReading = (readings: any[], desc: string) => {
-    const r = readings.find((r: any) => r.description?.toLowerCase().includes(desc.toLowerCase()));
-    if (!r) return '-';
-    const formatted = r.leastCount !== undefined && r.leastCount !== null
-      ? formatByLeastCount(r.value, r.leastCount)
-      : String(r.value);
-    return `${formatted} ${r.uom ?? ''}`.trim();
-  };
-
-  const getDuration = (cycle: any) => {
-    const end = cycle.completedAt ?? (cycle.status === 'IN_PROGRESS' ? new Date().toISOString() : null);
-    if (!end) return null;
-    const ms = new Date(end).getTime() - new Date(cycle.startedAt).getTime();
-    const mins = Math.round(ms / 60000);
-    if (mins < 60) return `${mins}m`;
-    const hrs = Math.floor(mins / 60);
-    return `${hrs}h ${mins % 60}m`;
-  };
+  // getStageInfo / getReading / fmtMinutes / getDryerStart now live in
+  // @/lib/cleaning-cycle-report (shared with the Filter Lifecycle Report).
 
   const handleDownloadPDF = async () => {
     if (cycles.length === 0) return;
@@ -167,15 +129,17 @@ export function CleaningCycleHistoryPage() {
         const naCell = (stage: string, v: string | null) =>
           v != null ? v : pStages.length > 0 && !pStages.includes(stage) ? 'NA' : '-';
         const dryerTempStr = getReading(dryReadings, 'dryer') !== '-' ? getReading(dryReadings, 'dryer') : getReading(dryReadings, 'temperature');
+        const dryerStart = getDryerStart(c, c.events ?? []);
         return [
           String(idx + 1), c.filterName ?? '-', attrs.filterSize ?? '-',
           getReading(washReadings, 'air pressure'), getReading(washReadings, 'ro water'),
           naCell('WASH_IN', washIn ? formatDateTime(washIn.time) : null), naCell('WASH_OUT', washOut ? formatDateTime(washOut.time) : null),
           washIn?.performedBy ?? washOut?.performedBy ?? '-',
+          naCell('DRY_IN', fmtMinutes(dryerStart.minutes)),
+          naCell('DRY_IN', dryerStart.time ? formatDateTime(dryerStart.time) : null),
           naCell('DRY_IN', dryerTempStr !== '-' ? dryerTempStr : null),
-          naCell('DRY_IN', dryIn ? formatDateTime(dryIn.time) : null), naCell('DRY_OUT', dryOut ? formatDateTime(dryOut.time) : null),
-          dryIn?.performedBy ?? dryOut?.performedBy ?? '-',
-          getDuration(c) ?? '-', c.status,
+          naCell('DRY_OUT', dryOut ? formatDateTime(dryOut.time) : null),
+          c.status,
         ];
       });
 
@@ -376,7 +340,7 @@ export function CleaningCycleHistoryPage() {
                 const washReadings = washIn?.readings ?? [];
                 const dryReadings = (dryIn?.readings?.length ? dryIn.readings : null) ?? (dryOut?.readings?.length ? dryOut.readings : null) ?? [];
                 const dryerTemp = getReading(dryReadings, 'dryer') !== '-' ? getReading(dryReadings, 'dryer') : getReading(dryReadings, 'temperature');
-                const duration = getDuration(c);
+                const dryerStart = getDryerStart(c, c.events ?? []);
                 const sc = STATUS_CONFIG[c.status];
                 // P2 (2026-06-03): a stage the cycle's profile does NOT configure
                 // shows "NA"; an in-profile stage not yet reached shows "-".
@@ -405,11 +369,10 @@ export function CleaningCycleHistoryPage() {
                     <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('WASH_IN', washIn ? formatDateTime(washIn.time) : null)}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('WASH_OUT', washOut ? formatDateTime(washOut.time) : null)}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-800 font-medium">{washIn?.performedBy ?? washOut?.performedBy ?? '-'}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('DRY_IN', fmtMinutes(dryerStart.minutes))}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('DRY_IN', dryerStart.time ? formatDateTime(dryerStart.time) : null)}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600 font-mono tabular-nums">{stageCell('DRY_IN', dryerTemp !== '-' ? dryerTemp : null)}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('DRY_IN', dryIn ? formatDateTime(dryIn.time) : null)}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('DRY_OUT', dryOut ? formatDateTime(dryOut.time) : null)}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-800 font-medium">{dryIn?.performedBy ?? dryOut?.performedBy ?? '-'}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{duration ?? '-'}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-full whitespace-nowrap ${sc?.bg ?? 'bg-slate-50'} ${sc?.text ?? 'text-slate-600'} border ${sc?.border ?? 'border-slate-200'}`}>
                         {c.status === 'IN_PROGRESS' && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />}

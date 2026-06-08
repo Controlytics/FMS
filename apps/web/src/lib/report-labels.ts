@@ -77,11 +77,15 @@ export const REPORT_DEFS: ReportDef[] = [
       { key: 'washIn', default: 'Wash In' },
       { key: 'washOut', default: 'Wash Out' },
       { key: 'washBy', default: 'Wash By' },
-      { key: 'dryerTemp', default: 'Dryer Temp' },
-      { key: 'dryIn', default: 'Dry In' },
-      { key: 'dryOut', default: 'Dry Out' },
-      { key: 'dryBy', default: 'Dry By' },
+      // 'duration' now = the dryer duration the operator selected at DRY_IN
+      // (cycle.dryerDurationMinutes), NOT the full cycle duration. Header text
+      // is unchanged ("Duration") so admin overrides on this key still apply.
       { key: 'duration', default: 'Duration' },
+      // 'dryIn' time now = when the operator submitted the dryer-duration
+      // record (cycle.dryerStartedAt), not the temperature-submission time.
+      { key: 'dryIn', default: 'Dry In' },
+      { key: 'dryerTemp', default: 'Dryer Temp' },
+      { key: 'dryOut', default: 'Dry Out' },
       { key: 'status', default: 'Status' },
     ],
   },

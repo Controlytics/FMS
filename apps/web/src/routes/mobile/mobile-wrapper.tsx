@@ -903,7 +903,7 @@ export function MobileWrapperPage() {
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 12h6m-6 4h6" /></svg>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="font-display text-[13px] font-semibold text-slate-900 leading-tight">Cleaning Cycles</div>
+                    <div className="font-display text-[13px] font-semibold text-slate-900 leading-tight">Filter Cleaning Record</div>
                     <div className="text-[10px] text-slate-400 truncate">recent history</div>
                   </div>
                 </button>
@@ -1638,7 +1638,7 @@ export function MobileWrapperPage() {
           <div className="p-4 space-y-3 max-w-2xl mx-auto">
             <div className="flex items-baseline justify-between">
               <div>
-                <h2 className="font-display text-[22px] font-semibold text-slate-900 leading-tight">Cleaning Cycles</h2>
+                <h2 className="font-display text-[22px] font-semibold text-slate-900 leading-tight">Filter Cleaning Record</h2>
                 <p className="text-[11px] text-slate-500 mt-0.5 font-mono-tab">
                   showing <span className="text-slate-700 font-semibold">{filteredCyclesList.length}</span> of {cyclesList.length}
                 </p>
