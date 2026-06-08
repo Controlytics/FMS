@@ -3,6 +3,10 @@ import useSWR, { mutate } from 'swr';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
+import { apiClient } from '@/lib/api-client';
+import { createReport } from '@/lib/pdf-report';
 import { themeButton } from '@/lib/theme-styles';
 
 // Show "NA" when a value wasn't entered (null/empty/whitespace) or was a stray
@@ -12,13 +16,22 @@ const naText = (v: unknown): string => {
   return !s || s === '[object Object]' ? 'NA' : s;
 };
 
-// Status chip colours
+// Status chip colours (execution lifecycle)
 const STATUS_CHIP: Record<string, string> = {
   PENDING: 'bg-slate-100 text-slate-500 border-slate-200',
   DUE: 'bg-amber-50 text-amber-700 border-amber-200',
   IN_PROGRESS: 'bg-blue-50 text-blue-700 border-blue-200',
   COMPLETED: 'bg-green-50 text-green-700 border-green-200',
   MISSED: 'bg-rose-50 text-rose-700 border-rose-200',
+};
+
+// Approval-workflow chip colours + labels.
+const APPROVAL_CHIP: Record<string, { label: string; cls: string }> = {
+  PENDING_REVIEW: { label: 'To Review', cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+  PENDING_APPROVAL: { label: 'To Approve', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  APPROVED: { label: 'Approved', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  REJECTED: { label: 'Rejected', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+  PENDING: { label: 'Pending', cls: 'bg-slate-100 text-slate-500 border-slate-200' },
 };
 
 export function ReplacementSchedulePage() {
@@ -28,9 +41,72 @@ export function ReplacementSchedulePage() {
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const perms = user?.permissions ?? [];
   const canUpload = isSuperAdmin || perms.includes('REPLACEMENT_SCHEDULE_UPLOAD');
+  const canReview = isSuperAdmin || perms.includes('REPLACEMENT_SCHEDULE_REVIEW');
+  const canApprove = isSuperAdmin || perms.includes('REPLACEMENT_SCHEDULE_APPROVE');
+  const reauth = useReauth();
+  const [busy, setBusy] = useState(false);
+  const [rejectFor, setRejectFor] = useState<{ id: string; stage: 'review' | 'approval' } | null>(null);
+  const [rejectRemarks, setRejectRemarks] = useState('');
+  const [exporting, setExporting] = useState(false);
 
   const { data, isLoading } = useSWR('/api/replacement-schedules', { refreshInterval: 30000 });
   const schedules = (data?.data ?? []) as any[];
+
+  // ─── Workflow actions (reuse the PM workflow config; reauth-gated) ───
+  const reviewApprove = (id: string) => {
+    setBusy(true);
+    reauth.execute('REVIEW_REPLACEMENT_SCHEDULE', async (pw?: string) => {
+      const body = { entryIds: [id], action: 'approve' as const };
+      if (pw) await apiClient.postWithReauth('/api/replacement-schedules/entries/review', body, pw);
+      else await apiClient.post('/api/replacement-schedules/entries/review', body);
+    }, { onSuccess: () => { toast.success('Reviewed', 'Sent for approval'); mutate('/api/replacement-schedules'); setBusy(false); }, onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setBusy(false); } });
+  };
+  const approve = (id: string) => {
+    setBusy(true);
+    reauth.execute('APPROVE_REPLACEMENT_SCHEDULE', async (pw?: string) => {
+      const body = { entryIds: [id] };
+      if (pw) await apiClient.postWithReauth('/api/replacement-schedules/entries/approve', body, pw);
+      else await apiClient.post('/api/replacement-schedules/entries/approve', body);
+    }, { onSuccess: () => { toast.success('Approved', 'Entry approved'); mutate('/api/replacement-schedules'); setBusy(false); }, onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setBusy(false); } });
+  };
+  const submitReject = () => {
+    if (!rejectFor || rejectRemarks.trim().length < 3) return;
+    const { id, stage } = rejectFor;
+    setBusy(true);
+    const action = stage === 'review' ? 'REVIEW_REPLACEMENT_SCHEDULE' : 'REJECT_REPLACEMENT_SCHEDULE';
+    reauth.execute(action, async (pw?: string) => {
+      const url = stage === 'review' ? '/api/replacement-schedules/entries/review' : '/api/replacement-schedules/entries/reject';
+      const body = stage === 'review' ? { entryIds: [id], action: 'reject' as const, remarks: rejectRemarks.trim() } : { entryIds: [id], remarks: rejectRemarks.trim() };
+      if (pw) await apiClient.postWithReauth(url, body, pw);
+      else await apiClient.post(url, body);
+    }, { onSuccess: () => { toast.success('Rejected', 'Entry rejected'); setRejectFor(null); mutate('/api/replacement-schedules'); setBusy(false); }, onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setBusy(false); } });
+  };
+
+  const exportExcel = async () => {
+    setExporting(true);
+    try {
+      const res = await fetch('/api/replacement-schedules/export.xlsx', { headers: { Authorization: `Bearer ${sessionStorage.getItem('access_token')}` } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'replacement-schedule.xlsx';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    } catch (e: any) { toast.error('Export failed', e?.message ?? 'Could not download'); } finally { setExporting(false); }
+  };
+  const exportPdf = async () => {
+    setExporting(true);
+    try {
+      const all = schedules.flatMap((s: any) => (s.entries ?? []));
+      if (all.length === 0) { toast.error('Nothing to export', 'No replacement entries'); return; }
+      const report = await createReport({ title: 'Replacement Schedule', subtitle: `Total: ${all.length} entr${all.length === 1 ? 'y' : 'ies'}`, orientation: 'landscape', formatDateTime: (d: string) => formatDate(d) });
+      report.addTable({
+        head: ['S.No', 'AHU', 'Micron', 'Size', 'Qty', 'Date', 'Status', 'Uploaded By', 'Reviewed By', 'Approved By'],
+        body: all.map((e: any, i: number) => [String(e.slNo ?? i + 1), e.ahuName ?? '-', naText(e.filterMicron), naText(e.filterSize), String(e.qty), e.scheduleDate ? formatDate(e.scheduleDate) : '-', (APPROVAL_CHIP[e.approvalStatus]?.label ?? e.approvalStatus ?? '-'), e.submittedByName ?? '-', e.reviewedByName ?? '-', e.approvedByName ?? '-']),
+        columnStyles: { 0: { halign: 'center', cellWidth: 10 } },
+      });
+      report.save('replacement-schedule.pdf');
+    } catch (e: any) { toast.error('Export failed', e?.message ?? 'Could not generate PDF'); } finally { setExporting(false); }
+  };
 
   // Upload dialog state
   const [open, setOpen] = useState(false);
@@ -100,6 +176,16 @@ export function ReplacementSchedulePage() {
           <p className="text-sm text-slate-500 mt-0.5">{schedules.length} uploaded schedule(s)</p>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={exportPdf} disabled={exporting}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-sm transition-all disabled:opacity-50">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+            {exporting ? 'Exporting…' : 'Export PDF'}
+          </button>
+          <button onClick={exportExcel} disabled={exporting}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-sm transition-all disabled:opacity-50">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" /></svg>
+            Export Excel
+          </button>
           <button onClick={downloadTemplate}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-sm transition-all">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" /></svg>
@@ -144,6 +230,8 @@ export function ReplacementSchedulePage() {
                       <th>Schedule Date</th>
                       <th>Window (± days)</th>
                       <th>Status</th>
+                      <th>Approval</th>
+                      <th className="text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -158,6 +246,26 @@ export function ReplacementSchedulePage() {
                         <td className="text-slate-600">{formatDate(e.scheduleDate)}</td>
                         <td className="text-slate-500">{formatDate(e.windowStart)} → {formatDate(e.windowEnd)} <span className="text-slate-400">(±{e.toleranceDays})</span></td>
                         <td><span className={`text-[11px] px-2.5 py-1 rounded-full border font-medium ${STATUS_CHIP[e.computedStatus] ?? STATUS_CHIP.PENDING}`}>{(e.computedStatus ?? 'PENDING').replace(/_/g, ' ')}</span></td>
+                        <td><span className={`text-[11px] px-2.5 py-1 rounded-full border font-medium ${(APPROVAL_CHIP[e.approvalStatus] ?? APPROVAL_CHIP.APPROVED).cls}`}>{(APPROVAL_CHIP[e.approvalStatus] ?? APPROVAL_CHIP.APPROVED).label}</span></td>
+                        <td className="text-right">
+                          <div className="inline-flex items-center gap-1.5 justify-end">
+                            {canReview && e.approvalStatus === 'PENDING_REVIEW' && (
+                              <>
+                                <button onClick={() => reviewApprove(e.id)} disabled={busy} className="px-2.5 py-1 bg-sky-500 text-white text-[11px] font-semibold rounded-md hover:bg-sky-600 disabled:opacity-50">Review ✓</button>
+                                <button onClick={() => { setRejectFor({ id: e.id, stage: 'review' }); setRejectRemarks(''); }} disabled={busy} className="px-2.5 py-1 bg-red-500 text-white text-[11px] font-semibold rounded-md hover:bg-red-600 disabled:opacity-50">Reject</button>
+                              </>
+                            )}
+                            {canApprove && (e.approvalStatus === 'PENDING_APPROVAL' || e.approvalStatus === 'PENDING') && (
+                              <>
+                                <button onClick={() => approve(e.id)} disabled={busy} className="px-2.5 py-1 bg-emerald-500 text-white text-[11px] font-semibold rounded-md hover:bg-emerald-600 disabled:opacity-50">Approve</button>
+                                <button onClick={() => { setRejectFor({ id: e.id, stage: 'approval' }); setRejectRemarks(''); }} disabled={busy} className="px-2.5 py-1 bg-red-500 text-white text-[11px] font-semibold rounded-md hover:bg-red-600 disabled:opacity-50">Reject</button>
+                              </>
+                            )}
+                            {e.approvalStatus === 'REJECTED' && e.approvalRemarks && (
+                              <span className="text-[11px] text-rose-600 italic max-w-[160px] truncate" title={e.approvalRemarks}>{e.approvalRemarks}</span>
+                            )}
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -245,6 +353,29 @@ export function ReplacementSchedulePage() {
           </div>
         </div>
       )}
+
+      {/* Reject dialog (review or approval stage) */}
+      {rejectFor && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[56] p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md p-5 shadow-2xl">
+            <h3 className="text-lg font-bold text-slate-800 mb-1">Reject Entry</h3>
+            <p className="text-sm text-slate-500 mb-3">Remarks are required (min 3 characters).</p>
+            <textarea value={rejectRemarks} onChange={(e) => setRejectRemarks(e.target.value)} rows={3}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30" placeholder="Reason for rejection…" />
+            <div className="flex gap-2 mt-3">
+              <button onClick={() => setRejectFor(null)} className="flex-1 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-200">Cancel</button>
+              <button onClick={submitReject} disabled={busy || rejectRemarks.trim().length < 3}
+                className="flex-1 py-2 bg-red-500 text-white rounded-lg text-sm font-semibold hover:bg-red-600 disabled:opacity-50">Reject</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ReauthDialog open={reauth.isOpen} password={reauth.password} error={reauth.error} isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setBusy(false); }}
+        actionLabel="Replacement Schedule Action" />
     </div>
   );
 }

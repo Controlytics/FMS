@@ -39,6 +39,12 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
   });
   const ahuByName = new Map(ahus.map(a => [a.name.trim().toLowerCase(), a]));
 
+  // Hard-replace: the FIRST time a re-uploaded AHU/year schedule is touched in
+  // this upload, wipe ALL its existing entries (and their executions) so the new
+  // file fully REPLACES the old schedule + tasks. Old APPROVED months not in the
+  // new file therefore stop generating /due tasks.
+  const clearedSchedules = new Set<string>();
+
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const rowNum = i + 2; // +1 for header row, +1 for 1-indexed display
@@ -131,6 +137,14 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
             createdBy: ctx.userSub,
           },
         });
+      }
+
+      // Hard-replace: wipe the AHU/year schedule's existing entries (+ executions)
+      // the first time it's touched this upload, so the new file fully replaces it.
+      if (!clearedSchedules.has(schedule.id)) {
+        await prisma.pmExecution.deleteMany({ where: { scheduleEntry: { scheduleId: schedule.id } } });
+        await prisma.pmScheduleEntry.deleteMany({ where: { scheduleId: schedule.id } });
+        clearedSchedules.add(schedule.id);
       }
 
       // Upsert the entry — if same (schedule, month) exists, update date/tolerance.

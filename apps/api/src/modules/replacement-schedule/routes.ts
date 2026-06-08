@@ -4,6 +4,8 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { buildReplacementScheduleTemplate } from './template.service.js';
 import { processUpload, listSchedules, listDueEntries, executeReplacement } from './service.js';
+import * as wf from './workflow.js';
+import { exportEntriesXlsx } from './export.js';
 
 // Registered at prefix /api/replacement-schedules (see app.ts).
 // Upload is gated by REPLACEMENT_SCHEDULE_UPLOAD — the permission SUPER_ADMIN
@@ -84,6 +86,64 @@ export default async function replacementScheduleRoutes(app: FastifyInstance) {
   }, async () => {
     const data = await listSchedules();
     return { data };
+  });
+
+  // Export the schedule as .xlsx (full upload/review/approve trail).
+  app.get('/export.xlsx', {
+    preHandler: [app.requirePermission('REPLACEMENT_SCHEDULE_VIEW')],
+    schema: { tags: ['Replacement Schedule'], summary: 'Export replacement schedule as Excel' },
+  }, async (_req, reply) => {
+    const buf = await exportEntriesXlsx();
+    return reply
+      .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('Content-Disposition', 'attachment; filename="replacement-schedule.xlsx"')
+      .send(buf);
+  });
+
+  // ─── 3-step workflow (reuses the PM workflow config) ───
+  app.post('/entries/review', {
+    preHandler: [app.requirePermission('REPLACEMENT_SCHEDULE_REVIEW')],
+    schema: { tags: ['Replacement Schedule'], summary: 'Review entries (approve→approval or reject)', body: { type: 'object', required: ['entryIds', 'action'], properties: { entryIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 }, action: { type: 'string', enum: ['approve', 'reject'] }, remarks: { type: 'string' } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('REVIEW_REPLACEMENT_SCHEDULE', req, reply); if (!ok) return;
+    const { entryIds, action, remarks } = req.body as { entryIds: string[]; action: 'approve' | 'reject'; remarks?: string };
+    return wf.reviewEntries(buildContext(req), entryIds, action, remarks);
+  });
+
+  app.post('/entries/approve', {
+    preHandler: [app.requirePermission('REPLACEMENT_SCHEDULE_APPROVE')],
+    schema: { tags: ['Replacement Schedule'], summary: 'Approve entries', body: { type: 'object', required: ['entryIds'], properties: { entryIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 }, comment: { type: 'string' } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('APPROVE_REPLACEMENT_SCHEDULE', req, reply); if (!ok) return;
+    const { entryIds, comment } = req.body as { entryIds: string[]; comment?: string };
+    return wf.approveEntries(buildContext(req), entryIds, comment);
+  });
+
+  app.post('/entries/reject', {
+    preHandler: [app.requirePermission('REPLACEMENT_SCHEDULE_APPROVE')],
+    schema: { tags: ['Replacement Schedule'], summary: 'Reject entries at approval', body: { type: 'object', required: ['entryIds', 'remarks'], properties: { entryIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 }, remarks: { type: 'string', minLength: 3 } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('REJECT_REPLACEMENT_SCHEDULE', req, reply); if (!ok) return;
+    const { entryIds, remarks } = req.body as { entryIds: string[]; remarks: string };
+    return wf.rejectEntries(buildContext(req), entryIds, remarks);
+  });
+
+  app.post('/entries/:id/resubmit', {
+    preHandler: [app.requirePermission('REPLACEMENT_SCHEDULE_UPLOAD')],
+    schema: { tags: ['Replacement Schedule'], summary: 'Re-submit a rejected entry', params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', required: ['scheduleDate'], properties: { scheduleDate: { type: 'string' }, toleranceDays: { type: 'integer', minimum: 0, maximum: 365 }, qty: { type: 'integer', minimum: 1 } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('REVIEW_REPLACEMENT_SCHEDULE', req, reply); if (!ok) return;
+    const { id } = req.params as { id: string };
+    return wf.resubmitEntry(buildContext(req), id, req.body as any);
+  });
+
+  app.put('/entries/:id/review-edit', {
+    preHandler: [app.requirePermission('REPLACEMENT_SCHEDULE_REVIEW')],
+    schema: { tags: ['Replacement Schedule'], summary: 'Reviewer modifies an entry awaiting review', params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', required: ['scheduleDate'], properties: { scheduleDate: { type: 'string' }, toleranceDays: { type: 'integer', minimum: 0, maximum: 365 }, qty: { type: 'integer', minimum: 1 } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('REVIEW_REPLACEMENT_SCHEDULE', req, reply); if (!ok) return;
+    const { id } = req.params as { id: string };
+    return wf.modifyReviewEntry(buildContext(req), id, req.body as any);
   });
 
   // Entries whose window is active right now (drives tablet tasks + dashboard).

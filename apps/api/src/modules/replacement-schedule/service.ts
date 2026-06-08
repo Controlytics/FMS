@@ -12,6 +12,7 @@ import { auditLog } from '../../lib/audit.js';
 import { stripHtml } from '../../lib/sanitize.js';
 import { AppError } from '../../lib/errors.js';
 import { FilterOperationsService } from '../filter-operations/filter-operations.service.js';
+import { getPmWorkflowConfig, generateQnn } from '../pm-schedules/pm-workflow.js';
 
 export interface RowError { row: number; column?: string; value?: string; error: string; }
 export interface UploadOutcome {
@@ -209,7 +210,15 @@ export async function processUpload(
     return { results, created: 0, failed: results.filter((x) => x.status === 'error').length };
   }
 
+  // Workflow ON → uploads land in PENDING_REVIEW (review + approval required
+  // before they become due tasks). OFF → APPROVED immediately (current behaviour).
+  const wf = await getPmWorkflowConfig();
+  const approvalStatus = wf.workflowEnabled ? 'PENDING_REVIEW' as const : 'APPROVED' as const;
+
   const schedule = await prisma.$transaction(async (tx) => {
+    // Hard-replace: a new upload supersedes the prior replacement schedule(s).
+    // Deleting the schedule cascades its entries + executions.
+    await tx.replacementSchedule.deleteMany({});
     const sch = await tx.replacementSchedule.create({
       data: { fileName: fileName ?? null, status: 'ACTIVE', uploadedBy: ctx.userSub, uploadedByName: ctx.userId },
     });
@@ -223,6 +232,8 @@ export async function processUpload(
           windowStart: new Date(`${c.windowStart}T00:00:00Z`),
           windowEnd: new Date(`${c.windowEnd}T00:00:00Z`),
           status: 'PENDING',
+          approvalStatus,
+          submittedBy: ctx.userSub, submittedByName: ctx.userId,
         },
       });
     }
@@ -236,6 +247,12 @@ export async function processUpload(
     reason: `Uploaded replacement schedule with ${toCreate.length} entr${toCreate.length === 1 ? 'y' : 'ies'}`,
     ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
   });
+
+  // One QNN per upload action (surfaced in the Notifications center).
+  await generateQnn('UPLOAD', {
+    scheduleId: schedule.id,
+    message: `Uploaded replacement schedule (${toCreate.length} entr${toCreate.length === 1 ? 'y' : 'ies'})${wf.workflowEnabled ? ' — pending review' : ''}`,
+  }, ctx);
 
   for (const c of toCreate) results.push({ row: c.rowNumber, status: 'success', ahuName: c.ahuName });
   results.sort((a, b) => a.row - b.row);
@@ -313,7 +330,9 @@ export async function listDueEntries() {
   const today = todayUtcDateOnly();
   const todayDate = new Date(`${today}T00:00:00Z`);
   const entries = await prisma.replacementScheduleEntry.findMany({
-    where: { windowStart: { lte: todayDate }, windowEnd: { gte: todayDate } },
+    // Only APPROVED entries become due tasks (workflow ON gates this; when OFF,
+    // entries default to APPROVED so behaviour is unchanged).
+    where: { approvalStatus: 'APPROVED', windowStart: { lte: todayDate }, windowEnd: { gte: todayDate } },
     orderBy: [{ windowEnd: 'asc' }],
   });
   return entries

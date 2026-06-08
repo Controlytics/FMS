@@ -133,6 +133,9 @@ export const REAUTH_ACTIONS = {
   RETIRE_FILTER: { label: 'Retire Filter', category: 'Filter Management' },
   REPLACE_FILTER: { label: 'Replace Filter', category: 'Filter Management' },
   BULK_UPLOAD_FILTERS: { label: 'Bulk Upload Filters', category: 'Filter Management' },
+  REVIEW_REPLACEMENT_SCHEDULE: { label: 'Review Replacement Schedule', category: 'Filter Management' },
+  APPROVE_REPLACEMENT_SCHEDULE: { label: 'Approve Replacement Schedule', category: 'Filter Management' },
+  REJECT_REPLACEMENT_SCHEDULE: { label: 'Reject Replacement Schedule', category: 'Filter Management' },
   // M2 (audit 2026-05-04): manual filter lifecycle PATCH (INSTALLED / WASH_IN /
   // ... / IN_USE) was reusing the generic UPDATE_ASSET action, hiding cleanroom
   // lifecycle moves under the same audit key as ordinary asset edits. Dedicated

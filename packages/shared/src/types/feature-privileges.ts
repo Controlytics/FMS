@@ -70,6 +70,8 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'filters.rfid_manage', label: 'Assign / Unassign RFID Tags', category: 'Filters Page Controls', icon: 'wifi' },
   { id: 'replacement_schedule.view', label: 'View Replacement Schedule', category: 'Filters Page Controls', icon: 'calendar' },
   { id: 'replacement_schedule.upload', label: 'Upload Replacement Schedule', category: 'Filters Page Controls', icon: 'upload' },
+  { id: 'replacement_schedule.review', label: 'Review Replacement Schedule', category: 'Filters Page Controls', icon: 'clipboard-check' },
+  { id: 'replacement_schedule.approve', label: 'Approve Replacement Schedule', category: 'Filters Page Controls', icon: 'check-circle' },
 
   // Block Change
   { id: 'block_change.request', label: 'Request Block Change', category: 'Filter Management', icon: 'refresh' },
@@ -238,6 +240,8 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'filters.rfid_manage': ['FILTER_RFID_MANAGE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_READ'],
   'replacement_schedule.view': ['REPLACEMENT_SCHEDULE_VIEW', 'REPLACEMENT_SCHEDULE_UPLOAD'],
   'replacement_schedule.upload': ['REPLACEMENT_SCHEDULE_UPLOAD'],
+  'replacement_schedule.review': ['REPLACEMENT_SCHEDULE_REVIEW', 'REPLACEMENT_SCHEDULE_VIEW'],
+  'replacement_schedule.approve': ['REPLACEMENT_SCHEDULE_APPROVE', 'REPLACEMENT_SCHEDULE_VIEW'],
 
   // Block Change
   'block_change.request': ['BLOCK_CHANGE_REQUEST'],

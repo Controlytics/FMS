@@ -877,19 +877,7 @@ model ConnectivityStatus {
 }
 
 // QR Codes (per entity)
-model QrCode {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  entityId     String   @unique @map("entity_id") @db.Uuid
-  qrData       String   @map("qr_data") // URL only -- NO tokens
-  imagePath    String   @map("image_path")
-  svgData      String?  @map("svg_data") @db.Text
-  size         String   @default("MEDIUM") @db.VarChar(10)
-  includeLabel Boolean  @default(true) @map("include_label")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  @@map("qr_codes")
-}
 
 // Help Articles (version-controlled)
 model HelpArticle {
@@ -1329,6 +1317,19 @@ model QualityNotification {
   @@map("quality_notifications")
 }
 
+model QrCode {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityId     String   @unique @map("entity_id") @db.Uuid
+  qrData       String   @map("qr_data") // URL only -- NO tokens
+  imagePath    String   @map("image_path")
+  svgData      String?  @map("svg_data") @db.Text
+  size         String   @default("MEDIUM") @db.VarChar(10)
+  includeLabel Boolean  @default(true) @map("include_label")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  @@map("qr_codes")
+}
+
 model PmExecution {
   id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   scheduleEntryId String            @map("schedule_entry_id") @db.Uuid
@@ -1399,6 +1400,26 @@ model ReplacementScheduleEntry {
   windowEnd     DateTime               @map("window_end") @db.Date
   status        ReplacementEntryStatus @default(PENDING)
   notes         String?
+
+  // 3-step workflow (reuses the PM workflow config). approvalStatus defaults to
+  // APPROVED so existing rows + workflow-off uploads stay live (current behaviour);
+  // uploads land in PENDING_REVIEW only when the workflow is enabled. Distinct from
+  // `status` (the DUE/IN_PROGRESS/COMPLETED execution lifecycle).
+  approvalStatus  PmEntryApprovalStatus @default(APPROVED) @map("approval_status")
+  approvalRemarks String?               @map("approval_remarks")
+  submittedBy     String?               @map("submitted_by") @db.Uuid
+  submittedByName String?               @map("submitted_by_name") @db.VarChar(255)
+  reviewedBy      String?               @map("reviewed_by") @db.Uuid
+  reviewedByName  String?               @map("reviewed_by_name") @db.VarChar(255)
+  reviewedAt      DateTime?             @map("reviewed_at") @db.Timestamptz
+  reviewRemarks   String?               @map("review_remarks")
+  approvedBy      String?               @map("approved_by") @db.Uuid
+  approvedByName  String?               @map("approved_by_name") @db.VarChar(255)
+  approvedAt      DateTime?             @map("approved_at") @db.Timestamptz
+  rejectedBy      String?               @map("rejected_by") @db.Uuid
+  rejectedByName  String?               @map("rejected_by_name") @db.VarChar(255)
+  rejectedAt      DateTime?             @map("rejected_at") @db.Timestamptz
+  rejectionStage  String?               @map("rejection_stage") @db.VarChar(20)
 
   schedule      ReplacementSchedule    @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
   executions    ReplacementExecution[]
