@@ -1,11 +1,19 @@
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { useAuth } from '@/hooks/use-auth';
+import { ReplacementSchedulePage } from './replacement-schedule';
 
 const PAGE_SIZE = 20;
 
 export function ReplacementListPage() {
   const { formatDate } = useDatetimeFormat();
+  const { user } = useAuth();
+  const perms = user?.permissions ?? [];
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  // Show the Schedule tab only to users who can see/manage the schedule.
+  const canSchedule = isSuperAdmin || perms.some(p => p.startsWith('REPLACEMENT_SCHEDULE_'));
+  const [view, setView] = useState<'list' | 'schedule'>('list');
   const { data, isLoading } = useSWR('/api/filters/replacements', { refreshInterval: 30000 });
 
   const [search, setSearch] = useState('');
@@ -48,7 +56,25 @@ export function ReplacementListPage() {
   const pageItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   return (
-    <div className="p-6 space-y-6">
+    <div>
+      {/* ─── List | Schedule toggle ─── */}
+      <div className="px-6 pt-6">
+        <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+          <button onClick={() => setView('list')}
+            className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${view === 'list' ? 'bg-cyan-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'}`}>
+            Replacement List
+          </button>
+          {canSchedule && (
+            <button onClick={() => setView('schedule')}
+              className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${view === 'schedule' ? 'bg-cyan-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'}`}>
+              Replacement Schedule
+            </button>
+          )}
+        </div>
+      </div>
+
+      {view === 'schedule' ? <ReplacementSchedulePage /> : (
+      <div className="p-6 space-y-6">
       {/* ─── Header ─── */}
       <div className="flex items-center gap-4">
         <div className="p-3 rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 shadow-lg shadow-cyan-500/25">
@@ -188,6 +214,8 @@ export function ReplacementListPage() {
             )}
           </div>
         </div>
+      )}
+      </div>
       )}
     </div>
   );

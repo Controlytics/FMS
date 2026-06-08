@@ -101,16 +101,11 @@ export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
     sidebarId: "filter-replacements",
     label: "Replacement List",
     icon: "\u{1F504}",
-    description: "Filter replacement history",
-    privilegeIds: ["assets.view"],
+    description: "Filter replacement history + schedule (List | Schedule tabs)",
+    privilegeIds: ["assets.view", "replacement_schedule.view", "replacement_schedule.upload", "replacement_schedule.review", "replacement_schedule.approve"],
   },
-  {
-    sidebarId: "replacement-schedule",
-    label: "Replacement Schedule",
-    icon: "\u{1F4C5}",
-    description: "Upload-driven filter replacement schedule",
-    privilegeIds: ["replacement_schedule.view"],
-  },
+  // Replacement Schedule moved into the Replacement List page (List | Schedule
+  // toggle) — no standalone sidebar entry.
   {
     sidebarId: "filter-operations",
     label: "Filter Operations",
