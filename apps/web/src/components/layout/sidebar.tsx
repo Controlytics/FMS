@@ -303,11 +303,15 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
       <div className="flex flex-col items-center py-3 border-b border-white/10">
         <Link to="/" className="flex flex-col items-center w-full px-3">
           {branding.logoUrl ? (
-            <img
-              src={branding.logoUrl}
-              alt={branding.appName}
-              className="max-w-full max-h-14 w-auto h-auto object-contain"
-            />
+            // White rounded card so the logo's own background looks intentional
+            // (and stays legible) on the coloured sidebar gradient.
+            <div className="bg-white rounded-xl px-3 py-2 shadow-sm max-w-full flex items-center justify-center">
+              <img
+                src={branding.logoUrl}
+                alt={branding.appName}
+                className="max-w-full max-h-12 w-auto h-auto object-contain"
+              />
+            </div>
           ) : (
             <div
               className="flex h-12 w-12 items-center justify-center rounded-xl text-white text-sm font-bold shadow-lg"
@@ -316,7 +320,7 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
               {branding.logoText}
             </div>
           )}
-          <span className="text-lg font-semibold text-white mt-2">{branding.appName}</span>
+          <span className="text-sm font-semibold text-white text-center leading-tight mt-2 px-1 break-words">{branding.appName}</span>
         </Link>
       </div>
 

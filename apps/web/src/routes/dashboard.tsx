@@ -98,7 +98,7 @@ export function DashboardPage() {
           <p className="text-white/70 text-sm font-medium mb-1">Welcome back,</p>
           <h1 className="text-3xl font-bold mb-2">{user?.fullName}</h1>
           <p className="text-white/80 text-sm">
-            {branding.appName} - {branding.appTagline}
+            {branding.appName}{branding.appTagline ? ` — ${branding.appTagline}` : ''}
           </p>
         </div>
 
