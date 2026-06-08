@@ -9,8 +9,10 @@ import { appendCycleDetailToReport } from './cycle-detail-pdf';
 
 // Lightweight shapes for the hierarchy dropdown rows (the /api/hierarchy/*
 // endpoints carry the parent id on each child: area.blockId, ahu.areaId,
-// filter.ahuId).
-interface HNode { id: string; name: string; status?: string; blockId?: string; areaId?: string; ahuId?: string; filterSet?: string | null; attributes?: Record<string, any>; }
+// filter.ahuId). `retired` + effective `ahuId` (pre-retire parent) are added
+// locally so retired filters can be scoped and flagged.
+interface FNode { id: string; name: string; status?: string; ahuId?: string | null; filterSet?: string | null; retired?: boolean; }
+interface HNode { id: string; name: string; status?: string; blockId?: string; areaId?: string; ahuId?: string; attributes?: Record<string, any>; }
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; border: string }> = {
   IN_PROGRESS: { label: 'In Progress', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
@@ -21,6 +23,29 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; b
 // Full-detail PDF guards (full detail = many round-trips + many pages).
 const WARN_CYCLES = 100;   // confirm before generating beyond this
 const MAX_CYCLES = 400;    // hard ceiling — steer to a smaller scope/period
+
+interface LifecycleEvent { at: string; by: string | null; label: string; remarks: string | null; kind: 'created' | 'replaced' | 'retired'; }
+
+/** Retirement / replacement lifecycle events for one filter, period-filtered,
+ *  oldest first. A replaced OLD filter shows "Replaced by …" (which already
+ *  implies retirement) instead of a separate "Retired" row. */
+function buildLifecycle(
+  filterId: string,
+  retireMap: Map<string, any>,
+  replByOld: Map<string, any>,
+  replByNew: Map<string, any>,
+  fromIso: string, toIso: string,
+): LifecycleEvent[] {
+  const out: LifecycleEvent[] = [];
+  const born = replByNew.get(filterId);
+  if (born) out.push({ at: born.replacedAt, by: born.performedBy ?? null, label: `Created as replacement of ${born.oldFilterName ?? 'a previous filter'}`, remarks: born.remarks ?? null, kind: 'created' });
+  const repl = replByOld.get(filterId);
+  if (repl) out.push({ at: repl.replacedAt, by: repl.performedBy ?? null, label: `Replaced by ${repl.newFilterName ?? 'a new filter'}`, remarks: repl.remarks ?? null, kind: 'replaced' });
+  else { const ret = retireMap.get(filterId); if (ret) out.push({ at: ret.retiredAt, by: ret.retiredBy ?? null, label: 'Retired', remarks: ret.remarks ?? null, kind: 'retired' }); }
+  return out
+    .filter((e) => e.at && (!fromIso || new Date(e.at) >= new Date(fromIso)) && (!toIso || new Date(e.at) <= new Date(toIso)))
+    .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+}
 
 /** GET all cycle summaries for one filter, paginated to exhaustion (the cycles
  *  endpoint caps limit at 100). Period-bounded when from/to provided. */
@@ -60,6 +85,26 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T,
 }
 
 const asc = (a: any, b: any) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime();
+
+const LIFECYCLE_STYLE: Record<string, string> = {
+  created: 'border-indigo-400 bg-indigo-50 text-indigo-700',
+  replaced: 'border-purple-400 bg-purple-50 text-purple-700',
+  retired: 'border-amber-400 bg-amber-50 text-amber-700',
+};
+
+function LifecycleEventRow({ ev, formatDateTime }: { ev: LifecycleEvent; formatDateTime: (s: string) => string }) {
+  return (
+    <div className={`rounded-xl border-l-4 px-4 py-2.5 ${LIFECYCLE_STYLE[ev.kind] ?? 'border-slate-300 bg-slate-50 text-slate-700'}`}>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[13px] font-semibold">{ev.label}</span>
+        <span className="text-[11px] tabular-nums opacity-80">{formatDateTime(ev.at)}</span>
+      </div>
+      <div className="text-[11px] opacity-80 mt-0.5">
+        {ev.by ? `by ${ev.by}` : ''}{ev.remarks ? `${ev.by ? ' · ' : ''}${ev.remarks}` : ''}
+      </div>
+    </div>
+  );
+}
 
 /**
  * One cycle in the lifecycle accordion. Collapsed by default; on expand it
@@ -110,12 +155,12 @@ function CycleAccordionItem({ summary, index, formatDateTime }: {
 }
 
 /**
- * One filter's cycles in the scope. Lazy: fetches the filter's cycle summaries
- * only when expanded (and refetches when the period changes). For single-filter
- * scope it's open by default.
+ * One filter's cycles + lifecycle events in the scope. Lazy: fetches the
+ * filter's cycle summaries only when expanded (and refetches when the period
+ * changes). For single-filter scope it's open by default.
  */
-function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, formatDateTime }: {
-  filter: HNode; fromIso: string; toIso: string; defaultOpen: boolean; formatDateTime: (s: string) => string;
+function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, lifecycle, formatDateTime }: {
+  filter: FNode; fromIso: string; toIso: string; defaultOpen: boolean; lifecycle: LifecycleEvent[]; formatDateTime: (s: string) => string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const [cycles, setCycles] = useState<any[]>([]);
@@ -149,10 +194,13 @@ function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, formatDateTime
         className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left">
         <svg className="w-5 h-5 text-cyan-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" /></svg>
         <div className="flex-1 min-w-0">
-          <div className="text-[14px] font-bold text-slate-800 truncate">{filter.name}</div>
+          <div className="text-[14px] font-bold text-slate-800 truncate">
+            {filter.name}
+            {filter.retired && <span className="ml-2 text-[10px] font-semibold text-amber-600">(Retired)</span>}
+          </div>
           {filter.filterSet && <span className="text-[10px] font-semibold text-indigo-500">Set {filter.filterSet.replace('SET_', '')}</span>}
         </div>
-        {loaded && <span className="text-[11px] text-slate-400">{ordered.length} cycle(s)</span>}
+        {loaded && <span className="text-[11px] text-slate-400">{ordered.length} cycle(s){lifecycle.length ? ` · ${lifecycle.length} event(s)` : ''}</span>}
         <svg className={`w-4 h-4 text-slate-400 transition-transform duration-200 shrink-0 ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 9l-7 7-7-7" />
         </svg>
@@ -165,12 +213,20 @@ function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, formatDateTime
             </div>
           ) : error ? (
             <div className="text-[13px] text-red-500 py-4 text-center">{error}</div>
-          ) : ordered.length === 0 ? (
-            <div className="text-[13px] text-slate-400 py-4 text-center">No cleaning cycles in this period.</div>
+          ) : (ordered.length === 0 && lifecycle.length === 0) ? (
+            <div className="text-[13px] text-slate-400 py-4 text-center">No cleaning cycles or lifecycle events in this period.</div>
           ) : (
-            ordered.map((c, idx) => (
-              <CycleAccordionItem key={c.id} summary={c} index={idx} formatDateTime={formatDateTime} />
-            ))
+            <>
+              {ordered.map((c, idx) => (
+                <CycleAccordionItem key={c.id} summary={c} index={idx} formatDateTime={formatDateTime} />
+              ))}
+              {lifecycle.length > 0 && (
+                <div className="pt-1 space-y-2">
+                  <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-1">Lifecycle Events</div>
+                  {lifecycle.map((ev, i) => <LifecycleEventRow key={i} ev={ev} formatDateTime={formatDateTime} />)}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -190,10 +246,30 @@ export function FilterLifecycleReportPage() {
   const { data: areasData } = useSWR<{ data: HNode[] }>('/api/hierarchy/areas?limit=500');
   const { data: ahusData } = useSWR<{ data: HNode[] }>('/api/hierarchy/ahus?limit=500');
   const { data: filtersData } = useSWR<{ data: HNode[] }>('/api/hierarchy/filters?limit=500');
+  // Lifecycle sources (ASSET_READ, same as the dropdowns). Bare arrays.
+  const { data: retirementsData } = useSWR<any[]>('/api/filters/retirements');
+  const { data: replacementsData } = useSWR<any[]>('/api/filters/replacements');
+
   const allBlocks = blocksData?.data ?? [];
   const allAreas = areasData?.data ?? [];
   const allAhus = ahusData?.data ?? [];
-  const allFilters = (filtersData?.data ?? []).filter((f) => f.status !== 'Retired');
+
+  // Retire/replace lookups.
+  const retireMap = useMemo(() => new Map<string, any>((retirementsData ?? []).map((r) => [r.id, r])), [retirementsData]);
+  const replByOld = useMemo(() => new Map<string, any>((replacementsData ?? []).filter((r) => r.oldFilterId).map((r) => [r.oldFilterId, r])), [replacementsData]);
+  const replByNew = useMemo(() => new Map<string, any>((replacementsData ?? []).filter((r) => r.newFilterId).map((r) => [r.newFilterId, r])), [replacementsData]);
+
+  // Combined filter universe: active (from hierarchy) + retired (detached, so
+  // their effective AHU = preRetireParentId for scoping; labeled retired).
+  const allFilters = useMemo<FNode[]>(() => {
+    const active: FNode[] = (filtersData?.data ?? [])
+      .filter((f) => f.status !== 'Retired')
+      .map((f) => ({ id: f.id, name: f.name, status: f.status, ahuId: f.ahuId ?? null, filterSet: (f as any).filterSet ?? null, retired: false }));
+    const retired: FNode[] = (retirementsData ?? []).map((r) => ({
+      id: r.id, name: r.name, status: 'Retired', ahuId: r.preRetireParentId ?? null, filterSet: r.filterSet ?? null, retired: true,
+    }));
+    return [...active, ...retired];
+  }, [filtersData, retirementsData]);
 
   const [blockId, setBlockId] = useState('');
   const [areaId, setAreaId] = useState('');
@@ -231,7 +307,7 @@ export function FilterLifecycleReportPage() {
   const onAhu = (v: string) => { setAhuId(v); setFilterId(''); };
 
   // Scope = deepest selection. The set of filters the report covers.
-  const filtersInScope = useMemo<HNode[]>(() => {
+  const filtersInScope = useMemo<FNode[]>(() => {
     if (filterId) { const f = allFilters.find((x) => x.id === filterId); return f ? [f] : []; }
     if (ahuId || areaId || blockId) return filterOptions;
     return [];
@@ -257,56 +333,69 @@ export function FilterLifecycleReportPage() {
     setProgress(null);
     setDownloadMsg(null);
     try {
-      // 1. Cheap pass: gather cycle summaries per filter (period-bounded).
-      const groups: { filter: HNode; summaries: any[] }[] = [];
+      // 1. Cheap pass: cycle summaries + lifecycle events per filter (period-bounded).
+      const groups: { filter: FNode; summaries: any[]; events: LifecycleEvent[] }[] = [];
       for (const f of filtersInScope) {
         const sums = (await fetchAllCycleSummaries(f.id, fromIso, toIso)).sort(asc);
-        if (sums.length) groups.push({ filter: f, summaries: sums });
+        const events = buildLifecycle(f.id, retireMap, replByOld, replByNew, fromIso, toIso);
+        if (sums.length || events.length) groups.push({ filter: f, summaries: sums, events });
       }
       const flat = groups.flatMap((g) => g.summaries.map((s) => s.id as string));
-      const total = flat.length;
-      if (total === 0) { setDownloadMsg('No cleaning cycles found for this selection and period.'); return; }
-      if (total > MAX_CYCLES) {
-        setDownloadMsg(`This selection has ${total} cycles — too many for a full-detail PDF (limit ${MAX_CYCLES}). Narrow the period or pick a smaller scope (a single AHU or filter).`);
+      const totalCycles = flat.length;
+      const totalEvents = groups.reduce((n, g) => n + g.events.length, 0);
+      if (totalCycles === 0 && totalEvents === 0) { setDownloadMsg('No cleaning cycles or lifecycle events found for this selection and period.'); return; }
+      if (totalCycles > MAX_CYCLES) {
+        setDownloadMsg(`This selection has ${totalCycles} cycles — too many for a full-detail PDF (limit ${MAX_CYCLES}). Narrow the period or pick a smaller scope (a single AHU or filter).`);
         return;
       }
-      if (total > WARN_CYCLES && !window.confirm(`This will generate a full-detail report for ${total} cycles (one section each — a large PDF that may take a minute). Continue?`)) {
+      if (totalCycles > WARN_CYCLES && !window.confirm(`This will generate a full-detail report for ${totalCycles} cycles (one section each — a large PDF that may take a minute). Continue?`)) {
         return;
       }
 
       // 2. Fetch full detail for every cycle with bounded concurrency.
-      setProgress({ done: 0, total });
-      const details = await mapWithConcurrency(
-        flat, 6,
-        (cycleId) => api.get<any>(`/api/filters/cycles/${cycleId}`),
-        (done) => setProgress({ done, total }),
-      );
+      let details: any[] = [];
+      if (totalCycles > 0) {
+        setProgress({ done: 0, total: totalCycles });
+        details = await mapWithConcurrency(
+          flat, 6,
+          (cycleId) => api.get<any>(`/api/filters/cycles/${cycleId}`),
+          (done) => setProgress({ done, total: totalCycles }),
+        );
+      }
       const byId = new Map<string, any>();
       flat.forEach((id, idx) => byId.set(id, details[idx]));
 
-      // 3. Build the grouped full-detail PDF.
+      // 3. Build the grouped report. Each cycle on its own page; the filter's
+      //    lifecycle events (retire/replace) get their own page after its cycles.
       const report = await createReport({
         title: `${scopeLabel} — Cleaning Lifecycle Report`,
         subtitle: periodLine,
         orientation: 'portrait',
         formatDateTime,
       });
-      // Each cycle starts on its own page (overflow flows to the next page;
-      // a new cycle never shares a page with the previous one). The first cycle
-      // uses page 1 below the report header; the filter header sits at the top
-      // of that filter's first cycle page.
-      let firstCycle = true;
+      let firstBlock = true;
       for (const g of groups) {
         let needFilterHeader = true;
         for (let i = 0; i < g.summaries.length; i++) {
           const s = g.summaries[i];
           const detail = byId.get(s.id);
           if (!detail) continue;
-          if (!firstCycle) report.newPage();
-          firstCycle = false;
-          if (needFilterHeader) { report.addSectionTitle(`Filter: ${g.filter.name}`); needFilterHeader = false; }
+          if (!firstBlock) report.newPage();
+          firstBlock = false;
+          if (needFilterHeader) { report.addSectionTitle(`Filter: ${g.filter.name}${g.filter.retired ? ' (Retired)' : ''}`); needFilterHeader = false; }
           report.addSectionTitle(`Cycle ${i + 1} — ${formatDateTime(s.startedAt)}`);
           appendCycleDetailToReport(report, detail, { formatDateTime });
+        }
+        if (g.events.length) {
+          if (!firstBlock) report.newPage();
+          firstBlock = false;
+          if (needFilterHeader) { report.addSectionTitle(`Filter: ${g.filter.name}${g.filter.retired ? ' (Retired)' : ''}`); needFilterHeader = false; }
+          report.addSectionTitle('Lifecycle Events (Retirement / Replacement)');
+          report.addTable({
+            head: ['Event', 'Date', 'By', 'Remarks'],
+            body: g.events.map((e) => [e.label, formatDateTime(e.at), e.by ?? '-', e.remarks ?? '-']),
+            columnStyles: { 3: { cellWidth: 60 } },
+          });
         }
       }
       const safeScope = scopeLabel.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '') || 'scope';
@@ -335,7 +424,7 @@ export function FilterLifecycleReportPage() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-slate-800 tracking-tight">Filter Lifecycle Report</h1>
-              <p className="text-[13px] text-slate-400">Pick a Block, Area, AHU or Filter — the report covers that scope, cycle by cycle.</p>
+              <p className="text-[13px] text-slate-400">Pick a Block, Area, AHU or Filter — cleaning cycles + retirement / replacement, cycle by cycle.</p>
             </div>
           </div>
           <button
@@ -385,7 +474,7 @@ export function FilterLifecycleReportPage() {
             <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Filter</label>
             <select className={selectCls} value={filterId} onChange={(e) => setFilterId(e.target.value)}>
               <option value="">All in scope</option>
-              {filterOptions.map((f) => (<option key={f.id} value={f.id}>{f.name}</option>))}
+              {filterOptions.map((f) => (<option key={f.id} value={f.id}>{f.name}{f.retired ? ' (Retired)' : ''}</option>))}
             </select>
           </div>
           <div>
@@ -410,7 +499,7 @@ export function FilterLifecycleReportPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
             </svg>
             <span className="text-slate-400 font-medium text-[14px]">Select a Block, Area, AHU or Filter</span>
-            <span className="text-[13px] text-slate-300">The report covers whatever scope you pick — block-wide down to a single filter.</span>
+            <span className="text-[13px] text-slate-300">The report covers whatever scope you pick — block-wide down to a single filter. Retired filters are selectable too.</span>
           </div>
         ) : (
           <>
@@ -426,6 +515,7 @@ export function FilterLifecycleReportPage() {
                   fromIso={fromIso}
                   toIso={toIso}
                   defaultOpen={singleFilter}
+                  lifecycle={buildLifecycle(f.id, retireMap, replByOld, replByNew, fromIso, toIso)}
                   formatDateTime={formatDateTime}
                 />
               ))}
