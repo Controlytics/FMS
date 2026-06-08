@@ -51,6 +51,10 @@ export function ReplacementSchedulePage() {
 
   const { data, isLoading } = useSWR('/api/replacement-schedules', { refreshInterval: 30000 });
   const schedules = (data?.data ?? []) as any[];
+  // Flatten ALL uploads into one combined list (no per-file separation).
+  const allEntries = schedules
+    .flatMap((s: any) => (s.entries ?? []).map((e: any) => ({ ...e, _uploadedByName: s.uploadedByName, _createdAt: s.createdAt })))
+    .sort((a: any, b: any) => new Date(a.scheduleDate).getTime() - new Date(b.scheduleDate).getTime());
 
   // ─── Workflow actions (reuse the PM workflow config; reauth-gated) ───
   const reviewApprove = (id: string) => {
@@ -173,7 +177,7 @@ export function ReplacementSchedulePage() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-800">Replacement Schedule</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{schedules.length} uploaded schedule(s)</p>
+          <p className="text-sm text-slate-500 mt-0.5">{allEntries.length} scheduled replacement(s)</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={exportPdf} disabled={exporting}
@@ -204,75 +208,71 @@ export function ReplacementSchedulePage() {
       {/* List */}
       {isLoading ? (
         <div className="bg-white border border-slate-200 rounded-xl p-16 text-center text-sm text-slate-400">Loading…</div>
-      ) : schedules.length === 0 ? (
+      ) : allEntries.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-xl p-16 text-center">
-          <p className="text-slate-600 font-medium mb-1">No replacement schedules yet</p>
-          <p className="text-sm text-slate-400">{canUpload ? 'Upload a schedule template to get started.' : 'No schedules have been uploaded.'}</p>
+          <p className="text-slate-600 font-medium mb-1">No replacement schedule yet</p>
+          <p className="text-sm text-slate-400">{canUpload ? 'Upload a schedule template to get started.' : 'No schedule has been uploaded.'}</p>
         </div>
       ) : (
-        <div className="space-y-5">
-          {schedules.map((s: any) => (
-            <div key={s.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-              <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
-                <div className="text-sm font-semibold text-slate-700">{s.fileName ?? 'Schedule'} <span className="text-slate-400 font-normal">· {(s.entries ?? []).length} entries</span></div>
-                <div className="text-[11px] text-slate-400">by {s.uploadedByName ?? '—'} · {formatDate(s.createdAt)}</div>
-              </div>
-              <div className="overflow-auto max-h-[calc(100vh-22rem)]">
-                <table className="w-full">
-                  <thead className="sticky top-0 z-10">
-                    <tr className="bg-slate-50 border-b border-slate-200 [&>th]:bg-slate-50 [&>th]:whitespace-nowrap [&>th]:text-left [&>th]:px-3 [&>th]:py-2 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-slate-500 [&>th]:uppercase [&>th]:tracking-wider">
-                      <th className="w-12 text-center">S.No</th>
-                      <th>AHU</th>
-                      <th>Micron</th>
-                      <th>Size</th>
-                      <th className="text-center">Qty</th>
-                      <th className="text-center">Replaced</th>
-                      <th>Schedule Date</th>
-                      <th>Window (± days)</th>
-                      <th>Status</th>
-                      <th>Approval</th>
-                      <th className="text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {(s.entries ?? []).map((e: any, idx: number) => (
-                      <tr key={e.id} className="[&>td]:whitespace-nowrap [&>td]:px-3 [&>td]:py-2 [&>td]:text-sm hover:bg-slate-50/50">
-                        <td className="text-center text-slate-400">{e.slNo ?? idx + 1}</td>
-                        <td className="font-medium text-slate-800 max-w-[180px] truncate" title={e.ahuName}>{e.ahuName}</td>
-                        <td className="text-slate-500">{naText(e.filterMicron)}</td>
-                        <td className="text-slate-500 max-w-[140px] truncate" title={naText(e.filterSize)}>{naText(e.filterSize)}</td>
-                        <td className="text-center text-slate-700">{e.qty}</td>
-                        <td className="text-center text-slate-700">{e.qtyReplaced}</td>
-                        <td className="text-slate-600">{formatDate(e.scheduleDate)}</td>
-                        <td className="text-slate-500">{formatDate(e.windowStart)} → {formatDate(e.windowEnd)} <span className="text-slate-400">(±{e.toleranceDays})</span></td>
-                        <td><span className={`text-[11px] px-2.5 py-1 rounded-full border font-medium ${STATUS_CHIP[e.computedStatus] ?? STATUS_CHIP.PENDING}`}>{(e.computedStatus ?? 'PENDING').replace(/_/g, ' ')}</span></td>
-                        <td><span className={`text-[11px] px-2.5 py-1 rounded-full border font-medium ${(APPROVAL_CHIP[e.approvalStatus] ?? APPROVAL_CHIP.APPROVED).cls}`}>{(APPROVAL_CHIP[e.approvalStatus] ?? APPROVAL_CHIP.APPROVED).label}</span></td>
-                        <td className="text-right">
-                          <div className="inline-flex items-center gap-1.5 justify-end">
-                            {canReview && e.approvalStatus === 'PENDING_REVIEW' && (
-                              <>
-                                <button onClick={() => reviewApprove(e.id)} disabled={busy} className="px-2.5 py-1 bg-sky-500 text-white text-[11px] font-semibold rounded-md hover:bg-sky-600 disabled:opacity-50">Review ✓</button>
-                                <button onClick={() => { setRejectFor({ id: e.id, stage: 'review' }); setRejectRemarks(''); }} disabled={busy} className="px-2.5 py-1 bg-red-500 text-white text-[11px] font-semibold rounded-md hover:bg-red-600 disabled:opacity-50">Reject</button>
-                              </>
-                            )}
-                            {canApprove && (e.approvalStatus === 'PENDING_APPROVAL' || e.approvalStatus === 'PENDING') && (
-                              <>
-                                <button onClick={() => approve(e.id)} disabled={busy} className="px-2.5 py-1 bg-emerald-500 text-white text-[11px] font-semibold rounded-md hover:bg-emerald-600 disabled:opacity-50">Approve</button>
-                                <button onClick={() => { setRejectFor({ id: e.id, stage: 'approval' }); setRejectRemarks(''); }} disabled={busy} className="px-2.5 py-1 bg-red-500 text-white text-[11px] font-semibold rounded-md hover:bg-red-600 disabled:opacity-50">Reject</button>
-                              </>
-                            )}
-                            {e.approvalStatus === 'REJECTED' && e.approvalRemarks && (
-                              <span className="text-[11px] text-rose-600 italic max-w-[160px] truncate" title={e.approvalRemarks}>{e.approvalRemarks}</span>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))}
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
+            <div className="text-sm font-semibold text-slate-700">Replacement Schedule <span className="text-slate-400 font-normal">· {allEntries.length} entr{allEntries.length === 1 ? 'y' : 'ies'}</span></div>
+            {schedules[0] && <div className="text-[11px] text-slate-400">last upload by {schedules[0].uploadedByName ?? '—'} · {formatDate(schedules[0].createdAt)}</div>}
+          </div>
+          <div className="overflow-auto max-h-[calc(100vh-22rem)]">
+            <table className="w-full">
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-slate-50 border-b border-slate-200 [&>th]:bg-slate-50 [&>th]:whitespace-nowrap [&>th]:text-left [&>th]:px-3 [&>th]:py-2 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-slate-500 [&>th]:uppercase [&>th]:tracking-wider">
+                  <th className="w-12 text-center">S.No</th>
+                  <th>AHU</th>
+                  <th>Micron</th>
+                  <th>Size</th>
+                  <th className="text-center">Qty</th>
+                  <th className="text-center">Replaced</th>
+                  <th>Schedule Date</th>
+                  <th>Window (± days)</th>
+                  <th>Status</th>
+                  <th>Approval</th>
+                  <th className="text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {allEntries.map((e: any, idx: number) => (
+                  <tr key={e.id} className="[&>td]:whitespace-nowrap [&>td]:px-3 [&>td]:py-2 [&>td]:text-sm hover:bg-slate-50/50">
+                    <td className="text-center text-slate-400">{idx + 1}</td>
+                    <td className="font-medium text-slate-800 max-w-[180px] truncate" title={e.ahuName}>{e.ahuName}</td>
+                    <td className="text-slate-500">{naText(e.filterMicron)}</td>
+                    <td className="text-slate-500 max-w-[140px] truncate" title={naText(e.filterSize)}>{naText(e.filterSize)}</td>
+                    <td className="text-center text-slate-700">{e.qty}</td>
+                    <td className="text-center text-slate-700">{e.qtyReplaced}</td>
+                    <td className="text-slate-600">{formatDate(e.scheduleDate)}</td>
+                    <td className="text-slate-500">{formatDate(e.windowStart)} → {formatDate(e.windowEnd)} <span className="text-slate-400">(±{e.toleranceDays})</span></td>
+                    <td><span className={`text-[11px] px-2.5 py-1 rounded-full border font-medium ${STATUS_CHIP[e.computedStatus] ?? STATUS_CHIP.PENDING}`}>{(e.computedStatus ?? 'PENDING').replace(/_/g, ' ')}</span></td>
+                    <td><span className={`text-[11px] px-2.5 py-1 rounded-full border font-medium ${(APPROVAL_CHIP[e.approvalStatus] ?? APPROVAL_CHIP.APPROVED).cls}`}>{(APPROVAL_CHIP[e.approvalStatus] ?? APPROVAL_CHIP.APPROVED).label}</span></td>
+                    <td className="text-right">
+                      <div className="inline-flex items-center gap-1.5 justify-end">
+                        {canReview && e.approvalStatus === 'PENDING_REVIEW' && (
+                          <>
+                            <button onClick={() => reviewApprove(e.id)} disabled={busy} className="px-2.5 py-1 bg-sky-500 text-white text-[11px] font-semibold rounded-md hover:bg-sky-600 disabled:opacity-50">Review ✓</button>
+                            <button onClick={() => { setRejectFor({ id: e.id, stage: 'review' }); setRejectRemarks(''); }} disabled={busy} className="px-2.5 py-1 bg-red-500 text-white text-[11px] font-semibold rounded-md hover:bg-red-600 disabled:opacity-50">Reject</button>
+                          </>
+                        )}
+                        {canApprove && (e.approvalStatus === 'PENDING_APPROVAL' || e.approvalStatus === 'PENDING') && (
+                          <>
+                            <button onClick={() => approve(e.id)} disabled={busy} className="px-2.5 py-1 bg-emerald-500 text-white text-[11px] font-semibold rounded-md hover:bg-emerald-600 disabled:opacity-50">Approve</button>
+                            <button onClick={() => { setRejectFor({ id: e.id, stage: 'approval' }); setRejectRemarks(''); }} disabled={busy} className="px-2.5 py-1 bg-red-500 text-white text-[11px] font-semibold rounded-md hover:bg-red-600 disabled:opacity-50">Reject</button>
+                          </>
+                        )}
+                        {e.approvalStatus === 'REJECTED' && e.approvalRemarks && (
+                          <span className="text-[11px] text-rose-600 italic max-w-[160px] truncate" title={e.approvalRemarks}>{e.approvalRemarks}</span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
