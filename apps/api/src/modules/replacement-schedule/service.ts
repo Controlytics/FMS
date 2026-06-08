@@ -251,6 +251,7 @@ export async function processUpload(
   // One QNN per upload action (surfaced in the Notifications center).
   await generateQnn('UPLOAD', {
     scheduleId: schedule.id,
+    subject: 'Replacement Schedule',
     message: `Uploaded replacement schedule (${toCreate.length} entr${toCreate.length === 1 ? 'y' : 'ies'})${wf.workflowEnabled ? ' — pending review' : ''}`,
   }, ctx);
 

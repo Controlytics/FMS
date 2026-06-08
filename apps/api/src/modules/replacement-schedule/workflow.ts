@@ -23,7 +23,8 @@ async function mintQnn(action: QnnAction, entry: any, ctx: RequestContext, note:
     pmScheduleEntryId: entry.id, // soft uuid column; holds the replacement entry id
     scheduleId: entry.scheduleId,
     ahuName: entry.ahuName,
-    message: `${note} — Replacement ${entry.ahuName}${entry.filterSize ? ` (${entry.filterSize})` : ''}`,
+    subject: 'Replacement Schedule',
+    message: `${note} — ${entry.ahuName}${entry.filterSize ? ` · ${entry.filterSize}` : ''}${entry.filterMicron ? ` · ${entry.filterMicron}µ` : ''} · qty ${entry.qty}`,
   }, ctx);
 }
 

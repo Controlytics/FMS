@@ -508,7 +508,7 @@ export function NotificationsPage() {
                         <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
                       )}
                     </div>
-                    <p className={`text-sm mt-1 ${notification.isRead ? 'text-slate-400' : 'text-slate-600'}`}>
+                    <p className={`text-sm mt-1 whitespace-pre-line ${notification.isRead ? 'text-slate-400' : 'text-slate-600'}`}>
                       {notification.message}
                     </p>
                     <div className="flex items-center gap-4 mt-3">

@@ -52,15 +52,24 @@ export type QnnAction = 'UPLOAD' | 'REVIEW' | 'APPROVE' | 'REJECT' | 'RESUBMIT' 
  * Generate the next QNN (QN-YYYY-000001) and record it in quality_notifications.
  * Returns the QNN string. Phase 6 turns these into Notification-center entries.
  */
+// Human label for each action (clear past-tense wording in the notification).
+const ACTION_LABEL: Record<QnnAction, string> = {
+  UPLOAD: 'Uploaded', REVIEW: 'Reviewed', APPROVE: 'Approved',
+  REJECT: 'Rejected', RESUBMIT: 'Resubmitted', EDIT: 'Modified',
+};
+
 export async function generateQnn(
   action: QnnAction,
-  opts: { pmScheduleEntryId?: string | null; scheduleId?: string | null; ahuName?: string | null; message?: string | null },
+  opts: { pmScheduleEntryId?: string | null; scheduleId?: string | null; ahuName?: string | null; message?: string | null; subject?: string },
   ctx: RequestContext,
 ): Promise<string> {
   const rows = await prisma.$queryRaw<{ seq: bigint }[]>`SELECT nextval('qnn_seq') AS seq`;
   const seq = Number(rows?.[0]?.seq ?? 0);
   const year = new Date().getFullYear();
   const qnn = `QN-${year}-${String(seq).padStart(6, '0')}`;
+  const subject = opts.subject ?? 'PM Schedule';
+  const who = ctx.userId ?? 'unknown';
+  const when = new Date().toISOString().slice(0, 16).replace('T', ' ');
 
   await prisma.qualityNotification.create({
     data: {
@@ -75,19 +84,27 @@ export async function generateQnn(
     },
   });
 
-  // Surface the QNN in the Notifications center. Route to the next actor's role:
-  // upload → reviewer, review → approver; other actions go to admins (null role).
+  // Surface the QNN in the Notifications center with the FULL detail line:
+  // QNN · subject · action · target · who (user id + role) · when.
   const cfg = await getPmWorkflowConfig();
   let forRole: string | null = null;
   if (action === 'UPLOAD') forRole = cfg.reviewRole || cfg.approvalRole || null;
   else if (action === 'REVIEW') forRole = cfg.approvalRole || null;
+  const detail = [
+    `QNN: ${qnn}`,
+    `Action: ${ACTION_LABEL[action] ?? action} (${action})`,
+    opts.ahuName ? `AHU: ${opts.ahuName}` : null,
+    opts.message ? `Details: ${opts.message}` : null,
+    `By: ${who}${ctx.userRole ? ` (${ctx.userRole})` : ''}`,
+    `On: ${when} UTC`,
+  ].filter(Boolean).join('\n');
   try {
     await createNotification({
       type: 'PM_SCHEDULE_QNN',
-      title: `${qnn} — PM Schedule ${action}`,
-      message: (opts.message ?? `PM schedule ${action.toLowerCase()}`).slice(0, 1000),
+      title: `${qnn} · ${subject} ${ACTION_LABEL[action] ?? action} · by ${who}`,
+      message: detail.slice(0, 1000),
       forRole: forRole || undefined,
-      metadata: { qnn, action, pmScheduleEntryId: opts.pmScheduleEntryId ?? null, scheduleId: opts.scheduleId ?? null, ahuName: opts.ahuName ?? null },
+      metadata: { qnn, action, subject, pmScheduleEntryId: opts.pmScheduleEntryId ?? null, scheduleId: opts.scheduleId ?? null, ahuName: opts.ahuName ?? null, performedBy: ctx.userSub ?? null, performedByName: ctx.userId ?? null, performedByRole: ctx.userRole ?? null, at: when },
       createdBy: ctx.userId ?? undefined,
     });
   } catch { /* QNN is recorded even if the notification emit fails */ }
