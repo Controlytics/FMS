@@ -176,20 +176,7 @@ export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
     description: "Block change approval requests",
     privilegeIds: ["block_change.request", "block_change.approve"],
   },
-  {
-    sidebarId: "report-templates",
-    label: "Report Templates",
-    icon: "\u{1F4C4}",
-    description: "Report template management",
-    privilegeIds: ["report_templates.view", "report_templates.create", "report_templates.edit", "report_templates.delete"],
-  },
-  {
-    sidebarId: "reports",
-    label: "Generated Reports",
-    icon: "\u{1F4CA}",
-    description: "View and manage generated reports",
-    privilegeIds: ["reports.view", "reports.generate"],
-  },
+  // Report Templates + Generated Reports removed from the application (2026-06-08).
   {
     sidebarId: "version-history",
     label: "Version History",

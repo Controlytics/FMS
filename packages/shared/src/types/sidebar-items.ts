@@ -33,7 +33,5 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'my-tasks', label: 'My Tasks', icon: '\u{1F3AF}', description: 'Filters due for cleaning based on PM schedules' },
   { id: 'deviations', label: 'Deviations', icon: '⚠', description: 'Overdue PM cleaning deviations + audit trail' },
   { id: 'approvals', label: 'Approvals', icon: '\u2705', description: 'Block change approval requests' },
-  { id: 'report-templates', label: 'Report Templates', icon: '\u{1F4C4}', description: 'Report template management' },
-  { id: 'reports', label: 'Reports', icon: '\u{1F4CA}', description: 'Generated reports and PDF export' },
   { id: 'version-history', label: 'Version History', icon: '\u{1F570}️', description: 'Audit history of versioned definitions (cleaning profiles, filter profiles, checklist profiles, equipment groups)' },
 ];

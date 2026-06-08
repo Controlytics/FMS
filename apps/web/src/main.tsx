@@ -89,11 +89,7 @@ const AdminRequestsPage = lazy(() => import("./routes/admin-requests/index").the
 const ReplacementListPage = lazy(() => import("./routes/filter-management/replacement-list").then(m => ({ default: m.ReplacementListPage })));
 
 const ApprovalsPage = lazy(() => import("./routes/approvals/index").then(m => ({ default: m.ApprovalsPage })));
-const ReportTemplateListPage = lazy(() => import("./routes/report-templates/index").then(m => ({ default: m.ReportTemplateListPage })));
-const ReportTemplateEditorPage = lazy(() => import("./routes/report-templates/editor").then(m => ({ default: m.ReportTemplateEditorPage })));
-const ReportListPage = lazy(() => import("./routes/reports/index").then(m => ({ default: m.ReportListPage })));
-const ReportGeneratePage = lazy(() => import("./routes/reports/generate").then(m => ({ default: m.ReportGeneratePage })));
-const ReportDetailPage = lazy(() => import("./routes/reports/detail").then(m => ({ default: m.ReportDetailPage })));
+// Report Templates + Generated Reports removed from the application (2026-06-08).
 const VersionHistoryPage = lazy(() => import("./routes/version-history/index").then(m => ({ default: m.VersionHistoryPage })));
 const FilterDataManagementPage = lazy(() => import("./routes/config/filter-data-management").then(m => ({ default: m.FilterDataManagementPage })));
 const TabletAccessConfigPage = lazy(() => import("./routes/config/tablet-access").then(m => ({ default: m.TabletAccessConfigPage })));
@@ -258,12 +254,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/admin-requests" element={<RequireRole permissions={[PERMISSIONS.ADMIN_REQUEST_REVIEW]}><Suspense fallback={<LazyFallback />}><AdminRequestsPage /></Suspense></RequireRole>} />
             <Route path="/approvals" element={<RequireRole permissions={[PERMISSIONS.BLOCK_CHANGE_APPROVE, PERMISSIONS.BLOCK_CHANGE_REQUEST, PERMISSIONS.PM_APPROVE]}><Suspense fallback={<LazyFallback />}><ApprovalsPage /></Suspense></RequireRole>} />
 
-            {/* Reports */}
-            <Route path="/report-templates" element={<RequireRole permissions={[PERMISSIONS.REPORT_TEMPLATE_READ]}><Suspense fallback={<LazyFallback />}><ReportTemplateListPage /></Suspense></RequireRole>} />
-            <Route path="/report-templates/:id/edit" element={<RequireRole permissions={[PERMISSIONS.REPORT_TEMPLATE_UPDATE]}><Suspense fallback={<LazyFallback />}><ReportTemplateEditorPage /></Suspense></RequireRole>} />
-            <Route path="/reports" element={<RequireRole permissions={[PERMISSIONS.REPORT_VIEW]}><Suspense fallback={<LazyFallback />}><ReportListPage /></Suspense></RequireRole>} />
-            <Route path="/reports/generate" element={<RequireRole permissions={[PERMISSIONS.REPORT_GENERATE]}><Suspense fallback={<LazyFallback />}><ReportGeneratePage /></Suspense></RequireRole>} />
-            <Route path="/reports/:id" element={<RequireRole permissions={[PERMISSIONS.REPORT_VIEW]}><Suspense fallback={<LazyFallback />}><ReportDetailPage /></Suspense></RequireRole>} />
+            {/* Report Templates + Generated Reports removed from the application (2026-06-08). */}
 
             {/* Audit / Versions (2026-05-02) — SUPER_ADMIN only by default; assignable via Role Privileges → Audit / Versions. */}
             <Route path="/version-history" element={<RequireRole permissions={[PERMISSIONS.VERSION_HISTORY_VIEW]}><Suspense fallback={<LazyFallback />}><VersionHistoryPage /></Suspense></RequireRole>} />
