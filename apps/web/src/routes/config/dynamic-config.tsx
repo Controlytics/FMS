@@ -318,6 +318,37 @@ export function DynamicConfigPage() {
                         </select>
                       );
                     })()
+                  ) : setting.type === 'multiselect' ? (
+                    (() => {
+                      const liveOptions = setting.dynamicOptionsSource ? (dynamicOptions[setting.dynamicOptionsSource] ?? []) : [];
+                      const staticOptions = setting.options ?? [];
+                      const combined = [...staticOptions, ...liveOptions];
+                      const seen = new Set<string>();
+                      const finalOptions = combined.filter(o => { const k = String(o.value); if (seen.has(k)) return false; seen.add(k); return true; });
+                      const selected: string[] = Array.isArray(values[setting.key]) ? values[setting.key] : [];
+                      const loading = setting.dynamicOptionsSource && !(setting.dynamicOptionsSource in dynamicOptions);
+                      const toggle = (val: string) => {
+                        const next = selected.includes(val) ? selected.filter(v => v !== val) : [...selected, val];
+                        handleChange(setting.key, next);
+                      };
+                      return (
+                        <div className="space-y-1.5 border border-slate-200 rounded-lg p-3">
+                          {loading && <p className="text-sm text-slate-400">Loading…</p>}
+                          {!loading && finalOptions.length === 0 && <p className="text-sm text-slate-400">No options available</p>}
+                          {finalOptions.map(opt => (
+                            <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={selected.includes(String(opt.value))}
+                                onChange={() => toggle(String(opt.value))}
+                                className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                              />
+                              <span className="text-sm text-slate-600">{opt.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      );
+                    })()
                   ) : setting.type === 'number' ? (
                     <input
                       type="number"

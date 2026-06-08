@@ -1,6 +1,35 @@
 import { NotFoundError } from '../../lib/errors.js';
 import { notificationRepository } from './notification.repository.js';
+import { prisma } from '../../lib/prisma.js';
 import { z } from 'zod';
+
+const QNN_TYPE = 'PM_SCHEDULE_QNN';
+
+// Which roles may see QNN (Quality Notification) entries — driven by the
+// 'qnn-notifications' config (multiselect of roles). Super Admin always sees them.
+async function getQnnVisibleRoles(): Promise<string[]> {
+  try {
+    const row = await prisma.systemConfig.findUnique({ where: { configKey: 'qnn-notifications' } });
+    const v = row?.configValue as { visibleRoles?: unknown } | undefined;
+    return Array.isArray(v?.visibleRoles) ? (v!.visibleRoles as string[]) : ['ADMIN'];
+  } catch {
+    return ['ADMIN'];
+  }
+}
+
+const canSeeQnn = (userRole: string, qnnRoles: string[]) =>
+  userRole === 'SUPER_ADMIN' || qnnRoles.includes(userRole);
+
+// Visibility that also enforces QNN config: non-QNN notifications use the normal
+// per-role rules; QNN notifications are shown only to roles allowed by config.
+function qnnAwareWhere(userRole: string, username: string, qnnRoles: string[]): Record<string, unknown> {
+  const normal = buildVisibilityFilter(userRole, username);
+  const branches: Record<string, unknown>[] = [
+    { AND: [{ type: { not: QNN_TYPE } }, normal] },
+  ];
+  if (canSeeQnn(userRole, qnnRoles)) branches.push({ type: QNN_TYPE });
+  return { OR: branches };
+}
 
 const notificationQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -69,7 +98,7 @@ function applyDateFilter(where: Record<string, unknown>, period?: string, startD
 export const notificationService = {
   async list(query: unknown, userRole: string, username: string) {
     const parsed = notificationQuerySchema.parse(query);
-    const where = buildVisibilityFilter(userRole, username);
+    const where = qnnAwareWhere(userRole, username, await getQnnVisibleRoles());
 
     // Apply date filtering
     applyDateFilter(where, parsed.period, parsed.startDate, parsed.endDate);
@@ -96,7 +125,7 @@ export const notificationService = {
   },
 
   async getUnreadCount(userRole: string, username: string) {
-    const where = buildVisibilityFilter(userRole, username);
+    const where = qnnAwareWhere(userRole, username, await getQnnVisibleRoles());
     where.isRead = false;
     return { count: await notificationRepository.count(where) };
   },
@@ -104,7 +133,7 @@ export const notificationService = {
   async markRead(id: string, userRole: string, username: string) {
     const notification = await notificationRepository.findById(id);
     if (!notification) throw new NotFoundError('Notification not found');
-    assertNotificationVisible(notification, userRole, username);
+    assertNotificationVisible(notification, userRole, username, canSeeQnn(userRole, await getQnnVisibleRoles()));
     await notificationRepository.markRead(id);
     return { success: true };
   },
@@ -112,37 +141,37 @@ export const notificationService = {
   async markUnread(id: string, userRole: string, username: string) {
     const notification = await notificationRepository.findById(id);
     if (!notification) throw new NotFoundError('Notification not found');
-    assertNotificationVisible(notification, userRole, username);
+    assertNotificationVisible(notification, userRole, username, canSeeQnn(userRole, await getQnnVisibleRoles()));
     await notificationRepository.markUnread(id);
     return { success: true };
   },
 
   async markAllRead(userRole: string, username: string) {
-    const where = buildVisibilityFilter(userRole, username);
+    const where = qnnAwareWhere(userRole, username, await getQnnVisibleRoles());
     where.isRead = false;
     await notificationRepository.markAllRead(where);
     return { success: true };
   },
 
   async bulkRead(ids: string[], userRole: string, username: string) {
-    const result = await notificationRepository.bulkMarkRead(ids, userRole, username);
+    const result = await notificationRepository.bulkMarkRead(ids, userRole, username, canSeeQnn(userRole, await getQnnVisibleRoles()));
     return { success: true, count: result.count };
   },
 
   async bulkUnread(ids: string[], userRole: string, username: string) {
-    const result = await notificationRepository.bulkMarkUnread(ids, userRole, username);
+    const result = await notificationRepository.bulkMarkUnread(ids, userRole, username, canSeeQnn(userRole, await getQnnVisibleRoles()));
     return { success: true, count: result.count };
   },
 
   async bulkDelete(ids: string[], userRole: string, username: string) {
-    const result = await notificationRepository.bulkDelete(ids, userRole, username);
+    const result = await notificationRepository.bulkDelete(ids, userRole, username, canSeeQnn(userRole, await getQnnVisibleRoles()));
     return { success: true, count: result.count };
   },
 
   async delete(id: string, userRole: string, username: string) {
     const notification = await notificationRepository.findById(id);
     if (!notification) throw new NotFoundError('Notification not found');
-    assertNotificationVisible(notification, userRole, username);
+    assertNotificationVisible(notification, userRole, username, canSeeQnn(userRole, await getQnnVisibleRoles()));
     await notificationRepository.delete(id);
     return { success: true };
   },
@@ -150,7 +179,12 @@ export const notificationService = {
 
 // Throws a 403-like error if the notification doesn't belong to the caller (unless ADMIN/SUPER_ADMIN).
 // Mirrors buildVisibilityFilter's rules so list-visibility == single-op access.
-function assertNotificationVisible(notif: any, userRole: string, username: string): void {
+function assertNotificationVisible(notif: any, userRole: string, username: string, qnnAllowed: boolean): void {
+  // QNN notifications follow the config-driven role list, not per-user addressing.
+  if (notif.type === QNN_TYPE) {
+    if (qnnAllowed) return;
+    throw new NotFoundError('Notification not found');
+  }
   if (userRole === 'SUPER_ADMIN') return;
   if (userRole === 'ADMIN') {
     if (notif.forRole === 'SUPER_ADMIN') throw new NotFoundError('Notification not found');

@@ -62,16 +62,16 @@ export const notificationRepository = {
     });
   },
 
-  async bulkMarkRead(ids: string[], userRole?: string, username?: string) {
-    const where = buildBulkVisibilityFilter(ids, userRole, username);
+  async bulkMarkRead(ids: string[], userRole?: string, username?: string, qnnAllowed = false) {
+    const where = buildBulkVisibilityFilter(ids, userRole, username, qnnAllowed);
     return prisma.notification.updateMany({
       where,
       data: { isRead: true, readAt: new Date() },
     });
   },
 
-  async bulkMarkUnread(ids: string[], userRole?: string, username?: string) {
-    const where = buildBulkVisibilityFilter(ids, userRole, username);
+  async bulkMarkUnread(ids: string[], userRole?: string, username?: string, qnnAllowed = false) {
+    const where = buildBulkVisibilityFilter(ids, userRole, username, qnnAllowed);
     return prisma.notification.updateMany({
       where,
       data: { isRead: false, readAt: null },
@@ -82,8 +82,8 @@ export const notificationRepository = {
     return prisma.notification.delete({ where: { id } });
   },
 
-  async bulkDelete(ids: string[], userRole?: string, username?: string) {
-    const where = buildBulkVisibilityFilter(ids, userRole, username);
+  async bulkDelete(ids: string[], userRole?: string, username?: string, qnnAllowed = false) {
+    const where = buildBulkVisibilityFilter(ids, userRole, username, qnnAllowed);
     return prisma.notification.deleteMany({ where });
   },
 };
@@ -109,24 +109,28 @@ function buildBulkVisibilityFilter(
   ids: string[],
   userRole?: string,
   username?: string,
+  qnnAllowed = false,
 ): Record<string, unknown> {
-  const where: Record<string, unknown> = { id: { in: ids } };
-  if (userRole === 'SUPER_ADMIN') return where;
-  if (userRole === 'ADMIN') {
-    where.AND = [
-      {
-        OR: [
-          { forUserId: username },
-          { forRole: 'ADMIN' },
-          { forRole: null, forUserId: null },
-        ],
-      },
-      { NOT: { forRole: 'SUPER_ADMIN' } },
-    ];
-    return where;
+  // NON-QNN visibility fragment (role-based, same rules as the list).
+  let normal: Record<string, unknown>;
+  if (userRole === 'SUPER_ADMIN') {
+    normal = {};
+  } else if (userRole === 'ADMIN') {
+    normal = {
+      OR: [
+        { forUserId: username },
+        { forRole: 'ADMIN' },
+        { forRole: null, forUserId: null },
+      ],
+      NOT: { forRole: 'SUPER_ADMIN' },
+    };
+  } else {
+    normal = username ? { OR: [{ forUserId: username }, { targetUserId: username }] } : {};
   }
-  if (username) {
-    where.OR = [{ forUserId: username }, { targetUserId: username }];
-  }
-  return where;
+  // QNN notifications follow the config role list, not per-user addressing.
+  const branches: Record<string, unknown>[] = [
+    { AND: [{ type: { not: 'PM_SCHEDULE_QNN' } }, normal] },
+  ];
+  if (qnnAllowed) branches.push({ type: 'PM_SCHEDULE_QNN' });
+  return { id: { in: ids }, OR: branches };
 }
