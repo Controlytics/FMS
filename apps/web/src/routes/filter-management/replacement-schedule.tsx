@@ -48,6 +48,8 @@ export function ReplacementSchedulePage() {
   const [rejectFor, setRejectFor] = useState<{ id: string; stage: 'review' | 'approval' } | null>(null);
   const [rejectRemarks, setRejectRemarks] = useState('');
   const [exporting, setExporting] = useState(false);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 25;
 
   const { data, isLoading } = useSWR('/api/replacement-schedules', { refreshInterval: 30000 });
   const schedules = (data?.data ?? []) as any[];
@@ -55,6 +57,9 @@ export function ReplacementSchedulePage() {
   const allEntries = schedules
     .flatMap((s: any) => (s.entries ?? []).map((e: any) => ({ ...e, _uploadedByName: s.uploadedByName, _createdAt: s.createdAt })))
     .sort((a: any, b: any) => new Date(a.scheduleDate).getTime() - new Date(b.scheduleDate).getTime());
+  const totalPages = Math.max(1, Math.ceil(allEntries.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageEntries = allEntries.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   // ─── Workflow actions (reuse the PM workflow config; reauth-gated) ───
   const reviewApprove = (id: string) => {
@@ -237,9 +242,9 @@ export function ReplacementSchedulePage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {allEntries.map((e: any, idx: number) => (
+                {pageEntries.map((e: any, idx: number) => (
                   <tr key={e.id} className="[&>td]:whitespace-nowrap [&>td]:px-3 [&>td]:py-2 [&>td]:text-sm hover:bg-slate-50/50">
-                    <td className="text-center text-slate-400">{idx + 1}</td>
+                    <td className="text-center text-slate-400">{(safePage - 1) * PAGE_SIZE + idx + 1}</td>
                     <td className="font-medium text-slate-800 max-w-[180px] truncate" title={e.ahuName}>{e.ahuName}</td>
                     <td className="text-slate-500">{naText(e.filterMicron)}</td>
                     <td className="text-slate-500 max-w-[140px] truncate" title={naText(e.filterSize)}>{naText(e.filterSize)}</td>
@@ -272,6 +277,23 @@ export function ReplacementSchedulePage() {
                 ))}
               </tbody>
             </table>
+          </div>
+          {/* Pagination footer */}
+          <div className="px-4 py-3 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-[11px] text-slate-500">
+              Showing <span className="font-semibold text-slate-700">{(safePage - 1) * PAGE_SIZE + 1}</span>–
+              <span className="font-semibold text-slate-700">{Math.min(safePage * PAGE_SIZE, allEntries.length)}</span> of{' '}
+              <span className="font-semibold text-slate-700">{allEntries.length}</span>
+            </p>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={safePage === 1}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">Prev</button>
+                <span className="px-2 text-xs text-slate-500">Page {safePage} of {totalPages}</span>
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={safePage === totalPages}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">Next</button>
+              </div>
+            )}
           </div>
         </div>
       )}
