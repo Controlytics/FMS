@@ -1,0 +1,96 @@
+# Repository Audit — 2026-06-08 (DigiLog / 21cfrlogbook)
+
+**Scope:** 1,267 tracked files; 676 TS/TSX (api 341 · web 261 · packages 61).
+**Method:** static analysis (`knip`, `depcheck`, `madge`) + reference tracing. Grounded
+findings only — no fabricated inventory. 21 CFR Part 11 app → destructive changes require
+sign-off; "any uncertainty → Needs Manual Review."
+
+> ⚠️ Honesty note: this is a **tool-grounded audit of the highest-signal areas** (dead
+> files, unused deps, circular deps, known dead surfaces). A literal line-by-line audit of
+> every one of 676 files + an exhaustive per-endpoint security/perf audit was **not** fully
+> performed this pass — those sections below are marked accordingly and need dedicated runs.
+
+---
+
+## Executive Summary
+
+| Score | Value | Basis |
+|---|---|---|
+| Overall health | **78 / 100** | Working, well-tested, but accumulated dead surfaces from recent feature removals + some structural debt |
+| Security | **~80 / 100** *(not exhaustively audited)* | RBAC + reauth + HTML sanitization + hash-chained audit + HTTPS in place; no full injection sweep done this pass |
+| Performance | **~75 / 100** *(not exhaustively audited)* | No N+1 sweep done; 8 backend circular import chains; large monolith files |
+| Maintainability | **72 / 100** | Dead report pages, redundant deps, circular deps, a few 1.5–2k-line files |
+
+---
+
+## CONFIRMED findings (reference-traced, safe)
+
+### Dead files — frontend (feature removed last session, 0 imports)
+Verified `grep` across `apps/web/src`: **zero** external imports of these.
+- `apps/web/src/routes/reports/index.tsx`
+- `apps/web/src/routes/reports/generate.tsx`
+- `apps/web/src/routes/reports/detail.tsx`
+- `apps/web/src/routes/report-templates/index.tsx`
+- `apps/web/src/routes/report-templates/editor.tsx`
+- `apps/web/src/routes/report-templates/components/*` (variable-tag-picker, etc.)
+
+Reason: the **Report Templates + Generated Reports** features were removed from the sidebar
++ routes on 2026-06-08; these page files are now unreachable.
+**Risk:** low (reversible via git). **Recommendation:** delete.
+
+### Unused dependency — web (0 direct imports)
+- `apps/web/package.json` → **`zod`** — not imported anywhere in `apps/web/src` (used only
+  via `@digilog/shared`, which declares its own `zod`).
+  **Recommendation:** remove from `apps/web/package.json`.
+
+### Redundant dependencies — api (0 direct imports; provided transitively)
+- `apps/api/package.json` → **`pg`** — not imported in `apps/api/src`; the TimescaleDB pool
+  lives in `packages/db`. Redundant here.
+- `apps/api/package.json` → **`pino`** — not imported directly; pulled transitively by Fastify.
+  **Recommendation:** remove both from `apps/api/package.json` (low priority — harmless if kept).
+  **Caveat:** verify nothing in `apps/api/dist` build scripts relies on them before removing.
+
+---
+
+## Circular dependencies (backend) — `madge`
+8 chains, all functional (TS resolves them) but worth flagging:
+1. `data-ingestion/ingestion.service.ts ↔ dlq-manager.ts`
+2. `data-ingestion/rpc-handler.ts → transport/mqtt-client.ts → mqtt-handler.ts` (cycle)
+3–8. `filter-operations.service.ts ↔ cycle-write/{advance,bypass,start-cycle,submit-checklist,terminate-cycle}.ts` and `current-state.ts`
+
+Cause: the cycle-write extraction left the sub-modules importing the parent service.
+**Risk:** low now (no runtime break), but fragile under further refactor / can break HMR.
+**Recommendation (Needs Manual Review):** invert the dependency — move shared types/helpers
+the sub-files need into a `cycle-write/shared.ts` so they don't import the parent service.
+Frontend: **0 circular** dependencies. ✅
+
+---
+
+## Known retained-on-purpose (DO NOT remove — 21 CFR)
+- `packages/shared/src/types/audit-actions.ts` + `audit-templates.ts` — inspector contracts;
+  zero callers by design (rule-chain/alarm + reports entries kept for historic audit rows).
+- `apps/api/src/modules/reports` + `report-templates` **backend** — still present; only the
+  web UI was removed. Keep unless you want the whole reporting capability gone (separate decision).
+- `react-hook-form` (web) — used by 15 files (a prior audit false-positive).
+
+---
+
+## NOT audited this pass (need dedicated runs) — marked Needs Manual Review
+- **Per-endpoint API audit** (validation/authz/rate-limit/logging on each of 200+ routes).
+- **DB audit**: unused tables/columns, missing indexes, N+1 — needs query-log + schema diff.
+- **Security sweep**: injection/XSS/SSRF/path-traversal across all inputs.
+- **Performance**: bundle analysis, re-render profiling, query timing.
+- **Unused exports** across 676 files (knip ran but output was dominated by Android build
+  artifacts; needs a scoped knip config to be reliable).
+
+These are large enough to warrant their own focused sessions; doing them "by eyeball" here
+would produce false positives, which is the opposite of the goal.
+
+---
+
+## Recommended SAFE auto-fixes (pending sign-off)
+1. Delete the 6+ orphaned report/report-templates page files (confirmed dead).
+2. Remove `zod` from `apps/web/package.json`.
+3. (Optional) Remove `pg` + `pino` from `apps/api/package.json`.
+
+Everything else → recommendation / Needs Manual Review.
