@@ -6,6 +6,7 @@ import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { createReport } from '../../lib/pdf-report';
 import { CycleDetailView } from './cycle-detail-view';
 import { appendCycleDetailToReport } from './cycle-detail-pdf';
+import { effectiveCycleStatus } from '../../lib/cleaning-cycle-report';
 
 export function CleaningCycleTimelinePage() {
   const { id } = useParams<{ id: string }>();
@@ -35,7 +36,7 @@ export function CleaningCycleTimelinePage() {
         `Filter: ${cycle.filterName ?? '-'}`,
         cycle.ahuName ? `AHU: ${cycle.ahuName}` : '',
         cycle.filterSet ? `Set ${cycle.filterSet.replace('SET_', '')}` : '',
-        `Status: ${cycle.status}`,
+        `Status: ${effectiveCycleStatus(cycle)}`,
       ].filter(Boolean).join('  |  ');
 
       const report = await createReport({

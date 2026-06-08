@@ -13,13 +13,16 @@ import type { CleaningCycle, FilterInstance, PaginatedResponse } from '../../typ
 // Filter Lifecycle Report (filter-lifecycle.tsx) can never drift. See that file
 // for the 2026-06-08 column redefinition (Duration = dryer duration; Dry In =
 // dryer-duration submission time; 'Dry By' + cycle-duration dropped).
-import { CC_COL_KEYS as CC_COLS, getStageInfo, getReading, fmtMinutes, getDryerStart } from '@/lib/cleaning-cycle-report';
+import { CC_COL_KEYS as CC_COLS, getStageInfo, getReading, fmtMinutes, getDryerStart, effectiveCycleStatus } from '@/lib/cleaning-cycle-report';
 const MSU_COLS = ['sNo', 'filter', 'statusChange', 'dateTime', 'updatedBy', 'remarks'];
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; dot: string; border: string }> = {
   IN_PROGRESS: { label: 'In Progress', bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-400 animate-pulse', border: 'border-blue-200' },
   COMPLETED: { label: 'Completed', bg: 'bg-green-50', text: 'text-green-700', dot: 'bg-green-400', border: 'border-green-200' },
   TERMINATED: { label: 'Terminated', bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-400', border: 'border-red-200' },
+  // Cycle ended because the filter was retired / replaced mid-cleaning.
+  RETIRED: { label: 'Retired', bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-400', border: 'border-amber-200' },
+  REPLACED: { label: 'Replaced', bg: 'bg-purple-50', text: 'text-purple-700', dot: 'bg-purple-400', border: 'border-purple-200' },
 };
 
 export function CleaningCycleHistoryPage() {
@@ -125,9 +128,13 @@ export function CleaningCycleHistoryPage() {
         const washReadings = washIn?.readings ?? [];
         const dryReadings = (dryIn?.readings?.length ? dryIn.readings : null) ?? (dryOut?.readings?.length ? dryOut.readings : null) ?? [];
         // P2: missing profile stage → "NA" (string form for the PDF rows).
+        // A cycle ended by retire/replace shows its un-reached in-profile stages
+        // as "Retired"/"Replaced" rather than "-".
         const pStages: string[] = c.profileStages ?? [];
+        const eff = effectiveCycleStatus(c);
+        const termLabel = eff === 'RETIRED' ? 'Retired' : eff === 'REPLACED' ? 'Replaced' : null;
         const naCell = (stage: string, v: string | null) =>
-          v != null ? v : pStages.length > 0 && !pStages.includes(stage) ? 'NA' : '-';
+          v != null ? v : pStages.length > 0 && !pStages.includes(stage) ? 'NA' : termLabel ?? '-';
         const dryerTempStr = getReading(dryReadings, 'dryer') !== '-' ? getReading(dryReadings, 'dryer') : getReading(dryReadings, 'temperature');
         const dryerStart = getDryerStart(c, c.events ?? []);
         return [
@@ -139,7 +146,7 @@ export function CleaningCycleHistoryPage() {
           naCell('DRY_IN', dryerStart.time ? formatDateTime(dryerStart.time) : null),
           naCell('DRY_IN', dryerTempStr !== '-' ? dryerTempStr : null),
           naCell('DRY_OUT', dryOut ? formatDateTime(dryOut.time) : null),
-          c.status,
+          STATUS_CONFIG[eff]?.label ?? eff,
         ];
       });
 
@@ -341,16 +348,22 @@ export function CleaningCycleHistoryPage() {
                 const dryReadings = (dryIn?.readings?.length ? dryIn.readings : null) ?? (dryOut?.readings?.length ? dryOut.readings : null) ?? [];
                 const dryerTemp = getReading(dryReadings, 'dryer') !== '-' ? getReading(dryReadings, 'dryer') : getReading(dryReadings, 'temperature');
                 const dryerStart = getDryerStart(c, c.events ?? []);
-                const sc = STATUS_CONFIG[c.status];
+                const eff = effectiveCycleStatus(c);
+                const sc = STATUS_CONFIG[eff];
                 // P2 (2026-06-03): a stage the cycle's profile does NOT configure
                 // shows "NA"; an in-profile stage not yet reached shows "-".
                 // profileStages comes from the cycles API (empty ⇒ unknown ⇒ keep "-").
+                // 2026-06-08: a cycle ended by retire/replace shows its un-reached
+                // in-profile stages as "Retired"/"Replaced".
                 const profileStages: string[] = c.profileStages ?? [];
+                const termLabel = eff === 'RETIRED' ? 'Retired' : eff === 'REPLACED' ? 'Replaced' : null;
                 const stageCell = (stage: string, value: string | null) =>
                   value != null ? value
                     : profileStages.length > 0 && !profileStages.includes(stage)
                       ? <span className="text-slate-400 italic">NA</span>
-                      : '-';
+                      : termLabel
+                        ? <span className={`italic ${eff === 'RETIRED' ? 'text-amber-600' : 'text-purple-600'}`}>{termLabel}</span>
+                        : '-';
 
                 return (
                   <tr key={c.id} className="hover:bg-cyan-50/30 transition-colors group">
@@ -375,8 +388,8 @@ export function CleaningCycleHistoryPage() {
                     <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('DRY_OUT', dryOut ? formatDateTime(dryOut.time) : null)}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-full whitespace-nowrap ${sc?.bg ?? 'bg-slate-50'} ${sc?.text ?? 'text-slate-600'} border ${sc?.border ?? 'border-slate-200'}`}>
-                        {c.status === 'IN_PROGRESS' && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />}
-                        {sc?.label ?? c.status}
+                        {eff === 'IN_PROGRESS' && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />}
+                        {sc?.label ?? eff}
                       </span>
                     </td>
                     <td className="px-4 py-3">

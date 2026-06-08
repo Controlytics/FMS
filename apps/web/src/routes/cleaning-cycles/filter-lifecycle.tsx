@@ -6,6 +6,7 @@ import { api } from '../../lib/api-client';
 import { createReport } from '../../lib/pdf-report';
 import { CycleDetailView } from './cycle-detail-view';
 import { appendCycleDetailToReport } from './cycle-detail-pdf';
+import { effectiveCycleStatus } from '../../lib/cleaning-cycle-report';
 
 // Lightweight shapes for the hierarchy dropdown rows (the /api/hierarchy/*
 // endpoints carry the parent id on each child: area.blockId, ahu.areaId,
@@ -18,6 +19,8 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; b
   IN_PROGRESS: { label: 'In Progress', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
   COMPLETED: { label: 'Completed', bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200' },
   TERMINATED: { label: 'Terminated', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' },
+  RETIRED: { label: 'Retired', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
+  REPLACED: { label: 'Replaced', bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
 };
 
 // Full-detail PDF guards (full detail = many round-trips + many pages).
@@ -117,7 +120,8 @@ function CycleAccordionItem({ summary, index, formatDateTime }: {
 }) {
   const [open, setOpen] = useState(false);
   const { data: detail } = useSWR(open ? `/api/filters/cycles/${summary.id}` : null);
-  const sc = STATUS_CONFIG[summary.status];
+  const eff = effectiveCycleStatus(summary);
+  const sc = STATUS_CONFIG[eff];
   const title = summary.cycleCode ?? summary.cleaningReasonLabel ?? summary.cleaningReasonKey ?? 'Cycle';
 
   return (
@@ -132,8 +136,8 @@ function CycleAccordionItem({ summary, index, formatDateTime }: {
           </div>
         </div>
         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-full whitespace-nowrap ${sc?.bg ?? 'bg-slate-50'} ${sc?.text ?? 'text-slate-600'} border ${sc?.border ?? 'border-slate-200'}`}>
-          {summary.status === 'IN_PROGRESS' && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />}
-          {sc?.label ?? summary.status}
+          {eff === 'IN_PROGRESS' && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />}
+          {sc?.label ?? eff}
         </span>
         <svg className={`w-4 h-4 text-slate-400 transition-transform duration-200 shrink-0 ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 9l-7 7-7-7" />

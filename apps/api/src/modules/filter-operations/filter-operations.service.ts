@@ -412,6 +412,10 @@ export class FilterOperationsService {
       select: { name: true },
     }) : null;
 
+    // Ordered stage set of this cycle's profile, so the detail view can render
+    // stages NOT in the profile as "NA" (matches the Cleaning Record list).
+    const profileStages = cycle.profileId ? await getProfileOrderedStages(cycle.profileId) : [];
+
     return {
       ...cycle,
       events: enrichedEvents,
@@ -419,6 +423,7 @@ export class FilterOperationsService {
       filterSet: filter?.filterSet ?? null,
       ahuName: ahu?.name ?? null,
       cleaningAreaName: area?.name ?? null,
+      profileStages,
     };
   }
 
@@ -429,7 +434,7 @@ export class FilterOperationsService {
   /**
    * Retire a filter — sets status to Retired, terminates active cycle, creates audit log.
    */
-  async retire(ctx: RequestContext, filterId: string, remarks: string) {
+  async retire(ctx: RequestContext, filterId: string, remarks: string, terminationReason: string = 'RETIRED') {
     const filter = await getFilter(filterId, ctx);
 
     // Already retired?
@@ -439,11 +444,13 @@ export class FilterOperationsService {
 
     // Retire the filter, terminate cycle, and remove from tree — all in one transaction
     await prisma.$transaction(async (tx) => {
-      // Terminate active cycle if any
+      // Terminate active cycle if any. Stamp WHY (RETIRED / REPLACED — replace()
+      // calls this with 'REPLACED') so the cleaning + lifecycle reports can show
+      // the cycle as Retired/Replaced instead of a generic Terminated.
       if (filter.currentCycleId) {
         await tx.cleaningCycle.updateMany({
           where: { id: filter.currentCycleId, status: 'IN_PROGRESS' },
-          data: { status: 'TERMINATED', completedAt: new Date() },
+          data: { status: 'TERMINATED', completedAt: new Date(), terminatedAt: new Date(), terminationReason },
         });
       }
 
@@ -509,8 +516,9 @@ export class FilterOperationsService {
       select: { filterSet: true, filterProfileId: true },
     });
 
-    // Retire old filter first
-    await this.retire(ctx, filterId, remarks);
+    // Retire old filter first — mark its terminated cycle (if any) as REPLACED
+    // (not just RETIRED) so reports distinguish a replacement from a retirement.
+    await this.retire(ctx, filterId, remarks, 'REPLACED');
 
     // Create replacement filter + relationships in a transaction (rollback on failure).
     // FilterDetails (filterSet, filterProfileId) live in the sidecar (Step 6).

@@ -85,3 +85,16 @@ export function getDryerTemp(dryReadings: any[]) {
   const dryer = getReading(dryReadings, 'dryer');
   return dryer !== '-' ? dryer : getReading(dryReadings, 'temperature');
 }
+
+/**
+ * Display status for a cycle. A cycle terminated because its filter was retired
+ * or replaced mid-cleaning carries terminationReason RETIRED / REPLACED — surface
+ * that instead of a generic TERMINATED so the reports show why the cycle ended.
+ */
+export function effectiveCycleStatus(cycle: any): string {
+  if (cycle?.status === 'TERMINATED') {
+    if (cycle.terminationReason === 'RETIRED') return 'RETIRED';
+    if (cycle.terminationReason === 'REPLACED') return 'REPLACED';
+  }
+  return cycle?.status;
+}

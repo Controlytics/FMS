@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
-import { fmtMinutes } from '../../lib/cleaning-cycle-report';
+import { fmtMinutes, effectiveCycleStatus } from '../../lib/cleaning-cycle-report';
 
 // Presentational constants for a single cleaning-cycle's detail view. Shared by
 // the View detail page (timeline.tsx) and the Filter Lifecycle Report
@@ -30,6 +30,16 @@ const STAGE_BADGE: Record<string, string> = {
   DRY_OUT: 'bg-amber-50 text-amber-200 border-amber-200/40',
   STORAGE_IN: 'bg-slate-100 text-slate-600 border-slate-200',
   STORAGE_OUT: 'bg-slate-100/40 text-slate-700 border-slate-200',
+};
+
+// Cycle status badge styling. RETIRED / REPLACED appear when a cycle ended
+// because its filter was retired / replaced mid-cleaning.
+const CYCLE_STATUS_BADGE: Record<string, { cls: string; label: string }> = {
+  COMPLETED: { cls: 'bg-green-50 text-green-700 border border-green-200', label: 'Completed' },
+  IN_PROGRESS: { cls: 'bg-blue-50 text-blue-700 border border-blue-200', label: 'In Progress' },
+  TERMINATED: { cls: 'bg-red-50 text-red-700 border border-red-200', label: 'Terminated' },
+  RETIRED: { cls: 'bg-amber-50 text-amber-700 border border-amber-200', label: 'Retired' },
+  REPLACED: { cls: 'bg-purple-50 text-purple-700 border border-purple-200', label: 'Replaced' },
 };
 
 const REASON_COLORS: Record<string, string> = {
@@ -67,6 +77,12 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
     .filter((e: any) => e.eventType === 'STATE_TRANSITION' && e.toState)
     .map((e: any) => e.toState);
 
+  const eff = effectiveCycleStatus(cycle);
+  const stBadge = CYCLE_STATUS_BADGE[eff] ?? { cls: 'bg-red-50 text-red-700 border border-red-200', label: eff };
+  // Stages configured in this cycle's profile (from getCycleById); stages NOT in
+  // it render as "NA" in the stage bar.
+  const profileStages: string[] = cycle.profileStages ?? [];
+
   return (
     <div className="space-y-4">
       {/* Cycle Info Card */}
@@ -86,13 +102,9 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
                     Set {cycle.filterSet.replace('SET_', '')}
                   </span>
                 )}
-                <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full ${
-                  cycle.status === 'COMPLETED' ? 'bg-green-50 text-green-700 border border-green-200'
-                  : cycle.status === 'IN_PROGRESS' ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                  : 'bg-red-50 text-red-700 border border-red-200'
-                }`}>
-                  {cycle.status === 'IN_PROGRESS' && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />}
-                  {cycle.status}
+                <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full ${stBadge.cls}`}>
+                  {eff === 'IN_PROGRESS' && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />}
+                  {stBadge.label}
                 </span>
               </div>
             </div>
@@ -172,17 +184,22 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
         <div className="border-t border-slate-200 px-5 py-3 bg-slate-50">
           <div className="flex items-center gap-2">
             {['WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN', 'STORAGE_OUT'].map((stage, i) => {
-              const done = completedStages.includes(stage);
-              const isCurrent = !done && completedStages.length > 0 && i === completedStages.length;
+              // A stage NOT in this cycle's profile is "NA" (not applicable);
+              // an in-profile stage not yet reached stays pending/grey. Only mark
+              // NA when profileStages is known (non-empty) so unknowns don't lie.
+              const notApplicable = profileStages.length > 0 && !profileStages.includes(stage);
+              const done = !notApplicable && completedStages.includes(stage);
+              const isCurrent = !notApplicable && !done && completedStages.length > 0 && i === completedStages.length;
               return (
                 <div key={stage} className="flex items-center gap-2 flex-1">
-                  <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-medium flex-1 justify-center transition-all ${
-                    done ? (STAGE_BADGE[stage] ?? 'bg-slate-100 text-slate-600') + ' border'
+                  <div title={notApplicable ? "Not in this cycle's cleaning profile" : undefined} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-medium flex-1 justify-center transition-all ${
+                    notApplicable ? 'bg-slate-100 text-slate-400 border border-slate-200 line-through'
+                    : done ? (STAGE_BADGE[stage] ?? 'bg-slate-100 text-slate-600') + ' border'
                     : isCurrent ? 'bg-blue-50 text-blue-700 border border-blue-200 animate-pulse'
                     : 'bg-slate-50 text-slate-300 border border-slate-200'
                   }`}>
                     {done && <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
-                    {STAGE_LABELS[stage]}
+                    {STAGE_LABELS[stage]}{notApplicable ? ' · NA' : ''}
                   </div>
                   {i < 5 && <div className={`w-3 h-0.5 shrink-0 ${done ? 'bg-slate-200' : 'bg-white'}`} />}
                 </div>
