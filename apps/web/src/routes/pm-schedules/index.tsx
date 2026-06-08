@@ -7,6 +7,7 @@ import { ReauthDialog } from '../../components/reauth-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
+import { createReport } from '../../lib/pdf-report';
 
 interface UploadResult {
   imported: number;
@@ -21,10 +22,12 @@ interface ScheduleEntry {
   id: string; scheduleId: string; ahuId: string; ahuName: string;
   month: number; plannedDate: string; toleranceDays: number;
   windowStart: string; windowEnd: string;
-  approvalStatus: 'PENDING' | 'APPROVED' | 'REJECTED';
+  approvalStatus: 'PENDING' | 'PENDING_REVIEW' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
   approvalRemarks: string | null;
   approvedByName: string | null; approvedAt: string | null;
   submittedByName: string | null;
+  reviewedByName?: string | null; reviewedAt?: string | null; reviewRemarks?: string | null;
+  rejectedByName?: string | null; rejectedAt?: string | null; rejectionStage?: string | null;
   pendingPlannedDate: string | null; pendingToleranceDays: number | null;
 }
 
@@ -32,6 +35,8 @@ interface PastDateEntry { ahuName: string; scheduledDate: string }
 
 const STATUS_CFG: Record<string, { label: string; bg: string; text: string; border: string; dot: string }> = {
   PENDING:  { label: 'Pending',  bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200',   dot: 'bg-amber-400 animate-pulse' },
+  PENDING_REVIEW:   { label: 'To Review',   bg: 'bg-sky-50',    text: 'text-sky-700',    border: 'border-sky-200',    dot: 'bg-sky-400 animate-pulse' },
+  PENDING_APPROVAL: { label: 'To Approve',  bg: 'bg-amber-50',  text: 'text-amber-700',  border: 'border-amber-200',  dot: 'bg-amber-400 animate-pulse' },
   APPROVED: { label: 'Approved', bg: 'bg-emerald-50',  text: 'text-emerald-700',  border: 'border-emerald-200',  dot: 'bg-emerald-400' },
   REJECTED: { label: 'Rejected', bg: 'bg-red-50',      text: 'text-red-700',      border: 'border-red-200',      dot: 'bg-red-400' },
 };
@@ -68,7 +73,8 @@ function findPastDates(rows: Array<Record<string, string>>): PastDateEntry[] {
 export function PmScheduleListPage() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const { formatDate } = useDatetimeFormat();
+  const { formatDate, formatDateTime } = useDatetimeFormat();
+  const [exporting, setExporting] = useState(false);
   const reauth = useReauth();
   // Runtime-facing PM settings; the admin /api/config/dynamic/pm-schedule-settings
   // endpoint is SUPER_ADMIN-gated and 401s for operators/admins, so the page can't
@@ -93,6 +99,7 @@ export function PmScheduleListPage() {
   const canEditEntry = isSuperAdmin || perms.includes('PM_EDIT_ENTRY');
   const canResubmit = isSuperAdmin || perms.includes('PM_RESUBMIT');
   const isApprover = isSuperAdmin || perms.includes('PM_APPROVE');
+  const canReview = isSuperAdmin || perms.includes('PM_REVIEW');
   // Audit 2026-05-09 fix: PM schedule DELETE was an orphan endpoint
   // (BE supports it with reauth, no FE caller). Surface a delete button
   // per AHU group; backend pm-schedule-crud.ts:138 returns 409 if any
@@ -114,6 +121,7 @@ export function PmScheduleListPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [rejectDialog, setRejectDialog] = useState<string[] | null>(null);
   const [rejectRemarks, setRejectRemarks] = useState('');
+  const [rejectStage, setRejectStage] = useState<'review' | 'approval'>('approval');
   const [processing, setProcessing] = useState(false);
   const [deleteScheduleConfirm, setDeleteScheduleConfirm] = useState<{ scheduleId: string; ahuName: string } | null>(null);
   const [deletingSchedule, setDeletingSchedule] = useState(false);
@@ -180,6 +188,69 @@ export function PmScheduleListPage() {
       const a = document.createElement('a'); a.href = url; a.download = 'pm-schedule-template.csv';
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     } catch (e: any) { setUploadError(`Failed to download template: ${e.message ?? 'unknown error'}`); }
+  };
+
+  // ─── Schedule export (PDF + Excel) with the upload/review/approve trail ───
+  const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  // Fetch ALL entries for the year (all statuses), paging past the 200 cap.
+  const fetchAllEntries = async (): Promise<any[]> => {
+    const all: any[] = [];
+    let p = 1;
+    while (p <= 100) {
+      const res: any = await apiClient.get(`/api/pm-schedules/entries?year=${year}&page=${p}&limit=200`);
+      const batch: any[] = res?.data ?? [];
+      all.push(...batch);
+      const total: number = res?.total ?? all.length;
+      if (batch.length === 0 || all.length >= total) break;
+      p++;
+    }
+    return all;
+  };
+
+  const exportPdf = async () => {
+    setExporting(true);
+    try {
+      const all = await fetchAllEntries();
+      if (all.length === 0) { toast.error('Nothing to export', `No PM schedule entries for ${year}`); return; }
+      const report = await createReport({
+        title: `PM Schedule ${year}`,
+        subtitle: `Total: ${all.length} entr${all.length === 1 ? 'y' : 'ies'}`,
+        orientation: 'landscape',
+        formatDateTime,
+      });
+      report.addTable({
+        head: ['S.No', 'AHU', 'Month', 'Planned', 'Tol', 'Status', 'Uploaded By', 'Reviewed By', 'Approved By', 'Remarks'],
+        body: all.map((e, i) => [
+          String(i + 1), e.ahuName ?? '-', MONTH_ABBR[(e.month ?? 1) - 1] ?? String(e.month),
+          e.plannedDate ? formatDate(e.plannedDate) : '-', String(e.toleranceDays ?? '-'),
+          STATUS_CFG[e.approvalStatus]?.label ?? e.approvalStatus,
+          e.submittedByName ?? '-', e.reviewedByName ?? '-', e.approvedByName ?? '-',
+          e.approvalRemarks ?? e.reviewRemarks ?? '-',
+        ]),
+        columnStyles: { 0: { halign: 'center', cellWidth: 10 }, 9: { cellWidth: 45 } },
+      });
+      report.save(`pm-schedule-${year}.pdf`);
+    } catch (e: any) {
+      toast.error('Export failed', e?.message ?? 'Could not generate PDF');
+    } finally { setExporting(false); }
+  };
+
+  const exportExcel = async () => {
+    setExporting(true);
+    try {
+      const base = (window as any).__API_BASE__ ?? '';
+      const res = await fetch(`${base}/api/pm-schedules/entries/export.xlsx?year=${year}`, {
+        headers: { Authorization: `Bearer ${sessionStorage.getItem('access_token') ?? ''}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `pm-schedule-${year}.xlsx`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    } catch (e: any) {
+      toast.error('Export failed', e?.message ?? 'Could not download Excel');
+    } finally { setExporting(false); }
   };
 
   // Audit 2026-05-09 fix: bulk upload was a high-trust mutation with no
@@ -274,15 +345,37 @@ export function PmScheduleListPage() {
   const { data: ahuListData } = useSWR('/api/hierarchy/ahus?limit=500');
   const ahuList = (ahuListData?.data ?? []) as Array<{ id: string; name: string }>;
 
-  const handleReject = (ids: string[]) => { setRejectDialog(ids); setRejectRemarks(''); };
+  // Review step (3-step workflow): send a reviewed entry on to approval.
+  const handleReviewApprove = (ids: string[]) => {
+    setProcessing(true);
+    reauth.execute('REVIEW_PM_SCHEDULE', async (password?: string) => {
+      const body = { entryIds: ids, action: 'approve' as const };
+      if (password) await apiClient.postWithReauth('/api/pm-schedules/entries/review', body, password);
+      else await apiClient.post('/api/pm-schedules/entries/review', body);
+    }, {
+      onSuccess: () => { toast.success('Reviewed', `${ids.length} entry(s) sent for approval`); setSelected(new Set()); refreshAll(); setProcessing(false); },
+      onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setProcessing(false); },
+    });
+  };
+
+  // Reject opener — stage 'review' rejects at the review step, 'approval' at approval.
+  const handleReject = (ids: string[], stage: 'review' | 'approval' = 'approval') => {
+    setRejectDialog(ids); setRejectRemarks(''); setRejectStage(stage);
+  };
 
   const submitReject = () => {
     if (!rejectDialog || !rejectRemarks.trim()) return;
     const ids = rejectDialog;
+    const stage = rejectStage;
     setProcessing(true);
-    reauth.execute('REJECT_PM_SCHEDULE', async (password?: string) => {
-      if (password) await apiClient.postWithReauth('/api/pm-schedules/entries/reject', { entryIds: ids, remarks: rejectRemarks.trim() }, password);
-      else await apiClient.post('/api/pm-schedules/entries/reject', { entryIds: ids, remarks: rejectRemarks.trim() });
+    const reauthAction = stage === 'review' ? 'REVIEW_PM_SCHEDULE' : 'REJECT_PM_SCHEDULE';
+    reauth.execute(reauthAction, async (password?: string) => {
+      const url = stage === 'review' ? '/api/pm-schedules/entries/review' : '/api/pm-schedules/entries/reject';
+      const body = stage === 'review'
+        ? { entryIds: ids, action: 'reject' as const, remarks: rejectRemarks.trim() }
+        : { entryIds: ids, remarks: rejectRemarks.trim() };
+      if (password) await apiClient.postWithReauth(url, body, password);
+      else await apiClient.post(url, body);
     }, {
       onSuccess: () => { toast.success('Rejected', `${ids.length} entry(s) rejected`); setRejectDialog(null); setSelected(new Set()); refreshAll(); setProcessing(false); },
       onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setProcessing(false); },
@@ -461,7 +554,7 @@ export function PmScheduleListPage() {
 
   // Summary stats
   const approvedCount = entries.filter(e => e.approvalStatus === 'APPROVED').length;
-  const pendingInView = entries.filter(e => e.approvalStatus === 'PENDING').length;
+  const pendingInView = entries.filter(e => e.approvalStatus === 'PENDING' || e.approvalStatus === 'PENDING_REVIEW' || e.approvalStatus === 'PENDING_APPROVAL').length;
   const rejectedInView = entries.filter(e => e.approvalStatus === 'REJECTED').length;
   const colCount = (isApprover ? 1 : 0) + 8;
 
@@ -487,6 +580,16 @@ export function PmScheduleListPage() {
               Template
             </button>
           )}
+          <button onClick={exportPdf} disabled={exporting}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50 hover:border-slate-300 transition-all disabled:opacity-50">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+            {exporting ? 'Exporting…' : 'Export PDF'}
+          </button>
+          <button onClick={exportExcel} disabled={exporting}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50 hover:border-slate-300 transition-all disabled:opacity-50">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+            Export Excel
+          </button>
           {canCreateSchedule && (
             <button onClick={() => setCreateDialog(true)}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors">
@@ -540,8 +643,11 @@ export function PmScheduleListPage() {
         <div className="h-6 w-px bg-slate-200" />
         {/* Status tabs */}
         <div className="flex items-center gap-1.5">
-          {['ALL', 'PENDING', 'APPROVED', 'REJECTED'].map(s => {
-            const count = s === 'ALL' ? totalEntries : s === 'PENDING' ? pendingInView : s === 'APPROVED' ? approvedCount : rejectedInView;
+          {['ALL', 'PENDING_REVIEW', 'PENDING_APPROVAL', 'PENDING', 'APPROVED', 'REJECTED'].map(s => {
+            const count = s === 'ALL' ? totalEntries : entries.filter(e => e.approvalStatus === s).length;
+            // Hide the legacy "Pending" tab and empty review/approval tabs to
+            // reduce clutter (kept visible when it's the active filter).
+            if (s !== 'ALL' && s !== 'APPROVED' && s !== 'REJECTED' && count === 0 && statusFilter !== s) return null;
             return (
               <button key={s} onClick={() => { setStatusFilter(s); setSelected(new Set()); setPage(1); }}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${statusFilter === s
@@ -744,13 +850,25 @@ export function PmScheduleListPage() {
                                 </>
                               ) : (
                                 <>
-                                  {isApprover && entry.approvalStatus === 'PENDING' && (
+                                  {canReview && entry.approvalStatus === 'PENDING_REVIEW' && (
+                                    <>
+                                      <button onClick={() => handleReviewApprove([entry.id])} disabled={processing}
+                                        className="px-3 py-1.5 bg-sky-500 text-white text-[11px] font-semibold rounded-lg hover:bg-sky-600 disabled:opacity-50 transition-colors shadow-sm">
+                                        Review ✓
+                                      </button>
+                                      <button onClick={() => handleReject([entry.id], 'review')} disabled={processing}
+                                        className="px-3 py-1.5 bg-red-500 text-white text-[11px] font-semibold rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors shadow-sm">
+                                        Reject
+                                      </button>
+                                    </>
+                                  )}
+                                  {isApprover && (entry.approvalStatus === 'PENDING_APPROVAL' || entry.approvalStatus === 'PENDING') && (
                                     <>
                                       <button onClick={() => handleApprove([entry.id])} disabled={processing}
                                         className="px-3 py-1.5 bg-emerald-500 text-white text-[11px] font-semibold rounded-lg hover:bg-emerald-600 disabled:opacity-50 transition-colors shadow-sm">
                                         Approve
                                       </button>
-                                      <button onClick={() => handleReject([entry.id])} disabled={processing}
+                                      <button onClick={() => handleReject([entry.id], 'approval')} disabled={processing}
                                         className="px-3 py-1.5 bg-red-500 text-white text-[11px] font-semibold rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors shadow-sm">
                                         Reject
                                       </button>

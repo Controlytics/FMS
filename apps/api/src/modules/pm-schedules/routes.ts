@@ -300,6 +300,51 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
     return service.pendingCounts(ctx);
   });
 
+  // Export the year's PM schedule entries as .xlsx (full workflow trail).
+  app.get('/entries/export.xlsx', {
+    preHandler: [app.requirePermission('PM_READ')],
+    schema: {
+      tags: ['PM Schedules'],
+      summary: 'Export PM schedule entries as Excel',
+      querystring: { type: 'object', properties: { year: { type: 'integer' } } },
+    },
+  }, async (req, reply) => {
+    const ctx = buildContext(req);
+    const year = Number((req.query as any).year) || new Date().getFullYear();
+    const buf = await service.exportEntriesXlsx(ctx, year);
+    return reply
+      .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('Content-Disposition', `attachment; filename="pm-schedule-${year}.xlsx"`)
+      .send(buf);
+  });
+
+  // Review step (3-step workflow). action='approve' sends an entry to approval;
+  // action='reject' rejects it at the review stage. Gated by PM_REVIEW + the
+  // configured reviewRole (enforced in the service).
+  app.post('/entries/review', {
+    preHandler: [app.requirePermission('PM_REVIEW')],
+    schema: {
+      tags: ['PM Schedules'],
+      summary: 'Review selected schedule entries (approve to approval, or reject)',
+      body: {
+        type: 'object',
+        required: ['entryIds', 'action'],
+        properties: {
+          entryIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
+          action: { type: 'string', enum: ['approve', 'reject'] },
+          remarks: { type: 'string' },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('REVIEW_PM_SCHEDULE', req, reply);
+    if (!ok) return;
+    const ctx = buildContext(req);
+    const { entryIds, action, remarks } = req.body as { entryIds: string[]; action: 'approve' | 'reject'; remarks?: string };
+    return service.reviewEntries(ctx, entryIds, action, remarks);
+  });
+
   app.post('/entries/approve', {
     preHandler: [app.requirePermission('PM_APPROVE')],
     schema: {

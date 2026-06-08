@@ -58,6 +58,19 @@ async function loadBranding(): Promise<{ companyName: string; appName: string }>
   }
 }
 
+/** Current user's display name, for the app-wide "Printed by" footer stamp. */
+async function loadCurrentUser(): Promise<string | null> {
+  try {
+    const base = (import.meta as any).env?.VITE_API_URL ?? '';
+    const token = sessionStorage.getItem('access_token');
+    const res = await fetch(`${base}/api/auth/me`, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const u = data?.user ?? data;
+    return u?.fullName || u?.username || null;
+  } catch { return null; }
+}
+
 export interface ReportConfig {
   title: string;
   subtitle?: string;
@@ -86,7 +99,8 @@ export interface ReportDoc {
 }
 
 export async function createReport(config: ReportConfig): Promise<ReportDoc> {
-  const [logo, branding] = await Promise.all([loadLogo(), loadBranding()]);
+  const [logo, branding, printedBy] = await Promise.all([loadLogo(), loadBranding(), loadCurrentUser()]);
+  const printedAt = config.formatDateTime(new Date().toISOString());
   const doc = new jsPDF({ orientation: config.orientation ?? 'portrait', unit: 'mm', format: 'a4' });
   const pw = doc.internal.pageSize.width;
   const ph = doc.internal.pageSize.height;
@@ -154,6 +168,8 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       doc.setFontSize(7); doc.setTextColor(...COLORS.light);
       doc.text(`${branding.companyName}  |  ${branding.appName}`, 14, ph - 7);
       doc.text(`Page ${i} of ${pageCount}`, pw - 30, ph - 7);
+      // App-wide print stamp: who printed + when (every report, every page).
+      doc.text(`Printed by ${printedBy ?? '-'}  ·  ${printedAt}`, pw / 2, ph - 7, { align: 'center' });
     }
   };
 

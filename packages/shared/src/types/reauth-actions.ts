@@ -153,6 +153,7 @@ export const REAUTH_ACTIONS = {
   EDIT_PM_SCHEDULE: { label: 'Edit PM Entry', category: 'PM Schedules' },
   APPROVE_PM_SCHEDULE: { label: 'Approve PM Schedule', category: 'PM Schedules' },
   REJECT_PM_SCHEDULE: { label: 'Reject PM Schedule', category: 'PM Schedules' },
+  REVIEW_PM_SCHEDULE: { label: 'Review PM Schedule', category: 'PM Schedules' },
   // Audit 2026-05-09 fix: bulk PM upload + execution-start + entry resubmit
   // were missing reauth gates. SUPER_ADMIN bulk uploads auto-approve every
   // row (pm-import.ts:133), so the upload was a high-trust mutation with no

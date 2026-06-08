@@ -338,6 +338,8 @@ enum NotificationType {
   // PM overdue deviation workflow (2026-06-03)
   PM_OVERDUE
   PM_OVERDUE_COMPLETED
+  // PM schedule workflow QNN (Quality Notification Number) — 2026-06-08
+  PM_SCHEDULE_QNN
 }
 
 model Notification {
@@ -1154,6 +1156,10 @@ enum PmEntryApprovalStatus {
   PENDING
   APPROVED
   REJECTED
+  // 3-step workflow (when enabled): upload -> PENDING_REVIEW -> PENDING_APPROVAL -> APPROVED.
+  // Legacy PENDING is kept for the workflow-disabled (single-approval) path.
+  PENDING_REVIEW
+  PENDING_APPROVAL
 
   @@map("pm_entry_approval_status")
 }
@@ -1275,6 +1281,16 @@ model PmScheduleEntry {
   submittedBy     String?               @map("submitted_by") @db.Uuid
   submittedByName String?               @map("submitted_by_name") @db.VarChar(255)
 
+  // 3-step workflow tracking (review step + reject attribution).
+  reviewedBy      String?   @map("reviewed_by") @db.Uuid
+  reviewedByName  String?   @map("reviewed_by_name") @db.VarChar(255)
+  reviewedAt      DateTime? @map("reviewed_at") @db.Timestamptz
+  reviewRemarks   String?   @map("review_remarks")
+  rejectedBy      String?   @map("rejected_by") @db.Uuid
+  rejectedByName  String?   @map("rejected_by_name") @db.VarChar(255)
+  rejectedAt      DateTime? @map("rejected_at") @db.Timestamptz
+  rejectionStage  String?   @map("rejection_stage") @db.VarChar(20) // REVIEW | APPROVAL
+
   // Pending edit (approved value stays active while edit awaits QA)
   pendingPlannedDate   DateTime? @map("pending_planned_date") @db.Date
   pendingToleranceDays Int?      @map("pending_tolerance_days")
@@ -1289,6 +1305,28 @@ model PmScheduleEntry {
   @@index([windowStart, windowEnd])
   @@index([approvalStatus])
   @@map("pm_schedule_entries")
+}
+
+// Quality Notification registry. One row per PM-schedule action (upload / review /
+// approve / reject / resubmit). The qnn (QN-YYYY-000001, from the qnn_seq sequence)
+// is the human-facing reference number surfaced in the Notifications center. Soft
+// refs (no FK cascade) so the audit record survives entry/schedule deletion.
+model QualityNotification {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  qnn               String   @unique @db.VarChar(40)
+  action            String   @db.VarChar(40)
+  pmScheduleEntryId String?  @map("pm_schedule_entry_id") @db.Uuid
+  scheduleId        String?  @map("schedule_id") @db.Uuid
+  ahuName           String?  @map("ahu_name") @db.VarChar(255)
+  message           String?  @db.VarChar(1000)
+  performedBy       String?  @map("performed_by") @db.Uuid
+  performedByName   String?  @map("performed_by_name") @db.VarChar(255)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([pmScheduleEntryId])
+  @@index([scheduleId])
+  @@index([createdAt(sort: Desc)])
+  @@map("quality_notifications")
 }
 
 model PmExecution {

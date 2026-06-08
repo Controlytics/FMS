@@ -29,6 +29,7 @@ import * as dueTasks from './pm-due-tasks.js';
 import * as importer from './pm-import.js';
 import * as ahuConfig from './pm-ahu-config.js';
 import * as approval from './pm-approval.js';
+import * as exporter from './pm-export.js';
 
 // Re-export My Tasks types so existing `import { DueTaskRow } from './pm-schedule.service.js'`
 // keeps working unchanged.
@@ -95,6 +96,10 @@ export class PmScheduleService {
     return approval.listEntries(ctx, query);
   }
 
+  reviewEntries(ctx: RequestContext, entryIds: string[], action: 'approve' | 'reject', remarks?: string) {
+    return approval.reviewEntries(ctx, entryIds, action, remarks);
+  }
+
   approveEntries(ctx: RequestContext, entryIds: string[], comment?: string) {
     return approval.approveEntries(ctx, entryIds, comment);
   }
@@ -113,5 +118,9 @@ export class PmScheduleService {
 
   pendingCounts(ctx: RequestContext) {
     return approval.pendingCounts(ctx);
+  }
+
+  exportEntriesXlsx(ctx: RequestContext, year: number) {
+    return exporter.exportEntriesXlsx(ctx, year);
   }
 }

@@ -11,6 +11,7 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { checkPmEnabled } from './pm-shared.js';
+import { getPmWorkflowConfig, generateQnn } from './pm-workflow.js';
 
 export async function importSchedules(ctx: RequestContext, rows: Array<Record<string, any>>) {
   await checkPmEnabled();
@@ -19,6 +20,10 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
   const cfg = await prisma.systemConfig.findUnique({ where: { configKey: 'pm-schedule-settings' } });
   const settings = (cfg?.configValue as any) ?? {};
   const defaultToleranceDays = Number(settings.defaultToleranceDays ?? 3);
+
+  // 3-step workflow: when enabled, uploads land in PENDING_REVIEW (no auto-approve,
+  // even for SUPER_ADMIN) and must be reviewed + approved before generating tasks.
+  const wf = await getPmWorkflowConfig();
 
   const imported: Array<{ row: number; ahuName: string; plannedDate: string; scheduleId: string; entryId: string }> = [];
   const skipped: Array<{ row: number; reason: string; data?: any }> = [];
@@ -129,14 +134,25 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
       }
 
       // Upsert the entry — if same (schedule, month) exists, update date/tolerance.
-      // SUPER_ADMIN uploads are auto-approved; others go to PENDING for QA review.
+      // Workflow ON: land in PENDING_REVIEW (review + approval required, no bypass).
+      // Workflow OFF (legacy): SUPER_ADMIN auto-approves; others go to PENDING.
       const isSuperAdmin = ctx.userRole === 'SUPER_ADMIN';
-      const approvalFields = {
-        approvalStatus: isSuperAdmin ? 'APPROVED' as const : 'PENDING' as const,
-        submittedBy: ctx.userSub,
-        submittedByName: ctx.userId,
-        ...(isSuperAdmin ? { approvedBy: ctx.userSub, approvedByName: ctx.userId, approvedAt: new Date() } : {}),
-      };
+      const approvalFields = wf.workflowEnabled
+        ? {
+            approvalStatus: 'PENDING_REVIEW' as const,
+            submittedBy: ctx.userSub,
+            submittedByName: ctx.userId,
+            // Clear any prior decision when an existing entry is re-uploaded.
+            reviewedBy: null, reviewedByName: null, reviewedAt: null, reviewRemarks: null,
+            approvedBy: null, approvedByName: null, approvedAt: null,
+            rejectedBy: null, rejectedByName: null, rejectedAt: null, rejectionStage: null,
+          }
+        : {
+            approvalStatus: isSuperAdmin ? 'APPROVED' as const : 'PENDING' as const,
+            submittedBy: ctx.userSub,
+            submittedByName: ctx.userId,
+            ...(isSuperAdmin ? { approvedBy: ctx.userSub, approvedByName: ctx.userId, approvedAt: new Date() } : {}),
+          };
       const existing = await prisma.pmScheduleEntry.findFirst({
         where: { scheduleId: schedule.id, month },
       });
@@ -170,10 +186,19 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
     ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
   });
 
+  // One QNN for the upload action (the bulk upload is a single user action).
+  let qnn: string | null = null;
+  if (imported.length > 0) {
+    qnn = await generateQnn('UPLOAD', {
+      message: `Uploaded ${imported.length} PM schedule entr${imported.length === 1 ? 'y' : 'ies'}${wf.workflowEnabled ? ' (pending review)' : ''}`,
+    }, ctx);
+  }
+
   return {
     imported: imported.length,
     skipped: skipped.length,
     details: { imported, skipped },
+    qnn,
   };
 }
 
