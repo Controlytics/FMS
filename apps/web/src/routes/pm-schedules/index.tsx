@@ -7,6 +7,7 @@ import { ReauthDialog } from '../../components/reauth-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
+import { Pagination } from '@/components/ui/pagination';
 import { createReport } from '../../lib/pdf-report';
 
 interface UploadResult {
@@ -532,7 +533,6 @@ export function PmScheduleListPage() {
 
   // Paginate entries first, then group by AHU
   const totalEntries = entries.length;
-  const totalPages = Math.max(1, Math.ceil(totalEntries / perPage));
   const paginatedEntries = useMemo(() => {
     const start = (page - 1) * perPage;
     return entries.slice(start, start + perPage);
@@ -920,62 +920,15 @@ export function PmScheduleListPage() {
         )}
         {/* ─── Pagination Footer ─── */}
         {totalEntries > 0 && (
-          <div className="px-5 py-3.5 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
-            <div className="flex items-center gap-3 text-sm text-slate-500">
-              <span className="text-xs font-medium">Per page:</span>
-              <div className="flex items-center gap-1">
-                {paginationOptions.map(opt => (
-                  <button key={opt} onClick={() => { setPerPage(opt); setPage(1); }}
-                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                      perPage === opt ? 'text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
-                    }`}
-                    style={perPage === opt ? { backgroundColor: 'var(--theme-primary)', color: '#fff' } : undefined}>
-                    {opt}
-                  </button>
-                ))}
-              </div>
-              <span className="text-slate-200">|</span>
-              <span className="text-xs">
-                Page <span className="font-semibold text-slate-800">{page}</span> of{' '}
-                <span className="font-semibold text-slate-800">{totalPages}</span>
-                <span className="text-slate-400 ml-1.5">({totalEntries} entries)</span>
-              </span>
-            </div>
-            <div className="flex items-center gap-1">
-              <button disabled={page <= 1} onClick={() => setPage(1)}
-                className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" /></svg>
-              </button>
-              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}
-                className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
-                Prev
-              </button>
-              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                let pn: number;
-                if (totalPages <= 5) pn = i + 1;
-                else if (page <= 3) pn = i + 1;
-                else if (page >= totalPages - 2) pn = totalPages - 4 + i;
-                else pn = page - 2 + i;
-                return (
-                  <button key={pn} onClick={() => setPage(pn)}
-                    className={`w-8 h-8 rounded-lg text-xs font-medium transition-all ${
-                      pn === page ? 'text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'
-                    }`}
-                    style={pn === page ? { backgroundColor: 'var(--theme-primary)', color: '#fff' } : undefined}>
-                    {pn}
-                  </button>
-                );
-              })}
-              <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}
-                className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
-                Next
-              </button>
-              <button disabled={page >= totalPages} onClick={() => setPage(totalPages)}
-                className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>
-              </button>
-            </div>
-          </div>
+          <Pagination
+            page={page}
+            pageSize={perPage}
+            totalItems={totalEntries}
+            onPageChange={setPage}
+            onPageSizeChange={setPerPage}
+            pageSizeOptions={paginationOptions}
+            className="border-t border-slate-100"
+          />
         )}
       </div>
 

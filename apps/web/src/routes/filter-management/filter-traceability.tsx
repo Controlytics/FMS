@@ -5,6 +5,8 @@ import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { useReportConfig } from '@/hooks/use-report-config';
 import { useReportLabels } from '../../hooks/use-report-labels';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
+import { Pagination } from '@/components/ui/pagination';
+import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import type { CleaningCycle, FilterEvent, PaginatedResponse } from '../../types/filter';
 
 const TRACE_COLS = ['code', 'reason', 'status', 'started', 'completed', 'seq'];
@@ -16,9 +18,10 @@ export function FilterTraceabilityPage() {
   const { labelsFor } = useReportLabels();
   const L = labelsFor('filter-traceability');
   const traceHead = TRACE_COLS.map((k) => L.columns[k]);
+  const paginationOptions = usePaginationConfig();
   const [tab, setTab] = useState<'events' | 'cycles' | 'deviations'>('events');
   const [page, setPage] = useState(1);
-  const perPage = reportConfig.recordsPerPage;
+  const [perPage, setPerPage] = useState(reportConfig.recordsPerPage);
 
   const { data: filterState } = useSWR(id ? `/api/filters/${id}/current-state` : null);
   const { data: events } = useSWR<PaginatedResponse<FilterEvent>>(tab === 'events' && id ? `/api/filters/events?filterId=${id}&page=${page}&limit=${perPage}` : null);
@@ -135,11 +138,16 @@ export function FilterTraceabilityPage() {
       </ReportPageWrapper>
 
       {/* Pagination */}
-      {(currentData?.totalPages ?? 0) > 1 && (
-        <div className="flex justify-center gap-2">
-          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1 bg-slate-100 rounded disabled:opacity-50 text-slate-600">Prev</button>
-          <span className="px-3 py-1 text-slate-500">{page} / {currentData?.totalPages}</span>
-          <button onClick={() => setPage(p => Math.min(currentData?.totalPages ?? 1, p + 1))} disabled={page === (currentData?.totalPages ?? 1)} className="px-3 py-1 bg-slate-100 rounded disabled:opacity-50 text-slate-600">Next</button>
+      {(currentData?.total ?? 0) > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200">
+          <Pagination
+            page={page}
+            pageSize={perPage}
+            totalItems={currentData?.total ?? 0}
+            onPageChange={setPage}
+            onPageSizeChange={setPerPage}
+            pageSizeOptions={paginationOptions}
+          />
         </div>
       )}
     </div>

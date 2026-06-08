@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import useSWR from 'swr';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { Pagination } from '@/components/ui/pagination';
 
 interface DeviationRow {
   id: string;
@@ -48,15 +49,14 @@ export function DeviationsPage() {
   const { formatDate, formatDateTime } = useDatetimeFormat();
   const [status, setStatus] = useState('ALL');
   const [page, setPage] = useState(1);
-  const perPage = 50;
+  const [pageSize, setPageSize] = useState(50);
 
-  const params = new URLSearchParams({ page: String(page), limit: String(perPage) });
+  const params = new URLSearchParams({ page: String(page), limit: String(pageSize) });
   if (status !== 'ALL') params.set('status', status);
   const { data, isLoading } = useSWR<DeviationResponse>(`/api/pm-schedules/deviations?${params}`, { refreshInterval: 30000 });
 
   const rows = data?.data ?? [];
   const total = data?.total ?? 0;
-  const totalPages = data?.totalPages ?? 1;
 
   return (
     <div className="h-full flex flex-col">
@@ -147,15 +147,9 @@ export function DeviationsPage() {
       </div>
 
       {/* Pagination */}
-      {rows.length > 0 && totalPages > 1 && (
-        <div className="px-6 py-3 border-t border-slate-200 bg-white shrink-0 flex items-center justify-between">
-          <span className="text-[13px] text-slate-500">Page {page} of {totalPages} · {total} total</span>
-          <div className="flex items-center gap-1">
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
-              className="px-3 h-9 rounded-lg text-[13px] font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-30">Previous</button>
-            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
-              className="px-3 h-9 rounded-lg text-[13px] font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-30">Next</button>
-          </div>
+      {rows.length > 0 && (
+        <div className="border-t border-slate-200 bg-white shrink-0">
+          <Pagination page={page} pageSize={pageSize} totalItems={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
         </div>
       )}
     </div>

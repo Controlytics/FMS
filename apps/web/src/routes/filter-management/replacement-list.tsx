@@ -2,9 +2,8 @@ import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useAuth } from '@/hooks/use-auth';
+import { Pagination } from '@/components/ui/pagination';
 import { ReplacementSchedulePage } from './replacement-schedule';
-
-const PAGE_SIZE = 20;
 
 export function ReplacementListPage() {
   const { formatDate } = useDatetimeFormat();
@@ -18,6 +17,7 @@ export function ReplacementListPage() {
 
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   const replacements = useMemo(() => {
     if (!Array.isArray(data)) return [];
@@ -51,9 +51,9 @@ export function ReplacementListPage() {
     return { total: replacements.length, today, week, month };
   }, [replacements]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
-  const pageItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pageItems = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   return (
     <div>
@@ -167,7 +167,7 @@ export function ReplacementListPage() {
                 {pageItems.map((r: any, idx: number) => (
                   <tr key={r.id} className="hover:bg-cyan-50/40 transition-colors">
                     <td className="px-5 py-3.5 text-sm text-slate-400 font-medium">
-                      {(safePage - 1) * PAGE_SIZE + idx + 1}
+                      {(safePage - 1) * pageSize + idx + 1}
                     </td>
                     <td className="px-5 py-3.5">
                       <span className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-100 font-semibold">
@@ -202,17 +202,7 @@ export function ReplacementListPage() {
               </tbody>
             </table>
           </div>
-          {/* Footer with pagination */}
-          <div className="px-5 py-4 border-t border-slate-200 bg-slate-50/50 flex items-center justify-between gap-3 flex-wrap">
-            <p className="text-xs text-slate-500">
-              Showing <span className="font-semibold text-slate-700">{(safePage - 1) * PAGE_SIZE + 1}</span>–
-              <span className="font-semibold text-slate-700">{Math.min(safePage * PAGE_SIZE, filtered.length)}</span> of{' '}
-              <span className="font-semibold text-slate-700">{filtered.length}</span>
-            </p>
-            {totalPages > 1 && (
-              <Pagination page={safePage} totalPages={totalPages} onPageChange={setPage} />
-            )}
-          </div>
+          <Pagination className="border-t border-slate-200 bg-slate-50/50" page={safePage} pageSize={pageSize} totalItems={filtered.length} onPageChange={setPage} onPageSizeChange={setPageSize} />
         </div>
       )}
       </div>
@@ -244,60 +234,6 @@ function StatCard({ label, value, iconBg, iconColor, icon }: {
           <div className="text-xs text-slate-400 font-medium truncate">{label}</div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function Pagination({ page, totalPages, onPageChange }: {
-  page: number; totalPages: number; onPageChange: (p: number) => void;
-}) {
-  const pages: (number | 'ellipsis')[] = [];
-  for (let i = 1; i <= totalPages; i++) {
-    if (i === 1 || i === totalPages || (i >= page - 1 && i <= page + 1)) {
-      pages.push(i);
-    } else if (pages[pages.length - 1] !== 'ellipsis') {
-      pages.push('ellipsis');
-    }
-  }
-  return (
-    <div className="flex items-center gap-1">
-      <button
-        onClick={() => onPageChange(Math.max(1, page - 1))}
-        disabled={page === 1}
-        className="w-9 h-9 rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent flex items-center justify-center transition-colors"
-        aria-label="Previous page"
-      >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-        </svg>
-      </button>
-      {pages.map((p, i) =>
-        p === 'ellipsis' ? (
-          <span key={`e-${i}`} className="w-9 h-9 flex items-center justify-center text-slate-400">…</span>
-        ) : (
-          <button
-            key={p}
-            onClick={() => onPageChange(p)}
-            className={`w-9 h-9 rounded-lg text-sm font-semibold transition-colors ${
-              p === page
-                ? 'bg-gradient-to-br from-teal-500 to-cyan-600 text-white shadow-md shadow-cyan-500/25'
-                : 'text-slate-500 hover:bg-slate-100'
-            }`}
-          >
-            {p}
-          </button>
-        )
-      )}
-      <button
-        onClick={() => onPageChange(Math.min(totalPages, page + 1))}
-        disabled={page === totalPages}
-        className="w-9 h-9 rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent flex items-center justify-center transition-colors"
-        aria-label="Next page"
-      >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-        </svg>
-      </button>
     </div>
   );
 }

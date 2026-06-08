@@ -21,7 +21,7 @@ import { UserTable } from './components/user-table';
 import { UserActionDialog } from './components/user-action-dialog';
 import { UserBulkDeleteDialog } from './components/user-bulk-delete-dialog';
 import { UserUnlockDialog } from './components/user-unlock-dialog';
-import { UserPagination } from './components/user-pagination';
+import { Pagination } from '@/components/ui/pagination';
 
 type PendingCount = { count: number };
 
@@ -357,14 +357,16 @@ export function UserListPage() {
 
       {/* Pagination — always rendered so the rows-per-page selector is available */}
       {data && data.total > 0 && (
-        <UserPagination
-          page={page}
-          setPage={setPage}
-          perPage={perPage}
-          setPerPage={setPerPage}
-          data={data}
-          paginationOptions={paginationOptions}
-        />
+        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm">
+          <Pagination
+            page={page}
+            pageSize={perPage}
+            totalItems={data.total}
+            onPageChange={setPage}
+            onPageSizeChange={setPerPage}
+            pageSizeOptions={paginationOptions}
+          />
+        </div>
       )}
 
       {/* Confirmation Dialog */}

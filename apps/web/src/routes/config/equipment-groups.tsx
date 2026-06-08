@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
+import { Pagination } from '@/components/ui/pagination';
 
 interface Instrument {
   id?: string;
@@ -86,6 +87,14 @@ export function EquipmentGroupsConfigPage() {
   }, [blocks.length]);
 
   const groups: EquipmentGroup[] = Array.isArray(groupsData) ? groupsData : [];
+
+  // Pagination — slice the rendered cards; stat cards keep counting `groups`.
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  useEffect(() => { setPage(1); }, [selectedBlockId]);
+  const totalPages = Math.max(1, Math.ceil(groups.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pagedGroups = groups.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   const handleCreate = () => {
     setEditing({ group: { name: '', blockId: selectedBlockId, instruments: DEFAULT_INSTRUMENTS.map(d => ({ ...d })) }, isNew: true });
@@ -281,7 +290,7 @@ export function EquipmentGroupsConfigPage() {
 
       {/* Group Cards */}
       <div className="space-y-5">
-        {groups.map(g => (
+        {pagedGroups.map(g => (
           <div key={g.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-shadow">
             <div className="h-1.5 bg-gradient-to-r from-cyan-400 to-teal-500" />
             <div className="flex items-center justify-between px-6 py-4">
@@ -347,6 +356,18 @@ export function EquipmentGroupsConfigPage() {
           </div>
         ))}
       </div>
+
+      {selectedBlockId && groups.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
+          <Pagination
+            page={safePage}
+            pageSize={pageSize}
+            totalItems={groups.length}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          />
+        </div>
+      )}
 
       {/* Create / Edit Dialog */}
       {editing && (

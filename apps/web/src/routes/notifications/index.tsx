@@ -12,6 +12,7 @@ import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
+import { Pagination } from '@/components/ui/pagination';
 
 interface Notification {
   id: string;
@@ -587,58 +588,15 @@ export function NotificationsPage() {
 
       {/* Pagination */}
       {data && data.total > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 text-sm text-slate-600">
-              <span className="text-slate-500">Rows per page:</span>
-              <div className="flex items-center gap-1">
-                {paginationOptions.map((opt) => (
-                  <button
-                    key={opt}
-                    onClick={() => { setPerPage(opt); setPage(1); }}
-                    className={`px-2.5 py-1 rounded-md text-sm font-medium transition-all ${
-                      perPage === opt
-                        ? 'bg-indigo-500 text-white shadow-sm'
-                        : 'text-slate-600 hover:bg-slate-100'
-                    }`}
-                  >
-                    {opt}
-                  </button>
-                ))}
-              </div>
-              <span className="text-slate-300">|</span>
-              <span>
-                Page <span className="font-semibold text-slate-800">{data.page}</span> of <span className="font-semibold text-slate-800">{data.totalPages}</span>
-                <span className="text-slate-400 ml-2">({data.total} total notifications)</span>
-              </span>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page <= 1}
-                onClick={() => setPage(p => p - 1)}
-                className="gap-1.5"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-                Previous
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page >= data.totalPages}
-                onClick={() => setPage(p => p + 1)}
-                className="gap-1.5"
-              >
-                Next
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </Button>
-            </div>
-          </div>
+        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm">
+          <Pagination
+            page={page}
+            pageSize={perPage}
+            totalItems={data.total}
+            onPageChange={setPage}
+            onPageSizeChange={setPerPage}
+            pageSizeOptions={paginationOptions}
+          />
         </div>
       )}
 

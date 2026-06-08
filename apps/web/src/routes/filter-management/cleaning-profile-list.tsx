@@ -6,6 +6,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
+import { Pagination } from '@/components/ui/pagination';
+import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import type { CleaningProfile, PaginatedResponse } from '../../types/filter';
 
 const FLOW_COLORS: Record<string, { bg: string; text: string }> = {
@@ -25,12 +27,16 @@ export function CleaningProfileListPage() {
   const canDelete = isSuperAdmin || perms.includes('CP_PAGE_DELETE');
   const canToggle = isSuperAdmin || perms.includes('CP_TOGGLE');
   const reauth = useReauth();
+  const paginationOptions = usePaginationConfig();
   const [status, setStatus] = useState('ACTIVE');
   const [page, setPage] = useState(1);
+  // Default to a config-provided option so the rows-per-page selector always
+  // shows a valid selection (20 is not guaranteed to be in the options list).
+  const [perPage, setPerPage] = useState(paginationOptions[0] ?? 10);
   const [search, setSearch] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const swrKey = `/api/filter-cleaning-profiles?page=${page}&limit=20&status=${status}`;
+  const swrKey = `/api/filter-cleaning-profiles?page=${page}&limit=${perPage}&status=${status}`;
   const { data, isLoading } = useSWR<PaginatedResponse<CleaningProfile>>(swrKey);
 
   // Audit 2026-05-09 fix: DELETE endpoint exists with reauth gate
@@ -266,25 +272,16 @@ export function CleaningProfileListPage() {
       )}
 
       {/* Pagination */}
-      {(data?.totalPages ?? 0) > 1 && (
-        <div className="flex justify-center items-center gap-3">
-          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-            className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-600 disabled:opacity-40 hover:bg-slate-50 transition-colors">
-            Previous
-          </button>
-          <div className="flex items-center gap-1">
-            {Array.from({ length: Math.min(data?.totalPages ?? 1, 5) }, (_, i) => i + 1).map(p => (
-              <button key={p} onClick={() => setPage(p)}
-                className={`w-9 h-9 rounded-lg text-sm font-medium transition-all ${page === p ? 'text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}
-                style={page === p ? { backgroundColor: 'var(--theme-primary)' } : undefined}>
-                {p}
-              </button>
-            ))}
-          </div>
-          <button onClick={() => setPage(p => Math.min(data?.totalPages ?? 1, p + 1))} disabled={page === (data?.totalPages ?? 1)}
-            className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-600 disabled:opacity-40 hover:bg-slate-50 transition-colors">
-            Next
-          </button>
+      {(data?.total ?? 0) > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200">
+          <Pagination
+            page={page}
+            pageSize={perPage}
+            totalItems={data?.total ?? 0}
+            onPageChange={setPage}
+            onPageSizeChange={setPerPage}
+            pageSizeOptions={paginationOptions}
+          />
         </div>
       )}
       <ReauthDialog open={reauth.isOpen} password={reauth.password} error={reauth.error} isVerifying={reauth.isVerifying}

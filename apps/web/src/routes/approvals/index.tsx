@@ -5,6 +5,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useBlockChangeApproval } from '@/hooks/use-block-change-approval';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { Pagination } from '@/components/ui/pagination';
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; dot: string }> = {
   PENDING: { label: 'Pending', bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-500' },
@@ -22,6 +23,7 @@ export function ApprovalsPage() {
   const { formatDate, formatTime } = useDatetimeFormat();
   const [filter, setFilter] = useState('PENDING');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [processComment, setProcessComment] = useState('');
   const [processingId, setProcessingId] = useState<string | null>(null);
 
@@ -31,7 +33,7 @@ export function ApprovalsPage() {
   // doesn't list BLOCK_CHANGE_APPROVE in the permissions array — even though the
   // backend lets them through unconditionally.
   const isApprover = user?.role === 'SUPER_ADMIN' || user?.permissions?.includes('BLOCK_CHANGE_APPROVE');
-  const swrKey = `/api/block-change-requests?page=${page}&limit=20&status=${filter}${!isApprover ? '&mine=true' : ''}`;
+  const swrKey = `/api/block-change-requests?page=${page}&limit=${pageSize}&status=${filter}${!isApprover ? '&mine=true' : ''}`;
   const { data, isLoading } = useSWR(swrKey);
   const { data: pendingData } = useSWR(isApprover ? '/api/block-change-requests/pending-count' : null);
 
@@ -218,17 +220,9 @@ export function ApprovalsPage() {
       )}
 
       {/* Pagination */}
-      {(data?.totalPages ?? 0) > 1 && (
-        <div className="flex justify-center items-center gap-3">
-          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-            className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-600 disabled:opacity-40 hover:bg-slate-50">
-            Previous
-          </button>
-          <span className="text-sm text-slate-500">{page} / {data?.totalPages}</span>
-          <button onClick={() => setPage(p => Math.min(data?.totalPages ?? 1, p + 1))} disabled={page === (data?.totalPages ?? 1)}
-            className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-600 disabled:opacity-40 hover:bg-slate-50">
-            Next
-          </button>
+      {(data?.total ?? 0) > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200">
+          <Pagination page={page} pageSize={pageSize} totalItems={data?.total ?? 0} onPageChange={setPage} onPageSizeChange={setPageSize} />
         </div>
       )}
 

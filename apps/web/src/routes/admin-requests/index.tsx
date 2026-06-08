@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import useSWR, { mutate } from 'swr';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
@@ -7,6 +7,7 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api-client';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
+import { Pagination } from '@/components/ui/pagination';
 
 const TYPE_CFG: Record<string, { label: string; bg: string; text: string; border: string; icon: string }> = {
   CREATE_USER: { label: 'Create User', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', icon: '+' },
@@ -42,6 +43,14 @@ export function AdminRequestsPage() {
   const { data, isLoading } = useSWR(`/api/admin-requests${queryParam}`, { refreshInterval: 15000 });
   const requests = data?.data ?? [];
   const pendingCount = data?.pendingCount ?? 0;
+
+  // Pagination — slice the rendered rows; status-pill counts stay on `requests`.
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  useEffect(() => { setPage(1); }, [statusFilter]);
+  const totalPages = Math.max(1, Math.ceil(requests.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pagedRequests = requests.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   const handleProcess = (action: 'approve' | 'reject') => {
     if (!selectedRequest) return;
@@ -211,7 +220,7 @@ export function AdminRequestsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
-              {requests.map((req: any) => {
+              {pagedRequests.map((req: any) => {
                 const tc = TYPE_CFG[req.requestType] ?? { label: req.requestType, bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', icon: '?' };
                 const sc = STATUS_CFG[req.status] ?? { label: req.status, bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', dot: 'bg-slate-400' };
                 const isPending = req.status === 'PENDING';
@@ -248,6 +257,18 @@ export function AdminRequestsPage() {
           </table>
         )}
       </div>
+
+      {/* Pagination footer */}
+      {!isLoading && requests.length > 0 && (
+        <Pagination
+          className="border-t border-slate-200 bg-slate-50/60 shrink-0"
+          page={safePage}
+          pageSize={pageSize}
+          totalItems={requests.length}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+        />
+      )}
 
       {/* Slide-over panel */}
       {selectedRequest && (

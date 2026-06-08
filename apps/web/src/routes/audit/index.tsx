@@ -15,7 +15,7 @@ import { ACTION_COLORS, getAuditStatus, getAuditSummary } from './audit-helpers'
 import { AuditFilters } from './components/audit-filters';
 import { AuditTable } from './components/audit-table';
 import { AuditDetailModal } from './components/audit-detail-modal';
-import { AuditPagination } from './components/audit-pagination';
+import { Pagination } from '@/components/ui/pagination';
 import { AuditDeleteDialog } from './components/audit-delete-dialog';
 import { createReport } from '../../lib/pdf-report';
 import { useReportLabels } from '../../hooks/use-report-labels';
@@ -327,14 +327,18 @@ export function AuditTrailPage() {
       </ReportPageWrapper>
 
       {/* Pagination */}
-      <AuditPagination
-        page={page}
-        setPage={setPage}
-        perPage={perPage}
-        setPerPage={setPerPage}
-        data={data}
-        paginationOptions={paginationOptions}
-      />
+      {data && data.total > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200">
+          <Pagination
+            page={page}
+            pageSize={perPage}
+            totalItems={data.total}
+            onPageChange={setPage}
+            onPageSizeChange={setPerPage}
+            pageSizeOptions={paginationOptions}
+          />
+        </div>
+      )}
 
       {/* Detail Dialog */}
       <AuditDetailModal

@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Pagination } from '@/components/ui/pagination';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
+import { usePaginationConfig } from '../../../hooks/use-pagination-config';
 
 interface LogEntry {
   id: string;
@@ -35,13 +36,15 @@ const CHANNEL_COLORS: Record<string, string> = {
 
 export function NotificationLogsPage() {
   const { formatDateTime } = useDatetimeFormat();
+  const paginationOptions = usePaginationConfig();
   const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(paginationOptions[0]);
   const [channel, setChannel] = useState('');
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const queryParams = new URLSearchParams({ page: String(page), limit: '25' });
+  const queryParams = new URLSearchParams({ page: String(page), limit: String(perPage) });
   if (channel) queryParams.set('channel', channel);
   if (status) queryParams.set('status', status);
   if (search) queryParams.set('search', search);
@@ -51,7 +54,6 @@ export function NotificationLogsPage() {
 
   const logs: LogEntry[] = data?.data ?? [];
   const total = data?.total ?? 0;
-  const totalPages = data?.totalPages ?? 1;
 
   const handleDelete = async (id: string) => {
     try {
@@ -217,15 +219,15 @@ export function NotificationLogsPage() {
 
         {/* Pagination */}
         {total > 0 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200">
-            <div className="text-sm text-slate-500">
-              Showing {(page - 1) * 25 + 1}-{Math.min(page * 25, total)} of {total}
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</Button>
-              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Next</Button>
-            </div>
-          </div>
+          <Pagination
+            page={page}
+            pageSize={perPage}
+            totalItems={total}
+            onPageChange={setPage}
+            onPageSizeChange={setPerPage}
+            pageSizeOptions={paginationOptions}
+            className="border-t border-slate-200"
+          />
         )}
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import useSWR, { mutate } from 'swr';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../../lib/api-client';
@@ -6,6 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
+import { Pagination } from '@/components/ui/pagination';
 import type { PaginatedResponse } from '../../types/filter';
 
 const TYPE_COLORS: Record<string, { bg: string; text: string; icon: string }> = {
@@ -88,6 +89,14 @@ export function ChecklistProfileListPage() {
   const inactiveCount = allProfiles.filter((p: any) => !p.isActive).length;
   const totalQuestions = allProfiles.reduce((s: number, p: any) => s + (p.questionCount ?? 0), 0);
 
+  // Pagination — slice the filtered grid; stats above stay on `allProfiles`.
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  useEffect(() => { setPage(1); }, [search, filter]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pagedProfiles = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -162,7 +171,7 @@ export function ChecklistProfileListPage() {
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {filtered.map((p: any) => (
+          {pagedProfiles.map((p: any) => (
             <div key={p.id}
               className="bg-white border border-slate-200 rounded-2xl overflow-hidden hover:shadow-xl transition-all duration-300 cursor-pointer group"
               onClick={() => navigate(`/checklists/${p.id}`)}>
@@ -225,6 +234,18 @@ export function ChecklistProfileListPage() {
               <p className="text-sm text-slate-400 mt-1">Create your first checklist to get started</p>
             </div>
           )}
+        </div>
+      )}
+
+      {!isLoading && filtered.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
+          <Pagination
+            page={safePage}
+            pageSize={pageSize}
+            totalItems={filtered.length}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          />
         </div>
       )}
 
