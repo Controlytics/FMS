@@ -53,7 +53,18 @@ Reason: the **Report Templates + Generated Reports** features were removed from 
 ---
 
 ## Circular dependencies (backend) — `madge`
-8 chains, all functional (TS resolves them) but worth flagging:
+
+**UPDATE after inspection — 6 of 8 are false positives:**
+- The 6 `filter-operations.service ↔ cycle-write/* + current-state` chains are **`import type`
+  only** → erased at compile time, **zero runtime cycle**. No action (fixing = pure churn).
+- The 2 `data-ingestion` chains (`ingestion.service ↔ dlq-manager`,
+  `mqtt-client → mqtt-handler → rpc-handler`) are **real value imports but deferred-call**
+  cycles: the imported functions are only *invoked* at runtime, after both modules finish
+  loading, so ESM resolves them correctly (the app runs). They sit on the **telemetry-ingest
+  + MQTT critical path**. **Decision: leave as-is** — refactoring risks a critical pipeline
+  for no functional benefit. Optional future fix: lazy `await import()` at call site.
+
+Original madge output (for reference):
 1. `data-ingestion/ingestion.service.ts ↔ dlq-manager.ts`
 2. `data-ingestion/rpc-handler.ts → transport/mqtt-client.ts → mqtt-handler.ts` (cycle)
 3–8. `filter-operations.service.ts ↔ cycle-write/{advance,bypass,start-cycle,submit-checklist,terminate-cycle}.ts` and `current-state.ts`
@@ -74,6 +85,29 @@ Frontend: **0 circular** dependencies. ✅
 - `react-hook-form` (web) — used by 15 files (a prior audit false-positive).
 
 ---
+
+## Unused exports / files — scoped `knip` (with false-positive triage)
+
+**Unused FILES (src, confirmed by trace):**
+- `apps/web/src/hooks/use-entity-websocket.ts` — 0 refs → **DELETED** (dead after entity removal).
+- `apps/web/src/lib/action-tape/types.ts` — knip-flagged, but the action-tape module is heavily
+  used; likely an `import type` false positive → **Needs Manual Review** (kept).
+
+**Unused EXPORTS — 86 flagged, but heavy false positives:**
+- **~42 are config `*Def` exports** (passwordPolicyDef … qnnNotificationsDef) — these are loaded
+  via **dynamic `import()` in `config-discovery.ts`**, which knip doesn't trace. **NOT unused.**
+- Test-only-used exports also appear here (tests were excluded from the knip scope).
+- Remaining genuine candidates (need per-symbol tracing before removal — **Needs Manual Review**):
+  `invalidateSessionAuthCache`, `computeChecksumV2`, `stopSweep`, `getClientOpId`,
+  `shutdownChartRenderer`, `getFilterCore`, `clearFilterCycle`, `normalizeLimit`/`normalizePage`
+  (hierarchy.service), `extractVariables`, `sendBulkNotification`, `extractTags`, `stopAutoSync`,
+  `SHORT_TTL_MS`/`SYNCED_OP_RETENTION_MS`/`CACHE_LRU_CAP` (offline-store), etc.
+  → These are small dead helpers; safe to prune in a focused pass with per-symbol grep, NOT in bulk.
+
+**Naming bug found:** `apps/web/src/routes/config/notification-settings/sms-settings.tsx` exports a
+component named `EmailSettingsPage` (the real one is in `email-settings.tsx`). → Needs Manual Review.
+
+A reusable `knip.json` (scoped to ignore Android/dist) was added for future audits.
 
 ## NOT audited this pass (need dedicated runs) — marked Needs Manual Review
 - **Per-endpoint API audit** (validation/authz/rate-limit/logging on each of 200+ routes).
