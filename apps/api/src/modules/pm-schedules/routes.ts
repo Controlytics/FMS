@@ -444,6 +444,33 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
     return service.editApprovedEntry(ctx, id, body);
   });
 
+  // Reviewer modifies a PENDING_REVIEW entry in place (stays in review). Gated by
+  // PM_REVIEW + the configured reviewRole; REVIEW_PM_SCHEDULE reauth.
+  app.put('/entries/:id/review-edit', {
+    preHandler: [app.requirePermission('PM_REVIEW')],
+    schema: {
+      tags: ['PM Schedules'],
+      summary: 'Reviewer modifies a schedule entry awaiting review',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      body: {
+        type: 'object',
+        required: ['plannedDate'],
+        properties: {
+          plannedDate: { type: 'string' },
+          toleranceDays: { type: 'integer', minimum: 0, maximum: 365 },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('REVIEW_PM_SCHEDULE', req, reply);
+    if (!ok) return;
+    const ctx = buildContext(req);
+    const { id } = req.params as { id: string };
+    const body = req.body as { plannedDate: string; toleranceDays?: number };
+    return service.modifyReviewEntry(ctx, id, body);
+  });
+
   // ─── Overdue deviations ───
   // Literal /deviations* paths — registered before the parametric /:entityId.
   app.post('/deviations/sweep', {

@@ -100,6 +100,10 @@ export class PmScheduleService {
     return approval.reviewEntries(ctx, entryIds, action, remarks);
   }
 
+  modifyReviewEntry(ctx: RequestContext, entryId: string, data: { plannedDate: string; toleranceDays?: number }) {
+    return approval.modifyReviewEntry(ctx, entryId, data);
+  }
+
   approveEntries(ctx: RequestContext, entryIds: string[], comment?: string) {
     return approval.approveEntries(ctx, entryIds, comment);
   }

@@ -306,6 +306,42 @@ export async function editApprovedEntry(
   return { ...updated, qnn };
 }
 
+/**
+ * Reviewer modifies a PENDING_REVIEW entry in place (date/tolerance) before
+ * sending it on for approval. Status stays PENDING_REVIEW. Gated by reviewRole.
+ */
+export async function modifyReviewEntry(
+  ctx: RequestContext,
+  entryId: string,
+  data: { plannedDate: string; toleranceDays?: number },
+) {
+  await checkPmEnabled();
+  const cfg = await getPmWorkflowConfig();
+  assertPmRole(ctx.userRole, cfg.reviewRole, 'review');
+  const entry = await prisma.pmScheduleEntry.findUnique({ where: { id: entryId }, include: { schedule: true } });
+  if (!entry) throw new AppError(404, 'NOT_FOUND', 'Entry not found');
+  if (entry.approvalStatus !== 'PENDING_REVIEW') {
+    throw new AppError(400, 'INVALID_STATUS', 'Only entries awaiting review can be modified by the reviewer');
+  }
+  const planned = new Date(data.plannedDate);
+  if (isNaN(planned.getTime())) throw new AppError(400, 'INVALID_DATE', 'Invalid date');
+  const tol = data.toleranceDays ?? entry.toleranceDays;
+  const { windowStart, windowEnd } = windowsFor(planned, tol);
+
+  const updated = await prisma.pmScheduleEntry.update({
+    where: { id: entryId },
+    data: {
+      plannedDate: planned, toleranceDays: tol, windowStart, windowEnd,
+      // Record the reviewer touched it, but keep it in the review stage.
+      reviewedBy: ctx.userSub, reviewedByName: ctx.userId, reviewedAt: new Date(),
+    },
+  });
+  const ahuName = (await ahuNameByEntry([entry as any])).get(entry.id) ?? '?';
+  const qnn = await mintQnn('EDIT', entry, ahuName, ctx, 'Modified at review');
+  await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_REVIEW_MODIFIED', targetType: 'pm_schedule_entry', targetId: entryId, beforeValue: { plannedDate: entry.plannedDate, toleranceDays: entry.toleranceDays }, afterValue: { plannedDate: data.plannedDate, toleranceDays: tol }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
+  return { ...updated, qnn };
+}
+
 /** Counts per workflow stage for status badges. */
 export async function pendingCounts(_ctx: RequestContext) {
   await checkPmEnabled();

@@ -503,6 +503,20 @@ export function PmScheduleListPage() {
     });
   };
 
+  // Reviewer modifies a PENDING_REVIEW entry in place (stays in review).
+  const handleReviewEdit = async (id: string) => {
+    if (!editDate) return;
+    setProcessing(true);
+    reauth.execute('REVIEW_PM_SCHEDULE', async (password?: string) => {
+      const body = { plannedDate: editDate, ...(editTolerance ? { toleranceDays: Number(editTolerance) } : {}) };
+      if (password) await apiClient.putWithReauth(`/api/pm-schedules/entries/${id}/review-edit`, body, password);
+      else await apiClient.put(`/api/pm-schedules/entries/${id}/review-edit`, body);
+    }, {
+      onSuccess: () => { toast.success('Modified', 'Schedule updated (still awaiting review approval)'); setEditingId(null); refreshAll(); setProcessing(false); },
+      onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setProcessing(false); },
+    });
+  };
+
   const toggleSelect = (id: string) => {
     setSelected(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   };
@@ -838,7 +852,7 @@ export function PmScheduleListPage() {
                             <div className="flex items-center justify-end gap-1.5">
                               {isEditing ? (
                                 <>
-                                  <button onClick={() => entry.approvalStatus === 'REJECTED' ? handleResubmit(entry.id) : handleEdit(entry.id)}
+                                  <button onClick={() => entry.approvalStatus === 'REJECTED' ? handleResubmit(entry.id) : entry.approvalStatus === 'PENDING_REVIEW' ? handleReviewEdit(entry.id) : handleEdit(entry.id)}
                                     disabled={processing || !editDate}
                                     className="px-3.5 py-1.5 text-white text-[11px] font-semibold rounded-lg disabled:opacity-50 transition-colors shadow-sm"
                                     style={{ backgroundColor: 'var(--theme-primary)' }}>
@@ -859,6 +873,10 @@ export function PmScheduleListPage() {
                                       <button onClick={() => handleReject([entry.id], 'review')} disabled={processing}
                                         className="px-3 py-1.5 bg-red-500 text-white text-[11px] font-semibold rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors shadow-sm">
                                         Reject
+                                      </button>
+                                      <button onClick={() => { setEditingId(entry.id); setEditDate(entry.plannedDate.slice(0, 10)); setEditTolerance(String(entry.toleranceDays)); }}
+                                        className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 text-[11px] font-semibold rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-all">
+                                        Modify
                                       </button>
                                     </>
                                   )}
