@@ -297,13 +297,35 @@ export function CleaningCycleHistoryPage() {
                 // in-profile stages as "Retired"/"Replaced".
                 const profileStages: string[] = c.profileStages ?? [];
                 const termLabel = eff === 'RETIRED' ? 'Retired' : eff === 'REPLACED' ? 'Replaced' : null;
-                const stageCell = (stage: string, value: string | null) =>
-                  value != null ? value
-                    : profileStages.length > 0 && !profileStages.includes(stage)
-                      ? <span className="text-slate-400 italic">NA</span>
-                      : termLabel
-                        ? <span className={`italic ${eff === 'RETIRED' ? 'text-amber-600' : 'text-purple-600'}`}>{termLabel}</span>
-                        : '-';
+                // Stages actually reached in this cycle (any STATE_TRANSITION toState),
+                // used to flag in-between in-profile stages that were skipped.
+                const reached = new Set<string>(
+                  ((c.events ?? []) as any[])
+                    .filter((e) => e.eventType === 'STATE_TRANSITION' && e.toState)
+                    .map((e) => e.toState as string),
+                );
+                const maxReachedIdx = profileStages.reduce((m, s, i) => (reached.has(s) ? i : m), -1);
+                // stageCell: present value (orange when set by a manual update); else
+                // NA (not in profile) / Retired-Replaced / Skipped (in-profile but a
+                // later stage was reached) / "-" (in-profile, not yet reached).
+                const stageCell = (stage: string, value: string | null, manual?: boolean) => {
+                  if (value != null) {
+                    return manual
+                      ? <span className="text-orange-600 font-semibold" title="Set by manual update">{value}</span>
+                      : value;
+                  }
+                  if (profileStages.length > 0 && !profileStages.includes(stage)) {
+                    return <span className="text-slate-400 italic">NA</span>;
+                  }
+                  if (termLabel) {
+                    return <span className={`italic ${eff === 'RETIRED' ? 'text-amber-600' : 'text-purple-600'}`}>{termLabel}</span>;
+                  }
+                  const idx = profileStages.indexOf(stage);
+                  if (idx >= 0 && idx < maxReachedIdx) {
+                    return <span className="text-rose-500 italic">Skipped</span>;
+                  }
+                  return '-';
+                };
 
                 return (
                   <tr key={c.id} className="hover:bg-cyan-50/30 transition-colors group">
@@ -319,13 +341,13 @@ export function CleaningCycleHistoryPage() {
                     <td className="px-4 py-3 text-[13px] text-slate-600">{attrs.filterSize ?? '-'}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600 font-mono tabular-nums">{getReading(washReadings, 'air pressure')}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600 font-mono tabular-nums">{getReading(washReadings, 'ro water')}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('WASH_IN', washIn ? formatDateTime(washIn.time) : null)}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('WASH_OUT', washOut ? formatDateTime(washOut.time) : null)}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('WASH_IN', washIn ? formatDateTime(washIn.time) : null, washIn?.manual)}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('WASH_OUT', washOut ? formatDateTime(washOut.time) : null, washOut?.manual)}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-800 font-medium">{washIn?.performedBy ?? washOut?.performedBy ?? '-'}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('DRY_IN', fmtMinutes(dryerStart.minutes))}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('DRY_IN', dryerStart.time ? formatDateTime(dryerStart.time) : null)}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 font-mono tabular-nums">{stageCell('DRY_IN', dryerTemp !== '-' ? dryerTemp : null)}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('DRY_OUT', dryOut ? formatDateTime(dryOut.time) : null)}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('DRY_IN', fmtMinutes(dryerStart.minutes), dryIn?.manual)}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('DRY_IN', dryerStart.time ? formatDateTime(dryerStart.time) : null, dryIn?.manual)}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-600 font-mono tabular-nums">{stageCell('DRY_IN', dryerTemp !== '-' ? dryerTemp : null, dryIn?.manual)}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('DRY_OUT', dryOut ? formatDateTime(dryOut.time) : null, dryOut?.manual)}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-full whitespace-nowrap ${sc?.bg ?? 'bg-slate-50'} ${sc?.text ?? 'text-slate-600'} border ${sc?.border ?? 'border-slate-200'}`}>
                         {eff === 'IN_PROGRESS' && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />}

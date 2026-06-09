@@ -39,6 +39,7 @@ export function getStageInfo(events: FilterEvent[], stage: string) {
     time: ev.performedAt,
     performedBy: ev.performedByName ?? ev.performedBy?.substring(0, 8) ?? '-',
     readings: (ev.attributes as any)?.instrumentReadings ?? [],
+    manual: !!(ev.attributes as any)?.manual, // stage was set by a manual update
   };
 }
 

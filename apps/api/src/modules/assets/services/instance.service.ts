@@ -459,9 +459,18 @@ export const instanceService = {
         ? await tx.cleaningCycle.findFirst({ where: { id: fd.currentCycleId, status: 'IN_PROGRESS' }, select: { id: true, sequenceNumber: true } })
         : null;
 
+      // 2026-06-09 (per user): a manual update attaches to the filter's MOST RECENT
+      // cycle even when it's already completed/terminated — so manual stage edits
+      // (e.g. Dry Out → Storage Out done by hand after the cycle's normal stages)
+      // populate that SAME cycle's columns instead of becoming a separate record.
+      // (break/force-complete logic below still keys off the IN_PROGRESS activeCycle.)
+      const recentCycle = activeCycle ?? await tx.cleaningCycle.findFirst({
+        where: { filterId: id }, orderBy: { startedAt: 'desc' }, select: { id: true },
+      });
+
       // The cycle the manual STATE_TRANSITION event attaches to (so the target
       // stage populates that cycle's column on the Cleaning Cycles page).
-      let eventCycleId: string | null = activeCycle?.id ?? null;
+      let eventCycleId: string | null = recentCycle?.id ?? null;
 
       if (willStartCycle && resolvedReason) {
         // P3: BACKWARD with an active cycle → break (TERMINATED) it first;
