@@ -180,29 +180,40 @@ export async function getDueTasks(_ctx: RequestContext) {
     }
 
     const inWindow = now >= entry.windowStart && now <= entry.windowEnd;
+    // An overdue entry's window has already closed, so a clean performed NOW
+    // lands AFTER windowEnd. The strict in-window predicate below would miss it
+    // and the task could never clear ("Perform (overdue)" stuck at 0/N). For
+    // overdue entries we therefore also credit a LATE clean — matching the
+    // deviation predicate in pm-deviations.ts (completedAt >= windowStart, which
+    // covers in-window AND late cleaning). In-window behaviour is unchanged.
+    const windowClosed = now > entry.windowEnd;
 
     const filterStatuses: DueFilterRow[] = childFilters.map(f => {
       const cycles = cyclesByFilter.get(f.id) ?? [];
-      // Prefer an IN_PROGRESS cycle started before or during the window
+      // IN_PROGRESS cycle: started during the window (in-window), or — for an
+      // overdue task — a catch-up clean started after the window closed.
       const inProgress = cycles.find(c =>
-        c.status === 'IN_PROGRESS' && c.startedAt <= entry.windowEnd,
+        c.status === 'IN_PROGRESS'
+        && (windowClosed ? c.startedAt >= entry.windowStart : c.startedAt <= entry.windowEnd),
       );
-      // Otherwise the most recent cycle that completed within the window
-      const cleanedInWindow = cycles.find(c =>
+      // COMPLETED cycle that counts toward this entry: completed on/after the
+      // window opened, and — unless the task is already overdue — on/before it
+      // closed (a late clean is exactly what resolves an overdue task).
+      const cleaned = cycles.find(c =>
         c.completedAt != null
         && c.completedAt >= entry.windowStart
-        && c.completedAt <= entry.windowEnd,
+        && (windowClosed || c.completedAt <= entry.windowEnd),
       );
 
       let status: DueFilterStatus = 'pending';
-      if (cleanedInWindow) status = 'cleaned_in_window';
+      if (cleaned) status = 'cleaned_in_window';
       else if (inProgress) status = 'in_progress';
 
       return {
         filterId: f.id,
         filterName: f.name,
         status,
-        lastCycleCompletedAt: cleanedInWindow?.completedAt ?? cycles[0]?.completedAt ?? null,
+        lastCycleCompletedAt: cleaned?.completedAt ?? cycles[0]?.completedAt ?? null,
       };
     });
 
@@ -216,9 +227,15 @@ export async function getDueTasks(_ctx: RequestContext) {
       else if (cleanedCount + inProgressCount > 0) overallStatus = 'in_progress';
       else overallStatus = 'pending';
     } else {
-      // Window already closed
-      if (totalFilters > 0 && cleanedCount === totalFilters) continue; // hide — all done
-      overallStatus = 'overdue';
+      // Window already closed (overdue). Late cleans now count (see windowClosed
+      // above), so an overdue task CAN reach fully-cleaned. When it does, surface
+      // it as a completed task — the operator gets the same "Completed"
+      // confirmation a normal task gets, and it drops out of the Overdue section
+      // (a 'complete' row routes into `active` below, not `overdue`). A partially
+      // (late-)cleaned task stays overdue, but its cleanedCount now reflects the
+      // late progress instead of being stuck at 0/N.
+      if (totalFilters > 0 && cleanedCount === totalFilters) overallStatus = 'complete';
+      else overallStatus = 'overdue';
     }
 
     const { block, area } = resolveBlockArea(ahu.parentId);
