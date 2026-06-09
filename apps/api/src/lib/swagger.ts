@@ -67,7 +67,6 @@ export async function registerSwagger(app: FastifyInstance) {
         { name: 'Export', description: 'Data export — telemetry, alarms, audit trail export to CSV/JSON with background job processing' },
         { name: 'Retention', description: 'Data retention — configurable retention policies per data type' },
         { name: 'Connectivity', description: 'Connectivity tracking — real-time device online/offline status, history, and statistics' },
-        { name: 'QR Codes', description: 'QR code management — generate, scan, and manage entity QR codes' },
         { name: 'Help', description: 'Help articles — versioned documentation with CRUD and version history' },
         { name: 'Debug Traces', description: 'Debug traces — pipeline execution traces for troubleshooting data ingestion' },
         { name: 'System Health', description: 'System health — request tracking, throughput stats, and system metrics' },
