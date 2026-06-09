@@ -7,6 +7,7 @@ import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { useOffline } from '../../hooks/use-offline';
 import { useReauth } from '@/hooks/use-reauth';
 import { retireOrReplaceFilter } from '@/lib/filter-lifecycle-actions';
+import { effectiveCycleStatus } from '@/lib/cleaning-cycle-report';
 import { useRfidScanField } from '@/hooks/use-rfid-scan-field';
 import { useBlockChangeApproval } from '@/hooks/use-block-change-approval';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -34,6 +35,17 @@ const naText = (v: unknown): string => {
 // latest of these, so the tablet's date moves on EVERY stage (each WASH/DRY/
 // STORAGE advance + bypass + completion), not only on full-cycle completion.
 const CLEANING_STAGE_EVENTS = new Set(['STATE_TRANSITION', 'BYPASS_DEVIATION', 'CYCLE_COMPLETED']);
+
+// Cycle status chip — uses effectiveCycleStatus so a cycle ended by retire/replace
+// shows "Retired"/"Replaced" (not the raw "Terminated"), matching the web record.
+const CYCLE_STATUS_UI: Record<string, { badge: string; label: string }> = {
+  IN_PROGRESS: { badge: 'bg-blue-50 text-blue-700 border-blue-200', label: 'In Progress' },
+  COMPLETED: { badge: 'bg-emerald-50 text-emerald-700 border-emerald-200', label: 'Completed' },
+  TERMINATED: { badge: 'bg-rose-50 text-rose-700 border-rose-200', label: 'Terminated' },
+  RETIRED: { badge: 'bg-amber-50 text-amber-700 border-amber-200', label: 'Retired' },
+  REPLACED: { badge: 'bg-purple-50 text-purple-700 border-purple-200', label: 'Replaced' },
+};
+const cycleStatusUi = (cyc: any) => CYCLE_STATUS_UI[effectiveCycleStatus(cyc)] ?? CYCLE_STATUS_UI.IN_PROGRESS;
 
 // Latest cleaning-stage event time for a filter across the given cycles (each
 // cycle carries `events` when fetched with includeEvents=true).
@@ -1727,10 +1739,8 @@ export function MobileWrapperPage() {
               </div>
             )}
             {filteredCyclesList.map((cyc: any) => {
-              const statusBadge =
-                cyc.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                cyc.status === 'TERMINATED' ? 'bg-rose-50 text-rose-700 border-rose-200' :
-                'bg-blue-50 text-blue-700 border-blue-200';
+              const statusUi = cycleStatusUi(cyc);
+              const statusBadge = statusUi.badge;
               const durSec = cyc.completedAt
                 ? Math.max(0, Math.floor((new Date(cyc.completedAt).getTime() - new Date(cyc.startedAt).getTime()) / 1000))
                 : Math.max(0, Math.floor((Date.now() - new Date(cyc.startedAt).getTime()) / 1000));
@@ -1746,7 +1756,7 @@ export function MobileWrapperPage() {
                       <div className="text-[11px] text-slate-400 truncate font-mono-tab mt-0.5">{cyc.cycleCode}</div>
                     </div>
                     <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${statusBadge}`}>
-                      {cyc.status === 'IN_PROGRESS' ? 'In Progress' : cyc.status === 'COMPLETED' ? 'Completed' : 'Terminated'}
+                      {statusUi.label}
                     </span>
                   </div>
                   <div className="mt-2.5 grid grid-cols-3 gap-2">
@@ -1822,10 +1832,8 @@ export function MobileWrapperPage() {
           const durLabel = durSec >= 3600
             ? `${Math.floor(durSec / 3600)}h ${Math.floor((durSec % 3600) / 60)}m`
             : `${Math.floor(durSec / 60)}m ${durSec % 60}s`;
-          const statusBadge =
-            cycleDetail.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-            cycleDetail.status === 'TERMINATED' ? 'bg-rose-50 text-rose-700 border-rose-200' :
-            'bg-blue-50 text-blue-700 border-blue-200';
+          const detailStatusUi = cycleStatusUi(cycleDetail);
+          const statusBadge = detailStatusUi.badge;
           return (
             <div className="p-4 space-y-3 max-w-2xl mx-auto">
               {/* Header strip */}
@@ -1835,7 +1843,7 @@ export function MobileWrapperPage() {
                   Cycles
                 </button>
                 <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border ${statusBadge}`}>
-                  {cycleDetail.status === 'IN_PROGRESS' ? 'In Progress' : cycleDetail.status === 'COMPLETED' ? 'Completed' : 'Terminated'}
+                  {detailStatusUi.label}
                 </span>
               </div>
 

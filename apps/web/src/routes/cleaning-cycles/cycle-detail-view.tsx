@@ -205,6 +205,15 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
                 </div>
               );
             })}
+            {/* Cycle ended by retire/replace → terminal chip after the last stage. */}
+            {(eff === 'REPLACED' || eff === 'RETIRED') && (
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="w-3 h-0.5 shrink-0 bg-slate-200" />
+                <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold justify-center border ${eff === 'RETIRED' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-purple-50 text-purple-700 border-purple-200'}`}>
+                  {eff === 'RETIRED' ? 'Retired' : 'Replaced'}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
