@@ -122,6 +122,9 @@ export const AUDIT_ACTIONS = {
   // System Config
   SYSTEM_CONFIG_UPDATED: 'SYSTEM_CONFIG_UPDATED',
   SERVER_RESTART_TRIGGERED: 'SERVER_RESTART_TRIGGERED',
+
+  // Guest (unauthenticated) activity
+  GUEST_CLEANING_REQUEST_SUBMITTED: 'GUEST_CLEANING_REQUEST_SUBMITTED',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

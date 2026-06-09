@@ -366,6 +366,11 @@ export function MobileLoginPage() {
                 Force Login (Disconnect Other Session)
               </button>
             )}
+
+            <button onClick={() => navigate('/guest-request')}
+              className="w-full py-3 bg-white border border-slate-200 text-slate-600 rounded-xl font-semibold text-sm active:bg-slate-50 transition-all">
+              Guest — Filter Cleaning Request
+            </button>
           </div>
 
           {/* Company info */}

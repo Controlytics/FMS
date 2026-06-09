@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { stripHtml } from '../../lib/sanitize.js';
 import { createNotification } from '../notifications/notification.service.js';
+import { auditLog } from '../../lib/audit.js';
 
 // Lightweight in-memory per-IP throttle for the PUBLIC guest endpoint (no
 // @fastify/rate-limit dependency — same in-process style as rpc-cache). Sliding
@@ -76,6 +77,21 @@ export default async function guestRoutes(app: FastifyInstance) {
       title: `Filter Cleaning Request from ${name} (${employeeId})`,
       message: [`Block: ${block}`, `Area: ${area}`, `AHU: ${ahu}`, `Filter: ${filter}`].join('\n'),
       metadata: { name, employeeId, block, area, ahu, filter, source: 'guest' },
+    });
+
+    // 21 CFR §11.10(e): record the guest activity in the tamper-evident audit
+    // trail. No user account exists, so the guest's self-declared name + employee
+    // ID identify the actor; userRole 'GUEST' marks it as an unauthenticated path.
+    await auditLog({
+      userId: `${name} (${employeeId})`,
+      userName: name,
+      userRole: 'GUEST',
+      action: 'GUEST_CLEANING_REQUEST_SUBMITTED',
+      targetType: 'guest_cleaning_request',
+      afterValue: { name, employeeId, block, area, ahu, filter },
+      reason: `Guest filter cleaning request — ${block} / ${area} / ${ahu} / ${filter}`,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
     });
 
     return { success: true };
