@@ -6,7 +6,6 @@ import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { usePaginationDefaults } from '../../hooks/use-pagination-config';
 import { useReportConfig } from '@/hooks/use-report-config';
 import { useReportLabels } from '../../hooks/use-report-labels';
-import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { Pagination } from '@/components/ui/pagination';
 import { createReport } from '../../lib/pdf-report';
 import type { CleaningCycle, FilterInstance, PaginatedResponse } from '../../types/filter';
@@ -228,16 +227,10 @@ export function CleaningCycleHistoryPage() {
         </div>
       </div>
 
-      {/* Table — fills remaining space */}
-      <ReportPageWrapper
-        title={ccL.title}
-        totalRecords={total}
-        page={page}
-        totalPages={totalPages}
-      >
-      {/* Bounded-height scroll box: table scrolls both ways INSIDE here so the
-          horizontal scrollbar stays in the viewport (not pushed below all rows). */}
-      <div className="flex-1 overflow-auto max-h-[calc(100vh-26rem)]">
+      {/* Table — fills ALL remaining height between header and pagination, so a
+          full page of rows is visible (flex-1 + min-h-0 make the scroll area grow
+          to the available space instead of being capped to a few rows). */}
+      <div className="flex-1 min-h-0 overflow-auto">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3">
             <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
@@ -352,7 +345,6 @@ export function CleaningCycleHistoryPage() {
           </table>
         )}
       </div>
-      </ReportPageWrapper>
 
       {/* Pagination — fixed bottom */}
       {records.length > 0 && (
