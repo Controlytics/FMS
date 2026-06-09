@@ -3,6 +3,31 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { stripHtml } from '../../lib/sanitize.js';
 import { createNotification } from '../notifications/notification.service.js';
 
+// Lightweight in-memory per-IP throttle for the PUBLIC guest endpoint (no
+// @fastify/rate-limit dependency — same in-process style as rpc-cache). Sliding
+// window: at most MAX_PER_WINDOW requests per IP per WINDOW_MS. Bounded memory.
+const WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+const MAX_PER_WINDOW = 5;
+const guestHits = new Map<string, number[]>();
+
+function allowGuestRequest(ip: string): boolean {
+  const now = Date.now();
+  const recent = (guestHits.get(ip) ?? []).filter((t) => now - t < WINDOW_MS);
+  if (recent.length >= MAX_PER_WINDOW) {
+    guestHits.set(ip, recent);
+    return false;
+  }
+  recent.push(now);
+  guestHits.set(ip, recent);
+  // Opportunistic cleanup so the map can't grow unbounded.
+  if (guestHits.size > 5000) {
+    for (const [k, v] of guestHits) {
+      if (v.every((t) => now - t >= WINDOW_MS)) guestHits.delete(k);
+    }
+  }
+  return true;
+}
+
 // Registered at /api/guest (see app.ts). PUBLIC — no auth (guest login flow).
 // The only endpoint is a guest "filter cleaning request" that drops a
 // GUEST_CLEANING_REQUEST notification, gated to the configured recipient roles.
@@ -29,6 +54,9 @@ export default async function guestRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses },
     },
   }, async (req, reply) => {
+    if (!allowGuestRequest(req.ip)) {
+      return reply.code(429).send({ error: 'RATE_LIMITED', message: 'Too many requests. Please try again later.' });
+    }
     const b = req.body as Record<string, unknown>;
     const name = clean(b.name, 120);
     const employeeId = clean(b.employeeId, 60);
