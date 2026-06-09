@@ -7,6 +7,7 @@ import { usePaginationDefaults } from '../../hooks/use-pagination-config';
 import { useReportConfig } from '@/hooks/use-report-config';
 import { useReportLabels } from '../../hooks/use-report-labels';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
+import { Pagination } from '@/components/ui/pagination';
 import { createReport } from '../../lib/pdf-report';
 import type { CleaningCycle, FilterInstance, PaginatedResponse } from '../../types/filter';
 // Stage/dryer logic + column order live in a shared module so this list and the
@@ -158,22 +159,6 @@ export function CleaningCycleHistoryPage() {
 
       report.save(`cleaning-cycles-${selectedFilterName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally { setDownloading(false); }
-  };
-
-  const getPageNumbers = () => {
-    const pages: (number | '...')[] = [];
-    if (totalPages <= 7) {
-      for (let i = 1; i <= totalPages; i++) pages.push(i);
-    } else {
-      pages.push(1);
-      if (page > 3) pages.push('...');
-      const start = Math.max(2, page - 1);
-      const end = Math.min(totalPages - 1, page + 1);
-      for (let i = start; i <= end; i++) pages.push(i);
-      if (page < totalPages - 2) pages.push('...');
-      pages.push(totalPages);
-    }
-    return pages;
   };
 
   return (
@@ -409,62 +394,15 @@ export function CleaningCycleHistoryPage() {
 
       {/* Pagination — fixed bottom */}
       {(view === 'cycles' ? cycles.length : manualChanges.length) > 0 && (
-        <div className="px-6 py-3 border-t border-slate-200 bg-white shrink-0 flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-3 text-[13px] text-slate-600">
-            <span className="text-slate-400 font-medium">Rows per page:</span>
-            <div className="flex items-center gap-0.5">
-              {paginationOptions.map((opt) => (
-                <button key={opt} onClick={() => { setPerPage(opt); setPage(1); }}
-                  className={`px-3 py-1.5 rounded-lg text-[13px] font-semibold transition-all ${
-                    perPage === opt ? 'bg-cyan-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
-                  }`}>
-                  {opt}
-                </button>
-              ))}
-            </div>
-            <span className="text-slate-200 mx-1">|</span>
-            <span className="text-slate-500">
-              Showing <span className="font-semibold text-slate-700">{(page - 1) * perPage + 1}</span>
-              {' '}-{' '}
-              <span className="font-semibold text-slate-700">{Math.min(page * perPage, total)}</span>
-              {' '}of{' '}
-              <span className="font-semibold text-slate-700">{total.toLocaleString()}</span>
-            </span>
-          </div>
-          <div className="flex items-center gap-1">
-            <button onClick={() => setPage(1)} disabled={page <= 1}
-              className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
-              title="First page">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" /></svg>
-            </button>
-            <button onClick={() => setPage(p => p - 1)} disabled={page <= 1}
-              className="px-3 h-9 rounded-lg text-[13px] font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-25 disabled:cursor-not-allowed transition-colors">
-              Previous
-            </button>
-            <div className="flex items-center gap-0.5 mx-1">
-              {getPageNumbers().map((p, i) =>
-                p === '...' ? (
-                  <span key={`dots-${i}`} className="w-9 text-center text-[13px] text-slate-300">...</span>
-                ) : (
-                  <button key={p} onClick={() => setPage(p as number)}
-                    className={`w-9 h-9 rounded-lg text-[13px] font-semibold transition-all ${
-                      page === p ? 'bg-cyan-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
-                    }`}>
-                    {p}
-                  </button>
-                ),
-              )}
-            </div>
-            <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages}
-              className="px-3 h-9 rounded-lg text-[13px] font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-25 disabled:cursor-not-allowed transition-colors">
-              Next
-            </button>
-            <button onClick={() => setPage(totalPages)} disabled={page >= totalPages}
-              className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
-              title="Last page">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>
-            </button>
-          </div>
+        <div className="border-t border-slate-200 bg-white shrink-0">
+          <Pagination
+            page={page}
+            pageSize={perPage}
+            totalItems={total}
+            onPageChange={setPage}
+            onPageSizeChange={setPerPage}
+            pageSizeOptions={paginationOptions}
+          />
         </div>
       )}
     </div>

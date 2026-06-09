@@ -10,6 +10,7 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { api } from '@/lib/api-client';
 import { retireOrReplaceFilter } from '@/lib/filter-lifecycle-actions';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
+import { Pagination } from '@/components/ui/pagination';
 import { themeGradientBr, themeButton } from '@/lib/theme-styles';
 
 import { STATUS_LABELS, LIFECYCLE_STATE_OPTIONS } from './filter-list/constants';
@@ -459,12 +460,14 @@ export function FilterListPage() {
 
   const selectedBlockName = selectedBlock ? (instanceMap.get(selectedBlock)?.name ?? 'Block') : '';
 
-  // Pagination computed
+  // Pagination computed (client-side slice). safePage clamps page when the
+  // filtered list shrinks below the current page (e.g. after a filter change).
   const totalPages = Math.max(1, Math.ceil(blockFilters.length / perPage));
+  const safePage = Math.min(page, totalPages);
   const paginatedFilters = useMemo(() => {
-    const start = (page - 1) * perPage;
+    const start = (safePage - 1) * perPage;
     return blockFilters.slice(start, start + perPage);
-  }, [blockFilters, page, perPage]);
+  }, [blockFilters, safePage, perPage]);
 
   const openStatusPanel = (filter: { id: string; name: string; currentState: string | null }) => {
     // closePanel is declared further below — both are arrow consts and only
@@ -1573,7 +1576,7 @@ export function FilterListPage() {
                                 className="w-4 h-4 rounded border-slate-300 text-[var(--theme-primary)] focus:ring-[var(--theme-focus-ring)] cursor-pointer" />
                             ) : <div className="w-4 h-4" />}
                           </td>
-                          <td className="w-12 text-center px-2 py-2.5 text-sm text-slate-400 font-medium">{(page - 1) * perPage + idx + 1}</td>
+                          <td className="w-12 text-center px-2 py-2.5 text-sm text-slate-400 font-medium">{(safePage - 1) * perPage + idx + 1}</td>
                           {showAreaColumn && (
                             <td className="px-2 py-2">
                               {f.areaId ? (
@@ -1697,61 +1700,16 @@ export function FilterListPage() {
                   );
                 })()}
               </div>
-              {/* Pagination Footer */}
-              <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
-                <div className="flex items-center gap-3 text-sm text-slate-500">
-                  <span>Rows per page:</span>
-                  <div className="flex items-center gap-1">
-                    {paginationOptions.map(opt => (
-                      <button key={opt} onClick={() => { setPerPage(opt); setPage(1); }}
-                        className={`px-2.5 py-1 rounded-md text-sm font-medium transition-all ${
-                          perPage === opt ? 'bg-[var(--theme-primary)] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
-                        }`}>
-                        {opt}
-                      </button>
-                    ))}
-                  </div>
-                  <span className="text-slate-300">|</span>
-                  <span>
-                    Page <span className="font-semibold text-slate-800">{page}</span> of{' '}
-                    <span className="font-semibold text-slate-800">{totalPages}</span>
-                    <span className="text-slate-400 ml-2">({blockFilters.length} total{selectedFilterIds.size > 0 ? ` · ${selectedFilterIds.size} selected` : ''})</span>
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button disabled={page <= 1} onClick={() => setPage(1)}
-                    className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" /></svg>
-                  </button>
-                  <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}
-                    className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                    Prev
-                  </button>
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    let pn: number;
-                    if (totalPages <= 5) pn = i + 1;
-                    else if (page <= 3) pn = i + 1;
-                    else if (page >= totalPages - 2) pn = totalPages - 4 + i;
-                    else pn = page - 2 + i;
-                    return (
-                      <button key={pn} onClick={() => setPage(pn)}
-                        className={`w-8 h-8 rounded-lg text-sm font-medium transition-all ${
-                          pn === page ? 'bg-[var(--theme-primary)] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
-                        }`}>
-                        {pn}
-                      </button>
-                    );
-                  })}
-                  <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}
-                    className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                    Next
-                  </button>
-                  <button disabled={page >= totalPages} onClick={() => setPage(totalPages)}
-                    className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>
-                  </button>
-                </div>
-              </div>
+              {/* Pagination */}
+              <Pagination
+                className="border-t border-slate-100 bg-slate-50/60"
+                page={safePage}
+                pageSize={perPage}
+                totalItems={blockFilters.length}
+                onPageChange={setPage}
+                onPageSizeChange={setPerPage}
+                pageSizeOptions={paginationOptions}
+              />
             </div>
           )}
           </>
