@@ -14,9 +14,13 @@ interface CleaningReasonDialogProps {
   loading: boolean;
   error: string;
   onClearError: () => void;
+  // When the filter is PM-due: pre-select this reason (PM) and show a banner so
+  // the operator confirms PM or picks another reason.
+  defaultReasonKey?: string;
+  pmDue?: boolean;
 }
 
-export function CleaningReasonDialog({ dialog, onClose, onSubmit, loading, error, onClearError }: CleaningReasonDialogProps) {
+export function CleaningReasonDialog({ dialog, onClose, onSubmit, loading, error, onClearError, defaultReasonKey, pmDue }: CleaningReasonDialogProps) {
   const [selectedReason, setSelectedReason] = useState('');
   const [justification, setJustification] = useState('');
 
@@ -33,10 +37,10 @@ export function CleaningReasonDialog({ dialog, onClose, onSubmit, loading, error
   // Reset internal state when dialog opens/closes
   useEffect(() => {
     if (dialog) {
-      setSelectedReason('');
+      setSelectedReason(defaultReasonKey ?? '');
       setJustification('');
     }
-  }, [dialog]);
+  }, [dialog, defaultReasonKey]);
 
   if (!dialog) return null;
 
@@ -48,6 +52,12 @@ export function CleaningReasonDialog({ dialog, onClose, onSubmit, loading, error
           <p className="text-cyan-100 text-sm">{dialog.filterName} &rarr; {dialog.stage.label}</p>
         </div>
         <div className="p-6 space-y-4">
+          {pmDue && (
+            <div className="px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800">
+              This filter is in the <span className="font-semibold">PM schedule</span>. Reason defaults to <span className="font-semibold">PM</span> — confirm to continue, or pick another reason.
+              <span className="block text-xs text-emerald-600 mt-0.5">A non-PM reason will leave this task pending in My Tasks.</span>
+            </div>
+          )}
           <div className="space-y-2">
             {cleaningReasons.filter((r: any) => r.isActive !== false).map((r: any) => (
               <button key={r.key} onClick={() => { setSelectedReason(r.key); onClearError(); }}

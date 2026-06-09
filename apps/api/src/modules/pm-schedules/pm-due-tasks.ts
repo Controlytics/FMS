@@ -41,6 +41,27 @@ export async function getDueTasks(_ctx: RequestContext) {
   // 30 days ago — avoids serving years of stale history on every request.
   const overdueHorizon = new Date(now.getTime() - 30 * 86400000);
 
+  // A PM task is only satisfied by a cleaning performed with the PM reason.
+  // A clean done with any OTHER reason leaves the task PENDING (it was not the
+  // scheduled PM). Resolve the configured PM reason key(s): key/name === 'PM'
+  // (case-insensitive, active). Fallback to literal 'PM' when none configured.
+  const reasonsCfg = await prisma.systemConfig.findUnique({ where: { configKey: 'filter-cleaning-reasons' } });
+  const rawReasons = reasonsCfg?.configValue as any;
+  const reasonList: any[] = Array.isArray(rawReasons) ? rawReasons : (Array.isArray(rawReasons?.value) ? rawReasons.value : []);
+  const pmReasonKeys = new Set<string>(
+    reasonList
+      .filter((r: any) => r && r.isActive !== false && (
+        (typeof r.key === 'string' && r.key.toUpperCase() === 'PM') ||
+        (typeof r.name === 'string' && r.name.toUpperCase() === 'PM')
+      ))
+      .map((r: any) => r.key),
+  );
+  // Only enforce the "PM reason completes the PM task" rule when a PM reason
+  // actually exists. If no PM reason is configured there's nothing to distinguish,
+  // so fall back to the legacy behaviour (any cleaning in the window completes it)
+  // rather than leaving every PM task stuck pending forever.
+  const enforcePmReason = pmReasonKeys.size > 0;
+
   // Fetch candidate entries (in window OR recently overdue) — only APPROVED entries
   const entries = await prisma.pmScheduleEntry.findMany({
     where: {
@@ -194,13 +215,17 @@ export async function getDueTasks(_ctx: RequestContext) {
       // overdue task — a catch-up clean started after the window closed.
       const inProgress = cycles.find(c =>
         c.status === 'IN_PROGRESS'
+        && (!enforcePmReason || pmReasonKeys.has(c.cleaningReasonKey))
         && (windowClosed ? c.startedAt >= entry.windowStart : c.startedAt <= entry.windowEnd),
       );
       // COMPLETED cycle that counts toward this entry: completed on/after the
       // window opened, and — unless the task is already overdue — on/before it
       // closed (a late clean is exactly what resolves an overdue task).
+      // Only cleanings done with the PM reason satisfy the PM task; a clean with
+      // any other reason leaves the filter PENDING here.
       const cleaned = cycles.find(c =>
         c.completedAt != null
+        && (!enforcePmReason || pmReasonKeys.has(c.cleaningReasonKey))
         && c.completedAt >= entry.windowStart
         && (windowClosed || c.completedAt <= entry.windowEnd),
       );

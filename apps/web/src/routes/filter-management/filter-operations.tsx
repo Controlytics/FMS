@@ -173,6 +173,8 @@ export function FilterOperationsPage() {
     : null;
 
   const [reasonError, setReasonError] = useState('');
+  // PM-due context for the reason dialog: pre-select PM + show the PM banner.
+  const [pmReasonCtx, setPmReasonCtx] = useState<{ pmDue: boolean; defaultReasonKey?: string }>({ pmDue: false });
 
   // Toast notification (appears at top, auto-dismisses)
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -657,61 +659,14 @@ export function FilterOperationsPage() {
         }
       }
 
-      // Need cycle start
+      // Need cycle start — always confirm the reason via the dialog. For a
+      // PM-due filter, pre-select PM + show a "PM schedule" banner so the
+      // operator confirms PM (completes the My Tasks PM task) or picks another
+      // reason (which leaves the PM task pending). No more silent PM auto-start.
       if (!state.currentCycle) {
-        // Gap 7: PM auto-start — if filter's AHU has an active PM schedule, auto-start with PM reason
-        if (state.isPmDue && state.pmReasonKey) {
-          const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
-          const blockId = selectedBlock?.id;
-          let pmSuccess = 0;
-          const pmFailed: string[] = [];
-          let blockChangePopped = false;
-          for (const item of batch) {
-            const cyclePayload = { cleaningReasonKey: state.pmReasonKey, cleaningAreaId: blockId };
-            const advancePayload = { targetState: activeStage.key, cleaningAreaId: blockId, remarks: remarks || `${activeStage.label} - ${item.filterName} (PM auto)` };
-            try {
-              await executeOrQueue('start-and-advance', item.filterId, item.filterName, { cyclePayload, advancePayload } as any, activeStage.key);
-              pmSuccess++;
-            } catch (e: any) {
-              // B7.2: PM auto-start goes through `start-and-advance` → start-cycle →
-              // validateBlockChange. The proactive `state.blockChangeStatus === 'REQUIRED'`
-              // check at line 661 covers most cases via the cached state, but a stale-cache
-              // or race can still surface the structured 409 here. Mirror the mobile pattern
-              // (mobile-operations.tsx:1015-1022) and pop the existing block-change modal.
-              if (e?.code === 'BLOCK_CHANGE_REQUIRED' && e?.connectionInfo) {
-                if (!blockChangePopped) {
-                  core.dispatch({
-                    type: 'open_block_change',
-                    filterId: e.connectionInfo.filterId ?? item.filterId,
-                    filterName: item.filterName,
-                    homeBlockId: e.connectionInfo.homeBlockId,
-                    homeBlockName: e.connectionInfo.homeBlockName,
-                    requestedBlockId: e.connectionInfo.requestedBlockId,
-                    requestedBlockName: e.connectionInfo.requestedBlockName,
-                  });
-                  setBlockChangeReason('');
-                  blockChangePopped = true;
-                }
-                pmFailed.push(`${item.filterName}: Block change approval required`);
-              } else {
-                pmFailed.push(`${item.filterName}: ${e?.message ?? 'failed'}`);
-              }
-            }
-          }
-          if (pmFailed.length > 0 && !blockChangePopped) {
-            setPopupError(`${pmSuccess} succeeded, ${pmFailed.length} failed:\n${pmFailed.join('\n')}`);
-          } else if (pmFailed.length === 0) {
-            setToast({ type: 'success', message: `${batch.length} filter(s) → ${activeStage.label} (PM auto)` });
-          }
-          clearScanState();
-          refreshFilters();
-          setLoading(false); setSubmitting(false);
-          return;
-        }
-
-        // No PM — show reason dialog
         const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
         setPendingBatch(batch);
+        setPmReasonCtx(state.isPmDue && state.pmReasonKey ? { pmDue: true, defaultReasonKey: state.pmReasonKey } : { pmDue: false });
         clearScanState();
         core.dispatch({ type: 'open_reason', filterId: first.filterId, filterName: `${batch.length} filter(s)`, stage: activeStage.key });
         setReasonError('');
@@ -1508,7 +1463,7 @@ export function FilterOperationsPage() {
             setPopupError={setPopupError}
           />
         )}
-        <CleaningReasonDialog dialog={reasonDialog} onClose={() => { core.dispatch({ type: 'close' }); setReasonError(''); }} onSubmit={handleReasonSubmit} loading={loading} error={reasonError} onClearError={() => setReasonError('')} />
+        <CleaningReasonDialog dialog={reasonDialog} onClose={() => { core.dispatch({ type: 'close' }); setReasonError(''); }} onSubmit={handleReasonSubmit} loading={loading} error={reasonError} onClearError={() => setReasonError('')} defaultReasonKey={pmReasonCtx.defaultReasonKey} pmDue={pmReasonCtx.pmDue} />
         <EquipmentDialog dialog={equipmentDialog} onClose={() => core.dispatch({ type: 'close' })} onSubmit={handleEquipmentSubmit} loading={equipmentLoading} error={equipmentError} />
         <DryerDurationDialog open={!!dryerDialog} filterName={dryerDialog?.filterName ?? ''} loading={dryerLoading} error={dryerError} onClose={() => { core.dispatch({ type: 'close' }); setDryerError(''); }} onSubmit={handleDryerDurationSubmit} />
         <ChecklistDialog dialog={checklistDialog} onClose={() => core.dispatch({ type: 'close' })} onSubmit={handleChecklistSubmit} loading={checklistLoading} error={checklistError} />
@@ -1685,6 +1640,8 @@ export function FilterOperationsPage() {
         loading={loading}
         error={reasonError}
         onClearError={() => setReasonError('')}
+        defaultReasonKey={pmReasonCtx.defaultReasonKey}
+        pmDue={pmReasonCtx.pmDue}
       />
 
       {/* Equipment Group & Instrument Readings Dialog */}

@@ -158,6 +158,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const dryerDialog = core.dialogState.kind === 'awaiting_dryer' ? core.dialogState : null;
   const checklistDialog = core.dialogState.kind === 'awaiting_checklist' ? core.dialogState : null;
   const [selectedReason, setSelectedReason] = useState('');
+  const [pmReasonDue, setPmReasonDue] = useState(false); // show PM banner in reason picker
   const [justification, setJustification] = useState('');
   const [selectedEquipGroup, setSelectedEquipGroup] = useState<any>(null);
   const [readings, setReadings] = useState<Record<string, number>>({});
@@ -827,6 +828,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           });
           setSelectedReason('');
           setJustification('');
+          setPmReasonDue(false);
           // Drop the queue — the reason dialog (carrying remainingBatch)
           // drives the rest of the flow. Equipment-submit will iterate.
           setScanQueue([]); setDryerDurations({});
@@ -1434,68 +1436,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // Check if there's an active cycle — no cycle means we need to start one (reason dialog)
       const hasActiveCycle = !!state.currentCycle;
       if (!hasActiveCycle) {
-        // PM auto-start: if the filter's AHU is currently in a PM schedule
-        // window and a "PM" cleaning reason is configured, skip the reason
-        // dialog and start the cycle with PM as the reason. Falls through
-        // to the normal equipment-group / advance flow below.
-        if (state.isPmDue && state.pmReasonKey) {
-          const fName = filterName || state.filterName;
-          const cyclePayload = { cleaningReasonKey: state.pmReasonKey, cleaningAreaId: selectedBlock?.id };
-          const advancePayload = { targetState: activeStage.key, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${activeStage.label} - ${fName} (PM auto)` };
-
-          // START_CLEANING_CYCLE is reauth-gated for ADMIN role (see
-          // system_config['action-reauth']). Wrap the compound op so the
-          // password dialog appears when policy demands it. Pre-fix mobile
-          // bypassed reauth entirely on cycle ops — an ADMIN on mobile
-          // could start cycles without re-entering their password.
-          await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
-            const { executed: cycleStarted } = await core.startAndAdvance({
-              filterId,
-              filterName: fName,
-              cyclePayload,
-              advancePayload,
-              targetState: activeStage.key,
-              cleaningAreaId: selectedBlock?.id,
-              password,
-            });
-
-            // If WASH_IN and a block is selected, the equipment-group dialog
-            // may be required before advance — mirror handleReasonSubmit.
-            if (cycleStarted && activeStage.key === 'WASH_IN' && selectedBlock?.id) {
-              let groups: any[] = [];
-              if (online) {
-                try { groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${selectedBlock.id}`) ?? []; } catch { /* fall through with empty groups → no equipment dialog */ }
-              } else {
-                const cachedGroups = await getCache<any[]>('equipment-groups') ?? [];
-                groups = cachedGroups.filter((g: any) => g.blockId === selectedBlock.id);
-              }
-              if (groups.length > 0) {
-                core.dispatch({ type: 'open_equipment', filterId, filterName: fName, stage: activeStage.key, groups });
-                setSelectedEquipGroup(null); setReadings({});
-                return;
-              }
-            }
-            setSuccess(`${fName} → ${activeStage.label} (PM auto${cycleStarted ? '' : ', queued'})`);
-            setRecentOps(prev => [{ stage: activeStage.key, filter: fName, time: formatTime(new Date()), queued: !cycleStarted }, ...prev].slice(0, 20));
-            setScanValue(''); setRemarks('');
-            if (cycleStarted) mutate('/api/assets/instances?limit=500');
-            // Dialog + checklist dispatch handled by core.startAndAdvance
-          }, {
-            onError: (e: any) => {
-              if (e?.code === 'BLOCK_CHANGE_REQUIRED' && e?.connectionInfo) {
-                core.dispatch({ type: 'open_block_change', filterId: e.connectionInfo.filterId, filterName: filterName || state.filterName, homeBlockId: e.connectionInfo.homeBlockId, homeBlockName: e.connectionInfo.homeBlockName, requestedBlockId: e.connectionInfo.requestedBlockId, requestedBlockName: e.connectionInfo.requestedBlockName });
-                setBlockChangeReason('');
-                return;
-              }
-              setError(e?.message ?? 'Failed to auto-start PM cycle');
-            },
-          });
-          setLoading(false); return;
-        }
-
-        // No PM match — ask for a wash-in reason as before
+        // Don't silently auto-start PM. Open the reason picker; for a PM-due
+        // filter, pre-select PM + flag it so the picker shows the PM banner.
+        // Operator confirms PM (completes the My Tasks PM task) or picks another
+        // reason (which leaves the PM task pending).
+        const isPm = !!(state.isPmDue && state.pmReasonKey);
         core.dispatch({ type: 'open_reason', filterId, filterName: filterName || state.filterName, stage: activeStage.key });
-        setSelectedReason(''); setJustification(''); setLoading(false); return;
+        setSelectedReason(isPm ? state.pmReasonKey! : '');
+        setJustification('');
+        setPmReasonDue(isPm);
+        setLoading(false); return;
       }
       if (activeStage.key === 'DRY_IN') {
         const cyc = state.currentCycle ?? {};
@@ -2950,6 +2900,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           <div className="bg-white rounded-t-3xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl animate-slide-up">
             <div className="bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-4 rounded-t-3xl"><h2 className="text-lg font-bold text-white">Cleaning Reason</h2><p className="text-cyan-100 text-sm">{reasonDialog.filterName}</p></div>
             <div className="p-5 space-y-3 overflow-y-auto flex-1">
+              {pmReasonDue && (
+                <div className="px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800">
+                  This filter is in the <span className="font-semibold">PM schedule</span>. Reason defaults to <span className="font-semibold">PM</span> — confirm to continue, or pick another reason.
+                  <span className="block text-xs text-emerald-600 mt-0.5">A non-PM reason leaves this task pending in My Tasks.</span>
+                </div>
+              )}
               {cleaningReasons.filter((r: any) => r.isActive !== false).map((r: any) => (
                 <button key={r.key} onClick={() => setSelectedReason(r.key)} className={`w-full text-left px-4 py-3 rounded-xl border-2 ${selectedReason === r.key ? 'border-cyan-500 bg-cyan-50' : 'border-slate-200'}`}>
                   <div className="text-sm font-medium text-slate-800">{r.name}</div>
