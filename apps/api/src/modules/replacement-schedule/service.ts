@@ -222,21 +222,20 @@ export async function processUpload(
     const sch = await tx.replacementSchedule.create({
       data: { fileName: fileName ?? null, status: 'ACTIVE', uploadedBy: ctx.userSub, uploadedByName: ctx.userId },
     });
-    for (const c of toCreate) {
-      await tx.replacementScheduleEntry.create({
-        data: {
-          scheduleId: sch.id, slNo: c.slNo, ahuId: c.ahuId, ahuName: c.ahuName,
-          filterMicron: c.filterMicron, filterSize: c.filterSize, qty: c.qty,
-          scheduleDate: new Date(`${c.scheduleDate}T00:00:00Z`),
-          toleranceDays: c.toleranceDays,
-          windowStart: new Date(`${c.windowStart}T00:00:00Z`),
-          windowEnd: new Date(`${c.windowEnd}T00:00:00Z`),
-          status: 'PENDING',
-          approvalStatus,
-          submittedBy: ctx.userSub, submittedByName: ctx.userId,
-        },
-      });
-    }
+    // Audit 2026-06-08: single createMany instead of N per-row inserts.
+    await tx.replacementScheduleEntry.createMany({
+      data: toCreate.map((c) => ({
+        scheduleId: sch.id, slNo: c.slNo, ahuId: c.ahuId, ahuName: c.ahuName,
+        filterMicron: c.filterMicron, filterSize: c.filterSize, qty: c.qty,
+        scheduleDate: new Date(`${c.scheduleDate}T00:00:00Z`),
+        toleranceDays: c.toleranceDays,
+        windowStart: new Date(`${c.windowStart}T00:00:00Z`),
+        windowEnd: new Date(`${c.windowEnd}T00:00:00Z`),
+        status: 'PENDING' as const,
+        approvalStatus,
+        submittedBy: ctx.userSub, submittedByName: ctx.userId,
+      })),
+    });
     return sch;
   });
 

@@ -122,6 +122,23 @@ would produce false positives, which is the opposite of the goal.
 
 ---
 
+## Follow-up fixes APPLIED (2026-06-09, signed off)
+- **Reauth wired on the 3 high-trust gaps:** `PUT /config/users/:userId` → new
+  `UPDATE_USER_CONFIG`; retention `execute-range`/`delete-keys`/`delete-records` → reuse
+  `EXECUTE_RETENTION`; device-credential `POST`/`DELETE /:entityId/token` → new
+  `MANAGE_DEVICE_CREDENTIAL`. (Gate is now present + configurable via Action-Reauth, matching
+  the rest of the app — challenges fire when an admin maps the action to a role.)
+- **Indexes added:** `cleaning_cycles(equipment_group_id)`, `cleaning_cycles(profile_id)`,
+  `filter_profiles(cleaning_profile_id)` (schema `@@index` + idempotent `CREATE INDEX`).
+- **N+1:** replacement-schedule upload loop → single `createMany`.
+- **Dead column dropped:** `device_credentials.device_fingerprint` (0 refs; schema + DDL).
+- tsc clean (api/web/shared); Prisma client regenerated; API restarted + smoke-checked.
+
+**Deferred (Needs Manual Review — risk > benefit right now):** hierarchy tree-walkers
+(`collectDescendantIds`/`getDescendantIds`) → recursive CTE — touches hierarchy correctness on
+a regulated system; warrants its own tested change. `ElectronicSignature` wire-or-retire
+decision. notification-dispatcher per-row insert loop.
+
 ## Recommended SAFE auto-fixes (pending sign-off)
 1. Delete the 6+ orphaned report/report-templates page files (confirmed dead).
 2. Remove `zod` from `apps/web/package.json`.

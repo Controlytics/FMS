@@ -25,6 +25,11 @@ export const REAUTH_ACTIONS = {
   UPDATE_USERID_CONFIG: { label: 'Update User ID Config', category: 'Configuration' },
   UPDATE_BRANDING: { label: 'Update Branding', category: 'Configuration' },
   UPDATE_ROLE_CONFIG: { label: 'Update Role Config', category: 'Configuration' },
+  // Audit 2026-06-08: PUT /api/config/users/:userId can grant per-user PERMISSION
+  // overrides (privilege escalation) — dedicated reauth key + unambiguous audit.
+  UPDATE_USER_CONFIG: { label: 'Update User Config', category: 'Configuration' },
+  // Audit 2026-06-08: minting/revoking a device ingest credential is a high-trust op.
+  MANAGE_DEVICE_CREDENTIAL: { label: 'Manage Device Credential', category: 'Configuration' },
   // C6 (review 2026-05-04): the action-reauth save itself was a privilege
   // escalation — anyone with CONFIG_UPDATE could PUT /api/config/action-reauth
   // without challenge, including disabling reauth on DELETE_USER then deleting

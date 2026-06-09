@@ -159,7 +159,9 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
         },
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_USER_CONFIG', req, reply);
+    if (!ok) return;
     const { userId } = req.params as { userId: string };
     const { sidebarItems, homeWidgets, permissions } = req.body as {
       sidebarItems?: string[];

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { randomBytes } from 'node:crypto';
 import { errorResponses } from '../../lib/error-schemas.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 import { provisionUnsMapping } from '../uns/uns.service.js';
 import { getEntityUnsPath } from '../../lib/uns-path.js';
 import { renderSnippets } from './snippets/index.js';
@@ -291,6 +292,8 @@ export default async function connectivityRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('MANAGE_DEVICE_CREDENTIAL', req, reply);
+    if (!ok) return;
     const { entityId } = req.params as { entityId: string };
 
     // Verify entity exists
@@ -392,6 +395,8 @@ export default async function connectivityRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('MANAGE_DEVICE_CREDENTIAL', req, reply);
+    if (!ok) return;
     const { entityId } = req.params as { entityId: string };
 
     // Update device credential to inactive

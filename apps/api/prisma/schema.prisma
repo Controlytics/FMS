@@ -758,7 +758,6 @@ model DeviceCredential {
   credentialData     Json?     @map("credential_data") @db.JsonB
   status             String    @default("INACTIVE") @db.VarChar(20) // INACTIVE | ACTIVE
   allowedIps         String[]  @default([]) @map("allowed_ips")
-  deviceFingerprint  String?   @map("device_fingerprint")
   maxDataRatePerMin  Int       @default(600) @map("max_data_rate_per_min")
   isActive           Boolean   @default(true) @map("is_active")
   firstConnectedAt   DateTime? @map("first_connected_at") @db.Timestamptz
@@ -1590,6 +1589,7 @@ model FilterProfile {
   applicableTemplates FilterProfileApplicableTemplate[]
 
   @@index([isActive])
+  @@index([cleaningProfileId]) // audit 2026-06-08: FK lookup
   @@map("filter_profiles")
 }
 
@@ -1698,6 +1698,8 @@ model CleaningCycle {
   @@index([cleaningReasonKey])
   @@index([pmExecutionId])
   @@index([filterId, status, startedAt(sort: Desc)])
+  @@index([equipmentGroupId]) // audit 2026-06-08: FK scanned on group edit/delete
+  @@index([profileId])        // audit 2026-06-08: FK scanned on profile in-use checks
   @@map("cleaning_cycles")
 }
 

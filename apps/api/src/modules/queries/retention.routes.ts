@@ -293,6 +293,8 @@ export default async function retentionRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('EXECUTE_RETENTION', req, reply);
+    if (!ok) return;
     const { dataType, from, to, entityId, confirmed } = req.body as {
       dataType: string;
       from: string;
@@ -403,6 +405,8 @@ export default async function retentionRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('EXECUTE_RETENTION', req, reply);
+    if (!ok) return;
     const { dataType, entityId, keys, confirmed } = req.body as {
       dataType: 'telemetry' | 'attributes';
       entityId: string;
@@ -489,6 +493,8 @@ export default async function retentionRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { ok } = await enforceReauth('EXECUTE_RETENTION', req, reply);
+    if (!ok) return;
     const { dataType, entityId, records, confirmed } = req.body as {
       dataType: 'telemetry' | 'attributes';
       entityId: string;
