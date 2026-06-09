@@ -60,6 +60,33 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
     return service.getCycles(ctx, req.query);
   });
 
+  // Unified Filter Cleaning Record: cleaning cycles + manual status updates merged
+  // into one date-sorted, paginated list (each row tagged _kind: 'cycle' | 'manual').
+  app.get('/cleaning-record', {
+    preHandler: [app.requirePermission('CYCLE_READ')],
+    schema: {
+      tags: ['Cleaning Cycles'],
+      summary: 'Unified cleaning record (cycles + manual status updates)',
+      querystring: {
+        type: 'object',
+        properties: {
+          filterId: { type: 'string', format: 'uuid' },
+          ahuId: { type: 'string', format: 'uuid' },
+          status: { type: 'string', enum: ['IN_PROGRESS', 'COMPLETED', 'TERMINATED'] },
+          cleaningReasonKey: { type: 'string' },
+          from: { type: 'string', format: 'date-time' },
+          to: { type: 'string', format: 'date-time' },
+          page: { type: 'integer', default: 1 },
+          limit: { type: 'integer', default: 20 },
+        },
+      },
+      response: { 200: { type: 'object', properties: { data: { type: 'array' }, total: { type: 'integer' }, page: { type: 'integer' }, limit: { type: 'integer' }, totalPages: { type: 'integer' } } }, ...errorResponses },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    return service.getCleaningRecord(ctx, req.query);
+  });
+
   app.get('/manual-status-changes', {
     preHandler: [app.requirePermission('CYCLE_READ')],
     schema: {

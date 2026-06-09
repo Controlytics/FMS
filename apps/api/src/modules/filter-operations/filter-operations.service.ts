@@ -128,13 +128,15 @@ export class FilterOperationsService {
     if (query.filterId) {
       await getFilter(query.filterId, ctx);
     }
-    const page = query.page ?? 1;
-    const limit = Math.min(query.limit ?? 20, 100);
+    const mIds: string[] | undefined = Array.isArray(query.ids) ? query.ids : undefined;
+    const page = mIds ? 1 : (query.page ?? 1);
+    const limit = mIds ? Math.max(mIds.length, 1) : Math.min(query.limit ?? 20, 100);
     const where: any = {
       eventType: 'STATE_TRANSITION',
       cycleId: null,
       attributes: { path: ['manual'], equals: true },
     };
+    if (mIds) where.id = { in: mIds };
     if (query.filterId) where.filterId = query.filterId;
     if (query.from || query.to) {
       where.performedAt = {};
@@ -166,6 +168,66 @@ export class FilterOperationsService {
       };
     });
     return { data: enriched, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  /**
+   * Unified Filter Cleaning Record: cleaning cycles + manual status updates in a
+   * single date-sorted, paginated list (each row tagged `_kind: 'cycle' | 'manual'`).
+   * A status/reason filter applies only to cycles (manual edits have neither), so
+   * the result is cycles-only in that case. Reuses getCycles / getManualStatusChanges
+   * (via their `ids` mode) for enrichment of just the current page.
+   */
+  async getCleaningRecord(ctx: RequestContext, query: any) {
+    if (query.filterId) await getFilter(query.filterId, ctx);
+    const page = query.page ?? 1;
+    const limit = Math.min(query.limit ?? 20, 100);
+    const fromD = query.from ? new Date(query.from) : null;
+    const toD = query.to ? new Date(query.to) : null;
+
+    if (query.status || query.cleaningReasonKey) {
+      const r = await this.getCycles(ctx, query);
+      return { ...r, data: r.data.map((c: any) => ({ ...c, _kind: 'cycle' })) };
+    }
+
+    const cycleWhere: any = {};
+    if (query.filterId) cycleWhere.filterId = query.filterId;
+    if (query.ahuId) cycleWhere.ahuId = query.ahuId;
+    if (fromD || toD) { cycleWhere.startedAt = {}; if (fromD) cycleWhere.startedAt.gte = fromD; if (toD) cycleWhere.startedAt.lte = toD; }
+
+    const manualWhere: any = { eventType: 'STATE_TRANSITION', cycleId: null, attributes: { path: ['manual'], equals: true } };
+    if (query.filterId) manualWhere.filterId = query.filterId;
+    if (fromD || toD) { manualWhere.performedAt = {}; if (fromD) manualWhere.performedAt.gte = fromD; if (toD) manualWhere.performedAt.lte = toD; }
+
+    const CAP = 5000; // safety cap on the lightweight merge index
+    const [cyclesLite, manualLite] = await Promise.all([
+      prisma.cleaningCycle.findMany({ where: cycleWhere, select: { id: true, startedAt: true }, orderBy: { startedAt: 'desc' }, take: CAP }),
+      prisma.filterEvent.findMany({ where: manualWhere, select: { id: true, performedAt: true }, orderBy: { performedAt: 'desc' }, take: CAP }),
+    ]);
+    const merged = [
+      ...cyclesLite.map((c) => ({ id: c.id, kind: 'cycle' as const, date: c.startedAt ? new Date(c.startedAt).getTime() : 0 })),
+      ...manualLite.map((m) => ({ id: m.id, kind: 'manual' as const, date: m.performedAt ? new Date(m.performedAt).getTime() : 0 })),
+    ].sort((a, b) => b.date - a.date);
+
+    const total = merged.length;
+    const pageSlice = merged.slice((page - 1) * limit, page * limit);
+    const cycleIds = pageSlice.filter((r) => r.kind === 'cycle').map((r) => r.id);
+    const manualIds = pageSlice.filter((r) => r.kind === 'manual').map((r) => r.id);
+
+    const [cyclesRes, manualRes] = await Promise.all([
+      cycleIds.length ? this.getCycles(ctx, { ids: cycleIds, includeEvents: 'true' }) : Promise.resolve({ data: [] as any[] }),
+      manualIds.length ? this.getManualStatusChanges(ctx, { ids: manualIds }) : Promise.resolve({ data: [] as any[] }),
+    ]);
+    const cycleById = new Map((cyclesRes.data as any[]).map((c) => [c.id, c]));
+    const manualById = new Map((manualRes.data as any[]).map((m) => [m.id, m]));
+
+    const data = pageSlice
+      .map((r) => {
+        const row = r.kind === 'cycle' ? cycleById.get(r.id) : manualById.get(r.id);
+        return row ? { ...row, _kind: r.kind } : null;
+      })
+      .filter(Boolean);
+
+    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   async getDashboardStats(_ctx: RequestContext) {
@@ -225,9 +287,13 @@ export class FilterOperationsService {
       await getFilter(query.filterId, ctx);
     }
 
-    const page = query.page ?? 1;
-    const limit = Math.min(query.limit ?? 20, 100);
+    // `ids` fetch mode (used by getCleaningRecord): return exactly these cycle
+    // rows, enriched, without pagination — caller has already paged the merged set.
+    const ids: string[] | undefined = Array.isArray(query.ids) ? query.ids : undefined;
+    const page = ids ? 1 : (query.page ?? 1);
+    const limit = ids ? Math.max(ids.length, 1) : Math.min(query.limit ?? 20, 100);
     const where: any = {};
+    if (ids) where.id = { in: ids };
     if (query.filterId) where.filterId = query.filterId;
     if (query.ahuId) where.ahuId = query.ahuId;
     if (query.status) where.status = query.status;
