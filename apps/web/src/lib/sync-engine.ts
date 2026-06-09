@@ -301,6 +301,8 @@ async function syncTombstones(): Promise<void> {
           { justification, ...tapeVersionField, clientOpId: t.clientOpId },
           headers,
         );
+      } else if (t.entityType === 'block-change-request') {
+        await apiClient.delete(`/api/block-change-requests/${t.entityId}`);
       }
       await updateTombstoneStatus(t.id, 'synced');
     } catch (e: any) {

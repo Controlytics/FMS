@@ -61,32 +61,45 @@ export async function getFilterHomeBlock(filterId: string): Promise<{ blockId: s
   return null;
 }
 
-export async function validateBlockChange(filterId: string, cleaningAreaId: string | undefined, _ctx: RequestContext, acknowledged = false) {
+export async function validateBlockChange(filterId: string, cleaningAreaId: string | undefined, ctx: RequestContext, acknowledged = false) {
   if (!cleaningAreaId) return;
   const homeBlock = await getFilterHomeBlock(filterId);
   if (!homeBlock) return;
   if (homeBlock.blockId === cleaningAreaId) return;
 
-  // 2026-06-09: block-change approval REMOVED. Cleaning a filter in a block other
-  // than its home block is now an operator self-confirm: the first attempt throws
-  // BLOCK_CHANGE_CONFIRM so the FE shows a "Continue with cleaning?" popup; once the
-  // operator confirms, the request is retried with acknowledged=true and the cycle
-  // starts in that block (and runs there for the rest of the cycle).
-  if (acknowledged) return;
+  // 2026-06-09: cross-block handling is CONFIGURABLE (config `block-change-approval.mode`)
+  // and gates ONLINE ONLY. Offline never blocks — the FE shows an informational notice
+  // and proceeds, and the queued op replays here with isOfflineReplay set, which we pass.
+  if (ctx?.isOfflineReplay) return;
+
+  const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
+  const mode = await blockChangeService.getMode();
   const targetBlock = await prisma.assetInstance.findUnique({
     where: { id: cleaningAreaId },
     select: { name: true },
   });
+  const info = {
+    filterId,
+    mode,
+    homeBlockId: homeBlock.blockId,
+    homeBlockName: homeBlock.blockName,
+    requestedBlockId: cleaningAreaId,
+    requestedBlockName: targetBlock?.name ?? '',
+  };
+
+  if (mode === 'APPROVAL') {
+    // Needs an approved (un-expired) block-change request for this filter→block.
+    if (await blockChangeService.hasApproval(filterId, cleaningAreaId)) return;
+    throw new AppError(409, 'BLOCK_CHANGE_REQUIRED',
+      `This filter belongs to ${homeBlock.blockName}. Request approval to clean it in ${targetBlock?.name ?? 'another block'}.`,
+      info);
+  }
+
+  // CONFIRM mode: operator self-confirm.
+  if (acknowledged) return;
   throw new AppError(409, 'BLOCK_CHANGE_CONFIRM',
     `This filter belongs to ${homeBlock.blockName}. You are cleaning it in ${targetBlock?.name ?? 'another block'}. Continue with cleaning?`,
-    {
-      filterId,
-      homeBlockId: homeBlock.blockId,
-      homeBlockName: homeBlock.blockName,
-      requestedBlockId: cleaningAreaId,
-      requestedBlockName: targetBlock?.name ?? '',
-    }
-  );
+    info);
 }
 
 /**

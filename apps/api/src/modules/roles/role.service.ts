@@ -131,6 +131,9 @@ const PERMISSION_META: Record<string, { label: string; category: string }> = {
   [PERMISSIONS.PM_RESUBMIT]: { label: 'Resubmit Rejected Entries', category: 'PM Page Controls' },
   // Cleaning Cycles (Phase 2)
   [PERMISSIONS.CYCLE_READ]: { label: 'View Cleaning Cycles', category: 'Filter Management' },
+  // Block Change Approval (Phase 3)
+  [PERMISSIONS.BLOCK_CHANGE_REQUEST]: { label: 'Request Block Change', category: 'Filter Management' },
+  [PERMISSIONS.BLOCK_CHANGE_APPROVE]: { label: 'Approve Block Changes', category: 'Filter Management' },
   // Audit 2026-05-04 fix (shared review C2): the following 15 permissions
   // existed in PERMISSIONS + were seeded but had no PERMISSION_META entry.
   // The role-edit UI rendered them under category "Other" with the raw

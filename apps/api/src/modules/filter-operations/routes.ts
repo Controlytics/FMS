@@ -109,7 +109,8 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
               nullable: true,
               properties: { id: { type: 'string' }, name: { type: 'string' } },
             },
-            blockChangeStatus: { type: 'string', nullable: true, enum: ['MATCH', 'APPROVED', 'REQUIRED'] },
+            blockChangeStatus: { type: 'string', nullable: true, enum: ['MATCH', 'CONFIRM', 'APPROVED', 'REQUIRED'] },
+            blockChangeMode: { type: 'string', enum: ['CONFIRM', 'APPROVAL'] },
             isPmDue: { type: 'boolean' },
             pmReasonKey: { type: 'string', nullable: true },
             profileSyncWarning: {

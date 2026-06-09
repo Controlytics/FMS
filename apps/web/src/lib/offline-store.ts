@@ -102,7 +102,7 @@ interface Tombstone {
   /** Stable client-generated UUID for idempotent replay */
   clientOpId: string;
   /** Logical entity being deleted/cancelled — used for sync ordering and dedup */
-  entityType: 'cycle';
+  entityType: 'cycle' | 'block-change-request';
   entityId: string;
   /** Optional context for replay */
   payload?: Record<string, any>;

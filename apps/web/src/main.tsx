@@ -84,6 +84,7 @@ const AhuDashboardPage = lazy(() => import("./routes/filter-management/ahu-dashb
 const FilterTraceabilityPage = lazy(() => import("./routes/filter-management/filter-traceability").then(m => ({ default: m.FilterTraceabilityPage })));
 const CleaningProfileEditorPage2 = lazy(() => import("./routes/filter-management/cleaning-profile-editor").then(m => ({ default: m.CleaningProfileEditorPage })));
 const FilterListPage = lazy(() => import("./routes/filter-management/filter-list").then(m => ({ default: m.FilterListPage })));
+const ApprovalsPage = lazy(() => import("./routes/approvals/index").then(m => ({ default: m.ApprovalsPage })));
 const ReplacementSchedulePage = lazy(() => import("./routes/filter-management/replacement-schedule").then(m => ({ default: m.ReplacementSchedulePage })));
 const RfidTrackRecordPage = lazy(() => import("./routes/filter-management/rfid-track-record").then(m => ({ default: m.RfidTrackRecordPage })));
 const RetirementListPage = lazy(() => import("./routes/filter-management/retirement-list").then(m => ({ default: m.RetirementListPage })));
@@ -222,6 +223,7 @@ createRoot(document.getElementById('root')!).render(
 
             {/* Phase 2: Digital Filter Management System */}
             <Route path="/filter-list" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW, PERMISSIONS.FILTER_HIERARCHY_CREATE, PERMISSIONS.FILTER_HIERARCHY_EDIT, PERMISSIONS.FILTER_HIERARCHY_DELETE, PERMISSIONS.FILTER_CREATE, PERMISSIONS.FILTER_EDIT, PERMISSIONS.FILTER_DELETE, PERMISSIONS.FILTER_RETIRE, PERMISSIONS.FILTER_REPLACE, PERMISSIONS.FILTER_BULK_UPLOAD, PERMISSIONS.FILTER_RFID_MANAGE, PERMISSIONS.FILTER_STATUS_UPDATE]}><Suspense fallback={<LazyFallback />}><FilterListPage /></Suspense></RequireRole>} />
+            <Route path="/approvals" element={<RequireRole permissions={[PERMISSIONS.BLOCK_CHANGE_APPROVE, PERMISSIONS.BLOCK_CHANGE_REQUEST]}><Suspense fallback={<LazyFallback />}><ApprovalsPage /></Suspense></RequireRole>} />
             <Route path="/replacement-schedule" element={<RequireRole permissions={[PERMISSIONS.REPLACEMENT_SCHEDULE_VIEW, PERMISSIONS.REPLACEMENT_SCHEDULE_UPLOAD, PERMISSIONS.REPLACEMENT_SCHEDULE_REVIEW, PERMISSIONS.REPLACEMENT_SCHEDULE_APPROVE]}><Suspense fallback={<LazyFallback />}><ReplacementSchedulePage /></Suspense></RequireRole>} />
             <Route path="/filter-retirements" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW, PERMISSIONS.FILTER_RETIRE]}><Suspense fallback={<LazyFallback />}><RetirementListPage /></Suspense></RequireRole>} />
             <Route path="/rfid-track-record" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW, PERMISSIONS.ASSET_READ, PERMISSIONS.FILTER_RFID_MANAGE]}><Suspense fallback={<LazyFallback />}><RfidTrackRecordPage /></Suspense></RequireRole>} />

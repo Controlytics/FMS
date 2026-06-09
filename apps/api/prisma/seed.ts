@@ -66,6 +66,7 @@ async function main() {
         'FP_READ', 'FP_CREATE', 'FP_UPDATE', 'FP_DELETE', 'FP_ASSIGN',
         'PM_READ', 'PM_CREATE', 'PM_UPDATE', 'PM_DELETE', 'PM_EXECUTE', 'PM_APPROVE',
         'CYCLE_READ', 'READ_DEBUG_TRACE', 'MANAGE_DEBUG_TRACE',
+        'BLOCK_CHANGE_REQUEST', 'BLOCK_CHANGE_APPROVE',
         // Reports
         'REPORT_TEMPLATE_READ', 'REPORT_TEMPLATE_CREATE', 'REPORT_TEMPLATE_UPDATE', 'REPORT_TEMPLATE_DELETE',
         'REPORT_GENERATE', 'REPORT_VIEW', 'REPORT_SIGN', 'REPORT_DELETE', 'REPORT_EXPORT',
@@ -100,6 +101,7 @@ async function main() {
         'FP_READ', 'FP_CREATE', 'FP_UPDATE', 'FP_DELETE', 'FP_ASSIGN',
         'PM_READ', 'PM_CREATE', 'PM_UPDATE', 'PM_DELETE', 'PM_EXECUTE', 'PM_APPROVE',
         'CYCLE_READ', 'READ_DEBUG_TRACE', 'MANAGE_DEBUG_TRACE',
+        'BLOCK_CHANGE_REQUEST', 'BLOCK_CHANGE_APPROVE',
         // Reports
         'REPORT_TEMPLATE_READ', 'REPORT_TEMPLATE_CREATE', 'REPORT_TEMPLATE_UPDATE', 'REPORT_TEMPLATE_DELETE',
         'REPORT_GENERATE', 'REPORT_VIEW', 'REPORT_SIGN', 'REPORT_DELETE', 'REPORT_EXPORT',
@@ -120,6 +122,7 @@ async function main() {
         'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'EVENT_READ',
         'FILTER_CREATE', 'FILTER_EDIT',
         'FCP_READ', 'FP_READ', 'PM_READ', 'CYCLE_READ',
+        'BLOCK_CHANGE_REQUEST',
         // Reports
         'REPORT_TEMPLATE_READ', 'REPORT_GENERATE', 'REPORT_VIEW', 'REPORT_SIGN', 'REPORT_EXPORT',
       ],
@@ -138,6 +141,7 @@ async function main() {
         // Phase 2: Filter operations + checklist
         'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'EVENT_READ',
         'FCP_READ', 'FP_READ', 'PM_READ', 'CYCLE_READ',
+        'BLOCK_CHANGE_REQUEST',
         // Reports
         'REPORT_TEMPLATE_READ', 'REPORT_GENERATE', 'REPORT_VIEW', 'REPORT_EXPORT',
       ],
@@ -156,6 +160,7 @@ async function main() {
         // Phase 2: Filter operations + checklist
         'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'EVENT_READ',
         'FCP_READ', 'FP_READ', 'PM_READ', 'CYCLE_READ',
+        'BLOCK_CHANGE_REQUEST',
         // Reports
         'REPORT_VIEW',
       ],

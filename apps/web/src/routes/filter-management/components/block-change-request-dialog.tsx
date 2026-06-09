@@ -12,6 +12,8 @@ interface BlockChangeRequestDialogProps {
   submitting: boolean;
   onSubmit: () => void;
   onCancel: () => void;
+  /** 'CONFIRM' = operator self-confirm; 'APPROVAL' = submit a request for approval. */
+  mode?: 'CONFIRM' | 'APPROVAL';
 }
 
 /**
@@ -29,8 +31,10 @@ export function BlockChangeRequestDialog({
   submitting,
   onSubmit,
   onCancel,
+  mode = 'CONFIRM',
 }: BlockChangeRequestDialogProps) {
   if (!dialog) return null;
+  const isApproval = mode === 'APPROVAL';
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -49,7 +53,7 @@ export function BlockChangeRequestDialog({
               </svg>
             </div>
             <div>
-              <h3 className="text-lg font-bold text-slate-800">Cleaning in a different block</h3>
+              <h3 className="text-lg font-bold text-slate-800">{isApproval ? 'Block change approval needed' : 'Cleaning in a different block'}</h3>
               <p className="text-xs text-slate-400">This filter belongs to another block</p>
             </div>
           </div>
@@ -65,10 +69,27 @@ export function BlockChangeRequestDialog({
                 Cleaning in: <span className="font-semibold text-amber-700">{dialog.requestedBlockName}</span>
               </div>
             </div>
-            <p className="text-sm text-slate-600">
-              This filter belongs to <span className="font-semibold">{dialog.homeBlockName}</span>. You are cleaning it in{' '}
-              <span className="font-semibold text-amber-700">{dialog.requestedBlockName}</span>. Continue with cleaning?
-            </p>
+            {isApproval ? (
+              <div>
+                <p className="text-sm text-slate-600 mb-2">
+                  This filter belongs to <span className="font-semibold">{dialog.homeBlockName}</span>. Cleaning it in{' '}
+                  <span className="font-semibold text-amber-700">{dialog.requestedBlockName}</span> needs approval. Submit a request below.
+                </p>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Reason</label>
+                <textarea
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none"
+                  rows={2}
+                  value={reason}
+                  onChange={(e) => onReasonChange(e.target.value)}
+                  placeholder="Why does this filter need to be cleaned in a different block?"
+                />
+              </div>
+            ) : (
+              <p className="text-sm text-slate-600">
+                This filter belongs to <span className="font-semibold">{dialog.homeBlockName}</span>. You are cleaning it in{' '}
+                <span className="font-semibold text-amber-700">{dialog.requestedBlockName}</span>. Continue with cleaning?
+              </p>
+            )}
           </div>
           <div className="flex gap-3">
             <button
@@ -79,10 +100,10 @@ export function BlockChangeRequestDialog({
             </button>
             <button
               onClick={onSubmit}
-              disabled={submitting}
+              disabled={submitting || (isApproval && !reason.trim())}
               className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg shadow-cyan-500/25"
             >
-              Continue with cleaning
+              {isApproval ? (submitting ? 'Submitting…' : 'Request approval') : 'Continue with cleaning'}
             </button>
           </div>
         </div>

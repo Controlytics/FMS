@@ -83,16 +83,10 @@ export function validateOfflineGate(g: GateInput): GateResult {
   if (!g.online && !hasValidation) {
     return { ok: false, reason: 'offline data not cached — sync first' };
   }
-  // Block assignment: home-block mismatch without approval
-  const homeMismatch = !!(
-    g.homeBlockId &&
-    g.selectedBlockId &&
-    g.homeBlockId !== g.selectedBlockId &&
-    g.blockChangeStatus !== 'APPROVED'
-  );
-  if (!g.online && homeMismatch) {
-    return { ok: false, reason: 'block change approval required', blockChangeRequired: true };
-  }
+  // 2026-06-09: OFFLINE never blocks cross-block. Per config, the confirm/approval
+  // gate applies ONLINE only; offline the operation proceeds and the caller shows an
+  // informational "belongs to another block" notice. (The old offline
+  // block-change-required gate was removed here.)
   // First-stage validation for brand-new cycles. The action tape only
   // emits ADVANCE_TO_STAGE entries for in-progress cycles — for the
   // pre-cycle case we walk the cached pipeline graph from its START node

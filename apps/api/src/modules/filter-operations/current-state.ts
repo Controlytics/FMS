@@ -94,10 +94,14 @@ export async function getCurrentStateImpl(
   // (FE polls it after every cycle write + on visibility change + every
   // 60s background sync).
   let homeBlock: { id: string; name: string } | null = null;
-  // 2026-06-09: block-change approval removed. Cross-block is a self-confirm now:
-  // 'MATCH' = same block (no popup); 'CONFIRM' = different block (FE shows
-  // "Continue with cleaning?" and starts with acknowledgeBlockChange=true).
-  let blockChangeStatus: 'MATCH' | 'CONFIRM' | null = null;
+  // 2026-06-09: cross-block is CONFIGURABLE (config mode CONFIRM | APPROVAL), online-only.
+  //   'MATCH'    = same block (nothing to do)
+  //   'CONFIRM'  = CONFIRM mode, different block → FE shows "Continue with cleaning?"
+  //   'REQUIRED' = APPROVAL mode, different block, no approval yet → FE shows request dialog
+  //   'APPROVED' = APPROVAL mode, different block, an approval exists → proceed
+  // Offline: the FE ignores this and just shows an informational notice (never gates).
+  let blockChangeStatus: 'MATCH' | 'CONFIRM' | 'REQUIRED' | 'APPROVED' | null = null;
+  let blockChangeMode: 'CONFIRM' | 'APPROVAL' = 'CONFIRM';
   if (!filter.currentCycleId) {
     const homeBlockRaw = await getFilterHomeBlock(filterId);
     homeBlock = homeBlockRaw ? { id: homeBlockRaw.blockId, name: homeBlockRaw.blockName } : null;
@@ -106,7 +110,13 @@ export async function getCurrentStateImpl(
     if (homeBlock.id === cleaningAreaId) {
       blockChangeStatus = 'MATCH';
     } else {
-      blockChangeStatus = 'CONFIRM';
+      const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
+      blockChangeMode = await blockChangeService.getMode();
+      if (blockChangeMode === 'APPROVAL') {
+        blockChangeStatus = (await blockChangeService.hasApproval(filterId, cleaningAreaId)) ? 'APPROVED' : 'REQUIRED';
+      } else {
+        blockChangeStatus = 'CONFIRM';
+      }
     }
   }
 
@@ -558,6 +568,7 @@ export async function getCurrentStateImpl(
     blockEquipmentGroups,
     homeBlock,
     blockChangeStatus,
+    blockChangeMode,
     isPmDue,
     pmReasonKey,
     profileSyncWarning,

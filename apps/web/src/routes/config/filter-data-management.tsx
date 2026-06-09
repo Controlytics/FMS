@@ -572,6 +572,7 @@ export function FilterDataManagementPage() {
             { key: 'audit-trail', label: 'Audit Trail' },
             { key: 'notifications', label: 'Notifications' },
             { key: 'admin-requests', label: 'Admin Requests' },
+            { key: 'block-changes', label: 'Block Changes' },
             ...genericTabs.map((t: GenericTabDef) => ({ key: t.key, label: t.label })),
           ].map(t => (
             <button key={t.key} onClick={() => { setTab(t.key); setEditingId(null); setSearch(''); }}

@@ -65,12 +65,10 @@ export async function startCycleImpl(
     if (activeCycle) throw new AppError(409, 'CYCLE_ACTIVE', 'Filter already has an active cleaning cycle');
   }
 
-  // Validate block change (must be before cycle creation). Offline replay
-  // auto-acknowledges the cross-block confirm: the operator already performed the
-  // clean offline (there is no "Continue with cleaning?" UI at replay time), so the
-  // queued start must sync rather than fail with BLOCK_CHANGE_CONFIRM and strand the
-  // rest of that cycle's queued operations.
-  await validateBlockChange(filterId, cleaningAreaId, ctx, data.acknowledgeBlockChange === true || ctx.isOfflineReplay === true);
+  // Validate cross-block (must be before cycle creation). Mode-aware (CONFIRM vs
+  // APPROVAL) and online-only — validateBlockChange auto-passes offline replays so a
+  // queued offline start syncs rather than stranding the rest of the cycle's ops.
+  await validateBlockChange(filterId, cleaningAreaId, ctx, data.acknowledgeBlockChange === true);
 
   const reasons = await getCleaningReasons(resolvedProfileIdForCycle);
   if (!cleaningReasonKey) {
