@@ -46,18 +46,6 @@ export async function loadFilterFieldOptions(): Promise<FilterFieldOptions> {
   return opts;
 }
 
-// Resolves the FILTER-kind template id/version for the unavoidable
-// asset_instances.template_id FK. NOT a field source — attributeSchema is
-// ignored. Same value the web single-create posts as `filterTemplateId`.
-export async function resolveFilterTemplateRef(): Promise<{ id: string; version: number } | null> {
-  const t = await prisma.assetTemplate.findFirst({
-    where: { templateKind: 'FILTER', isActive: true },
-    select: { id: true, version: true },
-    orderBy: { createdAt: 'asc' },
-  });
-  return t ? { id: t.id, version: t.version } : null;
-}
-
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Optional-but-validated, mirroring single-create (no asterisk there): a blank

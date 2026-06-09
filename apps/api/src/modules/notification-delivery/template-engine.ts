@@ -18,16 +18,3 @@ export function resolveTemplate(template: string, variables: Record<string, stri
   });
 }
 
-/**
- * Extract all variable names from a template string.
- */
-export function extractVariables(template: string): string[] {
-  const vars: string[] = [];
-  let match: RegExpExecArray | null;
-  const regex = new RegExp(VARIABLE_REGEX);
-  while ((match = regex.exec(template)) !== null) {
-    vars.push(match[1].trim());
-  }
-  return [...new Set(vars)];
-}
-

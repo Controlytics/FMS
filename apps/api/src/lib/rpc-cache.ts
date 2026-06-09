@@ -77,11 +77,3 @@ export function _resetForTests(): void {
   requests.clear();
   responses.clear();
 }
-
-/** Optional shutdown helper — clears the sweep interval. */
-export function stopSweep(): void {
-  if (sweepHandle) {
-    clearInterval(sweepHandle);
-    sweepHandle = null;
-  }
-}

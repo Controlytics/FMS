@@ -156,15 +156,6 @@ async function scheduleRetry(logId: string, payload: NotificationPayload, attemp
 }
 
 /**
- * Send notifications to multiple recipients.
- */
-export async function sendBulkNotification(
-  payloads: NotificationPayload[],
-): Promise<DeliveryResult[]> {
-  return Promise.all(payloads.map(sendNotification));
-}
-
-/**
  * Test a notification channel connection/configuration.
  */
 export async function testChannel(channelName: 'EMAIL' | 'SMS'): Promise<DeliveryResult> {
