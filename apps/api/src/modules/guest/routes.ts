@@ -6,7 +6,7 @@ import { createNotification } from '../notifications/notification.service.js';
 // Lightweight in-memory per-IP throttle for the PUBLIC guest endpoint (no
 // @fastify/rate-limit dependency — same in-process style as rpc-cache). Sliding
 // window: at most MAX_PER_WINDOW requests per IP per WINDOW_MS. Bounded memory.
-const WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+const WINDOW_MS = 60 * 1000; // 1 minute
 const MAX_PER_WINDOW = 5;
 const guestHits = new Map<string, number[]>();
 
