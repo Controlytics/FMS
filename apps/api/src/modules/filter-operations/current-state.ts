@@ -94,7 +94,10 @@ export async function getCurrentStateImpl(
   // (FE polls it after every cycle write + on visibility change + every
   // 60s background sync).
   let homeBlock: { id: string; name: string } | null = null;
-  let blockChangeStatus: 'MATCH' | 'APPROVED' | 'REQUIRED' | null = null;
+  // 2026-06-09: block-change approval removed. Cross-block is a self-confirm now:
+  // 'MATCH' = same block (no popup); 'CONFIRM' = different block (FE shows
+  // "Continue with cleaning?" and starts with acknowledgeBlockChange=true).
+  let blockChangeStatus: 'MATCH' | 'CONFIRM' | null = null;
   if (!filter.currentCycleId) {
     const homeBlockRaw = await getFilterHomeBlock(filterId);
     homeBlock = homeBlockRaw ? { id: homeBlockRaw.blockId, name: homeBlockRaw.blockName } : null;
@@ -103,15 +106,7 @@ export async function getCurrentStateImpl(
     if (homeBlock.id === cleaningAreaId) {
       blockChangeStatus = 'MATCH';
     } else {
-      const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
-      // Super-admin toggle off → cross-block cleaning is allowed freely, so the
-      // pre-start popup must never fire. Report APPROVED (allowed) in that case.
-      if (!(await blockChangeService.isEnforcementEnabled())) {
-        blockChangeStatus = 'APPROVED';
-      } else {
-        const approved = await blockChangeService.hasApproval(filterId, cleaningAreaId);
-        blockChangeStatus = approved ? 'APPROVED' : 'REQUIRED';
-      }
+      blockChangeStatus = 'CONFIRM';
     }
   }
 

@@ -99,6 +99,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const blockChangeDialog = core.dialogState.kind === 'awaiting_block_change' ? core.dialogState : null;
   const [blockChangeReason, setBlockChangeReason] = useState('');
   const [blockChangeSubmitting, setBlockChangeSubmitting] = useState(false);
+  // 2026-06-09: block-change approval → operator self-confirm. Filters confirmed for
+  // cross-block cleaning (start payload sends acknowledgeBlockChange=true).
+  const ackedBlockFiltersRef = useRef<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -786,7 +789,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             bcStatus = cs?.blockChangeStatus ?? bcStatus;
             homeBlk = cs?.homeBlock ?? homeBlk;
           } catch { /* fall back to cached values on a transient read failure */ }
-          if (bcStatus === 'REQUIRED' && homeBlk?.id) {
+          if (bcStatus === 'CONFIRM' && homeBlk?.id && !ackedBlockFiltersRef.current.has(item.filterId)) {
             core.dispatch({
               type: 'open_block_change',
               filterId: item.filterId,
@@ -1484,7 +1487,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       setScanValue(''); setRemarks('');
       if (executed) mutate('/api/assets/instances?limit=500');
     } catch (e: any) {
-      if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
+      if (e.code === 'BLOCK_CHANGE_CONFIRM' && e.connectionInfo) {
         core.dispatch({ type: 'open_block_change', filterId: e.connectionInfo.filterId, filterName: scanValue, homeBlockId: e.connectionInfo.homeBlockId, homeBlockName: e.connectionInfo.homeBlockName, requestedBlockId: e.connectionInfo.requestedBlockId, requestedBlockName: e.connectionInfo.requestedBlockName });
         setBlockChangeReason(''); setLoading(false); return;
       }
@@ -1499,7 +1502,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const handleReasonSubmit = async () => {
     if (!reasonDialog || !selectedReason) return;
     setLoading(true); setError('');
-    const cyclePayload = { cleaningReasonKey: selectedReason, cleaningJustification: justification || undefined, cleaningAreaId: selectedBlock?.id };
+    const cyclePayload = { cleaningReasonKey: selectedReason, cleaningJustification: justification || undefined, cleaningAreaId: selectedBlock?.id, acknowledgeBlockChange: ackedBlockFiltersRef.current.has(reasonDialog.filterId) };
     const advancePayload = { targetState: reasonDialog.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${reasonDialog.stage.replace(/_/g, ' ')} - ${reasonDialog.filterName}` };
 
     // Check for equipment groups BEFORE executing — works for both online and offline.
@@ -1555,7 +1558,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // Dialog close + checklist dispatch handled by core.startAndAdvance
     }, {
       onError: (e: any) => {
-        if (e?.code === 'BLOCK_CHANGE_REQUIRED' && e?.connectionInfo) {
+        if (e?.code === 'BLOCK_CHANGE_CONFIRM' && e?.connectionInfo) {
           core.dispatch({ type: 'close' }); // close reason dialog
           core.dispatch({ type: 'open_block_change', filterId: e.connectionInfo.filterId, filterName: reasonDialog?.filterName ?? '', homeBlockId: e.connectionInfo.homeBlockId, homeBlockName: e.connectionInfo.homeBlockName, requestedBlockId: e.connectionInfo.requestedBlockId, requestedBlockName: e.connectionInfo.requestedBlockName });
           setBlockChangeReason('');
@@ -1901,7 +1904,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // can return 409 BLOCK_CHANGE_REQUIRED — pop the structured modal
       // (same shape as reason-dialog catch above) instead of swallowing
       // it as a generic "Failed" toast.
-      if (e?.code === 'BLOCK_CHANGE_REQUIRED' && e?.connectionInfo) {
+      if (e?.code === 'BLOCK_CHANGE_CONFIRM' && e?.connectionInfo) {
         core.dispatch({ type: 'close' }); // close equip dialog first (allowed → none)
         core.dispatch({
           type: 'open_block_change',
@@ -2054,20 +2057,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     setProcessingApproval(null);
   };
 
+  // 2026-06-09: block-change approval removed → operator self-confirm. Mark the
+  // filter acknowledged; the next start sends acknowledgeBlockChange=true.
   const handleBlockChangeRequest = async () => {
     if (!blockChangeDialog) return;
-    setBlockChangeSubmitting(true);
-    try {
-      await apiClient.post('/api/block-change-requests', {
-        filterId: blockChangeDialog.filterId, filterName: blockChangeDialog.filterName,
-        fromBlockId: blockChangeDialog.homeBlockId, fromBlockName: blockChangeDialog.homeBlockName,
-        toBlockId: blockChangeDialog.requestedBlockId, toBlockName: blockChangeDialog.requestedBlockName,
-        reason: blockChangeReason || undefined,
-      });
-      setSuccess('Block change request submitted. Waiting for approval.');
-      core.dispatch({ type: 'close' }); setScanValue('');
-    } catch (e: any) { setError(e.message ?? 'Failed to submit request'); }
-    setBlockChangeSubmitting(false);
+    ackedBlockFiltersRef.current.add(blockChangeDialog.filterId);
+    core.dispatch({ type: 'close' });
+    setBlockChangeReason('');
+    setSuccess(`Confirmed. Scan ${blockChangeDialog.filterName} again to clean it in this block.`);
   };
 
   const genOpts = (min: number, max: number, step: number): number[] => { const o: number[] = []; if (step <= 0) return o; for (let v = min, i = 0; v <= max + 1e-9 && i < 10000; v = Math.round((v + step) * 1e10) / 1e10, i++) o.push(v); return o; };
@@ -3134,29 +3131,27 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                   </svg>
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-slate-800">Block Change Required</h3>
-                  <p className="text-xs text-slate-400">This filter belongs to a different block</p>
+                  <h3 className="text-lg font-bold text-slate-800">Cleaning in a different block</h3>
+                  <p className="text-xs text-slate-400">This filter belongs to another block</p>
                 </div>
               </div>
               <div className="space-y-3 mb-5">
                 <div className="bg-slate-50 rounded-xl p-3 text-sm">
                   <div className="text-slate-500">Filter: <span className="font-semibold text-slate-800">{blockChangeDialog.filterName}</span></div>
-                  <div className="text-slate-500 mt-1">Home Block: <span className="font-semibold text-slate-800">{blockChangeDialog.homeBlockName}</span></div>
-                  <div className="text-slate-500 mt-1">Requested Block: <span className="font-semibold text-amber-700">{blockChangeDialog.requestedBlockName}</span></div>
+                  <div className="text-slate-500 mt-1">Belongs to: <span className="font-semibold text-slate-800">{blockChangeDialog.homeBlockName}</span></div>
+                  <div className="text-slate-500 mt-1">Cleaning in: <span className="font-semibold text-amber-700">{blockChangeDialog.requestedBlockName}</span></div>
                 </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Reason <span className="text-red-500">*</span></label>
-                  <textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none" rows={2}
-                    value={blockChangeReason} onChange={e => setBlockChangeReason(e.target.value)}
-                    placeholder="Why does this filter need to be cleaned in a different block? (required)" />
-                </div>
+                <p className="text-sm text-slate-600">
+                  This filter belongs to <span className="font-semibold">{blockChangeDialog.homeBlockName}</span>. You are cleaning it in{' '}
+                  <span className="font-semibold text-amber-700">{blockChangeDialog.requestedBlockName}</span>. Continue with cleaning?
+                </p>
               </div>
               <div className="flex gap-3">
                 <button onClick={() => { core.dispatch({ type: 'close' }); setScanValue(''); }}
                   className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium">Cancel</button>
-                <button onClick={handleBlockChangeRequest} disabled={blockChangeSubmitting || !blockChangeReason.trim()}
+                <button onClick={handleBlockChangeRequest}
                   className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg shadow-cyan-500/25">
-                  {blockChangeSubmitting ? 'Submitting...' : 'Request Change'}
+                  Continue with cleaning
                 </button>
               </div>
             </div>

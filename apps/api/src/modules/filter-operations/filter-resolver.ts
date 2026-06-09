@@ -61,71 +61,32 @@ export async function getFilterHomeBlock(filterId: string): Promise<{ blockId: s
   return null;
 }
 
-export async function validateBlockChange(filterId: string, cleaningAreaId: string | undefined, _ctx: RequestContext) {
+export async function validateBlockChange(filterId: string, cleaningAreaId: string | undefined, _ctx: RequestContext, acknowledged = false) {
   if (!cleaningAreaId) return;
   const homeBlock = await getFilterHomeBlock(filterId);
   if (!homeBlock) return;
   if (homeBlock.blockId === cleaningAreaId) return;
 
-  const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
-  // Super-admin toggle: when cross-block approval is disabled, allow freely.
-  if (!(await blockChangeService.isEnforcementEnabled())) return;
-  const hasApproval = await blockChangeService.hasApproval(filterId, cleaningAreaId);
-  if (!hasApproval) {
-    const targetBlock = await prisma.assetInstance.findUnique({
-      where: { id: cleaningAreaId },
-      select: { name: true },
-    });
-    throw new AppError(409, 'BLOCK_CHANGE_REQUIRED',
-      `Filter belongs to ${homeBlock.blockName}. Request approval to clean in ${targetBlock?.name ?? 'another block'}.`,
-      {
-        filterId,
-        homeBlockId: homeBlock.blockId,
-        homeBlockName: homeBlock.blockName,
-        requestedBlockId: cleaningAreaId,
-        requestedBlockName: targetBlock?.name ?? '',
-      }
-    );
-  }
-  // Audit 2026-05-05 fix #7: do NOT consume here. The consumption now
-  // happens inside the start-cycle transaction (start-cycle.ts) under the
-  // FOR UPDATE row lock so two concurrent starts can't both consume the
-  // same approval. This pre-flight check is kept as a cheap UX gate that
-  // gives the operator a clean 409 BLOCK_CHANGE_REQUIRED before the more
-  // expensive cycle-creation path runs.
-}
-
-/**
- * Audit 2026-05-05 fix #7: tx-internal recheck-and-consume.
- *
- * Called from start-cycle.ts inside the row-locked transaction. Re-reads
- * the approval under the lock and consumes it atomically. If the approval
- * was already consumed by a concurrent start (race), throws 409
- * BLOCK_CHANGE_RACE so the operator knows to refresh and retry.
- *
- * No-op when no cleaningAreaId, no homeBlock, or filter is at home.
- */
-export async function consumeBlockChangeApprovalTx(
-  tx: any,
-  filterId: string,
-  cleaningAreaId: string | undefined,
-): Promise<void> {
-  if (!cleaningAreaId) return;
-  const homeBlock = await getFilterHomeBlock(filterId);
-  if (!homeBlock) return;
-  if (homeBlock.blockId === cleaningAreaId) return;
-
-  const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
-  // Super-admin toggle off → cross-block allowed freely; nothing to consume.
-  if (!(await blockChangeService.isEnforcementEnabled())) return;
-  const hasApproval = await blockChangeService.hasApprovalTx(tx, filterId, cleaningAreaId);
-  if (!hasApproval) {
-    throw new AppError(409, 'BLOCK_CHANGE_RACE',
-      'A concurrent start consumed the block-change approval. Refresh and retry.',
-      { filterId, requestedBlockId: cleaningAreaId },
-    );
-  }
-  await blockChangeService.consumeApprovalTx(tx, filterId, cleaningAreaId);
+  // 2026-06-09: block-change approval REMOVED. Cleaning a filter in a block other
+  // than its home block is now an operator self-confirm: the first attempt throws
+  // BLOCK_CHANGE_CONFIRM so the FE shows a "Continue with cleaning?" popup; once the
+  // operator confirms, the request is retried with acknowledged=true and the cycle
+  // starts in that block (and runs there for the rest of the cycle).
+  if (acknowledged) return;
+  const targetBlock = await prisma.assetInstance.findUnique({
+    where: { id: cleaningAreaId },
+    select: { name: true },
+  });
+  throw new AppError(409, 'BLOCK_CHANGE_CONFIRM',
+    `This filter belongs to ${homeBlock.blockName}. You are cleaning it in ${targetBlock?.name ?? 'another block'}. Continue with cleaning?`,
+    {
+      filterId,
+      homeBlockId: homeBlock.blockId,
+      homeBlockName: homeBlock.blockName,
+      requestedBlockId: cleaningAreaId,
+      requestedBlockName: targetBlock?.name ?? '',
+    }
+  );
 }
 
 /**
@@ -151,9 +112,8 @@ export async function validateAdvanceBlock(
   // Same block, or a legacy cycle started with no block bound → allow.
   if (!cycleBlockId || cleaningAreaId === cycleBlockId) return;
 
-  const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
-  if (!(await blockChangeService.isEnforcementEnabled())) return;
-
+  // A cycle is frozen to the block it started in. A stage submitted for a
+  // different block is always rejected (the cycle can't move blocks mid-flight).
   const [cycleBlock, reqBlock] = await Promise.all([
     prisma.assetInstance.findUnique({ where: { id: cycleBlockId }, select: { name: true } }),
     prisma.assetInstance.findUnique({ where: { id: cleaningAreaId }, select: { name: true } }),

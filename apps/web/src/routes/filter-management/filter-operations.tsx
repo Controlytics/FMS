@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
@@ -195,6 +195,10 @@ export function FilterOperationsPage() {
   // Block change request state (reason/submitting remain local)
   const [blockChangeReason, setBlockChangeReason] = useState('');
   const [blockChangeSubmitting, setBlockChangeSubmitting] = useState(false);
+  // 2026-06-09: block-change approval replaced by an operator self-confirm. Filters
+  // the operator confirmed for cross-block cleaning (start payload sends
+  // acknowledgeBlockChange=true so the backend lets the cycle start in that block).
+  const ackedBlockFiltersRef = useRef<Set<string>>(new Set());
   // Saved cycle-start payload when equipment dialog is opened before cycle is started (offline flow)
   const [pendingCyclePayload, setPendingCyclePayload] = useState<Record<string, any> | null>(null);
 
@@ -401,7 +405,7 @@ export function FilterOperationsPage() {
         if (!executed) await recomputeAndCacheFilterState(item.filterId, overrideTargetState ?? activeStage.key, false, blockId ?? null);
         newSubmissions.push({ stage: stageLabel + (executed ? '' : ' (queued)'), filter: item.filterName, block: blockName, time: formatTime(new Date()) });
       } catch (e: any) {
-        if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
+        if (e.code === 'BLOCK_CHANGE_CONFIRM' && e.connectionInfo) {
           core.dispatch({
             type: 'open_block_change',
             filterId: e.connectionInfo.filterId ?? item.filterId,
@@ -565,9 +569,10 @@ export function FilterOperationsPage() {
           return;
         }
 
-        // Force block-change enforcement when homeBlock is known and differs
-        if (state.homeBlock && selectedBlock?.id && state.homeBlock.id !== selectedBlock.id && state.blockChangeStatus !== 'APPROVED') {
-          state.blockChangeStatus = 'REQUIRED';
+        // Cross-block confirm: when the filter's home block differs from the
+        // cleaning block and the operator hasn't already confirmed it, flag CONFIRM.
+        if (state.homeBlock && selectedBlock?.id && state.homeBlock.id !== selectedBlock.id && !ackedBlockFiltersRef.current.has(first.filterId)) {
+          state.blockChangeStatus = 'CONFIRM';
         }
 
         const cycleInProgress = !!state.currentCycle;
@@ -595,8 +600,8 @@ export function FilterOperationsPage() {
       }
       // ─── END STRICT OFFLINE GATE ─────────────────────────────────────────
 
-      // Gap 9: Proactive block change check (before any dialogs)
-      if (state.blockChangeStatus === 'REQUIRED' && state.homeBlock && selectedBlock?.id) {
+      // Gap 9: Proactive cross-block confirm (before any dialogs)
+      if (state.blockChangeStatus === 'CONFIRM' && state.homeBlock && selectedBlock?.id) {
         core.dispatch({
           type: 'open_block_change',
           filterId: first.filterId,
@@ -779,7 +784,8 @@ export function FilterOperationsPage() {
         let started = 0; const startFailed: string[] = [];
         for (const item of batch) {
           try {
-            await executeOrQueue('start-cycle', item.filterId, item.filterName, startBody, undefined, password);
+            await executeOrQueue('start-cycle', item.filterId, item.filterName,
+              { ...startBody, acknowledgeBlockChange: ackedBlockFiltersRef.current.has(item.filterId) }, undefined, password);
             started++;
           } catch (e: any) {
             // REAUTH errors must NOT be swallowed into the per-filter
@@ -793,7 +799,7 @@ export function FilterOperationsPage() {
             if (errCode === 'REAUTH_FAILED' || errCode === 'REAUTH_REQUIRED') {
               throw e;
             }
-            if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
+            if (e.code === 'BLOCK_CHANGE_CONFIRM' && e.connectionInfo) {
               core.dispatch({ type: 'close' }); // close reason dialog
               core.dispatch({
                 type: 'open_block_change',
@@ -855,7 +861,7 @@ export function FilterOperationsPage() {
             success++;
             newSubs.push({ stage: stage.label + (executed ? '' : ' (queued)'), filter: item.filterName, block: blockName, time: formatTime(new Date()) });
           } catch (e: any) {
-            if (e.code === 'BLOCK_CHANGE_REQUIRED' && e.connectionInfo) {
+            if (e.code === 'BLOCK_CHANGE_CONFIRM' && e.connectionInfo) {
               core.dispatch({ type: 'close' }); // close reason dialog
               core.dispatch({
                 type: 'open_block_change',
@@ -948,7 +954,7 @@ export function FilterOperationsPage() {
         }, {
           onError: (e: unknown) => {
             const err = e as any;
-            if (err?.code === 'BLOCK_CHANGE_REQUIRED' && err?.connectionInfo) {
+            if (err?.code === 'BLOCK_CHANGE_CONFIRM' && err?.connectionInfo) {
               core.dispatch({ type: 'close' }); // close reason dialog
               core.dispatch({
                 type: 'open_block_change',
@@ -998,7 +1004,7 @@ export function FilterOperationsPage() {
         setToast({ type: 'success', message: `${dialogCapture.filterName} \u2192 ${dialogCapture.stage.label}${executed ? '' : ' (queued)'}` });
       }
     } catch (e: any) {
-      if (e?.code === 'BLOCK_CHANGE_REQUIRED' && e?.connectionInfo) {
+      if (e?.code === 'BLOCK_CHANGE_CONFIRM' && e?.connectionInfo) {
         core.dispatch({ type: 'close' }); // close reason dialog
         core.dispatch({
           type: 'open_block_change',
@@ -1185,7 +1191,7 @@ export function FilterOperationsPage() {
           // A cross-block hit can return 409 BLOCK_CHANGE_REQUIRED. Pop the
           // structured modal once on first hit (matches advanceBatch:388
           // pattern) and continue iterating so other items can still succeed.
-          if (e?.code === 'BLOCK_CHANGE_REQUIRED' && e?.connectionInfo) {
+          if (e?.code === 'BLOCK_CHANGE_CONFIRM' && e?.connectionInfo) {
             if (!blockChangePopped) {
               core.dispatch({
                 type: 'open_block_change',
@@ -1273,7 +1279,7 @@ export function FilterOperationsPage() {
     } catch (e: any) {
       // B7.2: single-filter equipment submit may return 409 BLOCK_CHANGE_REQUIRED
       // when pendingCyclePayload is set (start-and-advance path).
-      if (e?.code === 'BLOCK_CHANGE_REQUIRED' && e?.connectionInfo) {
+      if (e?.code === 'BLOCK_CHANGE_CONFIRM' && e?.connectionInfo) {
         core.dispatch({ type: 'close' }); // close equipment dialog first
         core.dispatch({
           type: 'open_block_change',
@@ -1355,31 +1361,15 @@ export function FilterOperationsPage() {
     setChecklistLoading(false);
   };
 
+  // 2026-06-09: block-change approval removed. The operator self-confirms cleaning
+  // the filter in a different block; we mark it acknowledged and the next start for
+  // that filter sends acknowledgeBlockChange=true so the cycle starts in that block.
   const handleBlockChangeRequest = async () => {
-    if (!blockChangeDialog || blockChangeSubmitting) return;
-    // Gap 4: Block change requests require internet
-    if (!online) {
-      setPopupError('Block change requests require an internet connection. Please connect to WiFi and try again.');
-      return;
-    }
-    setBlockChangeSubmitting(true);
-    try {
-      await apiClient.post('/api/block-change-requests', {
-        filterId: blockChangeDialog.filterId,
-        filterName: blockChangeDialog.filterName,
-        fromBlockId: blockChangeDialog.homeBlockId,
-        fromBlockName: blockChangeDialog.homeBlockName,
-        toBlockId: blockChangeDialog.requestedBlockId,
-        toBlockName: blockChangeDialog.requestedBlockName,
-        reason: blockChangeReason.trim(),
-      });
-      setToast({ type: 'success', message: 'Block change request submitted. Waiting for approval.' });
-      core.dispatch({ type: 'close' });
-      setBlockChangeReason('');
-    } catch (e: any) {
-      setPopupError(e.message ?? 'Failed to submit block change request');
-    }
-    setBlockChangeSubmitting(false);
+    if (!blockChangeDialog) return;
+    ackedBlockFiltersRef.current.add(blockChangeDialog.filterId);
+    core.dispatch({ type: 'close' });
+    setBlockChangeReason('');
+    setToast({ type: 'success', message: `Confirmed. Scan ${blockChangeDialog.filterName} again to clean it in this block.` });
   };
 
   const selectedStageInfo = CLEANING_STAGES.find(s => s.key === selectedStatusStage);

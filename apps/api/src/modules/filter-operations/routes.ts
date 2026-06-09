@@ -213,6 +213,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           equipmentGroupId: { type: 'string', format: 'uuid' },
           offlinePerformedAt: { type: 'string', format: 'date-time' },
           clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay' },
+          acknowledgeBlockChange: { type: 'boolean', description: 'Operator confirmed cleaning in a different block (Continue with cleaning)' },
         },
       },
       response: {

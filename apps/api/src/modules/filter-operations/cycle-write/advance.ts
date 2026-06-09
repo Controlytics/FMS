@@ -155,6 +155,25 @@ export async function advanceImpl(
     ),
   );
 
+  // 2026-06-09 (per user): Wash In cannot be completed without the equipment-group
+  // instrument readings WHEN the cleaning block has an active equipment group.
+  // (Blocks with no equipment group have nothing to record → allowed without.)
+  if (targetState === 'WASH_IN') {
+    const hasReadings = !!instrumentReadings && typeof instrumentReadings === 'object'
+      && Object.keys(instrumentReadings).length > 0;
+    if (!hasReadings) {
+      const hasGroup = (equipmentGroupId || cycle.equipmentGroupId)
+        ? true
+        : cycle.cleaningAreaId
+          ? (await prisma.equipmentGroup.count({ where: { blockId: cycle.cleaningAreaId, isActive: true } })) > 0
+          : false;
+      if (hasGroup) {
+        throw new AppError(400, 'WASH_IN_READINGS_REQUIRED',
+          'Wash In requires the equipment-group instrument readings to be submitted before it can be completed.');
+      }
+    }
+  }
+
   // Validate instrument readings if provided.
   let validatedReadings: any = null;
   if (instrumentReadings && typeof instrumentReadings === 'object' && Object.keys(instrumentReadings).length > 0) {
