@@ -450,7 +450,7 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
       await updateOperationStatus(
         op.id,
         'failed',
-        'Skipped — the cleaning cycle was never started (cross-block approval needed). Request block-change approval, then retry.',
+        'Skipped — the cleaning cycle was never started, so this step has nothing to attach to. Re-perform the cleaning for this filter.',
       );
       failed++;
       continue;
