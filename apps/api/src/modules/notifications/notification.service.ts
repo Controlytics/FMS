@@ -3,31 +3,39 @@ import { notificationRepository } from './notification.repository.js';
 import { prisma } from '../../lib/prisma.js';
 import { z } from 'zod';
 
-const QNN_TYPE = 'PM_SCHEDULE_QNN';
+// Notification types whose visibility is config-driven (a role list), NOT the
+// normal per-user/per-role addressing. Each maps to its config key + field.
+export const GATED_TYPES: Record<string, { configKey: string; field: string }> = {
+  PM_SCHEDULE_QNN: { configKey: 'qnn-notifications', field: 'visibleRoles' },
+  GUEST_CLEANING_REQUEST: { configKey: 'guest-cleaning-requests', field: 'recipientRoles' },
+};
+const GATED_TYPE_KEYS = Object.keys(GATED_TYPES);
 
-// Which roles may see QNN (Quality Notification) entries — driven by the
-// 'qnn-notifications' config (multiselect of roles). Super Admin always sees them.
-async function getQnnVisibleRoles(): Promise<string[]> {
-  try {
-    const row = await prisma.systemConfig.findUnique({ where: { configKey: 'qnn-notifications' } });
-    const v = row?.configValue as { visibleRoles?: unknown } | undefined;
-    return Array.isArray(v?.visibleRoles) ? (v!.visibleRoles as string[]) : ['ADMIN'];
-  } catch {
-    return ['ADMIN'];
+// Which config-gated notification types this role may see. Super Admin sees all;
+// otherwise a type is visible when the viewer's role is in that type's config list.
+export async function gatedTypesVisibleTo(userRole: string): Promise<string[]> {
+  if (userRole === 'SUPER_ADMIN') return [...GATED_TYPE_KEYS];
+  const out: string[] = [];
+  for (const [type, { configKey, field }] of Object.entries(GATED_TYPES)) {
+    let roles: string[] = ['ADMIN'];
+    try {
+      const row = await prisma.systemConfig.findUnique({ where: { configKey } });
+      const v = row?.configValue as Record<string, unknown> | undefined;
+      if (Array.isArray(v?.[field])) roles = v![field] as string[];
+    } catch { /* default ADMIN */ }
+    if (roles.includes(userRole)) out.push(type);
   }
+  return out;
 }
 
-const canSeeQnn = (userRole: string, qnnRoles: string[]) =>
-  userRole === 'SUPER_ADMIN' || qnnRoles.includes(userRole);
-
-// Visibility that also enforces QNN config: non-QNN notifications use the normal
-// per-role rules; QNN notifications are shown only to roles allowed by config.
-function qnnAwareWhere(userRole: string, username: string, qnnRoles: string[]): Record<string, unknown> {
+// Visibility enforcing gated-type config: non-gated notifications use the normal
+// per-role rules; gated types show only to roles allowed by their config.
+function gatedAwareWhere(userRole: string, username: string, visibleGated: string[]): Record<string, unknown> {
   const normal = buildVisibilityFilter(userRole, username);
   const branches: Record<string, unknown>[] = [
-    { AND: [{ type: { not: QNN_TYPE } }, normal] },
+    { AND: [{ type: { notIn: GATED_TYPE_KEYS } }, normal] },
   ];
-  if (canSeeQnn(userRole, qnnRoles)) branches.push({ type: QNN_TYPE });
+  for (const t of visibleGated) branches.push({ type: t });
   return { OR: branches };
 }
 
@@ -98,7 +106,7 @@ function applyDateFilter(where: Record<string, unknown>, period?: string, startD
 export const notificationService = {
   async list(query: unknown, userRole: string, username: string) {
     const parsed = notificationQuerySchema.parse(query);
-    const where = qnnAwareWhere(userRole, username, await getQnnVisibleRoles());
+    const where = gatedAwareWhere(userRole, username, await gatedTypesVisibleTo(userRole));
 
     // Apply date filtering
     applyDateFilter(where, parsed.period, parsed.startDate, parsed.endDate);
@@ -125,7 +133,7 @@ export const notificationService = {
   },
 
   async getUnreadCount(userRole: string, username: string) {
-    const where = qnnAwareWhere(userRole, username, await getQnnVisibleRoles());
+    const where = gatedAwareWhere(userRole, username, await gatedTypesVisibleTo(userRole));
     where.isRead = false;
     return { count: await notificationRepository.count(where) };
   },
@@ -133,7 +141,7 @@ export const notificationService = {
   async markRead(id: string, userRole: string, username: string) {
     const notification = await notificationRepository.findById(id);
     if (!notification) throw new NotFoundError('Notification not found');
-    assertNotificationVisible(notification, userRole, username, canSeeQnn(userRole, await getQnnVisibleRoles()));
+    assertNotificationVisible(notification, userRole, username, await gatedTypesVisibleTo(userRole));
     await notificationRepository.markRead(id);
     return { success: true };
   },
@@ -141,37 +149,37 @@ export const notificationService = {
   async markUnread(id: string, userRole: string, username: string) {
     const notification = await notificationRepository.findById(id);
     if (!notification) throw new NotFoundError('Notification not found');
-    assertNotificationVisible(notification, userRole, username, canSeeQnn(userRole, await getQnnVisibleRoles()));
+    assertNotificationVisible(notification, userRole, username, await gatedTypesVisibleTo(userRole));
     await notificationRepository.markUnread(id);
     return { success: true };
   },
 
   async markAllRead(userRole: string, username: string) {
-    const where = qnnAwareWhere(userRole, username, await getQnnVisibleRoles());
+    const where = gatedAwareWhere(userRole, username, await gatedTypesVisibleTo(userRole));
     where.isRead = false;
     await notificationRepository.markAllRead(where);
     return { success: true };
   },
 
   async bulkRead(ids: string[], userRole: string, username: string) {
-    const result = await notificationRepository.bulkMarkRead(ids, userRole, username, canSeeQnn(userRole, await getQnnVisibleRoles()));
+    const result = await notificationRepository.bulkMarkRead(ids, userRole, username, await gatedTypesVisibleTo(userRole));
     return { success: true, count: result.count };
   },
 
   async bulkUnread(ids: string[], userRole: string, username: string) {
-    const result = await notificationRepository.bulkMarkUnread(ids, userRole, username, canSeeQnn(userRole, await getQnnVisibleRoles()));
+    const result = await notificationRepository.bulkMarkUnread(ids, userRole, username, await gatedTypesVisibleTo(userRole));
     return { success: true, count: result.count };
   },
 
   async bulkDelete(ids: string[], userRole: string, username: string) {
-    const result = await notificationRepository.bulkDelete(ids, userRole, username, canSeeQnn(userRole, await getQnnVisibleRoles()));
+    const result = await notificationRepository.bulkDelete(ids, userRole, username, await gatedTypesVisibleTo(userRole));
     return { success: true, count: result.count };
   },
 
   async delete(id: string, userRole: string, username: string) {
     const notification = await notificationRepository.findById(id);
     if (!notification) throw new NotFoundError('Notification not found');
-    assertNotificationVisible(notification, userRole, username, canSeeQnn(userRole, await getQnnVisibleRoles()));
+    assertNotificationVisible(notification, userRole, username, await gatedTypesVisibleTo(userRole));
     await notificationRepository.delete(id);
     return { success: true };
   },
@@ -179,10 +187,10 @@ export const notificationService = {
 
 // Throws a 403-like error if the notification doesn't belong to the caller (unless ADMIN/SUPER_ADMIN).
 // Mirrors buildVisibilityFilter's rules so list-visibility == single-op access.
-function assertNotificationVisible(notif: any, userRole: string, username: string, qnnAllowed: boolean): void {
-  // QNN notifications follow the config-driven role list, not per-user addressing.
-  if (notif.type === QNN_TYPE) {
-    if (qnnAllowed) return;
+function assertNotificationVisible(notif: any, userRole: string, username: string, visibleGated: string[]): void {
+  // Gated types (QNN, guest requests) follow config role lists, not per-user addressing.
+  if (GATED_TYPE_KEYS.includes(notif.type)) {
+    if (visibleGated.includes(notif.type)) return;
     throw new NotFoundError('Notification not found');
   }
   if (userRole === 'SUPER_ADMIN') return;
@@ -196,7 +204,7 @@ function assertNotificationVisible(notif: any, userRole: string, username: strin
 
 // Exported for use by other modules (auth.service.ts, user.service.ts)
 export async function createNotification(data: {
-  type: 'ACCOUNT_LOCKED' | 'ACCOUNT_DISABLED' | 'ACCOUNT_ENABLED' | 'PASSWORD_RESET_REQUEST' | 'PASSWORD_RESET_APPROVED' | 'PASSWORD_RESET_REJECTED' | 'USER_CREATED' | 'USER_UPDATED' | 'ROLE_CHANGED' | 'BLOCK_CHANGE_REQUESTED' | 'BLOCK_CHANGE_APPROVED' | 'BLOCK_CHANGE_REJECTED' | 'PM_OVERDUE' | 'PM_OVERDUE_COMPLETED' | 'PM_SCHEDULE_QNN';
+  type: 'ACCOUNT_LOCKED' | 'ACCOUNT_DISABLED' | 'ACCOUNT_ENABLED' | 'PASSWORD_RESET_REQUEST' | 'PASSWORD_RESET_APPROVED' | 'PASSWORD_RESET_REJECTED' | 'USER_CREATED' | 'USER_UPDATED' | 'ROLE_CHANGED' | 'BLOCK_CHANGE_REQUESTED' | 'BLOCK_CHANGE_APPROVED' | 'BLOCK_CHANGE_REJECTED' | 'PM_OVERDUE' | 'PM_OVERDUE_COMPLETED' | 'PM_SCHEDULE_QNN' | 'GUEST_CLEANING_REQUEST';
   title: string;
   message: string;
   targetUserId?: string;

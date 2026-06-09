@@ -340,6 +340,8 @@ enum NotificationType {
   PM_OVERDUE_COMPLETED
   // PM schedule workflow QNN (Quality Notification Number) — 2026-06-08
   PM_SCHEDULE_QNN
+  // Guest (unauthenticated) filter cleaning request — 2026-06-09
+  GUEST_CLEANING_REQUEST
 }
 
 model Notification {

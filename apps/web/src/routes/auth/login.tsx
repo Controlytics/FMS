@@ -267,8 +267,17 @@ export function LoginPage() {
               </Button>
             </form>
 
+            {/* Guest cleaning request */}
+            <div className="mt-4">
+              <a href="/guest-request"
+                className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 hover:border-slate-300 transition-all">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                Guest — Filter Cleaning Request
+              </a>
+            </div>
+
             {/* Contact Admin */}
-            <div className="mt-4 text-center">
+            <div className="mt-3 text-center">
               <a href="/contact-admin" className="text-sm font-medium text-cyan-600 hover:text-cyan-700 hover:underline">
                 Contact Admin
               </a>

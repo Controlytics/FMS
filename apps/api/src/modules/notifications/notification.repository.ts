@@ -62,16 +62,16 @@ export const notificationRepository = {
     });
   },
 
-  async bulkMarkRead(ids: string[], userRole?: string, username?: string, qnnAllowed = false) {
-    const where = buildBulkVisibilityFilter(ids, userRole, username, qnnAllowed);
+  async bulkMarkRead(ids: string[], userRole?: string, username?: string, visibleGated: string[] = []) {
+    const where = buildBulkVisibilityFilter(ids, userRole, username, visibleGated);
     return prisma.notification.updateMany({
       where,
       data: { isRead: true, readAt: new Date() },
     });
   },
 
-  async bulkMarkUnread(ids: string[], userRole?: string, username?: string, qnnAllowed = false) {
-    const where = buildBulkVisibilityFilter(ids, userRole, username, qnnAllowed);
+  async bulkMarkUnread(ids: string[], userRole?: string, username?: string, visibleGated: string[] = []) {
+    const where = buildBulkVisibilityFilter(ids, userRole, username, visibleGated);
     return prisma.notification.updateMany({
       where,
       data: { isRead: false, readAt: null },
@@ -82,8 +82,8 @@ export const notificationRepository = {
     return prisma.notification.delete({ where: { id } });
   },
 
-  async bulkDelete(ids: string[], userRole?: string, username?: string, qnnAllowed = false) {
-    const where = buildBulkVisibilityFilter(ids, userRole, username, qnnAllowed);
+  async bulkDelete(ids: string[], userRole?: string, username?: string, visibleGated: string[] = []) {
+    const where = buildBulkVisibilityFilter(ids, userRole, username, visibleGated);
     return prisma.notification.deleteMany({ where });
   },
 };
@@ -109,7 +109,7 @@ function buildBulkVisibilityFilter(
   ids: string[],
   userRole?: string,
   username?: string,
-  qnnAllowed = false,
+  visibleGated: string[] = [],
 ): Record<string, unknown> {
   // NON-QNN visibility fragment (role-based, same rules as the list).
   let normal: Record<string, unknown>;
@@ -127,10 +127,11 @@ function buildBulkVisibilityFilter(
   } else {
     normal = username ? { OR: [{ forUserId: username }, { targetUserId: username }] } : {};
   }
-  // QNN notifications follow the config role list, not per-user addressing.
+  // Gated types (QNN, guest requests) follow config role lists, not per-user addressing.
+  const GATED = ['PM_SCHEDULE_QNN', 'GUEST_CLEANING_REQUEST'];
   const branches: Record<string, unknown>[] = [
-    { AND: [{ type: { not: 'PM_SCHEDULE_QNN' } }, normal] },
+    { AND: [{ type: { notIn: GATED } }, normal] },
   ];
-  if (qnnAllowed) branches.push({ type: 'PM_SCHEDULE_QNN' });
+  for (const t of visibleGated) branches.push({ type: t });
   return { id: { in: ids }, OR: branches };
 }

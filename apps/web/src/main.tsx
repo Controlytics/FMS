@@ -12,6 +12,7 @@ import { LoginPage } from './routes/auth/login';
 import { ForgotPasswordPage } from './routes/auth/forgot-password';
 import { ChangePasswordPage } from './routes/auth/change-password';
 import { ContactAdminPage } from './routes/auth/contact-admin';
+import { GuestRequestPage } from './routes/auth/guest-request';
 import { DashboardPage } from './routes/dashboard';
 // May 16 H18 bundle-split (2026-05-20): FilterOperationsPage is ~80k LOC
 // (2k LOC file + deep deps); AuditTrailPage pulls jspdf + jspdf-autotable
@@ -158,6 +159,7 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/change-password" element={<ChangePasswordPage />} />
           <Route path="/contact-admin" element={<ContactAdminPage />} />
+          <Route path="/guest-request" element={<GuestRequestPage />} />
 
           {/* Protected routes */}
           <Route element={<RouteErrorBoundary><AppLayout /></RouteErrorBoundary>}>

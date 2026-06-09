@@ -311,6 +311,7 @@ await app.register(dynamicConfigRoutes, { prefix: '/api/config' });
 await app.register(auditRoutes, { prefix: '/api/audit' });
 await app.register(uploadRoutes, { prefix: '/api/uploads' });
 await app.register(notificationRoutes, { prefix: '/api/notifications' });
+await app.register((await import('./modules/guest/routes.js')).default, { prefix: '/api/guest' });
 await app.register(roleRoutes, { prefix: '/api/roles' });
 await app.register(backupRoutes, { prefix: '/api/backup' });
 await app.register(assetRoutes, { prefix: '/api/assets' });
