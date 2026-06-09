@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { api } from '@/lib/api-client';
+import { Pagination } from '@/components/ui/pagination';
 
 interface FilterRow {
   filterId: string;
@@ -119,6 +120,19 @@ export function MyTasksPage() {
 
   const filteredTasks = useMemo(() => applyFilters(tasks), [tasks, search, blockFilter, areaFilter, statusFilter]);
   const filteredOverdue = useMemo(() => applyFilters(overdueTasks), [overdueTasks, search, blockFilter, areaFilter, statusFilter]);
+
+  // Pagination — each list keeps its own page index (they render stacked, not tabbed),
+  // but share a single rows-per-page selector. Reset both to page 1 when filters change.
+  const [pageSize, setPageSize] = useState(25);
+  const [tasksPage, setTasksPage] = useState(1);
+  const [overduePage, setOverduePage] = useState(1);
+  useEffect(() => { setTasksPage(1); setOverduePage(1); }, [search, blockFilter, areaFilter, statusFilter]);
+  const tasksTotalPages = Math.max(1, Math.ceil(filteredTasks.length / pageSize));
+  const safeTasksPage = Math.min(tasksPage, tasksTotalPages);
+  const pagedTasks = filteredTasks.slice((safeTasksPage - 1) * pageSize, safeTasksPage * pageSize);
+  const overdueTotalPages = Math.max(1, Math.ceil(filteredOverdue.length / pageSize));
+  const safeOverduePage = Math.min(overduePage, overdueTotalPages);
+  const pagedOverdue = filteredOverdue.slice((safeOverduePage - 1) * pageSize, safeOverduePage * pageSize);
 
   const hasActiveFilters = !!(search || blockFilter || areaFilter || statusFilter);
   const clearFilters = () => { setSearch(''); setBlockFilter(''); setAreaFilter(''); setStatusFilter(''); };
@@ -319,7 +333,7 @@ export function MyTasksPage() {
 
       {filteredTasks.length > 0 && (
         <div className="space-y-3">
-          {filteredTasks.map(task => (
+          {pagedTasks.map(task => (
             <TaskCard
               key={task.entryId}
               task={task}
@@ -329,6 +343,15 @@ export function MyTasksPage() {
               formatDate={formatDate}
             />
           ))}
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
+            <Pagination
+              page={safeTasksPage}
+              pageSize={pageSize}
+              totalItems={filteredTasks.length}
+              onPageChange={setTasksPage}
+              onPageSizeChange={setPageSize}
+            />
+          </div>
         </div>
       )}
 
@@ -344,7 +367,7 @@ export function MyTasksPage() {
               ({filteredOverdue.length} AHU{filteredOverdue.length === 1 ? '' : 's'} past window without completion)
             </span>
           </div>
-          {filteredOverdue.map(task => (
+          {pagedOverdue.map(task => (
             <TaskCard
               key={task.entryId}
               task={task}
@@ -354,6 +377,15 @@ export function MyTasksPage() {
               formatDate={formatDate}
             />
           ))}
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
+            <Pagination
+              page={safeOverduePage}
+              pageSize={pageSize}
+              totalItems={filteredOverdue.length}
+              onPageChange={setOverduePage}
+              onPageSizeChange={setPageSize}
+            />
+          </div>
         </div>
       )}
 
@@ -444,7 +476,7 @@ function TaskCard({ task, expanded, onToggle, onPerform, formatDate }: {
                   <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
                   {meta.label}
                 </span>
-                {task.deviation && task.deviation.status !== 'CLOSED' && (
+                {task.deviation && task.deviation.status !== 'CLOSED' && task.overallStatus !== 'complete' && (
                   <span className="inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full font-semibold bg-rose-50 text-rose-700 border border-rose-200"
                     title={`Deviation ${task.deviation.deviationNumber}`}>
                     Overdue by {task.deviation.overdueDays} day{task.deviation.overdueDays === 1 ? '' : 's'}

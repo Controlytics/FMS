@@ -104,8 +104,14 @@ export async function getCurrentStateImpl(
       blockChangeStatus = 'MATCH';
     } else {
       const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
-      const approved = await blockChangeService.hasApproval(filterId, cleaningAreaId);
-      blockChangeStatus = approved ? 'APPROVED' : 'REQUIRED';
+      // Super-admin toggle off → cross-block cleaning is allowed freely, so the
+      // pre-start popup must never fire. Report APPROVED (allowed) in that case.
+      if (!(await blockChangeService.isEnforcementEnabled())) {
+        blockChangeStatus = 'APPROVED';
+      } else {
+        const approved = await blockChangeService.hasApproval(filterId, cleaningAreaId);
+        blockChangeStatus = approved ? 'APPROVED' : 'REQUIRED';
+      }
     }
   }
 

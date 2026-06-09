@@ -13,6 +13,14 @@ export const blockChangeApprovalDef: ModuleConfigDefinition = {
   hasCustomPage: false,
   settings: [
     {
+      key: 'requireApproval',
+      type: 'boolean',
+      label: 'Require Cross-Block Approval',
+      description: 'When ON, cleaning a filter in a block other than its home block requires an approved block-change request — enforced at cycle start and on every stage. When OFF, operators may clean in any block freely (no request, no prompt).',
+      group: 'Approval',
+      default: true,
+    },
+    {
       key: 'approvalRole',
       type: 'select',
       label: 'Approval Role',

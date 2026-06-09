@@ -68,6 +68,8 @@ export async function validateBlockChange(filterId: string, cleaningAreaId: stri
   if (homeBlock.blockId === cleaningAreaId) return;
 
   const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
+  // Super-admin toggle: when cross-block approval is disabled, allow freely.
+  if (!(await blockChangeService.isEnforcementEnabled())) return;
   const hasApproval = await blockChangeService.hasApproval(filterId, cleaningAreaId);
   if (!hasApproval) {
     const targetBlock = await prisma.assetInstance.findUnique({
@@ -114,6 +116,8 @@ export async function consumeBlockChangeApprovalTx(
   if (homeBlock.blockId === cleaningAreaId) return;
 
   const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
+  // Super-admin toggle off → cross-block allowed freely; nothing to consume.
+  if (!(await blockChangeService.isEnforcementEnabled())) return;
   const hasApproval = await blockChangeService.hasApprovalTx(tx, filterId, cleaningAreaId);
   if (!hasApproval) {
     throw new AppError(409, 'BLOCK_CHANGE_RACE',
@@ -122,6 +126,48 @@ export async function consumeBlockChangeApprovalTx(
     );
   }
   await blockChangeService.consumeApprovalTx(tx, filterId, cleaningAreaId);
+}
+
+/**
+ * Advance-time block guard (2026-06-06 fix). The cycle's block is frozen at
+ * start (cleaning_cycles.cleaning_area_id). A stage submitted for a DIFFERENT
+ * block must be rejected — pre-fix advance() destructured cleaningAreaId,
+ * recorded it on the event, but NEVER validated it, so an operator could run
+ * a later stage (e.g. DRY_IN) in another block with no block-change request.
+ * Config-gated by the same super-admin toggle as start (isEnforcementEnabled).
+ *
+ * This is a pre-write gate ONLY: it throws before advance() mutates any cycle
+ * state and does not change cycle mechanics, stage flow, or cycle codes.
+ * Distinct code BLOCK_MISMATCH (not BLOCK_CHANGE_REQUIRED) so the FE surfaces
+ * a plain rejection rather than the request-approval popup — a frozen cycle
+ * can't be moved to another block, so requesting approval would be a dead end.
+ */
+export async function validateAdvanceBlock(
+  cycle: { filterId?: string; cleaningAreaId?: string | null } | null,
+  cleaningAreaId: string | undefined,
+): Promise<void> {
+  if (!cleaningAreaId) return; // FE sent no block on this advance — nothing to check
+  const cycleBlockId = cycle?.cleaningAreaId ?? null;
+  // Same block, or a legacy cycle started with no block bound → allow.
+  if (!cycleBlockId || cleaningAreaId === cycleBlockId) return;
+
+  const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
+  if (!(await blockChangeService.isEnforcementEnabled())) return;
+
+  const [cycleBlock, reqBlock] = await Promise.all([
+    prisma.assetInstance.findUnique({ where: { id: cycleBlockId }, select: { name: true } }),
+    prisma.assetInstance.findUnique({ where: { id: cleaningAreaId }, select: { name: true } }),
+  ]);
+  throw new AppError(409, 'BLOCK_MISMATCH',
+    `This cleaning cycle is running in ${cycleBlock?.name ?? 'its starting block'}. Perform this stage in ${cycleBlock?.name ?? 'that block'}, not ${reqBlock?.name ?? 'a different block'}.`,
+    {
+      filterId: cycle?.filterId,
+      cycleBlockId,
+      cycleBlockName: cycleBlock?.name ?? '',
+      requestedBlockId: cleaningAreaId,
+      requestedBlockName: reqBlock?.name ?? '',
+    },
+  );
 }
 
 export function getNextStageKeys(fromNodeId: string, stages: any[], connections: any[]): string[] {

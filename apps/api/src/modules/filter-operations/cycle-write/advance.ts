@@ -17,6 +17,7 @@ import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
 import { computeChecksum, collectChecklistsAfterStage } from '../helpers.js';
 import { lockAndVerifyFilterState } from './locking.js';
+import { validateAdvanceBlock } from '../filter-resolver.js';
 import type { FilterOperationsService } from '../filter-operations.service.js';
 
 /** @param data - Validated by Fastify JSON schema before reaching this method */
@@ -51,6 +52,11 @@ export async function advanceImpl(
   if (!cycle || cycle.status !== 'IN_PROGRESS') {
     throw new AppError(400, 'NO_ACTIVE_CYCLE', 'No active cleaning cycle found');
   }
+
+  // Block guard (2026-06-06): the cycle's block is frozen at start. Reject a
+  // stage submitted for a DIFFERENT block (config-gated). Pure pre-write gate
+  // — throws before any cycle mutation; does not touch stage/cycle mechanics.
+  await validateAdvanceBlock({ filterId, cleaningAreaId: cycle.cleaningAreaId }, cleaningAreaId);
 
   // Validate offlinePerformedAt against cycle.startedAt floor + replay-only +
   // future-skew + max-staleness. Audit 2026-05-04 fix C2 — see

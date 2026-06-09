@@ -5,6 +5,19 @@ import type { RequestContext } from '../../types/context.js';
 import { createNotification } from '../notifications/notification.service.js';
 
 export const blockChangeService = {
+  /**
+   * Super-admin toggle (block-change-approval.requireApproval). When false,
+   * cross-block cleaning is allowed freely — every enforcement point
+   * (start-cycle gate, advance gate, and the pre-start UI prompt) short-
+   * circuits so the FE and backend stay in agreement. Defaults to TRUE
+   * (the historical behaviour) when the config row or key is absent.
+   */
+  async isEnforcementEnabled(): Promise<boolean> {
+    const cfg = await prisma.systemConfig.findUnique({ where: { configKey: 'block-change-approval' } });
+    const v = (cfg?.configValue as any)?.requireApproval;
+    return v === undefined || v === null ? true : v !== false;
+  },
+
   async create(ctx: RequestContext, data: {
     filterId: string; filterName: string;
     fromBlockId: string; fromBlockName: string;

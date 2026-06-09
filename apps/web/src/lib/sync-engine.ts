@@ -430,8 +430,31 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
   //     mark op failed but suppress the toast.
   const staleTapeFiltersThisDrain = new Set<string>();
 
+  // 2026-06-06: filters whose start-cycle op FAILED this drain (e.g. a
+  // cross-block start rejected with 409 BLOCK_CHANGE_REQUIRED). Their dependent
+  // advance/checklist/bypass ops must be skipped — the cycle was never created,
+  // so firing them hits the server with no cycle and surfaces the misleading
+  // "No active cleaning cycle". CYCLE_ACTIVE failures are excluded below (the
+  // cycle exists in that case, so dependents are valid).
+  const failedStartFilters = new Set<string>();
+
   for (let opIdx = 0; opIdx < pending.length; opIdx++) {
     const op = pending[opIdx];
+    // Skip dependent cycle ops for a filter whose start-cycle already failed
+    // this drain. Mark failed without an HTTP round-trip (would 400 NO_CYCLE).
+    if (
+      op.filterId
+      && failedStartFilters.has(op.filterId)
+      && (op.type === 'advance' || op.type === 'submit-checklist' || op.type === 'bypass')
+    ) {
+      await updateOperationStatus(
+        op.id,
+        'failed',
+        'Skipped — the cleaning cycle was never started (cross-block approval needed). Request block-change approval, then retry.',
+      );
+      failed++;
+      continue;
+    }
     // Short-circuit: if a previous op for this filter already STALE_TAPE'd,
     // every further cycle-bound op for the same filter is doomed to the
     // same fate. Mark failed without an HTTP round-trip and without a
@@ -508,6 +531,20 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
       // Extract error message — apiClient throws plain objects for API errors
       const errMsg = e?.message ?? e?.error ?? 'Sync failed';
       const msg = String(errMsg).toLowerCase();
+
+      // 2026-06-06: a failed start-cycle means no cycle was created — record the
+      // filter so its dependent advance/checklist/bypass ops are skipped (see
+      // the short-circuit at the top of the loop). This stops the cross-block
+      // "start rejected → advance fires → NO_CYCLE" cascade. CYCLE_ACTIVE is
+      // excluded: the cycle already exists, so dependents remain valid.
+      if (
+        op.type === 'start-cycle'
+        && op.filterId
+        && e?.code !== 'CYCLE_ACTIVE'
+        && e?.error !== 'CYCLE_ACTIVE'
+      ) {
+        failedStartFilters.add(op.filterId);
+      }
 
       // Network error: server went away mid-sync, stop trying
       const isNetErr = msg.includes('fetch') || msg.includes('network')

@@ -763,6 +763,44 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           failed.push(`${item.filterName}: ${gate.reason}`);
           continue;
         }
+
+        // 2026-06-06 cross-block gate (queue/"Submit All" path). The single-
+        // scan handler (handleSubmit) pops the Request-Block-Change dialog when
+        // a filter is being cleaned in a block other than its home and there is
+        // no standing approval. The queue path lacked this gate, so it submitted
+        // cross-block ops blindly: start-cycle was rejected (409
+        // BLOCK_CHANGE_REQUIRED) and the follow-on advance then surfaced
+        // "No active cleaning cycle". Mirror the single-scan behaviour here:
+        // open the approval popup and STOP — do NOT start/advance. Online only
+        // (offline cross-block is already caught by validateOfflineGate above).
+        // Same-block / already-approved (MATCH / APPROVED) fall straight through
+        // — normal cleaning is unaffected.
+        if (online && selectedBlock?.id) {
+          let bcStatus: string | null | undefined = cachedState.blockChangeStatus;
+          let homeBlk: { id: string; name: string } | null | undefined = cachedState.homeBlock;
+          // Refresh against the SELECTED block — the cached status may have been
+          // primed without a cleaningAreaId and so wouldn't reflect this block.
+          try {
+            const cs = await apiClient.get<any>(`/api/filters/${item.filterId}/current-state?cleaningAreaId=${encodeURIComponent(selectedBlock.id)}`);
+            bcStatus = cs?.blockChangeStatus ?? bcStatus;
+            homeBlk = cs?.homeBlock ?? homeBlk;
+          } catch { /* fall back to cached values on a transient read failure */ }
+          if (bcStatus === 'REQUIRED' && homeBlk?.id) {
+            core.dispatch({
+              type: 'open_block_change',
+              filterId: item.filterId,
+              filterName: item.filterName,
+              homeBlockId: homeBlk.id,
+              homeBlockName: homeBlk.name,
+              requestedBlockId: selectedBlock.id,
+              requestedBlockName: selectedBlock.name,
+            });
+            setBlockChangeReason('');
+            setScanQueue([]); setDryerDurations({});
+            setLoading(false);
+            return;
+          }
+        }
         // 2026-05-20: batch cycle-start. When any queued filter has no
         // active cycle, open the reason dialog for the FIRST such filter
         // and stash the rest in remainingBatch. On equipment-readings
