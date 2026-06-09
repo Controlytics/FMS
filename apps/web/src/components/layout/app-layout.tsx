@@ -8,6 +8,7 @@ import { useRfidGuard } from '@/hooks/use-rfid-guard';
 import { useOfflineConfig } from '@/hooks/use-offline-config';
 import { useDragScroll } from '@/hooks/use-drag-scroll';
 import { HardCutoffBlocker } from '@/components/hard-cutoff-blocker';
+import { FailedOpsPanel } from '@/components/failed-ops-panel';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
@@ -185,6 +186,10 @@ export function AppLayout() {
           since the last successful server contact. Renders nothing under
           normal conditions. */}
       <HardCutoffBlocker />
+
+      {/* Floating "couldn't sync" review panel — appears only when there are
+          terminal-failed offline operations to retry or dismiss. */}
+      <FailedOpsPanel />
 
       {/* Session Timeout Warning Dialog */}
       <Dialog open={showWarning} onClose={continueSession}>

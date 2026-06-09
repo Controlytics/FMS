@@ -620,6 +620,21 @@ export async function updateOperationStatus(id: string, status: OfflineOperation
 }
 
 /**
+ * Delete a single queued operation by id. Used by the "couldn't sync" review
+ * panel when an operator dismisses a terminal-failed op (e.g. cycle already
+ * ended / stale tape) they've decided not to re-perform.
+ */
+export async function deleteOperation(id: string): Promise<void> {
+  const db = await openDB();
+  const tx = db.transaction('operations', 'readwrite');
+  tx.objectStore('operations').delete(id);
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/**
  * 2026-05-17 chained-offline-ops fix: persist a freshly-fetched tapeVersion
  * onto a queued op row. The sync-engine calls this after a successful drain
  * step refreshes `/api/filters/:id/current-state`, so any downstream queued op

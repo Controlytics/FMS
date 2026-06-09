@@ -15,6 +15,7 @@ import { onSyncEvent } from '../../lib/sync-engine';
 import { useOfflineConfig } from '../../hooks/use-offline-config';
 import { HardCutoffBlocker } from '../../components/hard-cutoff-blocker';
 import { ConnectivityRibbon } from '../../components/mobile/connectivity-ribbon';
+import { FailedOpsPanel } from '../../components/failed-ops-panel';
 import { syncAllDataForOffline, type SyncProgress } from '../../lib/offline-sync-service';
 import { triggerSync, startSyncPolling } from '../../lib/sync-since';
 import { MobileOperationsPage } from './mobile-operations';
@@ -783,6 +784,7 @@ export function MobileWrapperPage() {
           green/red/orange based on online + sync state, with sync stage
           messages from the W5 engine events. */}
       <ConnectivityRibbon online={online} pendingCount={pendingCount} syncing={syncing} />
+      <FailedOpsPanel />
       {/* --- HEADER --- */}
       <div className="bg-white/80 backdrop-blur-lg border-b border-slate-200/60 px-4 py-3 flex items-center justify-between shrink-0 z-10">
         <div className="flex items-center gap-3">
