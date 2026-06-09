@@ -34,9 +34,9 @@ const { mockPrisma, mockAuditLog } = vi.hoisted(() => ({
 
 vi.mock('../../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 vi.mock('../../../lib/audit.js', () => ({ auditLog: mockAuditLog }));
-// block-change-requests/block-change.service.js is dynamically imported inside
-// getCurrentState() — only when filter has no cycle AND a cleaningAreaId is
-// passed. Our tests never trigger that branch, so no static mock needed.
+// 2026-06-09: block-change approval removed. getCurrentState() now computes
+// blockChangeStatus inline (MATCH = same block, CONFIRM = different block) with
+// no dynamic import — these tests don't pass a cleaningAreaId so it stays null.
 
 import { FilterOperationsService } from '../filter-operations.service.js';
 

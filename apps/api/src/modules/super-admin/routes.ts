@@ -431,32 +431,6 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
-  // â”€â”€â”€ Block Change Requests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  app.get('/data/block-change-requests', { preHandler: dataPreHandler, schema: dataSchema('List block change requests') }, async (req) => {
-    return paginatedList(prisma.blockChangeRequest, req.query);
-  });
-
-  app.put('/data/block-change-requests/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Edit block change request'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', additionalProperties: true } } }, async (req) => {
-    const { id } = req.params as any;
-    const body = req.body as any;
-    const data: any = {};
-    for (const f of ['status', 'reason', 'filterName', 'fromBlockName', 'toBlockName', 'requestedByName', 'processedByName', 'processedComment']) {
-      if (body[f] !== undefined) data[f] = body[f];
-    }
-    for (const f of ['filterId', 'fromBlockId', 'toBlockId', 'requestedBy', 'processedBy']) {
-      if (body[f] !== undefined) data[f] = body[f] || null;
-    }
-    for (const f of ['processedAt', 'createdAt']) {
-      if (body[f] !== undefined) data[f] = body[f] ? new Date(body[f]) : null;
-    }
-    return prisma.blockChangeRequest.update({ where: { id }, data });
-  });
-
-  app.delete('/data/block-change-requests/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete block change request'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req) => {
-    const { id } = req.params as any;
-    await prisma.blockChangeRequest.delete({ where: { id } }).catch(() => null);
-    return { success: true };
-  });
 
   // â”€â”€â”€ PM Schedule Entries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.get('/data/pm-entries', { preHandler: dataPreHandler, schema: dataSchema('List PM schedule entries') }, async (req) => {

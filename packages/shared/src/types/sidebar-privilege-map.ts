@@ -169,13 +169,6 @@ export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
     description: "Overdue PM cleaning deviations + audit trail",
     privilegeIds: ["pm.view", "pm.approve"],
   },
-  {
-    sidebarId: "approvals",
-    label: "Approvals",
-    icon: "\u2705",
-    description: "Block change approval requests",
-    privilegeIds: ["block_change.request", "block_change.approve"],
-  },
   // Report Templates + Generated Reports removed from the application (2026-06-08).
   {
     sidebarId: "version-history",

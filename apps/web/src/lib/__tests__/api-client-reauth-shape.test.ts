@@ -114,7 +114,7 @@ describe('D6 — api-client REAUTH error shape contract', () => {
       status: 400,
       headers: { get: () => null },
       json: async () => ({
-        error: 'BLOCK_CHANGE_REQUIRED',
+        error: 'BLOCK_CHANGE_CONFIRM',
         message: 'Filter belongs to a different block',
         details: { homeBlockId: 'b-1', requestedBlockId: 'b-2' },
       }),
@@ -129,7 +129,7 @@ describe('D6 — api-client REAUTH error shape contract', () => {
     }
 
     expect(thrown).toBeInstanceOf(Error);
-    expect(thrown.code).toBe('BLOCK_CHANGE_REQUIRED');
+    expect(thrown.code).toBe('BLOCK_CHANGE_CONFIRM');
     expect(thrown.connectionInfo).toEqual({ homeBlockId: 'b-1', requestedBlockId: 'b-2' });
   });
 });

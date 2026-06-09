@@ -73,9 +73,6 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'replacement_schedule.review', label: 'Review Replacement Schedule', category: 'Filters Page Controls', icon: 'clipboard-check' },
   { id: 'replacement_schedule.approve', label: 'Approve Replacement Schedule', category: 'Filters Page Controls', icon: 'check-circle' },
 
-  // Block Change
-  { id: 'block_change.request', label: 'Request Block Change', category: 'Filter Management', icon: 'refresh' },
-  { id: 'block_change.approve', label: 'Approve Block Change', category: 'Filter Management', icon: 'check-circle' },
 
   // Cleaning Profiles
   { id: 'cleaning_profiles.view', label: 'View Cleaning Profiles', category: 'Cleaning Profiles', icon: 'eye' },
@@ -243,9 +240,6 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'replacement_schedule.review': ['REPLACEMENT_SCHEDULE_REVIEW', 'REPLACEMENT_SCHEDULE_VIEW'],
   'replacement_schedule.approve': ['REPLACEMENT_SCHEDULE_APPROVE', 'REPLACEMENT_SCHEDULE_VIEW'],
 
-  // Block Change
-  'block_change.request': ['BLOCK_CHANGE_REQUEST'],
-  'block_change.approve': ['BLOCK_CHANGE_APPROVE'],
 
   // Cleaning Profiles
   'cleaning_profiles.view': ['FCP_READ'],

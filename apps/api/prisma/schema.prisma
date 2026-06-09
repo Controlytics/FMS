@@ -1890,40 +1890,6 @@ model ChecklistProfileVersion {
   @@map("checklist_profile_versions")
 }
 
-enum BlockChangeStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  EXPIRED
-
-  @@map("block_change_status")
-}
-
-model BlockChangeRequest {
-  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  filterId         String            @map("filter_id") @db.Uuid
-  filterName       String            @map("filter_name") @db.VarChar(255)
-  fromBlockId      String            @map("from_block_id") @db.Uuid
-  fromBlockName    String            @map("from_block_name") @db.VarChar(255)
-  toBlockId        String            @map("to_block_id") @db.Uuid
-  toBlockName      String            @map("to_block_name") @db.VarChar(255)
-  reason           String?
-  status           BlockChangeStatus @default(PENDING)
-  requestedBy      String            @map("requested_by") @db.Uuid
-  requestedByName  String            @map("requested_by_name") @db.VarChar(255)
-  processedBy      String?           @map("processed_by") @db.Uuid
-  processedByName  String?           @map("processed_by_name") @db.VarChar(255)
-  processedComment String?           @map("processed_comment")
-  processedAt      DateTime?         @map("processed_at") @db.Timestamptz
-  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz
-
-  @@index([filterId, toBlockId, status])
-  @@index([status])
-  @@index([requestedBy])
-  @@map("block_change_requests")
-}
-
 // ─── Report Template Status ────────────────────────────────
 
 enum ReportTemplateStatus {

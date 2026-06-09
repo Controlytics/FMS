@@ -344,24 +344,13 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const { data: brandingData } = useSWR(online ? '/api/config/branding' : null);
   const { data: fieldIdsData } = useSWR(online ? '/api/config/field-ids' : null);
   const { data: datetimeData } = useSWR(online ? '/api/config/datetime/current' : null);
-  // B.14 — Cache approved block-change requests so an APPROVED status from a
-  // recent server-side approval is visible offline before the cycle starts.
-  const { data: approvedBlockChangesData } = useSWR(online ? '/api/block-change-requests?status=APPROVED&limit=200' : null);
   // B.11 — Cache reauth scope for current user so offline ops know which actions
   // need a queued password vs. immediate dialog.
   const { data: myReauthActionsData } = useSWR(online && user ? '/api/config/action-reauth/my-actions' : null);
 
-  // My Tasks + Approvals — fetch when user opens the view, cache for offline
+  // My Tasks — fetch when user opens the view, cache for offline
   const { data: dueTasksData, mutate: mutateDueTasks, isLoading: dueTasksLoading } =
     useSWR(online && view === 'my-tasks' ? '/api/pm-schedules/due' : null, { refreshInterval: 30000 });
-
-  const isApprover = user?.role === 'SUPER_ADMIN' || (user?.permissions ?? []).includes('BLOCK_CHANGE_APPROVE');
-  const [approvalsFilter, setApprovalsFilter] = useState<'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL'>(isApprover ? 'PENDING' : 'ALL');
-  const approvalsKey = (online && view === 'approvals')
-    ? `/api/block-change-requests?page=1&limit=50&status=${approvalsFilter}${!isApprover ? '&mine=true' : ''}`
-    : null;
-  const { data: approvalsData, mutate: mutateApprovals, isLoading: approvalsLoading } =
-    useSWR<any>(approvalsKey, { refreshInterval: 30000 });
 
   // Issue #7 fix (2026-05-18): Cleaning Cycles list on mobile. Desktop has a
   // full /cleaning-cycles/history page but tablets had no equivalent — after
@@ -379,19 +368,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const cyclesList: any[] = online ? (cyclesData?.data ?? []) : offlineCycles;
   const [expandedCycle, setExpandedCycle] = useState<string | null>(null);
 
-  // Cache tasks and approvals for offline use
+  // Cache tasks for offline use
   const [offlineTasks, setOfflineTasks] = useState<any>(null);
-  const [offlineApprovals, setOfflineApprovals] = useState<any[]>([]);
   useEffect(() => { if (dueTasksData) { cache('due-tasks', dueTasksData); } }, [dueTasksData, cache]);
-  useEffect(() => { if (approvalsData?.data) { cache('approvals', approvalsData.data); } }, [approvalsData, cache]);
   useEffect(() => {
     if (!online) {
       getCache<any>('due-tasks').then(t => setOfflineTasks(t));
-      getCache<any[]>('approvals').then(a => setOfflineApprovals(a ?? []));
     }
   }, [online, view]);
 
-  const approvals: any[] = online ? (approvalsData?.data ?? []) : offlineApprovals;
   const tasksSource = online ? dueTasksData : offlineTasks;
 
   // Expand state for My Tasks cards + processing state for Approve/Reject
@@ -455,10 +440,6 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   useEffect(() => { if (brandingData) cache('branding-config', brandingData, 24 * 60 * 60 * 1000); }, [brandingData, cache]);
   useEffect(() => { if (fieldIdsData) cache('field-ids-config', fieldIdsData, 24 * 60 * 60 * 1000); }, [fieldIdsData, cache]);
   useEffect(() => { if (datetimeData) cache('datetime-config', datetimeData, 24 * 60 * 60 * 1000); }, [datetimeData, cache]);
-  useEffect(() => {
-    const list = (approvedBlockChangesData as any)?.data ?? approvedBlockChangesData;
-    if (Array.isArray(list)) cache('approved-block-changes', list, 24 * 60 * 60 * 1000);
-  }, [approvedBlockChangesData, cache]);
   useEffect(() => {
     const actions = (myReauthActionsData as any)?.actions ?? myReauthActionsData;
     if (actions) cache('my-reauth-actions', actions, 24 * 60 * 60 * 1000);
@@ -2042,20 +2023,6 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     setSuccess(`Ready to clean filters from ${task.ahuName}. Scan each filter now.`);
   };
 
-  // ─── Approvals handlers ──────────────────────────────
-  const handleApprovalAction = async (requestId: string, action: 'approve' | 'reject') => {
-    setProcessingApproval(requestId);
-    setError('');
-    try {
-      await apiClient.post(`/api/block-change-requests/${requestId}/${action}`, { comment: approvalComment.trim() || undefined });
-      setSuccess(`Request ${action === 'approve' ? 'approved' : 'rejected'}`);
-      setApprovalComment('');
-      await mutateApprovals();
-    } catch (e: any) {
-      setError(e.message ?? `Failed to ${action} request`);
-    }
-    setProcessingApproval(null);
-  };
 
   // 2026-06-09: block-change approval removed → operator self-confirm. Mark the
   // filter acknowledged; the next start sends acknowledgeBlockChange=true.
@@ -2233,15 +2200,6 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 </div>
                 <div className="text-sm font-bold text-slate-800">My Tasks</div>
                 <div className="text-xs text-slate-400 mt-0.5">Filters due for cleaning</div>
-              </button>
-              )}
-              {hasFeature('approvals') && (
-              <button onClick={() => setView('approvals')} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm active:shadow-none active:scale-[0.98] transition-all text-left">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center mb-3 shadow-lg shadow-amber-500/20">
-                  <span className="text-2xl">✅</span>
-                </div>
-                <div className="text-sm font-bold text-slate-800">Approvals</div>
-                <div className="text-xs text-slate-400 mt-0.5">{isApprover ? 'Review requests' : 'Track your requests'}</div>
               </button>
               )}
               {/* Issue #7 fix — Cleaning Cycles tile on mobile */}
@@ -2478,163 +2436,6 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 ))}
               </div>
             )}
-          </div>
-        )}
-
-        {/* ═══ APPROVALS VIEW ═══ */}
-        {view === 'approvals' && (
-          <div className="p-4 space-y-4">
-            <div>
-              <h2 className="text-lg font-bold text-slate-800">Approvals</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {isApprover ? 'Review and act on pending block change requests' : 'Track the status of requests you submitted'}
-              </p>
-            </div>
-
-            {/* Status filter pills */}
-            {online && (
-              <div className="bg-slate-100 rounded-xl p-1 flex gap-1 overflow-x-auto">
-                {(['ALL', 'PENDING', 'APPROVED', 'REJECTED'] as const).map(opt => (
-                  <button
-                    key={opt}
-                    onClick={() => setApprovalsFilter(opt)}
-                    className={`flex-1 min-w-[70px] px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${
-                      approvalsFilter === opt
-                        ? 'bg-white text-cyan-700 shadow-sm'
-                        : 'text-slate-500 active:bg-slate-200'
-                    }`}
-                  >
-                    {opt === 'ALL' ? 'All' : opt[0] + opt.slice(1).toLowerCase()}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {!online && (
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center text-xs text-slate-500">
-                Approvals requires an internet connection.
-              </div>
-            )}
-
-            {online && approvalsLoading && (
-              <div className="space-y-3">
-                {Array.from({ length: 2 }).map((_, i) => (
-                  <div key={i} className="bg-white border border-slate-200 rounded-2xl h-32 animate-pulse" />
-                ))}
-              </div>
-            )}
-
-            {online && !approvalsLoading && approvals.length === 0 && (
-              <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-                <div className="h-1.5 bg-gradient-to-r from-amber-400 to-orange-500" />
-                <div className="p-10 text-center">
-                  <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 flex items-center justify-center">
-                    <span className="text-3xl">✅</span>
-                  </div>
-                  <div className="text-sm font-semibold text-slate-700">
-                    {approvalsFilter === 'ALL'
-                      ? (isApprover ? 'No requests' : 'No requests submitted yet')
-                      : `No ${approvalsFilter.toLowerCase()} requests`}
-                  </div>
-                  <div className="text-xs text-slate-400 mt-1">
-                    {isApprover ? 'Change the filter above to see other statuses' : 'Block change requests you submit will appear here'}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {online && approvals.map((req: any) => {
-              const processing = processingApproval === req.id;
-              // Per-status styling — each DB status gets its own badge + accent
-              const statusMeta =
-                req.status === 'APPROVED'
-                  ? { label: 'Approved', badge: 'bg-emerald-50 text-emerald-700 border-emerald-100', dot: 'bg-emerald-500', bar: 'from-emerald-400 to-emerald-500' }
-                : req.status === 'REJECTED'
-                  ? { label: 'Rejected', badge: 'bg-rose-50 text-rose-700 border-rose-100',        dot: 'bg-rose-500',    bar: 'from-rose-400 to-rose-500' }
-                : req.status === 'EXPIRED'
-                  ? { label: 'Used',     badge: 'bg-slate-100 text-slate-600 border-slate-200',    dot: 'bg-slate-400',   bar: 'from-slate-400 to-slate-500' }
-                  : { label: 'Pending',  badge: 'bg-amber-50 text-amber-700 border-amber-100',     dot: 'bg-amber-500',   bar: 'from-amber-400 to-orange-500' };
-              return (
-                <div key={req.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                  <div className={`h-1.5 bg-gradient-to-r ${statusMeta.bar}`} />
-                  <div className="p-4 space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <h3 className="text-base font-bold text-slate-800 truncate">{req.filterName}</h3>
-                        <div className="text-[11px] text-slate-400 mt-0.5">
-                          Requested by {req.requestedByName ?? req.requestedBy} • {req.createdAt ? formatTime(new Date(req.createdAt)) : ''}
-                        </div>
-                      </div>
-                      <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold border ${statusMeta.badge}`}>
-                        <span className={`w-1 h-1 rounded-full ${statusMeta.dot}`} />
-                        {statusMeta.label}
-                      </span>
-                    </div>
-
-                    <div className="bg-slate-50 rounded-xl p-3 text-xs space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-500 w-16">From:</span>
-                        <span className="font-semibold text-slate-700">{req.fromBlockName}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-500 w-16">To:</span>
-                        <span className="font-semibold text-cyan-700">{req.toBlockName}</span>
-                      </div>
-                      {req.reason && (
-                        <div className="flex items-start gap-2 pt-1">
-                          <span className="text-slate-500 w-16">Reason:</span>
-                          <span className="text-slate-600 flex-1">{req.reason}</span>
-                        </div>
-                      )}
-                      {/* Surface approval/rejection metadata when present */}
-                      {(req.status === 'APPROVED' || req.status === 'REJECTED') && (req.processedByName || req.processedAt) && (
-                        <div className="flex items-start gap-2 pt-1 border-t border-slate-200 mt-2">
-                          <span className="text-slate-500 w-16">{req.status === 'APPROVED' ? 'Approved by:' : 'Rejected by:'}</span>
-                          <span className="text-slate-600 flex-1">
-                            {req.processedByName ?? '—'}
-                            {req.processedAt ? ` • ${formatTime(new Date(req.processedAt))}` : ''}
-                          </span>
-                        </div>
-                      )}
-                      {req.processedComment && (
-                        <div className="flex items-start gap-2 pt-1">
-                          <span className="text-slate-500 w-16">Comment:</span>
-                          <span className="text-slate-600 flex-1 italic">{req.processedComment}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Only show Approve/Reject for rows that are still pending */}
-                    {isApprover && req.status === 'PENDING' && (
-                      <div className="space-y-2">
-                        <input
-                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 placeholder:text-slate-400 focus:border-cyan-400 outline-none"
-                          placeholder="Comment (required) *"
-                          value={processingApproval === req.id ? approvalComment : ''}
-                          onChange={e => { setProcessingApproval(req.id); setApprovalComment(e.target.value); }}
-                        />
-                        <div className="flex gap-2">
-                        <button
-                          onClick={() => handleApprovalAction(req.id, 'reject')}
-                          disabled={processing || !(processingApproval === req.id && approvalComment.trim())}
-                          className="flex-1 py-2.5 bg-white border border-rose-200 text-rose-700 rounded-xl text-sm font-semibold active:bg-rose-50 disabled:opacity-50"
-                        >
-                          {processing ? '…' : 'Reject'}
-                        </button>
-                        <button
-                          onClick={() => handleApprovalAction(req.id, 'approve')}
-                          disabled={processing || !(processingApproval === req.id && approvalComment.trim())}
-                          className="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl text-sm font-semibold shadow-lg shadow-emerald-500/25 active:shadow-none disabled:opacity-50"
-                        >
-                          {processing ? '…' : 'Approve'}
-                        </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
           </div>
         )}
 

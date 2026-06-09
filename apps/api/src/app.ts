@@ -64,7 +64,6 @@ import equipmentGroupRoutes from './modules/equipment-groups/routes.js';
 import syncRoutes from './modules/sync/routes.js';
 import deploymentCheckRoutes from './modules/deployment-check/routes.js';
 import adminRequestRoutes from './modules/admin-requests/routes.js';
-import blockChangeRoutes from './modules/block-change-requests/routes.js';
 import reportTemplateRoutes from './modules/report-templates/routes.js';
 import hierarchyRoutes from './modules/hierarchy/routes.js';
 // reportRoutes imported dynamically below
@@ -349,7 +348,6 @@ await app.register(replacementScheduleRoutes, { prefix: '/api/replacement-schedu
 await app.register(syncRoutes, { prefix: '/api/sync' });
 await app.register(deploymentCheckRoutes, { prefix: '/api/deployment-check' });
 await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
-await app.register(blockChangeRoutes, { prefix: '/api/block-change-requests' });
 await app.register(reportTemplateRoutes, { prefix: '/api/report-templates' });
 await app.register(hierarchyRoutes, { prefix: '/api/hierarchy' });
 await app.register((await import('./modules/reports/routes.js')).default, { prefix: '/api/reports' });

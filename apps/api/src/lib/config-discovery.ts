@@ -31,7 +31,6 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/help.def.js'),
     import('../modules/config/defs/uns.def.js'),
     import('../modules/config/defs/filter-cleaning-reasons.def.js'),
-    import('../modules/config/defs/block-change-approval.def.js'),
     import('../modules/config/defs/pm-schedule-settings.def.js'),
     import('../modules/config/defs/pm-schedule-approval.def.js'),
     import('../modules/config/defs/qnn-notifications.def.js'),

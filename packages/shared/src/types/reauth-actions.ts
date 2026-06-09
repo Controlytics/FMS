@@ -176,9 +176,6 @@ export const REAUTH_ACTIONS = {
   UPDATE_EQUIPMENT_GROUP: { label: 'Update Equipment Group', category: 'Equipment Groups' },
   DELETE_EQUIPMENT_GROUP: { label: 'Delete Equipment Group', category: 'Equipment Groups' },
 
-  // Block Change
-  APPROVE_BLOCK_CHANGE: { label: 'Approve Block Change', category: 'Filter Management' },
-  REJECT_BLOCK_CHANGE: { label: 'Reject Block Change', category: 'Filter Management' },
 
   // Reports
   CREATE_REPORT_TEMPLATE: { label: 'Create Report Template', category: 'Reports' },
