@@ -772,6 +772,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           failed.push(`${item.filterName}: ${gate.reason}`);
           continue;
         }
+        // OFFLINE cross-block: never blocks (per config) — informational notice + proceed.
+        if (!online && cachedState.homeBlock?.id && selectedBlock?.id && cachedState.homeBlock.id !== selectedBlock.id) {
+          setSuccess(`Note: ${item.filterName} belongs to ${cachedState.homeBlock.name}, not ${selectedBlock.name}. Recorded offline.`);
+        }
 
         // 2026-06-06 cross-block gate (queue/"Submit All" path). The single-
         // scan handler (handleSubmit) pops the Request-Block-Change dialog when
@@ -1337,6 +1341,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             setError(gate.reason);
             setLoading(false); return;
           }
+        }
+        // OFFLINE cross-block: never blocks (per config). Show an informational
+        // notice that the filter belongs to another block and proceed (queues).
+        if (state.homeBlock?.id && selectedBlock?.id && state.homeBlock.id !== selectedBlock.id) {
+          setSuccess(`Note: this filter belongs to ${state.homeBlock.name}, not ${selectedBlock.name}. Recorded offline.`);
         }
       }
 
