@@ -98,6 +98,9 @@ export function FilterListPage() {
   const paginationOptions = usePaginationConfig();
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(paginationOptions[0] ?? 10);
+  // Filters-tab search box: matches filter name / area / AHU / type / size / set /
+  // status / RFID tag within the selected block's list.
+  const [search, setSearch] = useState('');
 
   // Bulk upload
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
@@ -455,8 +458,21 @@ export function FilterListPage() {
       else if (diagramFilter.type === 'filter') filtered = filtered.filter(f => f.id === diagramFilter.id);
       // 'block' shows all — no extra filter
     }
+    const q = search.trim().toLowerCase();
+    if (q) {
+      filtered = filtered.filter(f => {
+        const rfid = (identifiersByAsset.get(f.id) ?? [])
+          .filter((i: any) => i.identifierType === 'RFID')
+          .map((i: any) => i.identifierValue);
+        return [
+          f.name, f.areaName, f.ahuName, f.ahuType, f.filterType,
+          f.micronSize, f.filterSize, f.filterSet,
+          (f.currentState ?? '').replace(/_/g, ' '), f.status, ...rfid,
+        ].some(v => String(v ?? '').toLowerCase().includes(q));
+      });
+    }
     return filtered;
-  }, [enrichedFilters, selectedBlock, diagramFilter]);
+  }, [enrichedFilters, selectedBlock, diagramFilter, search, identifiersByAsset]);
 
   const selectedBlockName = selectedBlock ? (instanceMap.get(selectedBlock)?.name ?? 'Block') : '';
 
@@ -1431,6 +1447,26 @@ export function FilterListPage() {
           {/* Filters tab toolbar */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
+              {/* Search box — filters the current block's list by name / area / AHU /
+                  type / size / set / status / RFID. */}
+              <div className="relative">
+                <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+                </svg>
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                  placeholder="Search filters…"
+                  className="w-56 pl-9 pr-8 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]"
+                />
+                {search && (
+                  <button onClick={() => { setSearch(''); setPage(1); }} title="Clear search"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                )}
+              </div>
               {/* Active diagram filter chip */}
               {diagramFilter && (
                 <div className="flex items-center gap-2 text-sm">
@@ -1515,8 +1551,8 @@ export function FilterListPage() {
               <svg className="w-12 h-12 text-slate-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
               </svg>
-              <p className="text-slate-600 font-medium mb-1">No filters in this block</p>
-              <p className="text-sm text-slate-400">Filters will appear here once assigned to AHUs in this block.</p>
+              <p className="text-slate-600 font-medium mb-1">{search.trim() ? 'No filters match your search' : 'No filters in this block'}</p>
+              <p className="text-sm text-slate-400">{search.trim() ? `No filter matches “${search.trim()}” in this block.` : 'Filters will appear here once assigned to AHUs in this block.'}</p>
             </div>
           ) : (
             <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
