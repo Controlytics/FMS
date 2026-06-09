@@ -52,7 +52,6 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 - Data ingestion pipeline (MQTT + HTTP)
 - Real-time alarms and notifications (email, SMS, Telegram, Slack)
 - Audit trail with SHA-256 hash-chain integrity
-- QR code generation for entities
 - Help article system with versioning
 - Backup/restore with integrity verification
 - System health monitoring

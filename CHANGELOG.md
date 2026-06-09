@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased] — Remove dead `qr-code` module (Scope A) (2026-06-06)
+
+Removed the non-functional `qr-code` API module. It generated a **placeholder** SVG (a white box with the URL as text — not a scannable QR, because the `qrcode` lib was never installed) and had **zero frontend consumers** (`grep "/api/qr"` in `apps/web` → none). Pre-deletion touchpoint sweep confirmed nothing functional depends on it.
+
+- **Deleted**: `apps/api/src/modules/qr-code/routes.ts`, `apps/api/src/e2e/qr-codes.test.ts`; removed the import + `/api/qr` registration in `app.ts` and `e2e/test-helper.ts`; removed the "QR Codes" Swagger tag.
+- **Kept (Scope A)**: the `QrCode` Prisma model + `qr_codes` table, and `instance.service.ts:574` `tx.qrCode.deleteMany(...)` (asset-delete cascade cleanup) — harmless, avoids a schema migration. Scope B (drop the model + table) deferred.
+- **Verified**: API `tsc --noEmit` clean; no dangling `/api/qr` / `qrCodeRoutes` references. Module count 34→**35** in docs (the old "34" was already stale — `replacement-schedule`/`hierarchy`/`sync` had drifted in uncounted; flagged for a separate reconciliation).
+
+## [Unreleased] — Cross-block cleaning: advance gate + super-admin toggle (2026-06-06)
+
+Uncommitted on `RFID`. **Scope: block-change enforcement only — no cleaning-cycle mechanics changed** (stage flow, checklist/dryer logic, cycle codes untouched).
+
+- **Bug fixed — a later stage could be performed in a different block with no approval.** The block-change check existed only in `start-cycle`; `advance` destructured `cleaningAreaId`, wrote it onto the event, but **never validated it**, so e.g. DRY_IN in another block was silently accepted (confirmed live: HTTP 200). New `validateAdvanceBlock()` (`filter-operations/filter-resolver.ts`) rejects a stage whose `cleaningAreaId` ≠ the cycle's frozen block with **`409 BLOCK_MISMATCH`** ("This cleaning cycle is running in CWH. Perform this stage in CWH, not L1."). Wired as a single pre-write guard at `advance.ts` (throws before any mutation). Distinct code (not `BLOCK_CHANGE_REQUIRED`) so the FE shows a plain rejection, not the dead-end approval popup (a frozen cycle can't be moved).
+- **New super-admin toggle — "Require Cross-Block Approval"** added to the existing **Block Change Approval** config (`config/defs/block-change-approval.def.ts`, `requireApproval` boolean, default **true** = current behaviour). When **off**, cross-block cleaning is allowed freely. `blockChangeService.isEnforcementEnabled()` reads it (defaults true when absent) and **all four enforcement points** short-circuit so FE and backend agree: `validateBlockChange` (start pre-check), `consumeBlockChangeApprovalTx` (start in-tx consume), the new `validateAdvanceBlock` (advance), and `current-state` `blockChangeStatus` (pre-start popup → reports `APPROVED` when disabled).
+- **Diagnosis note — Bug 1 ("no active cleaning cycle" at WASH_IN) is a frontend symptom, not backend.** Live test proved `start-cycle` into a different block correctly returns `409 BLOCK_CHANGE_REQUIRED`. The FE opens the block-change popup proactively from `blockChangeStatus`; the "no active cleaning cycle" path is offline/stale-cache adjacent and was **left untouched** pending a tablet repro (avoids touching the cycle/sync flow).
+- **Verified**: API typecheck clean; toggle ON → cross-block start 409 + advance 409 BLOCK_MISMATCH, same-block start/advance 200; toggle OFF → cross-block start 201 + advance 200; config restored, test filter left with no active cycle. Targeted suites pass (61); the 2 `deep-review-d5-d7` failures are pre-existing (verified via stash-compare). No web/APK rebuild needed for the backend bits (backend + API-driven config).
+
+- **Frontend fix — "No active cleaning cycle" on cross-block via the queue/"Submit All" path.** Diagnosed live on tablet HA28H13Z (adb + Capacitor console): a cross-block submit fired `start-cycle` (→409 BLOCK_CHANGE_REQUIRED) and then `advance` (→400 NO_CYCLE) because the **queue path lacked the up-front cross-block popup gate** that the single-scan path has, and the **sync engine** still ran dependent ops after a failed start. Two surgical, same-block-safe guards:
+  - `mobile/mobile-operations.tsx` `handleSubmitQueue`: before submitting a queued item, when online + a block is selected, fetch `/current-state?cleaningAreaId=<selected>` and if `blockChangeStatus === 'REQUIRED'` open the **Request Block Change** popup and stop (clears queue, no start/advance). MATCH/APPROVED fall straight through — same-block cleaning untouched.
+  - `lib/sync-engine.ts`: track filters whose `start-cycle` op failed (excluding `CYCLE_ACTIVE`) and **skip their dependent advance/checklist/bypass ops** in the same drain (mark failed, no HTTP) so the cross-block "start rejected → advance fires → NO_CYCLE" cascade can't happen.
+  - Verified on tablet: cross-block now shows the approval popup; after QA approval, starting with the approved block selected records the cycle in that block and consumes the approval; same-block cleaning unchanged. Web rebuilt + APK reinstalled via adb. Pre-change snapshot kept at `git stash@{0}` ("pre cross-block FE fix").
+  - **Note (not a code bug):** a cycle's block is fixed at Start from the selected block; a block-change approval only *permits* starting in the new block — it does not relocate an already-started cycle. Operator must have the approved block selected when starting.
+
 ## [Unreleased] — Replacement Tasks: pick filters from the AHU (tablet) (2026-06-05)
 
 Commit on `RFID`.
