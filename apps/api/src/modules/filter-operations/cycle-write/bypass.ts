@@ -56,11 +56,12 @@ export async function bypassImpl(
   });
 
   throwIfFailed(executor.assertTapeVersionFresh(localCtx, data.tapeVersion));
-  // Phase 8.6: assertProfileActive enforces both null-check + status='ACTIVE'.
-  // Bypass requires an active profile to read flowMode + valid states.
-  throwIfFailed(executor.assertProfileActive(localCtx, cp ? localCtx.profile : null));
+  // 2026-06-09: bypass runs on an IN-PROGRESS cycle whose profile is pinned at
+  // start. Do not require the pinned profile to still be ACTIVE — disabling a
+  // profile must not strand cycles already running on it (it still has the
+  // flowMode + states bypass needs). cp is only null if the row is missing.
   if (!cp) {
-    throw new AppError(400, 'PROFILE_DISABLED', 'Cleaning profile is disabled or not found.');
+    throw new AppError(400, 'NO_PROFILE', 'This cycle has no cleaning profile (the pinned profile record is missing).');
   }
   throwIfFailed(executor.assertBypassAllowed(localCtx, cp.flowMode));
   const validStates = cp.stages.filter(s => s.nodeType === 'STAGE' && s.stateKey).map(s => s.stateKey);

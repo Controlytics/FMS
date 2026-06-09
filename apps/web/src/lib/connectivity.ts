@@ -106,9 +106,25 @@ export async function startConnectivityEngine(): Promise<void> {
 
   // 3. Periodic /api/health probe — the truth-teller. notify() dedupes so this
   // is cheap even at 15s cadence.
+  //
+  // 2026-06-09: debounce the OFFLINE flip. A single failed probe (a transient
+  // timeout, a momentarily slow HTTPS response on the tablet, one dropped
+  // packet) used to flip the whole UI to "offline" and then recover on the next
+  // 15s poll — the flapping operators reported. Now a successful probe restores
+  // online immediately, but it takes PROBE_FAILURES_BEFORE_OFFLINE consecutive
+  // failures (~30s of genuine unreachability) before we declare offline.
+  const PROBE_FAILURES_BEFORE_OFFLINE = 2;
+  let consecutiveProbeFailures = 0;
   const tick = async () => {
     const reachable = await probeServer();
-    notify(reachable);
+    if (reachable) {
+      consecutiveProbeFailures = 0;
+      notify(true);
+    } else {
+      consecutiveProbeFailures += 1;
+      if (consecutiveProbeFailures >= PROBE_FAILURES_BEFORE_OFFLINE) notify(false);
+      // else: keep the current state — don't flap offline on one transient miss.
+    }
   };
   await tick();
   pollTimer = setInterval(tick, CONNECTIVITY_POLL_INTERVAL_MS);

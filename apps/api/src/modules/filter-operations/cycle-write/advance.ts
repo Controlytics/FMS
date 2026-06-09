@@ -68,12 +68,16 @@ export async function advanceImpl(
 
   throwIfFailed(executor.assertTapeVersionFresh(localCtx, data.tapeVersion));
   throwIfFailed(executor.assertProfileAssigned(localCtx, cp?.id));
-  throwIfFailed(executor.assertProfileActive(localCtx, cp ? localCtx.profile : null));
 
-  // assertProfileActive now enforces status === 'ACTIVE' (Phase 8.6 fix);
-  // narrow for TS so downstream code can read cp.* without optional chaining.
+  // 2026-06-09: an IN-PROGRESS cycle pins its cleaning profile at start
+  // (cleaning_cycles.profileId is frozen). Do NOT require that profile to still
+  // be ACTIVE here — disabling a profile must never strand cycles already running
+  // on it. Operators were blocked from finishing a cycle with "Cleaning profile
+  // is disabled" after an admin deactivated the profile mid-cycle. NEW cycle
+  // starts still require an ACTIVE profile (start-cycle.ts). cp is only null if
+  // the pinned profile ROW is missing (deleted), which is a genuine error.
   if (!cp) {
-    throw new AppError(400, 'PROFILE_DISABLED', 'Cleaning profile is disabled or not found. Contact admin to activate it.');
+    throw new AppError(400, 'NO_PROFILE', 'This cycle has no cleaning profile (the pinned profile record is missing).');
   }
 
   const currentState = localCtx.filter.currentLifecycleState;
