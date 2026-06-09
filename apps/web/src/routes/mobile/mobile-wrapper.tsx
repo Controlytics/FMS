@@ -2921,12 +2921,8 @@ export function MobileWrapperPage() {
               <span className="text-[10px] font-semibold">My Tasks</span>
             </button>
           )}
-          {hasFeature('approvals') && (
-            <button onClick={() => setView('approvals')} className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-colors ${view === 'approvals' ? 'text-cyan-600' : 'text-slate-400'}`}>
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              <span className="text-[10px] font-semibold">Approvals</span>
-            </button>
-          )}
+          {/* Approvals (block-change) tab removed 2026-06-09 — cross-block cleaning
+              is now an operator self-confirm, so there are no approvals to review. */}
         </div>
       )}
 

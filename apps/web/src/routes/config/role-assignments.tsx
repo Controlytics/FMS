@@ -8,7 +8,7 @@ import { themeButton } from '@/lib/theme-styles';
 // PM Schedule workflow, Block Change approval, QNN visibility, Guest requests.
 // Each section reads/writes its own config key via /api/config/dynamic/<key>.
 
-const CONFIG_KEYS = ['pm-schedule-approval', 'block-change-approval', 'qnn-notifications', 'guest-cleaning-requests'] as const;
+const CONFIG_KEYS = ['pm-schedule-approval', 'qnn-notifications', 'guest-cleaning-requests'] as const;
 type CfgKey = (typeof CONFIG_KEYS)[number];
 
 function useRoleOptions(): string[] {
@@ -21,7 +21,7 @@ export function RoleAssignmentsPage() {
   const { toast } = useToast();
   const roles = useRoleOptions();
   const [cfg, setCfg] = useState<Record<CfgKey, Record<string, any>>>({
-    'pm-schedule-approval': {}, 'block-change-approval': {}, 'qnn-notifications': {}, 'guest-cleaning-requests': {},
+    'pm-schedule-approval': {}, 'qnn-notifications': {}, 'guest-cleaning-requests': {},
   });
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -124,11 +124,6 @@ export function RoleAssignmentsPage() {
           <RoleSelect k="pm-schedule-approval" field="reviewRole" label="Review" />
           <RoleSelect k="pm-schedule-approval" field="approvalRole" label="Approve" />
         </div>
-      </Section>
-
-      <Section title="Block Change Approval" desc="Cross-block cleaning approval.">
-        <Toggle k="block-change-approval" field="requireApproval" label="Require cross-block approval" />
-        <RoleSelect k="block-change-approval" field="approvalRole" label="Approver" />
       </Section>
 
       <Section title="QNN Notifications" desc="Which roles see Quality Notification (QNN) entries.">
