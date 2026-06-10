@@ -53,11 +53,20 @@ export const configService = {
         sanitized[k] = (data as any)[k];
       }
     }
-    const parsed = schema.safeParse(sanitized);
-    if (!parsed.success) throw new ValidationError('VALIDATION_ERROR', parsed.error.flatten());
-
+    // Merge incoming fields over the EXISTING config before validating, so a
+    // PARTIAL save (a config tab sending only its own fields) preserves the
+    // rest. Without this, the Zod schema fills every unsent field with its
+    // DEFAULT — e.g. a `{companyName}` branding save would reset logo/theme.
+    // Only merge when both sides are plain objects; array-shaped configs are
+    // full replacements.
     const existing = await configRepository.getSystemConfig(key);
     const beforeValue = existing?.configValue;
+    const isPlainObject = (v: any): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
+    const toValidate = isPlainObject(beforeValue) && isPlainObject(sanitized)
+      ? { ...beforeValue, ...sanitized }
+      : sanitized;
+    const parsed = schema.safeParse(toValidate);
+    if (!parsed.success) throw new ValidationError('VALIDATION_ERROR', parsed.error.flatten());
 
     await configRepository.upsertSystemConfig(key, parsed.data, configType, requiresReauth, ctx.userId);
 
