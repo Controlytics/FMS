@@ -1188,7 +1188,7 @@ export function FilterListPage() {
     const headers = ['S.No', 'Area', 'AHU', 'AHU Type', 'Filter', 'Filter Type', 'Micron Size', 'Filter Size', 'Set', 'Last Cleaned', 'Status', 'RFID'];
     const dash = (v: string | null | undefined) => (v && v !== '-' ? v : '');
     const body = blockFilters.map((f, idx) => {
-      const stateLabel = STATUS_LABELS[f.currentState ?? '']?.label ?? (f.currentState?.replace(/_/g, ' ') ?? 'Idle');
+      const stateLabel = STATUS_LABELS[f.currentState ?? '']?.label ?? (f.currentState?.replace(/_/g, ' ') ?? 'To Be Cleaned');
       const rfid = (identifiersByAsset.get(f.id) ?? [])
         .filter((i: any) => i.identifierType === 'RFID')
         .map((i: any) => i.identifierValue)
@@ -1600,7 +1600,7 @@ export function FilterListPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {paginatedFilters.map((f, idx) => {
-                      const stateInfo = STATUS_LABELS[f.currentState ?? ''] ?? { label: f.currentState?.replace(/_/g, ' ') ?? 'Idle', color: 'bg-slate-100 text-slate-500 border-slate-300' };
+                      const stateInfo = STATUS_LABELS[f.currentState ?? ''] ?? { label: f.currentState?.replace(/_/g, ' ') ?? 'To Be Cleaned', color: 'bg-slate-100 text-slate-500 border-slate-300' };
                       const tags = (identifiersByAsset.get(f.id) ?? []).filter((i: any) => i.identifierType === 'RFID');
                       const isSelected = selectedFilterIds.has(f.id);
                       const isRetired = f.currentState === 'RETIRED';

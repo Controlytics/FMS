@@ -2354,7 +2354,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                       {f.filterSet && <span className="text-[10px] text-slate-400">Set {f.filterSet.replace('SET_', '')}</span>}
                     </div>
                     <span className={`text-[10px] px-2.5 py-1 rounded-full border font-medium ${stageInfo ? `${stageInfo.bg} ${stageInfo.text} ${stageInfo.border}` : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
-                      {f.currentLifecycleState?.replace(/_/g, ' ') ?? 'Idle'}
+                      {f.currentLifecycleState?.replace(/_/g, ' ') ?? 'To Be Cleaned'}
                     </span>
                   </div>
                 );
@@ -2738,7 +2738,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                             <span className="text-slate-400 shrink-0">{formatTime(new Date(e.performedAt))}</span>
                             <span className="font-medium text-slate-700 truncate">
                               {e.eventType === 'STATE_TRANSITION'
-                                ? (e.fromState ? `${e.fromState.replace(/_/g, ' ')} → ${e.toState?.replace(/_/g, ' ')}` : (e.toState?.replace(/_/g, ' ') ?? 'transition'))
+                                ? (e.fromState ? `${e.fromState.replace(/_/g, ' ')} → ${e.toState?.replace(/_/g, ' ')}` : (e.toState ? `To Be Cleaned → ${e.toState.replace(/_/g, ' ')}` : 'transition'))
                                 : e.eventType.replace(/_/g, ' ').toLowerCase()}
                             </span>
                           </div>

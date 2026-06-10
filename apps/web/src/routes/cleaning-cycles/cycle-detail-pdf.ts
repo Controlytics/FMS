@@ -43,7 +43,7 @@ export function appendCycleDetailToReport(
   const allStages = ['WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN', 'STORAGE_OUT'];
   report.addTable({
     head: allStages.map((s) => STAGE_LABELS[s] ?? s),
-    body: [allStages.map((s) => completedStages.includes(s) ? 'Done' : '-')],
+    body: [allStages.map((s) => completedStages.includes(s) ? 'Done' : 'Pending')],
     headColor: [59, 130, 246],
   });
 
@@ -56,7 +56,9 @@ export function appendCycleDetailToReport(
     eventRows.push([
       String(idx + 1),
       ev.eventType.replace(/_/g, ' '),
-      ev.fromState ? (STAGE_LABELS[ev.fromState] ?? ev.fromState) : '-',
+      ev.fromState
+        ? (STAGE_LABELS[ev.fromState] ?? ev.fromState)
+        : (ev.eventType === 'STATE_TRANSITION' && ev.toState ? 'To Be Cleaned' : '-'),
       ev.toState ? (STAGE_LABELS[ev.toState] ?? ev.toState) : '-',
       ev.performedByName ?? '-',
       formatDateTime(ev.performedAt),
@@ -68,21 +70,21 @@ export function appendCycleDetailToReport(
   });
 
   report.addTable({
-    head: ['#', 'Event', 'From', 'To', 'Performed By', 'Time', 'Remarks'],
+    head: ['S.No', 'Event', 'From', 'To', 'Performed By', 'Time', 'Remarks'],
     body: eventRows,
     columnStyles: { 0: { cellWidth: 8, halign: 'center' }, 6: { cellWidth: 50 } },
   });
 
   // Checklist answers
   for (const cl of checklistRows) {
-    report.addSectionTitle(`Checklist Responses (Event #${cl.eventIdx})`);
+    report.addSectionTitle(`Checklist Responses (S.No ${cl.eventIdx})`);
     const qaRows = cl.qa.map((qa, i) => [
       String(i + 1),
       qa.question,
       typeof qa.answer === 'boolean' ? (qa.answer ? 'Yes' : 'No') : String(qa.answer),
     ]);
     report.addTable({
-      head: ['#', 'Question', 'Answer'],
+      head: ['S.No', 'Question', 'Answer'],
       body: qaRows,
       headColor: [21, 128, 61],
       columnStyles: { 0: { cellWidth: 8, halign: 'center' }, 2: { cellWidth: 30 } },

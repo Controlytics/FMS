@@ -163,7 +163,10 @@ export class FilterOperationsService {
       return {
         ...e,
         filterName: fmap.get(e.filterId) ?? null,
-        performedByName: u?.fullName ?? null,
+        // Show the user ID (login/employee username) as the performer, not the
+        // full name (per 2026-06-10 request — username is the unique identifier
+        // of record). performedByUsername kept for back-compat consumers.
+        performedByName: u?.username ?? null,
         performedByUsername: u?.username ?? null,
       };
     });
@@ -361,7 +364,7 @@ export class FilterOperationsService {
           const u = e.performedBy ? userMap.get(e.performedBy) : null;
           return {
             ...e,
-            performedByName: u?.fullName ?? null,
+            performedByName: u?.username ?? null,
             performedByUsername: u?.username ?? null,
           };
         }),
@@ -458,7 +461,10 @@ export class FilterOperationsService {
       const u = e.performedBy ? userMap[e.performedBy] : null;
       const enriched: any = {
         ...e,
-        performedByName: u?.fullName ?? null,
+        // Show the user ID (login/employee username) as the performer, not the
+        // full name (per 2026-06-10 request — username is the unique identifier
+        // of record). performedByUsername kept for back-compat consumers.
+        performedByName: u?.username ?? null,
         performedByUsername: u?.username ?? null,
       };
       if (e.eventType === 'CHECKLIST_COMPLETED' && (e.attributes as any)?.answers) {

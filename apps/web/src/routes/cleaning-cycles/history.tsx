@@ -124,7 +124,7 @@ export function CleaningCycleHistoryPage() {
         const eff = effectiveCycleStatus(c);
         const termLabel = eff === 'RETIRED' ? 'Retired' : eff === 'REPLACED' ? 'Replaced' : null;
         const naCell = (stage: string, v: string | null) =>
-          v != null ? v : pStages.length > 0 && !pStages.includes(stage) ? 'NA' : termLabel ?? '-';
+          v != null ? v : pStages.length > 0 && !pStages.includes(stage) ? 'NA' : termLabel ?? 'Pending';
         const dryerTempStr = getReading(dryReadings, 'dryer') !== '-' ? getReading(dryReadings, 'dryer') : getReading(dryReadings, 'temperature');
         const dryerStart = getDryerStart(c, c.events ?? []);
         return [
@@ -266,7 +266,7 @@ export function CleaningCycleHistoryPage() {
                       </td>
                       <td className="px-4 py-3 text-[13px] text-slate-600" colSpan={9}>
                         <span className="text-amber-700 font-medium">Manual status update:</span>{' '}
-                        <span className="text-slate-500">{(c.fromState ?? 'None').replace(/_/g, ' ')}</span>
+                        <span className="text-slate-500">{c.fromState ? c.fromState.replace(/_/g, ' ') : 'To Be Cleaned'}</span>
                         <span className="text-slate-300 mx-1.5">→</span>
                         <span className="font-medium text-slate-800">{(c.toState ?? '-').replace(/_/g, ' ')}</span>
                         {c.remarks && <span className="text-slate-400"> · {c.remarks}</span>}
@@ -324,7 +324,8 @@ export function CleaningCycleHistoryPage() {
                   if (idx >= 0 && idx < maxReachedIdx) {
                     return <span className="text-rose-500 italic">Skipped</span>;
                   }
-                  return '-';
+                  // In-profile stage not yet reached (or unknown profile) = pending.
+                  return <span className="text-blue-500 italic">Pending</span>;
                 };
 
                 return (

@@ -227,8 +227,12 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
           const hasReadings = instrumentReadings.length > 0;
 
           // Dryer keys get a dedicated formatted panel below; clientOpId is internal.
+          // `checklists` (full questions+answers snapshot) is rendered as the
+          // "Checklist Responses" section below, not dumped as raw JSON.
+          // `offlinePerformedAt` is internal bookkeeping — the formatted submit
+          // time is already shown in the event header (performedAt).
           const displayAttrs = Object.entries(attrs).filter(
-            ([k]) => !['cleaningReasonKey', 'cleaningReasonLabel', 'instrumentReadings', 'sequenceNumber', 'answers', 'afterStage', 'action', 'dryerDurationMinutes', 'dryerStartedAt', 'clientOpId'].includes(k)
+            ([k]) => !['cleaningReasonKey', 'cleaningReasonLabel', 'instrumentReadings', 'sequenceNumber', 'answers', 'afterStage', 'action', 'dryerDurationMinutes', 'dryerStartedAt', 'clientOpId', 'checklists', 'offlinePerformedAt'].includes(k)
           );
           const enrichedAnswers: { questionId: string; question: string; answer: any }[] = event.enrichedAnswers ?? [];
 
@@ -263,15 +267,23 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
                   <span className="text-xs text-slate-400 tabular-nums">{formatDateTime(event.performedAt)}</span>
                 </div>
 
-                {/* State Transition */}
+                {/* State Transition. A transition with no fromState is the
+                    "genesis" move — the filter entering its first cleaning
+                    stage from the pre-cycle lifecycle state, shown as
+                    "To Be Cleaned". */}
                 {(event.fromState || event.toState) && (
                   <div className="flex items-center gap-2 mb-2">
-                    {event.fromState && (
+                    {event.toState && (
+                      <span className="px-2 py-0.5 text-xs rounded-md bg-white text-slate-500">
+                        {event.fromState ? (STAGE_LABELS[event.fromState] ?? event.fromState.replace(/_/g, ' ')) : 'To Be Cleaned'}
+                      </span>
+                    )}
+                    {event.fromState && !event.toState && (
                       <span className="px-2 py-0.5 text-xs rounded-md bg-white text-slate-500">
                         {STAGE_LABELS[event.fromState] ?? event.fromState.replace(/_/g, ' ')}
                       </span>
                     )}
-                    {event.fromState && event.toState && (
+                    {event.toState && (
                       <svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                       </svg>
@@ -364,16 +376,22 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
                   <div className="text-sm text-slate-500 italic mt-2">{event.remarks}</div>
                 )}
 
-                {/* Other Attributes */}
-                {displayAttrs.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {displayAttrs.map(([k, v]: [string, any]) => (
-                      <span key={k} className="px-2 py-0.5 text-[11px] bg-white border border-slate-200 rounded-md text-slate-500">
-                        {k}: {typeof v === 'object' ? JSON.stringify(v) : String(v)}
-                      </span>
-                    ))}
-                  </div>
-                )}
+                {/* Other Attributes — never dump raw objects as JSON; render
+                    timestamps in the configured local time, not raw UTC ISO. */}
+                {(() => {
+                  const shown = displayAttrs.filter(([, v]) => v !== null && v !== undefined && typeof v !== 'object');
+                  if (shown.length === 0) return null;
+                  const isIsoDate = (s: any) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s);
+                  return (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {shown.map(([k, v]: [string, any]) => (
+                        <span key={k} className="px-2 py-0.5 text-[11px] bg-white border border-slate-200 rounded-md text-slate-500">
+                          {k}: {isIsoDate(v) ? formatDateTime(v) : String(v)}
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           );

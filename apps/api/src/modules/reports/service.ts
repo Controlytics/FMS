@@ -88,7 +88,8 @@ export class ReportService {
       },
       orgId: '',
       userId: ctx.userSub,
-      userName: user?.fullName ?? ctx.userId,
+      // Show the user ID (username), not the full name, as the report generator.
+      userName: user?.username ?? ctx.userId,
       orgName: '',
       reportName,
       templateName: template.name,

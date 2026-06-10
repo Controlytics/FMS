@@ -133,7 +133,8 @@ export const identifierService = {
     const users = uuidUserIds.length
       ? await prisma.user.findMany({ where: { id: { in: uuidUserIds } }, select: { id: true, username: true, fullName: true } })
       : [];
-    const umap = new Map(users.map((u) => [u.id, u.fullName || u.username]));
+    // Show the user ID (username), not the full name, as the performer.
+    const umap = new Map(users.map((u) => [u.id, u.username]));
 
     let enriched = events.map((e) => {
       const f = e.assetId ? fmap.get(e.assetId) : null;

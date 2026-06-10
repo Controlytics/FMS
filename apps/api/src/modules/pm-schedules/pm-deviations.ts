@@ -114,7 +114,8 @@ async function latestCompleter(filterIds: string[], since: Date): Promise<{ id: 
   });
   if (!ev?.performedBy) return null;
   const u = await prisma.user.findUnique({ where: { id: ev.performedBy }, select: { id: true, username: true, fullName: true } });
-  return u ? { id: u.id, name: u.fullName || u.username } : { id: ev.performedBy, name: ev.performedBy };
+  // Show the user ID (username), not the full name, as the deviation performer.
+  return u ? { id: u.id, name: u.username } : { id: ev.performedBy, name: ev.performedBy };
 }
 
 async function notifyOverdue(dev: any, ahu: CountedAhu, roles: string[], now: Date) {

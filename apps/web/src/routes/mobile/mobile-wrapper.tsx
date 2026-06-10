@@ -1273,7 +1273,7 @@ export function MobileWrapperPage() {
                         </div>
                       </div>
                       <span className={`text-[10px] px-2.5 py-1 rounded-full border font-medium whitespace-nowrap ${stageInfo ? `${stageInfo.bg} ${stageInfo.text} ${stageInfo.border}` : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
-                        {f.currentLifecycleState?.replace(/_/g, ' ') ?? 'Idle'}
+                        {f.currentLifecycleState?.replace(/_/g, ' ') ?? 'To Be Cleaned'}
                       </span>
                     </div>
                   </div>
@@ -1917,9 +1917,9 @@ export function MobileWrapperPage() {
                           {(ev.performedByUsername || ev.performedByName) && (
                             <div className="text-[10.5px] text-slate-500">by <span className="text-slate-700 font-medium font-mono-tab">{ev.performedByUsername ?? ev.performedByName}</span></div>
                           )}
-                          {ev.fromState && ev.toState && (
+                          {ev.toState && (
                             <div className="flex items-center gap-1.5 mt-1.5">
-                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-white border border-slate-200 text-slate-500 font-mono-tab">{STAGE_LABELS[ev.fromState] ?? ev.fromState}</span>
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-white border border-slate-200 text-slate-500 font-mono-tab">{ev.fromState ? (STAGE_LABELS[ev.fromState] ?? ev.fromState) : 'To Be Cleaned'}</span>
                               <svg className="w-3 h-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
                               <span className="px-1.5 py-0.5 rounded text-[10px] bg-white border border-slate-300 text-slate-700 font-mono-tab font-semibold">{STAGE_LABELS[ev.toState] ?? ev.toState}</span>
                             </div>
@@ -2699,7 +2699,7 @@ export function MobileWrapperPage() {
                         <div className="text-base font-bold text-slate-900 mt-0.5 break-all">{result.filter.name}</div>
                       </div>
                       <span className={`text-[10px] px-2.5 py-1 rounded-full border font-medium whitespace-nowrap ${stageInfo ? `${stageInfo.bg} ${stageInfo.text} ${stageInfo.border}` : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
-                        {result.filter.currentLifecycleState?.replace(/_/g, ' ') ?? 'Idle'}
+                        {result.filter.currentLifecycleState?.replace(/_/g, ' ') ?? 'To Be Cleaned'}
                       </span>
                     </div>
 

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Pagination } from '@/components/ui/pagination';
+import { apiClient } from '@/lib/api-client';
+import { createReport } from '@/lib/pdf-report';
 
 interface DeviationRow {
   id: string;
@@ -45,11 +47,39 @@ const TABS: { key: string; label: string }[] = [
   { key: 'CLOSED', label: 'Closed' },
 ];
 
+// Overdue / delay severity bands (2026-06-10): ≤7 days yellow, 8–30 orange, >30 red.
+// Rendered as filled badge pills (not thin text) with a wide hue gap so the three
+// bands are easy to tell apart. Same scale colours the columns and the legend.
+function severityCls(days: number | null | undefined): string {
+  const n = days ?? 0;
+  if (n > 30) return 'bg-red-100 text-red-700 border-red-300';
+  if (n > 7) return 'bg-orange-100 text-orange-700 border-orange-300';
+  return 'bg-yellow-100 text-yellow-800 border-yellow-400';
+}
+const severityPill = `inline-block px-2 py-0.5 rounded-md text-[12px] font-semibold border`;
+const SEVERITY_BANDS: { dot: string; label: string }[] = [
+  { dot: 'bg-yellow-400', label: '≤ 7 days' },
+  { dot: 'bg-orange-500', label: '8–30 days' },
+  { dot: 'bg-red-600',    label: '> 30 days' },
+];
+
+// Full "N day(s)" label instead of the terse "Nd".
+function daysLabel(n: number | null | undefined): string {
+  const v = n ?? 0;
+  return `${v} day${v === 1 ? '' : 's'}`;
+}
+
 export function DeviationsPage() {
   const { formatDate, formatDateTime } = useDatetimeFormat();
   const [status, setStatus] = useState('ALL');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+
+  // Report download (period-scoped PDF).
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const [downloadMsg, setDownloadMsg] = useState('');
 
   const params = new URLSearchParams({ page: String(page), limit: String(pageSize) });
   if (status !== 'ALL') params.set('status', status);
@@ -57,6 +87,74 @@ export function DeviationsPage() {
 
   const rows = data?.data ?? [];
   const total = data?.total ?? 0;
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    setDownloadMsg('');
+    try {
+      // The list endpoint has no date filter, so pull every page for the current
+      // status tab and filter by scheduled date client-side (deviation counts
+      // are small — overdue AHU cleaning tasks only).
+      const all: DeviationRow[] = [];
+      let p = 1;
+      let totalPages = 1;
+      do {
+        const qp = new URLSearchParams({ page: String(p), limit: '200' });
+        if (status !== 'ALL') qp.set('status', status);
+        const resp = await apiClient.get<DeviationResponse>(`/api/pm-schedules/deviations?${qp}`);
+        all.push(...(resp.data ?? []));
+        totalPages = resp.totalPages ?? 1;
+        p++;
+      } while (p <= totalPages);
+
+      // Period filter on the scheduled cleaning date (the planned date the
+      // deviation is about). Empty bound = open-ended (mirrors the cleaning
+      // report's "Start"/"Now" semantics).
+      const fromT = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : -Infinity;
+      const toT = toDate ? new Date(`${toDate}T23:59:59`).getTime() : Infinity;
+      const filtered = all.filter(d => {
+        const t = new Date(d.scheduledDate).getTime();
+        return t >= fromT && t <= toT;
+      });
+
+      if (filtered.length === 0) {
+        setDownloadMsg('No deviations in the selected period.');
+        return;
+      }
+
+      const period = fromDate || toDate
+        ? `${fromDate ? formatDate(fromDate) : 'Start'} to ${toDate ? formatDate(toDate) : 'Now'}`
+        : 'All Time';
+
+      const report = await createReport({
+        title: 'Deviations Report',
+        subtitle: `Status: ${status === 'ALL' ? 'All' : STATUS_META[status as DeviationRow['status']]?.label ?? status}  |  Period: ${period}  |  Total: ${filtered.length} deviation(s)`,
+        orientation: 'landscape',
+        formatDateTime,
+      });
+      report.addTable({
+        head: ['Deviation #', 'AHU', 'Filters', 'Scheduled', 'Overdue', 'Status', 'Acknowledged By', 'Completed By', 'Completed', 'Delay'],
+        body: filtered.map(d => [
+          d.deviationNumber,
+          d.ahuName,
+          String(d.filterCount),
+          formatDate(d.scheduledDate),
+          d.status === 'CLOSED' ? `${daysLabel(d.delayDays ?? d.overdueDaysAtOpen)} delay` : daysLabel(d.liveOverdueDays),
+          STATUS_META[d.status].label,
+          d.acknowledgedByName ?? '-',
+          d.completedByName ?? '-',
+          d.completedAt ? formatDateTime(d.completedAt) : '-',
+          d.delayDays != null ? daysLabel(d.delayDays) : '-',
+        ]),
+        headColor: [225, 29, 72], // rose-600, matches the page theme
+      });
+      report.save(`deviations-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (e: any) {
+      setDownloadMsg(e?.message ?? 'Failed to generate the report.');
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <div className="h-full flex flex-col">
@@ -76,14 +174,48 @@ export function DeviationsPage() {
             </p>
           </div>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          {TABS.map(t => (
-            <button key={t.key} onClick={() => { setStatus(t.key); setPage(1); }}
-              className={`px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-all ${status === t.key ? 'bg-rose-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
-              {t.label}
-            </button>
+
+        {/* Overdue severity legend */}
+        <div className="flex items-center gap-4 mb-3 text-[11px]">
+          <span className="font-bold text-slate-400 uppercase tracking-wider">Overdue / Delay</span>
+          {SEVERITY_BANDS.map(b => (
+            <span key={b.label} className="flex items-center gap-1.5 text-slate-500">
+              <span className={`w-2.5 h-2.5 rounded-full ${b.dot}`} />{b.label}
+            </span>
           ))}
         </div>
+
+        {/* Tabs + report download toolbar */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex gap-2 flex-wrap">
+            {TABS.map(t => (
+              <button key={t.key} onClick={() => { setStatus(t.key); setPage(1); }}
+                className={`px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-all ${status === t.key ? 'bg-rose-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="text-[11px] font-medium text-slate-400">From</label>
+            <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setDownloadMsg(''); }}
+              className="border border-slate-200 rounded-lg px-2 py-1 text-[12px] text-slate-700 focus:border-rose-400 focus:ring-2 focus:ring-rose-100 outline-none" />
+            <label className="text-[11px] font-medium text-slate-400">To</label>
+            <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setDownloadMsg(''); }}
+              className="border border-slate-200 rounded-lg px-2 py-1 text-[12px] text-slate-700 focus:border-rose-400 focus:ring-2 focus:ring-rose-100 outline-none" />
+            <button onClick={handleDownload} disabled={downloading}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-gradient-to-r from-rose-500 to-rose-600 shadow-sm shadow-rose-600/20 disabled:opacity-50">
+              {downloading ? (
+                <span className="w-3.5 h-3.5 border-2 border-white/60 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                </svg>
+              )}
+              {downloading ? 'Generating…' : 'Download PDF'}
+            </button>
+          </div>
+        </div>
+        {downloadMsg && <div className="mt-2 text-[12px] text-rose-600">{downloadMsg}</div>}
       </div>
 
       {/* Table */}
@@ -121,9 +253,15 @@ export function DeviationsPage() {
                       <td className="px-4 py-3 text-[13px] text-slate-600 text-center tabular-nums">{d.filterCount}</td>
                       <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap">{formatDate(d.scheduledDate)}</td>
                       <td className="px-4 py-3 text-[13px] whitespace-nowrap">
-                        <span className={d.status === 'CLOSED' ? 'text-slate-500' : 'text-rose-600 font-semibold'}>
-                          {d.status === 'CLOSED' ? `${d.delayDays ?? d.overdueDaysAtOpen}d delay` : `${d.liveOverdueDays}d`}
-                        </span>
+                        {d.status === 'CLOSED' ? (
+                          <span className={`${severityPill} ${severityCls(d.delayDays ?? d.overdueDaysAtOpen)}`}>
+                            {daysLabel(d.delayDays ?? d.overdueDaysAtOpen)} delay
+                          </span>
+                        ) : (
+                          <span className={`${severityPill} ${severityCls(d.liveOverdueDays)}`}>
+                            {daysLabel(d.liveOverdueDays)}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-full border ${sm.cls}`}>
@@ -136,7 +274,11 @@ export function DeviationsPage() {
                       </td>
                       <td className="px-4 py-3 text-[13px] text-slate-700 whitespace-nowrap">{d.completedByName ?? '—'}</td>
                       <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap">{d.completedAt ? formatDateTime(d.completedAt) : '—'}</td>
-                      <td className="px-4 py-3 text-[13px] text-slate-600 text-center tabular-nums">{d.delayDays != null ? `${d.delayDays}d` : '—'}</td>
+                      <td className="px-4 py-3 text-[13px] text-center tabular-nums">
+                        {d.delayDays != null
+                          ? <span className={`${severityPill} ${severityCls(d.delayDays)}`}>{daysLabel(d.delayDays)}</span>
+                          : <span className="text-slate-600">—</span>}
+                      </td>
                     </tr>
                   );
                 })}

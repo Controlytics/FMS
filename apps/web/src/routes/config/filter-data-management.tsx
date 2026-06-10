@@ -926,7 +926,7 @@ export function FilterDataManagementPage() {
                   </div>
                   {(e.fromState || e.toState) && (
                     <div className="text-sm text-slate-600">
-                      {e.fromState?.replace(/_/g, ' ') ?? ''} {e.fromState && e.toState && '→'} <span className="text-cyan-600">{e.toState?.replace(/_/g, ' ') ?? ''}</span>
+                      {e.fromState ? e.fromState.replace(/_/g, ' ') : (e.toState ? 'To Be Cleaned' : '')} {e.toState && '→'} <span className="text-cyan-600">{e.toState?.replace(/_/g, ' ') ?? ''}</span>
                     </div>
                   )}
                   {e.remarks && <div className="text-sm text-slate-400 mt-1 italic">{e.remarks}</div>}

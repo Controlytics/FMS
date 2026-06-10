@@ -25,7 +25,7 @@ type FilterDiagNodeProps = {
 
 export function FilterDiagNode({ filter: f, identifiersByAsset, onNavigate }: FilterDiagNodeProps) {
   const rfidTags = (identifiersByAsset.get(f.id) ?? []).filter((i: any) => i.identifierType === 'RFID');
-  const stateInfo = STATUS_LABELS[f.currentLifecycleState ?? ''] ?? { label: f.currentLifecycleState?.replace(/_/g, ' ') ?? 'Idle', color: 'bg-slate-100 text-slate-500 border-slate-300' };
+  const stateInfo = STATUS_LABELS[f.currentLifecycleState ?? ''] ?? { label: f.currentLifecycleState?.replace(/_/g, ' ') ?? 'To Be Cleaned', color: 'bg-slate-100 text-slate-500 border-slate-300' };
   return (
     <div className="flex flex-col items-center">
       <button onClick={() => onNavigate('filter', f.id, f.name)}

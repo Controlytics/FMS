@@ -90,7 +90,7 @@ export function StatusUpdatePanel({
             <label className="block text-sm font-medium text-slate-600 mb-1">Current Status</label>
             <input
               type="text"
-              value={filter.currentState ? (STATUS_LABELS[filter.currentState]?.label ?? filter.currentState.replace(/_/g, ' ')) : 'Idle'}
+              value={filter.currentState ? (STATUS_LABELS[filter.currentState]?.label ?? filter.currentState.replace(/_/g, ' ')) : 'To Be Cleaned'}
               readOnly
               className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 text-sm"
             />
