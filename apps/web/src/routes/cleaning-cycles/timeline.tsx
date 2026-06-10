@@ -6,6 +6,8 @@ import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { createReport } from '../../lib/pdf-report';
 import { CycleDetailView } from './cycle-detail-view';
 import { appendCycleDetailToReport } from './cycle-detail-pdf';
+import { exportToExcel } from '@/lib/excel-export';
+import { ExportMenu } from '@/components/ExportMenu';
 import { effectiveCycleStatus } from '../../lib/cleaning-cycle-report';
 
 export function CleaningCycleTimelinePage() {
@@ -44,9 +46,30 @@ export function CleaningCycleTimelinePage() {
         subtitle: infoLine,
         orientation: 'portrait',
         formatDateTime,
+        legend: [{ abbr: 'S.No', meaning: 'Serial Number' }],
       });
       appendCycleDetailToReport(report, cycle, { formatDateTime });
       report.save(`cycle-${cycle.filterName ?? 'filter'}-${formatDate(cycle.startedAt)}.pdf`);
+    } finally { setDownloading(false); }
+  };
+
+  // Excel = the cycle's event timeline as a flat sheet (genesis "from" shown as
+  // "To Be Cleaned", matching the PDF).
+  const exportExcel = () => {
+    setDownloading(true);
+    try {
+      const events = cycle.events ?? [];
+      const head = ['S.No', 'Event', 'From', 'To', 'Performed By', 'Time', 'Remarks'];
+      const rows = events.map((e: any, i: number) => [
+        String(i + 1),
+        e.eventType?.replace(/_/g, ' ') ?? '-',
+        e.fromState ? e.fromState.replace(/_/g, ' ') : (e.eventType === 'STATE_TRANSITION' && e.toState ? 'To Be Cleaned' : '-'),
+        e.toState ? e.toState.replace(/_/g, ' ') : '-',
+        e.performedByName ?? '-',
+        formatDateTime(e.performedAt),
+        e.remarks ?? '-',
+      ]);
+      exportToExcel({ filename: `cycle-${cycle.filterName ?? 'filter'}-${formatDate(cycle.startedAt)}`, sheetName: 'Cycle Detail', head, rows });
     } finally { setDownloading(false); }
   };
 
@@ -60,18 +83,10 @@ export function CleaningCycleTimelinePage() {
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             Back to History
           </button>
-          <button onClick={handleExportPDF} disabled={downloading || !canExportPdf}
-            title={!canExportPdf ? 'REPORT_EXPORT permission required' : undefined}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed">
-            {downloading ? (
-              <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-            )}
-            Export PDF
-          </button>
+          {canExportPdf && (
+            <ExportMenu surface="cleaning-detail" onExportPdf={handleExportPDF} onExportExcel={exportExcel} busy={downloading}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all disabled:opacity-40" />
+          )}
         </div>
       </div>
 

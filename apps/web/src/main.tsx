@@ -31,6 +31,7 @@ import { RoleAccessPage } from './routes/config/role-access';
 import { FieldIdsPage } from './routes/config/field-ids';
 import { UserIdConfigPage } from './routes/config/user-id';
 import { AccessMatrixPage } from './routes/config/access-matrix';
+import { ExportOptionsPage } from './routes/config/export-options';
 import { OfflineCacheConfigPage } from './routes/config/offline-cache';
 import { BackupRestorePage } from './routes/config/backup';
 import { DynamicConfigPage } from './routes/config/dynamic-config';
@@ -189,6 +190,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/field-ids" element={<RequireRole permissions={[PERMISSIONS.FIELD_ID_UPDATE]}><FieldIdsPage /></RequireRole>} />
             <Route path="/config/user-id" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><UserIdConfigPage /></RequireRole>} />
             <Route path="/config/access-matrix" element={<RequireRole roles={['SUPER_ADMIN']}><AccessMatrixPage /></RequireRole>} />
+            <Route path="/config/export-options" element={<RequireRole roles={['SUPER_ADMIN']}><ExportOptionsPage /></RequireRole>} />
             <Route path="/config/offline-cache" element={<RequireRole roles={['SUPER_ADMIN']}><OfflineCacheConfigPage /></RequireRole>} />
             <Route path="/config/action-reauth" element={<RequireRole roles={['SUPER_ADMIN']}><ActionReauthPage /></RequireRole>} />
             <Route path="/config/audit-templates" element={<RequireRole roles={['SUPER_ADMIN']}><AuditTemplatesConfigPage /></RequireRole>} />

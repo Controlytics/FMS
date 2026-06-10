@@ -67,7 +67,8 @@ async function loadCurrentUser(): Promise<string | null> {
     if (!res.ok) return null;
     const data = await res.json();
     const u = data?.user ?? data;
-    return u?.fullName || u?.username || null;
+    // Show the user ID (username), not the full name, in the "Printed By" stamp.
+    return u?.username || null;
   } catch { return null; }
 }
 
@@ -76,6 +77,10 @@ export interface ReportConfig {
   subtitle?: string;
   orientation?: 'portrait' | 'landscape';
   formatDateTime: (d: string) => string;
+  /** Optional abbreviation key. Rendered as a "Legend" on the last page (above
+   *  the Printed By stamp). Pass the shortcut words used in the report body
+   *  (e.g. NA = Not Applicable). Omitted when empty. */
+  legend?: { abbr: string; meaning: string }[];
 }
 
 export interface ReportDoc {
@@ -168,9 +173,52 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       doc.setFontSize(7); doc.setTextColor(...COLORS.light);
       doc.text(`${branding.companyName}  |  ${branding.appName}`, 14, ph - 7);
       doc.text(`Page ${i} of ${pageCount}`, pw - 30, ph - 7);
-      // App-wide print stamp: who printed + when (every report, every page).
-      doc.text(`Printed by ${printedBy ?? '-'}  ·  ${printedAt}`, pw / 2, ph - 7, { align: 'center' });
     }
+  };
+
+  // ── End-of-report block (last page, above the footer). Bottom-to-top:
+  // Printed By + Printed Date & Time, then the optional abbreviation Legend,
+  // then a Remarks box the operator fills in by hand. Anchored to the bottom
+  // of the last page; spills onto a fresh page if it would overlap content.
+  const addEndBlock = () => {
+    const legendItems = config.legend ?? [];
+    doc.setFontSize(7);
+    const legendText = legendItems.length
+      ? 'Legend:   ' + legendItems.map((l) => `${l.abbr} = ${l.meaning}`).join('      ')
+      : '';
+    const legendLines = legendText ? (doc.splitTextToSize(legendText, pw - 28) as string[]) : [];
+
+    const remarksH = 4 + 13 + 3;                         // label + box + gap
+    const legendH = legendLines.length ? legendLines.length * 3.6 + 3 : 0;
+    const printedH = 7;
+    const blockH = remarksH + legendH + printedH;
+
+    const footerLineY = ph - 12;
+    doc.setPage(doc.getNumberOfPages());
+    let top = footerLineY - 3 - blockH;
+    if (y > top - 2) { doc.addPage(); top = footerLineY - 3 - blockH; }
+    doc.setPage(doc.getNumberOfPages());
+
+    let by = top;
+    // Remarks — empty bordered box for handwriting
+    doc.setFontSize(8); doc.setTextColor(...COLORS.primary);
+    doc.text('Remarks:', 14, by + 3);
+    by += 4;
+    doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.3);
+    doc.rect(14, by, pw - 28, 13);
+    by += 13 + 3;
+    // Legend (abbreviation key) — only when the report passes one
+    if (legendLines.length) {
+      doc.setFontSize(7); doc.setTextColor(...COLORS.muted);
+      doc.text(legendLines, 14, by + 2.5);
+      by += legendLines.length * 3.6 + 3;
+    }
+    // Printed By + Printed Date & Time
+    doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.2);
+    doc.line(14, by, pw - 14, by);
+    doc.setFontSize(7.5); doc.setTextColor(...COLORS.text);
+    doc.text(`Printed By: ${printedBy ?? '-'}`, 14, by + 4.5);
+    doc.text(`Printed Date & Time: ${printedAt}`, pw - 14, by + 4.5, { align: 'right' });
   };
 
   const checkPageBreak = (needed: number) => {
@@ -226,6 +274,6 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     doc, get y() { return y; }, set y(v) { y = v; },
     pw, ph, colors: COLORS,
     addTable, addSectionTitle, addKeyValue, checkPageBreak, newPage,
-    save: (filename: string) => { addFooters(); doc.save(filename); },
+    save: (filename: string) => { addEndBlock(); addFooters(); doc.save(filename); },
   };
 }

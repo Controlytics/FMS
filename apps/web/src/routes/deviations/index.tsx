@@ -4,6 +4,8 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Pagination } from '@/components/ui/pagination';
 import { apiClient } from '@/lib/api-client';
 import { createReport } from '@/lib/pdf-report';
+import { exportToExcel } from '@/lib/excel-export';
+import { ExportMenu } from '@/components/ExportMenu';
 
 interface DeviationRow {
   id: string;
@@ -88,72 +90,71 @@ export function DeviationsPage() {
   const rows = data?.data ?? [];
   const total = data?.total ?? 0;
 
-  const handleDownload = async () => {
-    setDownloading(true);
-    setDownloadMsg('');
+  const HEAD = ['Deviation #', 'AHU', 'Filters', 'Scheduled', 'Overdue', 'Status', 'Acknowledged By', 'Completed By', 'Completed', 'Delay'];
+
+  // Fetch every page for the current status tab, filter by the selected period,
+  // and build the export rows. Shared by the PDF + Excel export. Returns null
+  // (and surfaces a message) when there's nothing to export.
+  const buildDeviationsExport = async (): Promise<{ body: string[][]; period: string; total: number } | null> => {
+    const all: DeviationRow[] = [];
+    let p = 1;
+    let totalPages = 1;
+    do {
+      const qp = new URLSearchParams({ page: String(p), limit: '200' });
+      if (status !== 'ALL') qp.set('status', status);
+      const resp = await apiClient.get<DeviationResponse>(`/api/pm-schedules/deviations?${qp}`);
+      all.push(...(resp.data ?? []));
+      totalPages = resp.totalPages ?? 1;
+      p++;
+    } while (p <= totalPages);
+
+    const fromT = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : -Infinity;
+    const toT = toDate ? new Date(`${toDate}T23:59:59`).getTime() : Infinity;
+    const filtered = all.filter(d => {
+      const t = new Date(d.scheduledDate).getTime();
+      return t >= fromT && t <= toT;
+    });
+    if (filtered.length === 0) { setDownloadMsg('No deviations in the selected period.'); return null; }
+
+    const period = fromDate || toDate
+      ? `${fromDate ? formatDate(fromDate) : 'Start'} to ${toDate ? formatDate(toDate) : 'Now'}`
+      : 'All Time';
+    const body = filtered.map(d => [
+      d.deviationNumber, d.ahuName, String(d.filterCount), formatDate(d.scheduledDate),
+      d.status === 'CLOSED' ? `${daysLabel(d.delayDays ?? d.overdueDaysAtOpen)} delay` : daysLabel(d.liveOverdueDays),
+      STATUS_META[d.status].label, d.acknowledgedByName ?? '-', d.completedByName ?? '-',
+      d.completedAt ? formatDateTime(d.completedAt) : '-', d.delayDays != null ? daysLabel(d.delayDays) : '-',
+    ]);
+    return { body, period, total: filtered.length };
+  };
+
+  const exportPdf = async () => {
+    setDownloading(true); setDownloadMsg('');
     try {
-      // The list endpoint has no date filter, so pull every page for the current
-      // status tab and filter by scheduled date client-side (deviation counts
-      // are small — overdue AHU cleaning tasks only).
-      const all: DeviationRow[] = [];
-      let p = 1;
-      let totalPages = 1;
-      do {
-        const qp = new URLSearchParams({ page: String(p), limit: '200' });
-        if (status !== 'ALL') qp.set('status', status);
-        const resp = await apiClient.get<DeviationResponse>(`/api/pm-schedules/deviations?${qp}`);
-        all.push(...(resp.data ?? []));
-        totalPages = resp.totalPages ?? 1;
-        p++;
-      } while (p <= totalPages);
-
-      // Period filter on the scheduled cleaning date (the planned date the
-      // deviation is about). Empty bound = open-ended (mirrors the cleaning
-      // report's "Start"/"Now" semantics).
-      const fromT = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : -Infinity;
-      const toT = toDate ? new Date(`${toDate}T23:59:59`).getTime() : Infinity;
-      const filtered = all.filter(d => {
-        const t = new Date(d.scheduledDate).getTime();
-        return t >= fromT && t <= toT;
-      });
-
-      if (filtered.length === 0) {
-        setDownloadMsg('No deviations in the selected period.');
-        return;
-      }
-
-      const period = fromDate || toDate
-        ? `${fromDate ? formatDate(fromDate) : 'Start'} to ${toDate ? formatDate(toDate) : 'Now'}`
-        : 'All Time';
-
+      const r = await buildDeviationsExport();
+      if (!r) return;
       const report = await createReport({
         title: 'Deviations Report',
-        subtitle: `Status: ${status === 'ALL' ? 'All' : STATUS_META[status as DeviationRow['status']]?.label ?? status}  |  Period: ${period}  |  Total: ${filtered.length} deviation(s)`,
+        subtitle: `Status: ${status === 'ALL' ? 'All' : STATUS_META[status as DeviationRow['status']]?.label ?? status}  |  Period: ${r.period}  |  Total: ${r.total} deviation(s)`,
         orientation: 'landscape',
         formatDateTime,
       });
-      report.addTable({
-        head: ['Deviation #', 'AHU', 'Filters', 'Scheduled', 'Overdue', 'Status', 'Acknowledged By', 'Completed By', 'Completed', 'Delay'],
-        body: filtered.map(d => [
-          d.deviationNumber,
-          d.ahuName,
-          String(d.filterCount),
-          formatDate(d.scheduledDate),
-          d.status === 'CLOSED' ? `${daysLabel(d.delayDays ?? d.overdueDaysAtOpen)} delay` : daysLabel(d.liveOverdueDays),
-          STATUS_META[d.status].label,
-          d.acknowledgedByName ?? '-',
-          d.completedByName ?? '-',
-          d.completedAt ? formatDateTime(d.completedAt) : '-',
-          d.delayDays != null ? daysLabel(d.delayDays) : '-',
-        ]),
-        headColor: [225, 29, 72], // rose-600, matches the page theme
-      });
+      report.addTable({ head: HEAD, body: r.body, headColor: [225, 29, 72] });
       report.save(`deviations-${new Date().toISOString().slice(0, 10)}.pdf`);
     } catch (e: any) {
       setDownloadMsg(e?.message ?? 'Failed to generate the report.');
-    } finally {
-      setDownloading(false);
-    }
+    } finally { setDownloading(false); }
+  };
+
+  const exportExcel = async () => {
+    setDownloading(true); setDownloadMsg('');
+    try {
+      const r = await buildDeviationsExport();
+      if (!r) return;
+      exportToExcel({ filename: `deviations-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Deviations', head: HEAD, rows: r.body });
+    } catch (e: any) {
+      setDownloadMsg(e?.message ?? 'Failed to generate the report.');
+    } finally { setDownloading(false); }
   };
 
   return (
@@ -202,17 +203,8 @@ export function DeviationsPage() {
             <label className="text-[11px] font-medium text-slate-400">To</label>
             <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setDownloadMsg(''); }}
               className="border border-slate-200 rounded-lg px-2 py-1 text-[12px] text-slate-700 focus:border-rose-400 focus:ring-2 focus:ring-rose-100 outline-none" />
-            <button onClick={handleDownload} disabled={downloading}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-gradient-to-r from-rose-500 to-rose-600 shadow-sm shadow-rose-600/20 disabled:opacity-50">
-              {downloading ? (
-                <span className="w-3.5 h-3.5 border-2 border-white/60 border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
-                </svg>
-              )}
-              {downloading ? 'Generating…' : 'Download PDF'}
-            </button>
+            <ExportMenu surface="deviations" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-gradient-to-r from-rose-500 to-rose-600 shadow-sm shadow-rose-600/20 disabled:opacity-50" />
           </div>
         </div>
         {downloadMsg && <div className="mt-2 text-[12px] text-rose-600">{downloadMsg}</div>}

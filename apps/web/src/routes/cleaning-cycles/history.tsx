@@ -8,6 +8,8 @@ import { useReportConfig } from '@/hooks/use-report-config';
 import { useReportLabels } from '../../hooks/use-report-labels';
 import { Pagination } from '@/components/ui/pagination';
 import { createReport } from '../../lib/pdf-report';
+import { exportToExcel } from '@/lib/excel-export';
+import { ExportMenu } from '@/components/ExportMenu';
 import type { CleaningCycle, FilterInstance, PaginatedResponse } from '../../types/filter';
 // Stage/dryer logic + column order live in a shared module so this list and the
 // Filter Lifecycle Report (filter-lifecycle.tsx) can never drift. See that file
@@ -94,22 +96,8 @@ export function CleaningCycleHistoryPage() {
   // getStageInfo / getReading / fmtMinutes / getDryerStart now live in
   // @/lib/cleaning-cycle-report (shared with the Filter Lifecycle Report).
 
-  const handleDownloadPDF = async () => {
-    if (cycles.length === 0) return;
-    setDownloading(true);
-    try {
-      const period = fromDate || toDate
-        ? `${fromDate ? formatDateTime(fromDate) : 'Start'} to ${toDate ? formatDateTime(toDate) : 'Now'}`
-        : 'All Time';
-
-      const report = await createReport({
-        title: ccL.title,
-        subtitle: ccL.subtitle || `Filter: ${selectedFilterName}  |  Status: ${status || 'All'}  |  Period: ${period}  |  Total: ${total} cycle(s)`,
-        orientation: 'landscape',
-        formatDateTime,
-      });
-
-      const tableRows = cycles.map((c, idx: number) => {
+  const buildCleaningRows = (): string[][] =>
+    cycles.map((c, idx: number) => {
         const attrs = filterAttrMap.get(c.filterId) ?? {};
         const washIn = getStageInfo(c.events ?? [], 'WASH_IN');
         const washOut = getStageInfo(c.events ?? [], 'WASH_OUT');
@@ -140,13 +128,30 @@ export function CleaningCycleHistoryPage() {
         ];
       });
 
-      report.addTable({
-        head: ccHead,
-        body: tableRows,
-        columnStyles: { 0: { halign: 'center', cellWidth: 10 } },
+  const exportPdf = async () => {
+    if (cycles.length === 0) return;
+    setDownloading(true);
+    try {
+      const period = fromDate || toDate
+        ? `${fromDate ? formatDateTime(fromDate) : 'Start'} to ${toDate ? formatDateTime(toDate) : 'Now'}`
+        : 'All Time';
+      const report = await createReport({
+        title: ccL.title,
+        subtitle: ccL.subtitle || `Filter: ${selectedFilterName}  |  Status: ${status || 'All'}  |  Period: ${period}  |  Total: ${total} cycle(s)`,
+        orientation: 'landscape',
+        formatDateTime,
+        legend: [{ abbr: 'NA', meaning: 'Not Applicable (stage not in this cycle’s profile)' }],
       });
-
+      report.addTable({ head: ccHead, body: buildCleaningRows(), columnStyles: { 0: { halign: 'center', cellWidth: 14 } } });
       report.save(`cleaning-cycles-${selectedFilterName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } finally { setDownloading(false); }
+  };
+
+  const exportExcel = async () => {
+    if (cycles.length === 0) return;
+    setDownloading(true);
+    try {
+      exportToExcel({ filename: `cleaning-cycles-${selectedFilterName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Cleaning Record', head: ccHead, rows: buildCleaningRows() });
     } finally { setDownloading(false); }
   };
 
@@ -168,19 +173,9 @@ export function CleaningCycleHistoryPage() {
               </p>
             </div>
           </div>
-          {(
-            <button onClick={handleDownloadPDF} disabled={downloading || cycles.length === 0 || !canExportPdf}
-              title={!canExportPdf ? 'REPORT_EXPORT permission required' : undefined}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed">
-              {downloading ? (
-                <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              )}
-              Export PDF
-            </button>
+          {canExportPdf && cycles.length > 0 && (
+            <ExportMenu surface="cleaning-record" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all disabled:opacity-40" />
           )}
         </div>
 

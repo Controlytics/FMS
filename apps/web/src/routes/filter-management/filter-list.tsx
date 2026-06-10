@@ -9,6 +9,9 @@ import { useAuth } from '@/hooks/use-auth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { api } from '@/lib/api-client';
 import { retireOrReplaceFilter } from '@/lib/filter-lifecycle-actions';
+import { createReport } from '@/lib/pdf-report';
+import { exportToExcel } from '@/lib/excel-export';
+import { ExportMenu } from '@/components/ExportMenu';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import { Pagination } from '@/components/ui/pagination';
 import { themeGradientBr, themeButton } from '@/lib/theme-styles';
@@ -1179,14 +1182,11 @@ export function FilterListPage() {
   // Export the currently-listed filters (the full filtered set for the block,
   // respecting the active diagram scope — NOT just the visible page) to CSV.
   // Client-side generation; mirrors the column set of the on-screen grid.
-  const exportFiltersCsv = () => {
-    if (blockFilters.length === 0) return;
-    const esc = (v: unknown) => {
-      const s = v === null || v === undefined ? '' : String(v);
-      return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    const headers = ['S.No', 'Area', 'AHU', 'AHU Type', 'Filter', 'Filter Type', 'Micron Size', 'Filter Size', 'Set', 'Last Cleaned', 'Status', 'RFID'];
+  // Build export rows for the currently-listed filters (the full filtered set
+  // for the block, not just the visible page) — shared by the PDF + Excel export.
+  const buildFiltersExport = () => {
     const dash = (v: string | null | undefined) => (v && v !== '-' ? v : '');
+    const headers = ['S.No', 'Area', 'AHU', 'AHU Type', 'Filter', 'Filter Type', 'Micron Size', 'Filter Size', 'Set', 'Last Cleaned', 'Status', 'RFID'];
     const body = blockFilters.map((f, idx) => {
       const stateLabel = STATUS_LABELS[f.currentState ?? '']?.label ?? (f.currentState?.replace(/_/g, ' ') ?? 'To Be Cleaned');
       const rfid = (identifiersByAsset.get(f.id) ?? [])
@@ -1196,33 +1196,37 @@ export function FilterListPage() {
       const setLabel = f.filterSet === 'SET_A' ? 'Set A' : f.filterSet === 'SET_B' ? 'Set B' : '';
       const lastClean = f.lastCleanedAt ? formatDate(f.lastCleanedAt) : 'NA';
       return [
-        idx + 1,
-        f.areaId ? dash(f.areaName) : '',
-        dash(f.ahuName),
-        dash(f.ahuType),
-        f.name,
-        dash(f.filterType),
-        dash(f.micronSize),
-        dash(f.filterSize),
-        setLabel,
-        lastClean,
-        stateLabel,
-        rfid,
-      ];
+        idx + 1, f.areaId ? dash(f.areaName) : '', dash(f.ahuName), dash(f.ahuType),
+        f.name, dash(f.filterType), dash(f.micronSize), dash(f.filterSize),
+        setLabel, lastClean, stateLabel, rfid,
+      ] as (string | number)[];
     });
-    const BOM = String.fromCharCode(0xfeff); // makes Excel read the file as UTF-8 (µm / ×)
-    const csv = BOM + [headers, ...body].map(r => r.map(esc).join(',')).join('\r\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
     const safeName = (selectedBlockName || 'filters').replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'filters';
-    a.download = `${safeName}-filters.csv`;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    return { headers, body, safeName };
+  };
+
+  const exportFiltersExcel = () => {
+    const { headers, body, safeName } = buildFiltersExport();
+    if (body.length === 0) return;
+    exportToExcel({ filename: `${safeName}-filters`, sheetName: 'Filters', head: headers, rows: body });
+  };
+
+  const exportFiltersPdf = async () => {
+    const { headers, body, safeName } = buildFiltersExport();
+    if (body.length === 0) return;
+    const report = await createReport({
+      title: 'Filters',
+      subtitle: `Block: ${selectedBlockName || 'All'}  |  Total: ${body.length} filter(s)`,
+      orientation: 'landscape',
+      formatDateTime,
+      legend: [{ abbr: 'NA', meaning: 'Not Applicable' }],
+    });
+    report.addTable({
+      head: headers,
+      body: body.map((r) => r.map((c) => String(c))),
+      columnStyles: { 0: { halign: 'center', cellWidth: 14 } },
+    });
+    report.save(`${safeName}-filters.pdf`);
   };
 
   // Navigate from diagram node to filters tab
@@ -1488,11 +1492,8 @@ export function FilterListPage() {
             {/* Action group — Export · Create Filter · Bulk Upload kept adjacent */}
             <div className="flex items-center gap-2">
               {blockFilters.length > 0 && (
-                <button onClick={exportFiltersCsv} title="Export the listed filters to CSV"
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-sm transition-all">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" /></svg>
-                  Export
-                </button>
+                <ExportMenu surface="filters" onExportPdf={exportFiltersPdf} onExportExcel={exportFiltersExcel}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-sm transition-all" />
               )}
               {canCreateFilter && bulkUploadAhus.length > 0 && (
                 <button onClick={openCreateFilter}

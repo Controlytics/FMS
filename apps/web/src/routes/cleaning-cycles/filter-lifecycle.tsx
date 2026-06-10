@@ -6,6 +6,8 @@ import { api } from '../../lib/api-client';
 import { createReport } from '../../lib/pdf-report';
 import { CycleDetailView } from './cycle-detail-view';
 import { appendCycleDetailToReport } from './cycle-detail-pdf';
+import { exportToExcel } from '@/lib/excel-export';
+import { ExportMenu } from '@/components/ExportMenu';
 import { effectiveCycleStatus } from '../../lib/cleaning-cycle-report';
 
 // Lightweight shapes for the hierarchy dropdown rows (the /api/hierarchy/*
@@ -376,6 +378,7 @@ export function FilterLifecycleReportPage() {
         subtitle: periodLine,
         orientation: 'portrait',
         formatDateTime,
+        legend: [{ abbr: 'S.No', meaning: 'Serial Number' }],
       });
       let firstBlock = true;
       for (const g of groups) {
@@ -412,6 +415,38 @@ export function FilterLifecycleReportPage() {
     }
   };
 
+  // Excel = one flat sheet, one row per cleaning cycle across the scope (cheap
+  // summaries pass — no per-cycle full-detail fetch).
+  const exportExcel = async () => {
+    if (!filtersInScope.length) return;
+    setDownloading(true);
+    setDownloadMsg(null);
+    try {
+      const head = ['Filter', 'S.No', 'Cycle', 'Started', 'Completed', 'Status', 'Reason'];
+      const rows: string[][] = [];
+      for (const f of filtersInScope) {
+        const sums = (await fetchAllCycleSummaries(f.id, fromIso, toIso)).sort(asc);
+        sums.forEach((s: any, i: number) => {
+          const eff = effectiveCycleStatus(s);
+          rows.push([
+            f.name, String(i + 1), s.cycleCode ?? '-',
+            s.startedAt ? formatDateTime(s.startedAt) : '-',
+            s.completedAt ? formatDateTime(s.completedAt) : '-',
+            STATUS_CONFIG[eff]?.label ?? eff,
+            s.cleaningReasonLabel ?? s.cleaningReasonKey ?? '-',
+          ]);
+        });
+      }
+      if (rows.length === 0) { setDownloadMsg('No cleaning cycles found for this selection and period.'); return; }
+      const safeScope = scopeLabel.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '') || 'scope';
+      exportToExcel({ filename: `lifecycle-${safeScope}`, sheetName: 'Cleaning Cycles', head, rows });
+    } catch (e: any) {
+      setDownloadMsg(e?.message ?? 'Export failed.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   const selectCls = 'w-full px-3 py-2 text-[13px] rounded-lg border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400 disabled:bg-slate-50 disabled:text-slate-400';
   const singleFilter = filtersInScope.length === 1;
 
@@ -431,24 +466,11 @@ export function FilterLifecycleReportPage() {
               <p className="text-[13px] text-slate-400">Pick a Block, Area, AHU or Filter — cleaning cycles + retirement / replacement, cycle by cycle.</p>
             </div>
           </div>
-          <button
-            onClick={handleDownload}
-            disabled={!filtersInScope.length || downloading || !canExportPdf}
-            title={!canExportPdf ? 'REPORT_EXPORT permission required' : !filtersInScope.length ? 'Select a scope first' : undefined}
-            className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg text-[13px] font-semibold hover:bg-cyan-700 shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-          >
-            {downloading ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white/60 border-t-transparent rounded-full animate-spin" />
-                {progress ? `Generating ${progress.done}/${progress.total}…` : 'Preparing…'}
-              </>
-            ) : (
-              <>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                Download Report
-              </>
-            )}
-          </button>
+          {canExportPdf && filtersInScope.length > 0 && (
+            <ExportMenu surface="lifecycle" onExportPdf={handleDownload} onExportExcel={exportExcel}
+              busy={downloading}
+              className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg text-[13px] font-semibold hover:bg-cyan-700 shadow-sm transition-all disabled:opacity-40 shrink-0" />
+          )}
         </div>
 
         {/* Cascade selectors + period */}

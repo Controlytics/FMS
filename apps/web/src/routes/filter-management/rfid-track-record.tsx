@@ -2,6 +2,8 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { createReport } from '../../lib/pdf-report';
+import { exportToExcel } from '@/lib/excel-export';
+import { ExportMenu } from '@/components/ExportMenu';
 import { api } from '../../lib/api-client';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { useReportLabels } from '../../hooks/use-report-labels';
@@ -55,36 +57,39 @@ export function RfidTrackRecordPage() {
 
   const resetPageAnd = (fn: (v: string) => void) => (v: string) => { fn(v); setPage(1); };
 
-  const handleDownloadPDF = async () => {
+  const buildRfidExport = async (): Promise<{ body: string[][]; period: string; total: number }> => {
+    const all = await api.get<Resp>(`/api/assets/identifiers/track-record?${buildQs(500, 1)}`);
+    const period = from || to
+      ? `${from ? formatDateTime(from) : 'Start'} to ${to ? formatDateTime(`${to}T23:59:59`) : 'Now'}`
+      : 'All Time';
+    const body = all.data.map((r, i) => [
+      String(i + 1), formatDateTime(r.timestamp), r.event === 'ASSIGN' ? 'Assigned' : 'Removed',
+      r.rfidNumber, r.filterName ?? '-', r.ahuName ?? '-', r.user ?? '-', r.reason ?? '-',
+    ]);
+    return { body, period, total: all.total };
+  };
+
+  const exportPdf = async () => {
     setDownloading(true);
     try {
-      const all = await api.get<Resp>(`/api/assets/identifiers/track-record?${buildQs(500, 1)}`);
-      const period = from || to
-        ? `${from ? formatDateTime(from) : 'Start'} to ${to ? formatDateTime(`${to}T23:59:59`) : 'Now'}`
-        : 'All Time';
+      const r = await buildRfidExport();
       const report = await createReport({
         title: L.title,
-        subtitle: L.subtitle || `Period: ${period}  |  Total: ${all.total} event(s)`,
+        subtitle: L.subtitle || `Period: ${r.period}  |  Total: ${r.total} event(s)`,
         orientation: 'landscape',
         formatDateTime,
       });
-      report.addTable({
-        head: headLabels,
-        body: all.data.map((r, i) => [
-          String(i + 1),
-          formatDateTime(r.timestamp),
-          r.event === 'ASSIGN' ? 'Assigned' : 'Removed',
-          r.rfidNumber,
-          r.filterName ?? '-',
-          r.ahuName ?? '-',
-          r.user ?? '-',
-          r.reason ?? '-',
-        ]),
-      });
+      report.addTable({ head: headLabels, body: r.body });
       report.save(`rfid-track-record-${new Date().toISOString().slice(0, 10)}.pdf`);
-    } finally {
-      setDownloading(false);
-    }
+    } finally { setDownloading(false); }
+  };
+
+  const exportExcel = async () => {
+    setDownloading(true);
+    try {
+      const r = await buildRfidExport();
+      exportToExcel({ filename: `rfid-track-record-${new Date().toISOString().slice(0, 10)}`, sheetName: 'RFID Track Record', head: headLabels, rows: r.body });
+    } finally { setDownloading(false); }
   };
 
   const inputCls = 'px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
@@ -98,13 +103,10 @@ export function RfidTrackRecordPage() {
               <h1 className="text-xl font-bold text-slate-800">{L.title}</h1>
               <p className="text-[13px] text-slate-500">{L.subtitle || 'Complete assign / remove lifecycle history of RFID tags'}</p>
             </div>
-            <button
-              onClick={handleDownloadPDF}
-              disabled={downloading || total === 0}
-              className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {downloading ? 'Generating…' : 'Download PDF'}
-            </button>
+            {total > 0 && (
+              <ExportMenu surface="rfid-track-record" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-700 transition-colors disabled:opacity-50" />
+            )}
           </div>
           {/* Filters */}
           <div className="mt-3 flex flex-wrap items-end gap-2">

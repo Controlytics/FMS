@@ -9,6 +9,7 @@ import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import { Pagination } from '@/components/ui/pagination';
 import { createReport } from '../../lib/pdf-report';
+import { ExportMenu } from '@/components/ExportMenu';
 
 interface UploadResult {
   imported: number;
@@ -229,7 +230,7 @@ export function PmScheduleListPage() {
           e.submittedByName ?? '-', e.reviewedByName ?? '-', e.approvedByName ?? '-',
           e.approvalRemarks ?? e.reviewRemarks ?? '-',
         ]),
-        columnStyles: { 0: { halign: 'center', cellWidth: 10 }, 9: { cellWidth: 45 } },
+        columnStyles: { 0: { halign: 'center', cellWidth: 14 }, 9: { cellWidth: 45 } },
       });
       report.save(`pm-schedule-${year}.pdf`);
     } catch (e: any) {
@@ -594,16 +595,8 @@ export function PmScheduleListPage() {
               Template
             </button>
           )}
-          <button onClick={exportPdf} disabled={exporting}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50 hover:border-slate-300 transition-all disabled:opacity-50">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-            {exporting ? 'Exporting…' : 'Export PDF'}
-          </button>
-          <button onClick={exportExcel} disabled={exporting}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50 hover:border-slate-300 transition-all disabled:opacity-50">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-            Export Excel
-          </button>
+          <ExportMenu surface="pm" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={exporting}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50 hover:border-slate-300 transition-all disabled:opacity-50" />
           {canCreateSchedule && (
             <button onClick={() => setCreateDialog(true)}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors">

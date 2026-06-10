@@ -73,6 +73,18 @@ const superAdminCards = [
     shadowColor: 'shadow-indigo-500/25',
   },
   {
+    title: 'Export Options',
+    description: 'Choose which export formats (PDF / Excel) each role can use on each page',
+    href: '/config/export-options',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+      </svg>
+    ),
+    gradient: 'from-rose-500 to-orange-600',
+    shadowColor: 'shadow-rose-500/25',
+  },
+  {
     title: 'Dashboard Cards',
     description: 'Configure which dashboard cards are visible per role',
     href: '/config/dashboard-cards',

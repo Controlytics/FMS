@@ -72,7 +72,7 @@ export function appendCycleDetailToReport(
   report.addTable({
     head: ['S.No', 'Event', 'From', 'To', 'Performed By', 'Time', 'Remarks'],
     body: eventRows,
-    columnStyles: { 0: { cellWidth: 8, halign: 'center' }, 6: { cellWidth: 50 } },
+    columnStyles: { 0: { cellWidth: 14, halign: 'center' }, 6: { cellWidth: 50 } },
   });
 
   // Checklist answers
@@ -87,7 +87,7 @@ export function appendCycleDetailToReport(
       head: ['S.No', 'Question', 'Answer'],
       body: qaRows,
       headColor: [21, 128, 61],
-      columnStyles: { 0: { cellWidth: 8, halign: 'center' }, 2: { cellWidth: 30 } },
+      columnStyles: { 0: { cellWidth: 14, halign: 'center' }, 2: { cellWidth: 30 } },
     });
   }
 }

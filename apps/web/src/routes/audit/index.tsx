@@ -18,6 +18,8 @@ import { AuditDetailModal } from './components/audit-detail-modal';
 import { Pagination } from '@/components/ui/pagination';
 import { AuditDeleteDialog } from './components/audit-delete-dialog';
 import { createReport } from '../../lib/pdf-report';
+import { exportToExcel } from '@/lib/excel-export';
+import { ExportMenu } from '@/components/ExportMenu';
 import { useReportLabels } from '../../hooks/use-report-labels';
 
 const AUDIT_COLS = ['timestamp', 'action', 'user', 'role', 'targetType', 'description', 'ipAddress'];
@@ -183,43 +185,42 @@ export function AuditTrailPage() {
     return formatDateTime(datetime);
   };
 
-  const handleDownloadPDF = async () => {
+  const buildAuditExport = (): { body: string[][]; period: string; total: number } | null => {
     const records = data?.data;
-    if (!records || records.length === 0) return;
+    if (!records || records.length === 0) return null;
+    const period = fromDateTime || toDateTime
+      ? `${fromDateTime ? formatDateTime(fromDateTime) : 'Start'} to ${toDateTime ? formatDateTime(toDateTime) : 'Now'}`
+      : 'All Time';
+    const body = records.map((r: any) => [
+      formatDateTime(r.timestamp), r.action?.replace(/_/g, ' ') ?? '-', r.userId ?? '-',
+      r.userRole ?? '-', r.targetType ?? '-', getAuditSummary(r, templates).substring(0, 80), r.ipAddress ?? '-',
+    ]);
+    return { body, period, total: records.length };
+  };
+
+  const exportPdf = async () => {
+    const r = buildAuditExport();
+    if (!r) return;
     setDownloading(true);
-
     try {
-      const period = fromDateTime || toDateTime
-        ? `${fromDateTime ? formatDateTime(fromDateTime) : 'Start'} to ${toDateTime ? formatDateTime(toDateTime) : 'Now'}`
-        : 'All Time';
-
       const report = await createReport({
         title: auditL.title,
-        subtitle: auditL.subtitle || `Period: ${period}${search ? `  |  Search: "${search}"` : ''}  |  Total: ${records.length} record(s)  |  21 CFR Part 11 Compliant`,
+        subtitle: auditL.subtitle || `Period: ${r.period}${search ? `  |  Search: "${search}"` : ''}  |  Total: ${r.total} record(s)  |  21 CFR Part 11 Compliant`,
         orientation: 'landscape',
         formatDateTime,
       });
-
-      const tableRows = records.map((r: any) => [
-        formatDateTime(r.timestamp),
-        r.action?.replace(/_/g, ' ') ?? '-',
-        r.userId ?? '-',
-        r.userRole ?? '-',
-        r.targetType ?? '-',
-        getAuditSummary(r, templates).substring(0, 80),
-        r.ipAddress ?? '-',
-      ]);
-
-      report.addTable({
-        head: auditHead,
-        body: tableRows,
-        columnStyles: { 0: { cellWidth: 35 }, 5: { cellWidth: 65 } },
-      });
-
+      report.addTable({ head: auditHead, body: r.body, columnStyles: { 0: { cellWidth: 35 }, 5: { cellWidth: 65 } } });
       report.save(`audit-trail-${new Date().toISOString().slice(0, 10)}.pdf`);
-    } finally {
-      setDownloading(false);
-    }
+    } finally { setDownloading(false); }
+  };
+
+  const exportExcel = async () => {
+    const r = buildAuditExport();
+    if (!r) return;
+    setDownloading(true);
+    try {
+      exportToExcel({ filename: `audit-trail-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Audit Trail', head: auditHead, rows: r.body });
+    } finally { setDownloading(false); }
   };
 
   return (
@@ -244,18 +245,9 @@ export function AuditTrailPage() {
               <p className="text-xs text-slate-500">Total Records</p>
             </div>
           )}
-          {canExport && (
-            <button onClick={handleDownloadPDF} disabled={downloading || !data?.data?.length}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-              {downloading ? (
-                <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              )}
-              Download PDF
-            </button>
+          {canExport && (data?.data?.length ?? 0) > 0 && (
+            <ExportMenu surface="audit" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors disabled:opacity-40" />
           )}
         </div>
       </div>
