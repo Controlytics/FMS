@@ -89,6 +89,7 @@ const FilterListPage = lazy(() => import("./routes/filter-management/filter-list
 const ApprovalsPage = lazy(() => import("./routes/approvals/index").then(m => ({ default: m.ApprovalsPage })));
 const ReplacementSchedulePage = lazy(() => import("./routes/filter-management/replacement-schedule").then(m => ({ default: m.ReplacementSchedulePage })));
 const RfidTrackRecordPage = lazy(() => import("./routes/filter-management/rfid-track-record").then(m => ({ default: m.RfidTrackRecordPage })));
+const QualityNotificationsPage = lazy(() => import("./routes/filter-management/quality-notifications").then(m => ({ default: m.QualityNotificationsPage })));
 const RetirementListPage = lazy(() => import("./routes/filter-management/retirement-list").then(m => ({ default: m.RetirementListPage })));
 const AdminRequestsPage = lazy(() => import("./routes/admin-requests/index").then(m => ({ default: m.AdminRequestsPage })));
 const ReplacementListPage = lazy(() => import("./routes/filter-management/replacement-list").then(m => ({ default: m.ReplacementListPage })));
@@ -231,6 +232,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/replacement-schedule" element={<RequireRole permissions={[PERMISSIONS.REPLACEMENT_SCHEDULE_VIEW, PERMISSIONS.REPLACEMENT_SCHEDULE_UPLOAD, PERMISSIONS.REPLACEMENT_SCHEDULE_REVIEW, PERMISSIONS.REPLACEMENT_SCHEDULE_APPROVE]}><Suspense fallback={<LazyFallback />}><ReplacementSchedulePage /></Suspense></RequireRole>} />
             <Route path="/filter-retirements" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW, PERMISSIONS.FILTER_RETIRE]}><Suspense fallback={<LazyFallback />}><RetirementListPage /></Suspense></RequireRole>} />
             <Route path="/rfid-track-record" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW, PERMISSIONS.ASSET_READ, PERMISSIONS.FILTER_RFID_MANAGE]}><Suspense fallback={<LazyFallback />}><RfidTrackRecordPage /></Suspense></RequireRole>} />
+            <Route path="/quality-notifications" element={<Suspense fallback={<LazyFallback />}><QualityNotificationsPage /></Suspense>} />
             <Route path="/filter-replacements" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW, PERMISSIONS.FILTER_REPLACE, PERMISSIONS.REPLACEMENT_SCHEDULE_VIEW, PERMISSIONS.REPLACEMENT_SCHEDULE_UPLOAD, PERMISSIONS.REPLACEMENT_SCHEDULE_REVIEW, PERMISSIONS.REPLACEMENT_SCHEDULE_APPROVE]}><Suspense fallback={<LazyFallback />}><ReplacementListPage /></Suspense></RequireRole>} />
             <Route path="/config/filter-data-management" element={<RequireRole permissions={[PERMISSIONS.CONFIG_UPDATE, PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><FilterDataManagementPage /></Suspense></RequireRole>} />
             <Route path="/config/tablet-access" element={<RequireRole permissions={[PERMISSIONS.CONFIG_UPDATE, PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><TabletAccessConfigPage /></Suspense></RequireRole>} />

@@ -16,7 +16,7 @@ import { checkPmEnabled } from './pm-shared.js';
 import { getDeviationContextForEntries } from './pm-deviations.js';
 import type { DueFilterRow, DueFilterStatus, DueOverallStatus, DueTaskRow } from './pm-types.js';
 
-export async function getDueTasks(_ctx: RequestContext) {
+export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; to?: string }) {
   await checkPmEnabled();
 
   // Load the PM schedule settings (default tolerance isn't relevant here —
@@ -62,15 +62,29 @@ export async function getDueTasks(_ctx: RequestContext) {
   // rather than leaving every PM task stuck pending forever.
   const enforcePmReason = pmReasonKeys.size > 0;
 
-  // Fetch candidate entries (in window OR recently overdue) — only APPROVED entries
+  // Time-period view (My Tasks date filter): when from/to are supplied, fetch
+  // entries whose PLANNED date falls in [from, to] regardless of `now` — so the
+  // operator can review past/future PM tasks. Each entry's status is still
+  // computed relative to `now` (pending / complete / overdue). Without a period
+  // we keep the default "due now + recently-overdue" window.
+  const fromDate = opts?.from ? new Date(opts.from) : null;
+  const toDate = opts?.to ? new Date(`${opts.to.slice(0, 10)}T23:59:59`) : null;
+  const hasPeriod = !!(fromDate || toDate);
+  const windowFilter = hasPeriod
+    ? { plannedDate: { ...(fromDate ? { gte: fromDate } : {}), ...(toDate ? { lte: toDate } : {}) } }
+    : {
+        OR: [
+          { AND: [{ windowStart: { lte: now } }, { windowEnd: { gte: now } }] },
+          { AND: [{ windowEnd: { lt: now } }, { windowEnd: { gte: overdueHorizon } }] },
+        ],
+      };
+
+  // Fetch candidate entries — only APPROVED entries on ACTIVE schedules.
   const entries = await prisma.pmScheduleEntry.findMany({
     where: {
       schedule: { status: 'ACTIVE' },
       approvalStatus: 'APPROVED',
-      OR: [
-        { AND: [{ windowStart: { lte: now } }, { windowEnd: { gte: now } }] },
-        { AND: [{ windowEnd: { lt: now } }, { windowEnd: { gte: overdueHorizon } }] },
-      ],
+      ...windowFilter,
     },
     include: { schedule: true },
     orderBy: { plannedDate: 'asc' },

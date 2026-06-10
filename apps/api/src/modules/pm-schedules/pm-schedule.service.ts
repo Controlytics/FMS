@@ -69,8 +69,8 @@ export class PmScheduleService {
   }
 
   // ─── My Tasks (due now / overdue) ─────────────────────────
-  getDueTasks(ctx: RequestContext) {
-    return dueTasks.getDueTasks(ctx);
+  getDueTasks(ctx: RequestContext, opts?: { from?: string; to?: string }) {
+    return dueTasks.getDueTasks(ctx, opts);
   }
 
   // ─── CSV / XLSX bulk import ───────────────────────────────

@@ -123,6 +123,12 @@ const allNavItems: NavItem[] = [
     icon: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.111 16.404a5.5 5.5 0 010-7.778m7.778 0a5.5 5.5 0 010 7.778M5.282 19.232a9.5 9.5 0 010-13.464m13.436 0a9.5 9.5 0 010 13.464M12 12h.01" /></svg>),
   },
   {
+    id: "quality-notifications",
+    label: "Quality Notifications",
+    href: "/quality-notifications",
+    icon: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>),
+  },
+  {
     id: "filter-operations",
     label: "Filter Operations",
     href: "/filters",
@@ -202,7 +208,7 @@ const allNavItems: NavItem[] = [
 const REPORTS_GROUP = {
   id: 'reports-group',
   label: 'Reports',
-  childIds: ['rfid-track-record', 'cleaning-cycles', 'filter-lifecycle-report', 'deviations'] as const,
+  childIds: ['rfid-track-record', 'cleaning-cycles', 'filter-lifecycle-report', 'deviations', 'quality-notifications'] as const,
   icon: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-6m4 6V7m4 10v-3M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" />
@@ -221,6 +227,7 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
 
   // Fetch user's sidebar configuration
   const { data: config } = useSWR('/api/config/my-config');
+  const { data: qnnVis } = useSWR<{ visible: boolean }>('/api/pm-schedules/qnn/visible');
 
   // Check if a sidebar item is allowed by user's permissions
   const hasPermissionForItem = (itemId: string): boolean => {
@@ -243,6 +250,10 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
   const filteredItems = allNavItems.filter((item) => {
     // SUPER_ADMIN sees everything
     if (user?.role === 'SUPER_ADMIN') return true;
+
+    // QNN report visibility is config-gated (qnn-notifications.visibleRoles),
+    // not permission-mapped — hide until the server confirms this role may see it.
+    if (item.id === 'quality-notifications' && !qnnVis?.visible) return false;
 
     // Check permissions first — if user lacks permission, always hide
     if (!hasPermissionForItem(item.id)) return false;

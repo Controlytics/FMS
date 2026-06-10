@@ -55,7 +55,7 @@ interface HierarchyNode {
 const STATUS_META: Record<TaskRow['overallStatus'], { label: string; bg: string; text: string; dot: string; border: string }> = {
   pending:     { label: 'Pending',     bg: 'bg-amber-50',    text: 'text-amber-700',    dot: 'bg-amber-500',    border: 'border-amber-200' },
   in_progress: { label: 'In Progress', bg: 'bg-cyan-50',     text: 'text-cyan-700',     dot: 'bg-cyan-500',     border: 'border-cyan-200' },
-  complete:    { label: 'Complete',    bg: 'bg-emerald-50',  text: 'text-emerald-700',  dot: 'bg-emerald-500',  border: 'border-emerald-200' },
+  complete:    { label: 'Completed',   bg: 'bg-emerald-50',  text: 'text-emerald-700',  dot: 'bg-emerald-500',  border: 'border-emerald-200' },
   overdue:     { label: 'Overdue',     bg: 'bg-rose-50',     text: 'text-rose-700',     dot: 'bg-rose-500',     border: 'border-rose-200' },
 };
 
@@ -68,7 +68,17 @@ const FILTER_STATUS_META: Record<FilterRow['status'], { label: string; cls: stri
 export function MyTasksPage() {
   const navigate = useNavigate();
   const { formatDate } = useDatetimeFormat();
-  const { data, error, isLoading } = useSWR<DueResponse>('/api/pm-schedules/due', { refreshInterval: 30000 });
+  // Time-period filter (My Tasks). Empty = default "due now + overdue" view.
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const dueKey = (() => {
+    const qs = new URLSearchParams();
+    if (from) qs.set('from', from);
+    if (to) qs.set('to', to);
+    const s = qs.toString();
+    return `/api/pm-schedules/due${s ? `?${s}` : ''}`;
+  })();
+  const { data, error, isLoading } = useSWR<DueResponse>(dueKey, { refreshInterval: 30000 });
   // Block / Area dropdowns list ALL active blocks/areas (not just those with a
   // due task), so the operator always sees the full set. /areas carries blockId
   // for the cascade. Tasks are still filtered by id against these.
@@ -126,7 +136,7 @@ export function MyTasksPage() {
   const [pageSize, setPageSize] = useState(25);
   const [tasksPage, setTasksPage] = useState(1);
   const [overduePage, setOverduePage] = useState(1);
-  useEffect(() => { setTasksPage(1); setOverduePage(1); }, [search, blockFilter, areaFilter, statusFilter]);
+  useEffect(() => { setTasksPage(1); setOverduePage(1); }, [search, blockFilter, areaFilter, statusFilter, from, to]);
   const tasksTotalPages = Math.max(1, Math.ceil(filteredTasks.length / pageSize));
   const safeTasksPage = Math.min(tasksPage, tasksTotalPages);
   const pagedTasks = filteredTasks.slice((safeTasksPage - 1) * pageSize, safeTasksPage * pageSize);
@@ -134,8 +144,8 @@ export function MyTasksPage() {
   const safeOverduePage = Math.min(overduePage, overdueTotalPages);
   const pagedOverdue = filteredOverdue.slice((safeOverduePage - 1) * pageSize, safeOverduePage * pageSize);
 
-  const hasActiveFilters = !!(search || blockFilter || areaFilter || statusFilter);
-  const clearFilters = () => { setSearch(''); setBlockFilter(''); setAreaFilter(''); setStatusFilter(''); };
+  const hasActiveFilters = !!(search || blockFilter || areaFilter || statusFilter || from || to);
+  const clearFilters = () => { setSearch(''); setBlockFilter(''); setAreaFilter(''); setStatusFilter(''); setFrom(''); setTo(''); };
 
   // Stats are computed from the full dataset (not the search-filtered view)
   const stats = useMemo(() => {
@@ -186,7 +196,7 @@ export function MyTasksPage() {
     setAckError('');
     try {
       await api.postWithReauth(`/api/pm-schedules/deviations/${ackTask.deviation.deviationId}/acknowledge`, {}, ackPassword);
-      await mutate('/api/pm-schedules/due');
+      await mutate(dueKey);
       const task = ackTask;
       closeAck();
       goToOps(task);
@@ -212,7 +222,7 @@ export function MyTasksPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-800">My Tasks</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            AHUs currently due for cleaning based on PM schedules and tolerance windows
+            AHUs due for cleaning per PM schedules — pick a period and status, or leave blank for what's due now
           </p>
         </div>
       </div>
@@ -258,15 +268,26 @@ export function MyTasksPage() {
           <FilterSelect label="Area" value={areaFilter} options={areaOptions} allLabel="All areas"
             onChange={setAreaFilter} />
 
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">From</label>
+            <input type="date" value={from} onChange={e => setFrom(e.target.value)}
+              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 focus:bg-white outline-none transition-all" />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">To</label>
+            <input type="date" value={to} onChange={e => setTo(e.target.value)}
+              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 focus:bg-white outline-none transition-all" />
+          </div>
+
           <div className="flex flex-col gap-1 min-w-[150px]">
             <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Status</label>
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)}
               className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 focus:bg-white outline-none transition-all">
-              <option value="">All statuses</option>
+              <option value="">All</option>
               <option value="pending">Pending</option>
-              <option value="in_progress">In Progress</option>
-              <option value="complete">Complete</option>
               <option value="overdue">Overdue</option>
+              <option value="complete">Completed</option>
+              <option value="in_progress">In Progress</option>
             </select>
           </div>
 

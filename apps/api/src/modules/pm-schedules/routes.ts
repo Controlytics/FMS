@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import ExcelJS from 'exceljs';
 import { PmScheduleService } from './pm-schedule.service.js';
 import { sweepOverdueDeviations, listDeviations, acknowledgeDeviation } from './pm-deviations.js';
+import { canSeeQnn, listQnn } from './qnn.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
@@ -86,6 +87,35 @@ async function parseUploadRows(buffer: Buffer, isCsv: boolean): Promise<Record<s
 
 export default async function pmScheduleRoutes(app: FastifyInstance) {
   const service = new PmScheduleService();
+
+  // ─── Quality Notifications (QNN) report ───
+  // Visible to roles in config qnn-notifications.visibleRoles (+ SUPER_ADMIN),
+  // same as QNN notifications. Powers the QNN report page (list + PDF/Excel).
+  app.get('/qnn/visible', {
+    schema: { tags: ['PM Schedules'], summary: 'May the current role view the QNN report?' },
+  }, async (req) => ({ visible: await canSeeQnn(req.user?.role) }));
+
+  app.get('/qnn', {
+    schema: {
+      tags: ['PM Schedules'],
+      summary: 'List Quality Notifications (QNN)',
+      querystring: {
+        type: 'object',
+        properties: {
+          page: { type: 'integer', minimum: 1 },
+          limit: { type: 'integer', minimum: 1, maximum: 500 },
+          from: { type: 'string' },
+          to: { type: 'string' },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    if (!(await canSeeQnn(req.user?.role))) {
+      return reply.code(403).send({ error: 'FORBIDDEN', message: 'Not allowed to view Quality Notifications.' });
+    }
+    return listQnn(req.query as any);
+  });
 
   // ─── Runtime settings (public-read mirror) ───
   // The /api/config/dynamic/pm-schedule-settings endpoint is SUPER_ADMIN-gated
@@ -531,12 +561,17 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       tags: ['PM Schedules'],
       summary: 'List PM schedule entries currently in their tolerance window',
       description:
-        'Returns all active PM entries whose window contains `now`, plus entries whose window closed in the last 30 days and whose filters are not fully cleaned (overdue). Grouped by AHU, with each AHU\'s child filters and per-filter status.',
+        'Returns all active PM entries whose window contains `now`, plus entries whose window closed in the last 30 days and whose filters are not fully cleaned (overdue). Grouped by AHU, with each AHU\'s child filters and per-filter status. When `from`/`to` are supplied, returns entries whose planned date falls in that period instead (My Tasks time-period view).',
+      querystring: {
+        type: 'object',
+        properties: { from: { type: 'string' }, to: { type: 'string' } },
+      },
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req) => {
     const ctx = buildContext(req);
-    return service.getDueTasks(ctx);
+    const { from, to } = req.query as { from?: string; to?: string };
+    return service.getDueTasks(ctx, { from, to });
   });
 
   app.get('/:entityId', {

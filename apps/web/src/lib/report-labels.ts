@@ -130,6 +130,20 @@ export const REPORT_DEFS: ReportDef[] = [
       { key: 'reason', default: 'Reason' },
     ],
   },
+  {
+    key: 'quality-notifications',
+    name: 'Quality Notifications (QNN)',
+    defaultTitle: 'Quality Notifications',
+    columns: [
+      { key: 'sNo', default: 'S.No' },
+      { key: 'qnn', default: 'QNN' },
+      { key: 'action', default: 'Action' },
+      { key: 'ahu', default: 'AHU' },
+      { key: 'message', default: 'Message' },
+      { key: 'by', default: 'By' },
+      { key: 'dateTime', default: 'Date / Time' },
+    ],
+  },
 ];
 
 const DEF_BY_KEY = new Map(REPORT_DEFS.map((d) => [d.key, d]));

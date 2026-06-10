@@ -19,6 +19,7 @@ export const EXPORT_SURFACES: ExportSurface[] = [
   { key: 'replacement', label: 'Replacement Schedule' },
   { key: 'rfid-track-record', label: 'RFID Track Record' },
   { key: 'pm', label: 'PM Schedules' },
+  { key: 'qnn', label: 'Quality Notifications (QNN)' },
 ];
 
 /** Resolve a stored format string into PDF/Excel button visibility.
