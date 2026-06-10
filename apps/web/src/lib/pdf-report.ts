@@ -188,7 +188,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       : '';
     const legendLines = legendText ? (doc.splitTextToSize(legendText, pw - 28) as string[]) : [];
 
-    const remarksH = 4 + 13 + 3;                         // label + box + gap
+    const remarksH = 4 + 22 + 3;                         // label + box + gap
     const legendH = legendLines.length ? legendLines.length * 3.6 + 3 : 0;
     const printedH = 7;
     const blockH = remarksH + legendH + printedH;
@@ -205,8 +205,8 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     doc.text('Remarks:', 14, by + 3);
     by += 4;
     doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.3);
-    doc.rect(14, by, pw - 28, 13);
-    by += 13 + 3;
+    doc.rect(14, by, pw - 28, 22);
+    by += 22 + 3;
     // Legend (abbreviation key) — only when the report passes one
     if (legendLines.length) {
       doc.setFontSize(7); doc.setTextColor(...COLORS.muted);
