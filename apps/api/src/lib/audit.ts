@@ -118,13 +118,25 @@ export async function auditLog(entry: AuditEntry, tx?: AuditTx): Promise<void> {
   if (tx) {
     // Transactional mode — write inside caller's tx.
     await writeAuditRow(tx, entry, timestamp, baseFields, beforeValueClean, afterValueClean);
-    return;
+  } else {
+    // Standalone mode — open our own tx.
+    await prisma.$transaction(async (txInner) => {
+      await writeAuditRow(txInner, entry, timestamp, baseFields, beforeValueClean, afterValueClean);
+    });
   }
 
-  // Standalone mode — open our own tx.
-  await prisma.$transaction(async (txInner) => {
-    await writeAuditRow(txInner, entry, timestamp, baseFields, beforeValueClean, afterValueClean);
-  });
+  // Fire-and-forget: one debug trace per audited action (covers HTTP +
+  // background jobs, and splits batch requests into per-item rows). Dynamic
+  // import keeps this off the audit hot-path's module graph; never awaited.
+  void import('./operation-tracer.js')
+    .then((m) => m.recordActionTrace({
+      action: entry.action,
+      targetType: entry.targetType ?? null,
+      targetId: entry.targetId ?? null,
+      userId: entry.userId ?? null,
+      userRole: entry.userRole ?? null,
+    }))
+    .catch(() => { /* tracing must never break an audit write */ });
 }
 
 async function writeAuditRow(

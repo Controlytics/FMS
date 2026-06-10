@@ -161,3 +161,50 @@ export async function recordOperationTrace(opts: {
     console.error('[OperationTracer] write failed:', e);
   }
 }
+
+/**
+ * Record one debug trace per AUDITED ACTION (called fire-and-forget from
+ * auditLog). Every business action — HTTP-driven OR background (cron sweeps,
+ * queue jobs) — becomes its own SUCCESS row; batch requests that audit N items
+ * naturally produce N rows. Failures are recorded by the per-request hook
+ * (which records only non-2xx), so there's no duplication for successes.
+ */
+export async function recordActionTrace(opts: {
+  action: string;
+  targetType?: string | null;
+  targetId?: string | null;
+  userId?: string | null;
+  userRole?: string | null;
+}): Promise<void> {
+  try {
+    if (!(await isOperationTraceEnabled())) return;
+    const entityId = typeof opts.targetId === 'string' && UUID_RE.test(opts.targetId) ? opts.targetId : null;
+    const stages = [{
+      stage: 1,
+      name: opts.action,
+      status: 'SUCCESS',
+      durationMs: 0,
+      details: { targetType: opts.targetType ?? null, targetId: opts.targetId ?? null, user: opts.userId ?? null, role: opts.userRole ?? null },
+    }];
+    const pool = getTsdbPool();
+    await pool.query(
+      `INSERT INTO ts_pipeline_traces (
+        time, message_id, entity_id, entity_name, transport, message_type,
+        payload_size, stages, final_status, failed_stage, error_code,
+        error_message, warnings, total_duration_ms
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+      [
+        new Date(), crypto.randomUUID(), entityId, null, 'API', opts.action, 0,
+        JSON.stringify(stages), 'SUCCESS', null, null, null, null, 0,
+      ],
+    );
+    if (entityId) {
+      bus.emit(`ws:trace:${entityId}`, {
+        messageId: crypto.randomUUID(), entityId, messageType: opts.action,
+        finalStatus: 'SUCCESS', totalDurationMs: 0, stages, warnings: [],
+      });
+    }
+  } catch (e) {
+    console.error('[ActionTracer] write failed:', e);
+  }
+}

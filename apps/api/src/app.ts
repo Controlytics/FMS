@@ -281,6 +281,10 @@ app.addHook('onResponse', async (req, reply) => {
   try {
     const routePath = genericPath(req.url);
     if (!shouldTrace(req.method, routePath)) return;
+    // Successes are recorded per-action by the audit logger; the request hook
+    // only records FAILED writes (which never reach the audit log) so there's
+    // no duplication.
+    if (reply.statusCode < 400) return;
     const err = (req as any)._opError as (Error & { code?: string; error?: string }) | undefined;
     await recordOperationTrace({
       method: req.method,
