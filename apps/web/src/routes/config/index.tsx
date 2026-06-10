@@ -85,6 +85,19 @@ const superAdminCards = [
     shadowColor: 'shadow-rose-500/25',
   },
   {
+    title: 'Replacement Schedule — AHU Filters',
+    description: 'Choose which roles can expand an AHU to see its filters on the Replacement Schedule page',
+    href: '/config/replacement-schedule-filters',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+      </svg>
+    ),
+    gradient: 'from-teal-500 to-cyan-600',
+    shadowColor: 'shadow-teal-500/25',
+  },
+  {
     title: 'Dashboard Cards',
     description: 'Configure which dashboard cards are visible per role',
     href: '/config/dashboard-cards',

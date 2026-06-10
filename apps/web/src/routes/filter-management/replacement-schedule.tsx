@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo, Fragment } from 'react';
 import useSWR, { mutate } from 'swr';
+import { useReplacementFiltersEnabled } from '@/hooks/use-replacement-filters-enabled';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
@@ -17,6 +18,41 @@ const naText = (v: unknown): string => {
   const s = (v ?? '').toString().trim();
   return !s || s === '[object Object]' ? 'NA' : s;
 };
+
+// Filters belonging to one AHU — rendered inside an expanded Replacement
+// Schedule row (gated per-role by SUPER_ADMIN). Lazy-fetched on expand.
+function AhuFiltersRow({ ahuId, identMap }: { ahuId: string; identMap: Map<string, string[]> }) {
+  const { data, isLoading } = useSWR<any>(ahuId ? `/api/hierarchy/filters?ahuId=${ahuId}&limit=200` : null);
+  const filters: any[] = data?.data ?? [];
+  if (isLoading) return <div className="px-8 py-3 text-[12px] text-slate-400">Loading filters…</div>;
+  if (filters.length === 0) return <div className="px-8 py-3 text-[12px] text-slate-400">No filters under this AHU.</div>;
+  return (
+    <div className="px-8 py-3 bg-slate-50/70">
+      <table className="w-full text-[12px]">
+        <thead>
+          <tr className="[&>th]:text-left [&>th]:px-2 [&>th]:py-1 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-slate-500 [&>th]:uppercase [&>th]:tracking-wider">
+            <th>Filter</th><th>RFID</th><th>Micron</th><th>Filter Dimensions</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {filters.map((f) => {
+            const attrs = f.attributes ?? {};
+            const rfid = (identMap.get(f.id) ?? []).join(', ');
+            return (
+              <tr key={f.id} className="[&>td]:px-2 [&>td]:py-1 text-slate-600">
+                <td className="font-medium text-slate-800">{f.name}{f.filterSet ? <span className="ml-1.5 text-[10px] font-semibold text-indigo-500">Set {String(f.filterSet).replace('SET_', '')}</span> : null}</td>
+                <td className="font-mono text-slate-500">{rfid || '—'}</td>
+                <td>{naText(attrs.micronSize)}</td>
+                <td>{naText(attrs.filterSize)}</td>
+                <td>{(f.currentLifecycleState ?? 'To Be Cleaned').replace(/_/g, ' ')}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 // Status chip colours (execution lifecycle)
 const STATUS_CHIP: Record<string, string> = {
@@ -129,6 +165,23 @@ export function ReplacementSchedulePage() {
   const [created, setCreated] = useState(0);
   const [failed, setFailed] = useState(0);
 
+  // Per-role "show AHU filters" feature (SUPER_ADMIN configurable).
+  const filtersEnabled = useReplacementFiltersEnabled();
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpand = (id: string) => setExpanded((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const { data: identsData } = useSWR<any>(filtersEnabled ? '/api/assets/identifiers?limit=1000' : null);
+  const identMap = useMemo(() => {
+    const m = new Map<string, string[]>();
+    const list: any[] = identsData?.data ?? (Array.isArray(identsData) ? identsData : []);
+    for (const it of list) {
+      if (it.identifierType !== 'RFID') continue;
+      const arr = m.get(it.assetId) ?? [];
+      arr.push(it.identifierValue);
+      m.set(it.assetId, arr);
+    }
+    return m;
+  }, [identsData]);
+
   const resetDialog = () => {
     setStep('select'); setFile(null); setRows([]); setResults([]); setError(''); setCreated(0); setFailed(0);
   };
@@ -237,9 +290,17 @@ export function ReplacementSchedulePage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {pageEntries.map((e: any, idx: number) => (
-                  <tr key={e.id} className="[&>td]:whitespace-nowrap [&>td]:px-3 [&>td]:py-2 [&>td]:text-sm hover:bg-slate-50/50">
+                  <Fragment key={e.id}>
+                  <tr className="[&>td]:whitespace-nowrap [&>td]:px-3 [&>td]:py-2 [&>td]:text-sm hover:bg-slate-50/50">
                     <td className="text-center text-slate-400">{(safePage - 1) * pageSize + idx + 1}</td>
-                    <td className="font-medium text-slate-800 max-w-[180px] truncate" title={e.ahuName}>{e.ahuName}</td>
+                    <td className="font-medium text-slate-800 max-w-[200px]" title={e.ahuName}>
+                      {filtersEnabled && e.ahuId ? (
+                        <button onClick={() => toggleExpand(e.id)} className="inline-flex items-center gap-1.5 hover:text-teal-600 transition-colors max-w-full">
+                          <svg className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform ${expanded.has(e.id) ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                          <span className="truncate">{e.ahuName}</span>
+                        </button>
+                      ) : <span className="truncate block">{e.ahuName}</span>}
+                    </td>
                     <td className="text-slate-500">{naText(e.filterMicron)}</td>
                     <td className="text-slate-500 max-w-[140px] truncate" title={naText(e.filterSize)}>{naText(e.filterSize)}</td>
                     <td className="text-center text-slate-700">{e.qty}</td>
@@ -268,6 +329,14 @@ export function ReplacementSchedulePage() {
                       </div>
                     </td>
                   </tr>
+                  {filtersEnabled && expanded.has(e.id) && e.ahuId && (
+                    <tr>
+                      <td colSpan={11} className="p-0">
+                        <AhuFiltersRow ahuId={e.ahuId} identMap={identMap} />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

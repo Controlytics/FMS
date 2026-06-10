@@ -25,6 +25,7 @@ import { reportSettingsRoutes } from './static-routes/report-settings.routes.js'
 import { reportLabelsRoutes } from './static-routes/report-labels.routes.js';
 import { offlineCacheRoutes } from './static-routes/offline-cache.routes.js';
 import { exportOptionsRoutes } from './static-routes/export-options.routes.js';
+import { replacementScheduleFiltersRoutes } from './static-routes/replacement-schedule-filters.routes.js';
 
 // Map config keys to reauth action names (consumed by the generic configEndpoint factory).
 const CONFIG_KEY_TO_ACTION: Record<string, string> = {
@@ -45,6 +46,7 @@ export default async function configRoutes(app: FastifyInstance) {
   await tabletAccessRoutes(app);
   await accessMatrixRoutes(app);
   await exportOptionsRoutes(app);
+  await replacementScheduleFiltersRoutes(app);
   await rolesConfigRoutes(app);
   await cleaningProfileAssignmentRoutes(app);
   await reportSettingsRoutes(app);
