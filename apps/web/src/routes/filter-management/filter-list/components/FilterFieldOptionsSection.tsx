@@ -53,7 +53,7 @@ export function FilterFieldOptionsSection({
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Filter Size <span className="text-slate-400 font-normal">(dimensions)</span></label>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Filter Dimensions</label>
         <input type="text" value={filterSize} onChange={e => onFilterSizeChange(e.target.value)}
           placeholder="e.g. 610×610×292mm"
           className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />

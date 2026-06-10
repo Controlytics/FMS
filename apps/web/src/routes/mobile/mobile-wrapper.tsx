@@ -2775,7 +2775,7 @@ export function MobileWrapperPage() {
                       className="tile-lift w-full rounded-xl border border-slate-200 bg-white p-3 text-left flex items-center justify-between active:bg-slate-50">
                       <div className="min-w-0 flex-1">
                         <div className="font-display text-[14px] font-semibold text-slate-900 truncate">{t.ahuName}</div>
-                        <div className="text-[11px] text-slate-500 mt-0.5">micron {naText(t.filterMicron)} · size {naText(t.filterSize)}</div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">micron {naText(t.filterMicron)} · dimensions {naText(t.filterSize)}</div>
                         <div className="text-[10.5px] text-slate-400 mt-0.5">due by {t.windowEnd ? new Date(t.windowEnd).toLocaleDateString() : '—'}</div>
                       </div>
                       <span className="text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-full px-2.5 py-1 shrink-0">{t.qtyRemaining} of {t.qty} left</span>
@@ -2820,7 +2820,7 @@ export function MobileWrapperPage() {
                 </button>
                 <div className="bg-white border border-slate-200 rounded-2xl p-4">
                   <div className="font-display text-[15px] font-semibold text-slate-900">{activeReplTask.ahuName}</div>
-                  <div className="text-[12px] text-slate-500 mt-0.5">micron {naText(activeReplTask.filterMicron)} · size {naText(activeReplTask.filterSize)}</div>
+                  <div className="text-[12px] text-slate-500 mt-0.5">micron {naText(activeReplTask.filterMicron)} · dimensions {naText(activeReplTask.filterSize)}</div>
                   <div className="text-[12px] text-rose-600 font-medium mt-1">{remaining} of {activeReplTask.qty} still to replace</div>
                 </div>
                 <div>

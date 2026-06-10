@@ -71,7 +71,7 @@ export const REPORT_DEFS: ReportDef[] = [
     columns: [
       { key: 'sNo', default: 'S.No' },
       { key: 'filter', default: 'Filter' },
-      { key: 'size', default: 'Size' },
+      { key: 'size', default: 'Filter Dimensions' },
       { key: 'airPressure', default: 'Air Pressure' },
       { key: 'roWater', default: 'RO Water' },
       { key: 'washIn', default: 'Wash In' },

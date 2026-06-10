@@ -55,7 +55,7 @@ const HEADER_ALIASES: Record<string, keyof Omit<ParsedRow, 'rowNumber'>> = {
   ahutype: 'ahuType',
   filtertype: 'filterType',
   micronsize: 'micronSize',
-  filtersize: 'filterSize',
+  filtersize: 'filterSize', filterdimensions: 'filterSize', dimensions: 'filterSize',
   lastcleaningdate: 'lastCleaningDate',
   rfidtag: 'rfidTag', rfid: 'rfidTag',
 };

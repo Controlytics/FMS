@@ -260,8 +260,8 @@ export function BulkUploadFiltersDialog({ open, onClose, ahuId, ahuName, onSucce
                       <th className="text-left px-3 py-2 text-slate-500 font-medium">Set</th>
                       <th className="text-left px-3 py-2 text-slate-500 font-medium">AHU Type</th>
                       <th className="text-left px-3 py-2 text-slate-500 font-medium">Filter Type</th>
-                      <th className="text-left px-3 py-2 text-slate-500 font-medium">Size</th>
-                      <th className="text-left px-3 py-2 text-slate-500 font-medium">Dimensions</th>
+                      <th className="text-left px-3 py-2 text-slate-500 font-medium">Micron Size</th>
+                      <th className="text-left px-3 py-2 text-slate-500 font-medium">Filter Dimensions</th>
                       <th className="text-left px-3 py-2 text-slate-500 font-medium">Freq/Tol</th>
                       <th className="text-left px-3 py-2 text-slate-500 font-medium">Last Clean</th>
                     </tr>

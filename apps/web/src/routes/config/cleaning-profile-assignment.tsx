@@ -243,7 +243,7 @@ export function CleaningProfileAssignmentPage() {
             onChange={e => updateRule(index, 'matchValue', e.target.value)}
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
           >
-            <option value="">Select filter size...</option>
+            <option value="">Select filter dimensions...</option>
             {available.map(s => (
               <option key={s} value={s}>{s}</option>
             ))}
@@ -317,7 +317,7 @@ export function CleaningProfileAssignmentPage() {
 
   const getMatchColumnLabel = () => {
     switch (mode) {
-      case 'BY_FILTER_SIZE': return 'Filter Size';
+      case 'BY_FILTER_SIZE': return 'Filter Dimensions';
       case 'BY_ENTITY': return 'Filter';
       case 'BY_AHU': return 'AHU';
       case 'BY_BLOCK': return 'Block / Area';

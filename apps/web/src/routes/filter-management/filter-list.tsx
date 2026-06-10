@@ -1186,7 +1186,7 @@ export function FilterListPage() {
   // for the block, not just the visible page) — shared by the PDF + Excel export.
   const buildFiltersExport = () => {
     const dash = (v: string | null | undefined) => (v && v !== '-' ? v : '');
-    const headers = ['S.No', 'Area', 'AHU', 'AHU Type', 'Filter', 'Filter Type', 'Micron Size', 'Filter Size', 'Set', 'Last Cleaned', 'Status', 'RFID'];
+    const headers = ['S.No', 'Area', 'AHU', 'AHU Type', 'Filter', 'Filter Type', 'Micron Size', 'Filter Dimensions', 'Set', 'Last Cleaned', 'Status', 'RFID'];
     const body = blockFilters.map((f, idx) => {
       const stateLabel = STATUS_LABELS[f.currentState ?? '']?.label ?? (f.currentState?.replace(/_/g, ' ') ?? 'To Be Cleaned');
       const rfid = (identifiersByAsset.get(f.id) ?? [])
@@ -1591,7 +1591,7 @@ export function FilterListPage() {
                       <th className="text-left px-2 py-2">Filter</th>
                       <th className="text-left px-2 py-2">Filter Type</th>
                       <th className="text-left px-2 py-2">Micron Size</th>
-                      <th className="text-left px-2 py-2">Filter Size</th>
+                      <th className="text-left px-2 py-2">Filter Dimensions</th>
                       <th className="text-left px-2 py-2">Set</th>
                       <th className="text-left px-2 py-2">Last Cleaned</th>
                       <th className="text-left px-2 py-2">Status</th>

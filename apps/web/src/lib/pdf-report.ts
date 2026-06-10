@@ -141,12 +141,10 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   // ── Report title bar ──
   doc.setFillColor(...COLORS.primary);
   doc.rect(14, y, pw - 28, 8, 'F');
+  // Centered title; no generated-on timestamp here (the print stamp at the end
+  // of the report carries Printed Date & Time).
   doc.setFontSize(10); doc.setTextColor(...COLORS.white);
-  doc.text(config.title, 18, y + 5.5);
-
-  // Generated timestamp on right
-  doc.setFontSize(7); doc.setTextColor(200, 210, 225);
-  doc.text(config.formatDateTime(new Date().toISOString()), pw - 14, y + 5.5, { align: 'right' });
+  doc.text(config.title, pw / 2, y + 5.5, { align: 'center' });
 
   y += 12;
 

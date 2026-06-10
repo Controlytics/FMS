@@ -31,7 +31,7 @@ const HEADER_ALIASES: Record<string, string> = {
   sno: 'slNo', slno: 'slNo', serial: 'slNo',
   ahuname: 'ahuName', ahu: 'ahuName',
   filtermicron: 'filterMicron', micron: 'filterMicron', micronsize: 'filterMicron',
-  filtersize: 'filterSize', size: 'filterSize',
+  filtersize: 'filterSize', size: 'filterSize', filterdimensions: 'filterSize', dimensions: 'filterSize',
   qty: 'qty', quantity: 'qty', count: 'qty',
   scheduledate: 'scheduleDate', date: 'scheduleDate',
   tolerancedays: 'toleranceDays', tolerance: 'toleranceDays',

@@ -844,7 +844,7 @@ export function FilterDataManagementPage() {
             <table className="w-full">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-slate-50 border-b border-slate-200">
-                  {['S.No', 'Filter', 'Size', 'Air Pressure', 'RO Water', 'Wash In', 'Wash Out', 'Wash By', 'Dryer Temp', 'Dry In', 'Dry Out', 'Dry By', 'Duration', 'Status', 'Actions'].map((h, i) => (
+                  {['S.No', 'Filter', 'Micron Size', 'Air Pressure', 'RO Water', 'Wash In', 'Wash Out', 'Wash By', 'Dryer Temp', 'Dry In', 'Dry Out', 'Dry By', 'Duration', 'Status', 'Actions'].map((h, i) => (
                     <th key={i} className="text-left px-3 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
                   ))}
                 </tr>

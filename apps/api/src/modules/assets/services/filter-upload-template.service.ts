@@ -24,7 +24,7 @@ export async function buildFilterUploadTemplate(): Promise<Buffer> {
     { key: 'ahuType', header: 'ahuType', options: opts.ahuType },
     { key: 'filterType', header: 'filterType', options: opts.filterType },
     { key: 'micronSize', header: 'micronSize', options: opts.micronSize, note: 'Micron size (µm).' },
-    { key: 'filterSize', header: 'filterSize', note: 'Physical filter size / dimensions (free text).' },
+    { key: 'filterSize', header: 'Filter Dimensions', note: 'Physical filter dimensions (free text).' },
     { key: 'lastCleaningDate', header: 'lastCleaningDate', note: 'YYYY-MM-DD or NA. Optional.' },
     { key: 'rfidTag', header: 'rfidTag', note: 'Optional RFID tag — must be unique. Rejected if already assigned to a filter.' },
   ];

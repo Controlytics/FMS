@@ -23,7 +23,7 @@ export async function exportEntriesXlsx(): Promise<Buffer> {
     { header: 'S.No', key: 'sno', width: 6 },
     { header: 'AHU', key: 'ahu', width: 24 },
     { header: 'Micron', key: 'micron', width: 12 },
-    { header: 'Filter Size', key: 'size', width: 18 },
+    { header: 'Filter Dimensions', key: 'size', width: 18 },
     { header: 'Qty', key: 'qty', width: 6 },
     { header: 'Replaced', key: 'replaced', width: 9 },
     { header: 'Schedule Date', key: 'date', width: 14 },

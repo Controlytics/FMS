@@ -1,6 +1,5 @@
 import { useReportConfig } from '@/hooks/use-report-config';
 import { useAuth } from '@/hooks/use-auth';
-import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 
 interface ReportPageWrapperProps {
   title: string;
@@ -13,16 +12,15 @@ interface ReportPageWrapperProps {
 export function ReportPageWrapper({ title, totalRecords, page, totalPages, children }: ReportPageWrapperProps) {
   const { config, branding } = useReportConfig();
   const { user } = useAuth();
-  const { formatDate } = useDatetimeFormat();
-  const now = new Date();
 
   return (
     <div className="space-y-0">
       {/* ── Report Header ── */}
       {config.showHeader && (
         <div className="bg-white border border-slate-200 rounded-t-xl px-6 py-4 print:border-0">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+          <div className="flex items-center justify-between gap-4">
+            {/* Left: logo */}
+            <div className="flex items-center gap-3 shrink-0">
               {config.showLogo && branding.logoUrl && (
                 <img src={branding.logoUrl} alt="Logo" className="h-10 w-auto object-contain" />
               )}
@@ -32,19 +30,18 @@ export function ReportPageWrapper({ title, totalRecords, page, totalPages, child
                   {branding.logoText || 'DL'}
                 </div>
               )}
-              <div>
-                {config.showCompanyName && (
-                  <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">{branding.companyName}</p>
-                )}
-                {config.showReportTitle && (
-                  <h2 className="text-lg font-bold text-slate-800">{title}</h2>
-                )}
-              </div>
             </div>
-            <div className="text-right text-xs text-slate-400 space-y-0.5">
-              {config.showDateTime && (
-                <p>Generated: {formatDate(now.toISOString())} {now.toLocaleTimeString()}</p>
+            {/* Center: company + report title */}
+            <div className="flex-1 text-center">
+              {config.showCompanyName && (
+                <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">{branding.companyName}</p>
               )}
+              {config.showReportTitle && (
+                <h2 className="text-lg font-bold text-slate-800">{title}</h2>
+              )}
+            </div>
+            {/* Right: by / custom — no "Generated" date/time (2026-06-10 request) */}
+            <div className="text-right text-xs text-slate-400 space-y-0.5 shrink-0 min-w-[110px]">
               {config.showGeneratedBy && user && (
                 <p>By: {user.fullName || user.username}</p>
               )}

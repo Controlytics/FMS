@@ -111,7 +111,7 @@ export function ReplacementSchedulePage() {
       if (all.length === 0) { toast.error('Nothing to export', 'No replacement entries'); return; }
       const report = await createReport({ title: 'Replacement Schedule', subtitle: `Total: ${all.length} entr${all.length === 1 ? 'y' : 'ies'}`, orientation: 'landscape', formatDateTime: (d: string) => formatDate(d) });
       report.addTable({
-        head: ['S.No', 'AHU', 'Micron', 'Size', 'Qty', 'Date', 'Status', 'Uploaded By', 'Reviewed By', 'Approved By'],
+        head: ['S.No', 'AHU', 'Micron', 'Filter Dimensions', 'Qty', 'Date', 'Status', 'Uploaded By', 'Reviewed By', 'Approved By'],
         body: all.map((e: any, i: number) => [String(e.slNo ?? i + 1), e.ahuName ?? '-', naText(e.filterMicron), naText(e.filterSize), String(e.qty), e.scheduleDate ? formatDate(e.scheduleDate) : '-', (APPROVAL_CHIP[e.approvalStatus]?.label ?? e.approvalStatus ?? '-'), e.submittedByName ?? '-', e.reviewedByName ?? '-', e.approvedByName ?? '-']),
         columnStyles: { 0: { halign: 'center', cellWidth: 14 } },
       });
@@ -225,7 +225,7 @@ export function ReplacementSchedulePage() {
                   <th className="w-12 text-center">S.No</th>
                   <th>AHU</th>
                   <th>Micron</th>
-                  <th>Size</th>
+                  <th>Filter Dimensions</th>
                   <th className="text-center">Qty</th>
                   <th className="text-center">Replaced</th>
                   <th>Schedule Date</th>
@@ -312,7 +312,7 @@ export function ReplacementSchedulePage() {
                   <div className="border border-slate-200 rounded-lg overflow-auto max-h-[40vh]">
                     <table className="w-full text-[12px]">
                       <thead className="sticky top-0 bg-slate-50"><tr className="[&>th]:px-2 [&>th]:py-1.5 [&>th]:text-left [&>th]:font-semibold [&>th]:text-slate-500 [&>th]:whitespace-nowrap">
-                        <th>AHU</th><th>Micron</th><th>Size</th><th>Qty</th><th>Date</th><th>Tol.</th>
+                        <th>AHU</th><th>Micron</th><th>Filter Dimensions</th><th>Qty</th><th>Date</th><th>Tol.</th>
                       </tr></thead>
                       <tbody className="divide-y divide-slate-100">
                         {rows.map((r: any, i: number) => (

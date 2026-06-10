@@ -27,7 +27,7 @@ export async function buildReplacementScheduleTemplate(): Promise<Buffer> {
     { key: 'slNo', header: 'S.No', note: 'Optional row number.' },
     { key: 'ahuName', header: 'AHU Name', options: ahuNames, note: 'Must match an existing AHU.' },
     { key: 'filterMicron', header: 'Filter Micron', note: 'Micron spec, e.g. 0.3' },
-    { key: 'filterSize', header: 'Filter Size', note: 'Physical size, e.g. 610x610x292mm' },
+    { key: 'filterSize', header: 'Filter Dimensions', note: 'Physical size, e.g. 610x610x292mm' },
     { key: 'qty', header: 'Qty', note: 'Number of filters to replace (integer >= 1).' },
     { key: 'scheduleDate', header: 'Schedule Date', note: 'YYYY-MM-DD. Must not be in the past.' },
     { key: 'toleranceDays', header: 'Tolerance Days', note: 'Optional. +/- days window. Blank = configured default.' },
