@@ -12,7 +12,7 @@ import {
   getProfilePipeline,
   getCleaningReasons,
 } from './filter-resolver.js';
-import { getProfileOrderedStages } from './stage-rules.js';
+import { getProfileOrderedStages, getFilterStageRules } from './stage-rules.js';
 import { terminateCycleImpl } from './cycle-write/terminate-cycle.js';
 import { bypassImpl } from './cycle-write/bypass.js';
 import { submitChecklistImpl } from './cycle-write/submit-checklist.js';
@@ -158,6 +158,16 @@ export class FilterOperationsService {
     const fmap = new Map(filters.map((f) => [f.id, f.name]));
     const umap = new Map(performers.map((u) => [u.id, { fullName: u.fullName || u.username, username: u.username }]));
 
+    // 2026-06-10: the cleaning-record view renders manual updates as cycle-style
+    // rows, so attach each filter's profile stage order. The client uses it to
+    // show "Skipped" for stages the manual from->to jump bypassed (same as a
+    // real cycle). Resolved once per unique filter.
+    const stagesByFilter = new Map<string, string[]>();
+    await Promise.all(filterIds.map(async (fid) => {
+      try { const r = await getFilterStageRules(fid); stagesByFilter.set(fid, r.orderedStages ?? []); }
+      catch { stagesByFilter.set(fid, []); }
+    }));
+
     const enriched = data.map((e) => {
       const u = e.performedBy ? umap.get(e.performedBy) : null;
       return {
@@ -168,6 +178,7 @@ export class FilterOperationsService {
         // of record). performedByUsername kept for back-compat consumers.
         performedByName: u?.username ?? null,
         performedByUsername: u?.username ?? null,
+        profileStages: stagesByFilter.get(e.filterId) ?? [],
       };
     });
     return { data: enriched, total, page, limit, totalPages: Math.ceil(total / limit) };

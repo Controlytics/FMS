@@ -97,6 +97,16 @@ export function DebugTracesPage() {
     revalidateOnFocus: false,
   });
 
+  // Global "trace every API write op" flag.
+  const { data: opTrace, mutate: mutateOpTrace } = useSWR<{ enabled: boolean }>('/api/debug/traces/operation-trace', { revalidateOnFocus: false });
+  const toggleOpTrace = async () => {
+    const next = !(opTrace?.enabled ?? true);
+    try {
+      await apiClient.put('/api/debug/traces/operation-trace', { enabled: next });
+      await mutateOpTrace({ enabled: next }, false);
+    } catch { /* ignore */ }
+  };
+
   const traces = data?.data ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
@@ -184,21 +194,35 @@ export function DebugTracesPage() {
               Pipeline Debug Traces
             </h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              Inspect ingestion pipeline execution across all 11 stages
+              Ingestion pipeline stages + every API write operation (filter cleaning, status updates, …) — SUCCESS / FAILED
             </p>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => { mutate(); }}
-          className="gap-2 text-cyan-700 border-cyan-200 hover:bg-cyan-50 hover:border-cyan-300"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggleOpTrace}
+            title="When on, every API write operation (filter cleaning, status updates, …) is recorded as a trace"
+            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+              (opTrace?.enabled ?? true)
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+            }`}
+          >
+            <span className={`w-2 h-2 rounded-full ${(opTrace?.enabled ?? true) ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+            Operation tracing {(opTrace?.enabled ?? true) ? 'ON' : 'OFF'}
+          </button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { mutate(); }}
+            className="gap-2 text-cyan-700 border-cyan-200 hover:bg-cyan-50 hover:border-cyan-300"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -248,6 +272,7 @@ export function DebugTracesPage() {
               className="h-11"
             >
               <option value="">All Transports</option>
+              <option value="API">API (operations)</option>
               <option value="MQTT">MQTT</option>
               <option value="HTTP">HTTP</option>
               <option value="WEBSOCKET">WebSocket</option>

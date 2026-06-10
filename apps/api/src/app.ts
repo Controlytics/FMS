@@ -36,6 +36,7 @@ import connectivityRoutes from './modules/connectivity/routes.js';
 import helpRoutes from './modules/help/routes.js';
 import systemHealthRoutes, { trackRequest } from './modules/system-health/routes.js';
 import debugTraceRoutes from './modules/data-ingestion/debug-trace.routes.js';
+import { recordOperationTrace, shouldTrace, genericPath, extractEntityId } from './lib/operation-tracer.js';
 import wsHandler from './transport/ws-handler.js';
 import { initMqttClient, closeMqttClient } from './transport/mqtt-client.js';
 import { closeWsBus } from './transport/ws-handler.js';
@@ -269,6 +270,30 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
 app.addHook('onRequest', (_req, _reply, done) => {
   trackRequest();
   done();
+});
+
+// Operation tracer — record every API WRITE (POST/PUT/PATCH/DELETE) as a debug
+// trace so filter-cleaning and every write process shows on the Debug Traces
+// page with SUCCESS / FAILED. Stash the thrown error in onError; write the
+// trace in onResponse (after the response is sent, so it never delays a request).
+app.addHook('onError', async (req, _reply, err) => { (req as any)._opError = err; });
+app.addHook('onResponse', async (req, reply) => {
+  try {
+    const routePath = genericPath(req.url);
+    if (!shouldTrace(req.method, routePath)) return;
+    const err = (req as any)._opError as (Error & { code?: string; error?: string }) | undefined;
+    await recordOperationTrace({
+      method: req.method,
+      routePath,
+      url: req.url,
+      statusCode: reply.statusCode,
+      durationMs: reply.elapsedTime ?? 0,
+      userId: (req as any).user?.username ?? null,
+      entityId: extractEntityId(req.params),
+      errorCode: err?.code ?? err?.error ?? (reply.statusCode >= 400 ? `HTTP_${reply.statusCode}` : null),
+      errorMessage: err?.message ?? null,
+    });
+  } catch { /* tracing must never break the response */ }
 });
 
 // Health check

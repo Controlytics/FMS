@@ -10,6 +10,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { createReport } from '../../lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
+import { STATUS_LABELS } from '../filter-management/filter-list/constants';
 import type { CleaningCycle, FilterInstance, PaginatedResponse } from '../../types/filter';
 // Stage/dryer logic + column order live in a shared module so this list and the
 // Filter Lifecycle Report (filter-lifecycle.tsx) can never drift. See that file
@@ -250,25 +251,42 @@ export function CleaningCycleHistoryPage() {
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
               {records.map((c, idx: number) => {
-                // Manual status update — single condensed row (not a cleaning cycle).
+                // Manual status update — rendered in the SAME columns as a cleaning
+                // cycle (2026-06-10 request). The stage the operator set shows its
+                // time (orange = manual); in-profile stages the from->to jump
+                // bypassed show "Skipped"; the rest follow NA / Pending like a cycle.
                 if (c._kind === 'manual') {
+                  const mAttrs = filterAttrMap.get(c.filterId) ?? {};
+                  const pStages: string[] = c.profileStages ?? [];
+                  const toComplete = c.toState === 'CLEANING_CYCLE_COMPLETED';
+                  const toIdx = toComplete ? pStages.length : pStages.indexOf(c.toState ?? '');
+                  const fromIdx = c.fromState ? pStages.indexOf(c.fromState) : -1;
+                  const mStatus = toComplete ? 'CLEANING_CYCLE_COMPLETED' : (c.toState ?? '');
+                  const mInfo = STATUS_LABELS[mStatus] ?? { label: (mStatus || '-').replace(/_/g, ' '), color: 'bg-slate-50 text-slate-600 border-slate-200' };
+                  const manualCell = (stage: string) => {
+                    if (pStages.length > 0 && !pStages.includes(stage)) return <span className="text-slate-400 italic">NA</span>;
+                    const si = pStages.indexOf(stage);
+                    if (stage === c.toState) return <span className="text-orange-600 font-semibold" title="Set by manual update">{formatDateTime(c.performedAt)}</span>;
+                    if (si >= 0 && si > fromIdx && si < toIdx) return <span className="text-rose-500 italic">Skipped</span>;
+                    if (si >= 0 && si <= fromIdx) return <span className="text-slate-300">—</span>;
+                    return <span className="text-blue-500 italic">Pending</span>;
+                  };
                   return (
-                    <tr key={`m-${c.id}`} className="hover:bg-amber-50/40 transition-colors bg-amber-50/20">
+                    <tr key={`m-${c.id}`} className="hover:bg-cyan-50/30 transition-colors group">
                       <td className="px-4 py-3 text-[13px] text-slate-400 font-medium text-center tabular-nums">{(page - 1) * perPage + idx + 1}</td>
+                      <td className="px-4 py-3"><div className="text-[13px] font-semibold text-slate-800">{c.filterName ?? '-'}</div></td>
+                      <td className="px-4 py-3 text-[13px] text-slate-600">{mAttrs.filterSize ?? '-'}</td>
+                      <td className="px-4 py-3 text-[13px] text-slate-400 font-mono tabular-nums">-</td>
+                      <td className="px-4 py-3 text-[13px] text-slate-400 font-mono tabular-nums">-</td>
+                      <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{manualCell('WASH_IN')}</td>
+                      <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{manualCell('WASH_OUT')}</td>
+                      <td className="px-4 py-3 text-[13px] text-slate-800 font-medium">{c.performedByName ?? c.performedByUsername ?? '-'}</td>
+                      <td className="px-4 py-3 text-[13px] text-slate-400 whitespace-nowrap tabular-nums">-</td>
+                      <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{manualCell('DRY_IN')}</td>
+                      <td className="px-4 py-3 text-[13px] text-slate-400 font-mono tabular-nums">-</td>
+                      <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{manualCell('DRY_OUT')}</td>
                       <td className="px-4 py-3">
-                        <div className="text-[13px] font-semibold text-slate-800">{c.filterName ?? '-'}</div>
-                        <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wide">Manual</span>
-                      </td>
-                      <td className="px-4 py-3 text-[13px] text-slate-600" colSpan={9}>
-                        <span className="text-amber-700 font-medium">Manual status update:</span>{' '}
-                        <span className="text-slate-500">{c.fromState ? c.fromState.replace(/_/g, ' ') : 'To Be Cleaned'}</span>
-                        <span className="text-slate-300 mx-1.5">→</span>
-                        <span className="font-medium text-slate-800">{(c.toState ?? '-').replace(/_/g, ' ')}</span>
-                        {c.remarks && <span className="text-slate-400"> · {c.remarks}</span>}
-                        <span className="text-slate-400"> · by {c.performedByName ?? c.performedByUsername ?? '-'} · {c.performedAt ? formatDateTime(c.performedAt) : '-'}</span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center px-2.5 py-1 text-[11px] font-bold rounded-full whitespace-nowrap bg-amber-50 text-amber-700 border border-amber-200">Manual</span>
+                        <span className={`inline-flex items-center px-2.5 py-1 text-[11px] font-bold rounded-full whitespace-nowrap border ${mInfo.color}`}>{mInfo.label}</span>
                       </td>
                       <td className="px-4 py-3" />
                     </tr>

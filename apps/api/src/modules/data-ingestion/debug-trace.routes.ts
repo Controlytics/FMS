@@ -12,6 +12,7 @@ import { prisma } from '../../lib/prisma.js';
 import { getTsdbPool } from '@digilog/db';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { auditLog } from '../../lib/audit.js';
+import { invalidateConfigCache } from './ingestion-config.service.js';
 
 export default async function debugTraceRoutes(app: FastifyInstance) {
 
@@ -30,7 +31,7 @@ export default async function debugTraceRoutes(app: FastifyInstance) {
           page: { type: 'integer', default: 1, minimum: 1 },
           pageSize: { type: 'integer', default: 20, minimum: 1, maximum: 100 },
           status: { type: 'string', enum: ['SUCCESS', 'SUCCESS_WITH_WARNINGS', 'FAILED', 'DLQ'] },
-          transport: { type: 'string', enum: ['MQTT', 'HTTP', 'WebSocket', 'mqtt', 'http', 'websocket'] },
+          transport: { type: 'string', enum: ['MQTT', 'HTTP', 'WebSocket', 'API', 'mqtt', 'http', 'websocket', 'api'] },
           errorCode: { type: 'string' },
           entityId: { type: 'string' },
           from: { type: 'string', format: 'date-time' },
@@ -331,5 +332,38 @@ export default async function debugTraceRoutes(app: FastifyInstance) {
     });
 
     return { entityId, traceEnabled: newValue };
+  });
+
+  // 5. GET/PUT /operation-trace — global toggle for tracing every API write op.
+  app.get('/operation-trace', {
+    preHandler: [app.requirePermission('READ_DEBUG_TRACE')],
+    schema: { tags: ['Debug Traces'], summary: 'Get the global operation-trace flag' },
+  }, async () => {
+    const row = await prisma.ingestionSystemConfig.findUnique({ where: { key: 'debug.operation_trace_enabled' } });
+    return { enabled: row ? row.value === 'true' : true };
+  });
+
+  app.put('/operation-trace', {
+    preHandler: [app.requirePermission('MANAGE_DEBUG_TRACE')],
+    schema: {
+      tags: ['Debug Traces'],
+      summary: 'Toggle tracing of every API write operation',
+      body: { type: 'object', required: ['enabled'], properties: { enabled: { type: 'boolean' } } },
+    },
+  }, async (req) => {
+    const { enabled } = req.body as { enabled: boolean };
+    const user = (req as any).user;
+    await prisma.ingestionSystemConfig.upsert({
+      where: { key: 'debug.operation_trace_enabled' },
+      create: { key: 'debug.operation_trace_enabled', value: String(enabled), dataType: 'BOOLEAN', category: 'pipeline', label: 'Trace all API write operations', defaultValue: 'true' },
+      update: { value: String(enabled) },
+    });
+    invalidateConfigCache('debug.operation_trace_enabled');
+    await auditLog({
+      userId: user.username, userRole: user.role, action: 'CONFIG_CHANGED',
+      targetType: 'debug_trace', targetId: 'operation-trace',
+      afterValue: { enabled }, ipAddress: req.ip, userAgent: req.headers['user-agent'],
+    });
+    return { enabled };
   });
 }
