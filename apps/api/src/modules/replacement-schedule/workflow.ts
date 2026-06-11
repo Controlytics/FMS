@@ -10,7 +10,7 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
-import { getPmWorkflowConfig, assertPmRole, generateQnn, type QnnAction } from '../pm-schedules/pm-workflow.js';
+import { getReplacementWorkflowConfig, assertPmRole, generateQnn, type QnnAction } from '../pm-schedules/pm-workflow.js';
 
 const MS_DAY = 86400000;
 const windowsFor = (planned: Date, tol: number) => ({
@@ -30,8 +30,8 @@ async function mintQnn(action: QnnAction, entry: any, ctx: RequestContext, note:
 
 /** Review step: approve → PENDING_APPROVAL, reject → REJECTED (stage REVIEW). */
 export async function reviewEntries(ctx: RequestContext, entryIds: string[], action: 'approve' | 'reject', remarks?: string) {
-  const cfg = await getPmWorkflowConfig();
-  assertPmRole(ctx.userRole, cfg.reviewRole, 'review');
+  const cfg = await getReplacementWorkflowConfig();
+  assertPmRole(ctx.userRole, cfg.reviewRole, 'review', 'replacement schedules');
   if (action === 'reject' && (!remarks || remarks.trim().length < 3)) {
     throw new AppError(400, 'REMARKS_REQUIRED', 'Remarks are required when rejecting (min 3 characters)');
   }
@@ -61,8 +61,8 @@ export async function reviewEntries(ctx: RequestContext, entryIds: string[], act
 
 /** Final approval: PENDING_APPROVAL (or legacy PENDING) → APPROVED. */
 export async function approveEntries(ctx: RequestContext, entryIds: string[], comment?: string) {
-  const cfg = await getPmWorkflowConfig();
-  assertPmRole(ctx.userRole, cfg.approvalRole, 'approve');
+  const cfg = await getReplacementWorkflowConfig();
+  assertPmRole(ctx.userRole, cfg.approvalRole, 'approve', 'replacement schedules');
   const entries = await prisma.replacementScheduleEntry.findMany({ where: { id: { in: entryIds } } });
   if (entries.length === 0) throw new AppError(404, 'NOT_FOUND', 'No entries found');
   const qnns: string[] = [];
@@ -80,8 +80,8 @@ export async function approveEntries(ctx: RequestContext, entryIds: string[], co
 
 /** Reject at the approval stage. */
 export async function rejectEntries(ctx: RequestContext, entryIds: string[], remarks: string) {
-  const cfg = await getPmWorkflowConfig();
-  assertPmRole(ctx.userRole, cfg.approvalRole, 'approve');
+  const cfg = await getReplacementWorkflowConfig();
+  assertPmRole(ctx.userRole, cfg.approvalRole, 'approve', 'replacement schedules');
   if (!remarks || remarks.trim().length < 3) throw new AppError(400, 'REMARKS_REQUIRED', 'Remarks are required when rejecting (min 3 characters)');
   const entries = await prisma.replacementScheduleEntry.findMany({ where: { id: { in: entryIds } } });
   if (entries.length === 0) throw new AppError(404, 'NOT_FOUND', 'No entries found');
@@ -100,7 +100,7 @@ export async function rejectEntries(ctx: RequestContext, entryIds: string[], rem
 
 /** Re-submit a rejected entry (corrected date/tolerance/qty) → back to PENDING_REVIEW. */
 export async function resubmitEntry(ctx: RequestContext, entryId: string, data: { scheduleDate: string; toleranceDays?: number; qty?: number }) {
-  const cfg = await getPmWorkflowConfig();
+  const cfg = await getReplacementWorkflowConfig();
   const entry = await prisma.replacementScheduleEntry.findUnique({ where: { id: entryId } });
   if (!entry) throw new AppError(404, 'NOT_FOUND', 'Entry not found');
   if (entry.approvalStatus !== 'REJECTED') throw new AppError(400, 'INVALID_STATUS', 'Only rejected entries can be re-submitted');
@@ -125,8 +125,8 @@ export async function resubmitEntry(ctx: RequestContext, entryId: string, data: 
 
 /** Reviewer modifies a PENDING_REVIEW entry in place (stays in review). */
 export async function modifyReviewEntry(ctx: RequestContext, entryId: string, data: { scheduleDate: string; toleranceDays?: number; qty?: number }) {
-  const cfg = await getPmWorkflowConfig();
-  assertPmRole(ctx.userRole, cfg.reviewRole, 'review');
+  const cfg = await getReplacementWorkflowConfig();
+  assertPmRole(ctx.userRole, cfg.reviewRole, 'review', 'replacement schedules');
   const entry = await prisma.replacementScheduleEntry.findUnique({ where: { id: entryId } });
   if (!entry) throw new AppError(404, 'NOT_FOUND', 'Entry not found');
   if (entry.approvalStatus !== 'PENDING_REVIEW') throw new AppError(400, 'INVALID_STATUS', 'Only entries awaiting review can be modified by the reviewer');

@@ -179,7 +179,6 @@ export function FilterListPage() {
   const [bulkUploadArea, setBulkUploadArea] = useState('');
   // Dialog-level fallback Set for CSV rows that omit `filterSet` column.
   // CSV row value still wins when present.
-  const [bulkUploadDefaultSet, setBulkUploadDefaultSet] = useState<'A' | 'B'>('A');
   const [bulkUploadFile, setBulkUploadFile] = useState<File | null>(null);
   const [bulkUploadStep, setBulkUploadStep] = useState<'select' | 'preview' | 'uploading' | 'results'>('select');
   const [bulkUploadRows, setBulkUploadRows] = useState<any[]>([]);
@@ -1033,9 +1032,8 @@ export function FilterListPage() {
   const openBulkUpload = () => {
     setBulkUploadOpen(true);
     setBulkUploadStep('select');
-    // Reset both pickers so a previous session's choices don't leak in.
+    // Reset the picker so a previous session's choice doesn't leak in.
     setBulkUploadArea('');
-    setBulkUploadDefaultSet('A');
     setBulkUploadAhu(bulkUploadAhus.length === 1 ? bulkUploadAhus[0].id : '');
     setBulkUploadFile(null);
     setBulkUploadRows([]);
@@ -1064,7 +1062,6 @@ export function FilterListPage() {
       formData.append('file', f);
       formData.append('ahuId', bulkUploadAhu);
       if (selectedBlock) formData.append('blockId', selectedBlock);
-      formData.append('defaultFilterSet', bulkUploadDefaultSet);
       const token = sessionStorage.getItem('access_token');
       const res = await fetch('/api/assets/instances/bulk-upload-filters/validate', {
         method: 'POST',
@@ -1102,10 +1099,6 @@ export function FilterListPage() {
         formData.append('file', bulkUploadFile);
         formData.append('ahuId', bulkUploadAhu);
         if (selectedBlock) formData.append('blockId', selectedBlock);
-        // 2026-05-22: dialog-level default Set. Backend uses it when a
-        // CSV row has no `filterSet` column. CSV row's value wins when
-        // present, so existing CSVs still work.
-        formData.append('defaultFilterSet', bulkUploadDefaultSet);
         const token = sessionStorage.getItem('access_token');
         const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
         if (password) headers['x-reauth-password'] = password;
@@ -1960,7 +1953,6 @@ export function FilterListPage() {
           step={bulkUploadStep}
           ahu={bulkUploadAhu}
           area={bulkUploadArea}
-          defaultSet={bulkUploadDefaultSet}
           ahus={bulkUploadAhusVisible}
           areas={bulkUploadAreas}
           file={bulkUploadFile}
@@ -1976,7 +1968,6 @@ export function FilterListPage() {
           // When Area changes, the previously-picked AHU may no longer be
           // in the narrowed list — clear it so operator picks fresh.
           onAreaChange={(v) => { setBulkUploadArea(v); setBulkUploadAhu(''); }}
-          onDefaultSetChange={setBulkUploadDefaultSet}
           onFileSelect={handleBulkUploadFileSelect}
           onSubmit={handleBulkUploadSubmit}
           onClose={closeBulkUpload}

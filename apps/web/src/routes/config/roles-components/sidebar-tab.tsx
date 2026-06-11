@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, useCallback, forwardRef, useImperativeHandle, type ReactNode } from 'react';
 import useSWR from 'swr';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -128,6 +128,171 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
       save: handleSaveSidebar,
     }), [handleSaveSidebar]);
 
+    // Group-aware rendering: items with a `group` (e.g. all report pages under
+    // "Reports") render nested under a group header so admins can see + pick
+    // which reports to grant; ungrouped items render at the top level.
+    const ungroupedItems = SIDEBAR_ITEMS.filter(i => !i.group);
+    const groupNames = [...new Set(SIDEBAR_ITEMS.filter(i => i.group).map(i => i.group as string))];
+    const itemsInGroup = (g: string) => SIDEBAR_ITEMS.filter(i => i.group === g);
+    const enableGroup = (g: string, on: boolean) => {
+      const ids = itemsInGroup(g).map(i => i.id);
+      setEnabledItems(prev => on ? [...new Set([...prev, ...ids])] : prev.filter(id => !ids.includes(id)));
+      setSidebarDirty(true);
+    };
+
+    const renderRoleCard = (item: typeof SIDEBAR_ITEMS[number]) => {
+      const isEnabled = enabledItems.includes(item.id);
+      return (
+        <div key={item.id} onClick={() => toggleSidebarItem(item.id)} className={`relative p-4 rounded-xl border-2 transition-all cursor-pointer ${
+          isEnabled ? 'bg-violet-50 border-violet-300 shadow-md' : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm'
+        }`}>
+          <div className={`absolute top-3 right-3 w-6 h-6 rounded-full flex items-center justify-center transition-all ${isEnabled ? 'bg-violet-500 text-white' : 'bg-slate-200 text-slate-400'}`}>
+            {isEnabled ? (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+            )}
+          </div>
+          <div className="flex items-start gap-3">
+            <span className="text-2xl">{item.icon}</span>
+            <div>
+              <h4 className={`font-semibold ${isEnabled ? 'text-violet-800' : 'text-slate-800'}`}>{item.label}</h4>
+              <p className={`text-sm mt-1 ${isEnabled ? 'text-violet-600' : 'text-slate-500'}`}>{item.description}</p>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const renderUserCard = (item: typeof SIDEBAR_ITEMS[number]) => {
+      const isEnabled = enabledItems.includes(item.id);
+      return (
+        <div key={item.id} onClick={() => toggleSidebarItem(item.id)} className={`flex items-center gap-3 p-3 rounded-xl border-2 transition-all cursor-pointer ${
+          isEnabled ? 'bg-violet-50 border-violet-300 shadow-sm' : 'bg-white border-slate-200 hover:border-slate-300'
+        }`}>
+          <span className="text-xl">{item.icon}</span>
+          <span className={`flex-1 font-medium text-sm ${isEnabled ? 'text-violet-800' : 'text-slate-600'}`}>{item.label}</span>
+          <div className={`w-5 h-5 rounded-full flex items-center justify-center ${isEnabled ? 'bg-violet-500 text-white' : 'bg-slate-200 text-slate-400'}`}>
+            {isEnabled ? (
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+            ) : (
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    const renderGroupSection = (g: string, renderCard: (item: typeof SIDEBAR_ITEMS[number]) => ReactNode, gridCols: string) => {
+      const items = itemsInGroup(g);
+      const enabledInGroup = items.filter(i => enabledItems.includes(i.id)).length;
+      return (
+        <div key={g} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-bold text-slate-700 flex items-center gap-2">
+              <span className="text-lg">📊</span> {g}
+              <span className="text-xs font-normal text-slate-400">({enabledInGroup}/{items.length})</span>
+            </h3>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => enableGroup(g, true)} disabled={enabledInGroup === items.length}>Enable All</Button>
+              <Button variant="outline" size="sm" onClick={() => enableGroup(g, false)} disabled={enabledInGroup === 0}>Disable All</Button>
+            </div>
+          </div>
+          <div className={`grid ${gridCols} gap-3`}>
+            {items.map(renderCard)}
+          </div>
+        </div>
+      );
+    };
+
+    // ── Display-order ("Arrange Order") support ──────────────────────────────
+    // The saved `enabledItems` array IS the order (the sidebar renders in this
+    // order). Grouped items (e.g. all reports) move as one unit, with their own
+    // internal order. buildOrderUnits derives the structured view; flattenUnits
+    // serialises it back to the flat array, keeping each group contiguous.
+    type SItem = typeof SIDEBAR_ITEMS[number];
+    type OrderUnit = { kind: 'item'; item: SItem } | { kind: 'group'; name: string; children: SItem[] };
+    const buildOrderUnits = (enabled: string[]): OrderUnit[] => {
+      const units: OrderUnit[] = [];
+      const groupUnits = new Map<string, { kind: 'group'; name: string; children: SItem[] }>();
+      for (const id of enabled) {
+        const item = SIDEBAR_ITEMS.find(i => i.id === id);
+        if (!item) continue;
+        if (item.group) {
+          let gu = groupUnits.get(item.group);
+          if (!gu) { gu = { kind: 'group', name: item.group, children: [] }; groupUnits.set(item.group, gu); units.push(gu); }
+          gu.children.push(item);
+        } else {
+          units.push({ kind: 'item', item });
+        }
+      }
+      return units;
+    };
+    const flattenUnits = (units: OrderUnit[]): string[] =>
+      units.flatMap(u => u.kind === 'item' ? [u.item.id] : u.children.map(c => c.id));
+    const moveUnit = (index: number, dir: -1 | 1) => {
+      const units = buildOrderUnits(enabledItems);
+      const j = index + dir;
+      if (j < 0 || j >= units.length) return;
+      [units[index], units[j]] = [units[j], units[index]];
+      setEnabledItems(flattenUnits(units)); setSidebarDirty(true);
+    };
+    const moveChild = (groupName: string, ci: number, dir: -1 | 1) => {
+      const units = buildOrderUnits(enabledItems);
+      const gu = units.find(u => u.kind === 'group' && u.name === groupName) as { kind: 'group'; name: string; children: SItem[] } | undefined;
+      if (!gu) return;
+      const j = ci + dir;
+      if (j < 0 || j >= gu.children.length) return;
+      [gu.children[ci], gu.children[j]] = [gu.children[j], gu.children[ci]];
+      setEnabledItems(flattenUnits(units)); setSidebarDirty(true);
+    };
+    const arrowBtn = (onClick: () => void, disabled: boolean, dir: 'up' | 'down') => (
+      <button type="button" onClick={onClick} disabled={disabled}
+        className="w-7 h-7 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center">
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d={dir === 'up' ? 'M5 15l7-7 7 7' : 'M19 9l-7 7-7-7'} /></svg>
+      </button>
+    );
+    const renderOrderPanel = () => {
+      const units = buildOrderUnits(enabledItems);
+      if (units.length === 0) return null;
+      return (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center gap-2">
+            <svg className="w-5 h-5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" /></svg>
+            <h3 className="font-bold text-slate-700">Display Order</h3>
+          </div>
+          <p className="text-xs text-slate-500 mt-1 mb-3">Arrange how the enabled menu items appear in the sidebar for this role. Reports stay grouped — reorder the group as a whole, or its reports inside.</p>
+          <div className="space-y-1.5">
+            {units.map((u, idx) => (
+              <div key={u.kind === 'item' ? u.item.id : `group:${u.name}`}>
+                <div className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 bg-slate-50">
+                  <span className="text-lg w-6 text-center">{u.kind === 'item' ? u.item.icon : '📊'}</span>
+                  <span className="flex-1 text-sm font-medium text-slate-700">
+                    {u.kind === 'item' ? u.item.label : `${u.name}`}
+                    {u.kind === 'group' && <span className="ml-1.5 text-[11px] font-normal text-slate-400">({u.children.length} reports)</span>}
+                  </span>
+                  {arrowBtn(() => moveUnit(idx, -1), idx === 0, 'up')}
+                  {arrowBtn(() => moveUnit(idx, 1), idx === units.length - 1, 'down')}
+                </div>
+                {u.kind === 'group' && (
+                  <div className="ml-7 mt-1 space-y-1 border-l border-slate-200 pl-3">
+                    {u.children.map((c, ci) => (
+                      <div key={c.id} className="flex items-center gap-2 p-2 rounded-lg border border-slate-100 bg-white">
+                        <span className="text-base w-5 text-center">{c.icon}</span>
+                        <span className="flex-1 text-xs font-medium text-slate-600">{c.label}</span>
+                        {arrowBtn(() => moveChild(u.name, ci, -1), ci === 0, 'up')}
+                        {arrowBtn(() => moveChild(u.name, ci, 1), ci === u.children.length - 1, 'down')}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    };
+
     return (
       <div className="bg-white rounded-2xl border border-slate-200/60 shadow-soft overflow-hidden">
         {/* Inner tabs: Role / User */}
@@ -181,32 +346,15 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
                   <p className="text-slate-500">Loading configuration...</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {SIDEBAR_ITEMS.map((item) => {
-                    const isEnabled = enabledItems.includes(item.id);
-                    return (
-                      <div key={item.id} onClick={() => toggleSidebarItem(item.id)} className={`relative p-4 rounded-xl border-2 transition-all cursor-pointer ${
-                        isEnabled ? 'bg-violet-50 border-violet-300 shadow-md' : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm'
-                      }`}>
-                        <div className={`absolute top-3 right-3 w-6 h-6 rounded-full flex items-center justify-center transition-all ${isEnabled ? 'bg-violet-500 text-white' : 'bg-slate-200 text-slate-400'}`}>
-                          {isEnabled ? (
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
-                          ) : (
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-                          )}
-                        </div>
-                        <div className="flex items-start gap-3">
-                          <span className="text-2xl">{item.icon}</span>
-                          <div>
-                            <h4 className={`font-semibold ${isEnabled ? 'text-violet-800' : 'text-slate-800'}`}>{item.label}</h4>
-                            <p className={`text-sm mt-1 ${isEnabled ? 'text-violet-600' : 'text-slate-500'}`}>{item.description}</p>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="space-y-5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {ungroupedItems.map(renderRoleCard)}
+                  </div>
+                  {groupNames.map(g => renderGroupSection(g, renderRoleCard, 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'))}
                 </div>
               )}
+
+              {!sidebarIsLoading && renderOrderPanel()}
             </div>
           ) : (
             /* User-wise Configuration */
@@ -289,27 +437,15 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
                         <p className="text-slate-500">Loading configuration...</p>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {SIDEBAR_ITEMS.map((item) => {
-                          const isEnabled = enabledItems.includes(item.id);
-                          return (
-                            <div key={item.id} onClick={() => toggleSidebarItem(item.id)} className={`flex items-center gap-3 p-3 rounded-xl border-2 transition-all cursor-pointer ${
-                              isEnabled ? 'bg-violet-50 border-violet-300 shadow-sm' : 'bg-white border-slate-200 hover:border-slate-300'
-                            }`}>
-                              <span className="text-xl">{item.icon}</span>
-                              <span className={`flex-1 font-medium text-sm ${isEnabled ? 'text-violet-800' : 'text-slate-600'}`}>{item.label}</span>
-                              <div className={`w-5 h-5 rounded-full flex items-center justify-center ${isEnabled ? 'bg-violet-500 text-white' : 'bg-slate-200 text-slate-400'}`}>
-                                {isEnabled ? (
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
-                                ) : (
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {ungroupedItems.map(renderUserCard)}
+                        </div>
+                        {groupNames.map(g => renderGroupSection(g, renderUserCard, 'grid-cols-1 md:grid-cols-2'))}
                       </div>
                     )}
+
+                    {!sidebarIsLoading && renderOrderPanel()}
 
                     <div className="p-4 rounded-xl bg-amber-50 border border-amber-200">
                       <div className="flex items-start gap-3">

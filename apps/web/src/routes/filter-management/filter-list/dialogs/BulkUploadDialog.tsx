@@ -6,7 +6,6 @@ type Props = {
   step: BulkUploadStep;
   ahu: string;
   area: string;
-  defaultSet: 'A' | 'B';
   ahus: AhuOption[];
   areas: AhuOption[];
   file: File | null;
@@ -20,7 +19,6 @@ type Props = {
   selectedBlockName: string;
   onAhuChange: (v: string) => void;
   onAreaChange: (v: string) => void;
-  onDefaultSetChange: (v: 'A' | 'B') => void;
   onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onSubmit: () => void;
   onClose: () => void;
@@ -33,7 +31,7 @@ type Props = {
 // values so the operator knows what the Excel dropdowns will offer.
 const fieldColumns = (opts: FilterFieldOptions) => [
   { key: 'name', label: 'name', hint: 'Filter Name — required, must be unique' },
-  { key: 'filterSet', label: 'filterSet', hint: 'A, B (blank → Default Set above)' },
+  { key: 'filterSet', label: 'filterSet', hint: 'A or B (required — set per row in the Excel column)' },
   { key: 'ahuType', label: 'ahuType', hint: opts.ahuType.join(', ') || '—' },
   { key: 'filterType', label: 'filterType', hint: opts.filterType.join(', ') || '—' },
   { key: 'micronSize', label: 'micronSize', hint: (opts.micronSize.join(', ') || '—') + ' (µm)' },
@@ -46,9 +44,9 @@ const fieldColumns = (opts: FilterFieldOptions) => [
 const PREVIEW_KEYS = ['name', 'filterSet', 'ahuType', 'filterType', 'micronSize', 'filterSize', 'lastCleaningDate', 'rfidTag'] as const;
 
 export function BulkUploadDialog({
-  step, ahu, area, defaultSet, ahus, areas, file, rows, error, results, created, failed, fieldOptions,
+  step, ahu, area, ahus, areas, file, rows, error, results, created, failed, fieldOptions,
   diagramFilter, selectedBlockName,
-  onAhuChange, onAreaChange, onDefaultSetChange,
+  onAhuChange, onAreaChange,
   onFileSelect, onSubmit, onClose, onChangeFile, onDownloadTemplate,
 }: Props) {
   const cols = fieldColumns(fieldOptions);
@@ -112,22 +110,6 @@ export function BulkUploadDialog({
                     {ahus.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
                   </select>
                 )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">
-                  Default Filter Set <span className="text-slate-400 font-normal">(used when a row's filterSet cell is blank)</span>
-                </label>
-                <div className="flex gap-2">
-                  {(['A', 'B'] as const).map(s => (
-                    <button key={s} type="button" onClick={() => onDefaultSetChange(s)}
-                      className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold border transition-colors ${
-                        defaultSet === s ? 'bg-cyan-600 text-white border-cyan-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                      }`}>
-                      Set {s}
-                    </button>
-                  ))}
-                </div>
               </div>
             </>
           )}

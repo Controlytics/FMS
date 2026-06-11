@@ -66,7 +66,12 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'filters.retire', label: 'Retire Filters', category: 'Filters Page Controls', icon: 'archive' },
   { id: 'filters.replace', label: 'Replace Filters', category: 'Filters Page Controls', icon: 'refresh' },
   { id: 'filters.status_update', label: 'Update Filter Status', category: 'Filters Page Controls', icon: 'edit' },
+  { id: 'filters.create', label: 'Create Filters', category: 'Filters Page Controls', icon: 'plus' },
+  { id: 'filters.edit', label: 'Edit Filters', category: 'Filters Page Controls', icon: 'edit' },
+  { id: 'filters.delete', label: 'Delete Filters', category: 'Filters Page Controls', icon: 'trash' },
   { id: 'filters.hierarchy_create', label: 'Create Block / Area / AHU', category: 'Filters Page Controls', icon: 'plus' },
+  { id: 'filters.hierarchy_edit', label: 'Edit Block / Area / AHU', category: 'Filters Page Controls', icon: 'edit' },
+  { id: 'filters.hierarchy_delete', label: 'Delete Block / Area / AHU', category: 'Filters Page Controls', icon: 'trash' },
   { id: 'filters.rfid_manage', label: 'Assign / Unassign RFID Tags', category: 'Filters Page Controls', icon: 'wifi' },
   { id: 'replacement_schedule.view', label: 'View Replacement Schedule', category: 'Filters Page Controls', icon: 'calendar' },
   { id: 'replacement_schedule.upload', label: 'Upload Replacement Schedule', category: 'Filters Page Controls', icon: 'upload' },
@@ -84,6 +89,12 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'cleaning_profiles.delete', label: 'Delete Cleaning Profiles', category: 'Cleaning Profile Page Controls', icon: 'trash' },
   { id: 'cleaning_profiles.toggle', label: 'Enable / Disable Cleaning Profiles', category: 'Cleaning Profile Page Controls', icon: 'toggle' },
 
+  // Filter Profiles (2026-06-11: was missing from the Roles & Access catalog)
+  { id: 'filter_profiles.view', label: 'View Filter Profiles', category: 'Filter Profiles', icon: 'eye' },
+  { id: 'filter_profiles.create', label: 'Create Filter Profiles', category: 'Filter Profiles', icon: 'plus' },
+  { id: 'filter_profiles.edit', label: 'Edit Filter Profiles', category: 'Filter Profiles', icon: 'edit' },
+  { id: 'filter_profiles.delete', label: 'Delete Filter Profiles', category: 'Filter Profiles', icon: 'trash' },
+  { id: 'filter_profiles.assign', label: 'Assign Filter Profiles to Filters', category: 'Filter Profiles', icon: 'link' },
 
   // Cleaning Cycles
   { id: 'cycles.view', label: 'View Cleaning Cycles', category: 'Cleaning Cycles', icon: 'refresh' },
@@ -96,10 +107,14 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'pm.execute', label: 'Execute PM Tasks', category: 'PM Schedules', icon: 'play' },
   { id: 'pm.approve', label: 'Approve PM Schedules', category: 'PM Schedules', icon: 'check-circle' },
   { id: 'pm.review', label: 'Review PM Schedules', category: 'PM Schedules', icon: 'clipboard-check' },
-  { id: 'pm.download_template', label: 'Download PM Template', category: 'PM Page Controls', icon: 'download' },
-  { id: 'pm.upload', label: 'Upload PM Schedules', category: 'PM Page Controls', icon: 'upload' },
-  { id: 'pm.edit_entry', label: 'Edit PM Entries', category: 'PM Page Controls', icon: 'edit' },
-  { id: 'pm.resubmit', label: 'Resubmit Rejected Entries', category: 'PM Page Controls', icon: 'refresh' },
+  // 2026-06-11: these 4 used to sit under a separate "PM Page Controls"
+  // category, which rendered as a second PM section on the Roles & Access
+  // page (looked like PM was duplicated). Merged into "PM Schedules" so PM
+  // shows as a single group.
+  { id: 'pm.download_template', label: 'Download PM Template', category: 'PM Schedules', icon: 'download' },
+  { id: 'pm.upload', label: 'Upload PM Schedules', category: 'PM Schedules', icon: 'upload' },
+  { id: 'pm.edit_entry', label: 'Edit PM Entries', category: 'PM Schedules', icon: 'edit' },
+  { id: 'pm.resubmit', label: 'Resubmit Rejected Entries', category: 'PM Schedules', icon: 'refresh' },
 
   // Equipment Groups
   { id: 'equipment_groups.view', label: 'View Equipment Groups', category: 'Equipment Group Controls', icon: 'eye' },
@@ -133,6 +148,10 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
 
   // Audit / Versions (2026-05-02)
   { id: 'version_history.view', label: 'View Version History', category: 'Audit / Versions', icon: 'history' },
+
+  // Backup & Restore (2026-06-11: was missing from the Roles & Access catalog)
+  { id: 'backup.export', label: 'Export / Download Backups', category: 'Backup & Restore', icon: 'download' },
+  { id: 'backup.restore', label: 'Restore from Backup', category: 'Backup & Restore', icon: 'upload' },
 ];
 
 /**
@@ -237,6 +256,14 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'filters.replace': ['FILTER_REPLACE', 'FILTER_OPERATE', 'ASSET_READ'],
   'filters.status_update': ['FILTER_STATUS_UPDATE', 'ASSET_UPDATE', 'ASSET_READ'],
   'filters.hierarchy_create': ['FILTER_HIERARCHY_CREATE', 'ASSET_CREATE', 'ASSET_READ'],
+  // 2026-06-11: filter + hierarchy CRUD — the instance/hierarchy routes accept
+  // any of (ASSET_*, FILTER_*, FILTER_HIERARCHY_*) via requireAnyPermission, so
+  // these grant the filter-specific gate without needing full ASSET_* rights.
+  'filters.create': ['FILTER_CREATE', 'ASSET_READ'],
+  'filters.edit': ['FILTER_EDIT', 'ASSET_READ'],
+  'filters.delete': ['FILTER_DELETE', 'ASSET_READ'],
+  'filters.hierarchy_edit': ['FILTER_HIERARCHY_EDIT', 'ASSET_READ'],
+  'filters.hierarchy_delete': ['FILTER_HIERARCHY_DELETE', 'ASSET_READ'],
   'filters.rfid_manage': ['FILTER_RFID_MANAGE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_READ'],
   'replacement_schedule.view': ['REPLACEMENT_SCHEDULE_VIEW', 'REPLACEMENT_SCHEDULE_UPLOAD'],
   'replacement_schedule.upload': ['REPLACEMENT_SCHEDULE_UPLOAD'],
@@ -253,6 +280,13 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'cleaning_profiles.edit': ['CP_PAGE_EDIT', 'FCP_UPDATE', 'FCP_READ'],
   'cleaning_profiles.delete': ['CP_PAGE_DELETE', 'FCP_DELETE', 'FCP_READ'],
   'cleaning_profiles.toggle': ['CP_TOGGLE', 'FCP_UPDATE', 'FCP_READ'],
+
+  // Filter Profiles (2026-06-11)
+  'filter_profiles.view': ['FP_READ'],
+  'filter_profiles.create': ['FP_CREATE', 'FP_READ'],
+  'filter_profiles.edit': ['FP_UPDATE', 'FP_READ'],
+  'filter_profiles.delete': ['FP_DELETE', 'FP_READ'],
+  'filter_profiles.assign': ['FP_ASSIGN', 'FP_READ'],
 
   // Equipment Groups
   'equipment_groups.view': ['EG_VIEW', 'ASSET_READ'],
@@ -302,4 +336,9 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
 
   // Audit / Versions (2026-05-02): cross-entity history viewer.
   'version_history.view': ['VERSION_HISTORY_VIEW'],
+
+  // Backup & Restore (2026-06-11). Export and Restore are gated separately on
+  // the backend (BACKUP_RESTORE is NOT implied by any *_MANAGE suffix by design).
+  'backup.export': ['BACKUP_EXPORT'],
+  'backup.restore': ['BACKUP_RESTORE'],
 };

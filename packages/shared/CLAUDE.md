@@ -58,11 +58,11 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 | File | Purpose |
 |---|---|
 | `permissions.ts` | **106** permission constants (PERMISSIONS enum + ALL_PERMISSIONS list) — 4 ORG_* perms removed in MT removal; `VERSION_HISTORY_VIEW` added 2026-05-02 |
-| `feature-privileges.ts` | **90** feature privileges + `FEATURE_TO_PERMISSION_MAP` — 2 org.* privileges removed in MT removal; `version_history.view` added 2026-05-02 |
+| `feature-privileges.ts` | **96** feature privileges + `FEATURE_TO_PERMISSION_MAP` (21 categories) — 2 org.* privileges removed in MT removal; `version_history.view` added 2026-05-02; **2026-06-11** added Filter Profiles (5), filter+hierarchy CRUD (5: filters.create/edit/delete + hierarchy_edit/delete), Backup & Restore (2), and merged the stray "PM Page Controls" category into "PM Schedules" (was rendering as a duplicate PM section on the Roles & Access page) |
 | `reauth-actions.ts` | **87** reauth actions across 16 categories (added `UPDATE_PROFILE` for H1 + `RETIRE_FILTER`/`REPLACE_FILTER`/`BULK_UPLOAD_FILTERS` for C2 on 2026-05-04, then `APPROVE_ADMIN_REQUEST` for M1 + `UPDATE_FILTER_LIFECYCLE` for M2 on 2026-05-04 — both audit-trail correctness fixes from `tasks/AUDIT-2026-05-04-linkage-review.md`. CREATE_USER and UPDATE_ASSET are still valid actions used elsewhere — M1/M2 are renames for the affected routes only) |
 | `roles.ts` | Role constants + hierarchy + display labels |
 | `permission-categories.ts` | Permission grouping for the role-access UI |
-| `sidebar-items.ts` | **26** sidebar items (Organizations entry removed in MT removal; `version-history` added 2026-05-02) |
+| `sidebar-items.ts` | **24** sidebar items (Organizations entry removed in MT removal; `version-history` added 2026-05-02; **2026-06-11** added `rfid-track-record` + `quality-notifications` — real Reports-group nav items that were missing from this configurable list, so editing a role's sidebar config silently dropped them. `reports-group` is a derived container and intentionally NOT a configurable item.) |
 | `sidebar-privilege-map.ts` | Sidebar item → privilege binding |
 | `audit-actions.ts` | Audit action constants for `AuditTrail.action` |
 | `audit-templates.ts` | Templates that hide UUIDs in audit UI (e.g. `"<RequestType> — <Name> (<EmployeeID>)"`) |

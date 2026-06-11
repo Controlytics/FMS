@@ -266,13 +266,26 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
     return true;
   });
 
+  // Role/user-configured display order: config.sidebarItems is an ORDERED array
+  // (the Sidebar config "Arrange Order" panel rearranges it). Honour that order;
+  // items not present in the array (or when no config exists) keep their default
+  // declaration order via a stable sort with a max-index fallback.
+  const orderIndex = new Map<string, number>();
+  if (config?.sidebarItems && Array.isArray(config.sidebarItems)) {
+    config.sidebarItems.forEach((id: string, i: number) => orderIndex.set(id, i));
+  }
+  const orderOf = (id: string) => (orderIndex.has(id) ? orderIndex.get(id)! : Number.MAX_SAFE_INTEGER);
+  const orderedItems = [...filteredItems].sort((a, b) => orderOf(a.id) - orderOf(b.id));
+
   // Reports group: pull the group's children out of the flat list and render
   // them nested under a collapsible "Reports" parent. Permission/config
   // filtering already happened in filteredItems, so the group simply hides any
   // child the user can't see — and hides itself entirely when none remain.
+  // Children are ordered by the same configured order.
   const reportsChildren = REPORTS_GROUP.childIds
     .map((id) => filteredItems.find((i) => i.id === id))
-    .filter((i): i is NavItem => Boolean(i));
+    .filter((i): i is NavItem => Boolean(i))
+    .sort((a, b) => orderOf(a.id) - orderOf(b.id));
   const anyReportActive = reportsChildren.some((c) => location.pathname.startsWith(c.href));
   const [reportsOpen, setReportsOpen] = useState(false);
   // Auto-expand the group whenever one of its routes becomes active.
@@ -367,7 +380,7 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
           const nodes: React.ReactNode[] = [];
           let groupInserted = false;
 
-          for (const item of filteredItems) {
+          for (const item of orderedItems) {
             if (reportsChildIds.includes(item.id)) {
               // Insert the whole Reports group at the position of its first
               // visible child, then skip the rest (they render nested).

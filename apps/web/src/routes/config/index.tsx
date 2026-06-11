@@ -86,8 +86,8 @@ const superAdminCards = [
     shadowColor: 'shadow-rose-500/25',
   },
   {
-    title: 'Replacement Schedule — AHU Filters',
-    description: 'Choose which roles can expand an AHU to see its filters on the Replacement Schedule page',
+    title: 'Schedule AHU Filters',
+    description: 'Per role, allow expanding an AHU to see its filters — set independently for the PM Schedule and Replacement Schedule pages',
     href: '/config/replacement-schedule-filters',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

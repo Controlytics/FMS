@@ -12,7 +12,7 @@ import { auditLog } from '../../lib/audit.js';
 import { stripHtml } from '../../lib/sanitize.js';
 import { AppError } from '../../lib/errors.js';
 import { FilterOperationsService } from '../filter-operations/filter-operations.service.js';
-import { getPmWorkflowConfig, generateQnn } from '../pm-schedules/pm-workflow.js';
+import { getReplacementWorkflowConfig, generateQnn } from '../pm-schedules/pm-workflow.js';
 
 export interface RowError { row: number; column?: string; value?: string; error: string; }
 export interface UploadOutcome {
@@ -212,7 +212,7 @@ export async function processUpload(
 
   // Workflow ON → uploads land in PENDING_REVIEW (review + approval required
   // before they become due tasks). OFF → APPROVED immediately (current behaviour).
-  const wf = await getPmWorkflowConfig();
+  const wf = await getReplacementWorkflowConfig();
   const approvalStatus = wf.workflowEnabled ? 'PENDING_REVIEW' as const : 'APPROVED' as const;
 
   const schedule = await prisma.$transaction(async (tx) => {

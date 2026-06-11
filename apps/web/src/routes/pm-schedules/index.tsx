@@ -7,6 +7,7 @@ import { ReauthDialog } from '../../components/reauth-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
+import { usePmFiltersEnabled } from '../../hooks/use-pm-filters-enabled';
 import { Pagination } from '@/components/ui/pagination';
 import { createReport } from '../../lib/pdf-report';
 import { ExportMenu } from '@/components/ExportMenu';
@@ -144,7 +145,10 @@ export function PmScheduleListPage() {
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(paginationOptions[0] ?? 10);
 
-  // Expandable AHU rows — show/hide filters
+  // Expandable AHU rows — show/hide filters. Gated per-role by the dedicated
+  // "PM Schedule — AHU Filters" matrix (separate from the Replacement Schedule
+  // one), fail-closed: hidden unless SUPER_ADMIN enabled this role.
+  const ahuFiltersEnabled = usePmFiltersEnabled();
   const [expandedAhus, setExpandedAhus] = useState<Set<string>>(new Set());
   const toggleAhuExpand = (ahuId: string) => {
     setExpandedAhus(prev => { const n = new Set(prev); if (n.has(ahuId)) n.delete(ahuId); else n.add(ahuId); return n; });
@@ -754,7 +758,7 @@ export function PmScheduleListPage() {
                           <td className="px-5 py-3">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-semibold text-slate-800">{group.ahuName}</span>
-                              {group.filterNames.length > 0 && (
+                              {ahuFiltersEnabled && group.filterNames.length > 0 && (
                                 <button onClick={e => { e.stopPropagation(); toggleAhuExpand(group.ahuId); }}
                                   className="text-[10px] px-1.5 py-0.5 rounded border transition-colors font-medium" style={{ color: 'var(--theme-primary)', backgroundColor: 'var(--theme-primary-light)', borderColor: 'var(--theme-primary)' }}>
                                   {group.filterNames.length} filters {isExpanded ? '▾' : '▸'}
@@ -780,7 +784,7 @@ export function PmScheduleListPage() {
                               )}
                             </div>
                             {/* Inline filter list when expanded — only show on first entry of the group */}
-                            {isExpanded && entryIdx === 0 && group.filterNames.length > 0 && (
+                            {ahuFiltersEnabled && isExpanded && entryIdx === 0 && group.filterNames.length > 0 && (
                               <div className="mt-2 flex flex-wrap gap-1.5">
                                 {group.filterNames.map((fn, fi) => (
                                   <span key={fi} className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg border" style={{ color: 'var(--theme-primary-dark)', backgroundColor: 'var(--theme-primary-light)', borderColor: 'var(--theme-primary)' }}>

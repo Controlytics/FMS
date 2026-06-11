@@ -4,7 +4,7 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 const statCardIcons = {
   users: (
@@ -75,7 +75,7 @@ export function DashboardPage() {
   const { data: userStats } = useSWR(isAdmin ? '/api/users/stats' : null, swrOpts);
   const { data: auditStats } = useSWR('/api/audit?limit=1', swrOpts);
   const { data: notifStats } = useSWR('/api/notifications?limit=1', swrOpts);
-  const { data: dashStats } = useSWR<any>('/api/filters/dashboard-stats', { ...swrOpts, refreshInterval: 60000 });
+  const { data: dashStats } = useSWR<any>('/api/filters/dashboard-stats', { ...swrOpts, refreshInterval: 20000 });
   const { data: cardConfig } = useSWR<any>('/api/config/dashboard-cards/current', { revalidateOnFocus: false, dedupingInterval: 10000 });
 
   // Resolve visible cards for current user's role
@@ -270,14 +270,16 @@ const STATUS_CFG: Record<string, { label: string; color: string }> = {
 function BarChart({ data, labelKey, valueKey, color }: { data: any[]; labelKey: string; valueKey: string; color: string }) {
   const max = Math.max(...data.map(d => d[valueKey] ?? 0), 1);
   return (
-    <div className="flex items-end gap-1 h-32">
+    <div className="flex items-end gap-1 h-36">
       {data.map((d, i) => {
         const val = d[valueKey] ?? 0;
         const pct = (val / max) * 100;
         return (
-          <div key={i} className="flex flex-col items-center flex-1 min-w-0 group">
-            <span className="text-[9px] text-slate-500 font-medium mb-1 opacity-0 group-hover:opacity-100 transition-opacity">{val}</span>
-            <div className={`w-full ${color} rounded-t-sm transition-all hover:opacity-80`} style={{ height: `${Math.max(pct, 2)}%` }} />
+          <div key={i} className="flex flex-col items-center flex-1 min-w-0 group" title={`${d[labelKey]}: ${val}`}>
+            {/* Count is always shown (zeros hidden to avoid clutter); hover still
+                shows the full label+value via the title tooltip above. */}
+            <span className="text-[9px] text-slate-600 font-semibold mb-0.5 leading-none">{val > 0 ? val : ''}</span>
+            <div className={`w-full ${color} rounded-t-sm transition-all hover:opacity-80`} style={{ height: `${Math.max(pct, val > 0 ? 4 : 1)}%` }} />
             <span className="text-[8px] text-slate-400 mt-1 truncate w-full text-center">{d[labelKey]}</span>
           </div>
         );
@@ -286,11 +288,116 @@ function BarChart({ data, labelKey, valueKey, color }: { data: any[]; labelKey: 
   );
 }
 
+// Horizontal-bar breakdown for a {label, count}[] list (cleaning reasons,
+// filter type, micron, set, status). Bars are scaled to the largest value.
+type BreakdownItem = { label: string; count: number; key?: string };
+function MiniBreakdown({ title, items, color, emptyText = 'No data', onItemClick }: { title: string; items: BreakdownItem[]; color: string; emptyText?: string; onItemClick?: (item: BreakdownItem) => void }) {
+  const max = Math.max(...items.map(i => i.count), 1);
+  const clickable = !!onItemClick;
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-5">
+      <h3 className="text-sm font-semibold text-slate-700 mb-4">
+        {title}
+        {clickable && items.length > 0 && <span className="ml-1.5 text-[10px] font-normal text-slate-400">· click a row to view</span>}
+      </h3>
+      {items.length === 0 ? (
+        <div className="text-center py-8 text-sm text-slate-400">{emptyText}</div>
+      ) : (
+        <div className="space-y-1.5">
+          {items.map((it) => (
+            <div key={it.label}
+              onClick={clickable ? () => onItemClick!(it) : undefined}
+              className={`flex items-center gap-3 ${clickable ? 'cursor-pointer hover:bg-slate-50 -mx-2 px-2 py-1 rounded-lg transition-colors' : 'py-0.5'}`}>
+              <span className="text-[12px] font-medium text-slate-600 w-28 shrink-0 truncate" title={it.label}>{it.label}</span>
+              <div className="flex-1 bg-slate-100 rounded-full h-5 overflow-hidden">
+                <div className={`h-full ${color} rounded-full transition-all duration-500`} style={{ width: `${(it.count / max) * 100}%` }} />
+              </div>
+              <span className="text-[12px] font-bold text-slate-700 w-10 text-right">{it.count}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Drill-down modal — lists the actual filters behind a breakdown row (Set /
+// Status / Type / Micron). Lazy-fetches the filter list only when opened.
+function FilterDrillDown({ drill, onClose }: { drill: { dimension: string; value: string; title: string }; onClose: () => void }) {
+  const { data, isLoading } = useSWR<any>('/api/assets/instances?limit=500');
+  const all = useMemo(() => (data?.data ?? []) as any[], [data]);
+  const nameById = useMemo(() => new Map(all.map((i: any) => [i.id, i.name])), [all]);
+  const matches = useMemo(() => all.filter((f: any) => {
+    switch (drill.dimension) {
+      case 'set': return drill.value === 'UNSET' ? !f.filterSet : f.filterSet === drill.value;
+      case 'status': return (f.status ?? '') === drill.value;
+      case 'type': return (f.attributes?.filterType ?? '') === drill.value;
+      case 'micron': return (f.attributes?.micronSize ?? '') === drill.value;
+      default: return false;
+    }
+  }), [all, drill]);
+  const fmt = (iso: string | null) => { if (!iso) return '—'; try { return new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return '—'; } };
+  const setLabel = (s: string | null) => s === 'SET_A' ? 'Set A' : s === 'SET_B' ? 'Set B' : '—';
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 flex items-center justify-between" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
+          <div>
+            <h2 className="text-lg font-bold text-white">{drill.title}</h2>
+            <p className="text-white/70 text-sm">{matches.length} filter{matches.length === 1 ? '' : 's'}</p>
+          </div>
+          <button onClick={onClose} className="text-white/80 hover:text-white"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+        </div>
+        <div className="overflow-auto flex-1">
+          {isLoading ? (
+            <div className="p-10 text-center text-sm text-slate-400">Loading…</div>
+          ) : matches.length === 0 ? (
+            <div className="p-10 text-center text-sm text-slate-400">No filters match.</div>
+          ) : (
+            <table className="w-full text-[12px]">
+              <thead className="sticky top-0 bg-slate-50 z-10"><tr className="[&>th]:text-left [&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold [&>th]:text-slate-500 [&>th]:whitespace-nowrap">
+                <th>Filter</th><th>AHU</th><th>Set</th><th>Type</th><th>Micron</th><th>Status</th><th>Last Cleaned</th>
+              </tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {matches.map((f: any) => (
+                  <tr key={f.id} className="[&>td]:px-3 [&>td]:py-1.5 [&>td]:whitespace-nowrap hover:bg-slate-50/60">
+                    <td className="font-medium text-slate-700">{f.name}</td>
+                    <td className="text-slate-500">{nameById.get(f.parentId) ?? '—'}</td>
+                    <td className="text-slate-500">{setLabel(f.filterSet)}</td>
+                    <td className="text-slate-500">{f.attributes?.filterType ?? '—'}</td>
+                    <td className="text-slate-500">{f.attributes?.micronSize ?? '—'}</td>
+                    <td className="text-slate-500">{f.status ?? '—'}</td>
+                    <td className="text-slate-500">{fmt(f.lastCleanedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function FilterAnalytics({ stats, showCard }: { stats: any; showCard: (key: string) => boolean }) {
-  const { stageCounts = {}, statusCounts = {}, dailyCycles = [], monthlyCycles = [], totalFilters = 0, activeCycles = 0, completedToday = 0 } = stats;
+  const {
+    stageCounts = {}, statusCounts = {}, dailyCycles = [], monthlyCycles = [], totalFilters = 0, activeCycles = 0, completedToday = 0,
+    filterSetCounts = {}, filterStatusCounts = {}, cleaningReasons = [], filterTypeCounts = [], micronCounts = [],
+    deviations30 = 0, completed30 = 0, avgCycleHours = 0,
+  } = stats;
 
   const totalStageFilters = Object.values(stageCounts).reduce((a: number, b: any) => a + (b ?? 0), 0) as number;
   const totalCyclesAll = Object.values(statusCounts).reduce((a: number, b: any) => a + (b ?? 0), 0) as number;
+
+  // Record → {label,count}[] for the breakdown bars, with friendly labels.
+  const SET_LABELS: Record<string, string> = { SET_A: 'Set A', SET_B: 'Set B', UNSET: 'Unset' };
+  const filterSetItems = Object.entries(filterSetCounts).map(([k, v]) => ({ label: SET_LABELS[k] ?? k, count: v as number, key: k }));
+  const filterStatusItems = Object.entries(filterStatusCounts).map(([k, v]) => ({ label: k, count: v as number, key: k }));
+
+  // Drill-down: which breakdown row the user clicked (null = closed).
+  const [drill, setDrill] = useState<{ dimension: string; value: string; title: string } | null>(null);
+  const openDrill = (dimension: string, item: { label: string; key?: string }) =>
+    setDrill({ dimension, value: item.key ?? item.label, title: `Filters · ${item.label}` });
 
   // Format daily labels as short day
   const dailyFormatted = useMemo(() => dailyCycles.map((d: any) => ({
@@ -307,7 +414,17 @@ function FilterAnalytics({ stats, showCard }: { stats: any; showCard: (key: stri
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-800">Filter Cleaning Analytics</h2>
+        <div className="flex items-center gap-2.5">
+          <h2 className="text-lg font-semibold text-slate-800">Filter Cleaning Analytics</h2>
+          {/* Live indicator — the data auto-refreshes every 20s (SWR refreshInterval). */}
+          <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            </span>
+            Live
+          </span>
+        </div>
         <Link to="/filters" className="text-sm font-medium flex items-center gap-1 text-theme-primary">
           Go to Operations
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
@@ -331,6 +448,18 @@ function FilterAnalytics({ stats, showCard }: { stats: any; showCard: (key: stri
         <div className="bg-white border border-slate-200 rounded-xl p-4">
           <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Total Cycles</div>
           <div className="text-2xl font-bold text-slate-800 mt-1">{totalCyclesAll}</div>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Completed (30d)</div>
+          <div className="text-2xl font-bold text-emerald-600 mt-1">{completed30}</div>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Avg Cycle</div>
+          <div className="text-2xl font-bold text-slate-800 mt-1">{avgCycleHours}<span className="text-sm font-medium text-slate-400 ml-1">h</span></div>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Deviations (30d)</div>
+          <div className={`text-2xl font-bold mt-1 ${deviations30 > 0 ? 'text-rose-600' : 'text-slate-800'}`}>{deviations30}</div>
         </div>
       </div>
 
@@ -407,7 +536,7 @@ function FilterAnalytics({ stats, showCard }: { stats: any; showCard: (key: stri
       <div className="grid lg:grid-cols-2 gap-4">
         {/* Daily chart */}
         {showCard('daily_chart') && <div className="bg-white border border-slate-200 rounded-xl p-5">
-          <h3 className="text-sm font-semibold text-slate-700 mb-4">Daily Cycles (Last 30 Days)</h3>
+          <h3 className="text-sm font-semibold text-slate-700 mb-4">Daily Cycles (Last 30 Days) <span className="text-slate-400 font-normal">· {dailyFormatted.reduce((a: number, d: any) => a + (d.count ?? 0), 0)} total</span></h3>
           {dailyFormatted.length === 0 ? (
             <div className="text-center py-8 text-sm text-slate-400">No data</div>
           ) : (
@@ -417,7 +546,7 @@ function FilterAnalytics({ stats, showCard }: { stats: any; showCard: (key: stri
 
         {/* Monthly chart */}
         {showCard('monthly_chart') && <div className="bg-white border border-slate-200 rounded-xl p-5">
-          <h3 className="text-sm font-semibold text-slate-700 mb-4">Monthly Cycles (Last 12 Months)</h3>
+          <h3 className="text-sm font-semibold text-slate-700 mb-4">Monthly Cycles (Last 12 Months) <span className="text-slate-400 font-normal">· {monthlyFormatted.reduce((a: number, d: any) => a + (d.count ?? 0), 0)} total</span></h3>
           {monthlyFormatted.length === 0 ? (
             <div className="text-center py-8 text-sm text-slate-400">No data</div>
           ) : (
@@ -425,6 +554,21 @@ function FilterAnalytics({ stats, showCard }: { stats: any; showCard: (key: stri
           )}
         </div>}
       </div>
+
+      {/* Filter data breakdowns (2026-06-11). Click a row to drill into the
+          actual filters behind that segment. */}
+      <div className="grid lg:grid-cols-3 gap-4">
+        <MiniBreakdown title="Filters by Set" items={filterSetItems} color="bg-violet-500" emptyText="No filters" onItemClick={(it) => openDrill('set', it)} />
+        <MiniBreakdown title="Filters by Status" items={filterStatusItems} color="bg-teal-500" emptyText="No filters" onItemClick={(it) => openDrill('status', it)} />
+        <MiniBreakdown title="Top Cleaning Reasons" items={cleaningReasons} color="bg-cyan-500" emptyText="No cycles yet" />
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-4">
+        <MiniBreakdown title="Filters by Type" items={filterTypeCounts} color="bg-amber-500" emptyText="No filter-type data" onItemClick={(it) => openDrill('type', it)} />
+        <MiniBreakdown title="Filters by Micron Size" items={micronCounts} color="bg-fuchsia-500" emptyText="No micron data" onItemClick={(it) => openDrill('micron', it)} />
+      </div>
+
+      {drill && <FilterDrillDown drill={drill} onClose={() => setDrill(null)} />}
     </div>
   );
 }

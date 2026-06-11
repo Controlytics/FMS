@@ -157,14 +157,16 @@ export async function bulkUploadFilters(
 
     if (!name) rowErrs.push({ row: r.rowNumber, name: '', status: 'error', column: 'name', value: '', error: 'Filter Name is required' });
 
-    // filterSet: cell wins; else dialog default; else error.
+    // filterSet: the per-row Excel cell wins. The legacy `defaultWire` (dialog
+    // default Set) is retained for API back-compat but the upload dialog no
+    // longer sends it (2026-06-11) — filterSet is set per row in the template.
     let filterSetWire: 'A' | 'B' | undefined;
     const setRaw = r.filterSet.toUpperCase().trim();
     if (setRaw === 'A' || setRaw === 'SET_A') filterSetWire = 'A';
     else if (setRaw === 'B' || setRaw === 'SET_B') filterSetWire = 'B';
     else if (!setRaw && defaultWire) filterSetWire = defaultWire;
     else if (setRaw) rowErrs.push({ row: r.rowNumber, name, status: 'error', column: 'filterSet', value: r.filterSet, error: 'filterSet must be A or B' });
-    else rowErrs.push({ row: r.rowNumber, name, status: 'error', column: 'filterSet', value: '', error: 'filterSet is required (set a Default Filter Set in the dialog or fill the column)' });
+    else rowErrs.push({ row: r.rowNumber, name, status: 'error', column: 'filterSet', value: '', error: 'filterSet is required — set A or B in the filterSet column' });
 
     // Field-option validation against live config (filterService re-derives the
     // attributes from the raw values at create time; here we only collect errors

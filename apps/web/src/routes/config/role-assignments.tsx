@@ -8,7 +8,7 @@ import { themeButton } from '@/lib/theme-styles';
 // PM Schedule workflow, Block Change approval, QNN visibility, Guest requests.
 // Each section reads/writes its own config key via /api/config/dynamic/<key>.
 
-const CONFIG_KEYS = ['pm-schedule-approval', 'qnn-notifications', 'guest-cleaning-requests'] as const;
+const CONFIG_KEYS = ['pm-schedule-approval', 'replacement-schedule-approval', 'qnn-notifications', 'guest-cleaning-requests'] as const;
 type CfgKey = (typeof CONFIG_KEYS)[number];
 
 function useRoleOptions(): string[] {
@@ -21,7 +21,7 @@ export function RoleAssignmentsPage() {
   const { toast } = useToast();
   const roles = useRoleOptions();
   const [cfg, setCfg] = useState<Record<CfgKey, Record<string, any>>>({
-    'pm-schedule-approval': {}, 'qnn-notifications': {}, 'guest-cleaning-requests': {},
+    'pm-schedule-approval': {}, 'replacement-schedule-approval': {}, 'qnn-notifications': {}, 'guest-cleaning-requests': {},
   });
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -60,12 +60,12 @@ export function RoleAssignmentsPage() {
 
   if (!loaded) return <div className="p-6 text-sm text-slate-400">Loading…</div>;
 
-  const RoleSelect = ({ k, field, label, allowBlank = true }: { k: CfgKey; field: string; label: string; allowBlank?: boolean }) => (
+  const RoleSelect = ({ k, field, label, allowBlank = true, blankLabel = 'Anyone with permission' }: { k: CfgKey; field: string; label: string; allowBlank?: boolean; blankLabel?: string }) => (
     <label className="block">
       <span className="block text-xs font-medium text-slate-500 mb-1">{label}</span>
       <select value={cfg[k]?.[field] ?? ''} onChange={(e) => patch(k, field, e.target.value)}
         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500/30">
-        {allowBlank && <option value="">Anyone with permission</option>}
+        {allowBlank && <option value="">{blankLabel}</option>}
         {roles.map((r) => <option key={r} value={r}>{r}</option>)}
       </select>
     </label>
@@ -123,6 +123,31 @@ export function RoleAssignmentsPage() {
           <RoleSelect k="pm-schedule-approval" field="uploadRole" label="Upload" />
           <RoleSelect k="pm-schedule-approval" field="reviewRole" label="Review" />
           <RoleSelect k="pm-schedule-approval" field="approvalRole" label="Approve" />
+        </div>
+      </Section>
+
+      <Section title="Replacement Schedule Workflow" desc="Who uploads, reviews, and approves replacement schedules. Leave a field on 'Inherit from PM' to reuse the PM Schedule Workflow setting above.">
+        {(() => {
+          const rsWf = cfg['replacement-schedule-approval']?.workflowEnabled;
+          const pmWf = cfg['pm-schedule-approval']?.workflowEnabled === true;
+          const inheriting = typeof rsWf !== 'boolean';
+          const effective = inheriting ? pmWf : rsWf === true;
+          return (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={effective}
+                onChange={(e) => patch('replacement-schedule-approval', 'workflowEnabled', e.target.checked)}
+                className="w-4 h-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+              <span className="text-sm text-slate-600">
+                Enable review + approval workflow
+                {inheriting && <span className="ml-1.5 text-xs text-slate-400">(inheriting from PM)</span>}
+              </span>
+            </label>
+          );
+        })()}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <RoleSelect k="replacement-schedule-approval" field="uploadRole" label="Upload" blankLabel="Inherit from PM" />
+          <RoleSelect k="replacement-schedule-approval" field="reviewRole" label="Review" blankLabel="Inherit from PM" />
+          <RoleSelect k="replacement-schedule-approval" field="approvalRole" label="Approve" blankLabel="Inherit from PM" />
         </div>
       </Section>
 

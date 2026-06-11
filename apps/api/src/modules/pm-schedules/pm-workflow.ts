@@ -34,14 +34,39 @@ export async function getPmWorkflowConfig(): Promise<PmWorkflowConfig> {
 }
 
 /**
+ * Replacement Schedule shares the SHAPE of the PM workflow config but has its
+ * own `replacement-schedule-approval` key (set on the Role Assignments page).
+ * Each field falls back to the PM setting when blank/unset so existing installs
+ * — which used the shared PM config before 2026-06-11 — keep their exact
+ * behaviour until an admin sets a Replacement-specific role. A blank role means
+ * "inherit PM"; a non-blank role overrides. `workflowEnabled` inherits the PM
+ * toggle until explicitly set here (the RS def intentionally seeds no default).
+ */
+export async function getReplacementWorkflowConfig(): Promise<PmWorkflowConfig> {
+  const pm = await getPmWorkflowConfig();
+  const cfg = await prisma.systemConfig.findUnique({ where: { configKey: 'replacement-schedule-approval' } });
+  const v = (cfg?.configValue as any) ?? {};
+  const roleOrInherit = (rs: unknown, pmRole: string) => {
+    const s = (rs ?? '').toString().trim();
+    return s || pmRole;
+  };
+  return {
+    workflowEnabled: typeof v.workflowEnabled === 'boolean' ? v.workflowEnabled : pm.workflowEnabled,
+    uploadRole: roleOrInherit(v.uploadRole, pm.uploadRole),
+    reviewRole: roleOrInherit(v.reviewRole, pm.reviewRole),
+    approvalRole: roleOrInherit(v.approvalRole, pm.approvalRole),
+  };
+}
+
+/**
  * Role gate for a workflow step. SUPER_ADMIN always passes; an unset configured
  * role means "anyone with the route permission" (no extra role restriction).
  */
-export function assertPmRole(userRole: string | undefined, configuredRole: string, actionLabel: string) {
+export function assertPmRole(userRole: string | undefined, configuredRole: string, actionLabel: string, subject = 'PM schedules') {
   if (userRole === 'SUPER_ADMIN') return;
   if (!configuredRole) return;
   if (userRole !== configuredRole) {
-    throw new AppError(403, 'FORBIDDEN_ROLE', `Only users with role "${configuredRole}" can ${actionLabel} PM schedules`);
+    throw new AppError(403, 'FORBIDDEN_ROLE', `Only users with role "${configuredRole}" can ${actionLabel} ${subject}`);
   }
 }
 

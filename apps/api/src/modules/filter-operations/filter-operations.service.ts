@@ -253,8 +253,11 @@ export class FilterOperationsService {
     const twelveMonthsAgo = new Date(); twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
     const startOfToday = new Date(new Date().toISOString().slice(0, 10));
 
-    const [stageCountsRaw, statusCountsRaw, dailyRaw, monthlyRaw, totalFilters, activeCycles, completedToday] =
-      await Promise.all([
+    const [
+      stageCountsRaw, statusCountsRaw, dailyRaw, monthlyRaw, totalFilters, activeCycles, completedToday,
+      // 2026-06-11: extra filter analytics for the dashboard.
+      filterSetRaw, filterStatusRaw, reasonsRaw, deviations30, completed30, avgDurRaw, typeRaw, micronRaw,
+    ] = await Promise.all([
         prisma.filterDetails.groupBy({
           by: ['currentLifecycleState'],
           where: { currentLifecycleState: { not: null }, assetInstance: { isActive: true } },
@@ -280,6 +283,45 @@ export class FilterOperationsService {
         prisma.cleaningCycle.count({
           where: { status: 'COMPLETED', completedAt: { gte: startOfToday } },
         }),
+        // Filters by Set (A / B / unset)
+        prisma.filterDetails.groupBy({
+          by: ['filterSet'], where: { assetInstance: { isActive: true } }, _count: true,
+        }),
+        // Filters by lifecycle status (Active / Retired / Replaced)
+        prisma.assetInstance.groupBy({
+          by: ['status'], where: { isActive: true, template: { templateKind: 'FILTER' } }, _count: true,
+        }),
+        // Top cleaning reasons (all-time)
+        prisma.$queryRawUnsafe<any[]>(`
+          SELECT cleaning_reason_label as label, COUNT(*)::int as count
+          FROM cleaning_cycles
+          WHERE COALESCE(cleaning_reason_label, '') <> ''
+          GROUP BY cleaning_reason_label ORDER BY count DESC LIMIT 8
+        `),
+        // Deviations (bypassed stages) in the last 30 days
+        prisma.filterEvent.count({ where: { eventType: 'BYPASS_DEVIATION', performedAt: { gte: thirtyDaysAgo } } }),
+        // Cycles completed in the last 30 days
+        prisma.cleaningCycle.count({ where: { status: 'COMPLETED', completedAt: { gte: thirtyDaysAgo } } }),
+        // Average completed-cycle duration (hours)
+        prisma.$queryRawUnsafe<any[]>(`
+          SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (completed_at - started_at)) / 3600.0), 0)::float as hours
+          FROM cleaning_cycles
+          WHERE status = 'COMPLETED' AND completed_at IS NOT NULL AND started_at IS NOT NULL
+        `),
+        // Filters by Filter Type
+        prisma.$queryRawUnsafe<any[]>(`
+          SELECT ai.attributes->>'filterType' as label, COUNT(*)::int as count
+          FROM asset_instances ai JOIN asset_templates at ON at.id = ai.template_id
+          WHERE ai.is_active = true AND at.template_kind = 'FILTER' AND COALESCE(ai.attributes->>'filterType', '') <> ''
+          GROUP BY 1 ORDER BY count DESC LIMIT 8
+        `),
+        // Filters by Micron Size
+        prisma.$queryRawUnsafe<any[]>(`
+          SELECT ai.attributes->>'micronSize' as label, COUNT(*)::int as count
+          FROM asset_instances ai JOIN asset_templates at ON at.id = ai.template_id
+          WHERE ai.is_active = true AND at.template_kind = 'FILTER' AND COALESCE(ai.attributes->>'micronSize', '') <> ''
+          GROUP BY 1 ORDER BY count DESC LIMIT 8
+        `),
       ]);
 
     const stageCounts: Record<string, number> = {};
@@ -291,7 +333,21 @@ export class FilterOperationsService {
     const dailyCycles = dailyRaw.map((r: any) => ({ day: r.day, count: r.count }));
     const monthlyCycles = monthlyRaw.map((r: any) => ({ month: r.month, count: r.count }));
 
-    return { stageCounts, statusCounts, dailyCycles, monthlyCycles, totalFilters, activeCycles, completedToday };
+    // New breakdowns
+    const filterSetCounts: Record<string, number> = {};
+    for (const row of filterSetRaw) filterSetCounts[row.filterSet ?? 'UNSET'] = (row as any)._count;
+    const filterStatusCounts: Record<string, number> = {};
+    for (const row of filterStatusRaw) filterStatusCounts[row.status ?? 'Unknown'] = (row as any)._count;
+    const cleaningReasons = reasonsRaw.map((r: any) => ({ label: r.label, count: r.count }));
+    const filterTypeCounts = typeRaw.map((r: any) => ({ label: r.label, count: r.count }));
+    const micronCounts = micronRaw.map((r: any) => ({ label: r.label, count: r.count }));
+    const avgCycleHours = Math.round(((avgDurRaw?.[0]?.hours ?? 0) as number) * 10) / 10;
+
+    return {
+      stageCounts, statusCounts, dailyCycles, monthlyCycles, totalFilters, activeCycles, completedToday,
+      filterSetCounts, filterStatusCounts, cleaningReasons, filterTypeCounts, micronCounts,
+      deviations30, completed30, avgCycleHours,
+    };
   }
 
   /** @param query - Validated by Fastify JSON schema before reaching this method */

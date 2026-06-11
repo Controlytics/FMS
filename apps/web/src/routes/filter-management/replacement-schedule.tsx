@@ -363,7 +363,6 @@ export function ReplacementSchedulePage() {
 
               {step === 'select' && (
                 <div className="space-y-3">
-                  <button onClick={downloadTemplate} className="text-sm text-cyan-700 underline">Download the template first</button>
                   <label className="block">
                     <span className="block text-sm font-medium text-slate-700 mb-1">Schedule file (.xlsx)</span>
                     <input type="file" accept=".xlsx" onChange={onFileSelect} className="block w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-cyan-50 file:text-cyan-700 file:font-semibold hover:file:bg-cyan-100" />
