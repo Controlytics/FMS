@@ -8,6 +8,8 @@ import { useRfidGuard } from '@/hooks/use-rfid-guard';
 import { useOfflineConfig } from '@/hooks/use-offline-config';
 import { useDragScroll } from '@/hooks/use-drag-scroll';
 import { HardCutoffBlocker } from '@/components/hard-cutoff-blocker';
+import { SuperAdminLockdownScreen } from '@/components/super-admin-api-access';
+import { useSuperAdminLock } from '@/hooks/use-super-admin-lock';
 import { FailedOpsPanel } from '@/components/failed-ops-panel';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
@@ -25,6 +27,10 @@ export function AppLayout() {
   useOfflineConfig();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user, isAuthenticated, isLoading, logout } = useAuth();
+  // Super Admin API kill-switch. When OFF and the current user is a SUPER_ADMIN,
+  // we replace the whole app with the lockdown screen below (the only escape
+  // routes are re-enable-with-password or logout, both still allowed server-side).
+  const { isSuperAdmin, enabled: superAdminApiEnabled } = useSuperAdminLock();
   const location = useLocation();
   const { branding } = useBranding();
   const { data: passwordPolicy } = useSWR(isAuthenticated ? '/api/config/password-policy/current' : null, { revalidateOnMount: true, dedupingInterval: 5000 });
@@ -170,6 +176,13 @@ export function AppLayout() {
         </div>
       </div>
     );
+  }
+
+  // Super Admin API access switched OFF → freeze the superadmin behind the
+  // lockdown wall (re-enable with password, or log out). Placed after the
+  // auth/forcePasswordChange/duplicate-tab gates so those still take priority.
+  if (isSuperAdmin && !superAdminApiEnabled) {
+    return <SuperAdminLockdownScreen />;
   }
 
   return (

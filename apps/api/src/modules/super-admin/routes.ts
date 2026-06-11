@@ -1,6 +1,8 @@
 ﻿import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
+import { readSuperAdminApiEnabledUncached, setSuperAdminApiEnabled } from '../../lib/super-admin-lock.js';
+import { auditLog } from '../../lib/audit.js';
 
 /**
  * Super Admin routes â€” SUPER_ADMIN only, platform management
@@ -45,6 +47,67 @@ export default async function superAdminRoutes(app: FastifyInstance) {
       prisma.assetInstance.count({ where: { isActive: true } }),
     ]);
     return { users: userCount, devices: deviceCount, entities: entityCount };
+  });
+
+  // ─── SUPER ADMIN API KILL-SWITCH ──────────────────────────────────
+  // Global ON/OFF for "everything the SUPER_ADMIN can do". When OFF, the
+  // auth plugin (plugins/auth.ts) freezes every SUPER_ADMIN request except a
+  // tiny allowlist that INCLUDES these two endpoints — so the switch can
+  // always be read and flipped back ON. Login is public and also unaffected.
+  // Enforcement lives in auth.ts; these endpoints just persist/read the flag.
+
+  app.get('/api-lock', {
+    preHandler: [app.requireRole('SUPER_ADMIN')],
+    schema: {
+      tags: ['Super Admin'],
+      summary: 'Read the Super Admin API access switch (true = APIs enabled)',
+    },
+  }, async () => {
+    const enabled = await readSuperAdminApiEnabledUncached();
+    return { enabled };
+  });
+
+  app.put('/api-lock', {
+    // requireRole keeps this SUPER_ADMIN-only; enforceReauthAlways forces a
+    // password step on every flip (this is a security control — see the
+    // "Yes, require password" decision). Both must pass before we persist.
+    preHandler: [app.requireRole('SUPER_ADMIN')],
+    schema: {
+      tags: ['Super Admin'],
+      summary: 'Enable/disable Super Admin API access (password required)',
+      body: {
+        type: 'object',
+        required: ['enabled'],
+        properties: {
+          enabled: { type: 'boolean' },
+          _currentPassword: { type: 'string' },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauthAlways('TOGGLE_SUPER_ADMIN_API_ACCESS', req, reply);
+    if (!ok) return; // enforceReauthAlways already sent 401
+
+    const { enabled } = req.body as { enabled: boolean };
+    const before = await readSuperAdminApiEnabledUncached();
+    await setSuperAdminApiEnabled(enabled, req.user.sub);
+
+    await auditLog({
+      userId: req.user.sub,
+      userName: req.user.username,
+      userRole: req.user.role,
+      action: 'SUPER_ADMIN_API_ACCESS_CHANGED',
+      targetType: 'config',
+      targetId: 'super-admin-api-access',
+      beforeValue: { enabled: before },
+      afterValue: { enabled },
+      signatureMeaning: `Super Admin API access ${enabled ? 'ENABLED' : 'DISABLED'}`,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      sessionId: req.user.sessionId,
+    });
+
+    return { enabled };
   });
 
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•

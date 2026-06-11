@@ -9,6 +9,7 @@ import {
   LEGACY_OFFLINE_REPLAY_HEADER,
 } from '../lib/offline-replay-token.js';
 import { isPasswordExpired } from '../lib/password-expiry.js';
+import { isSuperAdminApiEnabled } from '../lib/super-admin-lock.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -287,6 +288,35 @@ async function authPlugin(app: FastifyInstance) {
               ? 'Your password has expired. Please change your password.'
               : 'You must change your password before continuing.',
           });
+        }
+      }
+
+      // Super Admin API kill-switch (2026-06-11). When the global
+      // `super-admin-api-access` flag is OFF, a SUPER_ADMIN is frozen to the
+      // SA_LOCK_ALLOWED allowlist below. This neutralises the all-powerful
+      // SUPER_ADMIN account on demand; ADMIN/operator users are unaffected
+      // (the check only runs for role === SUPER_ADMIN, so it adds zero DB reads
+      // for everyone else). Login is in PUBLIC_PATHS and never reaches here, so
+      // the SA can always log back in; logout + me + refresh + change-password +
+      // the toggle endpoint stay reachable so he can re-enable it. Default ON /
+      // fail-open — see lib/super-admin-lock.ts.
+      if (user.role === 'SUPER_ADMIN') {
+        const enabled = await isSuperAdminApiEnabled();
+        if (!enabled) {
+          const SA_LOCK_ALLOWED = [
+            '/api/auth/me',
+            '/api/auth/logout',
+            '/api/auth/refresh',
+            '/api/auth/change-password',
+            '/api/config/password-policy', // public policy read used by the shell
+            '/api/super-admin/api-lock',   // read state + flip the switch (reauth on flip)
+          ];
+          if (!SA_LOCK_ALLOWED.some((p) => req.url.startsWith(p))) {
+            return reply.code(403).send({
+              error: 'SUPER_ADMIN_API_LOCKED',
+              message: 'Super Admin API access is currently disabled. Re-enable it to continue.',
+            });
+          }
         }
       }
 

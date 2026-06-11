@@ -72,6 +72,9 @@ export default async function instanceRoutes(app: FastifyInstance) {
                   currentLifecycleState: { type: ['string', 'null'], nullable: true },
                   currentCycleId: { type: ['string', 'null'], nullable: true },
                   filterSet: { type: ['string', 'null'], nullable: true },
+                  // Authoritative "Last Cleaned" (lib/last-cleaned.ts) — the
+                  // tablet reads this instead of re-deriving from cycles.
+                  lastCleanedAt: { type: ['string', 'null'], nullable: true },
                   template: {
                     type: 'object',
                     properties: { name: { type: 'string' }, icon: { type: 'string' } },

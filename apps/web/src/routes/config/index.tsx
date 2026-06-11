@@ -3,6 +3,7 @@ import useSWR from 'swr';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/hooks/use-auth';
 import { Badge } from '@/components/ui/badge';
+import { SuperAdminApiAccessCard } from '@/components/super-admin-api-access';
 
 const configCards = [
   {
@@ -546,6 +547,11 @@ export function ConfigIndexPage() {
                   </div>
                 </Link>
               ))}
+            </div>
+
+            {/* Master kill-switch for all Super Admin API access. */}
+            <div className="mt-5">
+              <SuperAdminApiAccessCard />
             </div>
           </div>
         </div>

@@ -6,6 +6,7 @@ import { useAuth } from '../../hooks/use-auth';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { useOffline } from '../../hooks/use-offline';
 import { useReauth } from '@/hooks/use-reauth';
+import { useAndroidBackButton } from '@/hooks/use-android-back-button';
 import { retireOrReplaceFilter } from '@/lib/filter-lifecycle-actions';
 import { effectiveCycleStatus } from '@/lib/cleaning-cycle-report';
 import { useRfidScanField } from '@/hooks/use-rfid-scan-field';
@@ -263,7 +264,7 @@ export function MobileWrapperPage() {
   // 2026-05-20: also load when view==='status' so the new stage-detail drill-down
   // can derive "Last cleaned" per filter from the most-recent COMPLETED cycle.
   const { data: cyclesData, isLoading: cyclesLoading } =
-    useSWR<any>(online && (view === 'cycles' || view === 'status') ? '/api/filters/cycles?page=1&limit=200&includeEvents=true' : null,
+    useSWR<any>(online && (view === 'cycles' || view === 'status' || view === 'rfid-assign' || view === 'replace') ? '/api/filters/cycles?page=1&limit=200&includeEvents=true' : null,
       { refreshInterval: view === 'cycles' ? 30000 : 0 });
   const [offlineCycles, setOfflineCycles] = useState<any[]>([]);
   const [expandedCycle, setExpandedCycle] = useState<string | null>(null);
@@ -760,6 +761,49 @@ export function MobileWrapperPage() {
       },
     });
   };
+
+  // Android hardware/gesture back button (Capacitor APK only — no-op on web).
+  // Contract: dismiss the topmost overlay → else return to the Home view → else
+  // (already Home) swallow. We deliberately NEVER call App.exitApp(): exiting
+  // destroys the WebView and clears sessionStorage (where access_token lives),
+  // which is exactly the "back button logged me out" behaviour being removed.
+  // Lifecycle the OS still owns (not handled here, verified inherent):
+  //   • minimise → process stays warm → session lives until the idle timeout
+  //   • removed from recents → process killed → sessionStorage gone → re-login
+  useAndroidBackButton(() => {
+    // 1. Re-auth password prompts (rendered outside the view switch). Back
+    //    cancels the prompt and unwinds the submit flags it was gating.
+    if (reauth.isOpen) {
+      reauth.cancel();
+      setRfidSubmitting(false);
+      setReplaceSubmitting(false);
+      setReplTaskSubmitting(false);
+      return;
+    }
+    if (blockChangeApproval.reauth.isOpen) {
+      blockChangeApproval.reauth.cancel();
+      setProcessingApproval(null);
+      return;
+    }
+    // 2. Filter-lookup scan modal.
+    if (scanRfidOpen) {
+      setScanRfidOpen(false);
+      return;
+    }
+    // 3. Anywhere but Home → return to Home, clearing transient sub-state so the
+    //    next entry into a view starts clean.
+    if (view !== 'home') {
+      setView('home');
+      setRfidSelectedFilter(null);
+      setReplaceSelectedFilter(null);
+      setSelectedCycleId(null);
+      setActiveReplTask(null);
+      return;
+    }
+    // 4. Already Home — stop here. No exit, no minimise, no logout.
+    //    (HardCutoffBlocker, if shown, stays up regardless — back must not
+    //    bypass the offline read-only overlay.)
+  });
 
   // 2026-05-21 fix: only redirect when there is truly no auth state.
   // useAuth.logout()'s mutate(undefined, false) leaves the SWR cache for
@@ -1259,7 +1303,9 @@ export function MobileWrapperPage() {
               {visibleFilters.map((f: any) => {
                 const stageInfo = STAGES.find(s => s.key === f.currentLifecycleState);
                 const ahu = ahuById.get(f.parentId);
-                const lastCleaned = effectiveLastCleaned(lastCleanedByFilter.get(f.id), f.attributes);
+                // Prefer the server's authoritative lastCleanedAt (lib/last-cleaned.ts);
+                // fall back to the client cycle-derivation only when offline / absent.
+                const lastCleaned = f.lastCleanedAt ?? effectiveLastCleaned(lastCleanedByFilter.get(f.id), f.attributes);
                 return (
                   <div key={f.id} className="bg-white border border-slate-200 rounded-xl px-4 py-3">
                     <div className="flex items-start justify-between gap-3">
@@ -2041,6 +2087,42 @@ export function MobileWrapperPage() {
             return true;
           });
           const rfidCascadeActive = rfidBlockId !== 'all' || rfidAreaId !== 'all' || rfidAhuId !== 'all' || rfidFilterId !== 'all';
+
+          // ── Selected-filter full detail (rendered in the selected branch below).
+          // Block/Area/AHU come from the local ancestor map; the rest off the
+          // filter row's attributes. Last Cleaned is derived from cleaning-cycle
+          // stage events (same as the Status view) since the instances payload
+          // does not carry a server-computed lastCleanedAt — cyclesData is now
+          // loaded for this view too.
+          const rfidSelFilter = rfidSelectedFilter
+            ? (allFilters as any[]).find((f: any) => f.id === rfidSelectedFilter.id)
+            : null;
+          const rfidSelAnc = rfidSelectedFilter ? rfidFilterAncestors.get(rfidSelectedFilter.id) : null;
+          const rfidSelBlock = rfidSelAnc?.blockId ? rfidInstById.get(rfidSelAnc.blockId) : null;
+          const rfidSelArea = rfidSelAnc?.areaId ? rfidInstById.get(rfidSelAnc.areaId) : null;
+          const rfidSelAhu = rfidSelAnc?.ahuId ? rfidInstById.get(rfidSelAnc.ahuId) : null;
+          const rfidSelCycles: any[] = (cyclesData?.data ?? []) as any[];
+          const rfidSelLastCleaned = rfidSelFilter
+            ? (rfidSelFilter.lastCleanedAt ?? effectiveLastCleaned(latestStageEventAt(rfidSelCycles, rfidSelFilter.id), rfidSelFilter.attributes))
+            : null;
+          const rfidSelStage = rfidSelFilter ? STAGES.find((s) => s.key === rfidSelFilter.currentLifecycleState) : null;
+          const rfidSelSet = rfidSelFilter?.filterSet ? `Set ${String(rfidSelFilter.filterSet).replace('SET_', '')}` : 'NA';
+          const rfidSelDate = (iso: string | null) => {
+            if (!iso) return 'NA';
+            try { return new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }); }
+            catch { return 'NA'; }
+          };
+          const rfidSelDetails: Array<[string, string]> = [
+            ['Block', naText(rfidSelBlock?.name)],
+            ['Area', naText(rfidSelArea?.name)],
+            ['AHU', naText(rfidSelAhu?.name)],
+            ['AHU Type', naText(rfidSelFilter?.attributes?.ahuType)],
+            ['Filter Type', naText(rfidSelFilter?.attributes?.filterType)],
+            ['Set', rfidSelSet],
+            ['Dimensions', naText(rfidSelFilter?.attributes?.filterSize)],
+            ['Micron Size', naText(rfidSelFilter?.attributes?.micronSize)],
+            ['Last Cleaned', rfidSelDate(rfidSelLastCleaned)],
+          ];
           return (
           <div className="p-4 space-y-4 max-w-2xl mx-auto">
             {!rfidSelectedFilter ? (
@@ -2201,14 +2283,30 @@ export function MobileWrapperPage() {
               </>
             ) : (
               <>
-                <div className="bg-white rounded-2xl border border-slate-200 p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
+                <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
                       <div className="text-[11px] text-slate-400 uppercase tracking-wider font-bold">Selected Filter</div>
-                      <div className="text-base font-bold text-slate-800 mt-0.5">{rfidSelectedFilter.name}</div>
+                      <div className="text-base font-bold text-slate-800 mt-0.5 break-all">{rfidSelectedFilter.name}</div>
                     </div>
-                    <button onClick={() => { setRfidSelectedFilter(null); rfidScan.setValue(''); setRfidError(''); setRfidSuccess(''); }}
-                      className="text-xs font-semibold text-violet-600">Change</button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={`text-[10px] px-2.5 py-1 rounded-full border font-medium whitespace-nowrap ${rfidSelStage ? `${rfidSelStage.bg} ${rfidSelStage.text} ${rfidSelStage.border}` : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
+                        {rfidSelFilter?.currentLifecycleState?.replace(/_/g, ' ') ?? 'To Be Cleaned'}
+                      </span>
+                      <button onClick={() => { setRfidSelectedFilter(null); rfidScan.setValue(''); setRfidError(''); setRfidSuccess(''); }}
+                        className="text-xs font-semibold text-violet-600">Change</button>
+                    </div>
+                  </div>
+
+                  {/* Full filter detail so the operator can confirm they're
+                      tagging the right filter without leaving this view. */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {rfidSelDetails.map(([label, value]) => (
+                      <div key={label} className="bg-slate-50 rounded-lg border border-slate-200 p-2 min-w-0">
+                        <div className="text-[9px] uppercase tracking-wider text-slate-400 font-medium">{label}</div>
+                        <div className="text-[11px] text-slate-800 font-semibold mt-0.5 truncate" title={value}>{value}</div>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
@@ -2316,6 +2414,39 @@ export function MobileWrapperPage() {
           });
           const repCascadeActive = replaceBlockId !== 'all' || replaceAreaId !== 'all' || replaceAhuId !== 'all' || replaceFilterId !== 'all';
           const selTags = replaceSelectedFilter ? (rfidTagsByFilter.get(replaceSelectedFilter.id) ?? []) : [];
+
+          // ── Selected-filter full detail for the confirm panel (same set as the
+          // RFID Assign view). Block/Area/AHU from the local ancestor map; the
+          // rest off the filter row; Last Cleaned derived from cycle stage events.
+          const repSelFilter = replaceSelectedFilter
+            ? (allFilters as any[]).find((f: any) => f.id === replaceSelectedFilter.id)
+            : null;
+          const repSelAnc = replaceSelectedFilter ? repAncestors.get(replaceSelectedFilter.id) : null;
+          const repSelBlock = repSelAnc?.blockId ? repInstById.get(repSelAnc.blockId) : null;
+          const repSelArea = repSelAnc?.areaId ? repInstById.get(repSelAnc.areaId) : null;
+          const repSelAhu = repSelAnc?.ahuId ? repInstById.get(repSelAnc.ahuId) : null;
+          const repSelCycles: any[] = (cyclesData?.data ?? []) as any[];
+          const repSelLastCleaned = repSelFilter
+            ? (repSelFilter.lastCleanedAt ?? effectiveLastCleaned(latestStageEventAt(repSelCycles, repSelFilter.id), repSelFilter.attributes))
+            : null;
+          const repSelStage = repSelFilter ? STAGES.find((s) => s.key === repSelFilter.currentLifecycleState) : null;
+          const repSelSet = repSelFilter?.filterSet ? `Set ${String(repSelFilter.filterSet).replace('SET_', '')}` : 'NA';
+          const repSelDate = (iso: string | null) => {
+            if (!iso) return 'NA';
+            try { return new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }); }
+            catch { return 'NA'; }
+          };
+          const repSelDetails: Array<[string, string]> = [
+            ['Block', naText(repSelBlock?.name)],
+            ['Area', naText(repSelArea?.name)],
+            ['AHU', naText(repSelAhu?.name)],
+            ['AHU Type', naText(repSelFilter?.attributes?.ahuType)],
+            ['Filter Type', naText(repSelFilter?.attributes?.filterType)],
+            ['Set', repSelSet],
+            ['Dimensions', naText(repSelFilter?.attributes?.filterSize)],
+            ['Micron Size', naText(repSelFilter?.attributes?.micronSize)],
+            ['Last Cleaned', repSelDate(repSelLastCleaned)],
+          ];
           return (
           <div className="p-4 space-y-4 max-w-2xl mx-auto">
             {replaceSuccess && (
@@ -2443,10 +2574,27 @@ export function MobileWrapperPage() {
                 <h2 className="font-display text-[20px] font-semibold text-slate-900">Replace filter</h2>
 
                 <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
-                  <div>
-                    <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">Filter ID</label>
-                    <div className="font-display text-[15px] font-semibold text-slate-900">{replaceSelectedFilter.name}</div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">Filter ID</label>
+                      <div className="font-display text-[15px] font-semibold text-slate-900 break-all">{replaceSelectedFilter.name}</div>
+                    </div>
+                    <span className={`text-[10px] px-2.5 py-1 rounded-full border font-medium whitespace-nowrap shrink-0 ${repSelStage ? `${repSelStage.bg} ${repSelStage.text} ${repSelStage.border}` : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
+                      {repSelFilter?.currentLifecycleState?.replace(/_/g, ' ') ?? 'To Be Cleaned'}
+                    </span>
                   </div>
+
+                  {/* Full filter detail so the operator can confirm they're
+                      replacing the right filter before committing. */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {repSelDetails.map(([label, value]) => (
+                      <div key={label} className="bg-slate-50 rounded-lg border border-slate-200 p-2 min-w-0">
+                        <div className="text-[9px] uppercase tracking-wider text-slate-400 font-medium">{label}</div>
+                        <div className="text-[11px] text-slate-800 font-semibold mt-0.5 truncate" title={value}>{value}</div>
+                      </div>
+                    ))}
+                  </div>
+
                   <div>
                     <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">RFID tag (carries over)</label>
                     <div className="font-mono-tab text-[13px] text-slate-700">

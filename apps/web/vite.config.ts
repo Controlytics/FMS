@@ -68,8 +68,6 @@ export default defineConfig({
         manualChunks: {
           vendor: ['react', 'react-dom', 'react-router-dom'],
           swr: ['swr'],
-          reactflow: ['reactflow'],
-          monaco: ['@monaco-editor/react'],
         },
       },
     },

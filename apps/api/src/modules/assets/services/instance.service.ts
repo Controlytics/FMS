@@ -9,6 +9,7 @@ import { validateAttributeValues } from '../helpers/attribute-validator.js';
 import { hasContainsCycle } from '../helpers/cycle-detection.js';
 import { collectDescendantIds } from '../helpers/descendant-collector.js';
 import { prisma } from '../../../lib/prisma.js';
+import { zipLastCleaned } from '../../../lib/last-cleaned.js';
 import { upsertFilterDetails } from '../../../lib/filter-details.js';
 // Pure SHA-256 helper (node:crypto only) — used to checksum the synthetic
 // CYCLE_COMPLETED event when a manual "Cleaning Cycle Completed" force-completes
@@ -58,8 +59,16 @@ export const instanceService = {
     else where.isActive = true;
 
     const { instances, total } = await instanceRepository.findMany(where, query.page, query.limit);
+    // Attach the authoritative `lastCleanedAt` (same source the web Filters page
+    // uses) so the tablet can stop re-deriving it client-side from a truncated
+    // cycles list — which left "stage shown but Last Cleaned empty" rows for
+    // filters cleaned outside the fetched window or via a cycle-less manual
+    // status edit. Non-filter rows (blocks/areas/AHUs) simply get null.
+    const enriched = await zipLastCleaned(
+      instances as Array<{ id: string; attributes?: any }>,
+    );
     return {
-      data: instances, total, page: query.page, limit: query.limit ?? total,
+      data: enriched, total, page: query.page, limit: query.limit ?? total,
       totalPages: query.limit ? Math.ceil(total / query.limit) : 1,
     };
   },
