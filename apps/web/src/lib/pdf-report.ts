@@ -129,12 +129,16 @@ export interface ReportDoc {
   getSnapshot: () => ReportSnapshot;
 }
 
+export type SnapshotSection =
+  | { title?: string; head: string[]; body: string[][]; columnStyles?: Record<number, any> }
+  | { title?: string; pairs: [string, string][]; columns?: number };
+
 export interface ReportSnapshot {
   reportType?: string;
   title: string;
   subtitle?: string;
   orientation?: 'portrait' | 'landscape';
-  sections: { title?: string; head: string[]; body: string[][]; columnStyles?: Record<number, any> }[];
+  sections: SnapshotSection[];
 }
 
 export async function createReport(config: ReportConfig): Promise<ReportDoc> {
@@ -308,6 +312,8 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   };
 
   const addKeyValue = (pairs: [string, string][], columns = 3) => {
+    snapSections.push({ title: pendingTitle, pairs, columns });
+    pendingTitle = undefined;
     checkPageBreak(12);
     const colW = (pw - 28) / columns;
     let row = 0;
@@ -358,7 +364,8 @@ export async function renderSnapshotToPdf(
   });
   for (const s of snapshot.sections) {
     if (s.title) report.addSectionTitle(s.title);
-    report.addTable({ head: s.head, body: s.body, columnStyles: s.columnStyles });
+    if ('pairs' in s) report.addKeyValue(s.pairs, s.columns);
+    else report.addTable({ head: s.head, body: s.body, columnStyles: s.columnStyles });
   }
   report.save(filename);
 }

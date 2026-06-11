@@ -8,6 +8,30 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
+import { createNotification } from '../notifications/notification.service.js';
+
+type NotifyType = 'REPORT_REVIEW_REQUESTED' | 'REPORT_REVIEW_APPROVED' | 'REPORT_REVIEW_REJECTED';
+
+// Notify the current-stage assignee (a specific user OR a role). forUserId holds
+// the username, so a UUID assignee is resolved to one. Best-effort — a failed
+// notification never breaks the workflow.
+async function notifyAssignee(row: { id: string; reportType: string; assigneeUserId: string | null; assigneeRole: string | null }, type: NotifyType, title: string, message: string, createdBy: string) {
+  try {
+    const base = { type, title, message, metadata: { reportReviewId: row.id, reportType: row.reportType }, createdBy };
+    if (row.assigneeUserId) {
+      const u = await prisma.user.findUnique({ where: { id: row.assigneeUserId }, select: { username: true } });
+      if (u) await createNotification({ ...base, forUserId: u.username });
+    } else if (row.assigneeRole) {
+      await createNotification({ ...base, forRole: row.assigneeRole });
+    }
+  } catch (e) { console.error('[report-review] notify assignee failed:', (e as Error).message); }
+}
+
+async function notifySubmitter(row: { id: string; reportType: string; generatedByName: string }, type: NotifyType, title: string, message: string, createdBy: string) {
+  try {
+    await createNotification({ type, title, message, forUserId: row.generatedByName, metadata: { reportReviewId: row.id, reportType: row.reportType }, createdBy });
+  } catch (e) { console.error('[report-review] notify submitter failed:', (e as Error).message); }
+}
 
 export interface SubmitInput {
   reportType: string;
@@ -50,6 +74,7 @@ export const reportReviewService = {
       signatureMeaning: `Report "${row.title}" submitted for review`,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
+    await notifyAssignee(row, 'REPORT_REVIEW_REQUESTED', 'Report awaiting your review', `"${row.title}" was sent to you for review by ${ctx.userId}.`, ctx.userId);
     return row;
   },
 
@@ -98,6 +123,7 @@ export const reportReviewService = {
         },
       });
       await this.audit(ctx, updated, 'REPORT_REVIEW_REJECTED', `Report "${row.title}" rejected at review`);
+      await notifySubmitter(updated, 'REPORT_REVIEW_REJECTED', 'Report rejected at review', `"${row.title}" was rejected at review by ${ctx.userId}.`, ctx.userId);
       return updated;
     }
     // approve → move to approval stage, assign approver
@@ -110,6 +136,7 @@ export const reportReviewService = {
       },
     });
     await this.audit(ctx, updated, 'REPORT_REVIEW_REVIEWED', `Report "${row.title}" reviewed (sent for approval)`);
+    await notifyAssignee(updated, 'REPORT_REVIEW_REQUESTED', 'Report awaiting your approval', `"${row.title}" was reviewed by ${ctx.userId} and needs your approval.`, ctx.userId);
     return updated;
   },
 
@@ -129,6 +156,7 @@ export const reportReviewService = {
         },
       });
       await this.audit(ctx, updated, 'REPORT_REVIEW_REJECTED', `Report "${row.title}" rejected at approval`);
+      await notifySubmitter(updated, 'REPORT_REVIEW_REJECTED', 'Report rejected at approval', `"${row.title}" was rejected at approval by ${ctx.userId}.`, ctx.userId);
       return updated;
     }
     const updated = await prisma.reportReview.update({
@@ -139,6 +167,7 @@ export const reportReviewService = {
       },
     });
     await this.audit(ctx, updated, 'REPORT_REVIEW_APPROVED', `Report "${row.title}" approved`);
+    await notifySubmitter(updated, 'REPORT_REVIEW_APPROVED', 'Report approved', `"${row.title}" was approved by ${ctx.userId}.`, ctx.userId);
     return updated;
   },
 

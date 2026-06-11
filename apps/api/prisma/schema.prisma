@@ -342,6 +342,10 @@ enum NotificationType {
   PM_SCHEDULE_QNN
   // Guest (unauthenticated) filter cleaning request — 2026-06-09
   GUEST_CLEANING_REQUEST
+  // Report review/approval workflow — 2026-06-11
+  REPORT_REVIEW_REQUESTED
+  REPORT_REVIEW_APPROVED
+  REPORT_REVIEW_REJECTED
 }
 
 model Notification {
