@@ -39,6 +39,7 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/guest-cleaning-requests.def.js'),
     import('../modules/config/defs/ahu-filter-set-config.def.js'),
     import('../modules/config/defs/report-settings.def.js'),
+    import('../modules/config/defs/report-signatories.def.js'),
     import('../modules/config/defs/report-labels.def.js'),
     import('../modules/config/defs/access-matrix.def.js'),
     import('../modules/config/defs/offline-cache.def.js'),

@@ -188,6 +188,8 @@ export const REAUTH_ACTIONS = {
   SIGN_REPORT: { label: 'Sign Report', category: 'Reports' },
   REJECT_REPORT: { label: 'Reject Report', category: 'Reports' },
   DELETE_REPORT: { label: 'Delete Report', category: 'Reports' },
+  REVIEW_REPORT: { label: 'Review Report', category: 'Reports' },
+  APPROVE_REPORT: { label: 'Approve Report', category: 'Reports' },
 } as const;
 
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;

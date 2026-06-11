@@ -11,6 +11,7 @@ import { usePmFiltersEnabled } from '../../hooks/use-pm-filters-enabled';
 import { Pagination } from '@/components/ui/pagination';
 import { createReport } from '../../lib/pdf-report';
 import { ExportMenu } from '@/components/ExportMenu';
+import { SendForReviewButton } from '@/components/SendForReviewButton';
 
 interface UploadResult {
   imported: number;
@@ -214,33 +215,40 @@ export function PmScheduleListPage() {
     return all;
   };
 
+  const buildPmReport = async () => {
+    const all = await fetchAllEntries();
+    if (all.length === 0) { toast.error('Nothing to export', `No PM schedule entries for ${year}`); return null; }
+    const report = await createReport({ reportKey: 'pm-schedule',
+      title: `PM Schedule ${year}`,
+      subtitle: `Total: ${all.length} entr${all.length === 1 ? 'y' : 'ies'}`,
+      orientation: 'landscape',
+      formatDateTime,
+    });
+    report.addTable({
+      head: ['S.No', 'AHU', 'Month', 'Planned', 'Tol', 'Status', 'Uploaded By', 'Reviewed By', 'Approved By', 'Remarks'],
+      body: all.map((e, i) => [
+        String(i + 1), e.ahuName ?? '-', MONTH_ABBR[(e.month ?? 1) - 1] ?? String(e.month),
+        e.plannedDate ? formatDate(e.plannedDate) : '-', String(e.toleranceDays ?? '-'),
+        STATUS_CFG[e.approvalStatus]?.label ?? e.approvalStatus,
+        e.submittedByName ?? '-', e.reviewedByName ?? '-', e.approvedByName ?? '-',
+        e.approvalRemarks ?? e.reviewRemarks ?? '-',
+      ]),
+      columnStyles: { 0: { halign: 'center', cellWidth: 14 }, 9: { cellWidth: 45 } },
+    });
+    return report;
+  };
+
   const exportPdf = async () => {
     setExporting(true);
     try {
-      const all = await fetchAllEntries();
-      if (all.length === 0) { toast.error('Nothing to export', `No PM schedule entries for ${year}`); return; }
-      const report = await createReport({
-        title: `PM Schedule ${year}`,
-        subtitle: `Total: ${all.length} entr${all.length === 1 ? 'y' : 'ies'}`,
-        orientation: 'landscape',
-        formatDateTime,
-      });
-      report.addTable({
-        head: ['S.No', 'AHU', 'Month', 'Planned', 'Tol', 'Status', 'Uploaded By', 'Reviewed By', 'Approved By', 'Remarks'],
-        body: all.map((e, i) => [
-          String(i + 1), e.ahuName ?? '-', MONTH_ABBR[(e.month ?? 1) - 1] ?? String(e.month),
-          e.plannedDate ? formatDate(e.plannedDate) : '-', String(e.toleranceDays ?? '-'),
-          STATUS_CFG[e.approvalStatus]?.label ?? e.approvalStatus,
-          e.submittedByName ?? '-', e.reviewedByName ?? '-', e.approvedByName ?? '-',
-          e.approvalRemarks ?? e.reviewRemarks ?? '-',
-        ]),
-        columnStyles: { 0: { halign: 'center', cellWidth: 14 }, 9: { cellWidth: 45 } },
-      });
-      report.save(`pm-schedule-${year}.pdf`);
+      const report = await buildPmReport();
+      report?.save(`pm-schedule-${year}.pdf`);
     } catch (e: any) {
       toast.error('Export failed', e?.message ?? 'Could not generate PDF');
     } finally { setExporting(false); }
   };
+
+  const buildPmSnapshot = async () => { const report = await buildPmReport(); return report ? report.getSnapshot() : null; };
 
   const exportExcel = async () => {
     setExporting(true);
@@ -601,6 +609,8 @@ export function PmScheduleListPage() {
           )}
           <ExportMenu surface="pm" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={exporting}
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50 hover:border-slate-300 transition-all disabled:opacity-50" />
+          <SendForReviewButton buildSnapshot={buildPmSnapshot}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50 hover:border-slate-300 transition-all" />
           {canCreateSchedule && (
             <button onClick={() => setCreateDialog(true)}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors">

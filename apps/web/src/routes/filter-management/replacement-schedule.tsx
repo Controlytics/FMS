@@ -9,6 +9,7 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { apiClient } from '@/lib/api-client';
 import { createReport } from '@/lib/pdf-report';
 import { ExportMenu } from '@/components/ExportMenu';
+import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { Pagination } from '@/components/ui/pagination';
 import { themeButton } from '@/lib/theme-styles';
 
@@ -140,20 +141,27 @@ export function ReplacementSchedulePage() {
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     } catch (e: any) { toast.error('Export failed', e?.message ?? 'Could not download'); } finally { setExporting(false); }
   };
+  const buildReplacementReport = async () => {
+    const all = schedules.flatMap((s: any) => (s.entries ?? []));
+    if (all.length === 0) { toast.error('Nothing to export', 'No replacement entries'); return null; }
+    const report = await createReport({ reportKey: 'replacement-schedule', title: 'Replacement Schedule', subtitle: `Total: ${all.length} entr${all.length === 1 ? 'y' : 'ies'}`, orientation: 'landscape', formatDateTime: (d: string) => formatDate(d) });
+    report.addTable({
+      head: ['S.No', 'AHU', 'Micron', 'Filter Dimensions', 'Qty', 'Date', 'Status', 'Uploaded By', 'Reviewed By', 'Approved By'],
+      body: all.map((e: any, i: number) => [String(e.slNo ?? i + 1), e.ahuName ?? '-', naText(e.filterMicron), naText(e.filterSize), String(e.qty), e.scheduleDate ? formatDate(e.scheduleDate) : '-', (APPROVAL_CHIP[e.approvalStatus]?.label ?? e.approvalStatus ?? '-'), e.submittedByName ?? '-', e.reviewedByName ?? '-', e.approvedByName ?? '-']),
+      columnStyles: { 0: { halign: 'center', cellWidth: 14 } },
+    });
+    return report;
+  };
+
   const exportPdf = async () => {
     setExporting(true);
     try {
-      const all = schedules.flatMap((s: any) => (s.entries ?? []));
-      if (all.length === 0) { toast.error('Nothing to export', 'No replacement entries'); return; }
-      const report = await createReport({ title: 'Replacement Schedule', subtitle: `Total: ${all.length} entr${all.length === 1 ? 'y' : 'ies'}`, orientation: 'landscape', formatDateTime: (d: string) => formatDate(d) });
-      report.addTable({
-        head: ['S.No', 'AHU', 'Micron', 'Filter Dimensions', 'Qty', 'Date', 'Status', 'Uploaded By', 'Reviewed By', 'Approved By'],
-        body: all.map((e: any, i: number) => [String(e.slNo ?? i + 1), e.ahuName ?? '-', naText(e.filterMicron), naText(e.filterSize), String(e.qty), e.scheduleDate ? formatDate(e.scheduleDate) : '-', (APPROVAL_CHIP[e.approvalStatus]?.label ?? e.approvalStatus ?? '-'), e.submittedByName ?? '-', e.reviewedByName ?? '-', e.approvedByName ?? '-']),
-        columnStyles: { 0: { halign: 'center', cellWidth: 14 } },
-      });
-      report.save('replacement-schedule.pdf');
+      const report = await buildReplacementReport();
+      report?.save('replacement-schedule.pdf');
     } catch (e: any) { toast.error('Export failed', e?.message ?? 'Could not generate PDF'); } finally { setExporting(false); }
   };
+
+  const buildReplacementSnapshot = async () => { const report = await buildReplacementReport(); return report ? report.getSnapshot() : null; };
 
   // Upload dialog state
   const [open, setOpen] = useState(false);
@@ -242,6 +250,8 @@ export function ReplacementSchedulePage() {
         <div className="flex items-center gap-2">
           <ExportMenu surface="replacement" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={exporting}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-sm transition-all disabled:opacity-50" />
+          <SendForReviewButton buildSnapshot={buildReplacementSnapshot}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-sm transition-all" />
           <button onClick={downloadTemplate}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-sm transition-all">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" /></svg>

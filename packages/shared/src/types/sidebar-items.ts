@@ -22,6 +22,7 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'configuration', label: 'Configuration', icon: '\u2699\uFE0F', description: 'System settings' },
   { id: 'notifications', label: 'Notifications', icon: '\u{1F514}', description: 'Notification center' },
   { id: 'audit', label: 'Audit Trail', icon: '\u{1F4DD}', description: 'Activity logs' },
+  { id: 'report-reviews', label: 'Report Reviews', icon: '✅', description: 'Review/approve reports sent to you' },
   { id: 'system-health', label: 'System Health', icon: '\u{1F4CA}', description: 'Server and system metrics' },
   { id: 'debug-traces', label: 'Debug Traces', icon: '\u{1F50D}', description: 'Pipeline debug trace viewer' },
   { id: 'filter-list', label: 'Filters', icon: '\u{1F50D}', description: 'Filter inventory by block' },

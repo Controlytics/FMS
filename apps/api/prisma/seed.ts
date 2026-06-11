@@ -70,6 +70,7 @@ async function main() {
         // Reports
         'REPORT_TEMPLATE_READ', 'REPORT_TEMPLATE_CREATE', 'REPORT_TEMPLATE_UPDATE', 'REPORT_TEMPLATE_DELETE',
         'REPORT_GENERATE', 'REPORT_VIEW', 'REPORT_SIGN', 'REPORT_DELETE', 'REPORT_EXPORT',
+        'REPORT_REVIEW_SUBMIT', 'REPORT_REVIEW', 'REPORT_APPROVE',
         // Audit / Versions (2026-05-02): SUPER_ADMIN gets cross-entity history viewer.
         // Other system roles do NOT — operators must be explicitly granted via Role Privileges.
         'VERSION_HISTORY_VIEW',
@@ -105,6 +106,7 @@ async function main() {
         // Reports
         'REPORT_TEMPLATE_READ', 'REPORT_TEMPLATE_CREATE', 'REPORT_TEMPLATE_UPDATE', 'REPORT_TEMPLATE_DELETE',
         'REPORT_GENERATE', 'REPORT_VIEW', 'REPORT_SIGN', 'REPORT_DELETE', 'REPORT_EXPORT',
+        'REPORT_REVIEW_SUBMIT', 'REPORT_REVIEW', 'REPORT_APPROVE',
       ],
       color: 'bg-gradient-to-r from-purple-500 to-indigo-500',
       isSystem: true,

@@ -2024,3 +2024,63 @@ model ReportSignature {
   @@index([userId])
   @@map("report_signatures")
 }
+
+// 3-stage review/approval workflow for AD-HOC PDF exports (Audit Trail, Filters,
+// Cleaning Cycles, etc. — generated via lib/pdf-report.ts). Because those reports
+// aren't otherwise persisted, "Send for Review" snapshots the rendered data here
+// so the reviewer/approver act on the exact content, and any later download
+// rebuilds the same PDF with Printed By / Reviewed By / Approved By.
+enum ReportReviewStatus {
+  PENDING_REVIEW
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+
+  @@map("report_review_status")
+}
+
+model ReportReview {
+  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reportType      String             @map("report_type") @db.VarChar(100) // reportKey (lib/report-types.ts)
+  title           String             @db.VarChar(500)
+  subtitle        String?            @db.VarChar(1000)
+  // Frozen snapshot of the rendered report: { orientation, columnStyles?, sections:[{title?, head, body}] }.
+  dataSnapshot    Json               @map("data_snapshot") @db.JsonB
+  status          ReportReviewStatus @default(PENDING_REVIEW)
+
+  // Stage 1 — generated (Printed By). *Name fields store the User ID (username).
+  generatedBy     String             @map("generated_by") @db.Uuid
+  generatedByName String             @map("generated_by_name") @db.VarChar(255)
+  generatedAt     DateTime           @default(now()) @map("generated_at") @db.Timestamptz
+
+  // Current-stage assignee — a specific user OR a whole role.
+  assigneeUserId  String?            @map("assignee_user_id") @db.Uuid
+  assigneeRole    String?            @map("assignee_role") @db.VarChar(50)
+
+  // Stage 2 — reviewed (Reviewed By).
+  reviewedBy      String?            @map("reviewed_by") @db.Uuid
+  reviewedByName  String?            @map("reviewed_by_name") @db.VarChar(255)
+  reviewedAt      DateTime?          @map("reviewed_at") @db.Timestamptz
+  reviewRemarks   String?            @map("review_remarks") @db.Text
+
+  // Stage 3 — approved (Approved By).
+  approvedBy      String?            @map("approved_by") @db.Uuid
+  approvedByName  String?            @map("approved_by_name") @db.VarChar(255)
+  approvedAt      DateTime?          @map("approved_at") @db.Timestamptz
+  approvalRemarks String?            @map("approval_remarks") @db.Text
+
+  // Rejection (either stage).
+  rejectionStage  String?            @map("rejection_stage") @db.VarChar(20) // REVIEW | APPROVAL
+  rejectedBy      String?            @map("rejected_by") @db.Uuid
+  rejectedByName  String?            @map("rejected_by_name") @db.VarChar(255)
+  rejectedAt      DateTime?          @map("rejected_at") @db.Timestamptz
+
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([status])
+  @@index([assigneeUserId])
+  @@index([assigneeRole])
+  @@index([generatedBy])
+  @@map("report_reviews")
+}

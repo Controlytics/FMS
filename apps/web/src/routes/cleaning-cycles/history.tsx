@@ -10,6 +10,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { createReport } from '../../lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
+import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { STATUS_LABELS } from '../filter-management/filter-list/constants';
 import type { CleaningCycle, FilterInstance, PaginatedResponse } from '../../types/filter';
 // Stage/dryer logic + column order live in a shared module so this list and the
@@ -129,24 +130,31 @@ export function CleaningCycleHistoryPage() {
         ];
       });
 
+  const buildHistoryReport = async () => {
+    if (cycles.length === 0) return null;
+    const period = fromDate || toDate
+      ? `${fromDate ? formatDateTime(fromDate) : 'Start'} to ${toDate ? formatDateTime(toDate) : 'Now'}`
+      : 'All Time';
+    const report = await createReport({ reportKey: 'cleaning-cycle-history',
+      title: ccL.title,
+      subtitle: ccL.subtitle || `Filter: ${selectedFilterName}  |  Status: ${status || 'All'}  |  Period: ${period}  |  Total: ${total} cycle(s)`,
+      orientation: 'landscape',
+      formatDateTime,
+      legend: [{ abbr: 'NA', meaning: 'Not Applicable (stage not in this cycle’s profile)' }],
+    });
+    report.addTable({ head: ccHead, body: buildCleaningRows(), columnStyles: { 0: { halign: 'center', cellWidth: 14 } } });
+    return report;
+  };
+
   const exportPdf = async () => {
-    if (cycles.length === 0) return;
     setDownloading(true);
     try {
-      const period = fromDate || toDate
-        ? `${fromDate ? formatDateTime(fromDate) : 'Start'} to ${toDate ? formatDateTime(toDate) : 'Now'}`
-        : 'All Time';
-      const report = await createReport({
-        title: ccL.title,
-        subtitle: ccL.subtitle || `Filter: ${selectedFilterName}  |  Status: ${status || 'All'}  |  Period: ${period}  |  Total: ${total} cycle(s)`,
-        orientation: 'landscape',
-        formatDateTime,
-        legend: [{ abbr: 'NA', meaning: 'Not Applicable (stage not in this cycle’s profile)' }],
-      });
-      report.addTable({ head: ccHead, body: buildCleaningRows(), columnStyles: { 0: { halign: 'center', cellWidth: 14 } } });
-      report.save(`cleaning-cycles-${selectedFilterName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.pdf`);
+      const report = await buildHistoryReport();
+      report?.save(`cleaning-cycles-${selectedFilterName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally { setDownloading(false); }
   };
+
+  const buildHistorySnapshot = async () => { const report = await buildHistoryReport(); return report ? report.getSnapshot() : null; };
 
   const exportExcel = async () => {
     if (cycles.length === 0) return;
@@ -175,8 +183,12 @@ export function CleaningCycleHistoryPage() {
             </div>
           </div>
           {canExportPdf && cycles.length > 0 && (
-            <ExportMenu surface="cleaning-record" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all disabled:opacity-40" />
+            <>
+              <ExportMenu surface="cleaning-record" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
+                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all disabled:opacity-40" />
+              <SendForReviewButton buildSnapshot={buildHistorySnapshot}
+                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all" />
+            </>
           )}
         </div>
 

@@ -12,6 +12,7 @@ import { retireOrReplaceFilter } from '@/lib/filter-lifecycle-actions';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
+import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import { Pagination } from '@/components/ui/pagination';
 import { themeGradientBr, themeButton } from '@/lib/theme-styles';
@@ -1204,10 +1205,10 @@ export function FilterListPage() {
     exportToExcel({ filename: `${safeName}-filters`, sheetName: 'Filters', head: headers, rows: body });
   };
 
-  const exportFiltersPdf = async () => {
+  const buildFiltersReport = async () => {
     const { headers, body, safeName } = buildFiltersExport();
-    if (body.length === 0) return;
-    const report = await createReport({
+    if (body.length === 0) return null;
+    const report = await createReport({ reportKey: 'filters',
       title: 'Filters',
       subtitle: `Block: ${selectedBlockName || 'All'}  |  Total: ${body.length} filter(s)`,
       orientation: 'landscape',
@@ -1219,8 +1220,15 @@ export function FilterListPage() {
       body: body.map((r) => r.map((c) => String(c))),
       columnStyles: { 0: { halign: 'center', cellWidth: 14 } },
     });
-    report.save(`${safeName}-filters.pdf`);
+    return { report, safeName };
   };
+
+  const exportFiltersPdf = async () => {
+    const built = await buildFiltersReport();
+    built?.report.save(`${built.safeName}-filters.pdf`);
+  };
+
+  const buildFiltersSnapshot = async () => { const built = await buildFiltersReport(); return built ? built.report.getSnapshot() : null; };
 
   // Navigate from diagram node to filters tab
   const navigateFromDiagram = (type: 'block' | 'area' | 'ahu' | 'filter', id: string, name: string) => {
@@ -1485,8 +1493,12 @@ export function FilterListPage() {
             {/* Action group — Export · Create Filter · Bulk Upload kept adjacent */}
             <div className="flex items-center gap-2">
               {blockFilters.length > 0 && (
-                <ExportMenu surface="filters" onExportPdf={exportFiltersPdf} onExportExcel={exportFiltersExcel}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-sm transition-all" />
+                <>
+                  <ExportMenu surface="filters" onExportPdf={exportFiltersPdf} onExportExcel={exportFiltersExcel}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-sm transition-all" />
+                  <SendForReviewButton buildSnapshot={buildFiltersSnapshot}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-sm transition-all" />
+                </>
               )}
               {canCreateFilter && bulkUploadAhus.length > 0 && (
                 <button onClick={openCreateFilter}

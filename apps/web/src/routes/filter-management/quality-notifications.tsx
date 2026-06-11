@@ -4,6 +4,7 @@ import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { createReport } from '../../lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
+import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { api } from '../../lib/api-client';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { useReportLabels } from '../../hooks/use-report-labels';
@@ -61,20 +62,27 @@ export function QualityNotificationsPage() {
     return { body, period, total: all.total };
   };
 
+  const buildQnnReport = async () => {
+    const r = await buildExport();
+    const report = await createReport({ reportKey: 'quality-notifications',
+      title: L.title,
+      subtitle: L.subtitle || `Period: ${r.period}  |  Total: ${r.total} notification(s)`,
+      orientation: 'landscape',
+      formatDateTime,
+    });
+    report.addTable({ head: headLabels, body: r.body, columnStyles: { 0: { halign: 'center', cellWidth: 14 }, 4: { cellWidth: 60 } } });
+    return report;
+  };
+
   const exportPdf = async () => {
     setDownloading(true);
     try {
-      const r = await buildExport();
-      const report = await createReport({
-        title: L.title,
-        subtitle: L.subtitle || `Period: ${r.period}  |  Total: ${r.total} notification(s)`,
-        orientation: 'landscape',
-        formatDateTime,
-      });
-      report.addTable({ head: headLabels, body: r.body, columnStyles: { 0: { halign: 'center', cellWidth: 14 }, 4: { cellWidth: 60 } } });
+      const report = await buildQnnReport();
       report.save(`quality-notifications-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally { setDownloading(false); }
   };
+
+  const buildQnnSnapshot = async () => (await buildQnnReport()).getSnapshot();
 
   const exportExcel = async () => {
     setDownloading(true);
@@ -107,8 +115,12 @@ export function QualityNotificationsPage() {
               <p className="text-[13px] text-slate-500">{L.subtitle || 'Quality Notifications (QNN) minted by the PM approval workflow'}</p>
             </div>
             {total > 0 && (
-              <ExportMenu surface="qnn" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-700 transition-colors disabled:opacity-50" />
+              <>
+                <ExportMenu surface="qnn" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-700 transition-colors disabled:opacity-50" />
+                <SendForReviewButton buildSnapshot={buildQnnSnapshot}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-slate-700 border border-slate-200 bg-white hover:bg-slate-50" />
+              </>
             )}
           </div>
           <div className="mt-3 flex flex-wrap items-end gap-2">
@@ -120,7 +132,7 @@ export function QualityNotificationsPage() {
             </label>
           </div>
         </div>
-
+  
         <div className="flex-1 overflow-auto px-6 py-4">
           {isLoading ? (
             <div className="text-center text-slate-400 py-12">Loading…</div>

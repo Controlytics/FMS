@@ -6,6 +6,7 @@ import { apiClient } from '@/lib/api-client';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
+import { SendForReviewButton } from '@/components/SendForReviewButton';
 
 interface DeviationRow {
   id: string;
@@ -128,23 +129,30 @@ export function DeviationsPage() {
     return { body, period, total: filtered.length };
   };
 
+  const buildDeviationsReport = async () => {
+    const r = await buildDeviationsExport();
+    if (!r) return null;
+    const report = await createReport({ reportKey: 'deviations',
+      title: 'Deviations Report',
+      subtitle: `Status: ${status === 'ALL' ? 'All' : STATUS_META[status as DeviationRow['status']]?.label ?? status}  |  Period: ${r.period}  |  Total: ${r.total} deviation(s)`,
+      orientation: 'landscape',
+      formatDateTime,
+    });
+    report.addTable({ head: HEAD, body: r.body, headColor: [225, 29, 72] });
+    return report;
+  };
+
   const exportPdf = async () => {
     setDownloading(true); setDownloadMsg('');
     try {
-      const r = await buildDeviationsExport();
-      if (!r) return;
-      const report = await createReport({
-        title: 'Deviations Report',
-        subtitle: `Status: ${status === 'ALL' ? 'All' : STATUS_META[status as DeviationRow['status']]?.label ?? status}  |  Period: ${r.period}  |  Total: ${r.total} deviation(s)`,
-        orientation: 'landscape',
-        formatDateTime,
-      });
-      report.addTable({ head: HEAD, body: r.body, headColor: [225, 29, 72] });
-      report.save(`deviations-${new Date().toISOString().slice(0, 10)}.pdf`);
+      const report = await buildDeviationsReport();
+      report?.save(`deviations-${new Date().toISOString().slice(0, 10)}.pdf`);
     } catch (e: any) {
       setDownloadMsg(e?.message ?? 'Failed to generate the report.');
     } finally { setDownloading(false); }
   };
+
+  const buildDeviationsSnapshot = async () => { const report = await buildDeviationsReport(); return report ? report.getSnapshot() : null; };
 
   const exportExcel = async () => {
     setDownloading(true); setDownloadMsg('');
@@ -205,6 +213,8 @@ export function DeviationsPage() {
               className="border border-slate-200 rounded-lg px-2 py-1 text-[12px] text-slate-700 focus:border-rose-400 focus:ring-2 focus:ring-rose-100 outline-none" />
             <ExportMenu surface="deviations" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-gradient-to-r from-rose-500 to-rose-600 shadow-sm shadow-rose-600/20 disabled:opacity-50" />
+            <SendForReviewButton buildSnapshot={buildDeviationsSnapshot}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 border border-slate-200 bg-white hover:bg-slate-50" />
           </div>
         </div>
         {downloadMsg && <div className="mt-2 text-[12px] text-rose-600">{downloadMsg}</div>}

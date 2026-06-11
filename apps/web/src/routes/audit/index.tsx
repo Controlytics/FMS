@@ -20,6 +20,7 @@ import { AuditDeleteDialog } from './components/audit-delete-dialog';
 import { createReport } from '../../lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
+import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { useReportLabels } from '../../hooks/use-report-labels';
 
 const AUDIT_COLS = ['timestamp', 'action', 'user', 'role', 'targetType', 'description', 'ipAddress'];
@@ -198,20 +199,32 @@ export function AuditTrailPage() {
     return { body, period, total: records.length };
   };
 
-  const exportPdf = async () => {
+  // Builds the audit report doc (shared by Download PDF + Send for Review).
+  const buildAuditReport = async () => {
     const r = buildAuditExport();
-    if (!r) return;
+    if (!r) return null;
+    const report = await createReport({ reportKey: 'audit-trail',
+      title: auditL.title,
+      subtitle: auditL.subtitle || `Period: ${r.period}${search ? `  |  Search: "${search}"` : ''}  |  Total: ${r.total} record(s)  |  21 CFR Part 11 Compliant`,
+      orientation: 'landscape',
+      formatDateTime,
+    });
+    report.addTable({ head: auditHead, body: r.body, columnStyles: { 0: { cellWidth: 35 }, 5: { cellWidth: 65 } } });
+    return report;
+  };
+
+  const exportPdf = async () => {
     setDownloading(true);
     try {
-      const report = await createReport({
-        title: auditL.title,
-        subtitle: auditL.subtitle || `Period: ${r.period}${search ? `  |  Search: "${search}"` : ''}  |  Total: ${r.total} record(s)  |  21 CFR Part 11 Compliant`,
-        orientation: 'landscape',
-        formatDateTime,
-      });
-      report.addTable({ head: auditHead, body: r.body, columnStyles: { 0: { cellWidth: 35 }, 5: { cellWidth: 65 } } });
-      report.save(`audit-trail-${new Date().toISOString().slice(0, 10)}.pdf`);
+      const report = await buildAuditReport();
+      report?.save(`audit-trail-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally { setDownloading(false); }
+  };
+
+  // Snapshot for the review workflow — same build, captured instead of saved.
+  const buildAuditSnapshot = async () => {
+    const report = await buildAuditReport();
+    return report ? report.getSnapshot() : null;
   };
 
   const exportExcel = async () => {
@@ -246,8 +259,11 @@ export function AuditTrailPage() {
             </div>
           )}
           {canExport && (data?.data?.length ?? 0) > 0 && (
-            <ExportMenu surface="audit" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors disabled:opacity-40" />
+            <>
+              <ExportMenu surface="audit" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
+                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors disabled:opacity-40" />
+              <SendForReviewButton buildSnapshot={buildAuditSnapshot} />
+            </>
           )}
         </div>
       </div>

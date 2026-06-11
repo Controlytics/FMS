@@ -33,6 +33,7 @@ import { UserIdConfigPage } from './routes/config/user-id';
 import { AccessMatrixPage } from './routes/config/access-matrix';
 import { ExportOptionsPage } from './routes/config/export-options';
 import { ReplacementScheduleFiltersPage } from './routes/config/replacement-schedule-filters';
+import { ReportSignatoriesPage } from './routes/config/report-signatories';
 import { OfflineCacheConfigPage } from './routes/config/offline-cache';
 import { BackupRestorePage } from './routes/config/backup';
 import { DynamicConfigPage } from './routes/config/dynamic-config';
@@ -49,6 +50,7 @@ import './app.css';
 // FilterOperationsPage + AuditTrailPage added 2026-05-20 (May 16 H18 fix).
 const FilterOperationsPage = lazy(() => import('./routes/filter-management/filter-operations').then(m => ({ default: m.FilterOperationsPage })));
 const AuditTrailPage = lazy(() => import('./routes/audit/index').then(m => ({ default: m.AuditTrailPage })));
+const ReportReviewsPage = lazy(() => import('./routes/report-reviews/index').then(m => ({ default: m.ReportReviewsPage })));
 const UnsConfigPage = lazy(() => import('./routes/config/uns').then(m => ({ default: m.UnsConfigPage })));
 const HelpArticlesPage = lazy(() => import('./routes/config/help').then(m => ({ default: m.HelpArticlesPage })));
 const RetentionConfigPage = lazy(() => import('./routes/config/retention').then(m => ({ default: m.RetentionConfigPage })));
@@ -194,6 +196,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/access-matrix" element={<RequireRole roles={['SUPER_ADMIN']}><AccessMatrixPage /></RequireRole>} />
             <Route path="/config/export-options" element={<RequireRole roles={['SUPER_ADMIN']}><ExportOptionsPage /></RequireRole>} />
             <Route path="/config/replacement-schedule-filters" element={<RequireRole roles={['SUPER_ADMIN']}><ReplacementScheduleFiltersPage /></RequireRole>} />
+            <Route path="/config/report-signatories" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><ReportSignatoriesPage /></RequireRole>} />
             <Route path="/config/offline-cache" element={<RequireRole roles={['SUPER_ADMIN']}><OfflineCacheConfigPage /></RequireRole>} />
             <Route path="/config/action-reauth" element={<RequireRole roles={['SUPER_ADMIN']}><ActionReauthPage /></RequireRole>} />
             <Route path="/config/audit-templates" element={<RequireRole roles={['SUPER_ADMIN']}><AuditTemplatesConfigPage /></RequireRole>} />
@@ -262,6 +265,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/deviations" element={<RequireRole permissions={[PERMISSIONS.PM_READ, PERMISSIONS.PM_APPROVE]}><Suspense fallback={<LazyFallback />}><DeviationsPage /></Suspense></RequireRole>} />
             <Route path="/ahus/:id" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AhuDashboardPage /></Suspense></RequireRole>} />
             <Route path="/audit" element={<RequireRole permissions={[PERMISSIONS.AUDIT_READ]}><AuditTrailPage /></RequireRole>} />
+            <Route path="/report-reviews" element={<RequireRole permissions={[PERMISSIONS.REPORT_REVIEW_SUBMIT, PERMISSIONS.REPORT_REVIEW, PERMISSIONS.REPORT_APPROVE]}><ReportReviewsPage /></RequireRole>} />
             <Route path="/admin-requests" element={<RequireRole permissions={[PERMISSIONS.ADMIN_REQUEST_REVIEW]}><Suspense fallback={<LazyFallback />}><AdminRequestsPage /></Suspense></RequireRole>} />
 
             {/* Report Templates + Generated Reports removed from the application (2026-06-08). */}

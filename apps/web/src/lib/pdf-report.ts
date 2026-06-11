@@ -58,17 +58,32 @@ async function loadBranding(): Promise<{ companyName: string; appName: string }>
   }
 }
 
-/** Current user's display name, for the app-wide "Printed by" footer stamp. */
-async function loadCurrentUser(): Promise<string | null> {
+/** Current user's User ID (username) + role, for the report footer stamp. The
+ *  role decides which signature LABEL is used (config → Report Signatories). */
+async function loadCurrentUser(): Promise<{ username: string | null; role: string | null }> {
   try {
     const base = (import.meta as any).env?.VITE_API_URL ?? '';
     const token = sessionStorage.getItem('access_token');
     const res = await fetch(`${base}/api/auth/me`, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
-    if (!res.ok) return null;
+    if (!res.ok) return { username: null, role: null };
     const data = await res.json();
     const u = data?.user ?? data;
-    // Show the user ID (username), not the full name, in the "Printed By" stamp.
-    return u?.username || null;
+    return { username: u?.username || null, role: u?.role || null };
+  } catch { return { username: null, role: null }; }
+}
+
+type SignatoryMap = Record<string, Record<string, string>>; // roleName -> reportKey -> label
+
+/** Per-role, per-report signature LABEL (Printed By / Reviewed By / Approved By).
+ *  The generator's role + the report decide which label prints before their User
+ *  ID. Keyed role -> reportKey. Null on failure → footer falls back to "Printed By". */
+async function loadSignatories(): Promise<SignatoryMap | null> {
+  try {
+    const base = (import.meta as any).env?.VITE_API_URL ?? '';
+    const token = sessionStorage.getItem('access_token');
+    const res = await fetch(`${base}/api/config/report-signatories/resolved`, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
+    if (!res.ok) return null;
+    return await res.json() as SignatoryMap;
   } catch { return null; }
 }
 
@@ -77,6 +92,14 @@ export interface ReportConfig {
   subtitle?: string;
   orientation?: 'portrait' | 'landscape';
   formatDateTime: (d: string) => string;
+  /** Stable report key (see lib/report-types.ts) used to look up this report's
+   *  configured Printed/Reviewed/Approved By roles. Omit to keep just the
+   *  default "Printed By: <generator>" footer. */
+  reportKey?: string;
+  /** Explicit signature lines (Printed/Reviewed/Approved By + User ID). When
+   *  set, these REPLACE the role-based single line — used when re-rendering an
+   *  approved report from a snapshot so all three signatures print. */
+  signatures?: { label: string; value: string }[];
   /** Optional abbreviation key. Rendered as a "Legend" on the last page (above
    *  the Printed By stamp). Pass the shortcut words used in the report body
    *  (e.g. NA = Not Applicable). Omitted when empty. */
@@ -101,10 +124,23 @@ export interface ReportDoc {
   /** Force a fresh page and reset the cursor to the top margin. */
   newPage: () => void;
   save: (filename: string) => void;
+  /** Frozen snapshot of the rendered tables/titles — used by "Send for Review"
+   *  to persist the report so it can be re-rendered identically later. */
+  getSnapshot: () => ReportSnapshot;
+}
+
+export interface ReportSnapshot {
+  reportType?: string;
+  title: string;
+  subtitle?: string;
+  orientation?: 'portrait' | 'landscape';
+  sections: { title?: string; head: string[]; body: string[][]; columnStyles?: Record<number, any> }[];
 }
 
 export async function createReport(config: ReportConfig): Promise<ReportDoc> {
-  const [logo, branding, printedBy] = await Promise.all([loadLogo(), loadBranding(), loadCurrentUser()]);
+  const [logo, branding, me, signatories] = await Promise.all([loadLogo(), loadBranding(), loadCurrentUser(), loadSignatories()]);
+  // Labels configured for the generator's role (reportKey -> label), if any.
+  const sig = me.role ? (signatories ?? {})[me.role] : undefined;
   const printedAt = config.formatDateTime(new Date().toISOString());
   const doc = new jsPDF({ orientation: config.orientation ?? 'portrait', unit: 'mm', format: 'a4' });
   const pw = doc.internal.pageSize.width;
@@ -186,9 +222,21 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       : '';
     const legendLines = legendText ? (doc.splitTextToSize(legendText, pw - 28) as string[]) : [];
 
+    // Signature lines. Explicit `config.signatures` (re-render from an approved
+    // snapshot) win — they carry the full Printed/Reviewed/Approved By chain.
+    // Otherwise a single line whose label is chosen per role × per report
+    // (config → Report Signatories) by the current generator.
+    let sigLines: string[];
+    if (config.signatures?.length) {
+      sigLines = config.signatures.map((s) => `${s.label}: ${s.value}`);
+    } else {
+      const sigLabel = (config.reportKey ? (sig?.[config.reportKey] ?? '').trim() : '') || 'Printed By';
+      sigLines = [`${sigLabel}: ${me.username ?? '-'}`];
+    }
+
     const remarksH = 4 + 22 + 3;                         // label + box + gap
     const legendH = legendLines.length ? legendLines.length * 3.6 + 3 : 0;
-    const printedH = 7;
+    const printedH = 4 + sigLines.length * 4.5;
     const blockH = remarksH + legendH + printedH;
 
     const footerLineY = ph - 12;
@@ -211,11 +259,11 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       doc.text(legendLines, 14, by + 2.5);
       by += legendLines.length * 3.6 + 3;
     }
-    // Printed By + Printed Date & Time
+    // Signatory block (one line each) + Printed Date & Time on the first line.
     doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.2);
     doc.line(14, by, pw - 14, by);
     doc.setFontSize(7.5); doc.setTextColor(...COLORS.text);
-    doc.text(`Printed By: ${printedBy ?? '-'}`, 14, by + 4.5);
+    sigLines.forEach((line, i) => doc.text(line, 14, by + 4.5 + i * 4.5));
     doc.text(`Printed Date & Time: ${printedAt}`, pw - 14, by + 4.5, { align: 'right' });
   };
 
@@ -227,6 +275,11 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   // page in the lifecycle report).
   const newPage = () => { doc.addPage(); y = 14; };
 
+  // Snapshot capture — every section title + table is recorded so the report
+  // can be re-rendered later (Send for Review).
+  const snapSections: ReportSnapshot['sections'] = [];
+  let pendingTitle: string | undefined;
+
   const addSectionTitle = (text: string) => {
     checkPageBreak(10);
     doc.setFillColor(...COLORS.headerBg);
@@ -234,9 +287,12 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     doc.setFontSize(9); doc.setTextColor(...COLORS.primary);
     doc.text(text, 17, y + 4);
     y += 10;
+    pendingTitle = text;
   };
 
   const addTable = (opts: { head: string[]; body: string[][]; columnStyles?: Record<number, any>; headColor?: [number, number, number] }) => {
+    snapSections.push({ title: pendingTitle, head: opts.head, body: opts.body, columnStyles: opts.columnStyles });
+    pendingTitle = undefined;
     checkPageBreak(20);
     autoTable(doc, {
       startY: y,
@@ -273,5 +329,36 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     pw, ph, colors: COLORS,
     addTable, addSectionTitle, addKeyValue, checkPageBreak, newPage,
     save: (filename: string) => { addEndBlock(); addFooters(); doc.save(filename); },
+    getSnapshot: (): ReportSnapshot => ({
+      reportType: config.reportKey,
+      title: config.title,
+      subtitle: config.subtitle,
+      orientation: config.orientation,
+      sections: snapSections,
+    }),
   };
+}
+
+/**
+ * Re-render a persisted report snapshot to a PDF with explicit signature lines
+ * (Printed By / Reviewed By / Approved By). Used to download an APPROVED report.
+ */
+export async function renderSnapshotToPdf(
+  snapshot: ReportSnapshot,
+  signatures: { label: string; value: string }[],
+  formatDateTime: (d: string) => string,
+  filename: string,
+): Promise<void> {
+  const report = await createReport({
+    title: snapshot.title,
+    subtitle: snapshot.subtitle,
+    orientation: snapshot.orientation,
+    formatDateTime,
+    signatures,
+  });
+  for (const s of snapshot.sections) {
+    if (s.title) report.addSectionTitle(s.title);
+    report.addTable({ head: s.head, body: s.body, columnStyles: s.columnStyles });
+  }
+  report.save(filename);
 }

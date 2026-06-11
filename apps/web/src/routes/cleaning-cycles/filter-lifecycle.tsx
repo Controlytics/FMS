@@ -8,6 +8,7 @@ import { CycleDetailView } from './cycle-detail-view';
 import { appendCycleDetailToReport } from './cycle-detail-pdf';
 import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
+import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { effectiveCycleStatus } from '../../lib/cleaning-cycle-report';
 
 // Lightweight shapes for the hierarchy dropdown rows (the /api/hierarchy/*
@@ -333,8 +334,8 @@ export function FilterLifecycleReportPage() {
     ? `Period: ${fromDate ? formatDate(fromDate) : 'Start'} → ${toDate ? formatDate(toDate) : 'Now'}`
     : 'Period: All Time';
 
-  const handleDownload = async () => {
-    if (!filtersInScope.length) return;
+  const handleDownload = async (asSnapshot = false): Promise<import('@/lib/pdf-report').ReportSnapshot | null> => {
+    if (!filtersInScope.length) return null;
     setDownloading(true);
     setProgress(null);
     setDownloadMsg(null);
@@ -349,13 +350,13 @@ export function FilterLifecycleReportPage() {
       const flat = groups.flatMap((g) => g.summaries.map((s) => s.id as string));
       const totalCycles = flat.length;
       const totalEvents = groups.reduce((n, g) => n + g.events.length, 0);
-      if (totalCycles === 0 && totalEvents === 0) { setDownloadMsg('No cleaning cycles or lifecycle events found for this selection and period.'); return; }
+      if (totalCycles === 0 && totalEvents === 0) { setDownloadMsg('No cleaning cycles or lifecycle events found for this selection and period.'); return null; }
       if (totalCycles > MAX_CYCLES) {
         setDownloadMsg(`This selection has ${totalCycles} cycles — too many for a full-detail PDF (limit ${MAX_CYCLES}). Narrow the period or pick a smaller scope (a single AHU or filter).`);
-        return;
+        return null;
       }
       if (totalCycles > WARN_CYCLES && !window.confirm(`This will generate a full-detail report for ${totalCycles} cycles (one section each — a large PDF that may take a minute). Continue?`)) {
-        return;
+        return null;
       }
 
       // 2. Fetch full detail for every cycle with bounded concurrency.
@@ -373,7 +374,7 @@ export function FilterLifecycleReportPage() {
 
       // 3. Build the grouped report. Each cycle on its own page; the filter's
       //    lifecycle events (retire/replace) get their own page after its cycles.
-      const report = await createReport({
+      const report = await createReport({ reportKey: 'cleaning-lifecycle',
         title: `${scopeLabel} — Cleaning Lifecycle Report`,
         subtitle: periodLine,
         orientation: 'portrait',
@@ -405,15 +406,20 @@ export function FilterLifecycleReportPage() {
           });
         }
       }
+      if (asSnapshot) return report.getSnapshot();
       const safeScope = scopeLabel.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '') || 'scope';
       report.save(`lifecycle-${safeScope}.pdf`);
+      return null;
     } catch (e: any) {
       setDownloadMsg(e?.message ?? 'Report generation failed.');
+      return null;
     } finally {
       setDownloading(false);
       setProgress(null);
     }
   };
+
+  const buildLifecycleSnapshot = () => handleDownload(true);
 
   // Excel = one flat sheet, one row per cleaning cycle across the scope (cheap
   // summaries pass — no per-cycle full-detail fetch).
@@ -467,9 +473,13 @@ export function FilterLifecycleReportPage() {
             </div>
           </div>
           {canExportPdf && filtersInScope.length > 0 && (
-            <ExportMenu surface="lifecycle" onExportPdf={handleDownload} onExportExcel={exportExcel}
-              busy={downloading}
-              className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg text-[13px] font-semibold hover:bg-cyan-700 shadow-sm transition-all disabled:opacity-40 shrink-0" />
+            <>
+              <ExportMenu surface="lifecycle" onExportPdf={() => handleDownload(false)} onExportExcel={exportExcel}
+                busy={downloading}
+                className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg text-[13px] font-semibold hover:bg-cyan-700 shadow-sm transition-all disabled:opacity-40 shrink-0" />
+              <SendForReviewButton buildSnapshot={buildLifecycleSnapshot}
+                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-[13px] font-semibold hover:bg-slate-50 shadow-sm transition-all shrink-0" />
+            </>
           )}
         </div>
 

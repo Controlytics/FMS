@@ -166,6 +166,10 @@ export const PERMISSIONS = {
   REPORT_SIGN: 'REPORT_SIGN',
   REPORT_DELETE: 'REPORT_DELETE',
   REPORT_EXPORT: 'REPORT_EXPORT',
+  // Report review/approval workflow (2026-06-11)
+  REPORT_REVIEW_SUBMIT: 'REPORT_REVIEW_SUBMIT', // send a generated report for review
+  REPORT_REVIEW: 'REPORT_REVIEW',               // act on the review (stage 2)
+  REPORT_APPROVE: 'REPORT_APPROVE',             // act on the approval (stage 3)
 
   // Admin Requests (2026-05-04 — review C4): own permission so the
   // 'admin_requests.view' privilege does NOT need USER_CREATE. Earlier

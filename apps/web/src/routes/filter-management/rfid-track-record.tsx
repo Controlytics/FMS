@@ -4,6 +4,7 @@ import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { createReport } from '../../lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
+import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { api } from '../../lib/api-client';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { useReportLabels } from '../../hooks/use-report-labels';
@@ -69,20 +70,27 @@ export function RfidTrackRecordPage() {
     return { body, period, total: all.total };
   };
 
+  const buildRfidReport = async () => {
+    const r = await buildRfidExport();
+    const report = await createReport({ reportKey: 'rfid-track-record',
+      title: L.title,
+      subtitle: L.subtitle || `Period: ${r.period}  |  Total: ${r.total} event(s)`,
+      orientation: 'landscape',
+      formatDateTime,
+    });
+    report.addTable({ head: headLabels, body: r.body });
+    return report;
+  };
+
   const exportPdf = async () => {
     setDownloading(true);
     try {
-      const r = await buildRfidExport();
-      const report = await createReport({
-        title: L.title,
-        subtitle: L.subtitle || `Period: ${r.period}  |  Total: ${r.total} event(s)`,
-        orientation: 'landscape',
-        formatDateTime,
-      });
-      report.addTable({ head: headLabels, body: r.body });
+      const report = await buildRfidReport();
       report.save(`rfid-track-record-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally { setDownloading(false); }
   };
+
+  const buildRfidSnapshot = async () => (await buildRfidReport()).getSnapshot();
 
   const exportExcel = async () => {
     setDownloading(true);
@@ -104,8 +112,12 @@ export function RfidTrackRecordPage() {
               <p className="text-[13px] text-slate-500">{L.subtitle || 'Complete assign / remove lifecycle history of RFID tags'}</p>
             </div>
             {total > 0 && (
-              <ExportMenu surface="rfid-track-record" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-700 transition-colors disabled:opacity-50" />
+              <>
+                <ExportMenu surface="rfid-track-record" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-700 transition-colors disabled:opacity-50" />
+                <SendForReviewButton buildSnapshot={buildRfidSnapshot}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-slate-700 border border-slate-200 bg-white hover:bg-slate-50" />
+              </>
             )}
           </div>
           {/* Filters */}
