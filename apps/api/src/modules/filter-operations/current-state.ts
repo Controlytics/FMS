@@ -30,8 +30,38 @@ import {
   isInterlockStage,
   getApproverRoleForStage,
   getLatestApproval,
+  collectFilterApprovalDetails,
+  requestStageApprovalTx,
+  notifyStageApprovalRequested,
 } from './stage-interlock.js';
 import type { FilterOperationsService } from './filter-operations.service.js';
+
+/**
+ * Resolve the operator who performed a gated stage, for attributing a lazily
+ * self-healed stage approval (see getCurrentStateImpl). Prefers the
+ * STATE_TRANSITION into the stage; falls back to the cycle starter. Returns an
+ * empty sub when no event is found (caller skips the self-heal — we won't
+ * fabricate an approval we can't attribute, since requestedBy must be a real
+ * user for segregation-of-duties to mean anything).
+ */
+async function resolveStagePerformer(cycleId: string, stageKey: string): Promise<{ sub: string; name: string }> {
+  const entry = await prisma.filterEvent.findFirst({
+    where: { cycleId, eventType: 'STATE_TRANSITION', toState: stageKey },
+    orderBy: { performedAt: 'desc' },
+    select: { performedBy: true },
+  });
+  const starter = entry
+    ? null
+    : await prisma.filterEvent.findFirst({
+        where: { cycleId, eventType: 'CYCLE_STARTED' },
+        orderBy: { performedAt: 'desc' },
+        select: { performedBy: true },
+      });
+  const sub = entry?.performedBy ?? starter?.performedBy ?? '';
+  if (!sub) return { sub: '', name: 'unknown' };
+  const u = await prisma.user.findUnique({ where: { id: sub }, select: { username: true } });
+  return { sub, name: u?.username ?? 'unknown' };
+}
 
 /**
  * Batch: get current-state for all active filters in the user's org.
@@ -97,8 +127,45 @@ export async function getCurrentStateImpl(
   const interlockGatedHere = interlockConfig.enabled && isInterlockStage(interlockStateKey);
   let interlockLatest: { id: string; status: string } | null = null;
   if (interlockGatedHere && currentCycle) {
-    const row = await getLatestApproval(currentCycle.id, interlockStateKey as string);
+    const stageKey = interlockStateKey as string;
+    const row = await getLatestApproval(currentCycle.id, stageKey);
     interlockLatest = row ? { id: row.id, status: row.status } : null;
+
+    // Self-heal: a filter parked at a gated stage with NO approval means the
+    // interlock was enabled AFTER it advanced into the stage (advance.ts never
+    // created the approval). Lazily create the PENDING approval now so it shows
+    // in the approver inbox instead of dead-ending the operator. Attributed to
+    // the operator who actually performed the stage (from the event log), NOT the
+    // poller — so segregation-of-duties (approver ≠ performer) still holds. Runs
+    // under the same FOR UPDATE lock advance uses, so concurrent polls / an
+    // in-flight advance can't create duplicate PENDINGs. Fires once: later polls
+    // see the PENDING and skip. (Also runs during getBatchStates warmup.)
+    if (!interlockLatest) {
+      const performer = await resolveStagePerformer(currentCycle.id, stageKey);
+      if (performer.sub) {
+        const snapshot = await collectFilterApprovalDetails(filterId);
+        const approverRole = getApproverRoleForStage(stageKey, interlockConfig);
+        const created = await prisma.$transaction(async (tx) => {
+          await tx.$queryRaw`SELECT 1 FROM filter_details WHERE asset_instance_id = ${filterId}::uuid FOR UPDATE`;
+          return requestStageApprovalTx(tx, {
+            cycleId: currentCycle!.id,
+            filterId,
+            stageKey,
+            approverRole,
+            detailsSnapshot: snapshot,
+            ctx: { ...ctx, userSub: performer.sub, userId: performer.name },
+          });
+        });
+        if (created) {
+          interlockLatest = { id: created.id, status: 'PENDING' };
+          await notifyStageApprovalRequested(
+            { id: created.id, filterId, stageKey, approverRole },
+            snapshot.filterName,
+            ctx,
+          );
+        }
+      }
+    }
   }
   const interlockBlocksLeaving = interlockGatedHere && interlockLatest?.status !== 'APPROVED';
   const interlock = interlockGatedHere

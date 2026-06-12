@@ -158,6 +158,20 @@ start-cycle · advance (both gates + block) · submit-checklist (CHECKLIST betwe
 and next) · bypass (must respect interlock) · terminate · current-state · offline replay ·
 mobile + web operator UI · reports/Cleaning Record · audit-trail rendering · notifications.
 
+## CLOSED GAP — enable-while-mid-stage (fixed 2026-06-12)
+Enabling the interlock while filters were ALREADY parked at WASH_OUT/DRY_OUT stranded them (gate
+blocks, but no PENDING approval existed to sign). FIXED: current-state.ts now lazily self-heals —
+when a gated filter has interlock enabled + no approval for (cycle, stage), it creates the PENDING
+approval (+ notifies the approver role), attributed to the REAL operator who performed the stage
+(resolveStagePerformer reads the STATE_TRANSITION-into-stage event, falls back to cycle starter) so
+segregation-of-duties still holds. Race-safe via the same `SELECT … FOR UPDATE` on filter_details
+that advance uses. Idempotent (later polls see the PENDING and skip). Runs in single + batch
+getCurrentState. VERIFIED against live parked filter L1/AHu-01/03: 0→1 PENDING, requestedBy=101114,
+forRole=SUPERVISOR notification fired, 2nd poll no duplicate. Skips self-heal when no performer
+event is found (won't fabricate an unattributable approval).
+Note: config was briefly clobbered to enabled=false by test psql writes during verification
+(re-enabled 2026-06-12, approver=SUPERVISOR). Notifications deliver to the approver ROLE only.
+
 ## Risks / edge cases
 1. Offline: interlock = online-only checkpoint. Queued advance-out-of-stage must NOT poison
    the offline queue — it should hold gracefully and surface "needs connectivity".
