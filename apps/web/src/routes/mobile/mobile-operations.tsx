@@ -37,6 +37,7 @@ import type { PendingChecklistBatchItem } from '@/lib/filter-ops';
 // authoritative. All dialog state lives in core.dialogState; all writes
 // go through core.dispatch / core.advance / core.startAndAdvance / core.submitChecklist.
 import { useFilterOperationsCore } from '@/lib/filter-ops/use-core';
+import { prettyStage as interlockStageLabel } from '@/lib/stage-approval';
 
 import { CLEANING_STAGES_MOBILE as STAGES } from '@/lib/filter-constants';
 
@@ -130,6 +131,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     pinnedVersion: number;
     liveVersion: number;
     recommendation: 'CONTINUE_OR_TERMINATE_AND_RESTART';
+  } | null>(null);
+  // Stage interlock — current stage (Wash Out / Dry Out) awaiting QA approval.
+  const [interlock, setInterlock] = useState<{
+    gatedStage: boolean; stageKey: string | null; status: string | null;
+    approvalId: string | null; approverRole: string | null; blocksLeaving: boolean;
   } | null>(null);
 
   // RFID scan input ref + focus management. autoFocus only fires once on mount,
@@ -1298,6 +1304,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // the server reported one. Online responses include it; offline-built
       // state does not, so this clears any stale value when offline.
       setEquipmentGroupSyncWarning(state.equipmentGroupSyncWarning ?? null);
+      setInterlock(state.interlock ?? null);
 
       // Block duplicate submission
       const currentLifecycle = state.currentState;
@@ -2190,6 +2197,21 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             className="px-3 py-1 bg-amber-100 hover:bg-amber-200 rounded-lg text-xs font-semibold whitespace-nowrap">
             Reconnect
           </button>
+        </div>
+      )}
+      {/* Stage interlock — paused awaiting QA approval (server already removed the
+          advance action; this explains why). */}
+      {interlock?.blocksLeaving && view === 'stage' && (
+        <div className="mx-4 mt-2 px-4 py-3 bg-amber-50 border border-amber-300 rounded-xl text-sm text-amber-800 flex items-start gap-2">
+          <span className="text-base leading-none">🛡️</span>
+          <div>
+            <div className="font-semibold">{interlockStageLabel(interlock.stageKey)} awaiting QA approval</div>
+            <div className="text-amber-700 mt-0.5 text-[13px]">
+              {interlock.status === 'REJECTED'
+                ? 'Rejected — the filter has been sent back for re-cleaning.'
+                : `${interlock.approverRole ?? 'An approver'} must verify and approve before this filter can continue.`}
+            </div>
+          </div>
         </div>
       )}
       {/* RFID debug overlay — shows every keydown the WebView receives so

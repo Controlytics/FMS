@@ -51,6 +51,7 @@ import './app.css';
 const FilterOperationsPage = lazy(() => import('./routes/filter-management/filter-operations').then(m => ({ default: m.FilterOperationsPage })));
 const AuditTrailPage = lazy(() => import('./routes/audit/index').then(m => ({ default: m.AuditTrailPage })));
 const ReportReviewsPage = lazy(() => import('./routes/report-reviews/index').then(m => ({ default: m.ReportReviewsPage })));
+const StageApprovalsPage = lazy(() => import('./routes/stage-approvals/index').then(m => ({ default: m.StageApprovalsPage })));
 
 const HelpArticlesPage = lazy(() => import('./routes/config/help').then(m => ({ default: m.HelpArticlesPage })));
 
@@ -263,6 +264,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/ahus/:id" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AhuDashboardPage /></Suspense></RequireRole>} />
             <Route path="/audit" element={<RequireRole permissions={[PERMISSIONS.AUDIT_READ]}><AuditTrailPage /></RequireRole>} />
             <Route path="/report-reviews" element={<RequireRole permissions={[PERMISSIONS.REPORT_REVIEW_SUBMIT, PERMISSIONS.REPORT_REVIEW, PERMISSIONS.REPORT_APPROVE]}><ReportReviewsPage /></RequireRole>} />
+            <Route path="/stage-approvals" element={<RequireRole permissions={[PERMISSIONS.STAGE_APPROVAL_VIEW, PERMISSIONS.STAGE_APPROVAL_DECIDE]}><StageApprovalsPage /></RequireRole>} />
             <Route path="/admin-requests" element={<RequireRole permissions={[PERMISSIONS.ADMIN_REQUEST_REVIEW]}><Suspense fallback={<LazyFallback />}><AdminRequestsPage /></Suspense></RequireRole>} />
 
             {/* Report Templates + Generated Reports removed from the application (2026-06-08). */}

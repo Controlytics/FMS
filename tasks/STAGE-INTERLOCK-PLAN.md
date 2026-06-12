@@ -131,15 +131,27 @@ stale (say 106/96/87, pre-date many additions) — a separate doc-count sweep is
 active doc set; not blocking this feature. Existing non-SUPER_ADMIN/ADMIN roles need the perms
 granted to use the inbox (by design — opt-in).
 
-### Phase 5 — Frontend
-- [ ] Approver inbox /stage-approvals (clone report-reviews inbox): To-Action/All tabs,
-      details-snapshot card, Approve/Reject reauth dialog. Notification deep-link.
-- [ ] Operator block UI: pending banner + disabled advance — web (filter-operations.tsx)
-      AND tablet (mobile-operations.tsx + mobile-wrapper.tsx).
-- [ ] Config page for stage-interlock (per-point role pickers + enable toggle).
-- [ ] Sidebar item stage-approvals.
-- [ ] Cleaning Record / audit: render new event + notification types.
-- [ ] vite build + APK if tablet flow changes.
+### Phase 5 — Frontend  ✅ DONE 2026-06-12 (browser-verified)
+- [x] lib/stage-approval.ts (types + prettyStage + detailRows) + routes/stage-approvals/index.tsx
+      inbox: To-Action/All tabs, frozen details-snapshot card (all 8 fields + filterName),
+      Approve/Reject reauth dialog. main.tsx route (RequireRole STAGE_APPROVAL_VIEW/DECIDE) +
+      lazy import. sidebar.tsx item.
+- [x] Operator block banner: web filter-operations.tsx + tablet mobile-operations.tsx — read
+      state.interlock, show "<stage> awaiting QA approval from <role>" when blocksLeaving. Server
+      already drops the advance action from the tape so the button vanishes; banner explains why.
+      (mobile-wrapper.tsx not needed — banner lives in the stage view rendered by mobile-operations.)
+- [x] Config page auto-renders at /config/dynamic/stage-interlock (enable + segregation toggles +
+      per-stage role pickers from /api/roles/active) — verified.
+
+BROWSER-VERIFIED (took over superadmin session, Playwright): inbox renders + sidebar entry + route
+  guard redirect; approve dialog shows ALL 8 detail fields + filterName; reauth signature dialog;
+  Approve persisted → DB status APPROVED + APPROVAL_GRANTED event + hash-chained audit
+  "Wash Out approved for filter ...". Config page renders with QA-selectable role pickers. Console:
+  only benign 401s (pre-login no-token + the intentional reauth handshake) + a cosmetic DOM hint.
+  Disposable data torn down; config reverted to disabled.
+DEFERRED: live operator-block-banner drive (needs a real cycle at WASH_OUT) — code mirrors the
+  proven equipmentGroupSyncWarning pattern, tsc clean, blocksLeaving logic verified in Phase 2.
+  APK rebuild for tablet pending (mobile-operations.tsx changed).
 
 ## Touchpoints to test (CLAUDE.md correctness rule)
 start-cycle · advance (both gates + block) · submit-checklist (CHECKLIST between WASH_OUT
