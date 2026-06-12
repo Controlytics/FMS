@@ -1,7 +1,7 @@
 import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
-import { getTsdbPool } from '@digilog/db';
+// getTsdbPool removed with data-ingestion removal.
 
 /**
  * Dashboard routes — widget-based dashboards with assignment
@@ -454,21 +454,8 @@ export default async function dashboardRoutes(app: FastifyInstance) {
       }
 
       case 'timeseries_chart': {
-        // Historical telemetry from TSDB
-        const pool = getTsdbPool();
-        const timeWindow = dataSource?.timeWindow || { duration: '1h' };
-        const duration = timeWindow.duration || '1 hour';
-        const result = await pool.query(
-          `SELECT time, entity_id, key, value_num, value_str
-           FROM ts_telemetry
-           WHERE entity_id = ANY($1)
-             AND ($2::text[] IS NULL OR key = ANY($2))
-             AND time > NOW() - $3::interval
-           ORDER BY time DESC
-           LIMIT 1000`,
-          [entityIds, telemetryKeys.length > 0 ? telemetryKeys : null, duration]
-        );
-        return { widgetId, widgetType: 'timeseries_chart', data: result.rows };
+        // Telemetry source removed with data-ingestion removal — widget now returns empty.
+        return { widgetId, widgetType: 'timeseries_chart', data: [] };
       }
 
       case 'entity_table': {

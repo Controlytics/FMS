@@ -218,18 +218,7 @@ const superAdminCards = [
     gradient: 'from-sky-500 to-blue-600',
     shadowColor: 'shadow-sky-500/25',
   },
-  {
-    title: 'Data Retention',
-    description: 'Configure hypertable compression and retention policies',
-    href: '/config/retention',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-      </svg>
-    ),
-    gradient: 'from-orange-500 to-red-600',
-    shadowColor: 'shadow-orange-500/25',
-  },
+
   {
     title: 'LDAP / Active Directory',
     description: 'Configure LDAP authentication and user provisioning',
@@ -255,18 +244,7 @@ const superAdminCards = [
     shadowColor: 'shadow-emerald-500/25',
   },
   // 'Alarm Columns' config card removed 2026-05-17 (alarm subsystem retired).
-  {
-    title: 'UNS Configuration',
-    description: 'Unified Namespace topic mapping and ISA-95 hierarchy',
-    href: '/config/uns',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
-      </svg>
-    ),
-    gradient: 'from-cyan-500 to-blue-600',
-    shadowColor: 'shadow-cyan-500/25',
-  },
+  
   {
     title: "Notification Rules",
     description: "Configure alerts, recipients, templates & delivery logs",

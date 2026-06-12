@@ -51,9 +51,9 @@ import './app.css';
 const FilterOperationsPage = lazy(() => import('./routes/filter-management/filter-operations').then(m => ({ default: m.FilterOperationsPage })));
 const AuditTrailPage = lazy(() => import('./routes/audit/index').then(m => ({ default: m.AuditTrailPage })));
 const ReportReviewsPage = lazy(() => import('./routes/report-reviews/index').then(m => ({ default: m.ReportReviewsPage })));
-const UnsConfigPage = lazy(() => import('./routes/config/uns').then(m => ({ default: m.UnsConfigPage })));
+
 const HelpArticlesPage = lazy(() => import('./routes/config/help').then(m => ({ default: m.HelpArticlesPage })));
-const RetentionConfigPage = lazy(() => import('./routes/config/retention').then(m => ({ default: m.RetentionConfigPage })));
+
 const LdapConfigPage = lazy(() => import("./routes/config/ldap"));
 const RoleAssignmentsPage = lazy(() => import("./routes/config/role-assignments").then(m => ({ default: m.RoleAssignmentsPage })));
 const SystemHealthPage = lazy(() => import('./routes/system-health/index').then(m => ({ default: m.SystemHealthPage })));
@@ -214,14 +214,11 @@ createRoot(document.getElementById('root')!).render(
             {/* Pipeline Debug Traces — Admin only (lazy-loaded) */}
             <Route path="/debug/traces" element={<RequireRole permissions={[PERMISSIONS.READ_DEBUG_TRACE]}><Suspense fallback={<LazyFallback />}><DebugTracesPage /></Suspense></RequireRole>} />
 
-            {/* UNS Configuration (lazy-loaded) */}
-            <Route path="/config/uns" element={<RequireRole permissions={[PERMISSIONS.UNS_VIEW]}><Suspense fallback={<LazyFallback />}><UnsConfigPage /></Suspense></RequireRole>} />
-
+            
             {/* Help Article Manager (lazy-loaded) */}
             <Route path="/config/help" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><HelpArticlesPage /></Suspense></RequireRole>} />
 
-            {/* Retention Management (lazy-loaded) */}
-            <Route path="/config/retention" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><RetentionConfigPage /></Suspense></RequireRole>} />
+            
 
 
             {/* Notifications */}

@@ -15,7 +15,7 @@
     "db:studio": "cd apps/api && npx prisma studio",
     "test": "turbo run test",
     "test:unit": "turbo run test --filter=@digilog/shared --filter=@digilog/api",
-    "check:cycles": "madge --circular apps/api/src apps/web/src packages/shared/src packages/db/src packages/queue/src"
+    "check:cycles": "madge --circular apps/api/src apps/web/src packages/shared/src packages/queue/src"
   },
   "devDependencies": {
     "madge": "^8.0.0",

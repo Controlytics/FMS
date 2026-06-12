@@ -125,18 +125,9 @@ export async function auditLog(entry: AuditEntry, tx?: AuditTx): Promise<void> {
     });
   }
 
-  // Fire-and-forget: one debug trace per audited action (covers HTTP +
-  // background jobs, and splits batch requests into per-item rows). Dynamic
-  // import keeps this off the audit hot-path's module graph; never awaited.
-  void import('./operation-tracer.js')
-    .then((m) => m.recordActionTrace({
-      action: entry.action,
-      targetType: entry.targetType ?? null,
-      targetId: entry.targetId ?? null,
-      userId: entry.userId ?? null,
-      userRole: entry.userRole ?? null,
-    }))
-    .catch(() => { /* tracing must never break an audit write */ });
+  // (operation-tracer per-action debug trace removed with data-ingestion removal.
+  // To be re-implemented against filter_events / pm_executions in the
+  // repurposed TraceSource framework — see runbook Section 14.)
 }
 
 async function writeAuditRow(

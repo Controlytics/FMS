@@ -41,12 +41,12 @@ export default async function superAdminRoutes(app: FastifyInstance) {
       summary: 'Platform-wide statistics',
     },
   }, async () => {
-    const [userCount, deviceCount, entityCount] = await Promise.all([
+    const [userCount, entityCount] = await Promise.all([
       prisma.user.count(),
-      prisma.deviceCredential.count(),
       prisma.assetInstance.count({ where: { isActive: true } }),
     ]);
-    return { users: userCount, devices: deviceCount, entities: entityCount };
+    // devices: 0 retained for response-shape backward compat (UI may still read it).
+    return { users: userCount, devices: 0, entities: entityCount };
   });
 
   // ─── SUPER ADMIN API KILL-SWITCH ──────────────────────────────────

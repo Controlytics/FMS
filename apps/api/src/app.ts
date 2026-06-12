@@ -27,35 +27,26 @@ import notificationRoutes from './modules/notifications/routes.js';
 import roleRoutes from './modules/roles/routes.js';
 import backupRoutes from './modules/backup/routes.js';
 import assetRoutes from './modules/assets/index.js';
-import mqttAuthRoutes from './transport/mqtt-auth-routes.js';
-import mosquittoRefreshRoutes from './transport/mosquitto-refresh-routes.js';
+
+
 import { isFeatureEnabled, FEATURE_FLAGS } from './lib/feature-flags.js';
-import dataIngestionRoutes from './modules/data-ingestion/routes.js';
-import unsRoutes from './modules/uns/routes.js';
-import queriesModule from './modules/queries/index.js';
-import connectivityRoutes from './modules/connectivity/routes.js';
+
 import helpRoutes from './modules/help/routes.js';
 import systemHealthRoutes, { trackRequest } from './modules/system-health/routes.js';
-import debugTraceRoutes from './modules/data-ingestion/debug-trace.routes.js';
-import { recordOperationTrace, shouldTrace, genericPath, extractEntityId } from './lib/operation-tracer.js';
-import wsHandler from './transport/ws-handler.js';
-import { initMqttClient, closeMqttClient } from './transport/mqtt-client.js';
-import { closeWsBus } from './transport/ws-handler.js';
-import { stopRateLimitCleanup } from './modules/data-ingestion/ingestion.service.js';
+
+// operation-tracer removed — wrote to ts_pipeline_traces which is being dropped.
+// To be repurposed against filter_events / pm_executions / admin_requests in a
+// dedicated TraceSource framework (see runbook Section 14).
+
+
 import notificationDeliveryRoutes from './modules/notification-delivery/routes.js';
 import userGroupRoutes from './modules/user-groups/routes.js';
 import notificationRulesRoutes from './modules/notification-rules/routes.js';
-import { ingestionTask } from './workers/ingestion.worker.js';
+
 import { notificationTask } from './workers/notification.worker.js';
-import {
-  dlqCheckTask,
-  connectivityCheckTask,
-  retentionCleanupTask,
-} from './workers/maintenance.worker.js';
 import { pmOverdueCheckTask } from './workers/pm-overdue.worker.js';
 import { sessionSweepTask } from './workers/session-sweep.worker.js';
 import { startJobRunner, stopJobRunner } from '@digilog/queue';
-import { getTsdbPool, initTelemetryBatcher, closeTelemetryBatcher } from '@digilog/db';
 import { AppError } from './lib/errors.js';
 import { OfflineTimeError } from './lib/offline-time-window.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
@@ -273,33 +264,7 @@ app.addHook('onRequest', (_req, _reply, done) => {
   done();
 });
 
-// Operation tracer — record every API WRITE (POST/PUT/PATCH/DELETE) as a debug
-// trace so filter-cleaning and every write process shows on the Debug Traces
-// page with SUCCESS / FAILED. Stash the thrown error in onError; write the
-// trace in onResponse (after the response is sent, so it never delays a request).
-app.addHook('onError', async (req, _reply, err) => { (req as any)._opError = err; });
-app.addHook('onResponse', async (req, reply) => {
-  try {
-    const routePath = genericPath(req.url);
-    if (!shouldTrace(req.method, routePath)) return;
-    // Successes are recorded per-action by the audit logger; the request hook
-    // only records FAILED writes (which never reach the audit log) so there's
-    // no duplication.
-    if (reply.statusCode < 400) return;
-    const err = (req as any)._opError as (Error & { code?: string; error?: string }) | undefined;
-    await recordOperationTrace({
-      method: req.method,
-      routePath,
-      url: req.url,
-      statusCode: reply.statusCode,
-      durationMs: reply.elapsedTime ?? 0,
-      userId: (req as any).user?.username ?? null,
-      entityId: extractEntityId(req.params),
-      errorCode: err?.code ?? err?.error ?? (reply.statusCode >= 400 ? `HTTP_${reply.statusCode}` : null),
-      errorMessage: err?.message ?? null,
-    });
-  } catch { /* tracing must never break the response */ }
-});
+// (operation-tracer onResponse/onError hooks removed — see import comment above)
 
 // Health check
 app.get('/api/health', {
@@ -320,11 +285,9 @@ app.get('/api/health', {
   },
 }, async (_req, reply) => {
   try {
-    const { prisma } = await import('@digilog/db');
+    const { prisma } = await import('./lib/prisma.js');
     await prisma.$queryRaw`SELECT 1`;
-    const { healthCheck } = await import('@digilog/db');
-    const tsdbOk = await healthCheck();
-    return { status: 'ok', db: 'connected', tsdb: tsdbOk ? 'connected' : 'error' };
+    return { status: 'ok', db: 'connected' };
   } catch (err) {
     return reply.code(503 as any).send({ status: 'error', db: 'disconnected' });
   }
@@ -350,20 +313,13 @@ await app.register(assetRoutes, { prefix: '/api/assets' });
 // Phase 1 cut-over: when USE_MOSQUITTO=true, expose Mosquitto's
 // dynamic-security refresh endpoint instead of the EMQX auth-webhook
 // routes. See docs/plans/2026-04-29-windows-friendly-rewrite.md.
-if (isFeatureEnabled(FEATURE_FLAGS.USE_MOSQUITTO)) {
-  app.log.info('MQTT broker mode: Mosquitto (USE_MOSQUITTO=true)');
-  await app.register(mosquittoRefreshRoutes, { prefix: '/api/internal/mqtt' });
-} else {
-  app.log.info('MQTT broker mode: EMQX (legacy, USE_MOSQUITTO=false)');
-  await app.register(mqttAuthRoutes, { prefix: '/api/internal/mqtt' });
-}
-await app.register(dataIngestionRoutes, { prefix: '/api/data' });
-await app.register(unsRoutes, { prefix: '/api/uns' });
-await app.register(queriesModule, { prefix: '/api' });
-await app.register(connectivityRoutes, { prefix: '/api/connectivity' });
+
+
+
+
 await app.register(helpRoutes, { prefix: '/api/help' });
 await app.register(systemHealthRoutes, { prefix: '/api/system-health' });
-await app.register(debugTraceRoutes, { prefix: '/api/debug/traces' });
+
 await app.register(notificationDeliveryRoutes, { prefix: '/api/notification-settings' });
 await app.register(userGroupRoutes, { prefix: '/api/user-groups' });
 await app.register(notificationRulesRoutes, { prefix: '/api/notification-rules' });
@@ -384,7 +340,7 @@ await app.register(blockChangeRoutes, { prefix: '/api/block-change-requests' });
 await app.register(reportTemplateRoutes, { prefix: '/api/report-templates' });
 await app.register(hierarchyRoutes, { prefix: '/api/hierarchy' });
 await app.register((await import('./modules/reports/routes.js')).default, { prefix: '/api/reports' });
-await app.register(wsHandler);
+
 
 // Start
 const port = parseInt(process.env.PORT ?? '3000', 10);
@@ -395,23 +351,10 @@ try {
   app.log.info(`Swagger UI: ${proto}://localhost:${port}/docs`);
 
   // Initialize MQTT client after server is listening
-  try {
-    await initMqttClient();
-    app.log.info('MQTT client initialized');
-  } catch (mqttErr) {
-    app.log.warn('MQTT client initialization failed — server continuing without MQTT');
-    app.log.warn(mqttErr);
-  }
+ 
 
   // Initialize telemetry batcher (Phase C)
-  try {
-    const tsdbPool = getTsdbPool();
-    initTelemetryBatcher(tsdbPool, { batchSize: 100, flushIntervalMs: 1000 });
-    app.log.info('Telemetry batcher initialized');
-  } catch (batchErr) {
-    app.log.warn('Telemetry batcher initialization failed — continuing without batching');
-    app.log.warn(batchErr);
-  }
+ 
 
   // Phase 2 — single graphile-worker Runner registers ALL task identifiers
   // and the maintenance crontab (Task 2.8). The legacy BullMQ path was
@@ -425,7 +368,7 @@ try {
       path.resolve(__dirname, '../../../packages/queue/crontab.txt');
     await startJobRunner({
       taskList: {
-        ingestion: ingestionTask,
+        
         // `notification` task handler — closes the producer/consumer gap
         // flagged in the 2026-05-12 deep review. Before this commit
         // `enqueueNotificationJob` posted to a task name with no handler
@@ -433,9 +376,7 @@ try {
         // apps/api/src/workers/notification.worker.ts for the mapping
         // from queue payload to `dispatchNotification` event types.
         notification: notificationTask,
-        dlq_check: dlqCheckTask,
-        connectivity_check: connectivityCheckTask,
-        retention_cleanup: retentionCleanupTask,
+        
         pm_overdue_check: pmOverdueCheckTask,
         session_sweep: sessionSweepTask,
       },
@@ -462,10 +403,7 @@ const shutdown = async (signal: string) => {
 
   try {
     await stopJobRunner();
-    await closeTelemetryBatcher();
-    await closeMqttClient();
-    await closeWsBus();
-    await stopRateLimitCleanup();
+
     await app.close();
     // Close queue + tsdb in their own try blocks so one failure doesn't
     // prevent the next teardown step. Each failure is logged so partial-
@@ -476,12 +414,7 @@ const shutdown = async (signal: string) => {
     } catch (qErr) {
       app.log.error({ err: qErr }, 'Shutdown: closeProducer (graphile-worker) failed');
     }
-    try {
-      const { closeTsdbPool } = await import('@digilog/db');
-      await closeTsdbPool();
-    } catch (tErr) {
-      app.log.error({ err: tErr }, 'Shutdown: closeTsdbPool (TimescaleDB) failed');
-    }
+    
   } catch (err) {
     app.log.error(err as Error, 'Error during shutdown');
   }

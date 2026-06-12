@@ -4,8 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import { prisma } from '../../lib/prisma.js';
-import { getTsdbPool } from '@digilog/db';
-import { getMqttClient } from '../../transport/mqtt-client.js';
+// TimescaleDB + MQTT checks removed with data-ingestion removal.
 // Phase 4 (2026-05-01): Redis fully retired from this codebase. The internal
 // pub/sub bus + RPC TTL cache moved in-process. ioredis dependency dropped.
 
@@ -120,100 +119,12 @@ async function checkPostgresql(): Promise<SubCheck[]> {
       : { name: 'help_articles', status: 'WARN', expected: '>=38', found: String(helpCount), message: 'Run: npx prisma db seed' },
   );
 
-  // Ingestion configs
-  const ingestionCount = await prisma.ingestionSystemConfig.count();
-  checks.push(
-    ingestionCount >= 30
-      ? { name: 'ingestion_configs', status: 'PASS', expected: '>=30', found: String(ingestionCount) }
-      : { name: 'ingestion_configs', status: 'WARN', expected: '>=30', found: String(ingestionCount), message: 'Run: npx prisma db seed' },
-  );
+  // (ingestion_system_config check removed with data-ingestion removal.)
 
   return checks;
 }
 
-// ── Check 2: TimescaleDB ──────────────────────────────────────────────
-async function checkTimescaledb(): Promise<SubCheck[]> {
-  const checks: SubCheck[] = [];
-  const pool = getTsdbPool();
-
-  // Connection
-  try {
-    await pool.query('SELECT 1');
-    checks.push({ name: 'connection', status: 'PASS', message: 'Connected' });
-  } catch (e: any) {
-    checks.push({ name: 'connection', status: 'FAIL', message: e.message });
-    return checks;
-  }
-
-  // Extensions
-  try {
-    const { rows } = await pool.query(`SELECT extname FROM pg_extension WHERE extname IN ('timescaledb', 'pgcrypto', 'ltree')`);
-    const found = rows.map((r: any) => r.extname);
-    for (const ext of ['timescaledb', 'pgcrypto']) {
-      checks.push(
-        found.includes(ext)
-          ? { name: `extension_${ext}`, status: 'PASS' }
-          : { name: `extension_${ext}`, status: 'FAIL', message: `Missing. Run: CREATE EXTENSION IF NOT EXISTS ${ext};` },
-      );
-    }
-  } catch (e: any) {
-    checks.push({ name: 'extensions', status: 'FAIL', message: e.message });
-  }
-
-  // Hypertables
-  const expectedTables = ['ts_telemetry', 'ts_attributes', 'ts_checklist_responses', 'ts_device_events', 'ts_binary_data', 'ts_pipeline_traces'];
-  try {
-    const { rows } = await pool.query(`SELECT hypertable_name FROM timescaledb_information.hypertables`);
-    const found = rows.map((r: any) => r.hypertable_name);
-    for (const t of expectedTables) {
-      checks.push(
-        found.includes(t)
-          ? { name: `hypertable_${t}`, status: 'PASS' }
-          : { name: `hypertable_${t}`, status: 'FAIL', message: 'Run: psql -d digilog_tsdb -f init-tsdb.sql' },
-      );
-    }
-  } catch (e: any) {
-    checks.push({ name: 'hypertables', status: 'FAIL', message: e.message });
-  }
-
-  // Continuous aggregates
-  try {
-    const { rows } = await pool.query(`SELECT view_name FROM timescaledb_information.continuous_aggregates`);
-    const found = rows.map((r: any) => r.view_name);
-    for (const agg of ['telemetry_hourly', 'telemetry_daily']) {
-      checks.push(
-        found.includes(agg)
-          ? { name: `aggregate_${agg}`, status: 'PASS' }
-          : { name: `aggregate_${agg}`, status: 'WARN', message: 'Run: psql -d digilog_tsdb -f init-tsdb.sql' },
-      );
-    }
-  } catch (e: any) {
-    checks.push({ name: 'aggregates', status: 'WARN', message: e.message });
-  }
-
-  return checks;
-}
-
-// Phase 4 (2026-05-01): Redis check removed — Redis is no longer a service
-// dependency. Pub/sub moved to in-process EventEmitter; RPC correlation
-// moved to in-process Map. The deployment-check page no longer surfaces a
-// Redis row.
-
-// ── Check 4: MQTT ─────────────────────────────────────────────────────
-async function checkMqtt(): Promise<SubCheck[]> {
-  if (process.env.MQTT_ENABLED !== 'true') {
-    return [{ name: 'enabled', status: 'WARN', message: 'MQTT_ENABLED is not true — MQTT features disabled' }];
-  }
-  const client = getMqttClient();
-  if (!client) {
-    return [{ name: 'connection', status: 'FAIL', message: 'MQTT client not initialized' }];
-  }
-  return [
-    client.connected
-      ? { name: 'connection', status: 'PASS', message: `Connected to ${process.env.MQTT_BROKER_HOST ?? 'localhost'}:${process.env.MQTT_BROKER_PORT ?? '1883'}` }
-      : { name: 'connection', status: 'FAIL', message: 'Client exists but not connected. Check EMQX is running.' },
-  ];
-}
+// (TimescaleDB + Redis + MQTT checks removed with data-ingestion removal.)
 
 // ── Check 5: Prisma Models ────────────────────────────────────────────
 async function checkPrismaModels(): Promise<SubCheck[]> {
@@ -499,9 +410,7 @@ const deploymentCheckRoutes: FastifyPluginAsync = async (app) => {
     async (_request, _reply) => {
       const results = await Promise.allSettled([
         runCheck('database', 'PostgreSQL', checkPostgresql),
-        runCheck('database', 'TimescaleDB', checkTimescaledb),
-        // Phase 4 (2026-05-01): Redis row removed — fully retired.
-        runCheck('service', 'MQTT/EMQX', checkMqtt),
+        // TimescaleDB + MQTT checks removed with data-ingestion removal.
         runCheck('database', 'Prisma Models', checkPrismaModels),
         Promise.resolve(runCheck('api', 'API Routes', async () => checkApiRoutes(app))),
         runCheck('auth', 'Authentication', checkAuth),

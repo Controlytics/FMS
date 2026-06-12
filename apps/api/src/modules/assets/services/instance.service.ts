@@ -17,9 +17,7 @@ import { upsertFilterDetails } from '../../../lib/filter-details.js';
 import { computeChecksum } from '../../filter-operations/helpers.js';
 import { getFilterStageRules, classifyMove, moveStartsCycle, INVALID_STAGE_MOVE_MESSAGE } from '../../filter-operations/stage-rules.js';
 import { resolveManualCycleReason, breakActiveCycleTx, startManualCycleTx } from '../../filter-operations/manual-cycle.js';
-import { randomBytes } from 'node:crypto';
-import { provisionUnsMapping } from '../../uns/uns.service.js';
-import { getEntityUnsPath } from '../../../lib/uns-path.js';
+// uns / device-credential / connectivity provisioning removed with data-ingestion removal.
 
 async function validateParent(parentId: string, childTemplateId: string, childId?: string) {
   const parent = await instanceRepository.findByIdSimple(parentId);
@@ -191,42 +189,7 @@ export const instanceService = {
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
 
-    // Auto-provision connectivity for data-ingestion-enabled templates
-    if ((template as any).dataIngestionEnabled) {
-      try {
-        await provisionUnsMapping(instance.id);
-        const token = randomBytes(32).toString('hex');
-        const updatedEntity = await instanceRepository.findByIdSimple(instance.id);
-        const unsPath = (updatedEntity as any)?.unsPath ?? `${template.name}/${instance.name}`;
-        const allowedTopics = [
-          `${unsPath}/telemetry`,
-          `${unsPath}/attributes`,
-          `${unsPath}/events`,
-          `${unsPath}/rpc/request`,
-          `${unsPath}/rpc/response`,
-        ];
-        await prisma.$transaction(async (tx) => {
-          await tx.deviceCredential.create({
-            data: {
-              entityId: instance.id,
-              accessToken: token,
-              status: 'ACTIVE',
-              isActive: true,
-              credentialData: { allowedTopics },
-            },
-          });
-          await tx.connectivityStatus.create({
-            data: {
-              entityId: instance.id,
-              status: 'OFFLINE',
-            },
-          });
-        });
-      } catch (err) {
-        // Non-fatal — log but don't fail entity creation
-        console.error('Auto-provision connectivity failed:', err);
-      }
-    }
+    // (Auto-provision connectivity block removed with data-ingestion removal.)
 
     return instance;
   },
@@ -586,12 +549,10 @@ export const instanceService = {
       await tx.assetInstance.updateMany({ where: { id: { in: allIds } }, data: { isActive: false, unsPath: null, updatedBy: ctx.userId } });
       await tx.assetRelationship.deleteMany({ where: { OR: [{ sourceAssetId: { in: allIds } }, { targetAssetId: { in: allIds } }] } });
       await tx.assetIdentifier.deleteMany({ where: { assetId: { in: allIds } } });
-      await tx.deviceCredential.deleteMany({ where: { entityId: { in: allIds } } });
-      await tx.connectivityStatus.deleteMany({ where: { entityId: { in: allIds } } });
-      await tx.unsMapping.deleteMany({ where: { entityId: { in: allIds } } });
+      // deviceCredential / connectivityStatus / unsMapping / dataStream cascades
+      // removed with data-ingestion removal — tables no longer exist.
       await tx.qrCode.deleteMany({ where: { entityId: { in: allIds } } });
       await tx.latestTelemetry.deleteMany({ where: { entityId: { in: allIds } } });
-      await tx.dataStream.deleteMany({ where: { entityId: { in: allIds } } });
     });
 
     await auditLog({
