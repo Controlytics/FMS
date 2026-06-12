@@ -49,7 +49,11 @@ export async function listEntries(
 ) {
   await checkPmEnabled();
   const page = query.page ?? 1;
-  const limit = Math.min(query.limit ?? 50, 200);
+  // The PM Schedules page renders a whole year's entries (12 months × AHUs) in one
+  // table with no pagination UI, so the default cap must comfortably cover a full
+  // year. Raised from 200 → 2000 (2026-06-12): the old cap silently hid entries
+  // beyond the first 50/200 in the ALL view.
+  const limit = Math.min(query.limit ?? 50, 2000);
   const year = query.year ?? new Date().getFullYear();
 
   const where: any = { schedule: { status: 'ACTIVE', year } };

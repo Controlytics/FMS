@@ -168,7 +168,9 @@ export function PmScheduleListPage() {
 
   // Data fetching — filter by date range
   const year = new Date(dateFrom).getFullYear();
-  const entriesKey = `/api/pm-schedules/entries?year=${year}${statusFilter !== 'ALL' ? `&approvalStatus=${statusFilter}` : ''}`;
+  // limit=2000 so the whole year's entries load (the page has no pagination UI;
+  // the old default of 50 hid most records in the ALL view).
+  const entriesKey = `/api/pm-schedules/entries?year=${year}&limit=2000${statusFilter !== 'ALL' ? `&approvalStatus=${statusFilter}` : ''}`;
   const { data: entriesData, isLoading } = useSWR(entriesKey, { refreshInterval: 15000 });
   // Client-side filter entries to the selected date range
   const allEntries: ScheduleEntry[] = entriesData?.data ?? [];
@@ -1001,27 +1003,34 @@ export function PmScheduleListPage() {
               {uploadError && <div className="mt-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm">{uploadError}</div>}
               {result && (
                 <div className="space-y-4">
+                  <div className="text-sm font-semibold text-slate-700">
+                    Validation result — processed {result.imported + result.skipped} row{result.imported + result.skipped === 1 ? '' : 's'}
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
                       <div className="text-2xl font-bold text-emerald-700">{result.imported}</div>
-                      <div className="text-xs text-emerald-600 font-semibold mt-0.5">Uploaded (Pending QA)</div>
+                      <div className="text-xs text-emerald-600 font-semibold mt-0.5">Imported (Pending QA)</div>
                     </div>
-                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-                      <div className="text-2xl font-bold text-amber-700">{result.skipped}</div>
-                      <div className="text-xs text-amber-600 font-semibold mt-0.5">Skipped</div>
+                    <div className={`rounded-xl p-4 border ${result.skipped > 0 ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className={`text-2xl font-bold ${result.skipped > 0 ? 'text-rose-700' : 'text-slate-400'}`}>{result.skipped}</div>
+                      <div className={`text-xs font-semibold mt-0.5 ${result.skipped > 0 ? 'text-rose-600' : 'text-slate-400'}`}>Errors (not imported)</div>
                     </div>
                   </div>
-                  {result.details.skipped.length > 0 && (
+                  {result.details.skipped.length > 0 ? (
                     <div>
-                      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Skipped</div>
-                      <div className="space-y-1 max-h-40 overflow-y-auto">
+                      <div className="text-xs font-semibold text-rose-600 uppercase tracking-wider mb-2">Rows with errors — fix and re-upload</div>
+                      <div className="space-y-1 max-h-56 overflow-y-auto">
                         {result.details.skipped.map((r, i) => (
-                          <div key={i} className="flex items-start gap-2 text-sm px-3 py-1.5 bg-amber-50/50 rounded-lg">
-                            <span className="text-amber-500 shrink-0">!</span>
-                            <span className="text-slate-600">Row {r.row}: {r.reason}</span>
+                          <div key={i} className="flex items-start gap-2 text-sm px-3 py-2 bg-rose-50 border border-rose-100 rounded-lg">
+                            <span className="shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-full bg-rose-100 text-rose-600 text-[11px] font-bold">!</span>
+                            <span className="text-slate-700"><b>Row {r.row}</b> — {r.reason}</span>
                           </div>
                         ))}
                       </div>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                      ✓ All rows passed validation — no errors.
                     </div>
                   )}
                   <div className="flex gap-3 pt-2">
