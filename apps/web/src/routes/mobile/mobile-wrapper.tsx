@@ -2943,9 +2943,15 @@ export function MobileWrapperPage() {
               const taskMicron = norm(activeReplTask.filterMicron);
               const taskSize = norm(activeReplTask.filterSize);
               const ahuFilters = (allFilters as any[]).filter((f: any) => f.parentId === activeReplTask.ahuId);
+              // Exclude a filter only on a genuine CONFLICT — a blank attribute on
+              // the filter (very common: micron/size often unset) must NOT disqualify
+              // it, otherwise a filter with the right micron but no recorded size is
+              // wrongly dropped and the whole list falls back to "showing all".
               const matched = ahuFilters.filter((f: any) => {
-                const micronOk = !taskMicron || norm(f.attributes?.micronSize) === taskMicron;
-                const sizeOk = !taskSize || norm(f.attributes?.filterSize) === taskSize;
+                const fMicron = norm(f.attributes?.micronSize);
+                const fSize = norm(f.attributes?.filterSize);
+                const micronOk = !taskMicron || !fMicron || fMicron === taskMicron;
+                const sizeOk = !taskSize || !fSize || fSize === taskSize;
                 return micronOk && sizeOk;
               });
               const usingFallback = matched.length === 0 && ahuFilters.length > 0;

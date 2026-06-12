@@ -10,6 +10,7 @@ import { hasContainsCycle } from '../helpers/cycle-detection.js';
 import { collectDescendantIds } from '../helpers/descendant-collector.js';
 import { prisma } from '../../../lib/prisma.js';
 import { zipLastCleaned } from '../../../lib/last-cleaned.js';
+import { zipFilterAttributes } from '../../../lib/filter-attributes.js';
 import { upsertFilterDetails } from '../../../lib/filter-details.js';
 // Pure SHA-256 helper (node:crypto only) — used to checksum the synthetic
 // CYCLE_COMPLETED event when a manual "Cleaning Cycle Completed" force-completes
@@ -65,8 +66,13 @@ export const instanceService = {
     const enriched = await zipLastCleaned(
       instances as Array<{ id: string; attributes?: any }>,
     );
+    // Merge the typed `filters.attributes` (micronSize / filterSize / etc.) onto
+    // filter rows — asset_instances.custom_attributes is empty for filters since
+    // the A-01 migration, so consumers reading `attributes.micronSize` (e.g. the
+    // tablet replacement-task pick-list) got nothing and never matched.
+    const withAttrs = await zipFilterAttributes(enriched);
     return {
-      data: enriched, total, page: query.page, limit: query.limit ?? total,
+      data: withAttrs, total, page: query.page, limit: query.limit ?? total,
       totalPages: query.limit ? Math.ceil(total / query.limit) : 1,
     };
   },
