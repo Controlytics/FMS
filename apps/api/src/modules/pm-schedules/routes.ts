@@ -6,6 +6,7 @@ import ExcelJS from 'exceljs';
 import { PmScheduleService } from './pm-schedule.service.js';
 import { sweepOverdueDeviations, listDeviations, acknowledgeDeviation } from './pm-deviations.js';
 import { canSeeQnn, listQnn } from './qnn.js';
+import { getPmWorkflowConfig } from './pm-workflow.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
@@ -152,6 +153,33 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
     const stored = (row?.configValue ?? {}) as any;
     const inner = stored && typeof stored === 'object' && 'value' in stored ? stored.value : stored;
     return { enabled: (inner?.enabled ?? true) === true };
+  });
+
+  // Workflow config for the PM Schedules page — lets the FE gate the
+  // review/approve buttons by the 3-step workflow state + the configured roles
+  // (so it matches the backend assertPmRole gating exactly, instead of showing
+  // an approve button that then 403s). PM_READ — role names are not sensitive.
+  app.get('/workflow-config', {
+    preHandler: [app.requirePermission('PM_READ')],
+    schema: {
+      tags: ['PM Schedules'],
+      summary: 'Get PM approval-workflow config (enabled flag + role names)',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            workflowEnabled: { type: 'boolean' },
+            uploadRole: { type: 'string' },
+            reviewRole: { type: 'string' },
+            approvalRole: { type: 'string' },
+          },
+          required: ['workflowEnabled', 'uploadRole', 'reviewRole', 'approvalRole'],
+          additionalProperties: false,
+        },
+      },
+    },
+  }, async () => {
+    return getPmWorkflowConfig();
   });
 
   // ─── Template download ───

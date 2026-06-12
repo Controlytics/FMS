@@ -126,7 +126,10 @@ export async function reviewEntries(
   const qnns: string[] = [];
 
   for (const entry of entries) {
-    if (entry.approvalStatus !== 'PENDING_REVIEW') continue;
+    // Reviewable from PENDING_REVIEW, plus legacy PENDING entries that predate the
+    // workflow being enabled (so they enter review instead of being stuck as
+    // directly-approvable). Workflow must be ON for PENDING to count as reviewable.
+    if (entry.approvalStatus !== 'PENDING_REVIEW' && !(cfg.workflowEnabled && entry.approvalStatus === 'PENDING')) continue;
     const ahuName = ahuNames.get(entry.id) ?? '?';
     if (action === 'approve') {
       await prisma.pmScheduleEntry.update({
@@ -169,7 +172,12 @@ export async function approveEntries(ctx: RequestContext, entryIds: string[], co
   const results: string[] = [];
   const qnns: string[] = [];
   for (const entry of entries) {
-    if (entry.approvalStatus !== 'PENDING_APPROVAL' && entry.approvalStatus !== 'PENDING') {
+    // Workflow ON: approve ONLY from PENDING_APPROVAL — review must happen first.
+    // Workflow OFF (legacy): PENDING is directly approvable.
+    const approvable = cfg.workflowEnabled
+      ? entry.approvalStatus === 'PENDING_APPROVAL'
+      : (entry.approvalStatus === 'PENDING_APPROVAL' || entry.approvalStatus === 'PENDING');
+    if (!approvable) {
       results.push(`${entry.id}: not awaiting approval (${entry.approvalStatus})`);
       continue;
     }
@@ -213,7 +221,13 @@ export async function rejectEntries(ctx: RequestContext, entryIds: string[], rem
   const qnns: string[] = [];
 
   for (const entry of entries) {
-    if (entry.approvalStatus !== 'PENDING_APPROVAL' && entry.approvalStatus !== 'PENDING') continue;
+    // Approval-stage reject: workflow ON → only PENDING_APPROVAL (a PENDING entry
+    // hasn't been reviewed yet — it's rejected at the review stage instead).
+    // Workflow OFF → legacy PENDING is rejectable here.
+    const rejectable = cfg.workflowEnabled
+      ? entry.approvalStatus === 'PENDING_APPROVAL'
+      : (entry.approvalStatus === 'PENDING_APPROVAL' || entry.approvalStatus === 'PENDING');
+    if (!rejectable) continue;
     await prisma.pmScheduleEntry.update({
       where: { id: entry.id },
       data: {

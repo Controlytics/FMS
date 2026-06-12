@@ -102,8 +102,14 @@ export function PmScheduleListPage() {
   const canUpload = isSuperAdmin || perms.includes('PM_UPLOAD');
   const canEditEntry = isSuperAdmin || perms.includes('PM_EDIT_ENTRY');
   const canResubmit = isSuperAdmin || perms.includes('PM_RESUBMIT');
-  const isApprover = isSuperAdmin || perms.includes('PM_APPROVE');
-  const canReview = isSuperAdmin || perms.includes('PM_REVIEW');
+  // 3-step workflow config. When the workflow is ON, the backend gates review/approve
+  // strictly by the configured ROLE (assertPmRole), so the FE must too — otherwise a
+  // user with the PM_APPROVE permission but not the approver role sees an Approve
+  // button that 403s. When OFF (legacy single-step), fall back to the permissions.
+  const { data: wfConfig } = useSWR<{ workflowEnabled: boolean; reviewRole: string; approvalRole: string }>('/api/pm-schedules/workflow-config');
+  const workflowOn = wfConfig?.workflowEnabled ?? false;
+  const isApprover = isSuperAdmin || (workflowOn ? user?.role === wfConfig?.approvalRole : perms.includes('PM_APPROVE'));
+  const canReview = isSuperAdmin || (workflowOn ? user?.role === wfConfig?.reviewRole : perms.includes('PM_REVIEW'));
   // Audit 2026-05-09 fix: PM schedule DELETE was an orphan endpoint
   // (BE supports it with reauth, no FE caller). Surface a delete button
   // per AHU group; backend pm-schedule-crud.ts:138 returns 409 if any
@@ -871,7 +877,7 @@ export function PmScheduleListPage() {
                                 </>
                               ) : (
                                 <>
-                                  {canReview && entry.approvalStatus === 'PENDING_REVIEW' && (
+                                  {canReview && (entry.approvalStatus === 'PENDING_REVIEW' || (workflowOn && entry.approvalStatus === 'PENDING')) && (
                                     <>
                                       <button onClick={() => handleReviewApprove([entry.id])} disabled={processing}
                                         className="px-3 py-1.5 bg-sky-500 text-white text-[11px] font-semibold rounded-lg hover:bg-sky-600 disabled:opacity-50 transition-colors shadow-sm">
@@ -887,7 +893,7 @@ export function PmScheduleListPage() {
                                       </button>
                                     </>
                                   )}
-                                  {isApprover && (entry.approvalStatus === 'PENDING_APPROVAL' || entry.approvalStatus === 'PENDING') && (
+                                  {isApprover && (entry.approvalStatus === 'PENDING_APPROVAL' || (!workflowOn && entry.approvalStatus === 'PENDING')) && (
                                     <>
                                       <button onClick={() => handleApprove([entry.id])} disabled={processing}
                                         className="px-3 py-1.5 bg-emerald-500 text-white text-[11px] font-semibold rounded-lg hover:bg-emerald-600 disabled:opacity-50 transition-colors shadow-sm">
