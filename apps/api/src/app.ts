@@ -15,6 +15,7 @@ import rbacPlugin from './plugins/rbac.js';
 import superAdminRoutes from "./modules/super-admin/routes.js";
 import reportReviewRoutes from "./modules/report-reviews/routes.js";
 import stageApprovalRoutes from "./modules/stage-approvals/routes.js";
+import debugTraceRoutes from "./modules/debug-traces/routes.js";
 import ldapRoutes from "./modules/ldap/routes.js";
 import dashboardRoutes from "./modules/dashboards/routes.js";
 import authRoutes from './modules/auth/routes.js';
@@ -329,6 +330,7 @@ await app.register(notificationRulesRoutes, { prefix: '/api/notification-rules' 
 await app.register(superAdminRoutes, { prefix: "/api/super-admin" });
 await app.register(reportReviewRoutes, { prefix: "/api/report-reviews" });
 await app.register(stageApprovalRoutes, { prefix: "/api/stage-approvals" });
+await app.register(debugTraceRoutes, { prefix: "/api/debug/traces" });
 await app.register(ldapRoutes, { prefix: "/api/ldap" });
 await app.register(dashboardRoutes, { prefix: "/api/dashboards" });
 await app.register(cleaningProfileRoutes, { prefix: '/api/filter-cleaning-profiles' });await app.register(checklistProfileRoutes, { prefix: '/api/checklist-profiles' });await app.register(filterProfileRoutes, { prefix: '/api/filter-profiles' });
