@@ -176,6 +176,13 @@ export const SIDEBAR_PRIVILEGE_MAP: SidebarSection[] = [
     description: "Block change approval requests",
     privilegeIds: ["block_change.request", "block_change.approve"],
   },
+  {
+    sidebarId: "stage-approvals",
+    label: "Stage Approvals",
+    icon: "\u{1F6E1}\ufe0f",
+    description: "Approve cleaning stages (Wash Out / Dry Out) at the QA interlock",
+    privilegeIds: ["stage_approvals.view", "stage_approvals.decide"],
+  },
   // Report Templates + Generated Reports removed from the application (2026-06-08).
   {
     sidebarId: "version-history",

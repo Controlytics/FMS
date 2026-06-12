@@ -381,6 +381,18 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Instrument readings captured for filter "{targetName}" at stage "{stage}" by {actor}',
     placeholders: ['actor', 'targetName', 'stage'],
   },
+  STAGE_APPROVAL_APPROVED: {
+    label: 'Cleaning Stage Approved (Interlock)',
+    category: 'Filter Operations',
+    template: 'Cleaning stage "{stageKey}" approved for filter "{filterName}" by {actor}',
+    placeholders: ['actor', 'stageKey', 'filterName'],
+  },
+  STAGE_APPROVAL_REJECTED: {
+    label: 'Cleaning Stage Rejected (Interlock)',
+    category: 'Filter Operations',
+    template: 'Cleaning stage "{stageKey}" rejected for filter "{filterName}" by {actor} — restart from "{rejectToStateKey}"',
+    placeholders: ['actor', 'stageKey', 'filterName', 'rejectToStateKey'],
+  },
 
   // Cleaning Profiles
   CLEANING_PROFILE_CREATED: {

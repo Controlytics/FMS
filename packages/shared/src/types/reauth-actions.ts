@@ -131,6 +131,10 @@ export const REAUTH_ACTIONS = {
   // it is the highest-frequency operator action and must be operator-owned.
   ADVANCE_FILTER_STAGE: { label: 'Advance Filter to Next Stage', category: 'Filter Management' },
   BYPASS_FILTER_STAGE: { label: 'Bypass Filter Stage (Deviation)', category: 'Filter Management' },
+  // Cleaning stage interlock — always-on signature (not config-toggleable). Listed
+  // here for the audit/registry view only; enforced via enforceReauthAlways.
+  APPROVE_CLEANING_STAGE: { label: 'Approve Cleaning Stage (Interlock)', category: 'Filter Management' },
+  REJECT_CLEANING_STAGE: { label: 'Reject Cleaning Stage (Interlock)', category: 'Filter Management' },
   TERMINATE_CLEANING_CYCLE: { label: 'Terminate Cleaning Cycle', category: 'Filter Management' },
   CREATE_FILTER: { label: 'Create Filter', category: 'Filter Management' },
   EDIT_FILTER: { label: 'Edit Filter', category: 'Filter Management' },

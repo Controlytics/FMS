@@ -82,6 +82,10 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'block_change.request', label: 'Request Block Change', category: 'Filter Management', icon: 'refresh' },
   { id: 'block_change.approve', label: 'Approve Block Change', category: 'Filter Management', icon: 'check-circle' },
 
+  // Cleaning Stage Interlock (QA approval after Wash Out / Dry Out)
+  { id: 'stage_approvals.view', label: 'View Stage Approvals', category: 'Filter Management', icon: 'shield' },
+  { id: 'stage_approvals.decide', label: 'Approve/Reject Cleaning Stages', category: 'Filter Management', icon: 'shield-check' },
+
   // Cleaning Profiles
   { id: 'cleaning_profiles.view', label: 'View Cleaning Profiles', category: 'Cleaning Profiles', icon: 'eye' },
   { id: 'cleaning_profiles.create', label: 'Create Cleaning Profiles', category: 'Cleaning Profile Page Controls', icon: 'plus' },
@@ -273,6 +277,10 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   // Block Change
   'block_change.request': ['BLOCK_CHANGE_REQUEST'],
   'block_change.approve': ['BLOCK_CHANGE_APPROVE'],
+
+  // Cleaning Stage Interlock
+  'stage_approvals.view': ['STAGE_APPROVAL_VIEW'],
+  'stage_approvals.decide': ['STAGE_APPROVAL_DECIDE'],
 
   // Cleaning Profiles
   'cleaning_profiles.view': ['FCP_READ'],

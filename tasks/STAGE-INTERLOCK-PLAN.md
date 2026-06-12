@@ -113,13 +113,23 @@ NOTE: enforceReauthAlways takes a free-string action (always-on, not registry-ga
   perms STAGE_APPROVAL_VIEW/DECIDE work for SUPER_ADMIN now, seeded to roles in Phase 4.
   auditLog action is free-string too — STAGE_APPROVAL_* audit-registry entries are Phase 4 (UI).
 
-### Phase 4 — Permissions / notifications / shared (12-touchpoint)
-- [ ] permissions.ts: STAGE_APPROVAL_VIEW, STAGE_APPROVAL_DECIDE.
-- [ ] reauth-actions.ts: APPROVE_CLEANING_STAGE, REJECT_CLEANING_STAGE.
-- [ ] feature-privileges.ts, BOTH sidebar files, seed.ts grants + live UPDATE roles.
-- [ ] NotificationType: STAGE_APPROVAL_REQUESTED / APPROVED / REJECTED (hand-written
-      ALTER TYPE migration, per report-review precedent).
-- [ ] cd packages/shared && npx tsc (nx not wired).
+### Phase 4 — Permissions / privileges / shared (12-touchpoint)  ✅ DONE 2026-06-12
+- [x] permissions.ts: STAGE_APPROVAL_VIEW, STAGE_APPROVAL_DECIDE.
+- [x] reauth-actions.ts: APPROVE_CLEANING_STAGE, REJECT_CLEANING_STAGE (Filter Management;
+      labels note they're always-on, not config-toggleable).
+- [x] audit-actions.ts + audit-templates.ts: STAGE_APPROVAL_APPROVED/REJECTED (proper 21 CFR
+      registry + render templates — report-review skipped these; we did them right). Added
+      filterName to reject afterValue so the template placeholder resolves.
+- [x] feature-privileges.ts: stage_approvals.view/decide + FEATURE_TO_PERMISSION_MAP entries.
+- [x] sidebar-items.ts + sidebar-privilege-map.ts: stage-approvals item + section.
+- [x] seed.ts: granted to SUPER_ADMIN + ADMIN. Live UPDATE roles applied (both has_both=t).
+- [x] NotificationType enum: already done in Phase 2 (pulled forward per advisor).
+- [x] Rebuilt shared (`cd packages/shared && npx tsc`, exit 0); api tsc exit 0.
+
+NOTE: per-package CLAUDE.md "Live Type Inventory" perm/privilege/reauth counts are ALREADY
+stale (say 106/96/87, pre-date many additions) — a separate doc-count sweep is owed across the
+active doc set; not blocking this feature. Existing non-SUPER_ADMIN/ADMIN roles need the perms
+granted to use the inbox (by design — opt-in).
 
 ### Phase 5 — Frontend
 - [ ] Approver inbox /stage-approvals (clone report-reviews inbox): To-Action/All tabs,

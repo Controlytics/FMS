@@ -170,6 +170,9 @@ export const PERMISSIONS = {
   REPORT_REVIEW_SUBMIT: 'REPORT_REVIEW_SUBMIT', // send a generated report for review
   REPORT_REVIEW: 'REPORT_REVIEW',               // act on the review (stage 2)
   REPORT_APPROVE: 'REPORT_APPROVE',             // act on the approval (stage 3)
+  // Cleaning stage interlock (QA approval after WASH_OUT/DRY_OUT) — 2026-06-12
+  STAGE_APPROVAL_VIEW: 'STAGE_APPROVAL_VIEW',     // see the stage approval inbox
+  STAGE_APPROVAL_DECIDE: 'STAGE_APPROVAL_DECIDE', // approve/reject a cleaning stage
 
   // Admin Requests (2026-05-04 — review C4): own permission so the
   // 'admin_requests.view' privilege does NOT need USER_CREATE. Earlier

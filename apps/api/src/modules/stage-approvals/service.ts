@@ -270,7 +270,7 @@ export const stageApprovalService = {
           action: 'STAGE_APPROVAL_REJECTED',
           targetType: 'cleaning_stage_approval',
           targetId: row.id,
-          afterValue: { stageKey: row.stageKey, rejectToStateKey: row.rejectToStateKey, remarks: clean },
+          afterValue: { stageKey: row.stageKey, rejectToStateKey: row.rejectToStateKey, filterName: (row.detailsSnapshot as any)?.filterName ?? null, remarks: clean },
           signatureMeaning: `${prettyStage(row.stageKey)} rejected for filter "${(row.detailsSnapshot as any)?.filterName ?? row.filterId}" — restart from ${prettyStage(row.rejectToStateKey)}`,
           ipAddress: ctx.ipAddress,
           userAgent: ctx.userAgent,
