@@ -18,6 +18,16 @@ import * as executor from '@digilog/shared';
 import { computeChecksum, collectChecklistsAfterStage } from '../helpers.js';
 import { lockAndVerifyFilterState } from './locking.js';
 import { validateAdvanceBlock } from '../filter-resolver.js';
+import {
+  getInterlockConfig,
+  isInterlockStage,
+  getApproverRoleForStage,
+  assertStageApprovedToLeave,
+  collectFilterApprovalDetails,
+  requestStageApprovalTx,
+  notifyStageApprovalRequested,
+  type FilterApprovalDetails,
+} from '../stage-interlock.js';
 import type { FilterOperationsService } from '../filter-operations.service.js';
 
 /** @param data - Validated by Fastify JSON schema before reaching this method */
@@ -84,6 +94,18 @@ export async function advanceImpl(
 
   // Pending checklist gate (frozen at cycle start per A5).
   throwIfFailed(executor.assertChecklistGatePassed(localCtx, localCtx.profile, currentState));
+
+  // Stage interlock — leave-gate (QA approval after WASH_OUT / DRY_OUT).
+  // Cannot leave an interlock stage until the latest approval for (cycle, stage)
+  // is APPROVED. Config fetched once and reused for the entry step below. No-op
+  // when interlock is disabled or fromState is not a gated stage.
+  const interlockConfig = await getInterlockConfig();
+  await assertStageApprovedToLeave({
+    cycleId: cycle.id,
+    fromState: currentState,
+    targetState,
+    config: interlockConfig,
+  });
 
   // Compute reachable stages + END detection from pipeline graph.
   const fromNodeForReachability = currentState
@@ -335,8 +357,26 @@ export async function advanceImpl(
     }
   }
 
-  // Wrap all writes in a single transaction with row-level lock (Phase 5b.4).
-  await prisma.$transaction(async (tx) => {
+  // Stage interlock — entry step. When this advance ENTERS an interlock stage
+  // (WASH_OUT / DRY_OUT) and the cycle is NOT auto-completing here, a PENDING
+  // approval is created inside the tx (atomic with the state change) so there is
+  // no window where the filter sits at the gated stage with no gate. The details
+  // snapshot (DB reads) is gathered BEFORE the tx; the notification fires AFTER
+  // commit (best-effort). willComplete mirrors the auto-complete condition below.
+  const willComplete = leadsToEnd && !hasMoreStages && !hasPendingChecklistAfterTarget;
+  const enteringInterlock =
+    interlockConfig.enabled && isInterlockStage(targetState) && !willComplete;
+  let interlockSnapshot: FilterApprovalDetails | null = null;
+  const interlockApproverRole: string | null = enteringInterlock
+    ? getApproverRoleForStage(targetState, interlockConfig)
+    : null;
+  if (enteringInterlock) {
+    interlockSnapshot = await collectFilterApprovalDetails(filterId);
+  }
+
+  // Captured from the transaction's return value (TS can't narrow a variable
+  // mutated inside the async tx closure, so the approval is returned out).
+  const createdApproval = await prisma.$transaction(async (tx): Promise<{ id: string } | null> => {
     // SELECT ... FOR UPDATE on the FilterDetails row blocks any concurrent
     // advance/bypass on this filter until this transaction commits. Closes
     // the read-then-write race where two operators on two devices could both
@@ -387,6 +427,19 @@ export async function advanceImpl(
       data: { currentLifecycleState: targetState },
     });
 
+    // Stage interlock — raise the gate on entry (atomic with the state change).
+    let approvalRow: { id: string } | null = null;
+    if (enteringInterlock && interlockSnapshot && interlockApproverRole) {
+      approvalRow = await requestStageApprovalTx(tx, {
+        cycleId: cycle.id,
+        filterId,
+        stageKey: targetState,
+        approverRole: interlockApproverRole,
+        detailsSnapshot: interlockSnapshot,
+        ctx,
+      });
+    }
+
     if (leadsToEnd && !hasMoreStages && !hasPendingChecklistAfterTarget) {
       const completedAt = offlineTime ?? new Date();
       await tx.cleaningCycle.update({
@@ -431,7 +484,19 @@ export async function advanceImpl(
       afterValue: { state: targetState },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
     }, tx);
+
+    return approvalRow;
   });
+
+  // Best-effort: notify the approver role that a stage is awaiting approval.
+  // After commit so a notification failure never rolls back the cycle write.
+  if (createdApproval && interlockApproverRole) {
+    await notifyStageApprovalRequested(
+      { id: createdApproval.id, filterId, stageKey: targetState, approverRole: interlockApproverRole },
+      interlockSnapshot?.filterName ?? null,
+      ctx,
+    );
+  }
 
   return service.getCurrentState(ctx, filterId);
 }

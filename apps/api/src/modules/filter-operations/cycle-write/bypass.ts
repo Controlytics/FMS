@@ -16,6 +16,7 @@ import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
 import { computeChecksum } from '../helpers.js';
 import { lockAndVerifyFilterState } from './locking.js';
+import { assertStageApprovedToLeave } from '../stage-interlock.js';
 import type { FilterOperationsService } from '../filter-operations.service.js';
 
 /** @param data - Validated by Fastify JSON schema before reaching this method */
@@ -69,6 +70,21 @@ export async function bypassImpl(
   throwIfFailed(executor.assertJustificationValid(localCtx, justification, { kind: 'bypass' }));
 
   const fromState = localCtx.filter.currentLifecycleState;
+
+  // Stage interlock — leave-gate. A bypass must not be an escape hatch around a
+  // pending QA approval: leaving an interlock stage (WASH_OUT / DRY_OUT) still
+  // requires the latest approval to be APPROVED. No-op when interlock disabled or
+  // fromState is not a gated stage.
+  // KNOWN GAP (Phase 2): a bypass that jumps INTO a later stage, skipping an
+  // interlock stage entirely, is not yet blocked — tracked in
+  // tasks/STAGE-INTERLOCK-PLAN.md. Most profiles are STRICT (bypass disabled).
+  if (filterCurrentCycleId) {
+    await assertStageApprovedToLeave({
+      cycleId: filterCurrentCycleId,
+      fromState,
+      targetState,
+    });
+  }
 
   const eventData = {
     filterId, cycleId: filterCurrentCycleId ?? undefined,

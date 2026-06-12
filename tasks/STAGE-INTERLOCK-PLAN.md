@@ -52,14 +52,44 @@ service maps stageKey→config key + holds the fixed STAGE_INTERLOCK_POINTS
 (WASH_OUT→WASH_IN, DRY_OUT→DRY_IN).
 
 ### Phase 2 — Engine integration (the interlock itself)
-- [ ] Helper `collectFilterApprovalDetails(filterId)` → the 8-field snapshot.
-- [ ] advance.ts (a): block leaving a gated stage — if fromState is interlock point &
-      latest approval for (cycle, stage) !== APPROVED → 423 STAGE_APPROVAL_PENDING.
-- [ ] advance.ts (b): on entering an interlock stage, create PENDING approval + snapshot +
-      notify approverRole + audit STAGE_APPROVAL_REQUESTED. (online-only; offline replay
-      defers — see offline note.)
-- [ ] bypass.ts: SAME leave-gate guard (interlock must not be a bypass escape hatch).
-- [ ] current-state.ts: add `interlock: {pending, stageKey, approvalId, approverRole} | null`.
+ADVISOR REVISIONS (2026-06-12) folded in:
+- **Tape MUST be interlock-aware in Phase 2, not Phase 5** — offline client decides moves from
+  the CACHED tape/stageLookup, not the server. Without this, offline operators advance past
+  WASH_OUT, queue the op, and on sync the 423 poisons the whole queue → opposite of the
+  "block until online" decision. Approach (no shared-pkg surgery): (a) static `interlockGated`
+  flag per stageLookup entry → offline client stops at the gated stage; (b) post-filter
+  actions[] in current-state.ts to drop ADVANCE_TO_STAGE/BYPASS_STAGE leave actions until
+  APPROVED; (c) `interlock` field for display only; (d) server gate authoritative.
+- **Notification enum pulled INTO Phase 2** — STAGE_APPROVAL_REQUESTED is a Postgres enum;
+  createNotification insert throws until the value exists. ALTER TYPE ADD VALUE (3 values) now.
+- **Bypass-skip gap** — bypass leave-gate covers leaving a gated stage, but bypass can also
+  jump INTO a later stage skipping WASH_OUT/DRY_OUT entirely. KNOWN GAP for Phase 2 (most
+  profiles are STRICT = bypass disabled). Surface to user; harden later if bypass is used.
+- **DRY_OUT reject must null cycle dryer fields** (dryerStartedAt/dryerReadingsSubmitted/
+  dryerDurationMinutes) — else stale data lets operator leave DRY_IN again without re-drying.
+  Honor [[feedback_dryer_started_at_offline_anchor]]. → handled in Phase 3 reject handler.
+
+Tasks:  ✅ DONE 2026-06-12 (backend; tsc clean, gate verified)
+- [x] Notification enum: 3 values (STAGE_APPROVAL_REQUESTED/APPROVED/REJECTED) in Prisma enum
+      + ALTER TYPE migration 20260612130000 applied + TS union in createNotification.
+- [x] Module `stage-interlock.ts`: INTERLOCK_POINTS, getInterlockConfig, isInterlockStage,
+      getApproverRoleForStage, getLatestApproval, assertStageApprovedToLeave (423 PENDING/
+      REJECTED), collectFilterApprovalDetails (filters.attributes + ancestor walk by
+      templateKind + FilterDetails.filterSet + filterName), requestStageApprovalTx (idempotent,
+      attemptSeq), notifyStageApprovalRequested.
+- [x] advance.ts (a) leave-gate after checklist gate; (b) create PENDING on entering (in-tx,
+      atomic — captured via tx return value) + notify post-commit.
+- [x] bypass.ts: leave-gate guard (+ KNOWN-GAP comment for skip-into-later-stage).
+- [x] current-state.ts: `interlock` field + stageLookup.interlockGated (static, offline) +
+      actions[] post-filter (drop leave ADVANCE/BYPASS until APPROVED).
+
+VERIFIED (non-destructive, direct module call against live WASH_OUT cycle):
+  config read enabled, isInterlockStage WO/DO=true WI=false, leave-gate WASH_OUT→DRY_IN throws
+  423 STAGE_APPROVAL_PENDING, in-place + non-gated don't throw, snapshot resolves name/block/
+  area/ahu/filterSet. Config left DISABLED (default).
+DEFERRED to Phase 3 e2e (needs approver endpoints + a driven cycle): the entry approval-row
+  CREATION inside advance, the notification firing, and the current-state interlock/actions
+  response shape over HTTP. All typecheck clean; will be exercised end-to-end in Phase 3 tests.
 
 ### Phase 3 — Approver module
 - [ ] `stage-approvals/{service.ts, routes.ts}` @ /api/stage-approvals.

@@ -25,6 +25,12 @@ import {
   extractBlocks,
   resolveFilterProfile,
 } from './filter-resolver.js';
+import {
+  getInterlockConfig,
+  isInterlockStage,
+  getApproverRoleForStage,
+  getLatestApproval,
+} from './stage-interlock.js';
 import type { FilterOperationsService } from './filter-operations.service.js';
 
 /**
@@ -80,6 +86,31 @@ export async function getCurrentStateImpl(
   if (filter.currentCycleId) {
     currentCycle = await prisma.cleaningCycle.findUnique({ where: { id: filter.currentCycleId } });
   }
+
+  // Stage interlock state. `gatedStage` is STATIC (config-driven) so the offline
+  // client can cache it and stop at a gated stage without knowing the dynamic
+  // approval status. `blocksLeaving` is dynamic — true until the latest approval
+  // for (cycle, stage) is APPROVED — and drives both the actions[] post-filter
+  // below and the operator-facing banner. Computed once; reused for stageLookup.
+  const interlockConfig = await getInterlockConfig();
+  const interlockStateKey = filter.currentLifecycleState;
+  const interlockGatedHere = interlockConfig.enabled && isInterlockStage(interlockStateKey);
+  let interlockLatest: { id: string; status: string } | null = null;
+  if (interlockGatedHere && currentCycle) {
+    const row = await getLatestApproval(currentCycle.id, interlockStateKey as string);
+    interlockLatest = row ? { id: row.id, status: row.status } : null;
+  }
+  const interlockBlocksLeaving = interlockGatedHere && interlockLatest?.status !== 'APPROVED';
+  const interlock = interlockGatedHere
+    ? {
+        gatedStage: true,
+        stageKey: interlockStateKey,
+        status: interlockLatest?.status ?? null,
+        approvalId: interlockLatest?.id ?? null,
+        approverRole: getApproverRoleForStage(interlockStateKey as string, interlockConfig),
+        blocksLeaving: interlockBlocksLeaving,
+      }
+    : null;
 
   // Pre-compute block-change state so the mobile UI can show the request
   // popup BEFORE asking for a wash-in reason, not as a background error
@@ -377,7 +408,7 @@ export async function getCurrentStateImpl(
   //   - leadsToEnd: true if no more stages follow
   // The client just looks this up after each successful offline advance instead
   // of walking the graph itself (which has historically drifted from server).
-  const stageLookup: Record<string, { nextStages: string[]; pendingChecklistProfileIds: string[]; leadsToEnd: boolean }> = {};
+  const stageLookup: Record<string, { nextStages: string[]; pendingChecklistProfileIds: string[]; leadsToEnd: boolean; interlockGated: boolean }> = {};
   if (cp) {
     for (const s of cp.stages) {
       if (s.nodeType !== 'STAGE' || !s.stateKey) continue;
@@ -410,6 +441,9 @@ export async function getCurrentStateImpl(
         nextStages: [...nextSet],
         pendingChecklistProfileIds: checklistNodes.map((n: any) => (n.configuration as any)?.checklistProfileId).filter(Boolean),
         leadsToEnd,
+        // Static interlock flag — the OFFLINE client uses this to stop at a gated
+        // stage (WASH_OUT/DRY_OUT) since it can't reach an approver offline.
+        interlockGated: interlockConfig.enabled && isInterlockStage(s.stateKey),
       };
     }
   }
@@ -550,8 +584,23 @@ export async function getCurrentStateImpl(
     filterEventCount,
     now: new Date(),
   });
-  const actions = tape.actions;
+  let actions = tape.actions;
   const tapeVersion = tape.tapeVersion;
+
+  // Stage interlock — suppress the LEAVE actions out of a gated stage until the
+  // latest approval is APPROVED. The online client renders actions[] directly, so
+  // dropping these hides the advance/bypass buttons; the next poll re-enables them
+  // the instant approval lands. The server gate (advance/bypass) is the backstop;
+  // the offline client relies on stageLookup.interlockGated instead.
+  if (interlockBlocksLeaving) {
+    actions = actions.filter(
+      (a: any) =>
+        !(
+          (a.type === 'ADVANCE_TO_STAGE' || a.type === 'BYPASS_STAGE') &&
+          a.params?.targetState !== interlockStateKey
+        ),
+    );
+  }
 
   return {
     filterId: filter.id,
@@ -574,6 +623,7 @@ export async function getCurrentStateImpl(
     profileSyncWarning,
     equipmentGroupSyncWarning, // L3 (2026-05-02)
     stageLookup,
+    interlock, // stage interlock display state (null unless current stage is gated)
     actions,
     tapeVersion,
   };
