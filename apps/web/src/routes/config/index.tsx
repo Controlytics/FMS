@@ -366,6 +366,18 @@ const superAdminCards = [
     shadowColor: 'shadow-orange-500/25',
   },
   {
+    title: 'Cleaning Stage Interlock',
+    description: 'Require a QA approval signature after Wash Out and Dry Out before a filter can continue cleaning',
+    href: '/config/dynamic/stage-interlock',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+      </svg>
+    ),
+    gradient: 'from-cyan-500 to-blue-600',
+    shadowColor: 'shadow-cyan-500/25',
+  },
+  {
     title: 'Offline Cache & Lockout',
     description: 'Cache staleness window + hard-cutoff read-only lockout after losing server contact',
     href: '/config/offline-cache',

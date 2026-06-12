@@ -46,6 +46,7 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/filter-field-options.def.js'),
     import('../modules/config/defs/export-options.def.js'),
     import('../modules/config/defs/replacement-schedule-filters.def.js'),
+    import('../modules/config/defs/stage-interlock.def.js'),
     // ─── Add new module configs below this line ───
   ]);
 

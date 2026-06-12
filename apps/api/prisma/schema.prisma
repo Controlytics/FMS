@@ -1986,3 +1986,57 @@ model ReportReview {
   @@index([generatedBy])
   @@map("report_reviews")
 }
+
+// =============================================
+// CLEANING STAGE INTERLOCK (QA approval gate)
+// =============================================
+// Two-point quality interlock inside a cleaning cycle. After WASH_OUT and after
+// DRY_OUT the cycle pauses; the filter context is snapshotted and routed to a
+// configurable approver role for a re-authenticated (digital-signature) decision.
+//  - APPROVE → filter continues per the pinned cleaning-profile graph.
+//  - REJECT  → currentLifecycleState moves back to rejectToStateKey (WASH_IN / DRY_IN).
+// Gate rule: an operator may LEAVE an interlock stage only if the LATEST approval
+// row for (cycleId, stageKey) is APPROVED. attemptSeq disambiguates reject→redo
+// loops so a stale prior-attempt APPROVED cannot release a fresh attempt.
+// No Prisma relations (mirrors ReportReview) — cycleId/filterId stored as raw Uuid.
+enum CleaningStageApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+
+  @@map("cleaning_stage_approval_status")
+}
+
+model CleaningStageApproval {
+  id               String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cycleId          String                      @map("cycle_id") @db.Uuid
+  filterId         String                      @map("filter_id") @db.Uuid
+  stageKey         String                      @map("stage_key") @db.VarChar(40) // WASH_OUT | DRY_OUT
+  status           CleaningStageApprovalStatus @default(PENDING)
+  approverRole     String                      @map("approver_role") @db.VarChar(50)
+  rejectToStateKey String                      @map("reject_to_state_key") @db.VarChar(40) // WASH_IN | DRY_IN
+  attemptSeq       Int                         @default(1) @map("attempt_seq")
+  // Frozen filter context for the approver:
+  // { block, area, ahu, ahuType, micronSize, filterType, filterDimensions, filterSet }
+  detailsSnapshot  Json                        @map("details_snapshot") @db.JsonB
+
+  // Stage 1 — requested by the operator who completed the interlock stage.
+  // *Name fields store the User ID (username), matching ReportReview convention.
+  requestedBy      String                      @map("requested_by") @db.Uuid
+  requestedByName  String                      @map("requested_by_name") @db.VarChar(255)
+  requestedAt      DateTime                    @default(now()) @map("requested_at") @db.Timestamptz
+
+  // Stage 2 — the approve/reject decision (the digital signature; reauth-gated).
+  decidedBy        String?                     @map("decided_by") @db.Uuid
+  decidedByName    String?                     @map("decided_by_name") @db.VarChar(255)
+  decidedAt        DateTime?                   @map("decided_at") @db.Timestamptz
+  decisionRemarks  String?                     @map("decision_remarks") @db.Text
+
+  createdAt        DateTime                    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime                    @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([cycleId, stageKey])
+  @@index([status, approverRole])
+  @@index([filterId])
+  @@map("cleaning_stage_approvals")
+}
