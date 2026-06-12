@@ -91,13 +91,27 @@ DEFERRED to Phase 3 e2e (needs approver endpoints + a driven cycle): the entry a
   CREATION inside advance, the notification firing, and the current-state interlock/actions
   response shape over HTTP. All typecheck clean; will be exercised end-to-end in Phase 3 tests.
 
-### Phase 3 — Approver module
-- [ ] `stage-approvals/{service.ts, routes.ts}` @ /api/stage-approvals.
-      GET /queue, GET /:id, POST /:id/approve (reauth APPROVE_CLEANING_STAGE → digital
-      signature → notify operator → audit), POST /:id/reject (reauth + remarks → REJECTED →
-      tx: deviation FilterEvent + set currentLifecycleState=rejectToStateKey + notify + audit).
-- [ ] Enforce approver ≠ performer + role match in approve/reject.
-- [ ] Register module in app.ts.
+### Phase 3 — Approver module  ✅ DONE 2026-06-12 (e2e green)
+- [x] `stage-approvals/{service.ts, routes.ts}` @ /api/stage-approvals.
+      GET /queue + GET / (STAGE_APPROVAL_VIEW), GET /:id, POST /:id/approve + /:id/reject
+      (STAGE_APPROVAL_DECIDE + enforceReauthAlways = digital signature).
+- [x] approve → APPROVED + APPROVAL_GRANTED FilterEvent + audit signatureMeaning + notify operator.
+- [x] reject → remarks≥3 + REJECTED + STATE_TRANSITION deviation event + currentLifecycleState←
+      rejectToStateKey + nulls cycle dryer fields when rejectTo=DRY_IN + audit + notify operator.
+- [x] Guards: assertRoleAllowed (role===approverRole | SUPER_ADMIN), assertDifferentApprover
+      (config requireDifferentApprover → decider≠performer). INVALID_STATUS on non-PENDING,
+      CYCLE_NOT_ACTIVE on dead cycle.
+- [x] Registered in app.ts (/api/stage-approvals). Route live (401 not 404).
+
+VERIFIED via disposable-cycle e2e (full teardown, idle filter restored, orphan audit rows
+  acceptable per precedent): all guards throw correctly; reject moves DRY_OUT→DRY_IN + nulls
+  dryer + writes deviation event; approve flips status + writes APPROVAL_GRANTED; leave-gate
+  BLOCKS while PENDING and PASSES after APPROVED (the full enter→block→approve→release loop).
+  tsc clean. Config left disabled.
+NOTE: enforceReauthAlways takes a free-string action (always-on, not registry-gated) so
+  APPROVE_CLEANING_STAGE/REJECT_CLEANING_STAGE need NO reauth-actions.ts entry to function;
+  perms STAGE_APPROVAL_VIEW/DECIDE work for SUPER_ADMIN now, seeded to roles in Phase 4.
+  auditLog action is free-string too — STAGE_APPROVAL_* audit-registry entries are Phase 4 (UI).
 
 ### Phase 4 — Permissions / notifications / shared (12-touchpoint)
 - [ ] permissions.ts: STAGE_APPROVAL_VIEW, STAGE_APPROVAL_DECIDE.
