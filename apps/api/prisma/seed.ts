@@ -129,6 +129,8 @@ async function main() {
         'FILTER_CREATE', 'FILTER_EDIT',
         'FCP_READ', 'FP_READ', 'PM_READ', 'CYCLE_READ',
         'BLOCK_CHANGE_REQUEST',
+        // Cleaning stage interlock — SUPERVISOR is a natural approver role (2026-06-12)
+        'STAGE_APPROVAL_VIEW', 'STAGE_APPROVAL_DECIDE',
         // Reports
         'REPORT_TEMPLATE_READ', 'REPORT_GENERATE', 'REPORT_VIEW', 'REPORT_SIGN', 'REPORT_EXPORT',
       ],
