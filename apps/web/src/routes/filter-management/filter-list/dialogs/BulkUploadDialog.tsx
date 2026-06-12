@@ -1,5 +1,6 @@
 import { Fragment } from 'react';
 import { themeButton } from '@/lib/theme-styles';
+import { UploadValidationResult } from '@/components/upload-validation-result';
 import type { AhuOption, BulkUploadStep, DiagramFilterState, FilterFieldOptions } from '../types';
 
 type Props = {
@@ -155,29 +156,16 @@ export function BulkUploadDialog({
           {step === 'preview' && (
             <>
               <div className="flex items-center justify-between">
-                <p className="text-sm text-slate-600">
-                  <strong>{validPreviewRows}</strong> of <strong>{rows.length}</strong> row(s) valid, into <strong>{ahus.find(h => h.id === ahu)?.name ?? '—'}</strong>
-                </p>
+                <p className="text-sm text-slate-600">Review before import — into <strong>{ahus.find(h => h.id === ahu)?.name ?? '—'}</strong></p>
                 <button onClick={onChangeFile}
                   className="text-xs hover:opacity-80 font-medium text-theme-primary">Change file</button>
               </div>
 
-              {/* Validation errors — clear row / column / value messages (req #6) */}
-              {validationErrors.length > 0 && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                  <h4 className="text-sm font-semibold text-red-700 mb-1.5">{validationErrors.length} validation error(s) — these rows will be skipped</h4>
-                  <ul className="space-y-1 max-h-40 overflow-y-auto text-xs text-red-700">
-                    {validationErrors.map((er: any, i: number) => (
-                      <li key={i}>
-                        Row <strong>{er.row}</strong>
-                        {er.column ? <>, column <span className="font-mono">{er.column}</span></> : null}
-                        {er.value ? <> = <span className="font-mono">"{er.value}"</span></> : null}
-                        {' — '}{er.error}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+              <UploadValidationResult
+                importedCount={validPreviewRows}
+                importedLabel="Valid (will import)"
+                errors={validationErrors.map((er: any) => ({ row: er.row, reason: er.error, column: er.column, value: er.value }))}
+              />
 
               <div className="max-h-64 overflow-auto border border-slate-200 rounded-lg">
                 <table className="w-full text-xs">

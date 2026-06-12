@@ -10,6 +10,7 @@ import { apiClient } from '@/lib/api-client';
 import { createReport } from '@/lib/pdf-report';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
+import { UploadValidationResult } from '@/components/upload-validation-result';
 import { Pagination } from '@/components/ui/pagination';
 import { themeButton } from '@/lib/theme-styles';
 
@@ -412,11 +413,11 @@ export function ReplacementSchedulePage() {
               {step === 'uploading' && <div className="text-center py-8 text-sm text-slate-500">Uploading…</div>}
 
               {step === 'results' && (
-                <div className="space-y-2">
-                  <div className={`rounded-lg p-3 text-sm font-medium ${failed === 0 ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
-                    {created} created{failed ? `, ${failed} failed` : ''}.
-                  </div>
-                </div>
+                <UploadValidationResult
+                  importedCount={created}
+                  importedLabel="Created"
+                  errors={(results ?? []).filter((r: any) => r.status === 'error').map((r: any) => ({ row: r.row, reason: r.error ?? 'Failed', column: r.column, value: r.value }))}
+                />
               )}
             </div>
             <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">

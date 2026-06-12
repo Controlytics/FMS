@@ -12,6 +12,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { createReport } from '../../lib/pdf-report';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
+import { UploadValidationResult } from '@/components/upload-validation-result';
 
 interface UploadResult {
   imported: number;
@@ -1003,36 +1004,11 @@ export function PmScheduleListPage() {
               {uploadError && <div className="mt-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm">{uploadError}</div>}
               {result && (
                 <div className="space-y-4">
-                  <div className="text-sm font-semibold text-slate-700">
-                    Validation result — processed {result.imported + result.skipped} row{result.imported + result.skipped === 1 ? '' : 's'}
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-                      <div className="text-2xl font-bold text-emerald-700">{result.imported}</div>
-                      <div className="text-xs text-emerald-600 font-semibold mt-0.5">Imported (Pending QA)</div>
-                    </div>
-                    <div className={`rounded-xl p-4 border ${result.skipped > 0 ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-200'}`}>
-                      <div className={`text-2xl font-bold ${result.skipped > 0 ? 'text-rose-700' : 'text-slate-400'}`}>{result.skipped}</div>
-                      <div className={`text-xs font-semibold mt-0.5 ${result.skipped > 0 ? 'text-rose-600' : 'text-slate-400'}`}>Errors (not imported)</div>
-                    </div>
-                  </div>
-                  {result.details.skipped.length > 0 ? (
-                    <div>
-                      <div className="text-xs font-semibold text-rose-600 uppercase tracking-wider mb-2">Rows with errors — fix and re-upload</div>
-                      <div className="space-y-1 max-h-56 overflow-y-auto">
-                        {result.details.skipped.map((r, i) => (
-                          <div key={i} className="flex items-start gap-2 text-sm px-3 py-2 bg-rose-50 border border-rose-100 rounded-lg">
-                            <span className="shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-full bg-rose-100 text-rose-600 text-[11px] font-bold">!</span>
-                            <span className="text-slate-700"><b>Row {r.row}</b> — {r.reason}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
-                      ✓ All rows passed validation — no errors.
-                    </div>
-                  )}
+                  <UploadValidationResult
+                    importedCount={result.imported}
+                    importedLabel="Imported (Pending QA)"
+                    errors={result.details.skipped.map(s => ({ row: s.row, reason: s.reason }))}
+                  />
                   <div className="flex gap-3 pt-2">
                     <button onClick={() => { setResult(null); setUploadError(''); }} className="flex-1 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-50">Upload Another</button>
                     <button onClick={() => { setUploadOpen(false); setResult(null); setUploadError(''); }} className="flex-1 py-2.5 rounded-xl text-sm font-semibold shadow-lg" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))', color: '#fff' }}>Done</button>
