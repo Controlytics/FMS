@@ -127,9 +127,11 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
       summary: 'Server-proxied fetch of auto-fetch instrument readings for a cycle stage',
       body: {
         type: 'object',
-        required: ['filterId', 'stageKey'],
+        required: ['stageKey'],
         properties: {
           filterId: { type: 'string', format: 'uuid' },
+          // groupId is the cycle-start fallback (no cycle to resolve yet).
+          groupId: { type: 'string', format: 'uuid' },
           stageKey: { type: 'string', enum: ['WASH_IN', 'DRY_IN'] },
         },
       },
@@ -137,8 +139,8 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const ctx = buildContext(req);
-    const { filterId, stageKey } = req.body as { filterId: string; stageKey: string };
-    return service.fetchStageReadings(ctx, filterId, stageKey);
+    const { filterId, groupId, stageKey } = req.body as { filterId?: string; groupId?: string; stageKey: string };
+    return service.fetchStageReadings(ctx, filterId, stageKey, groupId);
   });
 
   app.post('/', {

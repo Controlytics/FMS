@@ -437,23 +437,39 @@ export class EquipmentGroupsService {
    * fill-vs-fallback per instrument. Instruments without auto-fetch are omitted
    * (they stay manual).
    */
-  async fetchStageReadings(_ctx: RequestContext, filterId: string, stageKey: string) {
+  async fetchStageReadings(_ctx: RequestContext, filterId: string | undefined, stageKey: string, groupId?: string) {
     if (stageKey !== 'WASH_IN' && stageKey !== 'DRY_IN') {
       throw new AppError(400, 'VALIDATION', 'stageKey must be WASH_IN or DRY_IN');
     }
-    const fd = await prisma.filterDetails.findUnique({
-      where: { assetInstanceId: filterId },
-      select: { currentCycleId: true },
-    });
-    if (!fd?.currentCycleId) return { stageKey, results: [] };
 
-    const cycle = await prisma.cleaningCycle.findUnique({
-      where: { id: fd.currentCycleId },
-      select: { id: true, equipmentGroupId: true, equipmentGroupVersionPin: true, cleaningAreaId: true, status: true },
-    });
-    if (!cycle || cycle.status !== 'IN_PROGRESS') return { stageKey, results: [] };
+    // Primary: resolve via the filter's in-progress cycle (pinned snapshot URLs).
+    let stageInstruments: any[] = [];
+    if (filterId) {
+      const fd = await prisma.filterDetails.findUnique({
+        where: { assetInstanceId: filterId },
+        select: { currentCycleId: true },
+      });
+      if (fd?.currentCycleId) {
+        const cycle = await prisma.cleaningCycle.findUnique({
+          where: { id: fd.currentCycleId },
+          select: { id: true, equipmentGroupId: true, equipmentGroupVersionPin: true, cleaningAreaId: true, status: true },
+        });
+        if (cycle && cycle.status === 'IN_PROGRESS') {
+          stageInstruments = await this.resolveStageInstruments(cycle, stageKey);
+        }
+      }
+    }
 
-    const stageInstruments = await this.resolveStageInstruments(cycle, stageKey);
+    // Fallback (cycle-start: no cycle yet) — use the dialog's explicit group's
+    // LIVE instruments. The client only ever sends ids; the URL is resolved here.
+    if (stageInstruments.length === 0 && groupId) {
+      const g = await prisma.equipmentGroup.findUnique({
+        where: { id: groupId },
+        include: { instruments: { orderBy: { sortOrder: 'asc' } } },
+      });
+      stageInstruments = (g?.instruments ?? []).filter((i) => i.stageKey === stageKey);
+    }
+
     const auto = stageInstruments.filter((i) => i.autoFetchEnabled === true && i.url);
 
     const results = [];

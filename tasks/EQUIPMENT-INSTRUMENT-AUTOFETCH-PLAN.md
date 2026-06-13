@@ -141,6 +141,25 @@ Each phase: implement → verify (per CLAUDE.md correctness rule) → only then 
   + DB.
 
 ### Phase 4 — Reading dialogs (web + tablet, kept in SYNC)
+**Split into 4a (UI flow) + 4b (provenance thread) to keep each commit safe.**
+
+#### Phase 4a — Get Values UI in the shared dialog  ✅ DONE + VERIFIED (2026-06-13)
+> All in the SHARED `equipment-dialog.tsx` (covers web + tablet at once) + a small Phase-2
+> endpoint refinement. Auto instruments now render as free **numeric inputs** (hold off-step/
+> out-of-range API values + serve as manual fallback); manual instruments keep the dropdown.
+> **One "Get Values" button per stage** → polls `POST /fetch-readings {filterId, groupId, stageKey}`
+> up to ~2 min (two 1-min windows, 5s interval), filling each auto instrument as it arrives,
+> retrying only the still-pending ones, **aborting on dialog close** (cancelRef). Per-instrument
+> **source** tracked in dialog state (MANUAL/AUTO/AUTO_OVERRIDDEN — edit of an auto value flips to
+> AUTO_OVERRIDDEN) + "Auto"/"Auto·edited" badges. **Out-of-range warn** (DECISION-A): fills + warns
+> + stays editable; submit still governed by the existing hard guard. Fetched value rides the
+> EXISTING `instrumentReadings` path → zero critical-path/offline edits in 4a.
+> Backend: `fetchStageReadings` gained a `groupId` fallback (cycle-start has no cycle to resolve;
+> client sends ids only, server resolves the URL). Verified: API+web tsc 0, vite build clean,
+> endpoint e2e via groupId fallback against a LAN mock → `AIR-1 ok value 6.2 +fetchedAt`, auto-only.
+> PENDING (batched with P3 visual): in-app drive of the dialog on a real cycle (tablet/APK).
+
+#### Phase 4b — Provenance thread to the audit  ⏳ NEXT
 Both `filter-operations.tsx` (web) and `mobile-operations.tsx` (tablet) — mirror every change.
 - Stage reading dialog: if any enabled instrument for the stage has auto-fetch ON **and online**,
   show **one "Get Values" button** for the stage.
