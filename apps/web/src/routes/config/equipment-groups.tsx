@@ -20,6 +20,10 @@ interface Instrument {
   operatingMin: number;
   operatingMax: number;
   leastCount: number;
+  // Auto-fetch (2026-06-13): pull this instrument's reading from a URL during
+  // cleaning instead of manual entry. url required when autoFetchEnabled.
+  url?: string;
+  autoFetchEnabled?: boolean;
 }
 
 interface EquipmentGroup {
@@ -32,9 +36,9 @@ interface EquipmentGroup {
 }
 
 const DEFAULT_INSTRUMENTS: Instrument[] = [
-  { description: 'Compressed Air Pressure', stageKey: 'WASH_IN', serialNumber: '', instrumentId: '', uom: 'bar', instrumentMin: 0, instrumentMax: 10, operatingMin: 0, operatingMax: 10, leastCount: 0.1 },
-  { description: 'RO Water Pressure', stageKey: 'WASH_IN', serialNumber: '', instrumentId: '', uom: 'bar', instrumentMin: 0, instrumentMax: 10, operatingMin: 0, operatingMax: 10, leastCount: 0.1 },
-  { description: 'Dryer Temperature', stageKey: 'DRY_IN', serialNumber: '', instrumentId: '', uom: '\u00b0C', instrumentMin: 0, instrumentMax: 100, operatingMin: 0, operatingMax: 100, leastCount: 0.5 },
+  { description: 'Compressed Air Pressure', stageKey: 'WASH_IN', serialNumber: '', instrumentId: '', uom: 'bar', instrumentMin: 0, instrumentMax: 10, operatingMin: 0, operatingMax: 10, leastCount: 0.1, url: '', autoFetchEnabled: false },
+  { description: 'RO Water Pressure', stageKey: 'WASH_IN', serialNumber: '', instrumentId: '', uom: 'bar', instrumentMin: 0, instrumentMax: 10, operatingMin: 0, operatingMax: 10, leastCount: 0.1, url: '', autoFetchEnabled: false },
+  { description: 'Dryer Temperature', stageKey: 'DRY_IN', serialNumber: '', instrumentId: '', uom: '\u00b0C', instrumentMin: 0, instrumentMax: 100, operatingMin: 0, operatingMax: 100, leastCount: 0.5, url: '', autoFetchEnabled: false },
 ];
 
 function generateValues(opMin: number, opMax: number, leastCount: number): number[] {
@@ -68,7 +72,9 @@ export function EquipmentGroupsConfigPage() {
   const { data: blocksData } = useSWR('/api/hierarchy/blocks?limit=200');
   const blocks = (blocksData?.data ?? []) as any[];
   const [selectedBlockId, setSelectedBlockId] = useState<string>('');
-  const { data: groupsData } = useSWR(selectedBlockId ? `/api/equipment-groups?blockId=${selectedBlockId}` : null);
+  // includeInactive=true so disabled groups stay visible and re-enableable.
+  const groupsKey = selectedBlockId ? `/api/equipment-groups?blockId=${selectedBlockId}&includeInactive=true` : null;
+  const { data: groupsData } = useSWR(groupsKey);
 
   const [editing, setEditing] = useState<{ group: Partial<EquipmentGroup>; isNew: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -141,8 +147,31 @@ export function EquipmentGroupsConfigPage() {
         }
       },
       {
-        onSuccess: () => mutate(`/api/equipment-groups?blockId=${selectedBlockId}`),
+        onSuccess: () => mutate(groupsKey),
         onError: (e: any) => setDeleteError(e.message || 'Failed to delete'),
+      },
+    );
+  };
+
+  // Enable / disable a group. Enabling flips every OTHER group in the block off
+  // (single-active-group-per-block — the server enforces it; we just confirm).
+  const handleToggleActive = (g: EquipmentGroup) => {
+    const enabling = !g.isActive;
+    if (enabling) {
+      const otherActive = groups.filter(x => x.id !== g.id && x.isActive).length;
+      if (otherActive > 0 && !confirm(`Enable "${g.name}"? This disables ${otherActive} other active group${otherActive === 1 ? '' : 's'} in this block — a block can have only one active group.`)) return;
+    }
+    setDeleteError('');
+    reauth.execute(
+      'UPDATE_EQUIPMENT_GROUP',
+      async (password?: string) => {
+        const body = { isActive: enabling };
+        if (password) await api.patchWithReauth(`/api/equipment-groups/${g.id}/active`, body, password);
+        else await apiClient.patch(`/api/equipment-groups/${g.id}/active`, body);
+      },
+      {
+        onSuccess: () => mutate(groupsKey),
+        onError: (e: any) => setDeleteError(e.message || 'Failed to update group status'),
       },
     );
   };
@@ -167,6 +196,16 @@ export function EquipmentGroupsConfigPage() {
       if (inst.operatingMin < inst.instrumentMin || inst.operatingMin > inst.instrumentMax) { setError(`Operating Min must be within instrument range for ${inst.description}`); return; }
       if (inst.operatingMax < inst.instrumentMin || inst.operatingMax > inst.instrumentMax) { setError(`Operating Max must be within instrument range for ${inst.description}`); return; }
       if (inst.operatingMin >= inst.operatingMax) { setError(`Operating Min must be less than Operating Max for ${inst.description}`); return; }
+      if (inst.autoFetchEnabled) {
+        const u = (inst.url ?? '').trim();
+        if (!u) { setError(`Reading URL is required when auto-fetch is enabled for ${inst.description}`); return; }
+        try {
+          const p = new URL(u);
+          if (p.protocol !== 'http:' && p.protocol !== 'https:') throw new Error('scheme');
+        } catch {
+          setError(`Reading URL must be a valid http(s) URL for ${inst.description}`); return;
+        }
+      }
     }
     setSaving(true); setError('');
     const payload = {
@@ -177,6 +216,7 @@ export function EquipmentGroupsConfigPage() {
         instrumentMin: Number(i.instrumentMin), instrumentMax: Number(i.instrumentMax),
         operatingMin: Number(i.operatingMin), operatingMax: Number(i.operatingMax),
         leastCount: Number(i.leastCount),
+        url: (i.url ?? '').trim(), autoFetchEnabled: !!i.autoFetchEnabled,
       })),
     };
     reauth.execute(
@@ -192,7 +232,7 @@ export function EquipmentGroupsConfigPage() {
       },
       {
         onSuccess: () => {
-          mutate(`/api/equipment-groups?blockId=${selectedBlockId}`);
+          mutate(groupsKey);
           setEditing(null);
           setSavedToast(isNew ? 'Equipment group created' : 'Equipment group saved');
           setTimeout(() => setSavedToast(''), 3000);
@@ -291,19 +331,33 @@ export function EquipmentGroupsConfigPage() {
       {/* Group Cards */}
       <div className="space-y-5">
         {pagedGroups.map(g => (
-          <div key={g.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-shadow">
-            <div className="h-1.5 bg-gradient-to-r from-cyan-400 to-teal-500" />
+          <div key={g.id} className={`bg-white border rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-shadow ${g.isActive ? 'border-slate-200' : 'border-slate-200 opacity-70'}`}>
+            <div className={`h-1.5 ${g.isActive ? 'bg-gradient-to-r from-cyan-400 to-teal-500' : 'bg-slate-300'}`} />
             <div className="flex items-center justify-between px-6 py-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-100 to-teal-100 flex items-center justify-center">
                   <svg className="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-slate-800">{g.name}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-bold text-slate-800">{g.name}</h3>
+                    <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full border ${g.isActive ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
+                      {g.isActive ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
                   <p className="text-xs text-slate-400">{g.instruments.length} instruments configured</p>
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
+                {canEdit && (
+                  <button onClick={() => handleToggleActive(g)} title={g.isActive ? 'Disable this group' : 'Enable this group'}
+                    className="flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-xl transition-colors text-slate-600 bg-slate-50 hover:bg-slate-100">
+                    <span className={`relative w-9 h-5 rounded-full transition-colors ${g.isActive ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${g.isActive ? 'translate-x-4' : ''}`} />
+                    </span>
+                    {g.isActive ? 'Enabled' : 'Disabled'}
+                  </button>
+                )}
                 {canEdit && (
                   <button onClick={() => handleEdit(g)}
                     className="px-4 py-2 text-sm font-medium text-cyan-600 bg-cyan-50 hover:bg-cyan-100 rounded-xl transition-colors">
@@ -326,9 +380,16 @@ export function EquipmentGroupsConfigPage() {
                     <div key={inst.id ?? idx} className={`rounded-xl border p-4 ${sc.border} ${sc.bg}`}>
                       <div className="flex items-center justify-between mb-3">
                         <span className={`text-sm font-bold ${sc.text}`}>{inst.description}</span>
-                        <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full border ${sc.border} ${sc.text} bg-white/60`}>
-                          {inst.stageKey.replace('_', ' ')}
-                        </span>
+                        <div className="flex items-center gap-1">
+                          {inst.autoFetchEnabled && (
+                            <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full border border-cyan-200 text-cyan-700 bg-cyan-50" title={inst.url || 'Auto-fetch enabled'}>
+                              Auto
+                            </span>
+                          )}
+                          <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full border ${sc.border} ${sc.text} bg-white/60`}>
+                            {inst.stageKey.replace('_', ' ')}
+                          </span>
+                        </div>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-xs">
                         <div className="bg-white/70 rounded-lg p-2">
@@ -462,6 +523,29 @@ export function EquipmentGroupsConfigPage() {
                           <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none"
                             value={inst.operatingMax} onChange={e => updateInstrument(idx, 'operatingMax', parseFloat(e.target.value) || 0)} />
                         </div>
+                      </div>
+                      {/* Auto-fetch (2026-06-13): pull this reading from a URL during cleaning. */}
+                      <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-xs font-semibold text-slate-700">Auto-fetch reading from instrument API</div>
+                            <div className="text-[11px] text-slate-400 mt-0.5">When on, operators get a "Get Values" button during cleaning to pull this reading from the URL. Manual entry stays available as a fallback.</div>
+                          </div>
+                          <button type="button" onClick={() => updateInstrument(idx, 'autoFetchEnabled', !inst.autoFetchEnabled)}
+                            aria-pressed={!!inst.autoFetchEnabled}
+                            className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${inst.autoFetchEnabled ? 'bg-cyan-500' : 'bg-slate-300'}`}>
+                            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${inst.autoFetchEnabled ? 'translate-x-5' : ''}`} />
+                          </button>
+                        </div>
+                        {inst.autoFetchEnabled && (
+                          <div className="mt-3">
+                            <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Reading URL *</label>
+                            <input type="url" placeholder="http://192.168.1.x:port/reading"
+                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none font-mono"
+                              value={inst.url ?? ''} onChange={e => updateInstrument(idx, 'url', e.target.value)} />
+                            <p className="text-[11px] text-slate-400 mt-1">Must return JSON <code className="font-mono text-slate-500">{'{ "value": <number> }'}</code> in {inst.uom || 'the instrument UoM'}.</p>
+                          </div>
+                        )}
                       </div>
                       {previewInst === idx && (
                         <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">

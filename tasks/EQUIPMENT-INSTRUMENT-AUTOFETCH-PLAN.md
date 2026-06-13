@@ -123,7 +123,16 @@ Each phase: implement → verify (per CLAUDE.md correctness rule) → only then 
   → `ok:false`; with `http://127.0.0.1/...` → blocked; oversized body → blocked; redirect → not
   followed.
 
-### Phase 3 — Equipment Groups config UI
+### Phase 3 — Equipment Groups config UI  ✅ CODE DONE (2026-06-13) — visual pass pending
+> `apps/web/src/routes/config/equipment-groups.tsx`: per-instrument **auto-fetch toggle** +
+> **Reading URL** field (shown when on; client validates required + http(s) when enabled; sent
+> in the create/update payload). Per-group **enable/disable switch** + Active/Inactive badge,
+> wired to `PATCH /:id/active` via reauth; enabling confirms "disables N others in this block".
+> List switched to `includeInactive=true` (disabled groups stay visible/re-enableable); inactive
+> cards dimmed. Read-only tiles show an "Auto" pill. Verified: web `tsc --noEmit` 0 errors +
+> `vite build` clean; data path (url/autoFetchEnabled persist + version snapshot + toggle flips
+> siblings) already proven via Phases 1-2 curl. **PENDING: in-browser visual pass** (no Playwright
+> installed; HMR shows it live on :5175). Styling mirrors the file's existing light-theme tokens.
 - Equipment Groups config page: per-instrument **URL** field + **auto-fetch** toggle; per-group
   **Enable/Disable** control reflecting the Section-3 rule (enabling shows "this turns the
   others off" affordance).
