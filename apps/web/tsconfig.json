@@ -15,7 +15,8 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@digilog/shared": ["../../packages/shared/src/index.ts"]
     }
   },
   "include": ["src"]

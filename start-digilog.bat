@@ -34,6 +34,24 @@ echo   Repo: %REPO_ROOT%
 echo  ============================================
 echo.
 
+:: --- 0. Rebuild @digilog/shared (permissions, sidebar items, reauth actions) ---
+:: These live as compiled TypeScript constants in packages\shared\dist and are
+:: bundled into BOTH the API (read by tsx) and the Web build (bundled by Vite).
+:: Editing the source .ts does NOTHING until dist is recompiled, which is why a
+:: newly-added permission or sidebar item "doesn't show up". Rebuild on every
+:: launch so that can't happen. Non-fatal: if it fails to compile, the apps run
+:: on the LAST good build and we print the error to fix.
+echo [0/5] Rebuilding @digilog/shared (permissions, sidebar items, reauth)...
+pushd "%REPO_ROOT%\packages\shared"
+call npm run build
+if errorlevel 1 (
+    echo       [WARN] @digilog/shared failed to compile - apps will run on the
+    echo              LAST good build. Fix the TS error above, then re-run.
+) else (
+    echo       @digilog/shared rebuilt OK
+)
+popd
+
 :: --- 1. Redis (Memurai) is now OPTIONAL ---
 :: Phase 2 of windows-friendly-rewrite moved the job queue to graphile-worker
 :: on Postgres, so Redis is no longer required for queue work. It's still used

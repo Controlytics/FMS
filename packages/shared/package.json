@@ -14,6 +14,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "dev": "tsc --watch --preserveWatchOutput",
     "lint": "tsc --noEmit",
     "test": "vitest run"
   },

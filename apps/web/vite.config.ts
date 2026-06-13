@@ -58,6 +58,12 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Read @digilog/shared straight from its TypeScript SOURCE in dev/build
+      // instead of the compiled packages/shared/dist. Vite transpiles the .ts on
+      // the fly, so edits to permissions / sidebar items / reauth actions are
+      // live with HMR — no `npx tsc` rebuild needed for the web app. (The API
+      // still reads dist via tsx, which start-digilog.bat rebuilds at launch.)
+      '@digilog/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
     },
   },
   build: {

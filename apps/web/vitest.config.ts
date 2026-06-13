@@ -12,6 +12,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Match vite.config.ts: resolve @digilog/shared to its TS source so tests
+      // run against the same code the dev server does, not a stale dist build.
+      '@digilog/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
     },
   },
   test: {
