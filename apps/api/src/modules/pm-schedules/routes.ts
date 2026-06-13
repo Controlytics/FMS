@@ -335,7 +335,10 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
           approvalStatus: { type: 'string', enum: ['ALL', 'PENDING', 'APPROVED', 'REJECTED'] },
           year: { type: 'integer' },
           page: { type: 'integer', minimum: 1 },
-          limit: { type: 'integer', minimum: 1, maximum: 200 },
+          // Cap matches the service (pm-approval.listEntries: Math.min(limit, 2000)).
+          // The list page sends limit=2000 to load a whole year with no pagination;
+          // a stale 200 cap here rejected that request with 400 (page error).
+          limit: { type: 'integer', minimum: 1, maximum: 2000 },
         },
       },
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
