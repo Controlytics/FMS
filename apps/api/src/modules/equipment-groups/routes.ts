@@ -114,6 +114,33 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
     return service.getByBlock(ctx, blockId);
   });
 
+  // Server-proxied instrument auto-fetch (Phase 2). Read-only: fetches each
+  // auto-fetch-enabled instrument for the filter's in-progress cycle + stage
+  // from its configured URL (SSRF-hardened in instrument-fetch.ts). The client
+  // owns the retry loop; this is one attempt per instrument. Gated by
+  // FILTER_OPERATE (the operator running the cycle); no reauth (no DB mutation,
+  // no signature — the signed write happens later at /advance).
+  app.post('/fetch-readings', {
+    preHandler: [app.requirePermission('FILTER_OPERATE')],
+    schema: {
+      tags: ['Equipment Groups'],
+      summary: 'Server-proxied fetch of auto-fetch instrument readings for a cycle stage',
+      body: {
+        type: 'object',
+        required: ['filterId', 'stageKey'],
+        properties: {
+          filterId: { type: 'string', format: 'uuid' },
+          stageKey: { type: 'string', enum: ['WASH_IN', 'DRY_IN'] },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const { filterId, stageKey } = req.body as { filterId: string; stageKey: string };
+    return service.fetchStageReadings(ctx, filterId, stageKey);
+  });
+
   app.post('/', {
     preHandler: [app.requireAnyPermission('ASSET_CREATE', 'EG_CREATE')],
     schema: {

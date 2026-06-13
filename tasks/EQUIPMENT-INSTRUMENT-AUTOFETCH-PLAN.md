@@ -94,7 +94,16 @@ Each phase: implement → verify (per CLAUDE.md correctness rule) → only then 
   bumps version and the new snapshot carries url+toggle; enabling group B in a block flips
   group A off.
 
-### Phase 2 — Server proxy endpoint (SSRF-hardened)
+### Phase 2 — Server proxy endpoint (SSRF-hardened)  ✅ DONE + VERIFIED (2026-06-13)
+> `instrument-fetch.ts`: SSRF-hardened single fetch — scheme allowlist, DNS-resolved
+> destination check blocking loopback / link-local+metadata (169.254/16) / unspecified
+> (private LAN ALLOWED — instruments are on-LAN), `redirect:'error'`, 5s timeout, 64 KiB
+> cap, strict `{value:number}` parse; never throws. Endpoint **`POST /api/equipment-groups/
+> fetch-readings`** body `{filterId, stageKey}` (refined from the plan's `cycleId` — client
+> has filterId, server resolves the cycle, safer). `service.fetchStageReadings` +
+> `resolveStageInstruments` mirror advance.ts precedence READ-ONLY (no pin write — preview).
+> Gated `FILTER_OPERATE`, no reauth. Verified: disposable script 9/9 fetch + 9/9 classifier
+> cases; endpoint no-cycle→[], in-progress cycle→resolver clean, bad stageKey→400. tsc 0.
 - New route, e.g. `POST /api/equipment-groups/fetch-reading`
   body `{ cycleId, stageKey }` → resolves the cycle's pinned snapshot, selects enabled +
   `autoFetchEnabled` instruments for `stageKey`, fetches each, returns per-instrument

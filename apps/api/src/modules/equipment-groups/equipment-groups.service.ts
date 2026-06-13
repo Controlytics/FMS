@@ -20,6 +20,7 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
+import { fetchInstrumentValue } from './instrument-fetch.js';
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
@@ -374,6 +375,99 @@ export class EquipmentGroupsService {
       createdBy: v.createdBy,
       changeNotes: v.changeNotes,
     };
+  }
+
+  /**
+   * Resolve the stage's instruments for a cycle, READ-ONLY, mirroring the
+   * precedence in advance.ts (cycle pin → block's single active group → live),
+   * but WITHOUT persisting a lazy-bind pin — this is a preview, not a write.
+   * Returns the instruments (from the frozen snapshot when pinned, else live)
+   * for `stageKey`, ordered by sortOrder. Old snapshots lack url/autoFetchEnabled
+   * → those come back undefined and are treated as auto-fetch OFF downstream.
+   */
+  private async resolveStageInstruments(
+    cycle: { equipmentGroupId: string | null; equipmentGroupVersionPin: number | null; cleaningAreaId: string | null },
+    stageKey: string,
+  ): Promise<any[]> {
+    let groupId = cycle.equipmentGroupId;
+    let pin = cycle.equipmentGroupVersionPin;
+    if (!groupId && cycle.cleaningAreaId) {
+      const blockGroups = await prisma.equipmentGroup.findMany({
+        where: { blockId: cycle.cleaningAreaId, isActive: true },
+        select: { id: true, version: true },
+      });
+      if (blockGroups.length === 1) {
+        groupId = blockGroups[0].id;
+        pin = blockGroups[0].version;
+      }
+    }
+    if (!groupId) return [];
+
+    let instruments: any[];
+    if (pin !== null) {
+      const versionRow = await prisma.equipmentGroupVersion.findUnique({
+        where: { groupId_versionNumber: { groupId, versionNumber: pin } },
+      });
+      if (versionRow) {
+        instruments = ((versionRow.snapshot as any)?.instruments ?? []) as any[];
+      } else {
+        const g = await prisma.equipmentGroup.findUnique({
+          where: { id: groupId },
+          include: { instruments: { orderBy: { sortOrder: 'asc' } } },
+        });
+        instruments = g?.instruments ?? [];
+      }
+    } else {
+      const g = await prisma.equipmentGroup.findUnique({
+        where: { id: groupId },
+        include: { instruments: { orderBy: { sortOrder: 'asc' } } },
+      });
+      instruments = g?.instruments ?? [];
+    }
+    return instruments
+      .filter((i) => i.stageKey === stageKey)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  }
+
+  /**
+   * Server-proxied "Get Values": for a filter's in-progress cycle and a given
+   * stage (WASH_IN / DRY_IN), fetch each auto-fetch-enabled instrument's reading
+   * from its configured URL. Read-only — does not mutate the cycle. Returns one
+   * result per auto instrument; the client owns the retry loop and decides
+   * fill-vs-fallback per instrument. Instruments without auto-fetch are omitted
+   * (they stay manual).
+   */
+  async fetchStageReadings(_ctx: RequestContext, filterId: string, stageKey: string) {
+    if (stageKey !== 'WASH_IN' && stageKey !== 'DRY_IN') {
+      throw new AppError(400, 'VALIDATION', 'stageKey must be WASH_IN or DRY_IN');
+    }
+    const fd = await prisma.filterDetails.findUnique({
+      where: { assetInstanceId: filterId },
+      select: { currentCycleId: true },
+    });
+    if (!fd?.currentCycleId) return { stageKey, results: [] };
+
+    const cycle = await prisma.cleaningCycle.findUnique({
+      where: { id: fd.currentCycleId },
+      select: { id: true, equipmentGroupId: true, equipmentGroupVersionPin: true, cleaningAreaId: true, status: true },
+    });
+    if (!cycle || cycle.status !== 'IN_PROGRESS') return { stageKey, results: [] };
+
+    const stageInstruments = await this.resolveStageInstruments(cycle, stageKey);
+    const auto = stageInstruments.filter((i) => i.autoFetchEnabled === true && i.url);
+
+    const results = [];
+    for (const inst of auto) {
+      const r = await fetchInstrumentValue(inst.url);
+      results.push({
+        instrumentId: inst.id,
+        instrumentCode: inst.instrumentId,
+        description: inst.description,
+        uom: inst.uom,
+        ...r,
+      });
+    }
+    return { stageKey, results };
   }
 
   async delete(ctx: RequestContext, id: string) {
