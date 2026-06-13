@@ -175,7 +175,14 @@ export function MobileWrapperPage() {
   // background (visibilitychange) so leaving the tablet for an hour and
   // returning doesn't scan against stale data.
   useEffect(() => {
-    if (!online || !user) return;
+    if (!user) return;
+    // Do NOT hard-gate on the `online` flag — it's an unreliable false-negative
+    // on Android WebViews, and gating here meant a stuck-false flag silently
+    // skipped the open-sync, leaving the cache stale (a newly added filter,
+    // reassigned tag, or fresh cycle never landed → "Filter not found"). Attempt
+    // whenever EITHER signal says reachable; a genuinely-offline attempt fails
+    // fast and soft-fails inside syncAllDataForOffline.
+    if (!online && !navigator.onLine) return;
     // Mark cache stale until the fresh sync completes — UI shows "Syncing…"
     setDataCached(false);
     syncAllDataForOffline((progress) => {

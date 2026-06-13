@@ -700,7 +700,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // Fallback: match by filter name in cached instances
     if (!filterId) { const m = allFilters.find((a: any) => a.name?.toLowerCase() === sv.toLowerCase()); if (m) { filterId = m.id; filterName = m.name; } }
     if (!filterId && sv.match(/^[0-9a-f]{8}-/i)) { filterId = sv; filterName = sv.slice(0, 8); }
-    if (!filterId) { setError('Filter not found. Ensure you scanned while online first to cache identifiers.'); return null; }
+    if (!filterId) {
+      // Show the exact value we looked up (normalized + raw if different) so a
+      // value-mismatch — scanned EPC ≠ the stored RFID number — is visible. The
+      // server resolves the stored number exactly; if this value isn't found,
+      // it doesn't match any assigned tag.
+      const rawShown = source.trim();
+      setError(`Filter not found for tag "${sv}"${rawShown !== sv ? ` (scanned "${rawShown}")` : ''}. ${online ? 'This value is not assigned to any filter on the server — the scanned value may differ from the stored RFID number.' : "You're offline and this tag isn't cached — connect once to sync."}`);
+      return null;
+    }
     // 2026-05-20: resolve parent AHU name so the queue display can show
     // "{filterName} · {ahuName}" — operators on the floor identify filters
     // by their AHU context, not by serial alone. Lookup against the same
