@@ -354,7 +354,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const { data: instancesData } = useSWR(online ? '/api/assets/instances?limit=500' : null, { refreshInterval: 30000 });
   const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=1000' : null);
   const { data: reasonsData } = useSWR(online ? '/api/filters/reasons' : null);
-  const { data: identifiersData } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null);
+  // refreshInterval so the offline identifier-map cache stays current: a tag
+  // reassigned to another filter (here or on admin/web) propagates within ~30s
+  // of being online, so a later OFFLINE scan resolves to the right filter
+  // instead of "Filter not found" (matches the instances cache cadence).
+  const { data: identifiersData } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null, { refreshInterval: 30000, revalidateOnReconnect: true });
   const { data: equipGroupsData } = useSWR(online ? '/api/equipment-groups' : null);
   // B.5 — Cache cleaning-profile-assignment + active profiles so offline scans of
   // a brand-new filter (no filter-state-{id} cache yet) can still resolve a pipeline.
