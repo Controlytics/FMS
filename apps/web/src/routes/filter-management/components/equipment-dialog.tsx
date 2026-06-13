@@ -139,11 +139,22 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error }: E
       setInternalError('Please select an equipment group');
       return;
     }
-    for (const inst of stageInstrumentsOf(selectedEquipmentGroup)) {
+    const insts = stageInstrumentsOf(selectedEquipmentGroup);
+    for (const inst of insts) {
       if (instrumentReadings[inst.id] === undefined) {
         setInternalError(`Please enter a value for ${inst.description}`);
         return;
       }
+    }
+    // Out-of-range readings are allowed, but the operator must confirm — the
+    // value is then recorded as a deviation on the server.
+    const oos = insts.filter((i: any) => {
+      const v = instrumentReadings[i.id];
+      return v !== undefined && (v < i.operatingMin || v > i.operatingMax);
+    });
+    if (oos.length > 0) {
+      const lines = oos.map((i: any) => `• ${i.description}: ${instrumentReadings[i.id]} ${i.uom} (range ${i.operatingMin}–${i.operatingMax})`).join('\n');
+      if (!window.confirm(`These readings are OUTSIDE the operating range:\n\n${lines}\n\nSubmit anyway? This will be recorded as a deviation.`)) return;
     }
     setInternalError('');
     onSubmit(selectedEquipmentGroup.id, instrumentReadings);
@@ -248,7 +259,7 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error }: E
 
                     {outOfRange && (
                       <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
-                        {formatByLeastCount(val!, inst.leastCount)} {inst.uom} is outside the operating range ({formatByLeastCount(inst.operatingMin, inst.leastCount)}–{formatByLeastCount(inst.operatingMax, inst.leastCount)}). It can't be submitted until corrected.
+                        {formatByLeastCount(val!, inst.leastCount)} {inst.uom} is outside the operating range ({formatByLeastCount(inst.operatingMin, inst.leastCount)}–{formatByLeastCount(inst.operatingMax, inst.leastCount)}). You can submit after confirming — it's recorded as a deviation.
                       </div>
                     )}
                   </div>

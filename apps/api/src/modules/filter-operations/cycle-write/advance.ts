@@ -268,11 +268,15 @@ export async function advanceImpl(
     validatedReadings = [];
     for (const inst of stageInstruments) {
       const reading = instrumentReadings[inst.id];
-      // Per-instrument pure guards (#27/#28/#29).
+      // Required + numeric are still hard guards (#27/#28).
       throwIfFailed(executor.assertInstrumentReadingRequired(localCtx, reading, inst));
       throwIfFailed(executor.assertInstrumentReadingValid(localCtx, reading, inst));
       const val = Number(reading);
-      throwIfFailed(executor.assertInstrumentReadingInRange(localCtx, val, inst));
+      // Out-of-range (#29) is NO LONGER a hard reject (2026-06-13, user decision):
+      // the operator confirms an out-of-range reading on the client, and we record
+      // it as a deviation here (outOfRange flag + the operating range) for the 21
+      // CFR audit trail, instead of blocking the submit. Capture, don't throw.
+      const rangeCheck = executor.assertInstrumentReadingInRange(localCtx, val, inst);
       validatedReadings.push({
         instrumentId: inst.id,
         instrumentCode: inst.instrumentId,
@@ -280,6 +284,7 @@ export async function advanceImpl(
         value: val,
         uom: inst.uom,
         leastCount: inst.leastCount,
+        ...(rangeCheck.ok ? {} : { outOfRange: true, operatingMin: inst.operatingMin, operatingMax: inst.operatingMax }),
       });
     }
   }

@@ -133,12 +133,35 @@ export function useOffline() {
         ? apiClient.postWithReauth<T>(url, body, password)
         : apiClient.post<T>(url, body);
 
+    // STALE_TAPE auto-recovery. The cached tapeVersion can lag the server's by a
+    // few events (cache not refreshed after a prior write / a background re-sync
+    // race) — for a single operator this is a FALSE positive, not a real
+    // concurrent edit, but it surfaced as "another operator changed this cycle.
+    // Refresh and retry". Do that refresh+retry transparently: on 409 STALE_TAPE,
+    // re-fetch the live tapeVersion from /current-state and retry the write ONCE.
+    // If it still fails (or we can't refresh), surface the original error.
+    const cyclePost = async <T = any>(url: string, body: any): Promise<T> => {
+      try {
+        return await onlinePost<T>(url, body);
+      } catch (e: any) {
+        const code = e?.code || e?.error;
+        if (code !== 'STALE_TAPE') throw e;
+        let fresh: number | undefined;
+        try {
+          const cs = await apiClient.get<any>(`/api/filters/${filterId}/current-state`);
+          if (typeof cs?.tapeVersion === 'number') fresh = cs.tapeVersion;
+        } catch { throw e; }
+        if (fresh === undefined) throw e;
+        return await onlinePost<T>(url, { ...body, tapeVersion: fresh });
+      }
+    };
+
     // Try executing online first
     try {
       let result: any;
       switch (type) {
         case 'advance':
-          result = await onlinePost(`/api/filters/${filterId}/advance`, onlinePayload);
+          result = await cyclePost(`/api/filters/${filterId}/advance`, onlinePayload);
           break;
         case 'start-cycle':
           result = await onlinePost(`/api/filters/${filterId}/start-cycle`, payload);
@@ -172,13 +195,13 @@ export function useOffline() {
           break;
         }
         case 'submit-checklist':
-          result = await onlinePost(`/api/filters/${filterId}/submit-checklist`, onlinePayload);
+          result = await cyclePost(`/api/filters/${filterId}/submit-checklist`, onlinePayload);
           break;
         case 'bypass':
-          result = await onlinePost(`/api/filters/${filterId}/bypass`, onlinePayload);
+          result = await cyclePost(`/api/filters/${filterId}/bypass`, onlinePayload);
           break;
         case 'terminate':
-          result = await onlinePost(`/api/filters/${filterId}/terminate-cycle`, onlinePayload);
+          result = await cyclePost(`/api/filters/${filterId}/terminate-cycle`, onlinePayload);
           break;
       }
 
